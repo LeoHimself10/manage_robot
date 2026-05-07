@@ -27,6 +27,7 @@
 - Create `src/agent/demo/markdown-renderer.ts`: Markdown/表格输出.
 - Create `src/agent/demo/pipeline.ts`: orchestrates the full Demo flow.
 - Create `src/agent/demo/index.ts`: public exports for Demo modules.
+- Create `src/agent/harness/demo-adapter.ts`: documents and maps Demo draft output into the existing Harness `Plan` shape without activating dispatch/assignment states.
 - Create `src/demo.ts`: runnable local example for quality/business review.
 - Create tests in `tests/agent/demo/*.test.ts`.
 
@@ -1396,7 +1397,114 @@ git commit -m "feat: add task planning demo pipeline"
 
 ---
 
-### Task 9: Documentation Update
+### Task 9: Harness Boundary Adapter
+
+**Files:**
+- Create: `src/agent/harness/demo-adapter.ts`
+- Test: `tests/agent/harness/demo-adapter.test.ts`
+
+- [ ] **Step 1: Write failing adapter tests**
+
+Create `tests/agent/harness/demo-adapter.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { createTaskPlanningDemo } from "../../../src/agent/demo/pipeline";
+import { toHarnessPlanDraft } from "../../../src/agent/harness/demo-adapter";
+
+describe("toHarnessPlanDraft", () => {
+  it("maps a demo draft into Harness Plan without dispatching it", () => {
+    const demo = createTaskPlanningDemo({
+      domainHint: "QUALITY",
+      background:
+        "生产测试发现 A 产品 2026-05-01 批次开机自检失败率升高，目前影响 20 台，已有测试记录和不良照片，要求两天内完成初步分析。",
+    });
+
+    if (demo.status !== "DRAFT_READY") {
+      throw new Error("expected demo draft");
+    }
+
+    const plan = toHarnessPlanDraft({
+      id: "plan_demo_1",
+      initiatorId: "manager_1",
+      background:
+        "生产测试发现 A 产品 2026-05-01 批次开机自检失败率升高，目前影响 20 台，已有测试记录和不良照片，要求两天内完成初步分析。",
+      demo,
+      createdAt: "2026-05-07T04:00:00.000Z",
+    });
+
+    expect(plan.status).toBe("DRAFT");
+    expect(plan.domain).toBe("QUALITY");
+    expect(plan.subType).toBe("PRODUCTION_PROCESS_ABNORMALITY");
+    expect(plan.taskPackages.length).toBeGreaterThan(0);
+    expect(plan.demoClassification?.subtype).toBe("PRODUCTION_PROCESS_ABNORMALITY");
+    expect(plan.capaAdvisory?.disclaimer).toContain("最终是否开启 CAPA");
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- tests/agent/harness/demo-adapter.test.ts`
+
+Expected: FAIL because `toHarnessPlanDraft` does not exist.
+
+- [ ] **Step 3: Implement Harness boundary adapter**
+
+Create `src/agent/harness/demo-adapter.ts`:
+
+```ts
+import { Plan } from "../../domain/plan";
+import { TaskPlanningDemoResult } from "../demo/pipeline";
+
+export interface ToHarnessPlanDraftRequest {
+  id: string;
+  initiatorId: string;
+  background: string;
+  demo: Extract<TaskPlanningDemoResult, { status: "DRAFT_READY" }>;
+  createdAt: string;
+}
+
+export function toHarnessPlanDraft(request: ToHarnessPlanDraftRequest): Plan {
+  const { demo } = request;
+  return {
+    id: request.id,
+    domain: demo.classification.domain,
+    subType: demo.classification.subtype,
+    background: request.background,
+    constraints: demo.questions,
+    initiatorId: request.initiatorId,
+    status: "DRAFT",
+    taskPackages: demo.tasks,
+    externalRefs: [],
+    createdAt: request.createdAt,
+    updatedAt: request.createdAt,
+    demoClassification: demo.classification,
+    capaAdvisory: demo.capaAdvisory,
+  };
+}
+```
+
+- [ ] **Step 4: Run adapter tests and typecheck**
+
+Run: `npm test -- tests/agent/harness/demo-adapter.test.ts`
+
+Expected: PASS.
+
+Run: `npm run typecheck`
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/agent/harness/demo-adapter.ts tests/agent/harness/demo-adapter.test.ts
+git commit -m "feat: map demo drafts into harness plan shape"
+```
+
+---
+
+### Task 10: Documentation Update
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-05-07-task-planning-demo-mvp-design.md`
@@ -1465,7 +1573,7 @@ git commit -m "docs: add demo run instructions"
 
 ## Self-Review
 
-**Spec coverage:** Covered input quality checks, classification, CAPA advisory, template/WBS generation, gate validation, Markdown output, and Demo evaluation path. Explicitly kept OA, electronic signature, task change, assignment confirmation, node feedback, and acceptance out of scope.
+**Spec coverage:** Covered input quality checks, classification, CAPA advisory, template/WBS generation, gate validation, Markdown output, Demo-to-Harness draft adapter, and Demo evaluation path. Explicitly kept OA, electronic signature, task change, assignment confirmation, node feedback, and acceptance out of scope.
 
 **Placeholder scan:** No TBD/TODO placeholders. Each implementation step includes exact files, code, commands, and expected outcomes.
 
