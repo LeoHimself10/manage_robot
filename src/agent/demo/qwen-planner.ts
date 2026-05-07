@@ -46,22 +46,22 @@ export async function runQwenPlanner(
 export function loadQwenPlannerConfigFromEnv():
   | QwenPlannerConfig
   | undefined {
-  const apiKey = process.env.QWEN_API_KEY;
+  const apiKey = readNonEmptyEnv("QWEN_API_KEY");
   if (!apiKey) return undefined;
 
   const policy = normalizeModelPolicy({
-    model: process.env.QWEN_MODEL,
-    temperature: Number(process.env.QWEN_TEMPERATURE ?? 0.2),
-    maxTokens: Number(process.env.QWEN_MAX_TOKENS ?? 2500),
-    timeoutMs: Number(process.env.QWEN_TIMEOUT_MS ?? 20000),
-    maxRetries: Number(process.env.QWEN_MAX_RETRIES ?? 1),
-    requestBudgetTokens: Number(process.env.QWEN_REQUEST_BUDGET_TOKENS ?? 12000),
+    model: readNonEmptyEnv("QWEN_MODEL"),
+    temperature: readNumberEnv("QWEN_TEMPERATURE", 0.2),
+    maxTokens: readNumberEnv("QWEN_MAX_TOKENS", 2500),
+    timeoutMs: readNumberEnv("QWEN_TIMEOUT_MS", 20000),
+    maxRetries: readNumberEnv("QWEN_MAX_RETRIES", 1),
+    requestBudgetTokens: readNumberEnv("QWEN_REQUEST_BUDGET_TOKENS", 12000),
   });
   const cappedMaxTokens = Math.min(policy.maxTokens, policy.requestBudgetTokens);
 
   return {
     baseUrl:
-      process.env.QWEN_BASE_URL ??
+      readNonEmptyEnv("QWEN_BASE_URL") ??
       "https://dashscope.aliyuncs.com/compatible-mode/v1",
     apiKey,
     model: policy.model,
@@ -70,6 +70,18 @@ export function loadQwenPlannerConfigFromEnv():
     temperature: policy.temperature,
     maxTokens: cappedMaxTokens,
   };
+}
+
+function readNonEmptyEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+function readNumberEnv(name: string, fallback: number): number {
+  const value = readNonEmptyEnv(name);
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export function buildFallbackTrace(error: unknown): InferenceTrace {

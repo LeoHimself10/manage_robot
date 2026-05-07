@@ -17,6 +17,9 @@ async function main(): Promise<void> {
       model,
       temperature: 0.2,
       max_tokens: 2000,
+      ...(process.env.QWEN_DEBUG_RESPONSE_FORMAT === "1"
+        ? { response_format: { type: "json_object" } }
+        : {}),
       messages: [
         {
           role: "system",
@@ -32,8 +35,14 @@ async function main(): Promise<void> {
     }),
   });
 
-  const json = (await response.json()) as Record<string, unknown>;
   console.log("status", response.status);
+  const text = await response.text();
+  if (!response.ok) {
+    console.log("body", text);
+    return;
+  }
+
+  const json = JSON.parse(text) as Record<string, unknown>;
   console.log(
     "content",
     JSON.stringify(

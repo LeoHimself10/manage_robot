@@ -1,0 +1,8 @@
+node_modules
+dist
+.git
+.env
+.worktrees
+coverage
+tests
+*.test.ts

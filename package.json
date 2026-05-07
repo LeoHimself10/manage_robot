@@ -8,15 +8,18 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "demo": "tsx src/demo.ts",
-    "demo:eval": "tsx src/demo-eval.ts"
+    "demo:eval": "tsx src/demo-eval.ts",
+    "demo:scenarios": "tsx scripts/run-qwen-scenarios.ts",
+    "dingtalk-bot": "tsx src/dingtalk-bot.ts"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "tsx": "latest",
     "typescript": "latest",
     "vitest": "latest"
   },
   "dependencies": {
-    "dotenv": "^17.4.2"
+    "dingtalk-stream": "^2.1.6-beta.1",
+    "dotenv": "^17.4.2",
+    "tsx": "^4.21.0"
   }
 }

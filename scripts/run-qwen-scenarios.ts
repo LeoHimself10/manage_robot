@@ -34,6 +34,18 @@ const scenarios: Scenario[] = [
     background:
       "研发任务：针对 ECN 变更后主板电源模块，完成影响评估、回归验证与文档更新，需明确依赖关系和跨团队协作输入。",
   },
+  /** 故意信息过少：应走输入质检 NEEDS_MORE_INFO，不调用模型 */
+  {
+    id: "S5-质量-信息不足",
+    domainHint: "QUALITY",
+    background: "质量那边说有问题，先把任务拆了。",
+  },
+  /** 研发域同样过短：期望追问或阻断 */
+  {
+    id: "S6-研发-信息不足",
+    domainHint: "RD",
+    background: "研发这边有个事要推进一下。",
+  },
 ];
 
 async function main(): Promise<void> {
@@ -41,6 +53,12 @@ async function main(): Promise<void> {
   if (!config) {
     throw new Error("missing Qwen config from env");
   }
+
+  const tallies = {
+    DRAFT_READY: 0,
+    NEEDS_MORE_INFO: 0,
+    GENERATION_FAILED: 0,
+  };
 
   for (const scenario of scenarios) {
     const result = await createTaskPlanningDemo(
@@ -54,6 +72,7 @@ async function main(): Promise<void> {
     );
 
     if (result.status === "NEEDS_MORE_INFO") {
+      tallies.NEEDS_MORE_INFO++;
       console.log(
         JSON.stringify(
           {
@@ -70,6 +89,7 @@ async function main(): Promise<void> {
     }
 
     if (result.status === "GENERATION_FAILED") {
+      tallies.GENERATION_FAILED++;
       console.log(
         JSON.stringify(
           {
@@ -85,6 +105,7 @@ async function main(): Promise<void> {
       continue;
     }
 
+    tallies.DRAFT_READY++;
     console.log(
       JSON.stringify(
         {
@@ -107,6 +128,14 @@ async function main(): Promise<void> {
       )
     );
   }
+
+  console.log(
+    JSON.stringify(
+      { summary: "cloud-agent-scenarios-done", tallies, total: scenarios.length },
+      null,
+      2
+    )
+  );
 }
 
 main().catch((error) => {

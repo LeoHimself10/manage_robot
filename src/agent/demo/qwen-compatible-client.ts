@@ -120,13 +120,20 @@ export class QwenCompatibleClient {
       });
 
       if (!response.ok) {
-        throw new Error(`Qwen API failed: ${response.status}`);
+        const errorBody = await response.text().catch(() => "");
+        const detail = errorBody ? `: ${truncateErrorBody(errorBody)}` : "";
+        throw new Error(`Qwen API failed: ${response.status}${detail}`);
       }
       return (await response.json()) as ChatCompletionResponse;
     } finally {
       clearTimeout(timer);
     }
   }
+}
+
+function truncateErrorBody(body: string): string {
+  const normalized = body.replace(/\s+/g, " ").trim();
+  return normalized.length > 500 ? `${normalized.slice(0, 500)}...` : normalized;
 }
 
 export function parseAssistantJsonPayload(content: string): unknown {
