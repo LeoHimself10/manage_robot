@@ -30,6 +30,15 @@ describe("classifyTask", () => {
     expect(result.subtype).toBe("DESIGN_CHANGE_ACTION");
   });
 
+  it("keeps quality-oriented design-related tasks in quality domain", () => {
+    const result = classifyTask({
+      background: "质量问题显示可能存在设计变更影响，需要质量侧评估设计相关风险。",
+    });
+
+    expect(result.domain).toBe("QUALITY");
+    expect(result.subtype).toBe("DESIGN_RELATED_QUALITY_TASK");
+  });
+
   it("marks thin ambiguous input as uncertain", () => {
     const result = classifyTask({ background: "这个事情需要处理一下。" });
 

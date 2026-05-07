@@ -39,8 +39,8 @@ const rules: Rule[] = [
   {
     domain: "RD",
     subtype: "DESIGN_CHANGE_ACTION",
-    rationale: "输入包含设计变更或 ECN 线索",
-    patterns: [/ECN|变更|回归验证|影响评估/],
+    rationale: "输入包含 ECN、回归验证、影响评估或设计变更行动项线索",
+    patterns: [/ECN|回归验证|影响评估|设计变更行动项/],
   },
   {
     domain: "QUALITY",
