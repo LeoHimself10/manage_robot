@@ -13,6 +13,16 @@ describe("adviseCapa", () => {
     expect(advisory.disclaimer).toContain("最终是否开启 CAPA");
   });
 
+  it("recommends CAPA assessment for customer field subtype even without customer keywords", () => {
+    const advisory = adviseCapa({
+      domain: "QUALITY",
+      subtype: "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE",
+      background: "设备间歇性报警，影响范围尚未确认。",
+    });
+
+    expect(advisory.advisory).toBe("RECOMMENDED");
+  });
+
   it("returns insufficient information for thin quality input", () => {
     const advisory = adviseCapa({
       domain: "QUALITY",
