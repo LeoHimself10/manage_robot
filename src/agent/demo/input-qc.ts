@@ -18,6 +18,27 @@ const criticalQualityFields = new Set([
   "impactScope",
 ]);
 
+const unknownValuePattern = /待确认|未知|不清楚|未确认|待补充|不明确/;
+
+const unknownCriticalContextPatterns: Record<string, RegExp[]> = {
+  problemSource: [
+    /(?:问题来源|来源|生产|产线|检验|测试|客诉|客户|售后|供应商|来料).{0,8}(?:待确认|未知|不清楚|未确认|待补充|不明确)/,
+    /(?:待确认|未知|不清楚|未确认|待补充|不明确).{0,8}(?:问题来源|来源|生产|产线|检验|测试|客诉|客户|售后|供应商|来料)/,
+  ],
+  productOrBatch: [
+    /(?:产品|批次|版本|客户|设备|样机|工位|产线|使用场景).{0,8}(?:待确认|未知|不清楚|未确认|待补充|不明确)/,
+    /(?:待确认|未知|不清楚|未确认|待补充|不明确).{0,8}(?:产品|批次|版本|客户|设备|样机|工位|产线|使用场景)/,
+  ],
+  problemPhenomenon: [
+    /(?:问题现象|现象|异常|失败|不良|报错|偏差|失效|升高|降低|不通过).{0,8}(?:待确认|未知|不清楚|未确认|待补充|不明确)/,
+    /(?:待确认|未知|不清楚|未确认|待补充|不明确).{0,8}(?:问题现象|现象|异常|失败|不良|报错|偏差|失效|升高|降低|不通过)/,
+  ],
+  impactScope: [
+    /(?:影响范围|影响|范围|数量|台|批|出货|库存|在制|已发货|未发货).{0,8}(?:待确认|未知|不清楚|未确认|待补充|不明确)/,
+    /(?:待确认|未知|不清楚|未确认|待补充|不明确).{0,8}(?:影响范围|影响|范围|数量|台|批|出货|库存|在制|已发货|未发货)/,
+  ],
+};
+
 const qualityChecks: Array<{
   field: string;
   question: string;
@@ -60,6 +81,18 @@ const qualityChecks: Array<{
   },
 ];
 
+function hasUnknownCriticalContext(field: string, text: string): boolean {
+  if (!criticalQualityFields.has(field) || !unknownValuePattern.test(text)) {
+    return false;
+  }
+
+  return (
+    unknownCriticalContextPatterns[field]?.some((pattern) =>
+      pattern.test(text)
+    ) ?? false
+  );
+}
+
 export function checkInputQuality(
   request: InputQualityRequest
 ): InputQualityResult {
@@ -67,7 +100,11 @@ export function checkInputQuality(
   const checks =
     request.domainHint === "RD" ? qualityChecks.slice(1) : qualityChecks;
   const missing = checks
-    .filter((check) => !check.patterns.some((pattern) => pattern.test(text)))
+    .filter(
+      (check) =>
+        !check.patterns.some((pattern) => pattern.test(text)) ||
+        hasUnknownCriticalContext(check.field, text)
+    )
     .map((check) => check.field);
 
   const questions = checks

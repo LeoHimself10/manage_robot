@@ -24,6 +24,16 @@ describe("checkInputQuality", () => {
     expect(result.missingFields).toContain("productOrBatch");
   });
 
+  it("blocks WBS generation when critical quality context is explicitly unknown", () => {
+    const result = checkInputQuality({
+      domainHint: "QUALITY",
+      background: "生产测试发现 A 产品异常，影响范围待确认，已有照片，今天完成",
+    });
+
+    expect(result.canGenerateWbs).toBe(false);
+    expect(result.missingFields).toContain("impactScope");
+  });
+
   it("allows WBS generation when quality context contains key facts", () => {
     const result = checkInputQuality({
       domainHint: "QUALITY",
