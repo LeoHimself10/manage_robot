@@ -27,6 +27,8 @@ export function createEmptyPlan(partial?: Partial<Plan>): Plan {
     updatedAt: partial?.updatedAt ?? now,
     productOrProjectRef: partial?.productOrProjectRef,
     severity: partial?.severity,
+    demoClassification: partial?.demoClassification,
+    capaAdvisory: partial?.capaAdvisory,
   };
 }
 

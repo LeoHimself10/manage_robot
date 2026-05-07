@@ -9,7 +9,7 @@ export interface TaskPackage {
   title: string;
   objective: string;
   scopeBoundary?: string;
-  ownerId: string;
+  ownerId?: string;
   collaborators: string[];
   inputMaterials: string[];
   actions: string[];
@@ -17,7 +17,7 @@ export interface TaskPackage {
   completionCriteria: string[];
   timeNode: TimeNode;
   feedbackFrequency: string;
-  acceptanceBy: string;
+  acceptanceBy?: string;
   risksAndOpenQuestions: string[];
   traceInfo?: string[];
   dependencyTaskIds: string[];
