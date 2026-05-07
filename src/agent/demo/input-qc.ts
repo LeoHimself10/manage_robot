@@ -81,6 +81,33 @@ const qualityChecks: Array<{
   },
 ];
 
+const rdChecks: Array<{
+  field: string;
+  question: string;
+  patterns: RegExp[];
+}> = [
+  {
+    field: "rdTaskType",
+    question: "这属于哪类研发任务？例如需求/设计输入、方案论证、验证确认或设计变更。",
+    patterns: [/研发|需求|设计输入|方案|论证|V&V|验证|确认|设计变更|ECN/],
+  },
+  {
+    field: "rdObject",
+    question: "研发任务对象是什么？例如产品、模块、样机、版本、需求或风险项。",
+    patterns: [/产品|模块|样机|版本|需求|风险|设备|系统|硬件|软件|结构|算法/],
+  },
+  {
+    field: "expectedOutput",
+    question: "期望输出是什么？例如方案、验证计划、测试方法、样本量、通过准则或评审材料。",
+    patterns: [/输出|方案|计划|方法|样本量|通过准则|评审材料|报告|矩阵|清单/],
+  },
+  {
+    field: "timeConstraint",
+    question: "期望完成时间或关键时间约束是什么？",
+    patterns: [/今天|明天|两天|2天|本周|截止|完成|T\+|小时|天内|工作日/],
+  },
+];
+
 function hasUnknownCriticalContext(field: string, text: string): boolean {
   if (!criticalQualityFields.has(field) || !unknownValuePattern.test(text)) {
     return false;
@@ -97,8 +124,7 @@ export function checkInputQuality(
   request: InputQualityRequest
 ): InputQualityResult {
   const text = request.background.trim();
-  const checks =
-    request.domainHint === "RD" ? qualityChecks.slice(1) : qualityChecks;
+  const checks = request.domainHint === "RD" ? rdChecks : qualityChecks;
   const missing = checks
     .filter(
       (check) =>

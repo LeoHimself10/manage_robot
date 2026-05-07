@@ -67,6 +67,7 @@ function renderTaskTable(tasks: TaskPackage[]): string {
       renderListInline(task.completionCriteria),
       task.timeNode.dueAt,
       task.feedbackFrequency,
+      renderListInline(task.dependencyTaskIds),
     ]
       .map(escapeTableCell)
       .join(" | ")
@@ -74,8 +75,8 @@ function renderTaskTable(tasks: TaskPackage[]): string {
 
   return [
     "## WBS 任务包",
-    "| task ID | title | objective | deliverables | completion criteria | due date | feedback frequency |",
-    "| --- | --- | --- | --- | --- | --- | --- |",
+    "| task ID | title | objective | deliverables | completion criteria | due date | feedback frequency | dependencies |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((row) => `| ${row} |`),
   ].join("\n");
 }

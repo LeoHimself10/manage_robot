@@ -89,5 +89,40 @@ describe("demo gate and markdown output", () => {
 
     expect(markdown).toContain("## CAPA 建议");
     expect(markdown).toContain("| task_1 | 问题事实确认 |");
+    expect(markdown).toContain("dependencies");
+  });
+
+  it("renders task dependencies in markdown", () => {
+    const markdown = renderPlanDraftMarkdown({
+      summary: "研发验证任务。",
+      classification: {
+        domain: "RD",
+        subtype: "VERIFICATION_AND_VALIDATION",
+        confidence: "HIGH",
+        rationale: ["验证确认"],
+        missingInformation: [],
+      },
+      tasks: [
+        {
+          id: "task_2",
+          title: "验证方法与样本设计",
+          objective: "形成可执行验证方案",
+          collaborators: [],
+          inputMaterials: ["需求清单"],
+          actions: ["定义方法"],
+          deliverables: ["验证方法说明"],
+          completionCriteria: ["方法可执行"],
+          timeNode: { checkpoints: ["T+1"], dueAt: "T+2" },
+          feedbackFrequency: "节点反馈",
+          risksAndOpenQuestions: [],
+          dependencyTaskIds: ["task_1"],
+        },
+      ],
+      gate: { passed: true, missingByTask: [] },
+      openQuestions: [],
+    });
+
+    expect(markdown).toContain("| task_2 | 验证方法与样本设计 |");
+    expect(markdown).toContain("task_1");
   });
 });

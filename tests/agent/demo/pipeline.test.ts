@@ -40,6 +40,20 @@ describe("createTaskPlanningDemo", () => {
     expect(result.tasks?.map((task) => task.title)).not.toContain("问题事实确认");
   });
 
+  it("creates a markdown draft for a normal RD V&V planning prompt", () => {
+    const result = createTaskPlanningDemo({
+      background:
+        "研发任务：制定 B 设备 V&V 验证方案，覆盖需求、风险、样本量、测试方法和通过准则，计划本周完成评审材料。",
+      domainHint: "RD",
+    });
+
+    expect(result.status).toBe("DRAFT_READY");
+    expect(result.classification?.domain).toBe("RD");
+    expect(result.classification?.subtype).toBe("VERIFICATION_AND_VALIDATION");
+    expect(result.markdown).toContain("验证目标与范围确认");
+    expect(result.markdown).not.toContain("## CAPA 建议");
+  });
+
   it("returns the same open questions that are rendered in markdown", () => {
     const result = createTaskPlanningDemo({
       background:
