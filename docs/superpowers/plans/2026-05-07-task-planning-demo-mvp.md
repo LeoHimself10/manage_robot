@@ -1,10 +1,15 @@
 # Task Planning Demo MVP Implementation Plan
 
+> **⚠️ 历史计划（部分已过期）**  
+> 截至 2026-05-07 工程实现已演进为：**仅 Qwen 生成**分类与 WBS；**已删除** `classifier.ts` / `capa-advisor.ts` / `templates.ts` / `wbs-generator.ts` 等规则生成路径。  
+> **当前事实来源**：`src/agent/demo/pipeline.ts`、`qwen-planner.ts`、`llm-schema.ts`、`docs/Qwen-接入实施说明.md`、PRD v1.3。  
+> 下方逐步任务中涉及上述已删文件的 **Git 步骤与文件路径仅供归档**，**勿按原文执行**。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a local TypeScript Demo MVP that turns quality/R&D task background into a classified, CAPA-advised, gate-checked task decomposition Markdown draft.
 
-**Architecture:** Use a deterministic pipeline with focused units: input quality check, classification, CAPA advisory, template composition, WBS generation, gate validation, and Markdown rendering. Keep the existing domain and harness skeleton, but add Demo-specific workflow modules under `src/agent/demo/` so the current dispatch/assignment scaffolding remains reserved for later versions.
+**Architecture (superseded in parts):** The repo originally planned a deterministic classifier + template WBS. **Current code:** input QC → **required `llmPlanner` (Qwen)** → schema validation → gate → Markdown; failures → `GENERATION_FAILED`. Demo modules live under `src/agent/demo/`.
 
 **Tech Stack:** TypeScript, Vitest, Node.js local CLI-style runner, existing domain/harness modules.
 
