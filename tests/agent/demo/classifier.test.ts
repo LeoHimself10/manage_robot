@@ -21,6 +21,15 @@ describe("classifyTask", () => {
     expect(result.subtype).toBe("VERIFICATION_AND_VALIDATION");
   });
 
+  it("classifies ECN design change tasks as R&D actions", () => {
+    const result = classifyTask({
+      background: "需要发起 ECN 设计变更行动项，完成影响评估和回归验证。",
+    });
+
+    expect(result.domain).toBe("RD");
+    expect(result.subtype).toBe("DESIGN_CHANGE_ACTION");
+  });
+
   it("marks thin ambiguous input as uncertain", () => {
     const result = classifyTask({ background: "这个事情需要处理一下。" });
 

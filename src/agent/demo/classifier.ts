@@ -37,6 +37,12 @@ const rules: Rule[] = [
     patterns: [/供应商|来料|外协|采购|原材料/],
   },
   {
+    domain: "RD",
+    subtype: "DESIGN_CHANGE_ACTION",
+    rationale: "输入包含设计变更或 ECN 线索",
+    patterns: [/ECN|变更|回归验证|影响评估/],
+  },
+  {
     domain: "QUALITY",
     subtype: "DESIGN_RELATED_QUALITY_TASK",
     rationale: "输入包含设计缺陷或设计变更线索",
@@ -59,12 +65,6 @@ const rules: Rule[] = [
     subtype: "SOLUTION_DEVELOPMENT",
     rationale: "输入包含方案开发或论证线索",
     patterns: [/方案|论证|系统|硬件|软件|结构|选型/],
-  },
-  {
-    domain: "RD",
-    subtype: "DESIGN_CHANGE_ACTION",
-    rationale: "输入包含设计变更或 ECN 线索",
-    patterns: [/ECN|变更|回归验证|影响评估/],
   },
 ];
 
