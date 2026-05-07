@@ -13,6 +13,17 @@ describe("checkInputQuality", () => {
     expect(result.questions.length).toBeGreaterThan(0);
   });
 
+  it("blocks WBS generation when quality context only has vague keywords", () => {
+    const result = checkInputQuality({
+      domainHint: "QUALITY",
+      background: "某产品异常，影响10台，有照片，今天完成",
+    });
+
+    expect(result.canGenerateWbs).toBe(false);
+    expect(result.missingFields).toContain("problemSource");
+    expect(result.missingFields).toContain("productOrBatch");
+  });
+
   it("allows WBS generation when quality context contains key facts", () => {
     const result = checkInputQuality({
       domainHint: "QUALITY",

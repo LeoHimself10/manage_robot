@@ -11,6 +11,13 @@ export interface InputQualityResult {
   questions: string[];
 }
 
+const criticalQualityFields = new Set([
+  "problemSource",
+  "productOrBatch",
+  "problemPhenomenon",
+  "impactScope",
+]);
+
 const qualityChecks: Array<{
   field: string;
   question: string;
@@ -24,7 +31,12 @@ const qualityChecks: Array<{
   {
     field: "productOrBatch",
     question: "涉及哪个产品、批次、版本、客户或使用场景？",
-    patterns: [/产品|批次|版本|客户|设备|样机|工位|产线|A|B|C/],
+    patterns: [
+      /[A-Z0-9][A-Z0-9_-]*\s*产品/i,
+      /(?:产品|批次|版本|设备|样机|工位|产线)\s*[A-Z0-9][A-Z0-9_-]*/i,
+      /\d{4}-\d{2}-\d{2}\s*批次/,
+      /(?:客户|使用场景)\s*[:：]?\s*[\u4e00-\u9fa5A-Z0-9_-]{2,}/i,
+    ],
   },
   {
     field: "problemPhenomenon",
@@ -61,9 +73,12 @@ export function checkInputQuality(
   const questions = checks
     .filter((check) => missing.includes(check.field))
     .map((check) => check.question);
+  const hasMissingCriticalQualityField =
+    request.domainHint !== "RD" &&
+    missing.some((field) => criticalQualityFields.has(field));
 
   return {
-    canGenerateWbs: missing.length <= 2,
+    canGenerateWbs: !hasMissingCriticalQualityField && missing.length <= 2,
     missingFields: missing,
     questions,
   };
