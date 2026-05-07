@@ -1,4 +1,6 @@
 import { PlanDomain, PlanStatus } from "../agent/harness/types";
+import { CapaAdvisory } from "./capa";
+import { ClassificationResult } from "./classification";
 import { TaskPackage } from "./task-package";
 
 export interface Plan {
@@ -15,5 +17,7 @@ export interface Plan {
   externalRefs: string[];
   createdAt: string;
   updatedAt: string;
+  demoClassification?: ClassificationResult;
+  capaAdvisory?: CapaAdvisory;
 }
 
