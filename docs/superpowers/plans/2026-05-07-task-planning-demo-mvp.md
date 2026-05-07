@@ -86,8 +86,8 @@ Create `tsconfig.json`:
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+      "module": "ESNext",
+      "moduleResolution": "Bundler",
     "strict": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
