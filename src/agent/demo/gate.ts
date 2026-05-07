@@ -22,11 +22,11 @@ export function validateDemoGate(tasks: TaskPackage[]): DemoGateResult {
     .map((task) => {
       const missingFields: DemoGateMissingField[] = [];
 
-      if (task.deliverables.length === 0) {
+      if (!hasNonEmptyEntry(task.deliverables)) {
         missingFields.push("deliverables");
       }
 
-      if (task.completionCriteria.length === 0) {
+      if (!hasNonEmptyEntry(task.completionCriteria)) {
         missingFields.push("completionCriteria");
       }
 
@@ -50,4 +50,8 @@ export function validateDemoGate(tasks: TaskPackage[]): DemoGateResult {
     passed: missingByTask.length === 0,
     missingByTask,
   };
+}
+
+function hasNonEmptyEntry(items: string[]): boolean {
+  return items.some((item) => item.trim().length > 0);
 }

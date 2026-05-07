@@ -25,6 +25,31 @@ describe("demo gate and markdown output", () => {
     expect(result.missingByTask[0].missingFields).toContain("deliverables");
   });
 
+  it("fails gate when required list fields only contain whitespace", () => {
+    const result = validateDemoGate([
+      {
+        id: "task_1",
+        title: "问题事实确认",
+        objective: "确认事实",
+        collaborators: [],
+        inputMaterials: [],
+        actions: ["确认事实"],
+        deliverables: ["   "],
+        completionCriteria: ["\t"],
+        timeNode: { checkpoints: [], dueAt: "T+1" },
+        feedbackFrequency: "每日",
+        risksAndOpenQuestions: [],
+        dependencyTaskIds: [],
+      },
+    ]);
+
+    expect(result.passed).toBe(false);
+    expect(result.missingByTask[0].missingFields).toContain("deliverables");
+    expect(result.missingByTask[0].missingFields).toContain(
+      "completionCriteria"
+    );
+  });
+
   it("renders markdown with CAPA advisory and task table", () => {
     const markdown = renderPlanDraftMarkdown({
       summary: "生产测试发现不良率升高。",
