@@ -23,6 +23,17 @@ describe("adviseCapa", () => {
     expect(advisory.advisory).toBe("RECOMMENDED");
   });
 
+  it("returns insufficient information for very thin customer field subtype input", () => {
+    const advisory = adviseCapa({
+      domain: "QUALITY",
+      subtype: "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE",
+      background: "报警",
+    });
+
+    expect(advisory.advisory).toBe("INSUFFICIENT_INFO");
+    expect(advisory.promptingQuestions.length).toBeGreaterThan(0);
+  });
+
   it("returns insufficient information for thin quality input", () => {
     const advisory = adviseCapa({
       domain: "QUALITY",
