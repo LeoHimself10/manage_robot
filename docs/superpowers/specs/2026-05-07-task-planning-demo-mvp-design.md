@@ -144,3 +144,16 @@ Demo 评估以真实样本为主。质量后续提供案例后，至少形成 10
 - CAPA 建议被误解为正式结论：所有输出必须包含免责声明，并在 PRD 中标注最终以 QMS 和授权人判定为准。
 - 模型分类不稳定：用真实样本建立回归集，逐步优化分类模板和提示词。
 - Demo 范围膨胀：OA、电子签、承接闭环和外部 Web Agent 都不进入当前 MVP。
+
+## 9. 本地 Demo 运行方式
+
+实现完成后，可用以下命令运行：
+
+```bash
+npm install
+npm test
+npm run typecheck
+npm run demo
+```
+
+`npm run demo` 会输出一份 Markdown 任务拆解草案，包含输入理解、分类、CAPA 建议、WBS 任务包、派发门禁和仍需确认的问题。
