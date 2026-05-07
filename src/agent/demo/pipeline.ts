@@ -30,7 +30,7 @@ export type TaskPlanningDemoResult =
       questions: string[];
       missingFields: string[];
       classification: ClassificationResult;
-      capaAdvisory: CapaAdvisory;
+      capaAdvisory?: CapaAdvisory;
       tasks: TaskPackage[];
       gate: DemoGateResult;
       markdown: string;
@@ -49,33 +49,40 @@ export function createTaskPlanningDemo(
     };
   }
 
-  const classification = classifyTask({ background: request.background });
-  const capaAdvisory = adviseCapa({
-    domain: classification.domain,
-    subtype: classification.subtype,
+  const classification = classifyTask({
     background: request.background,
+    domainHint: request.domainHint,
   });
+  const capaAdvisory =
+    classification.domain === "QUALITY"
+      ? adviseCapa({
+          domain: classification.domain,
+          subtype: classification.subtype,
+          background: request.background,
+        })
+      : undefined;
   const tasks = generateWbs({
     classification,
     background: request.background,
   });
   const gate = validateDemoGate(tasks);
+  const openQuestions = [
+    ...inputQuality.questions,
+    ...classification.missingInformation,
+    ...(capaAdvisory?.promptingQuestions ?? []),
+  ];
   const markdown = renderPlanDraftMarkdown({
     summary: request.background.trim(),
     classification,
     capaAdvisory,
     tasks,
     gate,
-    openQuestions: [
-      ...inputQuality.questions,
-      ...classification.missingInformation,
-      ...capaAdvisory.promptingQuestions,
-    ],
+    openQuestions,
   });
 
   return {
     status: "DRAFT_READY",
-    questions: inputQuality.questions,
+    questions: openQuestions,
     missingFields: inputQuality.missingFields,
     classification,
     capaAdvisory,

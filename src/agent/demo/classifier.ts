@@ -1,7 +1,9 @@
 import { ClassificationResult } from "../../domain/classification";
+import { PlanDomain } from "../harness/types";
 
 export interface ClassifyTaskRequest {
   background: string;
+  domainHint?: PlanDomain;
 }
 
 interface Rule {
@@ -75,6 +77,16 @@ export function classifyTask(request: ClassifyTaskRequest): ClassificationResult
   );
 
   if (!matched) {
+    if (request.domainHint === "RD") {
+      return {
+        domain: "RD",
+        subtype: "RD_OTHER_OR_UNCERTAIN",
+        confidence: "LOW",
+        rationale: ["输入信息不足，按研发领域提示保留为研发待确认任务"],
+        missingInformation: ["研发目标", "设计/验证对象", "完成标准"],
+      };
+    }
+
     return {
       domain: "QUALITY",
       subtype: "QUALITY_OTHER_OR_UNCERTAIN",
