@@ -18,5 +18,8 @@ node_modules/
 dist/
 build/
 
+# Local git worktrees
+.worktrees/
+
 # IDE (optional — remove lines if you prefer to commit these)
 .idea/
