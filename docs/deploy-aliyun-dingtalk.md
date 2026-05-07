@@ -117,6 +117,26 @@ docker run -d --name manage-robot-dingtalk --restart unless-stopped \
 
 密钥也可改用编排平台的「密钥管理」注入，**不要**写入镜像层或提交到 Git。
 
+当前试点 ECS 也可使用 root-only 环境文件承载密钥（文件权限 `600`，不进入 Git、不进入镜像）：
+
+```bash
+sudo install -m 600 /dev/null /etc/manage-robot.env
+sudo sh -c 'cat > /etc/manage-robot.env' <<'EOF'
+QWEN_API_KEY=你的DashScopeKey
+QWEN_MODEL=qwen3.6-plus
+QWEN_TIMEOUT_MS=60000
+QWEN_MAX_RETRIES=0
+DINGTALK_CLIENT_ID=钉钉ClientID
+DINGTALK_CLIENT_SECRET=钉钉ClientSecret
+HEALTH_CHECK_PORT=8080
+EOF
+
+docker run -d --name manage-robot-dingtalk --restart unless-stopped \
+  --env-file /etc/manage-robot.env \
+  -p 8080:8080 \
+  manage-robot:dingtalk
+```
+
 ### 2.5 实操：确认是否在跑
 
 ```bash
@@ -152,6 +172,13 @@ docker run --rm -e QWEN_API_KEY="你的DashScopeKey" manage-robot:dingtalk \
 ```
 
 （需基于已构建的同一镜像；该命令打印一次示例拆解后退出，用于连通性抽查。）
+
+运行多场景冒烟：
+
+```bash
+docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
+  npx tsx scripts/run-qwen-scenarios.ts
+```
 
 ## 三、进程内配置一览
 

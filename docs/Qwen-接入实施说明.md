@@ -5,7 +5,7 @@
 - 任务拆解草案**仅由大模型生成**；已删除基于关键词的分类、规则 CAPA、模板 WBS 等实现。
 - **规则层**仅用于：输入质检、输出 Schema 校验、派发门禁、（必要时）兼容层字段归一化——用于**约束 AI 输出**，不替代模型生成内容。
 - 模型调用失败或校验失败时返回 `GENERATION_FAILED`，**不回退规则稿**。
-- **命令行**（`npm run demo` / `npm run demo:eval`）必须配置 `QWEN_API_KEY`（可用项目根目录 `.env`，已被 git 忽略）。
+- **命令行**（`npm run demo` / `npm run demo:eval` / `npm run demo:scenarios`）必须配置 `QWEN_API_KEY`（可用项目根目录 `.env`，已被 git 忽略）。
 
 ## 2. 运行配置
 
@@ -16,7 +16,7 @@
 可选配置（均有默认值）：
 
 - `QWEN_BASE_URL`：默认 `https://dashscope.aliyuncs.com/compatible-mode/v1`
-- `QWEN_MODEL`：默认 `qwen-plus`
+- `QWEN_MODEL`：默认 `qwen-plus`；当前 ECS 冒烟测试已验证 `qwen3.6-plus` 可用
 - `QWEN_TEMPERATURE`：默认 `0.2`
 - `QWEN_MAX_TOKENS`：默认 `2500`
 - `QWEN_TIMEOUT_MS`：默认 `20000`
@@ -24,6 +24,8 @@
 - `QWEN_REQUEST_BUDGET_TOKENS`：默认 `12000`
 
 本地可将变量写在项目根目录 `**.env`**，CLI 已 `import "dotenv/config"` 自动加载。可参考 `.env.example`。
+
+> 注意：空字符串环境变量会按“未设置”处理，避免 `QWEN_MODEL=` 覆盖默认模型导致 DashScope 返回 `you must provide a model parameter`。
 
 ## 3. 调用链路
 
@@ -47,6 +49,8 @@
 
 - `draftReadyCases` / `needsMoreInfoCases` / `generationFailedCases`
 - `avgTotalTokens` / `p95LatencyMs`
+
+`npm run demo:scenarios` 会运行 6 个云端/本地冒烟场景（质量、研发、信息不足分支），输出每个场景的状态、分类、任务数量、token 与时延摘要。
 
 ## 6. 分期落地
 
