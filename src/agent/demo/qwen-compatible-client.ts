@@ -14,8 +14,12 @@ export interface QwenCompatibleClientConfig {
   maxRetries: number;
   temperature: number;
   maxTokens: number;
-  /** OpenAI-compatible SSE；拼满 assistant content 后再 JSON.parse，钉钉侧仍单次终稿（方案 A） */
+  /** OpenAI-compatible SSE；拼满 assistant content 后再 JSON.parse（钉钉终稿仍为完整一条） */
   stream?: boolean;
+  /** 仅在 stream=true 时：每收到可解析的 SSE 片段后回调（由调用方节流/脱敏） */
+  streamHooks?: {
+    onAssistantDelta?: (assembledContent: string) => void;
+  };
 }
 
 export interface GenerateStructuredPlanRequest {
@@ -148,7 +152,11 @@ export class QwenCompatibleClient {
         if (!response.body) {
           throw new Error("Qwen stream response has no body");
         }
-        const assembled = await readSseChatCompletionStream(response.body);
+        const onDelta = this.config.streamHooks?.onAssistantDelta;
+        const assembled = await readSseChatCompletionStream(
+          response.body,
+          onDelta ? (acc) => onDelta(acc.content) : undefined
+        );
         return sseAssembledToChatResponse(assembled);
       }
 
@@ -194,7 +202,8 @@ function ingestSseDataLine(dataPayload: string, acc: SseAssembledResponse): void
 }
 
 async function readSseChatCompletionStream(
-  body: ReadableStream<Uint8Array>
+  body: ReadableStream<Uint8Array>,
+  onDelta?: (acc: SseAssembledResponse) => void
 ): Promise<SseAssembledResponse> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -212,11 +221,13 @@ async function readSseChatCompletionStream(
         buf = buf.slice(i + 1);
         if (!line.startsWith("data:")) continue;
         ingestSseDataLine(line.slice(5).trim(), acc);
+        onDelta?.(acc);
       }
     }
     const tail = buf.replace(/\r$/, "").trim();
     if (tail.startsWith("data:")) {
       ingestSseDataLine(tail.slice(5).trim(), acc);
+      onDelta?.(acc);
     }
   } finally {
     reader.releaseLock();

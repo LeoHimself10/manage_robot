@@ -21,17 +21,26 @@ describe("loadQwenPlannerConfigFromEnv", () => {
       model: "qwen-plus",
       baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       maxTokens: 2500,
-      stream: false,
+      stream: true,
     });
   });
 
-  it("loads config with stream always false（规划链路固定非流式，忽略 QWEN_STREAM）", () => {
+  it("disables Qwen SSE when QWEN_STREAM=0", () => {
+    process.env.QWEN_API_KEY = "test-key";
+    process.env.QWEN_STREAM = "0";
+
+    const config = loadQwenPlannerConfigFromEnv();
+
+    expect(config?.stream).toBe(false);
+  });
+
+  it("keeps SSE enabled when QWEN_STREAM=1", () => {
     process.env.QWEN_API_KEY = "test-key";
     process.env.QWEN_STREAM = "1";
 
     const config = loadQwenPlannerConfigFromEnv();
 
-    expect(config?.stream).toBe(false);
+    expect(config?.stream).toBe(true);
   });
 
   it("falls back for invalid numeric optional env vars", () => {

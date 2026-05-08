@@ -34,6 +34,23 @@ function readDingTalkQuickAck(): boolean {
   return !(v === "0" || v === "false" || v === "no");
 }
 
+/**
+ * Qwen 开启 SSE 时，是否向会话额外推送「生成中」进度（仅字符数，不含 JSON 原文）。
+ * `DINGTALK_STREAM_PROGRESS=0` 关闭；`DINGTALK_STREAM_PROGRESS_MS` 节流间隔（毫秒，默认 2800）。
+ */
+function readDingTalkStreamProgress(): boolean {
+  const v = process.env.DINGTALK_STREAM_PROGRESS?.trim().toLowerCase();
+  if (v === "0" || v === "false" || v === "no") return false;
+  return true;
+}
+
+function readStreamProgressMinMs(): number {
+  const raw = process.env.DINGTALK_STREAM_PROGRESS_MS?.trim();
+  if (!raw) return 2800;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 800 ? n : 2800;
+}
+
 function parseDomainHint(raw: string | undefined): PlanDomain | undefined {
   if (!raw?.trim()) return undefined;
   const u = raw.trim().toUpperCase();
@@ -209,12 +226,38 @@ async function main(): Promise<void> {
               senderStaffId: payload.senderStaffId,
               title: "处理中",
               markdownText:
-                "已收到，正在调用模型生成 **任务拆解草案**（结构化 JSON），通常需要 **数十秒**。请无需重复发送；完成后会再推一条完整结果。",
+                "已收到，正在调用模型生成 **任务拆解草案**（结构化 JSON，**流式接收**中），通常需要 **数十秒**。请无需重复发送；完成后会再推一条完整结果。",
             });
           } catch (ackErr) {
             console.warn("[dingtalk-bot] quickAck send failed:", ackErr instanceof Error ? ackErr.message : ackErr);
           }
         }
+
+        let lastStreamProgressAt = 0;
+        const streamProgressMinMs = readStreamProgressMinMs();
+        const streamHooks =
+          readDingTalkStreamProgress() && qwenConfig.stream
+            ? {
+                onAssistantDelta: (assembled: string) => {
+                  const now = Date.now();
+                  if (now - lastStreamProgressAt < streamProgressMinMs) return;
+                  lastStreamProgressAt = now;
+                  void sendMarkdownReply({
+                    client,
+                    sessionWebhook: payload.sessionWebhook,
+                    messageId,
+                    senderStaffId: payload.senderStaffId,
+                    title: "生成中",
+                    markdownText: `_模型正在流式输出，已累积 **${assembled.length}** 字符，完整结果即将推送…_`,
+                  }).catch((err) =>
+                    console.warn(
+                      "[dingtalk-bot] stream progress:",
+                      err instanceof Error ? err.message : err
+                    )
+                  );
+                },
+              }
+            : undefined;
 
         const prior = chatSessionMemory.get(chatKey);
         const demoResult = await createTaskPlanningDemo(
@@ -223,7 +266,10 @@ async function main(): Promise<void> {
             background,
             sessionDigest: prior?.priorDigest,
           },
-          { llmPlanner: (request) => runQwenPlanner(request, qwenConfig) }
+          {
+            llmPlanner: (request) =>
+              runQwenPlanner(request, { ...qwenConfig, streamHooks }),
+          }
         );
 
         const nextDigest =

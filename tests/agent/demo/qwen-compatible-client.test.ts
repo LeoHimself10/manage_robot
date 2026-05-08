@@ -250,6 +250,56 @@ describe("QwenCompatibleClient", () => {
     expect(result.trace.tokenUsage.totalTokens).toBe(30);
     expect(result.payload.tasks).toHaveLength(1);
   });
+
+  it("calls streamHooks.onAssistantDelta while SSE chunks arrive", async () => {
+    const chunk1Obj = {
+      id: "req_sse_hook",
+      model: "qwen-plus",
+      choices: [{ delta: { content: SAMPLE_QUALITY_JSON.slice(0, 70) } }],
+    };
+    const chunk2Obj = {
+      choices: [{ delta: { content: SAMPLE_QUALITY_JSON.slice(70) } }],
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 20,
+        total_tokens: 30,
+      },
+    };
+    const sseText = `data: ${JSON.stringify(chunk1Obj)}\n\ndata: ${JSON.stringify(chunk2Obj)}\n\ndata: [DONE]\n`;
+    const sseStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(sseText));
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: sseStream,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const deltas: string[] = [];
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0.2,
+      maxTokens: 2048,
+      stream: true,
+      streamHooks: { onAssistantDelta: (s) => deltas.push(s) },
+    });
+
+    await client.generateStructuredPlan({
+      background: "x",
+      domainHint: "QUALITY",
+    });
+
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(deltas[deltas.length - 1]).toBe(SAMPLE_QUALITY_JSON);
+  });
 });
 
 describe("sleepWithJitter", () => {

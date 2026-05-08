@@ -22,7 +22,7 @@
 - `QWEN_TIMEOUT_MS`：默认 `20000`
 - `QWEN_MAX_RETRIES`：默认 `1`
 - `QWEN_REQUEST_BUDGET_TOKENS`：默认 `12000`
-- **`QWEN_STREAM` 已不使用**：`loadQwenPlannerConfigFromEnv` 固定 `stream: false`，整包 JSON 非流式；`QwenCompatibleClient` 仍保留 SSE 拼装实现供单测或未来显式传参使用。
+- **`QWEN_STREAM`**：默认为 **开启**（OpenAI 兼容 **SSE**，服务端拼装完整 `content` 后再 `JSON.parse`）。设为 **`0` / `false` / `no`** 时使用单次整包响应。钉钉机器人侧可选 **`DINGTALK_STREAM_PROGRESS`**：SSE 进行时按节流间隔推送「已累积字符数」类进度 Markdown（不写 JSON 原文）。
 
 本地可将变量写在项目根目录 `**.env`**，CLI 已 `import "dotenv/config"` 自动加载。可参考 `.env.example`。
 
@@ -32,7 +32,7 @@
 
 1. `checkInputQuality`：空文本等基础护栏；**超长输入**（`INPUT_MAX_CHARS`，见 `.env.example`）则不进入模型、`canGenerateWbs: false`，以追问提示分段。**不静默截断**用户原文。
 2. **必须传入** `llmPlanner`（通常 `runQwenPlanner`）；否则 `GENERATION_FAILED`。
-3. `runQwenPlanner`：**薄封装**，返回 `rawJson` + `trace`；结构与域校验、`traceId` 贯穿、可选 **一轮结构自纠正**（`correction`）均在 `createTaskPlanningDemo`。生产配置下 HTTP **非流式**。
+3. `runQwenPlanner`：**薄封装**，返回 `rawJson` + `trace`；结构与域校验、`traceId` 贯穿、可选 **一轮结构自纠正**（`correction`）均在 `createTaskPlanningDemo`。默认 HTTP **流式（SSE）** 接收、整段 JSON 齐后再解析；可通过 `QWEN_STREAM=0` 关掉。
 4. **prompt v2.7**：对寒暄/无关输入要求 **LOW + `clarificationUx=NON_TASK`** 与 `openQuestions` 内写清身份（**本机器人**主语、用户敬称**您**）；追问内容直接进 `openQuestions`，钉钉侧**不**自动拼接固定引导句；仍由 **模型在 JSON 内**完成，非代码关键词拦截。
 5. 可选 **`sessionDigest`**：由上轮会话摘要拼装，写入 Qwen **user prompt**（钉钉侧注入），不改变 `background` 原文（便于审计对齐）。
 6. Qwen 根据版本化 prompt 输出分类、追问、任务包、质量域 CAPA 建议与 `gateSelfCheck`；信息不足时输出低置信度与 `openQuestions`，pipeline 返回 `NEEDS_MORE_INFO`。
