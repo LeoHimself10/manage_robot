@@ -50,6 +50,8 @@ V1 聚焦：
 
 ### 4.1 Channel Adapter（钉钉适配层）
 
+**Demo 现状（Stream）**：会话入口在 `npm run dingtalk-bot`（见 **`docs/deploy-aliyun-dingtalk.md`**）——会话 webhook 回填 Markdown，`NEEDS_MORE_INFO` **仅渲染模型追问正文**（无列表前缀、无自动套话）；与下方「完整 Harness 钉钉卡片」仍为分期关系。
+
 - 接收发起入口（消息、卡片、表单提交）。
 - 统一回调签名验签、去重、幂等键注入。
 - 将钉钉 payload 适配为内部事件（Domain Event）。
@@ -68,7 +70,7 @@ V1 聚焦：
 
 ### 4.4 Planner（输入质检 + 模型生成草案）
 
-- **当前 Demo 实现**（`src/agent/demo/`）：基础输入护栏后 **`llmPlanner` 必选**，由 **Qwen** 输出信息充分性判断、追问、结构化分类、任务包与门禁自检；**关键词分类 / 模板骨架 WBS / 语义默认补全已移除**。确定性校验见 `llm-schema`、`gate`，只做结构约束与派发门禁二次确认。
+- **当前 Demo 实现**（`src/agent/demo/`）：基础输入护栏后 **`llmPlanner` 必选**，由 **Qwen** 输出信息充分性判断、追问、结构化分类、任务包与门禁自检；**关键词分类 / 模板骨架 WBS / 语义默认补全已移除**。系统提示 **`task-planning-agent-v2.8`**（`qwen-prompt.ts`）；JSON 可选 **`clarificationUx`**。确定性校验见 `llm-schema`、`gate`，只做结构约束与派发门禁二次确认。
 - **完整 Harness 愿景**：编排层仍可聚合「输入质检 → Model Gateway → 门禁 → 人工审阅」；Planner 与提示词模板版本长期对齐 PRD。
 
 ### 4.5 Assignment Recommender（人岗推荐）

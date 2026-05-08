@@ -11,6 +11,7 @@
   - **Demo / 钉钉链路**：只调用 `createTaskPlanningDemo`，完结时追加 **`AUDIT_DEMO_JSONL_PATH`**（默认 `./data/demo-runs.jsonl`），字段含 `traceId`、`status`、`reason?`、`gatePassed?`、`tokenTotals?` 等；现网排障建议挂载或收集该文件。
   - **Harness 编排层**：`createHarness` 可选 `AUDIT_SINK=file` + `AUDIT_JSONL_PATH`，与上者独立。
 - **会话与限流**：首版为 **单实例进程内** `Map` + TTL；多副本需后续外置存储（如 Redis），参见 `AGENTS.md`。
+- **用户可见回复**：单次任务规划链路结束后 **只推送一条会话 Markdown**（`NEEDS_MORE_INFO` / `DRAFT_READY` / `GENERATION_FAILED`，以及非文本/限速等护栏提示）；追问正文取自模型 **`openQuestions`**，`formatNeedsMoreInfoDingTalkMarkdown` **用空行拼接、不加 `-`/`•`**。服务端可用 **SSE** 拼装 Qwen JSON，但 **默认不向用户发中间进度气泡**（`DINGTALK_STREAM_PROGRESS`、`DINGTALK_QUICK_ACK` 均需显式 `1`）。
 
 ## 一、钉钉开放平台配置
 
@@ -182,9 +183,19 @@ docker run -d --name manage-robot-dingtalk --restart unless-stopped \
 
 推荐使用 **`--env-file /etc/manage-robot.env`** 的等价写法，便于与文档 2.4 对齐并避免冗长 `-e`。
 
-### 2.7 暂不配钉钉，只想在云上验证 Qwen
+### 2.7 Windows 一键拉代码并重建容器（本机脚本）
 
-当前常驻服务是 **钉钉 Stream 机器人**，没有钉钉凭证时容器会退出。若仅验证模型与网络，可在 ECS 上临时进入一次性容器（不配钉钉变量会失败，故改用 **`demo`**）：
+在项目根目录（已配置 SSH 密钥、ECS 已有 `/opt/manage_robot` 与 `/etc/manage-robot.env` 时）：
+
+```powershell
+.\scripts\ecs-deploy-dingtalk.ps1 -PublicIp 你的ECS公网IP -PemPath "$env:USERPROFILE\Downloads\你的密钥.pem"
+```
+
+可选参数：`-RepoDir`、`-EnvFile`、`-PublishPort`（默认 `8080`）。等价于远端 `git pull --ff-only` → `docker build` → 用 env-file **重建** `manage-robot-dingtalk` 容器。
+
+### 2.8 暂不配钉钉，只想在云上验证 Qwen
+
+当前常驻镜像入口是 **`npm run dingtalk-bot`**，没有钉钉凭证时进程会退出。若仅验证模型与网络，可在 ECS 上临时进入一次性容器（不配钉钉变量会失败，故改用 **`demo`**）：
 
 ```bash
 docker run --rm -e QWEN_API_KEY="你的DashScopeKey" manage-robot:dingtalk \

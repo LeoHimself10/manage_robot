@@ -19,7 +19,7 @@
 - `QWEN_MODEL`：默认 `qwen-plus`；当前 ECS 冒烟测试已验证 `qwen3.6-plus` 可用
 - `QWEN_TEMPERATURE`：默认 `0.2`
 - `QWEN_MAX_TOKENS`：默认 `2500`
-- `QWEN_TIMEOUT_MS`：默认 `20000`
+- `QWEN_TIMEOUT_MS`：`runQwenPlanner` 装载配置时默认 **`60000`** ms；与 `model-policy` 合并后**限制在 `5000–120000` ms**
 - `QWEN_MAX_RETRIES`：默认 `1`
 - `QWEN_REQUEST_BUDGET_TOKENS`：默认 `12000`
 - **`QWEN_STREAM`**：默认为 **开启**（OpenAI 兼容 **SSE**，服务端拼装完整 `content` 后再 `JSON.parse`）。设为 **`0` / `false` / `no`** 时使用单次整包响应。钉钉侧 **`DINGTALK_STREAM_PROGRESS`** 与 **`DINGTALK_QUICK_ACK`** 默认为 **关**，只推最终一条模型结果；需进度或「处理中」气泡时显式设 `1`。
@@ -40,6 +40,8 @@
 8. `validateDemoGate` + **一致性检查**（`consistency.ts`）：硬门禁与 `dependencyTaskIds` / 环 / 日期先后等 **warnings** 合并进 `DemoGateResult.warnings`，Markdown 底部展示。
 9. `DRAFT_READY`：渲染后对 Markdown 做 **PII 正则脱敏**（手机号、身份证、IPv4），可用 `CONTENT_FILTER_DISABLED=1` 关闭（见部署文档）。
 10. 失败：`GENERATION_FAILED` + `trace.errorCode`；成功或门禁未通过均输出 Markdown、**`DemoGenerationMetadata`**（`timings`、`traces[]` 等）及 **Demo JSONL 审计行**（若未禁用）。
+
+**与钉钉对齐（可选字段）**：模型 JSON 可含 **`clarificationUx`**：`NON_TASK`（寒暄/非任务）或 `TASK_GAP`（真实任务缺口），供审计或其它渠道使用；钉钉追问气泡 **只渲染 `openQuestions` 正文**（实现见 `src/dingtalk-needs-more-info-markdown.ts`）。**源码锚点**：`src/agent/demo/qwen-prompt.ts`（`QWEN_PLANNER_PROMPT_VERSION`）、`src/agent/demo/qwen-planner.ts`、`src/agent/demo/qwen-compatible-client.ts`（SSE 拼装与可选 `streamHooks`）。
 
 ## 4. 风险控制
 

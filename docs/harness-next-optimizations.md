@@ -1,7 +1,8 @@
 # Harness 继续优化建议（归档 + 进度）
 
 **位置**：原为仓库根目录草案，现收于 `docs/` 与代码变更同步维护。  
-**状态摘要（2026-05-08）**：下文 **P0 / P1 / P2 / P3 清单主体已在 `main` 落地**（单实例内存会话与限流、无政治词黑名单的输出脱敏、Demo JSONL 与 Harness 可选 FileSink 等）。多副本 Redis、向量记忆、OA 闭环等仍为长期项。
+**状态摘要（2026-05-08）**：下文 **P0 / P1 / P2 / P3 清单主体已在 `main` 落地**（单实例内存会话与限流、无政治词黑名单的输出脱敏、Demo JSONL 与 Harness 可选 FileSink 等）。多副本 Redis、向量记忆、OA 闭环等仍为长期项。  
+**补充（2026-05-08）**：钉钉侧 **默认仅终稿一条气泡**（`DINGTALK_QUICK_ACK` / `DINGTALK_STREAM_PROGRESS` 默认关）；Qwen **`QWEN_STREAM` 默认 SSE**；追问 Markdown **无列表符号前缀**；提示词 **`task-planning-agent-v2.8`**（见 `docs/deploy-aliyun-dingtalk.md`、`docs/Qwen-接入实施说明.md`）。
 
 ## 当前状态（评分表仍为历史快照，仅供参考）
 
