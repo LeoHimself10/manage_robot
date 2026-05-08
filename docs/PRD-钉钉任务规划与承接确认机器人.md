@@ -217,7 +217,7 @@ MVP 不自动派发任务，仅输出可用于业务评审和人工继续协作�
 
 ### 5.5 钉钉 Stream 机器人（工程试点）
 
-与 PRD 产品边界对齐的 **试点部署**：企业通过 **钉钉 Stream** 收文本、`createTaskPlanningDemo` 出稿。单次用户触发 **原则上一条 Markdown 终稿**（追问 / 成功草案 / 失败说明）；追问文案来自模型 **`openQuestions`**，**不由代码拼接固定引导标题或 Markdown 列表符号前缀**。服务端 Qwen **`QWEN_STREAM` 默认开**、`DINGTALK_QUICK_ACK` / **`DINGTALK_STREAM_PROGRESS` 默认关**（详见 **`docs/deploy-aliyun-dingtalk.md`**、**`docs/Qwen-接入实施说明.md`**）。一键更新容器：`scripts/ecs-deploy-dingtalk.ps1`。
+与 PRD 产品边界对齐的 **试点部署**：企业通过 **钉钉 Stream** 收文本、`createTaskPlanningDemo` 出稿。单次用户触发 **原则上一条 Markdown 终稿**（追问 / 成功草案 / 失败说明）；追问文案来自模型 **`openQuestions`**，**不由代码拼接固定引导标题或 Markdown 列表符号前缀**。服务端 Qwen **`QWEN_STREAM` 默认开**；钉钉不向用户推送「处理中」或流式进度气泡（详见 **`docs/deploy-aliyun-dingtalk.md`**、**`docs/Qwen-接入实施说明.md`**）。一键更新容器：`scripts/ecs-deploy-dingtalk.ps1`。
 
 ---
 

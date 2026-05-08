@@ -11,7 +11,7 @@
   - **Demo / 钉钉链路**：只调用 `createTaskPlanningDemo`，完结时追加 **`AUDIT_DEMO_JSONL_PATH`**（默认 `./data/demo-runs.jsonl`），字段含 `traceId`、`status`、`reason?`、`gatePassed?`、`tokenTotals?` 等；现网排障建议挂载或收集该文件。
   - **Harness 编排层**：`createHarness` 可选 `AUDIT_SINK=file` + `AUDIT_JSONL_PATH`，与上者独立。
 - **会话与限流**：首版为 **单实例进程内** `Map` + TTL；多副本需后续外置存储（如 Redis），参见 `AGENTS.md`。
-- **用户可见回复**：单次任务规划链路结束后 **只推送一条会话 Markdown**（`NEEDS_MORE_INFO` / `DRAFT_READY` / `GENERATION_FAILED`，以及非文本/限速等护栏提示）；追问正文取自模型 **`openQuestions`**，`formatNeedsMoreInfoDingTalkMarkdown` **用空行拼接、不加 `-`/`•`**。服务端可用 **SSE** 拼装 Qwen JSON，但 **默认不向用户发中间进度气泡**（`DINGTALK_STREAM_PROGRESS`、`DINGTALK_QUICK_ACK` 均需显式 `1`）。
+- **用户可见回复**：单次任务规划链路结束后 **只推送一条会话 Markdown**（`NEEDS_MORE_INFO` / `DRAFT_READY` / `GENERATION_FAILED`，以及非文本/限速等护栏提示）；追问正文取自模型 **`openQuestions`**，`formatNeedsMoreInfoDingTalkMarkdown` **用空行拼接、不加 `-`/`•`**。服务端可用 **SSE** 拼装 Qwen JSON；**不向用户发送**「处理中」或流式进度等中间气泡。
 
 ## 一、钉钉开放平台配置
 
@@ -221,12 +221,9 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DINGTALK_CLIENT_ID` | 是 | 钉钉应用 Client ID |
 | `DINGTALK_CLIENT_SECRET` | 是 | 钉钉应用 Client Secret |
 | `QWEN_*` | 否 | 模型、超时、重试等；**SSE 流式默认开**（`QWEN_STREAM=0` 关闭），见 `docs/Qwen-接入实施说明.md` |
-| `DINGTALK_STREAM_PROGRESS` | 否 | 默认关；`1`/`true`/`yes` 时 Qwen SSE 过程额外推「生成中」进度 |
-| `DINGTALK_STREAM_PROGRESS_MS` | 否 | 进度推送最小间隔（毫秒），默认 `2800`，最小有效约 `800` |
 | `DEMO_DOMAIN_HINT` | 否 | `QUALITY` 或 `RD`，默认由模型判断 |
 | `HEALTH_CHECK_PORT` | 否 | 监听 HTTP `/health` |
 | `DINGTALK_STREAM_DEBUG` | 否 | `1` / `true` 打印 Stream SDK 调试日志 |
-| `DINGTALK_QUICK_ACK` | 否 | 默认关；`1`/`true`/`yes` 时先发一条「处理中」提示 |
 
 **Demo 管线 / 运维（节选）**
 

@@ -14,7 +14,9 @@ export interface PlanDraftMarkdownInput {
 
 export function renderPlanDraftMarkdown(input: PlanDraftMarkdownInput): string {
   const sections = [
-    "# 任务拆解 Demo 草案",
+    ["# 任务拆解 Demo 草案", "_以下为摘要、分类、任务包、门禁与追问；章节之间用分隔线区分，便于阅读。_"].join(
+      "\n\n"
+    ),
     renderSummary(input.summary),
     renderClassification(input.classification),
   ];
@@ -30,7 +32,7 @@ export function renderPlanDraftMarkdown(input: PlanDraftMarkdownInput): string {
     renderOpenQuestions(input.openQuestions)
   );
 
-  return sections.filter((s) => s.trim().length > 0).join("\n\n");
+  return sections.filter((s) => s.trim().length > 0).join("\n\n---\n\n");
 }
 
 function renderSummary(summary: string): string {

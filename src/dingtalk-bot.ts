@@ -27,28 +27,6 @@ import { formatNeedsMoreInfoDingTalkMarkdown } from "./dingtalk-needs-more-info-
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
 
-/** 仅在 `DINGTALK_QUICK_ACK=1|true|yes` 时先发「处理中」；默认关，只保留最终模型回复。 */
-function readDingTalkQuickAck(): boolean {
-  const v = process.env.DINGTALK_QUICK_ACK?.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes";
-}
-
-/**
- * 仅在 `DINGTALK_STREAM_PROGRESS=1|true|yes` 时推送流式字符数进度；默认关。
- * `DINGTALK_STREAM_PROGRESS_MS` 节流间隔（毫秒，默认 2800）。
- */
-function readDingTalkStreamProgress(): boolean {
-  const v = process.env.DINGTALK_STREAM_PROGRESS?.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes";
-}
-
-function readStreamProgressMinMs(): number {
-  const raw = process.env.DINGTALK_STREAM_PROGRESS_MS?.trim();
-  if (!raw) return 2800;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 800 ? n : 2800;
-}
-
 function parseDomainHint(raw: string | undefined): PlanDomain | undefined {
   if (!raw?.trim()) return undefined;
   const u = raw.trim().toUpperCase();
@@ -72,6 +50,8 @@ function formatDemoReply(result: TaskPlanningDemoResult): {
   if (result.status === "GENERATION_FAILED") {
     const lines = [
       `**生成失败：** ${result.reason}`,
+      "",
+      "---",
       "",
       "**建议：**",
       ...result.recoverySuggestions.map((s) => `- ${s}`),
@@ -215,48 +195,6 @@ async function main(): Promise<void> {
           return;
         }
 
-        if (readDingTalkQuickAck()) {
-          try {
-            await sendMarkdownReply({
-              client,
-              sessionWebhook: payload.sessionWebhook,
-              messageId,
-              senderStaffId: payload.senderStaffId,
-              title: "处理中",
-              markdownText:
-                "已收到，正在调用模型生成 **任务拆解草案**（结构化 JSON，**流式接收**中），通常需要 **数十秒**。请无需重复发送；完成后会再推一条完整结果。",
-            });
-          } catch (ackErr) {
-            console.warn("[dingtalk-bot] quickAck send failed:", ackErr instanceof Error ? ackErr.message : ackErr);
-          }
-        }
-
-        let lastStreamProgressAt = 0;
-        const streamProgressMinMs = readStreamProgressMinMs();
-        const streamHooks =
-          readDingTalkStreamProgress() && qwenConfig.stream
-            ? {
-                onAssistantDelta: (assembled: string) => {
-                  const now = Date.now();
-                  if (now - lastStreamProgressAt < streamProgressMinMs) return;
-                  lastStreamProgressAt = now;
-                  void sendMarkdownReply({
-                    client,
-                    sessionWebhook: payload.sessionWebhook,
-                    messageId,
-                    senderStaffId: payload.senderStaffId,
-                    title: "生成中",
-                    markdownText: `_模型正在流式输出，已累积 **${assembled.length}** 字符，完整结果即将推送…_`,
-                  }).catch((err) =>
-                    console.warn(
-                      "[dingtalk-bot] stream progress:",
-                      err instanceof Error ? err.message : err
-                    )
-                  );
-                },
-              }
-            : undefined;
-
         const prior = chatSessionMemory.get(chatKey);
         const demoResult = await createTaskPlanningDemo(
           {
@@ -265,8 +203,7 @@ async function main(): Promise<void> {
             sessionDigest: prior?.priorDigest,
           },
           {
-            llmPlanner: (request) =>
-              runQwenPlanner(request, { ...qwenConfig, streamHooks }),
+            llmPlanner: (request) => runQwenPlanner(request, qwenConfig),
           }
         );
 

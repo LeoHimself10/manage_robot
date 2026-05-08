@@ -4,7 +4,7 @@
 **修订人**：姚凯珩  
 **修订说明（2026-05-07）**：实现已演进为 **仅 Qwen 生成**信息充分性判断、分类与 WBS；已移除关键词分类、规则 CAPA、模板骨架等模块。**确定性规则**保留为空输入护栏、`llm-schema` 结构约束、派发门禁二次确认；校验/API 失败返回 `GENERATION_FAILED`，不使用规则稿替代。下文“领域口径/提示词口径”指 **提示词层面的约束**，非代码内 subtype→骨架映射。
 **修订说明（2026-05-08，工程增补）**：在 **不改变 PRD 产品边界** 的前提下，流水线增加 **`INPUT_MAX_CHARS` 超长护栏**（不静默截断）、钉钉侧 **sessionDigest 摘要**、`consistency` **依赖与环 warnings**、`gate.warnings` 与 Markdown 呈现、成功稿 **PII 正则脱敏**（无政治词黑名单）、每次调用完结 **Demo JSONL 审计** 与 **`DRAFT_READY` 文件快照**，以及 **`timings` / `traces[]` 观测**。详见 **`AGENTS.md`**、 **`docs/deploy-aliyun-dingtalk.md`**、 **`docs/Qwen-接入实施说明.md`**、 **`docs/harness-next-optimizations.md`**。  
-**修订说明（2026-05-08，钉钉/Qwen 体验）**：Qwen HTTP **默认 SSE** 拼装 JSON（`QWEN_STREAM=0` 关）；钉钉 **默认只推一条终稿**（`DINGTALK_QUICK_ACK` / `DINGTALK_STREAM_PROGRESS` 显式 `1` 才多气泡）；`NEEDS_MORE_INFO` **无自动标题、无 `-` 列表前缀**；模型 JSON 可选 **`clarificationUx`**；系统提示 **`task-planning-agent-v2.8`**（多句任务背景、避免「关于您的问题」套话）。部署同步脚本 **`scripts/ecs-deploy-dingtalk.ps1`**。
+**修订说明（2026-05-08，钉钉/Qwen 体验）**：Qwen HTTP **默认 SSE** 拼装 JSON（`QWEN_STREAM=0` 关）；钉钉 **只推一条终稿气泡**（不向用户发「处理中」或流式进度）；`NEEDS_MORE_INFO` **无自动标题、无 `-` 列表前缀**；模型 JSON 可选 **`clarificationUx`**；系统提示 **`task-planning-agent-v2.8`**（多句任务背景、避免「关于您的问题」套话）。部署同步脚本 **`scripts/ecs-deploy-dingtalk.ps1`**。
 
 ## 1. 背景
 

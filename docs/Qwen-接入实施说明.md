@@ -22,7 +22,7 @@
 - `QWEN_TIMEOUT_MS`：`runQwenPlanner` 装载配置时默认 **`60000`** ms；与 `model-policy` 合并后**限制在 `5000–120000` ms**
 - `QWEN_MAX_RETRIES`：默认 `1`
 - `QWEN_REQUEST_BUDGET_TOKENS`：默认 `12000`
-- **`QWEN_STREAM`**：默认为 **开启**（OpenAI 兼容 **SSE**，服务端拼装完整 `content` 后再 `JSON.parse`）。设为 **`0` / `false` / `no`** 时使用单次整包响应。钉钉侧 **`DINGTALK_STREAM_PROGRESS`** 与 **`DINGTALK_QUICK_ACK`** 默认为 **关**，只推最终一条模型结果；需进度或「处理中」气泡时显式设 `1`。
+- **`QWEN_STREAM`**：默认为 **开启**（OpenAI 兼容 **SSE**，服务端拼装完整 `content` 后再 `JSON.parse`）。设为 **`0` / `false` / `no`** 时使用单次整包响应。钉钉机器人 **仅推送一条终稿 Markdown**，不在会话中发送「处理中」或流式进度类气泡（与 `QWEN_STREAM` 是否开启无关）。
 
 本地可将变量写在项目根目录 `**.env`**，CLI 已 `import "dotenv/config"` 自动加载。可参考 `.env.example`。
 
