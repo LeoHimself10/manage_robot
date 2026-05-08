@@ -154,7 +154,7 @@ docker run -d --name manage-robot-dingtalk --restart unless-stopped \
   manage-robot:dingtalk
 ```
 
-镜像 `WORKDIR` 为 `/app`；仓库默认将 `./data/demo-runs.jsonl`、`./data/plans/*.json` 写入工作目录下 `data/`（未挂载则随容器重置而丢失）。
+镜像 `WORKDIR` 为 `/app`。镜像内附带 **`/app/AGENTS.md`** 与 **`/app/docs/`**（与构建时提交一致），便于 `docker exec` 查阅。仓库默认将 `./data/demo-runs.jsonl`、`./data/plans/*.json` 写入工作目录下 `data/`（未挂载则随容器重置而丢失）。
 
 ### 2.5 实操：确认是否在跑
 

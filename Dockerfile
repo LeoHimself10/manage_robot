@@ -8,6 +8,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY tsconfig.json ./
+COPY AGENTS.md ./
+COPY docs ./docs/
 COPY src ./src
 COPY scripts ./scripts
 
