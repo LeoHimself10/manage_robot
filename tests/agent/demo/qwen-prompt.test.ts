@@ -5,9 +5,9 @@ import {
 } from "../../../src/agent/demo/qwen-prompt";
 
 describe("buildQwenPlannerSystemPrompt", () => {
-  it("v2.7：NON_TASK/TASK_GAP、本机器人主语与用户敬称您、渠道不拼接套话", () => {
+  it("v2.8：允许多句任务背景、禁止关于您的问题套话、本机器人+您", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("task-planning-agent-v2.7");
+    expect(sys).toContain("task-planning-agent-v2.8");
     expect(sys).toContain("寒暄");
     expect(sys).toContain("钉钉");
     expect(sys).toContain("clarificationUx");
@@ -15,8 +15,8 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("TASK_GAP");
     expect(sys).toContain("本机器人");
     expect(sys).toContain("您");
-    expect(sys).toContain("不会");
-    expect(sys).toContain("自动");
+    expect(sys).toContain("允许多句");
+    expect(sys).toContain("关于你的问题");
     expect(sys).toContain("你是机器人");
   });
 });

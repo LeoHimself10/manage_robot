@@ -10,9 +10,9 @@ export function summarizePriorDemoForPrompt(
   const lines: string[] = [];
 
   if (result.status === "NEEDS_MORE_INFO") {
-    lines.push("上一轮系统状态：NEEDS_MORE_INFO（需要补充信息后才能生成拆解）。");
+    lines.push("上一轮系统状态：NEEDS_MORE_INFO。");
     if (result.questions.length > 0) {
-      lines.push("上一轮追问：" + result.questions.map((q) => `- ${q}`).join("\n"));
+      lines.push("上一轮追问：\n" + result.questions.map((q) => q.trim()).filter(Boolean).join("\n"));
     }
   } else if (result.status === "GENERATION_FAILED") {
     lines.push("上一轮生成失败。", `原因摘录：${result.reason.slice(0, 280)}`);

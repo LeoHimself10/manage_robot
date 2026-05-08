@@ -33,7 +33,7 @@
 1. `checkInputQuality`：空文本等基础护栏；**超长输入**（`INPUT_MAX_CHARS`，见 `.env.example`）则不进入模型、`canGenerateWbs: false`，以追问提示分段。**不静默截断**用户原文。
 2. **必须传入** `llmPlanner`（通常 `runQwenPlanner`）；否则 `GENERATION_FAILED`。
 3. `runQwenPlanner`：**薄封装**，返回 `rawJson` + `trace`；结构与域校验、`traceId` 贯穿、可选 **一轮结构自纠正**（`correction`）均在 `createTaskPlanningDemo`。默认 HTTP **流式（SSE）** 接收、整段 JSON 齐后再解析；可通过 `QWEN_STREAM=0` 关掉。
-4. **prompt v2.7**：对寒暄/无关输入要求 **LOW + `clarificationUx=NON_TASK`** 与 `openQuestions` 内写清身份（**本机器人**主语、用户敬称**您**）；追问内容直接进 `openQuestions`，钉钉侧**不**自动拼接固定引导句；仍由 **模型在 JSON 内**完成，非代码关键词拦截。
+4. **prompt v2.8**：对寒暄/无关输入要求 **LOW + `clarificationUx=NON_TASK`**，`openQuestions` 内用**本机器人**主语与**您**引导用户发送**可多句**的任务背景（勿用语义上的「只允许一句」）；避免「关于您的问题」类套话起句；追问进 `openQuestions`，钉钉侧**不**自动加列表符号或固定引导句。
 5. 可选 **`sessionDigest`**：由上轮会话摘要拼装，写入 Qwen **user prompt**（钉钉侧注入），不改变 `background` 原文（便于审计对齐）。
 6. Qwen 根据版本化 prompt 输出分类、追问、任务包、质量域 CAPA 建议与 `gateSelfCheck`；信息不足时输出低置信度与 `openQuestions`，pipeline 返回 `NEEDS_MORE_INFO`。
 7. `validateLlmPlanPayload`：做结构与域约束校验；质量域必须包含 `capaAdvisory`，研发域不得包含 `capaAdvisory`。

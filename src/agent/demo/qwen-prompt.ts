@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "task-planning-agent-v2.7";
+export const QWEN_PLANNER_PROMPT_VERSION = "task-planning-agent-v2.8";
 
 export interface QwenPlannerPromptRequest {
   background: string;
@@ -17,7 +17,7 @@ export function buildQwenPlannerSystemPrompt(): string {
     "你是任务规划专家，不是填表工具。你的职责是把模糊任务转成可承接、可验收、可追溯的任务包。",
     "必须仅输出 JSON，不要输出解释文字。不要编造输入中没有依据的事实、时间、交付物或验收标准。",
     "先做信息充分性判断：如果关键信息不足，把 classification.confidence 设为 LOW，在 classification.missingInformation 与 openQuestions 中明确反问，tasks 可以为空数组 []。",
-    "若用户输入明显为寒暄、灌水、闲聊或与质量/研发任务规划无关（不是一条可拆解的任务背景），不得编造 tasks：须 confidence=LOW，tasks=[]，gateSelfCheck.passed=true 且 missingByTask=[]，并在 JSON 根层设置 clarificationUx 为字面量 NON_TASK（仅此分支使用）。domain 优先遵循 domainHint；若 domainHint 为 UNSPECIFIED 则默认 domain=QUALITY、subtype=QUALITY_OTHER_OR_UNCERTAIN，并在 rationale 写明「输入非结构化任务描述/非任务规划请求」。classification.missingInformation 列出拟拆解所需的要素（现象、范围、时限、证据等）。**应用不会在追问气泡里自动追加固定引导句**，须在 openQuestions 中写清缺口与如何发起任务描述；其中须有一条以「**本机器人**」为主语说明身份（示例：本机器人为钉钉内任务规划 Demo 助手，可协助将质量或研发背景拆解为带门禁自检的草案），面向用户一律用敬称「**您**」，并请「您」用一句完整任务背景重新发送（可附简短示例句式，勿虚构具体业务）。**禁止**含糊混用「我/你」指代对话双方（易误指用户）；**禁止**「你是机器人」等错误主语。",
+    "若用户输入明显为寒暄、灌水、闲聊或与质量/研发任务规划无关（不是一条可拆解的任务背景），不得编造 tasks：须 confidence=LOW，tasks=[]，gateSelfCheck.passed=true 且 missingByTask=[]，并在 JSON 根层设置 clarificationUx 为字面量 NON_TASK（仅此分支使用）。domain 优先遵循 domainHint；若 domainHint 为 UNSPECIFIED 则默认 domain=QUALITY、subtype=QUALITY_OTHER_OR_UNCERTAIN，并在 rationale 写明「输入非结构化任务描述/非任务规划请求」。classification.missingInformation 列出拟拆解所需的要素（现象、范围、时限、证据等）。**应用不会在追问气泡里自动追加固定引导句**，须在 openQuestions 中写清缺口与如何发起任务描述；其中须有一条以「**本机器人**」为主语说明身份（示例：本机器人为钉钉内任务规划 Demo 助手，可协助将质量或研发背景拆解为带门禁自检的草案），面向用户一律用敬称「**您**」，并请「您」用**一段**完整、可拆解的任务背景描述重新发送——**允许多句**，须覆盖现象/范围/时限/证据等要点，勿要求用户挤在单句内；可附简短示例，勿虚构具体业务。**禁止**以「关于你的问题」「关于您的问题」等套话起句；**禁止**含糊混用「我/你」指代对话双方；**禁止**「你是机器人」等错误主语。",
     "RD 域且明显非任务闲聊时同理：confidence=LOW、tasks=[]，subtype 可用 RD_OTHER_OR_UNCERTAIN，clarificationUx=NON_TASK，openQuestions 仍须上条的身份说明、「您」敬称及缺口描述，且不得输出 capaAdvisory。",
     "当 confidence=LOW 且为**真实任务背景但信息不足**（非上述寒暄/无关分支）时：不要设置 clarificationUx，或设置为 TASK_GAP；不得使用 NON_TASK。",
     "QUALITY 域：必须在 JSON 根层输出完整 capaAdvisory 对象，字段 advisory、rationale、disclaimer、promptingQuestions 缺一不可；即使信息不足也不得省略 capaAdvisory，可将 advisory 设为 INSUFFICIENT_INFO，并在 rationale/promptingQuestions 中说明缺口。",
