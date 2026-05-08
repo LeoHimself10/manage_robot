@@ -213,6 +213,7 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DEMO_DOMAIN_HINT` | 否 | `QUALITY` 或 `RD`，默认由模型判断 |
 | `HEALTH_CHECK_PORT` | 否 | 监听 HTTP `/health` |
 | `DINGTALK_STREAM_DEBUG` | 否 | `1` / `true` 打印 Stream SDK 调试日志 |
+| `DINGTALK_QUICK_ACK` | 否 | 默认开启：任务规划前先发一条「处理中」提示；`0`/`false` 关闭（仍非 token 流式） |
 
 **Demo 管线 / 运维（节选）**
 

@@ -22,9 +22,17 @@ import {
   readRateLimitWindowMs,
 } from "./infra/session-store";
 import { summarizePriorDemoForPrompt } from "./infra/session-digest";
+import { trySmallTalkReply } from "./infra/small-talk";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
+
+/** 主任务前先回一条简短提示（非 SSE；改善「长时间无响应」体感）。设为 0/false 可关。 */
+function readDingTalkQuickAck(): boolean {
+  const v = process.env.DINGTALK_QUICK_ACK?.trim().toLowerCase();
+  if (!v || v === "1" || v === "true" || v === "yes") return true;
+  return !(v === "0" || v === "false" || v === "no");
+}
 
 function parseDomainHint(raw: string | undefined): PlanDomain | undefined {
   if (!raw?.trim()) return undefined;
@@ -190,6 +198,35 @@ async function main(): Promise<void> {
               "**请求过于频繁。** 同一会话在短时间内仅处理一条任务规划，请稍后再发，避免重复消耗模型配额。",
           });
           return;
+        }
+
+        const smallTalk = trySmallTalkReply(background);
+        if (smallTalk) {
+          dingtalkResponse = await sendMarkdownReply({
+            client,
+            sessionWebhook: payload.sessionWebhook,
+            messageId,
+            senderStaffId: payload.senderStaffId,
+            title: smallTalk.title,
+            markdownText: smallTalk.markdownText,
+          });
+          return;
+        }
+
+        if (readDingTalkQuickAck()) {
+          try {
+            await sendMarkdownReply({
+              client,
+              sessionWebhook: payload.sessionWebhook,
+              messageId,
+              senderStaffId: payload.senderStaffId,
+              title: "处理中",
+              markdownText:
+                "已收到，正在调用模型生成 **任务拆解草案**（结构化 JSON），通常需要 **数十秒**。请无需重复发送；完成后会再推一条完整结果。",
+            });
+          } catch (ackErr) {
+            console.warn("[dingtalk-bot] quickAck send failed:", ackErr instanceof Error ? ackErr.message : ackErr);
+          }
         }
 
         const prior = chatSessionMemory.get(chatKey);
