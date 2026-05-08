@@ -12,7 +12,40 @@ export interface PlanDraftMarkdownInput {
   openQuestions: string[];
 }
 
-export function renderPlanDraftMarkdown(input: PlanDraftMarkdownInput): string {
+export interface PlanDraftMarkdownOptions {
+  /** user hides internal diagnostics; diagnostic preserves the original audit-oriented sections. */
+  audience?: "user" | "diagnostic";
+}
+
+export function renderPlanDraftMarkdown(
+  input: PlanDraftMarkdownInput,
+  options: PlanDraftMarkdownOptions = {}
+): string {
+  if (options.audience === "diagnostic") {
+    return renderDiagnosticPlanDraftMarkdown(input);
+  }
+
+  const sections = [
+    ["# 任务拆解草案", "_以下草案可继续回复「再细化」「调整截止时间」「补充风险」等要求进行修改。_"].join(
+      "\n\n"
+    ),
+    renderSummary(input.summary),
+  ];
+
+  if (input.capaAdvisory) {
+    sections.push(renderCapaAdvisory(input.capaAdvisory));
+  }
+
+  sections.push(
+    renderTaskTable(input.tasks, input.gate, { showGateFlags: false }),
+    renderDraftSupplements(input.gate),
+    renderOpenQuestions(input.openQuestions)
+  );
+
+  return sections.filter((s) => s.trim().length > 0).join("\n\n---\n\n");
+}
+
+function renderDiagnosticPlanDraftMarkdown(input: PlanDraftMarkdownInput): string {
   const sections = [
     ["# 任务拆解 Demo 草案", "_以下为摘要、分类、任务包、门禁与追问；章节之间用分隔线区分，便于阅读。_"].join(
       "\n\n"
@@ -26,7 +59,7 @@ export function renderPlanDraftMarkdown(input: PlanDraftMarkdownInput): string {
   }
 
   sections.push(
-    renderTaskTable(input.tasks, input.gate),
+    renderTaskTable(input.tasks, input.gate, { showGateFlags: true }),
     renderGate(input.gate),
     renderOpenQuestions(input.openQuestions)
   );
@@ -59,9 +92,15 @@ function renderCapaAdvisory(capaAdvisory: CapaAdvisory): string {
   ].join("\n");
 }
 
-function renderTaskTable(tasks: TaskPackage[], gate: LlmGateSelfCheck): string {
+function renderTaskTable(
+  tasks: TaskPackage[],
+  gate: LlmGateSelfCheck,
+  options: { showGateFlags: boolean }
+): string {
   const flagged = new Set(
-    gate.passed ? [] : gate.missingByTask.map((m) => m.taskId.trim())
+    options.showGateFlags && !gate.passed
+      ? gate.missingByTask.map((m) => m.taskId.trim())
+      : []
   );
   const rows = tasks.map((task) =>
     [
@@ -79,7 +118,7 @@ function renderTaskTable(tasks: TaskPackage[], gate: LlmGateSelfCheck): string {
   );
 
   return [
-    "## WBS 任务包",
+    "## 建议任务包",
     "| task ID | title | objective | deliverables | completion criteria | due date | feedback frequency | dependencies |",
     "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((row) => `| ${row} |`),
@@ -97,6 +136,20 @@ function renderGate(gate: LlmGateSelfCheck): string {
     ...gate.missingByTask.map(
       (task) =>
         `- ${task.taskId} ${task.title ?? ""} 缺失：${task.missingFields.join(", ")}`
+    ),
+  ].join("\n");
+}
+
+function renderDraftSupplements(gate: LlmGateSelfCheck): string {
+  if (gate.passed || gate.missingByTask.length === 0) {
+    return "";
+  }
+
+  return [
+    "## 草案待补充",
+    ...gate.missingByTask.map(
+      (task) =>
+        `- ${task.taskId} ${task.title ?? ""} 需补充：${task.missingFields.join(", ")}`
     ),
   ].join("\n");
 }

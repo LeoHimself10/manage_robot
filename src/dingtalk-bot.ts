@@ -31,6 +31,10 @@ import { formatNeedsMoreInfoDingTalkMarkdown } from "./dingtalk-needs-more-info-
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
 
+interface DingTalkDemoSessionContext {
+  priorDigest?: string;
+}
+
 function parseDomainHint(raw: string | undefined): PlanDomain | undefined {
   if (!raw?.trim()) return undefined;
   const u = raw.trim().toUpperCase();
@@ -161,7 +165,7 @@ async function main(): Promise<void> {
     debug,
   });
 
-  const chatSessionMemory = new MemoryChatSessionStore<{ priorDigest?: string }>();
+  const chatSessionMemory = new MemoryChatSessionStore<DingTalkDemoSessionContext>();
 
   client.registerCallbackListener(TOPIC_ROBOT, (res: DWClientDownStream) => {
     void (async () => {

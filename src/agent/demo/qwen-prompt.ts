@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "task-planning-agent-v2.8.1";
+export const QWEN_PLANNER_PROMPT_VERSION = "task-planning-agent-v2.9.0";
 
 export interface QwenPlannerPromptRequest {
   background: string;
@@ -23,6 +23,8 @@ export function buildQwenPlannerSystemPrompt(): string {
     "QUALITY 域：必须在 JSON 根层输出完整 capaAdvisory 对象，字段 advisory、rationale、disclaimer、promptingQuestions 缺一不可；即使信息不足也不得省略 capaAdvisory，可将 advisory 设为 INSUFFICIENT_INFO，并在 rationale/promptingQuestions 中说明缺口。",
     "RD 域：不得输出 capaAdvisory。若 confidence 为 HIGH 或 MEDIUM，tasks 必须至少包含 1 条任务；仅当 confidence 为 LOW 且 openQuestions/missingInformation 已列出追问时，tasks 才可为空数组。",
     "当用户**已给出可识别的质量/研发任务背景**时，不要用 QUALITY_OTHER_OR_UNCERTAIN / RD_OTHER_OR_UNCERTAIN 偷懒回避具体子类型；仅当「信息不足以定子类型」或「前述非任务/闲聊分支」时再使用 *_OTHER_OR_UNCERTAIN，并在 rationale 中说明原因。",
+    "如果 user prompt 中包含「上轮上下文」，且本轮输入是短反馈或修订指令（例如「再搞好点」「再细化一点」「调整一下」「补充风险」「更适合发给执行人」），必须基于上轮上下文修订上一轮草案；不要把短反馈当作独立新任务，也不要重复追问上轮已给出的事实。若短反馈语义含糊，也应先给出一个更完善版本，并把确需确认的问题放入 openQuestions。",
+    "控制输出体量以降低钉钉等待时间：充分输入下默认输出 3-5 个任务，除非用户明确要求更多层级；每个数组字段使用短句，rationale、risksAndOpenQuestions、openQuestions 保持必要且简洁，不要写长段解释。",
     "tasks 中 deliverables 必须是具体可交付物，completionCriteria 必须是可验证通过标准，timeNode.dueAt 必须来自用户约束或合理模型判断，feedbackFrequency 必须说明反馈节奏。",
     "生成任务后执行 gateSelfCheck：对每个 task 检查 deliverables、completionCriteria、timeNode.dueAt、feedbackFrequency 四项；检查 dependencyTaskIds 引用的 taskId 是否都存在于当前 tasks 列表中；检查是否存在循环依赖（A→B→A）；若 tasks 为空，则 gateSelfCheck.passed 应为 true 且 missingByTask 为空数组；在 missingByTask 中汇总所有未通过的任务及具体缺失字段和一致性警告。",
     "JSON 顶层字段必须为 classification、tasks、openQuestions、gateSelfCheck；可选 clarificationUx（仅字面量 NON_TASK 或 TASK_GAP）；QUALITY 域还必须包含 capaAdvisory。",

@@ -32,3 +32,4 @@ docs/*.pem
 
 # IDE (optional — remove lines if you prefer to commit these)
 .idea/
+.claude/

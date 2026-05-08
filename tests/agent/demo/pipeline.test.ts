@@ -89,7 +89,9 @@ describe("createTaskPlanningDemo", () => {
     expect(result.classification.domain).toBe("QUALITY");
     expect(result.capaAdvisory?.disclaimer).toContain("最终是否开启 CAPA");
     expect(result.gate?.passed).toBe(true);
-    expect(result.markdown).toContain("# 任务拆解 Demo 草案");
+    expect(result.markdown).toContain("# 任务拆解草案");
+    expect(result.markdown).not.toContain("## 派发门禁");
+    expect(result.markdown).not.toContain("状态：通过");
     expect(result.generation.trace?.requestId).toBe("test_trace");
     expect(result.generation.correctionUsed).toBe(false);
     expect(result.generation.traces).toHaveLength(1);

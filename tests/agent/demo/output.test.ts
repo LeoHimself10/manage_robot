@@ -90,6 +90,91 @@ describe("demo gate and markdown output", () => {
     expect(markdown).toContain("## CAPA 建议");
     expect(markdown).toContain("| task_1 | 问题事实确认 |");
     expect(markdown).toContain("dependencies");
+    expect(markdown).not.toContain("## 派发门禁");
+    expect(markdown).not.toContain("状态：通过");
+  });
+
+  it("renders gate gaps as draft supplements instead of internal gate wording", () => {
+    const markdown = renderPlanDraftMarkdown({
+      summary: "生产测试发现不良率升高。",
+      classification: {
+        domain: "QUALITY",
+        subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+        confidence: "HIGH",
+        rationale: ["生产异常"],
+        missingInformation: [],
+      },
+      tasks: [
+        {
+          id: "task_1",
+          title: "问题事实确认",
+          objective: "确认事实",
+          collaborators: [],
+          inputMaterials: ["生产记录"],
+          actions: ["确认事实"],
+          deliverables: [],
+          completionCriteria: ["范围清楚"],
+          timeNode: { checkpoints: ["T+0.5"], dueAt: "T+1" },
+          feedbackFrequency: "每日",
+          risksAndOpenQuestions: [],
+          dependencyTaskIds: [],
+        },
+      ],
+      gate: {
+        passed: false,
+        missingByTask: [
+          {
+            taskId: "task_1",
+            title: "问题事实确认",
+            missingFields: ["deliverables"],
+          },
+        ],
+      },
+      openQuestions: [],
+    });
+
+    expect(markdown).toContain("## 草案待补充");
+    expect(markdown).toContain("task_1 问题事实确认 需补充：deliverables");
+    expect(markdown).not.toContain("## 派发门禁");
+    expect(markdown).not.toContain("状态：未通过");
+  });
+
+  it("can render diagnostic markdown with internal gate details", () => {
+    const markdown = renderPlanDraftMarkdown(
+      {
+        summary: "生产测试发现不良率升高。",
+        classification: {
+          domain: "QUALITY",
+          subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+          confidence: "HIGH",
+          rationale: ["生产异常"],
+          missingInformation: [],
+        },
+        tasks: [
+          {
+            id: "task_1",
+            title: "问题事实确认",
+            objective: "确认事实",
+            collaborators: [],
+            inputMaterials: ["生产记录"],
+            actions: ["确认事实"],
+            deliverables: ["事实确认记录"],
+            completionCriteria: ["范围清楚"],
+            timeNode: { checkpoints: ["T+0.5"], dueAt: "T+1" },
+            feedbackFrequency: "每日",
+            risksAndOpenQuestions: [],
+            dependencyTaskIds: [],
+          },
+        ],
+        gate: { passed: true, missingByTask: [] },
+        openQuestions: [],
+      },
+      { audience: "diagnostic" }
+    );
+
+    expect(markdown).toContain("## 场景分类");
+    expect(markdown).toContain("## 派发门禁");
+    expect(markdown).toContain("状态：通过");
   });
 
   it("renders task dependencies in markdown", () => {
