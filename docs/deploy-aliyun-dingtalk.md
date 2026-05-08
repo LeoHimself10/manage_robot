@@ -222,6 +222,8 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DINGTALK_CLIENT_SECRET` | 是 | 钉钉应用 Client Secret |
 | `QWEN_*` | 否 | 模型、超时、重试等；**SSE 流式默认开**（`QWEN_STREAM=0` 关闭），见 `docs/Qwen-接入实施说明.md` |
 | `DEMO_DOMAIN_HINT` | 否 | `QUALITY` 或 `RD`，默认由模型判断 |
+| `DEMO_LLM_CORRECTION` | 否 | 默认开；`0`/`false`/`no` 关闭校验失败后的第二轮模型自纠正（更快，失败率可能升），见 `docs/Qwen-接入实施说明.md` |
+| `SESSION_DIGEST_MAX_CHARS` | 否 | 钉钉多轮时上轮摘要最大字符（默认 `2000`，范围 `200`–`8000`） |
 | `HEALTH_CHECK_PORT` | 否 | 监听 HTTP `/health` |
 | `DINGTALK_STREAM_DEBUG` | 否 | `1` / `true` 打印 Stream SDK 调试日志 |
 
@@ -251,6 +253,7 @@ npm run dingtalk-bot
 
 ## 四、运维与注意事项
 
+- **延迟优化**：主耗时在 DashScope；可在 `/etc/manage-robot.env` 调整 `QWEN_MODEL`、`QWEN_MAX_TOKENS`、`QWEN_MAX_RETRIES`，以及 `DEMO_LLM_CORRECTION` / `SESSION_DIGEST_MAX_CHARS`（见 **`docs/Qwen-接入实施说明.md`** 末节）。
 - **首token延迟**：单次拆解依赖大模型，可能数十秒；钉钉 Stream 侧若长时间未 `socketCallBackResponse` 可能触发重试，请勿对同一消息高频重复触发。
 - **回复长度**：机器人 reply 使用 Markdown，超长内容会在服务端截断并标注（见 `src/dingtalk-bot.ts` 常量）。
 - **合规**：CAPA 等字段仍为建议性质，与 PRD v1.3 一致；正式记录以公司 QMS 为准。

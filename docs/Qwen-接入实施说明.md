@@ -23,8 +23,22 @@
 - `QWEN_MAX_RETRIES`：默认 `1`
 - `QWEN_REQUEST_BUDGET_TOKENS`：默认 `12000`
 - **`QWEN_STREAM`**：默认为 **开启**（OpenAI 兼容 **SSE**，服务端拼装完整 `content` 后再 `JSON.parse`）。设为 **`0` / `false` / `no`** 时使用单次整包响应。钉钉机器人 **仅推送一条终稿 Markdown**，不在会话中发送「处理中」或流式进度类气泡（与 `QWEN_STREAM` 是否开启无关）。
+- **`DEMO_LLM_CORRECTION`**：默认**开启**（未设置或 `1` / `true` / `yes`）。设为 **`0` / `false` / `no`** 时，`createTaskPlanningDemo` **不进行**校验失败后的第二轮自纠正（`enableLlmCorrection: false`），可缩短尾延迟，但 Schema 一次不过则直接 `GENERATION_FAILED`。钉钉与 CLI（`demo` / `demo:eval` / `demo:scenarios`）均读取该变量。实现见 `src/infra/demo-runtime-env.ts`。
+- **`SESSION_DIGEST_MAX_CHARS`**：钉钉多轮会话里，上轮摘要注入 Qwen user prompt 的**最大字符数**（默认 `2000`，有效范围 `200`–`8000`；非法或未解析的数字回退默认）。仅影响**同会话第二轮及以后**的 prompt 体积，对首条消息无影响。
 
 本地可将变量写在项目根目录 `**.env`**，CLI 已 `import "dotenv/config"` 自动加载。可参考 `.env.example`。
+
+### 2.1 降低回复延迟（运维侧）
+
+端到端时间主要由 **DashScope 单次生成**决定。在不改提示词的前提下可组合：
+
+- 在控制台选用账号内 **偏延时/吞吐的模型**（通过 `QWEN_MODEL` 指定；需在目标环境做回归）。
+- 在输出不被截断的前提下**略降** `QWEN_MAX_TOKENS`（例如 1800–2200），观察是否出现 JSON 截断。
+- **`QWEN_MAX_RETRIES=0`**：只做一次 HTTP 请求，少退避等待；网络偶发错误时失败率可能上升。
+- **`DEMO_LLM_CORRECTION=0`**：取消第二轮自纠正（见上文）。
+- **`SESSION_DIGEST_MAX_CHARS`**：缩短多轮摘要，略减后续轮次的 prompt tokens。
+
+对比效果时可查看 `DemoGenerationMetadata.timings.plannerMs` 与容器日志中的结构化事件。
 
 > 注意：空字符串环境变量会按“未设置”处理，避免 `QWEN_MODEL=` 覆盖默认模型导致 DashScope 返回 `you must provide a model parameter`。
 

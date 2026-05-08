@@ -2,6 +2,7 @@ import "dotenv/config";
 
 import { createTaskPlanningDemo } from "../src/agent/demo/pipeline";
 import { loadQwenPlannerConfigFromEnv, runQwenPlanner } from "../src/agent/demo/qwen-planner";
+import { readDemoLlmCorrectionEnabled } from "../src/infra/demo-runtime-env";
 
 interface Scenario {
   id: string;
@@ -103,6 +104,8 @@ async function main(): Promise<void> {
     throw new Error("missing Qwen config from env");
   }
 
+  const enableLlmCorrection = readDemoLlmCorrectionEnabled();
+
   const tallies = {
     DRAFT_READY: 0,
     NEEDS_MORE_INFO: 0,
@@ -117,6 +120,7 @@ async function main(): Promise<void> {
       },
       {
         llmPlanner: (request) => runQwenPlanner(request, config),
+        enableLlmCorrection,
       }
     );
 

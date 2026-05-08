@@ -21,6 +21,10 @@ import {
   MemoryChatSessionStore,
   readRateLimitWindowMs,
 } from "./infra/session-store";
+import {
+  readDemoLlmCorrectionEnabled,
+  readSessionDigestMaxChars,
+} from "./infra/demo-runtime-env";
 import { summarizePriorDemoForPrompt } from "./infra/session-digest";
 import { formatNeedsMoreInfoDingTalkMarkdown } from "./dingtalk-needs-more-info-markdown";
 
@@ -142,6 +146,8 @@ async function main(): Promise<void> {
   }
 
   const domainHint = parseDomainHint(process.env.DEMO_DOMAIN_HINT);
+  const enableLlmCorrection = readDemoLlmCorrectionEnabled();
+  const sessionDigestMaxChars = readSessionDigestMaxChars();
   const debug = process.env.DINGTALK_STREAM_DEBUG === "1" || process.env.DINGTALK_STREAM_DEBUG === "true";
 
   const healthPort = Number(process.env.HEALTH_CHECK_PORT ?? "");
@@ -204,11 +210,13 @@ async function main(): Promise<void> {
           },
           {
             llmPlanner: (request) => runQwenPlanner(request, qwenConfig),
+            enableLlmCorrection,
           }
         );
 
         const nextDigest =
-          summarizePriorDemoForPrompt(demoResult) ?? prior?.priorDigest;
+          summarizePriorDemoForPrompt(demoResult, sessionDigestMaxChars) ??
+          prior?.priorDigest;
         chatSessionMemory.set(chatKey, {
           priorDigest: nextDigest,
         });
