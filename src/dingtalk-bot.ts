@@ -50,8 +50,8 @@ function formatDemoReply(result: TaskPlanningDemoResult): {
   markdownText: string;
 } {
   if (result.status === "NEEDS_MORE_INFO") {
-    const lines = ["**需要补充信息后再生成拆解：**", ...result.questions.map((q) => `- ${q}`)];
-    return { title: "待补充信息", markdownText: lines.join("\n") };
+    const markdownText = result.questions.map((q) => `- ${q}`).join("\n");
+    return { title: "待补充信息", markdownText };
   }
   if (result.status === "GENERATION_FAILED") {
     const lines = [
