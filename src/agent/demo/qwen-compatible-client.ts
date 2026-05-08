@@ -1,4 +1,5 @@
 import { PlanDomain } from "../harness/types";
+import type { LlmCorrectionContext } from "./llm-types";
 import { LlmPlanPayload, InferenceTrace, TokenUsage } from "./llm-types";
 import {
   buildQwenPlannerSystemPrompt,
@@ -18,6 +19,8 @@ export interface QwenCompatibleClientConfig {
 export interface GenerateStructuredPlanRequest {
   background: string;
   domainHint?: PlanDomain;
+  traceId?: string;
+  correction?: LlmCorrectionContext;
 }
 
 export interface GenerateStructuredPlanResult {
@@ -59,6 +62,7 @@ export class QwenCompatibleClient {
           payload,
           rawContent: content,
           trace: {
+            traceId: request.traceId,
             requestId: response.id ?? `req_${Date.now()}`,
             model: response.model ?? this.config.model,
             tokenUsage: toTokenUsage(response),
@@ -70,6 +74,7 @@ export class QwenCompatibleClient {
         if (attempt === this.config.maxRetries) {
           break;
         }
+        await sleepWithJitter(attempt);
       }
     }
 
@@ -149,4 +154,14 @@ function toTokenUsage(response: ChatCompletionResponse): TokenUsage {
     completionTokens: response.usage?.completion_tokens ?? 0,
     totalTokens: response.usage?.total_tokens ?? 0,
   };
+}
+
+export function sleepWithJitter(
+  attempt: number,
+  baseMs = 200,
+  capMs = 5000
+): Promise<void> {
+  const exponential = Math.min(capMs, baseMs * Math.pow(2, attempt));
+  const jittered = exponential * (0.75 + Math.random() * 0.5);
+  return new Promise((resolve) => setTimeout(resolve, jittered));
 }

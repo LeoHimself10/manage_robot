@@ -10,6 +10,8 @@ export interface TokenUsage {
 }
 
 export interface InferenceTrace {
+  /** Pipeline-generated correlation id (optional) */
+  traceId?: string;
   requestId: string;
   model: string;
   tokenUsage: TokenUsage;
@@ -25,6 +27,7 @@ export interface LlmPlanPayload {
   gateSelfCheck?: LlmGateSelfCheck;
 }
 
+/** @deprecated Use LlmPlannerResponse from planner; kept for older call sites if any */
 export interface LlmPlanResult {
   classification: ClassificationResult;
   capaAdvisory?: CapaAdvisory;
@@ -34,9 +37,22 @@ export interface LlmPlanResult {
   trace?: InferenceTrace;
 }
 
+export interface LlmCorrectionContext {
+  previousRawJson: string;
+  validationErrors: string[];
+}
+
 export interface LlmPlannerRequest {
   background: string;
   domainHint?: PlanDomain;
+  traceId?: string;
+  correction?: LlmCorrectionContext;
+}
+
+/** Thin planner output: parsed JSON from the model (single parse), not yet schema-coerced */
+export interface LlmPlannerResponse {
+  rawJson: unknown;
+  trace: InferenceTrace;
 }
 
 export interface LlmGateSelfCheck {

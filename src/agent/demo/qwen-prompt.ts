@@ -1,10 +1,13 @@
 import { PlanDomain } from "../harness/types";
+import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "task-planning-agent-v2.1";
+export const QWEN_PLANNER_PROMPT_VERSION = "task-planning-agent-v2.3";
 
 export interface QwenPlannerPromptRequest {
   background: string;
   domainHint?: PlanDomain;
+  traceId?: string;
+  correction?: LlmCorrectionContext;
 }
 
 export function buildQwenPlannerSystemPrompt(): string {
@@ -20,6 +23,11 @@ export function buildQwenPlannerSystemPrompt(): string {
     "生成任务后执行 gateSelfCheck：对每个 task 检查 deliverables、completionCriteria、timeNode.dueAt、feedbackFrequency 四项；若 tasks 为空，则 gateSelfCheck.passed 应为 true 且 missingByTask 为空数组。",
     "JSON 顶层字段必须为 classification、tasks、openQuestions、gateSelfCheck；QUALITY 域还必须包含 capaAdvisory。",
     "classification 必须是对象：{domain, subtype, confidence, rationale, missingInformation}。",
+    "classification.domain 只能是 QUALITY 或 RD（全大写）。",
+    "classification.subtype 必须与 domain 匹配，且只能是下列字面量之一（完全照抄，全大写+下划线，无空格）：",
+    "  - domain=QUALITY 时 subtype ∈ PRODUCTION_PROCESS_ABNORMALITY | INSPECTION_OR_TEST_ABNORMALITY | CUSTOMER_COMPLAINT_OR_FIELD_ISSUE | SUPPLIER_ISSUE | DESIGN_RELATED_QUALITY_TASK | QUALITY_OTHER_OR_UNCERTAIN",
+    "  - domain=RD 时 subtype ∈ REQUIREMENT_OR_DESIGN_INPUT | SOLUTION_DEVELOPMENT | VERIFICATION_AND_VALIDATION | DESIGN_CHANGE_ACTION | RD_OTHER_OR_UNCERTAIN",
+    "禁止自造新的 subtype 字符串；拿不准时用对应域的 *_OTHER_OR_UNCERTAIN。",
     "tasks 必须是数组，元素字段：id,title,objective,collaborators,inputMaterials,actions,deliverables,completionCriteria,timeNode,feedbackFrequency,risksAndOpenQuestions,dependencyTaskIds。",
     "timeNode 字段必须包含 checkpoints 和 dueAt。gateSelfCheck.missingByTask 元素必须包含 taskId、title、missingFields。",
   ].join("\n");
@@ -28,9 +36,32 @@ export function buildQwenPlannerSystemPrompt(): string {
 export function buildQwenPlannerUserPrompt(
   request: QwenPlannerPromptRequest
 ): string {
-  return [
-    `domainHint: ${request.domainHint ?? "UNSPECIFIED"}`,
+  const lines: string[] = [];
+  if (request.traceId) {
+    lines.push(`traceId: ${request.traceId}`);
+  }
+  lines.push(`domainHint: ${request.domainHint ?? "UNSPECIFIED"}`);
+  lines.push(
     "请基于以下背景生成结构化任务拆解；若信息不足，请先反问，不要强行生成空洞计划：",
-    request.background,
-  ].join("\n");
+    request.background
+  );
+
+  if (request.correction) {
+    lines.push(
+      "",
+      "你上一次的 JSON 输出存在以下结构验证问题，请修正后重新输出完整 JSON：",
+      "",
+      "## 结构验证错误",
+      ...request.correction.validationErrors.map((e) => `- ${e}`),
+      "",
+      "## 上一次的输出",
+      "```json",
+      request.correction.previousRawJson,
+      "```",
+      "",
+      "请只修正上述结构问题，保持其他内容不变。不要改变已有的正确字段值。"
+    );
+  }
+
+  return lines.join("\n");
 }

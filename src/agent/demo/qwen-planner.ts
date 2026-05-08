@@ -1,13 +1,7 @@
-import { CapaAdvisory, CAPA_DISCLAIMER } from "../../domain/capa";
-import {
-  coerceLlmPlanPayload,
-  needsMoreInfoFromLlmPayload,
-  validateLlmPlanPayload,
-} from "./llm-schema";
 import { normalizeModelPolicy } from "./model-policy";
 import {
   LlmPlannerRequest,
-  LlmPlanResult,
+  LlmPlannerResponse,
   InferenceTrace,
   TokenUsage,
 } from "./llm-types";
@@ -21,33 +15,20 @@ export interface QwenPlannerConfig extends QwenCompatibleClientConfig {}
 export async function runQwenPlanner(
   request: LlmPlannerRequest,
   config: QwenPlannerConfig
-): Promise<LlmPlanResult> {
+): Promise<LlmPlannerResponse> {
   const client = new QwenCompatibleClient(config);
-  const response = await client.generateStructuredPlan(request);
-  const payload = coerceLlmPlanPayload(response.payload, {
-    domainHint: request.domainHint,
+  const response = await client.generateStructuredPlan({
     background: request.background,
+    domainHint: request.domainHint,
+    traceId: request.traceId,
+    correction: request.correction,
   });
-
-  const validation = validateLlmPlanPayload(payload, {
-    allowEmptyTasks: needsMoreInfoFromLlmPayload(payload),
-  });
-  if (!validation.valid) {
-    throw new Error(`Qwen payload schema validation failed: ${validation.errors.join("; ")}`);
-  }
-
-  const capaAdvisory =
-    payload.classification.domain === "QUALITY"
-      ? ensureCapaDisclaimer(payload.capaAdvisory!)
-      : undefined;
-
   return {
-    classification: payload.classification,
-    capaAdvisory,
-    tasks: payload.tasks,
-    openQuestions: payload.openQuestions,
-    gateSelfCheck: payload.gateSelfCheck,
-    trace: response.trace,
+    rawJson: response.payload,
+    trace: {
+      ...response.trace,
+      traceId: request.traceId ?? response.trace.traceId,
+    },
   };
 }
 
@@ -61,7 +42,7 @@ export function loadQwenPlannerConfigFromEnv():
     model: readNonEmptyEnv("QWEN_MODEL"),
     temperature: readNumberEnv("QWEN_TEMPERATURE", 0.2),
     maxTokens: readNumberEnv("QWEN_MAX_TOKENS", 2500),
-    timeoutMs: readNumberEnv("QWEN_TIMEOUT_MS", 20000),
+    timeoutMs: readNumberEnv("QWEN_TIMEOUT_MS", 60000),
     maxRetries: readNumberEnv("QWEN_MAX_RETRIES", 1),
     requestBudgetTokens: readNumberEnv("QWEN_REQUEST_BUDGET_TOKENS", 12000),
   });
@@ -92,8 +73,12 @@ function readNumberEnv(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function buildFallbackTrace(error: unknown): InferenceTrace {
+export function buildFallbackTrace(
+  error: unknown,
+  traceId?: string
+): InferenceTrace {
   return {
+    traceId,
     requestId: `error_${Date.now()}`,
     model: process.env.QWEN_MODEL ?? "qwen-plus",
     tokenUsage: zeroTokenUsage(),
@@ -107,12 +92,5 @@ function zeroTokenUsage(): TokenUsage {
     promptTokens: 0,
     completionTokens: 0,
     totalTokens: 0,
-  };
-}
-
-function ensureCapaDisclaimer(capaAdvisory: CapaAdvisory): CapaAdvisory {
-  return {
-    ...capaAdvisory,
-    disclaimer: capaAdvisory.disclaimer.trim() || CAPA_DISCLAIMER,
   };
 }

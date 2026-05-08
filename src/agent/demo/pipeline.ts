@@ -1,4 +1,7 @@
-import { CapaAdvisory } from "../../domain/capa";
+import { randomUUID } from "node:crypto";
+
+import type { CapaAdvisory } from "../../domain/capa";
+import { CAPA_DISCLAIMER } from "../../domain/capa";
 import { ClassificationResult } from "../../domain/classification";
 import { TaskPackage } from "../../domain/task-package";
 import { PlanDomain } from "../harness/types";
@@ -9,7 +12,12 @@ import {
   needsMoreInfoFromLlmPayload,
   validateLlmPlanPayload,
 } from "./llm-schema";
-import { InferenceTrace, LlmPlanResult, LlmPlannerRequest } from "./llm-types";
+import {
+  InferenceTrace,
+  LlmPlanPayload,
+  LlmPlannerRequest,
+  LlmPlannerResponse,
+} from "./llm-types";
 import { renderPlanDraftMarkdown } from "./markdown-renderer";
 import { buildFallbackTrace } from "./qwen-planner";
 
@@ -19,11 +27,17 @@ export interface TaskPlanningDemoRequest {
 }
 
 export interface TaskPlanningDemoOptions {
-  llmPlanner: (request: LlmPlannerRequest) => Promise<LlmPlanResult>;
+  llmPlanner: (request: LlmPlannerRequest) => Promise<LlmPlannerResponse>;
+  /**
+   * When true (default), after a failed structural validation the pipeline calls the planner
+   * once more with validation errors and the previous JSON for self-correction.
+   */
+  enableLlmCorrection?: boolean;
 }
 
 export interface DemoGenerationMetadata {
   trace?: InferenceTrace;
+  correctionUsed?: boolean;
 }
 
 const LLM_FAILURE_RECOVERY_SUGGESTIONS = [
@@ -72,11 +86,25 @@ export type TaskPlanningDemoResult =
       generation: DemoGenerationMetadata;
     };
 
+function ensureCapaDisclaimer(
+  capaAdvisory: CapaAdvisory | undefined
+): CapaAdvisory | undefined {
+  if (!capaAdvisory) return undefined;
+  const disclaimer =
+    typeof capaAdvisory.disclaimer === "string" &&
+    capaAdvisory.disclaimer.trim().length > 0
+      ? capaAdvisory.disclaimer
+      : CAPA_DISCLAIMER;
+  return { ...capaAdvisory, disclaimer };
+}
+
 export async function createTaskPlanningDemo(
   request: TaskPlanningDemoRequest,
   options: TaskPlanningDemoOptions
 ): Promise<TaskPlanningDemoResult> {
   const inputQuality = checkInputQuality(request);
+  const traceId = randomUUID();
+  const correctionEnabled = options.enableLlmCorrection !== false;
 
   if (!inputQuality.canGenerateWbs) {
     return {
@@ -96,36 +124,72 @@ export async function createTaskPlanningDemo(
   }
 
   try {
-    const llmRaw = await options.llmPlanner({
+    let plannerResponse = await options.llmPlanner({
       background: request.background,
       domainHint: request.domainHint,
+      traceId,
     });
-    const llmResult = coerceLlmPlanPayload(llmRaw, {
-      domainHint: request.domainHint,
-      background: request.background,
-    });
-    const classification = llmResult.classification;
-    const capaAdvisory =
-      classification.domain === "QUALITY" ? llmResult.capaAdvisory : undefined;
+    let correctionUsed = false;
+    let activeTrace: InferenceTrace = {
+      ...plannerResponse.trace,
+      traceId,
+    };
 
-    if (needsMoreInfoFromLlmPayload(llmResult)) {
+    const runValidate = (normalized: LlmPlanPayload) => {
+      const needsMoreInfo = needsMoreInfoFromLlmPayload(normalized);
+      const validation = validateLlmPlanPayload(normalized, {
+        allowEmptyTasks: needsMoreInfo,
+      });
+      return { needsMoreInfo, validation };
+    };
+
+    let normalized = coerceLlmPlanPayload(plannerResponse.rawJson);
+    let { needsMoreInfo, validation } = runValidate(normalized);
+
+    if (!validation.valid && correctionEnabled) {
+      correctionUsed = true;
+      plannerResponse = await options.llmPlanner({
+        background: request.background,
+        domainHint: request.domainHint,
+        traceId,
+        correction: {
+          previousRawJson: stringifyForCorrection(plannerResponse.rawJson),
+          validationErrors: validation.errors,
+        },
+      });
+      activeTrace = { ...plannerResponse.trace, traceId };
+      normalized = coerceLlmPlanPayload(plannerResponse.rawJson);
+      ({ needsMoreInfo, validation } = runValidate(normalized));
+    }
+
+    if (!validation.valid) {
+      return {
+        status: "GENERATION_FAILED",
+        reason: validation.errors.join("; "),
+        recoverySuggestions: [...LLM_FAILURE_RECOVERY_SUGGESTIONS],
+        trace: activeTrace,
+        missingFields: inputQuality.missingFields,
+      };
+    }
+
+    const classification = normalized.classification;
+    let capaAdvisory =
+      classification.domain === "QUALITY" ? normalized.capaAdvisory : undefined;
+    capaAdvisory = ensureCapaDisclaimer(capaAdvisory);
+
+    if (needsMoreInfo) {
       return {
         status: "NEEDS_MORE_INFO",
-        questions: llmResult.openQuestions,
+        questions: normalized.openQuestions,
         missingFields: classification.missingInformation,
       };
     }
 
-    const validation = validateLlmPlanPayload(llmResult);
-    if (!validation.valid) {
-      throw new Error(validation.errors.join("; "));
-    }
-
-    const tasks = llmResult.tasks;
-    const openQuestions = [...llmResult.openQuestions];
+    const tasks = normalized.tasks;
+    const openQuestions = [...normalized.openQuestions];
 
     const gate = validateDemoGate(tasks);
-    validateGateSelfCheckConsistency(llmResult.gateSelfCheck, gate);
+    validateGateSelfCheckConsistency(normalized.gateSelfCheck, gate);
     const mergedOpenQuestions = uniq([
       ...inputQuality.questions,
       ...classification.missingInformation,
@@ -151,7 +215,8 @@ export async function createTaskPlanningDemo(
       gate,
       markdown,
       generation: {
-        trace: llmRaw.trace,
+        trace: activeTrace,
+        correctionUsed,
       },
     };
   } catch (error) {
@@ -159,9 +224,17 @@ export async function createTaskPlanningDemo(
       status: "GENERATION_FAILED",
       reason: error instanceof Error ? error.message : "unknown_error",
       recoverySuggestions: [...LLM_FAILURE_RECOVERY_SUGGESTIONS],
-      trace: buildFallbackTrace(error),
+      trace: buildFallbackTrace(error, traceId),
       missingFields: inputQuality.missingFields,
     };
+  }
+}
+
+function stringifyForCorrection(rawJson: unknown): string {
+  try {
+    return JSON.stringify(rawJson, null, 2);
+  } catch {
+    return String(rawJson);
   }
 }
 
@@ -170,7 +243,7 @@ function uniq(items: string[]): string[] {
 }
 
 function validateGateSelfCheckConsistency(
-  selfCheck: ReturnType<typeof coerceLlmPlanPayload>["gateSelfCheck"],
+  selfCheck: LlmPlanPayload["gateSelfCheck"],
   gate: DemoGateResult
 ): void {
   if (!selfCheck) return;

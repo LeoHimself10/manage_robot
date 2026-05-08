@@ -5,15 +5,16 @@ import {
 } from "../../../src/agent/demo/pipeline";
 import {
   minimalQualityTask,
+  qualityLlmPlannerResponse,
   qualityLlmResult,
-  rdAmbiguousLlmResult,
-  rdVvLlmResult,
+  rdAmbiguousLlmPlannerResponse,
+  rdVvLlmPlannerResponse,
 } from "./llm-fixtures";
 
 describe("createTaskPlanningDemo", () => {
   it("returns clarifying questions from LLM when input is too thin", async () => {
     const llmPlanner = vi.fn(async () =>
-      qualityLlmResult({
+      qualityLlmPlannerResponse({
         classification: {
           domain: "QUALITY",
           subtype: "QUALITY_OTHER_OR_UNCERTAIN",
@@ -48,7 +49,7 @@ describe("createTaskPlanningDemo", () => {
           "生产测试发现 A 产品 2026-05-01 批次开机自检失败率升高，目前影响 20 台，已有测试记录和不良照片，要求两天内完成初步分析。",
         domainHint: "QUALITY",
       },
-      { llmPlanner: async () => qualityLlmResult() }
+      { llmPlanner: async () => qualityLlmPlannerResponse() }
     );
 
     expect(result.status).toBe("DRAFT_READY");
@@ -58,6 +59,7 @@ describe("createTaskPlanningDemo", () => {
     expect(result.gate?.passed).toBe(true);
     expect(result.markdown).toContain("# 任务拆解 Demo 草案");
     expect(result.generation.trace?.requestId).toBe("test_trace");
+    expect(result.generation.correctionUsed).toBe(false);
   });
 
   it("preserves RD hints from LLM output", async () => {
@@ -67,7 +69,7 @@ describe("createTaskPlanningDemo", () => {
           "研发任务：B 设备启动失败，影响 3 台样机，已有实验记录和截图，需要本周完成初步整理。",
         domainHint: "RD",
       },
-      { llmPlanner: async () => rdAmbiguousLlmResult() }
+      { llmPlanner: async () => rdAmbiguousLlmPlannerResponse() }
     );
 
     expect(result.status).toBe("DRAFT_READY");
@@ -84,7 +86,7 @@ describe("createTaskPlanningDemo", () => {
           "研发任务：制定 B 设备 V&V 验证方案，覆盖需求、风险、样本量、测试方法和通过准则，计划本周完成评审材料。",
         domainHint: "RD",
       },
-      { llmPlanner: async () => rdVvLlmResult() }
+      { llmPlanner: async () => rdVvLlmPlannerResponse() }
     );
 
     expect(result.status).toBe("DRAFT_READY");
@@ -102,7 +104,7 @@ describe("createTaskPlanningDemo", () => {
           "生产测试发现 A 产品 2026-05-01 批次开机自检失败率升高，目前影响 20 台，已有测试记录和不良照片，要求两天内完成初步分析。",
         domainHint: "QUALITY",
       },
-      { llmPlanner: async () => qualityLlmResult() }
+      { llmPlanner: async () => qualityLlmPlannerResponse() }
     );
 
     expect(result.status).toBe("DRAFT_READY");
@@ -120,37 +122,39 @@ describe("createTaskPlanningDemo", () => {
       },
       {
         llmPlanner: async () => ({
-          classification: {
-            domain: "QUALITY",
-            subtype: "PRODUCTION_PROCESS_ABNORMALITY",
-            confidence: "HIGH",
-            rationale: ["命中生产异常关键词"],
-            missingInformation: [],
-          },
-          capaAdvisory: {
-            advisory: "UNCERTAIN",
-            rationale: ["仍需补充重复发生信息"],
-            disclaimer:
-              "该建议仅用于任务拆解与质量沟通参考，最终是否开启 CAPA 以质量授权人员和公司 QMS 流程判定为准。",
-            promptingQuestions: ["是否存在重复发生？"],
-          },
-          tasks: [
-            {
-              id: "task_1",
-              title: "问题事实确认",
-              objective: "确认问题事实",
-              collaborators: [],
-              inputMaterials: ["生产记录"],
-              actions: ["收集证据"],
-              deliverables: ["问题确认记录"],
-              completionCriteria: ["事实明确"],
-              timeNode: { checkpoints: ["完成事实确认"], dueAt: "T+1 工作日" },
-              feedbackFrequency: "每日反馈",
-              risksAndOpenQuestions: [],
-              dependencyTaskIds: [],
+          rawJson: {
+            classification: {
+              domain: "QUALITY",
+              subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+              confidence: "HIGH",
+              rationale: ["命中生产异常关键词"],
+              missingInformation: [],
             },
-          ],
-          openQuestions: ["是否存在重复发生？"],
+            capaAdvisory: {
+              advisory: "UNCERTAIN",
+              rationale: ["仍需补充重复发生信息"],
+              disclaimer:
+                "该建议仅用于任务拆解与质量沟通参考，最终是否开启 CAPA 以质量授权人员和公司 QMS 流程判定为准。",
+              promptingQuestions: ["是否存在重复发生？"],
+            },
+            tasks: [
+              {
+                id: "task_1",
+                title: "问题事实确认",
+                objective: "确认问题事实",
+                collaborators: [],
+                inputMaterials: ["生产记录"],
+                actions: ["收集证据"],
+                deliverables: ["问题确认记录"],
+                completionCriteria: ["事实明确"],
+                timeNode: { checkpoints: ["完成事实确认"], dueAt: "T+1 工作日" },
+                feedbackFrequency: "每日反馈",
+                risksAndOpenQuestions: [],
+                dependencyTaskIds: [],
+              },
+            ],
+            openQuestions: ["是否存在重复发生？"],
+          },
           trace: {
             requestId: "trace_001",
             model: "qwen-plus",
@@ -166,26 +170,46 @@ describe("createTaskPlanningDemo", () => {
     expect(result.generation.trace?.requestId).toBe("trace_001");
   });
 
-  it("fails when llm payload is invalid (no rule fallback)", async () => {
+  it("fails when llm payload is invalid and retries once with correction by default", async () => {
+    const invalidRaw = {
+      classification: {
+        domain: "QUALITY",
+        subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+        confidence: "HIGH",
+        rationale: [],
+        missingInformation: [],
+      },
+      capaAdvisory: qualityLlmResult().capaAdvisory,
+      tasks: [],
+      openQuestions: [],
+    };
+    const llmPlanner = vi.fn(async () => ({
+      rawJson: invalidRaw,
+      trace: {
+        requestId: "first_try",
+        model: "qwen-plus",
+        tokenUsage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+      },
+    }));
+
     const result = await createTaskPlanningDemo(
       {
         background:
           "生产测试发现 A 产品 2026-05-01 批次开机自检失败率升高，目前影响 20 台，已有测试记录和不良照片，要求两天内完成初步分析。",
         domainHint: "QUALITY",
       },
-      {
-        llmPlanner: async () => ({
-          classification: {
-            domain: "QUALITY",
-            subtype: "PRODUCTION_PROCESS_ABNORMALITY",
-            confidence: "HIGH",
-            rationale: [],
-            missingInformation: [],
-          },
-          tasks: [],
-          openQuestions: [],
+      { llmPlanner }
+    );
+
+    expect(llmPlanner).toHaveBeenCalledTimes(2);
+    expect(llmPlanner).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        correction: expect.objectContaining({
+          validationErrors: expect.arrayContaining(["tasks must contain at least one task"]),
         }),
-      }
+      })
     );
 
     expect(result.status).toBe("GENERATION_FAILED");
@@ -193,6 +217,41 @@ describe("createTaskPlanningDemo", () => {
     expect(result.reason).toContain("tasks must contain at least one task");
     expect(result.recoverySuggestions.length).toBeGreaterThan(0);
     expect(result.markdown).toBeUndefined();
+  });
+
+  it("skips correction when enableLlmCorrection is false", async () => {
+    const llmPlanner = vi.fn(async () => ({
+      rawJson: {
+        classification: {
+          domain: "QUALITY",
+          subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+          confidence: "HIGH",
+          rationale: [],
+          missingInformation: [],
+        },
+        capaAdvisory: qualityLlmResult().capaAdvisory,
+        tasks: [],
+        openQuestions: [],
+      },
+      trace: {
+        requestId: "once",
+        model: "qwen-plus",
+        tokenUsage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+      },
+    }));
+
+    const result = await createTaskPlanningDemo(
+      {
+        background:
+          "生产测试发现 A 产品 2026-05-01 批次开机自检失败率升高，目前影响 20 台，已有测试记录和不良照片，要求两天内完成初步分析。",
+        domainHint: "QUALITY",
+      },
+      { llmPlanner, enableLlmCorrection: false }
+    );
+
+    expect(llmPlanner).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("GENERATION_FAILED");
   });
 
   it("keeps LLM drafts with missing gate fields visible as blocked drafts", async () => {
@@ -204,7 +263,7 @@ describe("createTaskPlanningDemo", () => {
       },
       {
         llmPlanner: async () =>
-          qualityLlmResult({
+          qualityLlmPlannerResponse({
             tasks: [
               minimalQualityTask({
                 deliverables: [],

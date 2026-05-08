@@ -1,6 +1,6 @@
 import { CAPA_DISCLAIMER } from "../../../src/domain/capa";
 import { TaskPackage } from "../../../src/domain/task-package";
-import { LlmPlanResult } from "../../../src/agent/demo/llm-types";
+import type { InferenceTrace, LlmPlanResult, LlmPlannerResponse } from "../../../src/agent/demo/llm-types";
 
 export function minimalQualityTask(overrides: Partial<TaskPackage> = {}): TaskPackage {
   return {
@@ -49,6 +49,25 @@ export function qualityLlmResult(
   };
 }
 
+/** Wraps the same payload shape as {@link qualityLlmResult} for thin-planner / pipeline mocks. */
+export function qualityLlmPlannerResponse(
+  payloadOverrides: Partial<LlmPlanResult> = {},
+  traceOverrides: Partial<InferenceTrace> = {}
+): LlmPlannerResponse {
+  const base = qualityLlmResult(payloadOverrides);
+  const { trace, ...payload } = base;
+  return {
+    rawJson: payload,
+    trace: { ...(trace as InferenceTrace), ...traceOverrides },
+  };
+}
+
+export function rdVvLlmPlannerResponse(): LlmPlannerResponse {
+  const base = rdVvLlmResult();
+  const { trace, ...payload } = base;
+  return { rawJson: payload, trace: trace as InferenceTrace };
+}
+
 export function rdVvLlmResult(): LlmPlanResult {
   return {
     classification: {
@@ -82,6 +101,12 @@ export function rdVvLlmResult(): LlmPlanResult {
       latencyMs: 1,
     },
   };
+}
+
+export function rdAmbiguousLlmPlannerResponse(): LlmPlannerResponse {
+  const base = rdAmbiguousLlmResult();
+  const { trace, ...payload } = base;
+  return { rawJson: payload, trace: trace as InferenceTrace };
 }
 
 export function rdAmbiguousLlmResult(): LlmPlanResult {

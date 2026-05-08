@@ -54,6 +54,53 @@ const subtypeValues = new Set<TaskSubtype>([
   "RD_OTHER_OR_UNCERTAIN",
 ]);
 
+/** Subtypes allowed when classification.domain is QUALITY */
+const qualitySubtypeSet = new Set<string>([
+  "PRODUCTION_PROCESS_ABNORMALITY",
+  "INSPECTION_OR_TEST_ABNORMALITY",
+  "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE",
+  "SUPPLIER_ISSUE",
+  "DESIGN_RELATED_QUALITY_TASK",
+  "QUALITY_OTHER_OR_UNCERTAIN",
+]);
+
+/** Subtypes allowed when classification.domain is RD */
+const rdSubtypeSet = new Set<string>([
+  "REQUIREMENT_OR_DESIGN_INPUT",
+  "SOLUTION_DEVELOPMENT",
+  "VERIFICATION_AND_VALIDATION",
+  "DESIGN_CHANGE_ACTION",
+  "RD_OTHER_OR_UNCERTAIN",
+]);
+
+/**
+ * Common model variants / typos → canonical TaskSubtype (still validated + domain-checked).
+ */
+const SUBTYPE_ALIASES: Record<string, TaskSubtype> = {
+  V_AND_V: "VERIFICATION_AND_VALIDATION",
+  VV: "VERIFICATION_AND_VALIDATION",
+  V_V: "VERIFICATION_AND_VALIDATION",
+  VERIFICATION_VALIDATION: "VERIFICATION_AND_VALIDATION",
+  VNV: "VERIFICATION_AND_VALIDATION",
+  REQUIREMENT_INPUT: "REQUIREMENT_OR_DESIGN_INPUT",
+  DESIGN_REQUIREMENT: "REQUIREMENT_OR_DESIGN_INPUT",
+  REQ_DESIGN_INPUT: "REQUIREMENT_OR_DESIGN_INPUT",
+  SOLUTION_DEV: "SOLUTION_DEVELOPMENT",
+  SOFTWARE_DEVELOPMENT: "SOLUTION_DEVELOPMENT",
+  ECN: "DESIGN_CHANGE_ACTION",
+  ENGINEERING_CHANGE: "DESIGN_CHANGE_ACTION",
+  DESIGN_CHANGE: "DESIGN_CHANGE_ACTION",
+  CHANGE_CONTROL: "DESIGN_CHANGE_ACTION",
+  PRODUCTION_ABNORMALITY: "PRODUCTION_PROCESS_ABNORMALITY",
+  MANUFACTURING_ABNORMALITY: "PRODUCTION_PROCESS_ABNORMALITY",
+  CUSTOMER_COMPLAINT: "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE",
+  FIELD_ISSUE: "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE",
+  SUPPLIER: "SUPPLIER_ISSUE",
+  IQC_ABNORMALITY: "INSPECTION_OR_TEST_ABNORMALITY",
+  IPQC_ABNORMALITY: "INSPECTION_OR_TEST_ABNORMALITY",
+  OQC_ABNORMALITY: "INSPECTION_OR_TEST_ABNORMALITY",
+};
+
 export function validateLlmPlanPayload(
   payload: unknown,
   options?: ValidateLlmPlanPayloadOptions
@@ -129,15 +176,9 @@ export function validateLlmPlanPayload(
   return { valid: errors.length === 0, errors };
 }
 
-export function coerceLlmPlanPayload(
-  payload: unknown,
-  context?: {
-    domainHint?: PlanDomain;
-    background?: string;
-  }
-): LlmPlanPayload {
+export function coerceLlmPlanPayload(payload: unknown): LlmPlanPayload {
   const candidate = payload as Record<string, unknown>;
-  const classification = normalizeClassification(candidate, context);
+  const classification = normalizeClassification(candidate);
   const openQuestions = normalizeStringArray(candidate.openQuestions);
   const capaAdvisory =
     classification.domain === "QUALITY"
@@ -258,82 +299,112 @@ function isNonEmptyString(input: unknown): input is string {
 }
 
 function normalizeClassification(
-  candidate: Record<string, unknown>,
-  context?: { domainHint?: PlanDomain; background?: string }
+  candidate: Record<string, unknown>
 ): LlmPlanPayload["classification"] {
   const value = candidate.classification;
-  if (value && typeof value === "object") {
-    const raw = value as Record<string, unknown>;
-    const domain = normalizeDomain(raw.domain, context?.domainHint);
-    const subtype = normalizeSubtype(raw.subtype, domain, context?.background ?? "");
-    const confidence = normalizeConfidence(raw.confidence);
-    const rationale = normalizeStringArray(raw.rationale);
-    const missingInformation = normalizeStringArray(raw.missingInformation);
+  if (!value || typeof value !== "object") {
     return {
-      domain,
-      subtype,
-      confidence,
-      rationale:
-        rationale.length > 0
-          ? rationale
-          : ["模型返回分类缺少判断依据，已使用兼容默认值补全。"],
-      missingInformation,
+      domain: "" as PlanDomain,
+      subtype: "" as TaskSubtype,
+      confidence: "" as ClassificationConfidence,
+      rationale: [],
+      missingInformation: [],
     };
   }
-
-  const domain: PlanDomain = normalizeDomain(value, context?.domainHint);
-
-  const subtype = inferSubtype(domain, context?.background ?? "");
+  const raw = value as Record<string, unknown>;
+  const domain = normalizeDomain(raw.domain);
   return {
     domain,
-    subtype,
-    confidence: "MEDIUM",
-    rationale: ["模型返回了简化分类结构，已按兼容策略补全。"],
-    missingInformation: [],
+    subtype: normalizeSubtype(raw.subtype, domain),
+    confidence: normalizeConfidence(raw.confidence),
+    rationale: normalizeStringArray(raw.rationale),
+    missingInformation: normalizeStringArray(raw.missingInformation),
   };
 }
 
-function inferSubtype(domain: PlanDomain, background: string): TaskSubtype {
-  if (domain === "RD") {
-    if (/V&V|验证|确认|样本量|通过准则/.test(background)) {
-      return "VERIFICATION_AND_VALIDATION";
-    }
-    if (/变更|ECN/.test(background)) {
-      return "DESIGN_CHANGE_ACTION";
-    }
-    return "RD_OTHER_OR_UNCERTAIN";
-  }
-
-  if (/客诉|客户|现场|售后/.test(background)) {
-    return "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE";
-  }
-  if (/检验|测试/.test(background)) {
-    return "INSPECTION_OR_TEST_ABNORMALITY";
-  }
-  return "PRODUCTION_PROCESS_ABNORMALITY";
-}
-
-function normalizeDomain(input: unknown, fallback?: PlanDomain): PlanDomain {
+function normalizeDomain(input: unknown): PlanDomain {
   const normalized = asString(input).toUpperCase();
   if (normalized === "RD") return "RD";
   if (normalized === "QUALITY") return "QUALITY";
-  return fallback === "RD" ? "RD" : "QUALITY";
+  return normalized as PlanDomain;
 }
 
-function normalizeSubtype(
-  input: unknown,
-  domain: PlanDomain,
-  background: string
-): TaskSubtype {
-  const normalized = asString(input).toUpperCase() as TaskSubtype;
-  if (subtypeValues.has(normalized)) return normalized;
-  return inferSubtype(domain, background);
+function normalizeSubtypeKey(input: unknown): string {
+  const raw = asString(input);
+  if (!raw) return "";
+  return raw
+    .toUpperCase()
+    .replace(/&/g, "AND")
+    .replace(/[\s./-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function ensureSubtypeForDomain(subtype: TaskSubtype, domain: PlanDomain): TaskSubtype {
+  if (!domainValues.has(domain)) {
+    return "QUALITY_OTHER_OR_UNCERTAIN";
+  }
+  if (domain === "QUALITY" && qualitySubtypeSet.has(subtype)) return subtype;
+  if (domain === "RD" && rdSubtypeSet.has(subtype)) return subtype;
+  if (domain === "QUALITY") return "QUALITY_OTHER_OR_UNCERTAIN";
+  return "RD_OTHER_OR_UNCERTAIN";
+}
+
+function inferSubtypeFromFuzzyKey(key: string): TaskSubtype | undefined {
+  if (!key) return undefined;
+  if (key.includes("VERIFICATION") && key.includes("VALIDATION")) {
+    return "VERIFICATION_AND_VALIDATION";
+  }
+  if (key.includes("SOLUTION") && key.includes("DEVELOPMENT")) {
+    return "SOLUTION_DEVELOPMENT";
+  }
+  if (key.includes("REQUIREMENT") && key.includes("DESIGN")) {
+    return "REQUIREMENT_OR_DESIGN_INPUT";
+  }
+  if (key.includes("DESIGN") && key.includes("CHANGE")) {
+    return "DESIGN_CHANGE_ACTION";
+  }
+  if (key.includes("CUSTOMER") || key.includes("COMPLAINT") || key.includes("FIELD")) {
+    return "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE";
+  }
+  if (key.includes("PRODUCTION") || key.includes("MANUFACTURING")) {
+    return "PRODUCTION_PROCESS_ABNORMALITY";
+  }
+  if (key.includes("SUPPLIER")) {
+    return "SUPPLIER_ISSUE";
+  }
+  if (
+    key.includes("INSPECTION") ||
+    key.includes("IPQC") ||
+    key.includes("OQC") ||
+    key.includes("IQC")
+  ) {
+    return "INSPECTION_OR_TEST_ABNORMALITY";
+  }
+  return undefined;
+}
+
+function normalizeSubtype(input: unknown, domain: PlanDomain): TaskSubtype {
+  const key = normalizeSubtypeKey(input);
+  const fromAlias = key ? SUBTYPE_ALIASES[key] : undefined;
+  if (fromAlias) {
+    return ensureSubtypeForDomain(fromAlias, domain);
+  }
+  if (key && subtypeValues.has(key as TaskSubtype)) {
+    return ensureSubtypeForDomain(key as TaskSubtype, domain);
+  }
+  const fuzzy = key ? inferSubtypeFromFuzzyKey(key) : undefined;
+  if (fuzzy) {
+    return ensureSubtypeForDomain(fuzzy, domain);
+  }
+  if (domain === "RD") return "RD_OTHER_OR_UNCERTAIN";
+  return "QUALITY_OTHER_OR_UNCERTAIN";
 }
 
 function normalizeConfidence(input: unknown): ClassificationConfidence {
   const normalized = asString(input).toUpperCase() as ClassificationConfidence;
   if (classificationConfidenceValues.has(normalized)) return normalized;
-  return "MEDIUM";
+  return normalized as ClassificationConfidence;
 }
 
 function normalizeTasks(input: unknown): TaskPackage[] {
@@ -348,9 +419,6 @@ function normalizeTask(input: unknown, index: number): TaskPackage | null {
   if (!input || typeof input !== "object") return null;
   const candidate = input as Record<string, unknown>;
   const timeNode = candidate.timeNode as Record<string, unknown> | undefined;
-  const description = asString(candidate.description);
-  const title = asString(candidate.title) || shortText(description) || `任务 ${index + 1}`;
-  const objective = asString(candidate.objective) || description || title;
   const dueAt =
     asString(timeNode?.dueAt) ||
     asString(candidate.deadline) ||
@@ -361,9 +429,9 @@ function normalizeTask(input: unknown, index: number): TaskPackage | null {
   const owner = asString(candidate.owner);
 
   return {
-    id: asString(candidate.id) || `task_${index + 1}`,
-    title,
-    objective,
+    id: asString(candidate.id),
+    title: asString(candidate.title),
+    objective: asString(candidate.objective),
     collaborators: owner ? [owner] : [],
     inputMaterials: normalizeStringArray(candidate.inputMaterials),
     actions: normalizeStringArray(candidate.actions),
@@ -468,9 +536,4 @@ function normalizeStringArray(input: unknown): string[] {
 
 function asString(input: unknown): string {
   return typeof input === "string" ? input.trim() : "";
-}
-
-function shortText(text: string): string {
-  if (!text) return "";
-  return text.length <= 24 ? text : `${text.slice(0, 24)}...`;
 }

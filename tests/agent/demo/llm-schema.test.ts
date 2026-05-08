@@ -137,36 +137,46 @@ describe("validateLlmPlanPayload", () => {
     expect(result.errors.some((e) => e.includes("RD"))).toBe(true);
   });
 
-  it("keeps missing semantic task fields visible after normalization", () => {
-    const normalized = coerceLlmPlanPayload(
-      {
-        classification: "QUALITY",
-        capaAdvisory: {
-          advisory: "UNCERTAIN",
-          rationale: ["x"],
-          disclaimer: CAPA_DISCLAIMER,
-          promptingQuestions: [],
-        },
-        tasks: [
-          {
-            id: "T1",
-            description: "收集测试记录",
-            owner: "QE",
-            deadline: "24h",
-            dependencies: [],
-          },
-        ],
-        openQuestions: ["是否重复发生？"],
+  it("maps deadline and dependencies aliases without inferring titles from description", () => {
+    const normalized = coerceLlmPlanPayload({
+      classification: {
+        domain: "QUALITY",
+        subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+        confidence: "HIGH",
+        rationale: ["x"],
+        missingInformation: [],
       },
-      {
-        domainHint: "QUALITY",
-        background: "生产测试异常",
-      }
-    );
+      capaAdvisory: {
+        advisory: "UNCERTAIN",
+        rationale: ["x"],
+        disclaimer: CAPA_DISCLAIMER,
+        promptingQuestions: [],
+      },
+      tasks: [
+        {
+          id: "T1",
+          title: "收集测试记录",
+          objective: "完成记录收集",
+          owner: "QE",
+          deadline: "24h",
+          dependencies: [],
+          collaborators: [],
+          inputMaterials: ["记录"],
+          actions: ["收集"],
+          deliverables: [],
+          completionCriteria: [],
+          timeNode: { checkpoints: [], dueAt: "" },
+          feedbackFrequency: "",
+          risksAndOpenQuestions: [],
+          dependencyTaskIds: [],
+        },
+      ],
+      openQuestions: ["是否重复发生？"],
+    });
 
     const validation = validateLlmPlanPayload(normalized);
     expect(validation.valid).toBe(true);
-    expect(normalized.tasks[0].title.length).toBeGreaterThan(0);
+    expect(normalized.tasks[0].title).toBe("收集测试记录");
     expect(normalized.tasks[0].deliverables).toEqual([]);
     expect(normalized.tasks[0].completionCriteria).toEqual([]);
     expect(normalized.tasks[0].timeNode.dueAt).toBe("24h");
@@ -206,8 +216,7 @@ describe("validateLlmPlanPayload", () => {
           },
         ],
         openQuestions: [],
-      },
-      { domainHint: "QUALITY", background: "测试" }
+      }
     );
 
     expect(normalized.capaAdvisory?.advisory).toBe("RECOMMENDED");
@@ -271,33 +280,38 @@ describe("validateLlmPlanPayload", () => {
   });
 
   it("normalizes lowercase classification fields from qwen output", () => {
-    const normalized = coerceLlmPlanPayload(
-      {
-        classification: {
-          domain: "quality",
-          subtype: "production_process_abnormality",
-          confidence: "high",
-          rationale: "命中生产异常",
-        },
-        capaAdvisory: {
-          advisory: "UNCERTAIN",
-          rationale: ["x"],
-          disclaimer: CAPA_DISCLAIMER,
-          promptingQuestions: [],
-        },
-        tasks: [
-          {
-            id: "T1",
-            description: "收集测试记录",
-          },
-        ],
-        openQuestions: [],
+    const normalized = coerceLlmPlanPayload({
+      classification: {
+        domain: "quality",
+        subtype: "production_process_abnormality",
+        confidence: "high",
+        rationale: "命中生产异常",
+        missingInformation: [],
       },
-      {
-        domainHint: "QUALITY",
-        background: "生产测试异常",
-      }
-    );
+      capaAdvisory: {
+        advisory: "UNCERTAIN",
+        rationale: ["x"],
+        disclaimer: CAPA_DISCLAIMER,
+        promptingQuestions: [],
+      },
+      tasks: [
+        {
+          id: "T1",
+          title: "收集测试记录",
+          objective: "收集",
+          collaborators: [],
+          inputMaterials: ["i"],
+          actions: ["a"],
+          deliverables: ["d"],
+          completionCriteria: ["c"],
+          timeNode: { checkpoints: ["g"], dueAt: "T+1" },
+          feedbackFrequency: "每日",
+          risksAndOpenQuestions: [],
+          dependencyTaskIds: [],
+        },
+      ],
+      openQuestions: [],
+    });
 
     expect(normalized.classification.domain).toBe("QUALITY");
     expect(normalized.classification.subtype).toBe(
@@ -305,5 +319,85 @@ describe("validateLlmPlanPayload", () => {
     );
     expect(normalized.classification.confidence).toBe("HIGH");
     expect(normalized.classification.rationale.length).toBeGreaterThan(0);
+    expect(validateLlmPlanPayload(normalized).valid).toBe(true);
+  });
+});
+
+const minimalRdTask = {
+  id: "task_1",
+  title: "t",
+  objective: "o",
+  collaborators: [],
+  inputMaterials: ["i"],
+  actions: ["a"],
+  deliverables: ["d"],
+  completionCriteria: ["c"],
+  timeNode: { checkpoints: ["g"], dueAt: "T+1" },
+  feedbackFrequency: "每日",
+  risksAndOpenQuestions: [],
+  dependencyTaskIds: [],
+};
+
+describe("coerceLlmPlanPayload subtype normalization", () => {
+  it("maps VERIFICATION_VALIDATION typo to VERIFICATION_AND_VALIDATION for RD", () => {
+    const normalized = coerceLlmPlanPayload({
+      classification: {
+        domain: "RD",
+        subtype: "VERIFICATION_VALIDATION",
+        confidence: "HIGH",
+        rationale: ["x"],
+        missingInformation: [],
+      },
+      tasks: [minimalRdTask],
+      openQuestions: [],
+    });
+
+    expect(normalized.classification.subtype).toBe("VERIFICATION_AND_VALIDATION");
+    expect(validateLlmPlanPayload(normalized).valid).toBe(true);
+  });
+
+  it("remaps RD-specific subtype to QUALITY_OTHER_OR_UNCERTAIN when domain is QUALITY", () => {
+    const normalized = coerceLlmPlanPayload({
+      classification: {
+        domain: "QUALITY",
+        subtype: "SOLUTION_DEVELOPMENT",
+        confidence: "HIGH",
+        rationale: ["x"],
+        missingInformation: [],
+      },
+      capaAdvisory: {
+        advisory: "UNCERTAIN",
+        rationale: ["x"],
+        disclaimer: CAPA_DISCLAIMER,
+        promptingQuestions: [],
+      },
+      tasks: [
+        {
+          ...minimalRdTask,
+          id: "q1",
+        },
+      ],
+      openQuestions: [],
+    });
+
+    expect(normalized.classification.subtype).toBe("QUALITY_OTHER_OR_UNCERTAIN");
+    expect(validateLlmPlanPayload(normalized).valid).toBe(true);
+  });
+
+  it("remaps QUALITY-specific subtype to RD_OTHER_OR_UNCERTAIN when domain is RD", () => {
+    const normalized = coerceLlmPlanPayload({
+      classification: {
+        domain: "RD",
+        subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+        confidence: "HIGH",
+        rationale: ["x"],
+        missingInformation: [],
+      },
+      tasks: [minimalRdTask],
+      openQuestions: [],
+    });
+
+    expect(normalized.classification.subtype).toBe("RD_OTHER_OR_UNCERTAIN");
+    expect(validateLlmPlanPayload(normalized).valid).toBe(true);
   });
 });

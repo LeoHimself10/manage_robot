@@ -1,5 +1,6 @@
 import "dotenv/config";
 
+import { coerceLlmPlanPayload } from "../src/agent/demo/llm-schema";
 import { loadQwenPlannerConfigFromEnv, runQwenPlanner } from "../src/agent/demo/qwen-planner";
 
 async function main(): Promise<void> {
@@ -17,9 +18,10 @@ async function main(): Promise<void> {
       },
       cfg
     );
+    const coerced = coerceLlmPlanPayload(result.rawJson);
     console.log("ok", {
       model: result.trace?.model,
-      taskCount: result.tasks.length,
+      taskCount: coerced.tasks.length,
       tokenUsage: result.trace?.tokenUsage,
     });
   } catch (error) {

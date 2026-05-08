@@ -30,6 +30,6 @@ describe("loadQwenPlannerConfigFromEnv", () => {
 
     const config = loadQwenPlannerConfigFromEnv();
 
-    expect(config?.timeoutMs).toBe(20000);
+    expect(config?.timeoutMs).toBe(60000);
   });
 });

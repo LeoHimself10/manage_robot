@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   QwenCompatibleClient,
   parseAssistantJsonPayload,
+  sleepWithJitter,
 } from "../../../src/agent/demo/qwen-compatible-client";
 
 describe("parseAssistantJsonPayload", () => {
@@ -65,8 +66,51 @@ describe("QwenCompatibleClient", () => {
     expect(requestBody.messages[0].content).toContain("gateSelfCheck");
     expect(requestBody.messages[0].content).toContain("不要编造");
     expect(result.trace.requestId).toBe("req_001");
+    expect(result.trace.traceId).toBeUndefined();
     expect(result.trace.tokenUsage.totalTokens).toBe(150);
     expect(result.payload.tasks).toHaveLength(1);
+  });
+
+  it("propagates traceId into trace metadata", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: "req_tid",
+        model: "qwen-plus",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content:
+                '{"classification":{"domain":"QUALITY","subtype":"PRODUCTION_PROCESS_ABNORMALITY","confidence":"HIGH","rationale":["x"],"missingInformation":[]},"capaAdvisory":{"advisory":"UNCERTAIN","rationale":["x"],"disclaimer":"d","promptingQuestions":[]},"tasks":[{"id":"task_1","title":"a","objective":"b","collaborators":[],"inputMaterials":["c"],"actions":["d"],"deliverables":["e"],"completionCriteria":["f"],"timeNode":{"checkpoints":["g"],"dueAt":"T+1"},"feedbackFrequency":"每日反馈","risksAndOpenQuestions":[],"dependencyTaskIds":[]}],"openQuestions":[]}',
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0.2,
+      maxTokens: 2048,
+    });
+    const result = await client.generateStructuredPlan({
+      background: "x",
+      domainHint: "QUALITY",
+      traceId: "trace-demo-1",
+    });
+
+    expect(result.trace.traceId).toBe("trace-demo-1");
+    const userContent = JSON.parse(fetchMock.mock.calls[0][1].body as string)
+      .messages[1].content as string;
+    expect(userContent).toContain("trace-demo-1");
   });
 
   it("retries on transient failure and succeeds", async () => {
@@ -119,5 +163,40 @@ describe("QwenCompatibleClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.trace.requestId).toBe("req_retry");
     expect(result.payload.classification.domain).toBe("RD");
+  });
+
+  it("does not retry when maxRetries is 0", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0.2,
+      maxTokens: 2048,
+    });
+
+    await expect(
+      client.generateStructuredPlan({ background: "x", domainHint: "RD" })
+    ).rejects.toThrow();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sleepWithJitter", () => {
+  it("resolves after a bounded delay (used between HTTP retries)", async () => {
+    vi.useFakeTimers();
+    const p = sleepWithJitter(0, 1000, 10_000);
+    await vi.advanceTimersByTimeAsync(3000);
+    await p;
+    vi.useRealTimers();
   });
 });
