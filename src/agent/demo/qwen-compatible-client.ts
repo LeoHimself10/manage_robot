@@ -14,6 +14,8 @@ export interface QwenCompatibleClientConfig {
   maxRetries: number;
   temperature: number;
   maxTokens: number;
+  /** OpenAI-compatible SSE；拼满 assistant content 后再 JSON.parse，钉钉侧仍单次终稿（方案 A） */
+  stream?: boolean;
 }
 
 export interface GenerateStructuredPlanRequest {
@@ -39,11 +41,18 @@ interface ChatCompletionResponse {
     total_tokens?: number;
   };
   choices?: Array<{
-    finish_reason?: string;
+    finish_reason?: string | null;
     message?: {
       content?: string;
     };
   }>;
+}
+
+interface SseAssembledResponse {
+  content: string;
+  id?: string;
+  model?: string;
+  usage?: ChatCompletionResponse["usage"];
 }
 
 export class QwenCompatibleClient {
@@ -84,6 +93,34 @@ export class QwenCompatibleClient {
       : new Error("Qwen request failed after retries");
   }
 
+  private buildChatCompletionPayload(
+    request: GenerateStructuredPlanRequest
+  ): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+      model: this.config.model,
+      temperature: this.config.temperature,
+      max_tokens: this.config.maxTokens,
+      response_format: {
+        type: "json_object",
+      },
+      messages: [
+        {
+          role: "system",
+          content: buildQwenPlannerSystemPrompt(),
+        },
+        {
+          role: "user",
+          content: buildQwenPlannerUserPrompt(request),
+        },
+      ],
+    };
+    if (this.config.stream) {
+      body.stream = true;
+      body.stream_options = { include_usage: true };
+    }
+    return body;
+  }
+
   private async callChatCompletions(
     request: GenerateStructuredPlanRequest
   ): Promise<ChatCompletionResponse> {
@@ -97,24 +134,7 @@ export class QwenCompatibleClient {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.config.apiKey}`,
         },
-        body: JSON.stringify({
-          model: this.config.model,
-          temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens,
-          response_format: {
-            type: "json_object",
-          },
-          messages: [
-            {
-              role: "system",
-              content: buildQwenPlannerSystemPrompt(),
-            },
-            {
-              role: "user",
-              content: buildQwenPlannerUserPrompt(request),
-            },
-          ],
-        }),
+        body: JSON.stringify(this.buildChatCompletionPayload(request)),
         signal: controller.signal,
       });
 
@@ -123,11 +143,99 @@ export class QwenCompatibleClient {
         const detail = errorBody ? `: ${truncateErrorBody(errorBody)}` : "";
         throw new Error(`Qwen API failed: ${response.status}${detail}`);
       }
+
+      if (this.config.stream) {
+        if (!response.body) {
+          throw new Error("Qwen stream response has no body");
+        }
+        const assembled = await readSseChatCompletionStream(response.body);
+        return sseAssembledToChatResponse(assembled);
+      }
+
       return (await response.json()) as ChatCompletionResponse;
     } finally {
       clearTimeout(timer);
     }
   }
+}
+
+/** 供单测拼装假 SSE；与流式读取逻辑共用解析规则 */
+export function assembleSseTextForTest(sseText: string): SseAssembledResponse {
+  const acc = emptySseAssembly();
+  for (const raw of sseText.split(/\r?\n/)) {
+    const line = raw.replace(/\r$/, "").trim();
+    if (!line.startsWith("data:")) continue;
+    ingestSseDataLine(line.slice(5).trim(), acc);
+  }
+  return acc;
+}
+
+function emptySseAssembly(): SseAssembledResponse {
+  return { content: "" };
+}
+
+function ingestSseDataLine(dataPayload: string, acc: SseAssembledResponse): void {
+  if (dataPayload === "[DONE]") return;
+  try {
+    const json = JSON.parse(dataPayload) as {
+      id?: string;
+      model?: string;
+      usage?: ChatCompletionResponse["usage"];
+      choices?: Array<{ delta?: { content?: string } }>;
+    };
+    if (json.id) acc.id = json.id;
+    if (json.model) acc.model = json.model;
+    if (json.usage) acc.usage = json.usage;
+    const piece = json.choices?.[0]?.delta?.content;
+    if (piece) acc.content += piece;
+  } catch {
+    /* 忽略单行损坏 */
+  }
+}
+
+async function readSseChatCompletionStream(
+  body: ReadableStream<Uint8Array>
+): Promise<SseAssembledResponse> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  const acc = emptySseAssembly();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      for (;;) {
+        const i = buf.indexOf("\n");
+        if (i < 0) break;
+        const line = buf.slice(0, i).replace(/\r$/, "").trim();
+        buf = buf.slice(i + 1);
+        if (!line.startsWith("data:")) continue;
+        ingestSseDataLine(line.slice(5).trim(), acc);
+      }
+    }
+    const tail = buf.replace(/\r$/, "").trim();
+    if (tail.startsWith("data:")) {
+      ingestSseDataLine(tail.slice(5).trim(), acc);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return acc;
+}
+
+function sseAssembledToChatResponse(a: SseAssembledResponse): ChatCompletionResponse {
+  return {
+    id: a.id,
+    model: a.model,
+    usage: a.usage,
+    choices: [
+      {
+        finish_reason: "stop",
+        message: { content: a.content },
+      },
+    ],
+  };
 }
 
 function truncateErrorBody(body: string): string {

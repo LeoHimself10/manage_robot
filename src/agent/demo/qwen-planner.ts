@@ -59,7 +59,15 @@ export function loadQwenPlannerConfigFromEnv():
     maxRetries: policy.maxRetries,
     temperature: policy.temperature,
     maxTokens: cappedMaxTokens,
+    stream: readTruthyEnv("QWEN_STREAM"),
   };
+}
+
+/** true when QWEN_STREAM is 1/true/yes（默认 false） */
+function readTruthyEnv(name: string): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return false;
+  return value === "1" || value === "true" || value === "yes";
 }
 
 function readNonEmptyEnv(name: string): string | undefined {

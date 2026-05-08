@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   QwenCompatibleClient,
+  assembleSseTextForTest,
   parseAssistantJsonPayload,
   sleepWithJitter,
 } from "../../../src/agent/demo/qwen-compatible-client";
+
+const SAMPLE_QUALITY_JSON =
+  '{"classification":{"domain":"QUALITY","subtype":"PRODUCTION_PROCESS_ABNORMALITY","confidence":"HIGH","rationale":["x"],"missingInformation":[]},"capaAdvisory":{"advisory":"UNCERTAIN","rationale":["x"],"disclaimer":"d","promptingQuestions":[]},"tasks":[{"id":"task_1","title":"a","objective":"b","collaborators":[],"inputMaterials":["c"],"actions":["d"],"deliverables":["e"],"completionCriteria":["f"],"timeNode":{"checkpoints":["g"],"dueAt":"T+1"},"feedbackFrequency":"每日反馈","risksAndOpenQuestions":[],"dependencyTaskIds":[]}],"openQuestions":[],"gateSelfCheck":{"passed":true,"missingByTask":[]}}';
 
 describe("parseAssistantJsonPayload", () => {
   it("parses fenced json content", () => {
@@ -65,7 +69,7 @@ describe("QwenCompatibleClient", () => {
     expect(requestBody.messages[0].content).toContain("信息充分性");
     expect(requestBody.messages[0].content).toContain("gateSelfCheck");
     expect(requestBody.messages[0].content).toContain("不要编造");
-    expect(requestBody.messages[0].content).toContain("v2.4");
+    expect(requestBody.messages[0].content).toContain("v2.5");
     expect(result.trace.requestId).toBe("req_001");
     expect(result.trace.traceId).toBeUndefined();
     expect(result.trace.tokenUsage.totalTokens).toBe(150);
@@ -189,6 +193,62 @@ describe("QwenCompatibleClient", () => {
     ).rejects.toThrow();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("assembles SSE chunks into structured plan when stream=true", async () => {
+    const chunk1Obj = {
+      id: "req_sse",
+      model: "qwen-plus",
+      choices: [{ delta: { content: SAMPLE_QUALITY_JSON.slice(0, 70) } }],
+    };
+    const chunk2Obj = {
+      choices: [{ delta: { content: SAMPLE_QUALITY_JSON.slice(70) } }],
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 20,
+        total_tokens: 30,
+      },
+    };
+    const sseText = `data: ${JSON.stringify(chunk1Obj)}\n\ndata: ${JSON.stringify(chunk2Obj)}\n\ndata: [DONE]\n`;
+    expect(assembleSseTextForTest(sseText).content).toBe(SAMPLE_QUALITY_JSON);
+
+    const sseStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(sseText));
+        controller.close();
+      },
+    });
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: sseStream,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0.2,
+      maxTokens: 2048,
+      stream: true,
+    });
+
+    const result = await client.generateStructuredPlan({
+      background: "x",
+      domainHint: "QUALITY",
+    });
+
+    const parsedBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(parsedBody.stream).toBe(true);
+    expect(parsedBody.stream_options).toEqual({ include_usage: true });
+
+    expect(result.trace.requestId).toBe("req_sse");
+    expect(result.trace.tokenUsage.totalTokens).toBe(30);
+    expect(result.payload.tasks).toHaveLength(1);
   });
 });
 

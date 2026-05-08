@@ -21,7 +21,17 @@ describe("loadQwenPlannerConfigFromEnv", () => {
       model: "qwen-plus",
       baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       maxTokens: 2500,
+      stream: false,
     });
+  });
+
+  it("enables SSE when QWEN_STREAM=1", () => {
+    process.env.QWEN_API_KEY = "test-key";
+    process.env.QWEN_STREAM = "1";
+
+    const config = loadQwenPlannerConfigFromEnv();
+
+    expect(config?.stream).toBe(true);
   });
 
   it("falls back for invalid numeric optional env vars", () => {
