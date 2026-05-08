@@ -10,8 +10,40 @@ import {
   rdAmbiguousLlmPlannerResponse,
   rdVvLlmPlannerResponse,
 } from "./llm-fixtures";
+import { CAPA_DISCLAIMER } from "../../../src/domain/capa";
 
 describe("createTaskPlanningDemo", () => {
+  it("returns clarificationUx NON_TASK when LLM marks greeting path", async () => {
+    const llmPlanner = vi.fn(async () =>
+      qualityLlmPlannerResponse({
+        clarificationUx: "NON_TASK",
+        classification: {
+          domain: "QUALITY",
+          subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+          confidence: "LOW",
+          rationale: ["输入非任务描述"],
+          missingInformation: [],
+        },
+        tasks: [],
+        openQuestions: ["我是任务规划 Demo 机器人，可直接发场景与背景描述。"],
+        capaAdvisory: {
+          advisory: "INSUFFICIENT_INFO",
+          rationale: ["无质量任务要素"],
+          disclaimer: CAPA_DISCLAIMER,
+          promptingQuestions: [],
+        },
+      })
+    );
+    const result = await createTaskPlanningDemo(
+      { background: "hi", domainHint: "QUALITY" },
+      { llmPlanner }
+    );
+    expect(result.status).toBe("NEEDS_MORE_INFO");
+    if (result.status !== "NEEDS_MORE_INFO") throw new Error("expected NEEDS_MORE_INFO");
+    expect(result.clarificationUx).toBe("NON_TASK");
+    expect(result.questions).toEqual(["我是任务规划 Demo 机器人，可直接发场景与背景描述。"]);
+  });
+
   it("returns clarifying questions from LLM when input is too thin", async () => {
     const llmPlanner = vi.fn(async () =>
       qualityLlmPlannerResponse({

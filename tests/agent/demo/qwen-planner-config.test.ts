@@ -25,13 +25,13 @@ describe("loadQwenPlannerConfigFromEnv", () => {
     });
   });
 
-  it("enables SSE when QWEN_STREAM=1", () => {
+  it("loads config with stream always false（规划链路固定非流式，忽略 QWEN_STREAM）", () => {
     process.env.QWEN_API_KEY = "test-key";
     process.env.QWEN_STREAM = "1";
 
     const config = loadQwenPlannerConfigFromEnv();
 
-    expect(config?.stream).toBe(true);
+    expect(config?.stream).toBe(false);
   });
 
   it("falls back for invalid numeric optional env vars", () => {

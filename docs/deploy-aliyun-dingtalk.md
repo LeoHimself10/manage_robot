@@ -209,7 +209,7 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `QWEN_API_KEY` | 是 | DashScope Compatible API Key |
 | `DINGTALK_CLIENT_ID` | 是 | 钉钉应用 Client ID |
 | `DINGTALK_CLIENT_SECRET` | 是 | 钉钉应用 Client Secret |
-| `QWEN_*` | 否 | 模型、超时、重试等，见 `docs/Qwen-接入实施说明.md` |
+| `QWEN_*` | 否 | 模型、超时、重试等；**Qwen 规划请求代码侧固定非流式**，见 `docs/Qwen-接入实施说明.md` |
 | `DEMO_DOMAIN_HINT` | 否 | `QUALITY` 或 `RD`，默认由模型判断 |
 | `HEALTH_CHECK_PORT` | 否 | 监听 HTTP `/health` |
 | `DINGTALK_STREAM_DEBUG` | 否 | `1` / `true` 打印 Stream SDK 调试日志 |

@@ -22,6 +22,7 @@ import {
   readRateLimitWindowMs,
 } from "./infra/session-store";
 import { summarizePriorDemoForPrompt } from "./infra/session-digest";
+import { formatNeedsMoreInfoDingTalkMarkdown } from "./dingtalk-needs-more-info-markdown";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -50,7 +51,7 @@ function formatDemoReply(result: TaskPlanningDemoResult): {
   markdownText: string;
 } {
   if (result.status === "NEEDS_MORE_INFO") {
-    const markdownText = result.questions.map((q) => `- ${q}`).join("\n");
+    const markdownText = formatNeedsMoreInfoDingTalkMarkdown(result.questions);
     return { title: "待补充信息", markdownText };
   }
   if (result.status === "GENERATION_FAILED") {

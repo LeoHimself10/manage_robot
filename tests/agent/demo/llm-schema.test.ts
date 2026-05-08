@@ -401,3 +401,44 @@ describe("coerceLlmPlanPayload subtype normalization", () => {
     expect(validateLlmPlanPayload(normalized).valid).toBe(true);
   });
 });
+
+describe("clarificationUx", () => {
+  const thinQualityBase = (): Record<string, unknown> => ({
+    classification: {
+      domain: "QUALITY",
+      subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+      confidence: "LOW",
+      rationale: ["x"],
+      missingInformation: [],
+    },
+    capaAdvisory: {
+      advisory: "INSUFFICIENT_INFO",
+      rationale: ["x"],
+      disclaimer: CAPA_DISCLAIMER,
+      promptingQuestions: [],
+    },
+    tasks: [],
+    openQuestions: ["追问"],
+  });
+
+  it("coerce preserves NON_TASK and TASK_GAP", () => {
+    const a = coerceLlmPlanPayload({ ...thinQualityBase(), clarificationUx: "NON_TASK" });
+    expect(a.clarificationUx).toBe("NON_TASK");
+    const b = coerceLlmPlanPayload({ ...thinQualityBase(), clarificationUx: "TASK_GAP" });
+    expect(b.clarificationUx).toBe("TASK_GAP");
+  });
+
+  it("coerce strips invalid clarificationUx", () => {
+    const normalized = coerceLlmPlanPayload({ ...thinQualityBase(), clarificationUx: "OTHER" });
+    expect(normalized.clarificationUx).toBeUndefined();
+  });
+
+  it("validate rejects invalid clarificationUx", () => {
+    const result = validateLlmPlanPayload(
+      { ...thinQualityBase(), clarificationUx: "OTHER" },
+      { allowEmptyTasks: true }
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("clarificationUx"))).toBe(true);
+  });
+});

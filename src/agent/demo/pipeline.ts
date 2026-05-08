@@ -16,7 +16,7 @@ import {
   needsMoreInfoFromLlmPayload,
   validateLlmPlanPayload,
 } from "./llm-schema";
-import type { DemoGenerationMetadata } from "./llm-types";
+import type { ClarificationUxKind, DemoGenerationMetadata } from "./llm-types";
 import {
   InferenceTrace,
   LlmPlanPayload,
@@ -62,6 +62,8 @@ export type TaskPlanningDemoResult =
       status: "NEEDS_MORE_INFO";
       questions: string[];
       missingFields: string[];
+      /** 模型标记：寒暄/非任务(NON_TASK) vs 任务信息缺口(TASK_GAP)；渠道文案以 openQuestions 为准 */
+      clarificationUx?: ClarificationUxKind;
       markdown?: undefined;
       classification?: undefined;
       capaAdvisory?: undefined;
@@ -240,6 +242,7 @@ export async function createTaskPlanningDemo(
         status: "NEEDS_MORE_INFO",
         questions: normalized.openQuestions,
         missingFields: classification.missingInformation,
+        clarificationUx: normalized.clarificationUx,
       };
     }
 

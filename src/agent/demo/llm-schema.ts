@@ -5,7 +5,7 @@ import {
 } from "../../domain/classification";
 import { TaskPackage } from "../../domain/task-package";
 import { PlanDomain } from "../harness/types";
-import { LlmPlanPayload } from "./llm-types";
+import { ClarificationUxKind, LlmPlanPayload } from "./llm-types";
 
 interface ValidationResult {
   valid: boolean;
@@ -155,6 +155,12 @@ export function validateLlmPlanPayload(
     errors.push("openQuestions must be string[]");
   }
 
+  if (candidate.clarificationUx !== undefined) {
+    if (candidate.clarificationUx !== "NON_TASK" && candidate.clarificationUx !== "TASK_GAP") {
+      errors.push("clarificationUx must be NON_TASK or TASK_GAP when present");
+    }
+  }
+
   if (candidate.gateSelfCheck !== undefined) {
     validateGateSelfCheck(candidate.gateSelfCheck, errors);
   }
@@ -192,7 +198,15 @@ export function coerceLlmPlanPayload(payload: unknown): LlmPlanPayload {
     tasks,
     openQuestions,
     gateSelfCheck: normalizeGateSelfCheck(candidate.gateSelfCheck),
+    clarificationUx: normalizeClarificationUx(candidate.clarificationUx),
   };
+}
+
+function normalizeClarificationUx(raw: unknown): ClarificationUxKind | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const s = String(raw).trim();
+  if (s === "NON_TASK" || s === "TASK_GAP") return s;
+  return undefined;
 }
 
 function validateTask(task: unknown, index: number, errors: string[]): void {

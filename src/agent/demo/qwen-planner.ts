@@ -59,15 +59,9 @@ export function loadQwenPlannerConfigFromEnv():
     maxRetries: policy.maxRetries,
     temperature: policy.temperature,
     maxTokens: cappedMaxTokens,
-    stream: readTruthyEnv("QWEN_STREAM"),
+    /** 规划链路固定整包 JSON，不使用 OpenAI 兼容 SSE（避免环境误开流式） */
+    stream: false,
   };
-}
-
-/** true when QWEN_STREAM is 1/true/yes（默认 false） */
-function readTruthyEnv(name: string): boolean {
-  const value = process.env[name]?.trim().toLowerCase();
-  if (!value) return false;
-  return value === "1" || value === "true" || value === "yes";
 }
 
 function readNonEmptyEnv(name: string): string | undefined {
