@@ -88,8 +88,11 @@ describe("demo gate and markdown output", () => {
     });
 
     expect(markdown).toContain("## CAPA 建议");
+    expect(markdown).toContain(
+      "| 任务ID | 任务标题 | 目标 | 交付物 | 验收标准 | 截止时间 | 反馈频率 | 依赖任务 |"
+    );
     expect(markdown).toContain("| task_1 | 问题事实确认 |");
-    expect(markdown).toContain("dependencies");
+    expect(markdown).not.toContain("| task ID | title | objective |");
     expect(markdown).not.toContain("## 派发门禁");
     expect(markdown).not.toContain("状态：通过");
   });

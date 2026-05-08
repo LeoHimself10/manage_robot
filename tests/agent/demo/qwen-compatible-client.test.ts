@@ -70,7 +70,7 @@ describe("QwenCompatibleClient", () => {
     expect(requestBody.messages[0].content).toContain("信息充分性");
     expect(requestBody.messages[0].content).toContain("gateSelfCheck");
     expect(requestBody.messages[0].content).toContain("不要编造");
-    expect(requestBody.messages[0].content).toContain("v2.9");
+    expect(requestBody.messages[0].content).toContain("v2.10");
     expect(result.trace.requestId).toBe("req_001");
     expect(result.trace.traceId).toBeUndefined();
     expect(result.trace.tokenUsage.totalTokens).toBe(150);

@@ -119,7 +119,7 @@ function renderTaskTable(
 
   return [
     "## 建议任务包",
-    "| task ID | title | objective | deliverables | completion criteria | due date | feedback frequency | dependencies |",
+    "| 任务ID | 任务标题 | 目标 | 交付物 | 验收标准 | 截止时间 | 反馈频率 | 依赖任务 |",
     "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((row) => `| ${row} |`),
   ].join("\n");
