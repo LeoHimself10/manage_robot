@@ -16,6 +16,12 @@ import {
   type TaskPlanningDemoResult,
 } from "./agent/demo/pipeline";
 import { loadQwenPlannerConfigFromEnv, runQwenPlanner } from "./agent/demo/qwen-planner";
+import {
+  deriveChatSessionKey,
+  MemoryChatSessionStore,
+  readRateLimitWindowMs,
+} from "./infra/session-store";
+import { summarizePriorDemoForPrompt } from "./infra/session-digest";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -146,6 +152,8 @@ async function main(): Promise<void> {
     debug,
   });
 
+  const chatSessionMemory = new MemoryChatSessionStore<{ priorDigest?: string }>();
+
   client.registerCallbackListener(TOPIC_ROBOT, (res: DWClientDownStream) => {
     void (async () => {
       const messageId = res.headers.messageId;
@@ -166,10 +174,39 @@ async function main(): Promise<void> {
         }
 
         const background = payload.text.content.trim();
+        const chatKey = deriveChatSessionKey({
+          sessionWebhook: payload.sessionWebhook,
+          senderStaffId: payload.senderStaffId,
+        });
+
+        if (!chatSessionMemory.checkRateLimitThenTouch(chatKey, readRateLimitWindowMs())) {
+          dingtalkResponse = await sendMarkdownReply({
+            client,
+            sessionWebhook: payload.sessionWebhook,
+            messageId,
+            senderStaffId: payload.senderStaffId,
+            title: "请稍后再试",
+            markdownText:
+              "**请求过于频繁。** 同一会话在短时间内仅处理一条任务规划，请稍后再发，避免重复消耗模型配额。",
+          });
+          return;
+        }
+
+        const prior = chatSessionMemory.get(chatKey);
         const demoResult = await createTaskPlanningDemo(
-          { domainHint, background },
+          {
+            domainHint,
+            background,
+            sessionDigest: prior?.priorDigest,
+          },
           { llmPlanner: (request) => runQwenPlanner(request, qwenConfig) }
         );
+
+        const nextDigest =
+          summarizePriorDemoForPrompt(demoResult) ?? prior?.priorDigest;
+        chatSessionMemory.set(chatKey, {
+          priorDigest: nextDigest,
+        });
 
         const { title, markdownText } = formatDemoReply(demoResult);
         dingtalkResponse = await sendMarkdownReply({

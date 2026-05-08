@@ -1,13 +1,14 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "task-planning-agent-v2.3";
+export const QWEN_PLANNER_PROMPT_VERSION = "task-planning-agent-v2.4";
 
 export interface QwenPlannerPromptRequest {
   background: string;
   domainHint?: PlanDomain;
   traceId?: string;
   correction?: LlmCorrectionContext;
+  sessionDigest?: string;
 }
 
 export function buildQwenPlannerSystemPrompt(): string {
@@ -39,6 +40,9 @@ export function buildQwenPlannerUserPrompt(
   const lines: string[] = [];
   if (request.traceId) {
     lines.push(`traceId: ${request.traceId}`);
+  }
+  if (request.sessionDigest?.trim()) {
+    lines.push("", request.sessionDigest.trim(), "");
   }
   lines.push(`domainHint: ${request.domainHint ?? "UNSPECIFIED"}`);
   lines.push(

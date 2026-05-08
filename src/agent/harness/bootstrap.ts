@@ -1,9 +1,16 @@
 import { HarnessOrchestrator } from "./orchestrator";
 import { InMemoryAuditSink } from "./audit";
 import { Plan } from "../../domain/plan";
+import { FileAuditSink } from "../../infra/audit-file-sink";
 
 export function createHarness() {
-  const auditSink = new InMemoryAuditSink();
+  const mode = process.env.AUDIT_SINK?.trim().toLowerCase() ?? "memory";
+  const auditSink =
+    mode === "file"
+      ? new FileAuditSink(
+          process.env.AUDIT_JSONL_PATH?.trim() ?? "./data/audit-harness.jsonl"
+        )
+      : new InMemoryAuditSink();
   const orchestrator = new HarnessOrchestrator(
     { allowWaiver: false },
     auditSink

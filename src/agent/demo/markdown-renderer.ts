@@ -24,12 +24,13 @@ export function renderPlanDraftMarkdown(input: PlanDraftMarkdownInput): string {
   }
 
   sections.push(
-    renderTaskTable(input.tasks),
+    renderTaskTable(input.tasks, input.gate),
     renderGate(input.gate),
+    renderGateWarningsSection(input.gate),
     renderOpenQuestions(input.openQuestions)
   );
 
-  return sections.join("\n\n");
+  return sections.filter((s) => s.trim().length > 0).join("\n\n");
 }
 
 function renderSummary(summary: string): string {
@@ -57,10 +58,13 @@ function renderCapaAdvisory(capaAdvisory: CapaAdvisory): string {
   ].join("\n");
 }
 
-function renderTaskTable(tasks: TaskPackage[]): string {
+function renderTaskTable(tasks: TaskPackage[], gate: DemoGateResult): string {
+  const flagged = new Set(
+    gate.passed ? [] : gate.missingByTask.map((m) => m.taskId.trim())
+  );
   const rows = tasks.map((task) =>
     [
-      task.id,
+      flagged.has(task.id.trim()) ? `⚠ ${task.id}` : task.id,
       task.title,
       task.objective,
       renderListInline(task.deliverables),
@@ -78,6 +82,14 @@ function renderTaskTable(tasks: TaskPackage[]): string {
     "| task ID | title | objective | deliverables | completion criteria | due date | feedback frequency | dependencies |",
     "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((row) => `| ${row} |`),
+  ].join("\n");
+}
+
+function renderGateWarningsSection(gate: DemoGateResult): string {
+  if (!gate.warnings.length) return "";
+  return [
+    "## 一致性与自检提示（仅提醒，不作为硬阻塞）",
+    ...gate.warnings.map((w) => `- ${w}`),
   ].join("\n");
 }
 

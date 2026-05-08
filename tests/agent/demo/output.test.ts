@@ -83,7 +83,7 @@ describe("demo gate and markdown output", () => {
           dependencyTaskIds: [],
         },
       ],
-      gate: { passed: true, missingByTask: [] },
+      gate: { passed: true, missingByTask: [], warnings: [] },
       openQuestions: [],
     });
 
@@ -118,7 +118,7 @@ describe("demo gate and markdown output", () => {
           dependencyTaskIds: ["task_1"],
         },
       ],
-      gate: { passed: true, missingByTask: [] },
+      gate: { passed: true, missingByTask: [], warnings: [] },
       openQuestions: [],
     });
 

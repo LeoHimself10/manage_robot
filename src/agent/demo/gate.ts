@@ -15,6 +15,7 @@ export interface DemoGateMissingTask {
 export interface DemoGateResult {
   passed: boolean;
   missingByTask: DemoGateMissingTask[];
+  warnings: string[];
 }
 
 export function findDispatchGateMissingFields(
@@ -57,6 +58,7 @@ export function validateDemoGate(tasks: TaskPackage[]): DemoGateResult {
   return {
     passed: missingByTask.length === 0,
     missingByTask,
+    warnings: [],
   };
 }
 

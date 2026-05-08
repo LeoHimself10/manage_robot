@@ -60,6 +60,83 @@ describe("createTaskPlanningDemo", () => {
     expect(result.markdown).toContain("# 任务拆解 Demo 草案");
     expect(result.generation.trace?.requestId).toBe("test_trace");
     expect(result.generation.correctionUsed).toBe(false);
+    expect(result.generation.traces).toHaveLength(1);
+    expect(result.generation.timings?.plannerMs).toBeGreaterThanOrEqual(0);
+    expect(result.generation.timings?.coerceMs).toBeGreaterThanOrEqual(0);
+    expect(result.generation.timings?.validateMs).toBeGreaterThanOrEqual(0);
+    expect(result.generation.timings?.gateMs).toBeGreaterThanOrEqual(0);
+    expect(result.generation.timings?.renderMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("forwards sessionDigest to llmPlanner", async () => {
+    const llmPlanner = vi.fn(async () => qualityLlmPlannerResponse());
+    await createTaskPlanningDemo(
+      {
+        background:
+          "生产测试发现 A 产品 2026-05-01 批次开机自检失败率升高，目前影响 20 台，已有测试记录和不良照片，要求两天内完成初步分析。",
+        domainHint: "QUALITY",
+        sessionDigest: "prior digest line",
+      },
+      { llmPlanner }
+    );
+    expect(llmPlanner).toHaveBeenCalledTimes(1);
+    expect(llmPlanner).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionDigest: "prior digest line" }),
+    );
+  });
+
+  it("emits structured log on DRAFT_READY", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const result = await createTaskPlanningDemo(
+      {
+        background:
+          "生产测试发现 A 产品 2026-05-01 批次开机自检失败率升高，目前影响 20 台，已有测试记录和不良照片，要求两天内完成初步分析。",
+        domainHint: "QUALITY",
+      },
+      { llmPlanner: async () => qualityLlmPlannerResponse() }
+    );
+    expect(result.status).toBe("DRAFT_READY");
+    const jsonLine = logSpy.mock.calls.map((c) => c[0]).find((s) => String(s).includes('"event":"demo_draft_ready"'));
+    expect(jsonLine).toBeDefined();
+    const row = JSON.parse(String(jsonLine)) as { event: string; traceId: string; timings: Record<string, number> };
+    expect(row.event).toBe("demo_draft_ready");
+    expect(row.traceId).toBeTruthy();
+    expect(row.timings.renderMs).toBeGreaterThanOrEqual(0);
+    logSpy.mockRestore();
+  });
+
+  it("records two traces when correction pass succeeds", async () => {
+    let n = 0;
+    const llmPlanner = vi.fn(async () => {
+      n += 1;
+      if (n === 1) {
+        return qualityLlmPlannerResponse({
+          classification: {
+            domain: "QUALITY",
+            subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+            confidence: "HIGH",
+            rationale: [],
+            missingInformation: [],
+          },
+          tasks: [],
+          openQuestions: [],
+        });
+      }
+      return qualityLlmPlannerResponse();
+    });
+    const result = await createTaskPlanningDemo(
+      {
+        background:
+          "生产测试发现 A 产品 2026-05-01 批次开机自检失败率升高，目前影响 20 台，已有测试记录和不良照片，要求两天内完成初步分析。",
+        domainHint: "QUALITY",
+      },
+      { llmPlanner }
+    );
+    expect(llmPlanner).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe("DRAFT_READY");
+    if (result.status !== "DRAFT_READY") throw new Error("expected DRAFT_READY");
+    expect(result.generation.traces).toHaveLength(2);
+    expect(result.generation.correctionUsed).toBe(true);
   });
 
   it("preserves RD hints from LLM output", async () => {

@@ -47,6 +47,8 @@ export interface LlmPlannerRequest {
   domainHint?: PlanDomain;
   traceId?: string;
   correction?: LlmCorrectionContext;
+  /** Prior-turn continuity (e.g. DingTalk digest); forwarded to planner user prompt only. */
+  sessionDigest?: string;
 }
 
 /** Thin planner output: parsed JSON from the model (single parse), not yet schema-coerced */
@@ -62,4 +64,21 @@ export interface LlmGateSelfCheck {
     title?: string;
     missingFields: string[];
   }>;
+}
+
+/** Wall-clock segments for createTaskPlanningDemo (ms). plannerMs is sum of all LLM calls. */
+export interface DemoGenerationTimings {
+  plannerMs: number;
+  coerceMs: number;
+  validateMs: number;
+  gateMs: number;
+  renderMs: number;
+}
+
+export interface DemoGenerationMetadata {
+  trace?: InferenceTrace;
+  /** One entry per successful llmPlanner invocation (includes correction pass). */
+  traces?: InferenceTrace[];
+  correctionUsed?: boolean;
+  timings?: DemoGenerationTimings;
 }

@@ -21,6 +21,7 @@ export interface GenerateStructuredPlanRequest {
   domainHint?: PlanDomain;
   traceId?: string;
   correction?: LlmCorrectionContext;
+  sessionDigest?: string;
 }
 
 export interface GenerateStructuredPlanResult {

@@ -22,6 +22,7 @@ export async function runQwenPlanner(
     domainHint: request.domainHint,
     traceId: request.traceId,
     correction: request.correction,
+    sessionDigest: request.sessionDigest,
   });
   return {
     rawJson: response.payload,

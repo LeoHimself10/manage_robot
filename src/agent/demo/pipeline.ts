@@ -5,6 +5,10 @@ import { CAPA_DISCLAIMER } from "../../domain/capa";
 import { ClassificationResult } from "../../domain/classification";
 import { TaskPackage } from "../../domain/task-package";
 import { PlanDomain } from "../harness/types";
+import {
+  collectGateSelfCheckAlignmentWarnings,
+  collectTaskConsistencyWarnings,
+} from "./consistency";
 import { DemoGateResult, validateDemoGate } from "./gate";
 import { checkInputQuality } from "./input-qc";
 import {
@@ -12,18 +16,27 @@ import {
   needsMoreInfoFromLlmPayload,
   validateLlmPlanPayload,
 } from "./llm-schema";
+import type { DemoGenerationMetadata } from "./llm-types";
 import {
   InferenceTrace,
   LlmPlanPayload,
   LlmPlannerRequest,
   LlmPlannerResponse,
 } from "./llm-types";
+import { appendDemoRunAudit } from "../../infra/demo-run-audit";
+import { logStructured } from "../../infra/logger";
+import { redactCommonPii } from "../../infra/content-filter";
+import { savePlanSnapshot } from "../../infra/plan-store";
 import { renderPlanDraftMarkdown } from "./markdown-renderer";
 import { buildFallbackTrace } from "./qwen-planner";
+
+export type { DemoGenerationMetadata };
 
 export interface TaskPlanningDemoRequest {
   domainHint?: PlanDomain;
   background: string;
+  /** DingTalk/session continuity snippet; forwarded to llmPlanner only. */
+  sessionDigest?: string;
 }
 
 export interface TaskPlanningDemoOptions {
@@ -33,11 +46,6 @@ export interface TaskPlanningDemoOptions {
    * once more with validation errors and the previous JSON for self-correction.
    */
   enableLlmCorrection?: boolean;
-}
-
-export interface DemoGenerationMetadata {
-  trace?: InferenceTrace;
-  correctionUsed?: boolean;
 }
 
 const LLM_FAILURE_RECOVERY_SUGGESTIONS = [
@@ -98,15 +106,24 @@ function ensureCapaDisclaimer(
   return { ...capaAdvisory, disclaimer };
 }
 
+function sumTokenTotals(traces: InferenceTrace[]): number {
+  return traces.reduce((acc, t) => acc + (t.tokenUsage?.totalTokens ?? 0), 0);
+}
+
 export async function createTaskPlanningDemo(
   request: TaskPlanningDemoRequest,
   options: TaskPlanningDemoOptions
 ): Promise<TaskPlanningDemoResult> {
-  const inputQuality = checkInputQuality(request);
   const traceId = randomUUID();
+  const inputQuality = checkInputQuality(request);
   const correctionEnabled = options.enableLlmCorrection !== false;
 
   if (!inputQuality.canGenerateWbs) {
+    appendDemoRunAudit({
+      traceId,
+      status: "NEEDS_MORE_INFO",
+      reason: "thin_input_or_qc_blocked",
+    });
     return {
       status: "NEEDS_MORE_INFO",
       questions: inputQuality.questions,
@@ -115,6 +132,11 @@ export async function createTaskPlanningDemo(
   }
 
   if (typeof options?.llmPlanner !== "function") {
+    appendDemoRunAudit({
+      traceId,
+      status: "GENERATION_FAILED",
+      reason: MISSING_PLANNER_MESSAGE,
+    });
     return {
       status: "GENERATION_FAILED",
       reason: MISSING_PLANNER_MESSAGE,
@@ -124,48 +146,78 @@ export async function createTaskPlanningDemo(
   }
 
   try {
-    let plannerResponse = await options.llmPlanner({
-      background: request.background,
-      domainHint: request.domainHint,
-      traceId,
-    });
-    let correctionUsed = false;
-    let activeTrace: InferenceTrace = {
-      ...plannerResponse.trace,
-      traceId,
-    };
+    const traces: InferenceTrace[] = [];
+    let plannerMs = 0;
+    let coerceMs = 0;
+    let validateMs = 0;
 
-    const runValidate = (normalized: LlmPlanPayload) => {
-      const needsMoreInfo = needsMoreInfoFromLlmPayload(normalized);
-      const validation = validateLlmPlanPayload(normalized, {
+    const runValidate = (payload: LlmPlanPayload) => {
+      const needsMoreInfo = needsMoreInfoFromLlmPayload(payload);
+      const validation = validateLlmPlanPayload(payload, {
         allowEmptyTasks: needsMoreInfo,
       });
       return { needsMoreInfo, validation };
     };
 
+    const plannerStart1 = performance.now();
+    let plannerResponse = await options.llmPlanner({
+      background: request.background,
+      domainHint: request.domainHint,
+      traceId,
+      sessionDigest: request.sessionDigest,
+    });
+    plannerMs += performance.now() - plannerStart1;
+    let correctionUsed = false;
+    const activeTraceFrom = (t: InferenceTrace): InferenceTrace => ({
+      ...t,
+      traceId,
+    });
+    let activeTrace: InferenceTrace = activeTraceFrom(plannerResponse.trace);
+    traces.push(activeTrace);
+
+    let c0 = performance.now();
     let normalized = coerceLlmPlanPayload(plannerResponse.rawJson);
+    coerceMs += performance.now() - c0;
+    let v0 = performance.now();
     let { needsMoreInfo, validation } = runValidate(normalized);
+    validateMs += performance.now() - v0;
 
     if (!validation.valid && correctionEnabled) {
       correctionUsed = true;
+      const prevRaw = plannerResponse.rawJson;
+      const plannerStart2 = performance.now();
       plannerResponse = await options.llmPlanner({
         background: request.background,
         domainHint: request.domainHint,
         traceId,
+        sessionDigest: request.sessionDigest,
         correction: {
-          previousRawJson: stringifyForCorrection(plannerResponse.rawJson),
+          previousRawJson: stringifyForCorrection(prevRaw),
           validationErrors: validation.errors,
         },
       });
-      activeTrace = { ...plannerResponse.trace, traceId };
+      plannerMs += performance.now() - plannerStart2;
+      activeTrace = activeTraceFrom(plannerResponse.trace);
+      traces.push(activeTrace);
+      c0 = performance.now();
       normalized = coerceLlmPlanPayload(plannerResponse.rawJson);
+      coerceMs += performance.now() - c0;
+      v0 = performance.now();
       ({ needsMoreInfo, validation } = runValidate(normalized));
+      validateMs += performance.now() - v0;
     }
 
     if (!validation.valid) {
+      const reasonMsg = validation.errors.join("; ");
+      appendDemoRunAudit({
+        traceId,
+        status: "GENERATION_FAILED",
+        reason: reasonMsg.slice(0, 2000),
+        tokenTotals: sumTokenTotals(traces),
+      });
       return {
         status: "GENERATION_FAILED",
-        reason: validation.errors.join("; "),
+        reason: reasonMsg,
         recoverySuggestions: [...LLM_FAILURE_RECOVERY_SUGGESTIONS],
         trace: activeTrace,
         missingFields: inputQuality.missingFields,
@@ -178,6 +230,12 @@ export async function createTaskPlanningDemo(
     capaAdvisory = ensureCapaDisclaimer(capaAdvisory);
 
     if (needsMoreInfo) {
+      appendDemoRunAudit({
+        traceId,
+        status: "NEEDS_MORE_INFO",
+        reason: "llm_signals_low_confidence",
+        tokenTotals: sumTokenTotals(traces),
+      });
       return {
         status: "NEEDS_MORE_INFO",
         questions: normalized.openQuestions,
@@ -188,21 +246,77 @@ export async function createTaskPlanningDemo(
     const tasks = normalized.tasks;
     const openQuestions = [...normalized.openQuestions];
 
-    const gate = validateDemoGate(tasks);
-    validateGateSelfCheckConsistency(normalized.gateSelfCheck, gate);
+    let gateMs = 0;
+    const gateStart = performance.now();
+    const gateBase = validateDemoGate(tasks);
+    validateGateSelfCheckConsistency(normalized.gateSelfCheck, gateBase);
+    const gate: DemoGateResult = {
+      ...gateBase,
+      warnings: [
+        ...gateBase.warnings,
+        ...collectTaskConsistencyWarnings(tasks),
+        ...collectGateSelfCheckAlignmentWarnings(
+          normalized.gateSelfCheck,
+          gateBase
+        ),
+      ],
+    };
+    gateMs += performance.now() - gateStart;
+
     const mergedOpenQuestions = uniq([
       ...inputQuality.questions,
       ...classification.missingInformation,
       ...(capaAdvisory?.promptingQuestions ?? []),
       ...openQuestions,
     ]);
-    const markdown = renderPlanDraftMarkdown({
+    let renderMs = 0;
+    const renderStart = performance.now();
+    let markdown = renderPlanDraftMarkdown({
       summary: request.background.trim(),
       classification,
       capaAdvisory,
       tasks,
       gate,
       openQuestions: mergedOpenQuestions,
+    });
+    markdown = redactCommonPii(markdown);
+    renderMs += performance.now() - renderStart;
+
+    const timings = {
+      plannerMs,
+      coerceMs,
+      validateMs,
+      gateMs,
+      renderMs,
+    };
+
+    const tokenTotals = sumTokenTotals(traces);
+
+    logStructured({
+      event: "demo_draft_ready",
+      traceId,
+      correctionUsed,
+      timings,
+      tokenTotals,
+      traceCount: traces.length,
+    });
+
+    appendDemoRunAudit({
+      traceId,
+      status: "DRAFT_READY",
+      gatePassed: gate.passed,
+      tokenTotals,
+    });
+
+    savePlanSnapshot(traceId, {
+      traceId,
+      status: "DRAFT_READY",
+      classification,
+      capaAdvisory,
+      tasks,
+      gate,
+      markdownCharCount: markdown.length,
+      markdownPreview: markdown.slice(0, 6000),
     });
 
     return {
@@ -216,15 +330,26 @@ export async function createTaskPlanningDemo(
       markdown,
       generation: {
         trace: activeTrace,
+        traces,
         correctionUsed,
+        timings,
       },
     };
   } catch (error) {
+    const trace = buildFallbackTrace(error, traceId);
+    appendDemoRunAudit({
+      traceId,
+      status: "GENERATION_FAILED",
+      reason:
+        trace.errorCode ??
+        (error instanceof Error ? error.message : "unknown_error").slice(0, 2000),
+      tokenTotals: trace.tokenUsage.totalTokens,
+    });
     return {
       status: "GENERATION_FAILED",
       reason: error instanceof Error ? error.message : "unknown_error",
       recoverySuggestions: [...LLM_FAILURE_RECOVERY_SUGGESTIONS],
-      trace: buildFallbackTrace(error, traceId),
+      trace,
       missingFields: inputQuality.missingFields,
     };
   }
