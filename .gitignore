@@ -18,6 +18,9 @@ node_modules/
 dist/
 build/
 
+# Demo runtime artifacts (audit JSONL, plan snapshots; see .env.example)
+data/
+
 # Local git worktrees
 .worktrees/
 

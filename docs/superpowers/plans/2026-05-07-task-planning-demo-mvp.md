@@ -4,6 +4,8 @@
 > 截至 2026-05-07 工程实现已演进为：**仅 Qwen 生成**分类与 WBS；**已删除** `classifier.ts` / `capa-advisor.ts` / `templates.ts` / `wbs-generator.ts` 等规则生成路径。  
 > **当前事实来源**：`src/agent/demo/pipeline.ts`、`qwen-planner.ts`、`llm-schema.ts`、`docs/Qwen-接入实施说明.md`、PRD v1.3。  
 > 下方逐步任务中涉及上述已删文件的 **Git 步骤与文件路径仅供归档**，**勿按原文执行**。
+>
+> **工程进度（2026-05-08）**：Demo 目录与 `src/infra/` 已补充 JSONL 审计、可观测分段耗时、会话/限速、Plan 快照、输出 PII 脱敏、`consistency` 与 **gate warnings** 等能力；单元测试迁移至 **Vitest**（`vitest.config.ts` / `vitest.setup.ts`）。产品范围仍以 PRD v1.3 为准，细节见 **`AGENTS.md`** 与 **`docs/harness-next-optimizations.md`**。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

@@ -7,6 +7,10 @@
 - **钉钉 Stream**：业务进程主动连接钉钉网关（WebSocket），**不需要**向公网暴露「回调域名」或解密 HTTP 回调包体，适合单机 ECS / 容器。
 - **Qwen（DashScope）**：进程访问 `https://dashscope.aliyuncs.com/compatible-mode/v1`，须允许 **出站 HTTPS**。
 - **健康检查**：可选开启 `HEALTH_CHECK_PORT`，对外提供 `GET /health`，便于负载均衡或编排探活（钉钉链路不依赖该端口）。
+- **审计（双轨）**：
+  - **Demo / 钉钉链路**：只调用 `createTaskPlanningDemo`，完结时追加 **`AUDIT_DEMO_JSONL_PATH`**（默认 `./data/demo-runs.jsonl`），字段含 `traceId`、`status`、`reason?`、`gatePassed?`、`tokenTotals?` 等；现网排障建议挂载或收集该文件。
+  - **Harness 编排层**：`createHarness` 可选 `AUDIT_SINK=file` + `AUDIT_JSONL_PATH`，与上者独立。
+- **会话与限流**：首版为 **单实例进程内** `Map` + TTL；多副本需后续外置存储（如 Redis），参见 `AGENTS.md`。
 
 ## 一、钉钉开放平台配置
 
@@ -137,6 +141,20 @@ docker run -d --name manage-robot-dingtalk --restart unless-stopped \
   manage-robot:dingtalk
 ```
 
+**务必确认** `/etc/manage-robot.env` 中同时包含 **`QWEN_API_KEY`** 与 **`DINGTALK_CLIENT_ID` / `DINGTALK_CLIENT_SECRET`**。仅配 Qwen、不配钉钉时，进程会反复报错退出（与本地行为一致）。
+
+如需在容器重启后仍保留 **demo 审计 JSONL、Plan 快照** 等文件，可增加数据卷挂载，例如（路径可按主机调整）：
+
+```bash
+docker run -d --name manage-robot-dingtalk --restart unless-stopped \
+  --env-file /etc/manage-robot.env \
+  -v /opt/manage_robot-data:/app/data \
+  -p 8080:8080 \
+  manage-robot:dingtalk
+```
+
+镜像 `WORKDIR` 为 `/app`；仓库默认将 `./data/demo-runs.jsonl`、`./data/plans/*.json` 写入工作目录下 `data/`（未挂载则随容器重置而丢失）。
+
 ### 2.5 实操：确认是否在跑
 
 ```bash
@@ -162,6 +180,8 @@ docker run -d --name manage-robot-dingtalk --restart unless-stopped \
   manage-robot:dingtalk
 ```
 
+推荐使用 **`--env-file /etc/manage-robot.env`** 的等价写法，便于与文档 2.4 对齐并避免冗长 `-e`。
+
 ### 2.7 暂不配钉钉，只想在云上验证 Qwen
 
 当前常驻服务是 **钉钉 Stream 机器人**，没有钉钉凭证时容器会退出。若仅验证模型与网络，可在 ECS 上临时进入一次性容器（不配钉钉变量会失败，故改用 **`demo`**）：
@@ -182,6 +202,8 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 
 ## 三、进程内配置一览
 
+完整变量说明见仓库根目录 **`.env.example`**。云上常驻（钉钉 Bot）至少需要：
+
 | 变量 | 必填 | 说明 |
 |------|------|------|
 | `QWEN_API_KEY` | 是 | DashScope Compatible API Key |
@@ -191,6 +213,23 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DEMO_DOMAIN_HINT` | 否 | `QUALITY` 或 `RD`，默认由模型判断 |
 | `HEALTH_CHECK_PORT` | 否 | 监听 HTTP `/health` |
 | `DINGTALK_STREAM_DEBUG` | 否 | `1` / `true` 打印 Stream SDK 调试日志 |
+
+**Demo 管线 / 运维（节选）**
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `AUDIT_DEMO_JSONL_PATH` | 否 | Demo 完结一行 JSONL 路径（默认 `./data/demo-runs.jsonl`） |
+| `AUDIT_DEMO_DISABLED` | 否 | `1` 禁用 Demo JSONL |
+| `AUDIT_SINK` | 否 | Harness：`memory`（默认）或 `file` |
+| `AUDIT_JSONL_PATH` | 否 | `AUDIT_SINK=file` 时的 Harness 审计路径 |
+| `INPUT_MAX_CHARS` | 否 | 单次输入最大字符（超限则追问，不切静默），默认见 `.env.example` |
+| `CHAT_SESSION_TTL_MS` | 否 | 钉钉会话 TTL（毫秒） |
+| `RATE_LIMIT_WINDOW_MS` | 否 | 同会话最短间隔窗口（毫秒） |
+| `PLAN_STORE_DIR` | 否 | `DRAFT_READY` 快照目录 |
+| `PLAN_SNAPSHOT_DISABLED` | 否 | `1` 禁用快照 |
+| `CONTENT_FILTER_DISABLED` | 否 | `1` 关闭 Markdown 侧 PII 脱敏 |
+
+单测默认会设置 `*_DISABLED`，避免写入仓库外路径；与本节生产配置无关。
 
 本地直连调试：
 
@@ -202,11 +241,13 @@ npm run dingtalk-bot
 ## 四、运维与注意事项
 
 - **首token延迟**：单次拆解依赖大模型，可能数十秒；钉钉 Stream 侧若长时间未 `socketCallBackResponse` 可能触发重试，请勿对同一消息高频重复触发。
-- **回复长度**：机器人回复使用 markdown，超长内容会在服务端截断并标注（见 `src/dingtalk-bot.ts` 常量）。
+- **回复长度**：机器人 reply 使用 Markdown，超长内容会在服务端截断并标注（见 `src/dingtalk-bot.ts` 常量）。
 - **合规**：CAPA 等字段仍为建议性质，与 PRD v1.3 一致；正式记录以公司 QMS 为准。
+- **同会话限速**：短时内重复发问可能收到「请稍后再试」（`RATE_LIMIT_WINDOW_MS`）。
+- **可观测**：容器标准输出可见结构化事件；按需 `tail -f data/demo-runs.jsonl`（若已挂载卷）。
 
 ## 五、后续可选增强
 
 - **函数计算 FC**：若改为 HTTP 回调型机器人，可使用 FC HTTP 触发器；当前代码路径为 **Stream**，迁移需改用开放平台 HTTP 加解密回调。
 - **高可用**：多实例部署需注意钉钉 Stream 连接模型与机器人会话幂等；试点阶段建议 **单实例**。
-- **审计与限流**：可在网关或进程外加请求日志、用户级配额，与 Harness 正式状态机对接时再落库。
+- **集中式审计 / 网关限流**：进程内已实现 Demo JSONL、Harness 可选 FileSink 及会话限速；若要跨实例报表或网关级配额，可再接入集中日志或 API 网关。

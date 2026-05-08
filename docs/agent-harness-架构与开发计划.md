@@ -90,8 +90,10 @@ V1 聚焦：
 
 ### 4.8 Audit Logger（审计）
 
-- 记录关键动作：派发、修改、承接、升级、验收。
-- 支持追溯“谁在何时做了什么变更”。
+- **完整 Harness**：记录派发、修改、承接、升级、验收等；支持追溯「谁在何时做了什么变更」。
+- **当前代码**：
+  - `createHarness` / `bootstrap` 可选用 **`AUDIT_SINK=file`**，由 `AuditSink` 写入 **`AUDIT_JSONL_PATH`**（JSONL）。
+  - **钉钉 → `createTaskPlanningDemo` 主线**另行写入 **`AUDIT_DEMO_JSONL_PATH`**（每条管道完结一行，含 `traceId`、`status` 等）；两轨并行、用途不同——上线排障优先考虑 Demo JSONL。详见 **`docs/deploy-aliyun-dingtalk.md`**。
 
 ## 5. 状态机（建议）
 

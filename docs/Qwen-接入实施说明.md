@@ -29,18 +29,22 @@
 
 ## 3. 调用链路
 
-1. `checkInputQuality`：仅做空输入等基础护栏；非空输入进入模型做语义充分性判断。
+1. `checkInputQuality`：空文本等基础护栏；**超长输入**（`INPUT_MAX_CHARS`，见 `.env.example`）则不进入模型、`canGenerateWbs: false`，以追问提示分段。**不静默截断**用户原文。
 2. **必须传入** `llmPlanner`（通常 `runQwenPlanner`）；否则 `GENERATION_FAILED`。
-3. Qwen 根据版本化 prompt 输出分类、追问、任务包、质量域 CAPA 建议与 `gateSelfCheck`；信息不足时输出低置信度与 `openQuestions`，pipeline 返回 `NEEDS_MORE_INFO`。
-4. `validateLlmPlanPayload`：做结构与域约束校验；质量域必须包含 `capaAdvisory`，研发域不得包含 `capaAdvisory`。
-5. `validateDemoGate`：对交付物、完成标准、截止时间、反馈频率做代码二次硬校验，并与模型自检结果保持一致。
-6. 失败：`GENERATION_FAILED` + `trace.errorCode`；成功或门禁未通过草案输出 Markdown 与 trace。
+3. `runQwenPlanner`：**薄封装**，返回 `rawJson` + `trace`；结构与域校验、`traceId` 贯穿、可选 **一轮结构自纠正**（`correction`）均在 `createTaskPlanningDemo`。
+4. 可选 **`sessionDigest`**：由上轮会话摘要拼装，写入 Qwen **user prompt**（钉钉侧注入），不改变 `background` 原文（便于审计对齐）。
+5. Qwen 根据版本化 prompt 输出分类、追问、任务包、质量域 CAPA 建议与 `gateSelfCheck`；信息不足时输出低置信度与 `openQuestions`，pipeline 返回 `NEEDS_MORE_INFO`。
+6. `validateLlmPlanPayload`：做结构与域约束校验；质量域必须包含 `capaAdvisory`，研发域不得包含 `capaAdvisory`。
+7. `validateDemoGate` + **一致性检查**（`consistency.ts`）：硬门禁与 `dependencyTaskIds` / 环 / 日期先后等 **warnings** 合并进 `DemoGateResult.warnings`，Markdown 底部展示。
+8. `DRAFT_READY`：渲染后对 Markdown 做 **PII 正则脱敏**（手机号、身份证、IPv4），可用 `CONTENT_FILTER_DISABLED=1` 关闭（见部署文档）。
+9. 失败：`GENERATION_FAILED` + `trace.errorCode`；成功或门禁未通过均输出 Markdown、**`DemoGenerationMetadata`**（`timings`、`traces[]` 等）及 **Demo JSONL 审计行**（若未禁用）。
 
 ## 4. 风险控制
 
 - Token 与超时：模型策略统一裁剪。
-- 重试：`QWEN_MAX_RETRIES`。
-- 审计：`requestId/model/tokens/latency/errorCode`（错误路径）。
+- 重试：`QWEN_MAX_RETRIES`（HTTP 层可带退避，见 `qwen-compatible-client`）。
+- 可观测：每次 planner 调用 `InferenceTrace`；`createTaskPlanningDemo` 汇总 **`traces[]`**、**分段 `timings`**；成功草案可打 **`logStructured`** JSON 行。
+- 审计：`requestId/model/tokens/latency/errorCode`；另见 **Demo JSONL**（`AUDIT_DEMO_JSONL_PATH`）与 Harness **`AUDIT_SINK=file`**（部署文档）。
 - 密钥轮换：泄露须即刻在控制台作废 Key。
 
 ## 5. 评测方式
@@ -50,11 +54,11 @@
 - `draftReadyCases` / `needsMoreInfoCases` / `generationFailedCases`
 - `avgTotalTokens` / `p95LatencyMs`
 
-`npm run demo:scenarios` 会运行 6 个云端/本地冒烟场景（质量、研发、信息不足分支），输出每个场景的状态、分类、任务数量、token 与时延摘要。
+`npm run demo:scenarios` 会运行 **十余个**端到端冒烟场景（质量 / 研发 / 信息不足 / 更长现实描述等），打印每场景 JSON 摘要与最终 **`summary.tallies`**。单次运行耗时可数分钟量级，需在 `.env` 配置有效 `QWEN_API_KEY`。
 
 ## 6. 分期落地
 
-- P0：仅 LLM 主路径 + 规则校验 + 严模式失败语义。
-- P1：Trace 成本与时延观测、预算阈值。
-- P2：黄金样本回归与模板/提示词版本治理。
+- P0：仅 LLM 主路径 + 规则校验 + 严模式失败语义。（已具备）
+- P1：**Trace / 分段耗时 / JSONL 审计 / 会话与限速 / Plan 快照 / PII 脱敏 / 一致性 warnings**。（工程已落地，见 `docs/harness-next-optimizations.md`）
+- P2：黄金样本回归集与模板/提示词版本治理（持续）。
 

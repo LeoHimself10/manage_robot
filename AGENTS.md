@@ -13,10 +13,12 @@
 - Harness 设计与计划：`docs/agent-harness-架构与开发计划.md`
 - Qwen 接入与运行：`docs/Qwen-接入实施说明.md`
 - 阿里云部署与钉钉 Stream 机器人：`docs/deploy-aliyun-dingtalk.md`
+- Demo 工程增强清单（审计 / 会话 / 可观测性等）：`docs/harness-next-optimizations.md`
+- Pipeline 薄封装重构设计档案：`docs/harness-pipeline-refactor-plan.md`
 
 ## 当前实现边界
 
-- 当前 Demo/MVP 主链路：**基础输入护栏** → **Qwen 结构化输出**（信息充分性判断、追问、场景分类、任务包/WBS、质量域 CAPA 建议、门禁自检）→ **结构校验与派发门禁二次确认** → **Markdown/表格输出**；须配置 `QWEN_API_KEY`（见 `.env.example`）。**不存在**关键词分类、规则 CAPA、subtype 固定骨架等无模型生成路径；校验或模型失败返回 `GENERATION_FAILED`，**不用规则稿顶替**。
+- 当前 Demo/MVP 主链路：**基础输入护栏**（空输入等 + **`INPUT_MAX_CHARS` 超长则追问、不静默截断**）→ **Qwen 结构化输出**（信息充分性判断、追问、场景分类、任务包/WBS、质量域 CAPA 建议、门禁自检；可选 **`sessionDigest` 上轮摘要**）→ **结构校验与派发门禁二次确认**（含 **`consistency` 依赖/环等 warnings 合入 `gate.warnings`**）→ **Markdown/表格输出**（`DRAFT_READY` 前对正文做 **手机号/身份证/IPv4** 级脱敏，**无**政治词黑名单）→ **JSONL 审计落盘**（每轮 `createTaskPlanningDemo` 完结一行，见 `AUDIT_DEMO_*`）与可选 **Plan 文件快照**（`PLAN_STORE_DIR`）。须配置 `QWEN_API_KEY`（见 `.env.example`）。**不存在**关键词分类、规则 CAPA、subtype 固定骨架等无模型生成路径；校验或模型失败返回 `GENERATION_FAILED`，**不用规则稿顶替**。
 - **调用链（pipeline）**：`runQwenPlanner` 仅解析模型 JSON 并带上 `traceId`；`createTaskPlanningDemo` 内对同一 payload **单次** `coerce` → `validate`（`LOW` 追问形状时允许空 `tasks`）→ 可选 **一轮结构自纠正** → 状态分流与 `gate`；请勿在 planner 与 pipeline 重复 coerce。
 - **确定性规则**仅用于约束 AI：空输入等基础护栏、`llm-schema` 结构/域约束（如质量域必含 CAPA、研发域不含）、`gate` 四必填硬校验与 LLM 自检一致性确认；不负责在无 LLM 时生成完整草案，也不得为交付物、完成标准、截止时间、反馈频率等核心业务字段填充语义默认值。
 - 当前 Demo/MVP 不做 OA 自动流程、承接三态、电子签名、执行中变更、节点反馈与验收闭环。
@@ -37,6 +39,7 @@
 ### 编排方式
 - 采用“事件驱动 + 显式状态机”。
 - 业务状态需可回放；关键动作必须写入审计事件。
+- **Demo 现网（钉钉）**：仅走 `createTaskPlanningDemo`，Harness `AuditSink` 主要服务编排层 Plan 事件；**双轨审计**见 `docs/deploy-aliyun-dingtalk.md`（`AUDIT_DEMO_JSONL_PATH` vs `AUDIT_SINK=file`）。
 - 外部交互（钉钉/HR）必须幂等，并具备失败补偿。
 
 ### 建议状态
@@ -58,6 +61,11 @@
 - 完整闭环阶段派发门禁默认硬阻止；如开启豁免，必须记录豁免原因与操作者。
 - 完整闭环阶段不允许“沉默承接”：超时提醒后必须升级。
 - 正式 QMS/CAPA 记录不由本系统自动关闭，本系统仅维护协作层状态。
+
+## 测试与可观测
+
+- 单元 / 集成测试：`npm test`（Vitest，`vitest.setup.ts` 默认关闭审计写盘、快照与脱敏侧效应，避免污染 CI）。
+- **分段耗时与 traces**：`DemoGenerationMetadata.timings`、`traces[]`；成功草案可打 `logStructured` 单行 JSON（见 `src/infra/logger.ts`）。
 
 ## 开发工作区
 

@@ -3,6 +3,7 @@
 **文档日期**：2026-05-07  
 **修订人**：姚凯珩  
 **修订说明（2026-05-07）**：实现已演进为 **仅 Qwen 生成**信息充分性判断、分类与 WBS；已移除关键词分类、规则 CAPA、模板骨架等模块。**确定性规则**保留为空输入护栏、`llm-schema` 结构约束、派发门禁二次确认；校验/API 失败返回 `GENERATION_FAILED`，不使用规则稿替代。下文“领域口径/提示词口径”指 **提示词层面的约束**，非代码内 subtype→骨架映射。
+**修订说明（2026-05-08，工程增补）**：在 **不改变 PRD 产品边界** 的前提下，流水线增加 **`INPUT_MAX_CHARS` 超长护栏**（不静默截断）、钉钉侧 **sessionDigest 摘要**、`consistency` **依赖与环 warnings**、`gate.warnings` 与 Markdown 呈现、成功稿 **PII 正则脱敏**（无政治词黑名单）、每次调用完结 **Demo JSONL 审计** 与 **`DRAFT_READY` 文件快照**，以及 **`timings` / `traces[]` 观测**。详见 **`AGENTS.md`**、 **`docs/deploy-aliyun-dingtalk.md`**、 **`docs/Qwen-接入实施说明.md`**、 **`docs/harness-next-optimizations.md`**。
 
 ## 1. 背景
 
@@ -45,7 +46,7 @@
 
 ### 4.1 输入质检
 
-Agent 首先由 Qwen 判断主管输入是否足以拆解任务；代码只做空输入等基础护栏，不用关键词正则替代语义判断。质量类任务重点要求模型检查：
+Agent 首先由 Qwen 判断主管输入是否足以拆解任务；代码侧除空输入等基础护栏外，若超过 **`INPUT_MAX_CHARS`**（可配置）则 **不调用模型**、直接提示用户缩短或分段，避免异常长文本消耗配额且违背「信息不足不硬拆」的心智。不用关键词正则替代 **语义** 充分性判断。质量类任务重点要求模型检查：
 
 - 问题来源。
 - 产品、批次、版本或使用场景。
@@ -154,6 +155,7 @@ npm install
 npm test
 npm run typecheck
 npm run demo
+npm run demo:scenarios
 ```
 
-`npm run demo` 会输出一份 Markdown 任务拆解草案，包含输入理解、分类、CAPA 建议、WBS 任务包、派发门禁和仍需确认的问题。
+`npm run demo` 会输出一份 Markdown 任务拆解草案，包含输入理解、分类、CAPA 建议、WBS 任务包、派发门禁和仍需确认的问题。`npm run demo:scenarios` 在多套固定背景上端到端冒烟（需有效 `QWEN_API_KEY`），用于联通性与回归观察。
