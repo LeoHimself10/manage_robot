@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendDemoRunAudit,
   type DemoRunAuditRecord,
@@ -51,5 +51,41 @@ describe("appendDemoRunAudit", () => {
     process.env.AUDIT_DEMO_DISABLED = "1";
     appendDemoRunAudit({ traceId: "x", status: "NEEDS_MORE_INFO" });
     expect(existsSync(filePath)).toBe(false);
+  });
+
+  it("includes wallClockMs and timingsMs in JSONL and can emit demo_pipeline_timing to stdout", () => {
+    filePath = join(tmpdir(), `audit-timing-${Date.now()}`, "runs.jsonl");
+    process.env.AUDIT_DEMO_JSONL_PATH = filePath;
+    delete process.env.AUDIT_DEMO_DISABLED;
+    delete process.env.DEMO_TIMING_LOG_STDOUT;
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    appendDemoRunAudit({
+      traceId: "tid2",
+      status: "NEEDS_MORE_INFO",
+      reason: "llm_signals_low_confidence",
+      wallClockMs: 1200,
+      timingsMs: { plannerMs: 1100, coerceMs: 2, validateMs: 3 },
+      tokenTotals: 900,
+    });
+
+    expect(logSpy.mock.calls.length).toBe(1);
+    const timingRow = JSON.parse(String(logSpy.mock.calls[0][0])) as {
+      event: string;
+      wallClockMs: number;
+    };
+    expect(timingRow.event).toBe("demo_pipeline_timing");
+    expect(timingRow.wallClockMs).toBe(1200);
+    logSpy.mockRestore();
+
+    const lines = readFileSync(filePath, "utf8").trim().split("\n");
+    const parsed = JSON.parse(lines[0]) as Record<string, unknown>;
+    expect(parsed.wallClockMs).toBe(1200);
+    expect(parsed.timingsMs).toEqual({
+      plannerMs: 1100,
+      coerceMs: 2,
+      validateMs: 3,
+    });
+    expect(parsed.skipTimingStdout).toBeUndefined();
   });
 });

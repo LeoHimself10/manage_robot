@@ -46,7 +46,6 @@ function draftResult(
     gate: {
       passed: true,
       missingByTask: [],
-      warnings: [],
     },
     markdown: "# draft",
     generation: {

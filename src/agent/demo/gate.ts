@@ -42,6 +42,7 @@ export function findDispatchGateMissingFields(
   return missingFields;
 }
 
+/** @deprecated Pipeline 已直接使用模型 `gateSelfCheck`；保留供测试与回归对比。 */
 export function validateDemoGate(tasks: TaskPackage[]): DemoGateResult {
   const missingByTask = tasks
     .map((task) => {

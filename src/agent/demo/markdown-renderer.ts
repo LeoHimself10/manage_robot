@@ -1,14 +1,14 @@
 import { CapaAdvisory } from "../../domain/capa";
 import { ClassificationResult } from "../../domain/classification";
 import { TaskPackage } from "../../domain/task-package";
-import { DemoGateResult } from "./gate";
+import type { LlmGateSelfCheck } from "./llm-types";
 
 export interface PlanDraftMarkdownInput {
   summary: string;
   classification: ClassificationResult;
   capaAdvisory?: CapaAdvisory;
   tasks: TaskPackage[];
-  gate: DemoGateResult;
+  gate: LlmGateSelfCheck;
   openQuestions: string[];
 }
 
@@ -28,7 +28,6 @@ export function renderPlanDraftMarkdown(input: PlanDraftMarkdownInput): string {
   sections.push(
     renderTaskTable(input.tasks, input.gate),
     renderGate(input.gate),
-    renderGateWarningsSection(input.gate),
     renderOpenQuestions(input.openQuestions)
   );
 
@@ -60,7 +59,7 @@ function renderCapaAdvisory(capaAdvisory: CapaAdvisory): string {
   ].join("\n");
 }
 
-function renderTaskTable(tasks: TaskPackage[], gate: DemoGateResult): string {
+function renderTaskTable(tasks: TaskPackage[], gate: LlmGateSelfCheck): string {
   const flagged = new Set(
     gate.passed ? [] : gate.missingByTask.map((m) => m.taskId.trim())
   );
@@ -87,15 +86,7 @@ function renderTaskTable(tasks: TaskPackage[], gate: DemoGateResult): string {
   ].join("\n");
 }
 
-function renderGateWarningsSection(gate: DemoGateResult): string {
-  if (!gate.warnings.length) return "";
-  return [
-    "## 一致性与自检提示（仅提醒，不作为硬阻塞）",
-    ...gate.warnings.map((w) => `- ${w}`),
-  ].join("\n");
-}
-
-function renderGate(gate: DemoGateResult): string {
+function renderGate(gate: LlmGateSelfCheck): string {
   if (gate.passed) {
     return ["## 派发门禁", "- 状态：通过"].join("\n");
   }
@@ -105,7 +96,7 @@ function renderGate(gate: DemoGateResult): string {
     "- 状态：未通过",
     ...gate.missingByTask.map(
       (task) =>
-        `- ${task.taskId} ${task.title} 缺失：${task.missingFields.join(", ")}`
+        `- ${task.taskId} ${task.title ?? ""} 缺失：${task.missingFields.join(", ")}`
     ),
   ].join("\n");
 }

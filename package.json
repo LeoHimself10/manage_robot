@@ -10,6 +10,7 @@
     "demo": "tsx src/demo.ts",
     "demo:eval": "tsx src/demo-eval.ts",
     "demo:scenarios": "tsx scripts/run-qwen-scenarios.ts",
+    "demo:hi-latency": "tsx scripts/qwen-hi-latency.ts",
     "dingtalk-bot": "tsx src/dingtalk-bot.ts"
   },
   "devDependencies": {

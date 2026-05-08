@@ -100,13 +100,12 @@ export class QwenCompatibleClient {
   private buildChatCompletionPayload(
     request: GenerateStructuredPlanRequest
   ): Record<string, unknown> {
+    // 不显式传 OpenAI 兼容的 response_format：部分网关在与 SSE 同开时首 token / 整段延迟明显；
+    // 结构化输出仅靠系统提示约束 + 下游 JSON 解析（含 ```json 围栏剥离）。
     const body: Record<string, unknown> = {
       model: this.config.model,
       temperature: this.config.temperature,
       max_tokens: this.config.maxTokens,
-      response_format: {
-        type: "json_object",
-      },
       messages: [
         {
           role: "system",
@@ -132,15 +131,25 @@ export class QwenCompatibleClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.config.apiKey}`,
-        },
-        body: JSON.stringify(this.buildChatCompletionPayload(request)),
-        signal: controller.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${this.config.apiKey}`,
+          },
+          body: JSON.stringify(this.buildChatCompletionPayload(request)),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (isLikelyFetchAbort(error)) {
+          throw new Error(
+            `Qwen 请求超时（已超过 ${this.config.timeoutMs} ms）。请在环境中增大 QWEN_TIMEOUT_MS（上限 120000），或略降 QWEN_MAX_TOKENS；若偶发可保留 QWEN_MAX_RETRIES>=1。`
+          );
+        }
+        throw error;
+      }
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => "");
@@ -148,19 +157,28 @@ export class QwenCompatibleClient {
         throw new Error(`Qwen API failed: ${response.status}${detail}`);
       }
 
-      if (this.config.stream) {
-        if (!response.body) {
-          throw new Error("Qwen stream response has no body");
+      try {
+        if (this.config.stream) {
+          if (!response.body) {
+            throw new Error("Qwen stream response has no body");
+          }
+          const onDelta = this.config.streamHooks?.onAssistantDelta;
+          const assembled = await readSseChatCompletionStream(
+            response.body,
+            onDelta ? (acc) => onDelta(acc.content) : undefined
+          );
+          return sseAssembledToChatResponse(assembled);
         }
-        const onDelta = this.config.streamHooks?.onAssistantDelta;
-        const assembled = await readSseChatCompletionStream(
-          response.body,
-          onDelta ? (acc) => onDelta(acc.content) : undefined
-        );
-        return sseAssembledToChatResponse(assembled);
-      }
 
-      return (await response.json()) as ChatCompletionResponse;
+        return (await response.json()) as ChatCompletionResponse;
+      } catch (error) {
+        if (isLikelyFetchAbort(error)) {
+          throw new Error(
+            `Qwen 请求超时（已超过 ${this.config.timeoutMs} ms）。请在环境中增大 QWEN_TIMEOUT_MS（上限 120000），或略降 QWEN_MAX_TOKENS；若偶发可保留 QWEN_MAX_RETRIES>=1。`
+          );
+        }
+        throw error;
+      }
     } finally {
       clearTimeout(timer);
     }
@@ -247,6 +265,12 @@ function sseAssembledToChatResponse(a: SseAssembledResponse): ChatCompletionResp
       },
     ],
   };
+}
+
+function isLikelyFetchAbort(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "AbortError") return true;
+  return /aborted/i.test(error.message);
 }
 
 function truncateErrorBody(body: string): string {

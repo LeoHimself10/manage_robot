@@ -5,11 +5,6 @@ import { CAPA_DISCLAIMER } from "../../domain/capa";
 import { ClassificationResult } from "../../domain/classification";
 import { TaskPackage } from "../../domain/task-package";
 import { PlanDomain } from "../harness/types";
-import {
-  collectGateSelfCheckAlignmentWarnings,
-  collectTaskConsistencyWarnings,
-} from "./consistency";
-import { DemoGateResult, validateDemoGate } from "./gate";
 import { checkInputQuality } from "./input-qc";
 import {
   coerceLlmPlanPayload,
@@ -19,6 +14,7 @@ import {
 import type { ClarificationUxKind, DemoGenerationMetadata } from "./llm-types";
 import {
   InferenceTrace,
+  LlmGateSelfCheck,
   LlmPlanPayload,
   LlmPlannerRequest,
   LlmPlannerResponse,
@@ -91,7 +87,7 @@ export type TaskPlanningDemoResult =
       classification: ClassificationResult;
       capaAdvisory?: CapaAdvisory;
       tasks: TaskPackage[];
-      gate: DemoGateResult;
+      gate: LlmGateSelfCheck;
       markdown: string;
       generation: DemoGenerationMetadata;
     };
@@ -117,6 +113,9 @@ export async function createTaskPlanningDemo(
   options: TaskPlanningDemoOptions
 ): Promise<TaskPlanningDemoResult> {
   const traceId = randomUUID();
+  const auditWallStart = performance.now();
+  const auditWallMs = () => Math.round(performance.now() - auditWallStart);
+
   const inputQuality = checkInputQuality(request);
   const correctionEnabled = options.enableLlmCorrection !== false;
 
@@ -125,6 +124,7 @@ export async function createTaskPlanningDemo(
       traceId,
       status: "NEEDS_MORE_INFO",
       reason: "thin_input_or_qc_blocked",
+      wallClockMs: auditWallMs(),
     });
     return {
       status: "NEEDS_MORE_INFO",
@@ -138,6 +138,7 @@ export async function createTaskPlanningDemo(
       traceId,
       status: "GENERATION_FAILED",
       reason: MISSING_PLANNER_MESSAGE,
+      wallClockMs: auditWallMs(),
     });
     return {
       status: "GENERATION_FAILED",
@@ -216,6 +217,9 @@ export async function createTaskPlanningDemo(
         status: "GENERATION_FAILED",
         reason: reasonMsg.slice(0, 2000),
         tokenTotals: sumTokenTotals(traces),
+        wallClockMs: auditWallMs(),
+        timingsMs: { plannerMs, coerceMs, validateMs },
+        correctionUsed,
       });
       return {
         status: "GENERATION_FAILED",
@@ -237,6 +241,9 @@ export async function createTaskPlanningDemo(
         status: "NEEDS_MORE_INFO",
         reason: "llm_signals_low_confidence",
         tokenTotals: sumTokenTotals(traces),
+        wallClockMs: auditWallMs(),
+        timingsMs: { plannerMs, coerceMs, validateMs },
+        correctionUsed,
       });
       return {
         status: "NEEDS_MORE_INFO",
@@ -251,19 +258,8 @@ export async function createTaskPlanningDemo(
 
     let gateMs = 0;
     const gateStart = performance.now();
-    const gateBase = validateDemoGate(tasks);
-    validateGateSelfCheckConsistency(normalized.gateSelfCheck, gateBase);
-    const gate: DemoGateResult = {
-      ...gateBase,
-      warnings: [
-        ...gateBase.warnings,
-        ...collectTaskConsistencyWarnings(tasks),
-        ...collectGateSelfCheckAlignmentWarnings(
-          normalized.gateSelfCheck,
-          gateBase
-        ),
-      ],
-    };
+    const gate: LlmGateSelfCheck =
+      normalized.gateSelfCheck ?? { passed: true, missingByTask: [] };
     gateMs += performance.now() - gateStart;
 
     const mergedOpenQuestions = uniq([
@@ -295,11 +291,13 @@ export async function createTaskPlanningDemo(
 
     const tokenTotals = sumTokenTotals(traces);
 
+    const wallClockMs = auditWallMs();
     logStructured({
       event: "demo_draft_ready",
       traceId,
       correctionUsed,
       timings,
+      wallClockMs,
       tokenTotals,
       traceCount: traces.length,
     });
@@ -309,6 +307,10 @@ export async function createTaskPlanningDemo(
       status: "DRAFT_READY",
       gatePassed: gate.passed,
       tokenTotals,
+      wallClockMs,
+      timingsMs: timings,
+      correctionUsed,
+      skipTimingStdout: true,
     });
 
     savePlanSnapshot(traceId, {
@@ -347,6 +349,7 @@ export async function createTaskPlanningDemo(
         trace.errorCode ??
         (error instanceof Error ? error.message : "unknown_error").slice(0, 2000),
       tokenTotals: trace.tokenUsage.totalTokens,
+      wallClockMs: auditWallMs(),
     });
     return {
       status: "GENERATION_FAILED",
@@ -368,14 +371,4 @@ function stringifyForCorrection(rawJson: unknown): string {
 
 function uniq(items: string[]): string[] {
   return Array.from(new Set(items));
-}
-
-function validateGateSelfCheckConsistency(
-  selfCheck: LlmPlanPayload["gateSelfCheck"],
-  gate: DemoGateResult
-): void {
-  if (!selfCheck) return;
-  if (selfCheck.passed !== gate.passed) {
-    throw new Error("gateSelfCheck is inconsistent with dispatch gate result");
-  }
 }

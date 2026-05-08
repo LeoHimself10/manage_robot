@@ -66,6 +66,7 @@ describe("QwenCompatibleClient", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(requestBody).not.toHaveProperty("response_format");
     expect(requestBody.messages[0].content).toContain("信息充分性");
     expect(requestBody.messages[0].content).toContain("gateSelfCheck");
     expect(requestBody.messages[0].content).toContain("不要编造");
@@ -243,6 +244,7 @@ describe("QwenCompatibleClient", () => {
     });
 
     const parsedBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(parsedBody).not.toHaveProperty("response_format");
     expect(parsedBody.stream).toBe(true);
     expect(parsedBody.stream_options).toEqual({ include_usage: true });
 

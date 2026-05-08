@@ -258,7 +258,7 @@ npm run dingtalk-bot
 - **回复长度**：机器人 reply 使用 Markdown，超长内容会在服务端截断并标注（见 `src/dingtalk-bot.ts` 常量）。
 - **合规**：CAPA 等字段仍为建议性质，与 PRD v1.3 一致；正式记录以公司 QMS 为准。
 - **同会话限速**：短时内重复发问可能收到「请稍后再试」（`RATE_LIMIT_WINDOW_MS`）。
-- **可观测**：容器标准输出可见结构化事件；按需 `tail -f data/demo-runs.jsonl`（若已挂载卷）。
+- **可观测**：容器标准输出可见结构化事件；`createTaskPlanningDemo` 每轮会写 **JSONL 审计**（`wallClockMs` 总耗时 ms、`timingsMs.plannerMs` 等分段，见 `src/infra/demo-run-audit.ts`）。`DRAFT_READY` 另有 `event=demo_draft_ready` 一行（含 `wallClockMs`）。非终稿状态默认还有 `event=demo_pipeline_timing` 到 stdout，可用 `DEMO_TIMING_LOG_STDOUT=0` 关闭。按需 `tail -f data/demo-runs.jsonl`（若已挂载卷）。
 
 ## 五、后续可选增强
 

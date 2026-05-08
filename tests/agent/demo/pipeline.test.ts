@@ -130,9 +130,15 @@ describe("createTaskPlanningDemo", () => {
     expect(result.status).toBe("DRAFT_READY");
     const jsonLine = logSpy.mock.calls.map((c) => c[0]).find((s) => String(s).includes('"event":"demo_draft_ready"'));
     expect(jsonLine).toBeDefined();
-    const row = JSON.parse(String(jsonLine)) as { event: string; traceId: string; timings: Record<string, number> };
+    const row = JSON.parse(String(jsonLine)) as {
+      event: string;
+      traceId: string;
+      wallClockMs: number;
+      timings: Record<string, number>;
+    };
     expect(row.event).toBe("demo_draft_ready");
     expect(row.traceId).toBeTruthy();
+    expect(row.wallClockMs).toBeGreaterThanOrEqual(0);
     expect(row.timings.renderMs).toBeGreaterThanOrEqual(0);
     logSpy.mockRestore();
   });
@@ -381,6 +387,21 @@ describe("createTaskPlanningDemo", () => {
                 feedbackFrequency: "",
               }),
             ],
+            gateSelfCheck: {
+              passed: false,
+              missingByTask: [
+                {
+                  taskId: "task_1",
+                  title: "问题事实确认",
+                  missingFields: [
+                    "deliverables",
+                    "completionCriteria",
+                    "timeNode.dueAt",
+                    "feedbackFrequency",
+                  ],
+                },
+              ],
+            },
           }),
       }
     );
