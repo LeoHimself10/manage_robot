@@ -210,12 +210,12 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DINGTALK_CLIENT_ID` | 是 | 钉钉应用 Client ID |
 | `DINGTALK_CLIENT_SECRET` | 是 | 钉钉应用 Client Secret |
 | `QWEN_*` | 否 | 模型、超时、重试等；**SSE 流式默认开**（`QWEN_STREAM=0` 关闭），见 `docs/Qwen-接入实施说明.md` |
-| `DINGTALK_STREAM_PROGRESS` | 否 | 默认开：Qwen SSE 时额外推「生成中」进度；`0`/`false` 关闭 |
+| `DINGTALK_STREAM_PROGRESS` | 否 | 默认关；`1`/`true`/`yes` 时 Qwen SSE 过程额外推「生成中」进度 |
 | `DINGTALK_STREAM_PROGRESS_MS` | 否 | 进度推送最小间隔（毫秒），默认 `2800`，最小有效约 `800` |
 | `DEMO_DOMAIN_HINT` | 否 | `QUALITY` 或 `RD`，默认由模型判断 |
 | `HEALTH_CHECK_PORT` | 否 | 监听 HTTP `/health` |
 | `DINGTALK_STREAM_DEBUG` | 否 | `1` / `true` 打印 Stream SDK 调试日志 |
-| `DINGTALK_QUICK_ACK` | 否 | 默认开启：任务规划前先发一条「处理中」提示；`0`/`false` 关闭（与 Qwen SSE 并行，两条不同气泡） |
+| `DINGTALK_QUICK_ACK` | 否 | 默认关；`1`/`true`/`yes` 时先发一条「处理中」提示 |
 
 **Demo 管线 / 运维（节选）**
 

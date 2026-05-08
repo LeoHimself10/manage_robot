@@ -27,21 +27,19 @@ import { formatNeedsMoreInfoDingTalkMarkdown } from "./dingtalk-needs-more-info-
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
 
-/** 主任务前先回一条简短提示（非 SSE；改善「长时间无响应」体感）。设为 0/false 可关。 */
+/** 仅在 `DINGTALK_QUICK_ACK=1|true|yes` 时先发「处理中」；默认关，只保留最终模型回复。 */
 function readDingTalkQuickAck(): boolean {
   const v = process.env.DINGTALK_QUICK_ACK?.trim().toLowerCase();
-  if (!v || v === "1" || v === "true" || v === "yes") return true;
-  return !(v === "0" || v === "false" || v === "no");
+  return v === "1" || v === "true" || v === "yes";
 }
 
 /**
- * Qwen 开启 SSE 时，是否向会话额外推送「生成中」进度（仅字符数，不含 JSON 原文）。
- * `DINGTALK_STREAM_PROGRESS=0` 关闭；`DINGTALK_STREAM_PROGRESS_MS` 节流间隔（毫秒，默认 2800）。
+ * 仅在 `DINGTALK_STREAM_PROGRESS=1|true|yes` 时推送流式字符数进度；默认关。
+ * `DINGTALK_STREAM_PROGRESS_MS` 节流间隔（毫秒，默认 2800）。
  */
 function readDingTalkStreamProgress(): boolean {
   const v = process.env.DINGTALK_STREAM_PROGRESS?.trim().toLowerCase();
-  if (v === "0" || v === "false" || v === "no") return false;
-  return true;
+  return v === "1" || v === "true" || v === "yes";
 }
 
 function readStreamProgressMinMs(): number {
