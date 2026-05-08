@@ -22,7 +22,6 @@ import {
   readRateLimitWindowMs,
 } from "./infra/session-store";
 import { summarizePriorDemoForPrompt } from "./infra/session-digest";
-import { trySmallTalkReply } from "./infra/small-talk";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -196,19 +195,6 @@ async function main(): Promise<void> {
             title: "请稍后再试",
             markdownText:
               "**请求过于频繁。** 同一会话在短时间内仅处理一条任务规划，请稍后再发，避免重复消耗模型配额。",
-          });
-          return;
-        }
-
-        const smallTalk = trySmallTalkReply(background);
-        if (smallTalk) {
-          dingtalkResponse = await sendMarkdownReply({
-            client,
-            sessionWebhook: payload.sessionWebhook,
-            messageId,
-            senderStaffId: payload.senderStaffId,
-            title: smallTalk.title,
-            markdownText: smallTalk.markdownText,
           });
           return;
         }
