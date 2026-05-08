@@ -12,6 +12,19 @@ interface ValidationResult {
   errors: string[];
 }
 
+export interface ValidateLlmPlanPayloadOptions {
+  /** When model signals NEEDS_MORE_INFO (LOW + questions), tasks may be empty. */
+  allowEmptyTasks?: boolean;
+}
+
+export function needsMoreInfoFromLlmPayload(payload: LlmPlanPayload): boolean {
+  return (
+    payload.classification.confidence === "LOW" &&
+    (payload.classification.missingInformation.length > 0 ||
+      payload.openQuestions.length > 0)
+  );
+}
+
 const classificationConfidenceValues = new Set<ClassificationConfidence>([
   "HIGH",
   "MEDIUM",
@@ -41,7 +54,10 @@ const subtypeValues = new Set<TaskSubtype>([
   "RD_OTHER_OR_UNCERTAIN",
 ]);
 
-export function validateLlmPlanPayload(payload: unknown): ValidationResult {
+export function validateLlmPlanPayload(
+  payload: unknown,
+  options?: ValidateLlmPlanPayloadOptions
+): ValidationResult {
   const errors: string[] = [];
   if (!payload || typeof payload !== "object") {
     return { valid: false, errors: ["payload must be an object"] };
@@ -78,7 +94,9 @@ export function validateLlmPlanPayload(payload: unknown): ValidationResult {
   }
 
   const tasks = candidate.tasks;
-  if (!Array.isArray(tasks) || tasks.length === 0) {
+  if (!Array.isArray(tasks)) {
+    errors.push("tasks must be an array");
+  } else if (tasks.length === 0 && !options?.allowEmptyTasks) {
     errors.push("tasks must contain at least one task");
   } else {
     tasks.forEach((task, index) => {
@@ -88,6 +106,10 @@ export function validateLlmPlanPayload(payload: unknown): ValidationResult {
 
   if (!isStringArray(candidate.openQuestions)) {
     errors.push("openQuestions must be string[]");
+  }
+
+  if (candidate.gateSelfCheck !== undefined) {
+    validateGateSelfCheck(candidate.gateSelfCheck, errors);
   }
 
   if (domainForCapa === "QUALITY") {
@@ -128,6 +150,7 @@ export function coerceLlmPlanPayload(
     capaAdvisory,
     tasks,
     openQuestions,
+    gateSelfCheck: normalizeGateSelfCheck(candidate.gateSelfCheck),
   };
 }
 
@@ -138,12 +161,16 @@ function validateTask(task: unknown, index: number, errors: string[]): void {
   }
   const candidate = task as Record<string, unknown>;
 
-  const requiredText = ["id", "title", "objective", "feedbackFrequency"] as const;
+  const requiredText = ["id", "title", "objective"] as const;
   requiredText.forEach((field) => {
     if (!isNonEmptyString(candidate[field])) {
       errors.push(`tasks[${index}].${field} must be non-empty string`);
     }
   });
+
+  if (typeof candidate.feedbackFrequency !== "string") {
+    errors.push(`tasks[${index}].feedbackFrequency must be string`);
+  }
 
   const requiredArrays = [
     "collaborators",
@@ -167,8 +194,8 @@ function validateTask(task: unknown, index: number, errors: string[]): void {
     if (!isStringArray(timeNode.checkpoints)) {
       errors.push(`tasks[${index}].timeNode.checkpoints must be string[]`);
     }
-    if (!isNonEmptyString(timeNode.dueAt)) {
-      errors.push(`tasks[${index}].timeNode.dueAt must be non-empty string`);
+    if (typeof timeNode.dueAt !== "string") {
+      errors.push(`tasks[${index}].timeNode.dueAt must be string`);
     }
   }
 }
@@ -191,6 +218,35 @@ function validateCapa(capa: unknown, errors: string[]): void {
   if (!isStringArray(candidate.promptingQuestions)) {
     errors.push("capaAdvisory.promptingQuestions must be string[]");
   }
+}
+
+function validateGateSelfCheck(selfCheck: unknown, errors: string[]): void {
+  if (!selfCheck || typeof selfCheck !== "object") {
+    errors.push("gateSelfCheck must be an object");
+    return;
+  }
+  const candidate = selfCheck as Record<string, unknown>;
+  if (typeof candidate.passed !== "boolean") {
+    errors.push("gateSelfCheck.passed must be boolean");
+  }
+  const missingByTask = candidate.missingByTask;
+  if (!Array.isArray(missingByTask)) {
+    errors.push("gateSelfCheck.missingByTask must be an array");
+    return;
+  }
+  missingByTask.forEach((item, index) => {
+    if (!item || typeof item !== "object") {
+      errors.push(`gateSelfCheck.missingByTask[${index}] must be an object`);
+      return;
+    }
+    const task = item as Record<string, unknown>;
+    if (!isNonEmptyString(task.taskId)) {
+      errors.push(`gateSelfCheck.missingByTask[${index}].taskId must be non-empty string`);
+    }
+    if (!isStringArray(task.missingFields)) {
+      errors.push(`gateSelfCheck.missingByTask[${index}].missingFields must be string[]`);
+    }
+  });
 }
 
 function isStringArray(input: unknown): input is string[] {
@@ -291,11 +347,17 @@ function normalizeTasks(input: unknown): TaskPackage[] {
 function normalizeTask(input: unknown, index: number): TaskPackage | null {
   if (!input || typeof input !== "object") return null;
   const candidate = input as Record<string, unknown>;
+  const timeNode = candidate.timeNode as Record<string, unknown> | undefined;
   const description = asString(candidate.description);
   const title = asString(candidate.title) || shortText(description) || `任务 ${index + 1}`;
   const objective = asString(candidate.objective) || description || title;
-  const dueAt = asString(candidate.deadline) || asString(candidate.dueAt) || "T+2 工作日";
-  const dependencies = normalizeStringArray(candidate.dependencies);
+  const dueAt =
+    asString(timeNode?.dueAt) ||
+    asString(candidate.deadline) ||
+    asString(candidate.dueAt);
+  const dependencies = normalizeStringArray(candidate.dependencyTaskIds).length
+    ? normalizeStringArray(candidate.dependencyTaskIds)
+    : normalizeStringArray(candidate.dependencies);
   const owner = asString(candidate.owner);
 
   return {
@@ -304,25 +366,62 @@ function normalizeTask(input: unknown, index: number): TaskPackage | null {
     objective,
     collaborators: owner ? [owner] : [],
     inputMaterials: normalizeStringArray(candidate.inputMaterials),
-    actions: normalizeStringArray(candidate.actions).length
-      ? normalizeStringArray(candidate.actions)
-      : [objective],
-    deliverables: normalizeStringArray(candidate.deliverables).length
-      ? normalizeStringArray(candidate.deliverables)
-      : [`${title}交付记录`],
-    completionCriteria: normalizeStringArray(candidate.completionCriteria).length
-      ? normalizeStringArray(candidate.completionCriteria)
-      : [`${title}已完成并可复核`],
+    actions: normalizeStringArray(candidate.actions),
+    deliverables: normalizeStringArray(candidate.deliverables),
+    completionCriteria: normalizeStringArray(candidate.completionCriteria),
     timeNode: {
-      checkpoints: normalizeStringArray(
-        (candidate.timeNode as Record<string, unknown> | undefined)?.checkpoints
-      ),
+      checkpoints: normalizeStringArray(timeNode?.checkpoints),
       dueAt,
     },
-    feedbackFrequency: asString(candidate.feedbackFrequency) || "每日反馈",
+    feedbackFrequency: asString(candidate.feedbackFrequency),
     risksAndOpenQuestions: normalizeStringArray(candidate.risksAndOpenQuestions),
     dependencyTaskIds: dependencies,
   };
+}
+
+function normalizeGateSelfCheck(
+  input: unknown
+): LlmPlanPayload["gateSelfCheck"] | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const candidate = input as Record<string, unknown>;
+  return {
+    passed: candidate.passed === true,
+    missingByTask: Array.isArray(candidate.missingByTask)
+      ? candidate.missingByTask
+          .map((item) => {
+            if (!item || typeof item !== "object") return null;
+            const task = item as Record<string, unknown>;
+            return {
+              taskId: asString(task.taskId),
+              title: asString(task.title) || undefined,
+              missingFields: normalizeStringArray(task.missingFields),
+            };
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null)
+      : [],
+  };
+}
+
+function normalizeCapaAdvisoryValue(input: unknown): CapaAdvisoryValue {
+  const raw = asString(input);
+  if (!raw) return "UNCERTAIN";
+  const compact = raw.toUpperCase().replace(/[\s-]+/g, "_");
+  if (capaValues.has(compact as CapaAdvisoryValue)) {
+    return compact as CapaAdvisoryValue;
+  }
+  if (/RECOMMENDED|建议开启|推荐CAPA|建议CAPA/i.test(raw)) {
+    return "RECOMMENDED";
+  }
+  if (/NOT[_\s]?REQUIRED|不必|不需要|无需CAPA|可不开启/i.test(raw)) {
+    return "NOT_REQUIRED";
+  }
+  if (/INSUFFICIENT|信息不足|资料不足|不足以判断/i.test(raw)) {
+    return "INSUFFICIENT_INFO";
+  }
+  if (/UNCERTAIN|不确定|待评估|尚不明确/i.test(raw)) {
+    return "UNCERTAIN";
+  }
+  return "UNCERTAIN";
 }
 
 function normalizeCapaAdvisory(
@@ -334,7 +433,7 @@ function normalizeCapaAdvisory(
   const candidate = input as Record<string, unknown>;
   if (isNonEmptyString(candidate.advisory)) {
     return {
-      advisory: candidate.advisory as CapaAdvisoryValue,
+      advisory: normalizeCapaAdvisoryValue(candidate.advisory),
       rationale: normalizeStringArray(candidate.rationale),
       disclaimer: asString(candidate.disclaimer),
       promptingQuestions: normalizeStringArray(candidate.promptingQuestions),

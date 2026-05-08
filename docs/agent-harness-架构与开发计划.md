@@ -68,7 +68,7 @@ V1 聚焦：
 
 ### 4.4 Planner（输入质检 + 模型生成草案）
 
-- **当前 Demo 实现**（`src/agent/demo/`）：输入质检后 **`llmPlanner` 必选**，由 **Qwen** 输出结构化分类与任务包；**关键词分类 / 模板骨架 WBS 已移除**。确定性校验见 `llm-schema`、`gate`。
+- **当前 Demo 实现**（`src/agent/demo/`）：基础输入护栏后 **`llmPlanner` 必选**，由 **Qwen** 输出信息充分性判断、追问、结构化分类、任务包与门禁自检；**关键词分类 / 模板骨架 WBS / 语义默认补全已移除**。确定性校验见 `llm-schema`、`gate`，只做结构约束与派发门禁二次确认。
 - **完整 Harness 愿景**：编排层仍可聚合「输入质检 → Model Gateway → 门禁 → 人工审阅」；Planner 与提示词模板版本长期对齐 PRD。
 
 ### 4.5 Assignment Recommender（人岗推荐）

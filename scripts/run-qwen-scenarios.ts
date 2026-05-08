@@ -34,13 +34,13 @@ const scenarios: Scenario[] = [
     background:
       "研发任务：针对 ECN 变更后主板电源模块，完成影响评估、回归验证与文档更新，需明确依赖关系和跨团队协作输入。",
   },
-  /** 故意信息过少：应走输入质检 NEEDS_MORE_INFO，不调用模型 */
+  /** 故意信息过少：期望模型 LOW + 追问，pipeline 返回 NEEDS_MORE_INFO */
   {
     id: "S5-质量-信息不足",
     domainHint: "QUALITY",
     background: "质量那边说有问题，先把任务拆了。",
   },
-  /** 研发域同样过短：期望追问或阻断 */
+  /** 研发域同样过短：期望模型 LOW + 追问 */
   {
     id: "S6-研发-信息不足",
     domainHint: "RD",

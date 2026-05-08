@@ -1,5 +1,6 @@
 import { GuardResult } from "./types";
 import { TaskPackage } from "../../domain/task-package";
+import { findDispatchGateMissingFields } from "../demo/gate";
 
 export interface DispatchPolicyOptions {
   allowWaiver: boolean;
@@ -10,22 +11,12 @@ export interface DispatchGateContext {
   waiverReason?: string;
 }
 
-function isBlankArray(value: string[]): boolean {
-  return !value || value.length === 0;
-}
-
 export function validateDispatchGate(
   options: DispatchPolicyOptions,
   context: DispatchGateContext
 ): GuardResult {
   const { taskPackage, waiverReason } = context;
-  const missing: string[] = [];
-
-  if (isBlankArray(taskPackage.deliverables)) missing.push("deliverables");
-  if (isBlankArray(taskPackage.completionCriteria))
-    missing.push("completionCriteria");
-  if (!taskPackage.timeNode?.dueAt) missing.push("timeNode");
-  if (!taskPackage.feedbackFrequency) missing.push("feedbackFrequency");
+  const missing = findDispatchGateMissingFields(taskPackage);
 
   if (missing.length === 0) {
     return { passed: true };

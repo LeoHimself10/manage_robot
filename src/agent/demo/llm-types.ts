@@ -22,6 +22,7 @@ export interface LlmPlanPayload {
   capaAdvisory?: CapaAdvisory;
   tasks: TaskPackage[];
   openQuestions: string[];
+  gateSelfCheck?: LlmGateSelfCheck;
 }
 
 export interface LlmPlanResult {
@@ -29,10 +30,20 @@ export interface LlmPlanResult {
   capaAdvisory?: CapaAdvisory;
   tasks: TaskPackage[];
   openQuestions: string[];
+  gateSelfCheck?: LlmGateSelfCheck;
   trace?: InferenceTrace;
 }
 
 export interface LlmPlannerRequest {
   background: string;
   domainHint?: PlanDomain;
+}
+
+export interface LlmGateSelfCheck {
+  passed: boolean;
+  missingByTask: Array<{
+    taskId: string;
+    title?: string;
+    missingFields: string[];
+  }>;
 }

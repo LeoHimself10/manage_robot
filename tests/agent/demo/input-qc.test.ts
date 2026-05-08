@@ -2,36 +2,36 @@ import { describe, expect, it } from "vitest";
 import { checkInputQuality } from "../../../src/agent/demo/input-qc";
 
 describe("checkInputQuality", () => {
-  it("blocks WBS generation when quality context is too thin", () => {
+  it("blocks empty input before calling the LLM", () => {
     const result = checkInputQuality({
       domainHint: "QUALITY",
-      background: "某产品异常，尽快分析原因。",
+      background: "   ",
     });
 
     expect(result.canGenerateWbs).toBe(false);
-    expect(result.missingFields).toContain("problemSource");
+    expect(result.missingFields).toEqual(["background"]);
     expect(result.questions.length).toBeGreaterThan(0);
   });
 
-  it("blocks WBS generation when quality context only has vague keywords", () => {
+  it("lets non-empty quality input reach the LLM for semantic sufficiency judgment", () => {
     const result = checkInputQuality({
       domainHint: "QUALITY",
       background: "某产品异常，影响10台，有照片，今天完成",
     });
 
-    expect(result.canGenerateWbs).toBe(false);
-    expect(result.missingFields).toContain("problemSource");
-    expect(result.missingFields).toContain("productOrBatch");
+    expect(result.canGenerateWbs).toBe(true);
+    expect(result.missingFields).toEqual([]);
+    expect(result.questions).toEqual([]);
   });
 
-  it("blocks WBS generation when critical quality context is explicitly unknown", () => {
+  it("does not use regex to block unknown critical context", () => {
     const result = checkInputQuality({
       domainHint: "QUALITY",
       background: "生产测试发现 A 产品异常，影响范围待确认，已有照片，今天完成",
     });
 
-    expect(result.canGenerateWbs).toBe(false);
-    expect(result.missingFields).toContain("impactScope");
+    expect(result.canGenerateWbs).toBe(true);
+    expect(result.missingFields).toEqual([]);
   });
 
   it("allows WBS generation when quality context contains key facts", () => {

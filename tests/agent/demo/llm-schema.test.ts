@@ -137,7 +137,7 @@ describe("validateLlmPlanPayload", () => {
     expect(result.errors.some((e) => e.includes("RD"))).toBe(true);
   });
 
-  it("coerces simplified qwen payload into normalized structure", () => {
+  it("keeps missing semantic task fields visible after normalization", () => {
     const normalized = coerceLlmPlanPayload(
       {
         classification: "QUALITY",
@@ -167,7 +167,107 @@ describe("validateLlmPlanPayload", () => {
     const validation = validateLlmPlanPayload(normalized);
     expect(validation.valid).toBe(true);
     expect(normalized.tasks[0].title.length).toBeGreaterThan(0);
-    expect(normalized.tasks[0].feedbackFrequency).toBe("每日反馈");
+    expect(normalized.tasks[0].deliverables).toEqual([]);
+    expect(normalized.tasks[0].completionCriteria).toEqual([]);
+    expect(normalized.tasks[0].timeNode.dueAt).toBe("24h");
+    expect(normalized.tasks[0].feedbackFrequency).toBe("");
+  });
+
+  it("normalizes non-enum capa advisory strings from model output", () => {
+    const normalized = coerceLlmPlanPayload(
+      {
+        classification: {
+          domain: "QUALITY",
+          subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+          confidence: "HIGH",
+          rationale: ["产线异常"],
+          missingInformation: [],
+        },
+        capaAdvisory: {
+          advisory: "建议开启 CAPA 进一步评估",
+          rationale: ["影响批次"],
+          disclaimer: CAPA_DISCLAIMER,
+          promptingQuestions: [],
+        },
+        tasks: [
+          {
+            id: "t1",
+            title: "x",
+            objective: "y",
+            collaborators: [],
+            inputMaterials: ["i"],
+            actions: ["a"],
+            deliverables: ["d"],
+            completionCriteria: ["c"],
+            timeNode: { checkpoints: [], dueAt: "48h" },
+            feedbackFrequency: "每日",
+            risksAndOpenQuestions: [],
+            dependencyTaskIds: [],
+          },
+        ],
+        openQuestions: [],
+      },
+      { domainHint: "QUALITY", background: "测试" }
+    );
+
+    expect(normalized.capaAdvisory?.advisory).toBe("RECOMMENDED");
+  });
+
+  it("allows empty tasks when validating NEEDS_MORE_INFO shaped payloads", () => {
+    const result = validateLlmPlanPayload(
+      {
+        classification: {
+          domain: "QUALITY",
+          subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+          confidence: "LOW",
+          rationale: ["信息不足"],
+          missingInformation: ["问题来源"],
+        },
+        capaAdvisory: {
+          advisory: "INSUFFICIENT_INFO",
+          rationale: ["背景过短"],
+          disclaimer: CAPA_DISCLAIMER,
+          promptingQuestions: [],
+        },
+        tasks: [],
+        openQuestions: ["请补充问题来源与现象描述。"],
+        gateSelfCheck: { passed: true, missingByTask: [] },
+      },
+      { allowEmptyTasks: true }
+    );
+
+    expect(result.valid).toBe(true);
+  });
+
+  it("treats dispatch gate fields as structural strings and arrays, not semantic defaults", () => {
+    const result = validateLlmPlanPayload({
+      classification: {
+        domain: "RD",
+        subtype: "SOLUTION_DEVELOPMENT",
+        confidence: "MEDIUM",
+        rationale: ["x"],
+        missingInformation: [],
+      },
+      tasks: [
+        {
+          id: "task_1",
+          title: "t",
+          objective: "o",
+          collaborators: [],
+          inputMaterials: [],
+          actions: [],
+          deliverables: [],
+          completionCriteria: [],
+          timeNode: { checkpoints: [], dueAt: "" },
+          feedbackFrequency: "",
+          risksAndOpenQuestions: [],
+          dependencyTaskIds: [],
+        },
+      ],
+      openQuestions: [],
+    });
+
+    expect(result.valid).toBe(true);
   });
 
   it("normalizes lowercase classification fields from qwen output", () => {

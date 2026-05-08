@@ -1,5 +1,9 @@
 import { CapaAdvisory, CAPA_DISCLAIMER } from "../../domain/capa";
-import { coerceLlmPlanPayload, validateLlmPlanPayload } from "./llm-schema";
+import {
+  coerceLlmPlanPayload,
+  needsMoreInfoFromLlmPayload,
+  validateLlmPlanPayload,
+} from "./llm-schema";
 import { normalizeModelPolicy } from "./model-policy";
 import {
   LlmPlannerRequest,
@@ -24,7 +28,10 @@ export async function runQwenPlanner(
     domainHint: request.domainHint,
     background: request.background,
   });
-  const validation = validateLlmPlanPayload(payload);
+
+  const validation = validateLlmPlanPayload(payload, {
+    allowEmptyTasks: needsMoreInfoFromLlmPayload(payload),
+  });
   if (!validation.valid) {
     throw new Error(`Qwen payload schema validation failed: ${validation.errors.join("; ")}`);
   }
@@ -39,6 +46,7 @@ export async function runQwenPlanner(
     capaAdvisory,
     tasks: payload.tasks,
     openQuestions: payload.openQuestions,
+    gateSelfCheck: payload.gateSelfCheck,
     trace: response.trace,
   };
 }

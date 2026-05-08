@@ -1,5 +1,9 @@
 import { PlanDomain } from "../harness/types";
 import { LlmPlanPayload, InferenceTrace, TokenUsage } from "./llm-types";
+import {
+  buildQwenPlannerSystemPrompt,
+  buildQwenPlannerUserPrompt,
+} from "./qwen-prompt";
 
 export interface QwenCompatibleClientConfig {
   baseUrl: string;
@@ -97,22 +101,11 @@ export class QwenCompatibleClient {
           messages: [
             {
               role: "system",
-              content:
-                [
-                  "你是任务规划助手，请仅输出 JSON，不要输出解释文字。",
-                  "JSON 顶层字段必须为 classification、tasks、openQuestions，可选 capaAdvisory。",
-                  "classification 必须是对象：{domain, subtype, confidence, rationale, missingInformation}。",
-                  "tasks 必须是数组，元素字段：id,title,objective,collaborators,inputMaterials,actions,deliverables,completionCriteria,timeNode,feedbackFrequency,risksAndOpenQuestions,dependencyTaskIds。",
-                  "timeNode 字段必须包含 checkpoints 和 dueAt。",
-                ].join(" "),
+              content: buildQwenPlannerSystemPrompt(),
             },
             {
               role: "user",
-              content: [
-                `domainHint: ${request.domainHint ?? "UNSPECIFIED"}`,
-                "请基于以下背景生成结构化任务拆解：",
-                request.background,
-              ].join("\n"),
+              content: buildQwenPlannerUserPrompt(request),
             },
           ],
         }),
