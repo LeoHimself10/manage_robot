@@ -24,6 +24,9 @@ data/
 # Local notes (do not commit)
 agent-maturity-assessment.md
 
+# Never commit SSH keys under docs/ (keep outside repo, e.g. Downloads)
+docs/*.pem
+
 # Local git worktrees
 .worktrees/
 
