@@ -10,22 +10,13 @@ import {
   type RobotMessage,
 } from "dingtalk-stream";
 
-import type { PlanDomain } from "./agent/harness/types";
-import {
-  createTaskPlanningDemo,
-  type TaskPlanningDemoResult,
-} from "./agent/demo/pipeline";
-import { loadQwenPlannerConfigFromEnv, runQwenPlanner } from "./agent/demo/qwen-planner";
+import { loadQwenPlannerConfigFromEnv } from "./agent/demo/qwen-planner";
 import {
   deriveChatSessionKey,
   MemoryChatSessionStore,
   readRateLimitWindowMs,
 } from "./infra/session-store";
-import {
-  readDemoLlmCorrectionEnabled,
-  readSessionDigestMaxChars,
-} from "./infra/demo-runtime-env";
-import { formatNeedsMoreInfoDingTalkMarkdown } from "./dingtalk-needs-more-info-markdown";
+import { readSessionDigestMaxChars } from "./infra/demo-runtime-env";
 import {
   nextSessionContextAfterDemoResult,
   type DingTalkDemoSessionContext,
@@ -49,63 +40,11 @@ import {
 } from "./dingtalk/assignment-markdown-appendix";
 import { mockManagerCard } from "./integrations/dingtalk/assignment-card-mock";
 import { isTaskInitiatorAllowed } from "./security/initiator-whitelist";
+import { runOrchestrator } from "./agent/orchestrator";
+import { getSessionKnownFacts, updateSessionKnownFacts } from "./dingtalk-session-context";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
-
-function parseDomainHint(raw: string | undefined): PlanDomain | undefined {
-  if (!raw?.trim()) return undefined;
-  const u = raw.trim().toUpperCase();
-  if (u === "QUALITY" || u === "RD") return u;
-  return undefined;
-}
-
-function truncateMarkdown(body: string): string {
-  if (body.length <= MAX_MARKDOWN_CHARS) return body;
-  return `${body.slice(0, MAX_MARKDOWN_CHARS)}\n\n_(内容过长已截断)_`;
-}
-
-function formatDemoReply(result: TaskPlanningDemoResult): {
-  title: string;
-  markdownText: string;
-} {
-  if (result.status === "NEEDS_MORE_INFO") {
-    const markdownText = formatNeedsMoreInfoDingTalkMarkdown(result.questions);
-    return { title: "待补充信息", markdownText };
-  }
-  if (result.status === "GENERATION_FAILED") {
-    const lines = [
-      `**生成失败：** ${result.reason}`,
-      "",
-      "---",
-      "",
-      "**建议：**",
-      ...result.recoverySuggestions.map((s) => `- ${s}`),
-    ];
-    if (result.trace?.errorCode) lines.push("", `_errorCode=${result.trace.errorCode}_`);
-    return { title: "生成失败", markdownText: lines.join("\n") };
-  }
-  if (result.status === "CONVERSATION") {
-    const title =
-      result.responseIntent === "CHAT"
-        ? "消息"
-        : result.responseIntent === "CLARIFY"
-          ? "待补充信息"
-          : result.responseIntent === "DISCUSS"
-            ? "任务讨论"
-            : "新任务";
-    return {
-      title,
-      markdownText: truncateMarkdown(
-        formatNeedsMoreInfoDingTalkMarkdown(result.questions, result.assistantMessage)
-      ),
-    };
-  }
-  return {
-    title: result.responseIntent === "REVISE_DRAFT" ? "任务拆解草案（已更新）" : "任务拆解草案",
-    markdownText: truncateMarkdown(result.markdown),
-  };
-}
 
 async function sendMarkdownReply(params: {
   client: DWClient;
@@ -184,8 +123,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  const domainHint = parseDomainHint(process.env.DEMO_DOMAIN_HINT);
-  const enableLlmCorrection = readDemoLlmCorrectionEnabled();
   const sessionDigestMaxChars = readSessionDigestMaxChars();
   const debug = process.env.DINGTALK_STREAM_DEBUG === "1" || process.env.DINGTALK_STREAM_DEBUG === "true";
 
@@ -241,61 +178,100 @@ async function main(): Promise<void> {
         }
 
         const prior = chatSessionMemory.get(chatKey);
-        const demoResult = await createTaskPlanningDemo(
+
+        // Run ReAct orchestrator
+        const orchResult = await runOrchestrator(background, {
+          clientConfig: qwenConfig,
+          employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
+          sessionContext: { knownFacts: getSessionKnownFacts(prior) },
+        });
+
+        // Sync known facts back to session
+        const updatedKnownFacts = updateSessionKnownFacts(prior, []);
+        // (knownFacts already mutated in-place by orchestrator through the store reference)
+
+        const sessionContext = nextSessionContextAfterDemoResult(
+          // build a compatible legacy result for session digest
           {
-            domainHint,
-            background,
-            sessionDigest: prior?.priorDigest,
-          },
-          {
-            llmPlanner: (request) => runQwenPlanner(request, qwenConfig),
-            enableLlmCorrection,
-          }
+            status: orchResult.draft ? "DRAFT_READY" as const : "CONVERSATION" as const,
+            responseIntent: orchResult.draft ? "DRAFT" as const : "CHAT" as const,
+            assistantMessage: orchResult.messages[orchResult.messages.length - 1] ?? "",
+            questions: [],
+            missingFields: [],
+            classification: (orchResult.draft as any)?.classification ?? {
+              domain: "QUALITY",
+              subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+              confidence: "LOW",
+              rationale: ["orchestrator output"],
+              missingInformation: [],
+            },
+            capaAdvisory: (orchResult.draft as any)?.capaAdvisory,
+            tasks: (orchResult.draft as any)?.tasks ?? [],
+            gate: (orchResult.draft as any)?.gateSelfCheck ?? { passed: true, missingByTask: [] },
+            generation: {
+              trace: {
+                traceId: orchResult.traceId,
+                requestId: orchResult.traceId,
+                model: qwenConfig.model,
+                tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+                latencyMs: 0,
+              },
+              traces: [],
+            },
+            traceId: orchResult.traceId,
+          } as any,
+          prior,
+          sessionDigestMaxChars
         );
 
-        // Build session context
-        let sessionContext = nextSessionContextAfterDemoResult(demoResult, prior, sessionDigestMaxChars);
-        let outboundMarkdown: string;
-        const { title, markdownText } = formatDemoReply(demoResult);
-        outboundMarkdown = markdownText;
+        chatSessionMemory.set(chatKey, {
+          ...sessionContext,
+          knownFacts: prior?.knownFacts ?? updatedKnownFacts,
+        });
 
-        // Add assignment progress note and update session state when conditions are met
+        // Send messages back
+        let outboundMarkdown = orchResult.messages.join("\n\n") || "已收到您的消息。";
+        if (outboundMarkdown.length > MAX_MARKDOWN_CHARS) {
+          outboundMarkdown = outboundMarkdown.slice(0, MAX_MARKDOWN_CHARS) + "\n\n_(内容过长已截断)_";
+        }
+
         if (
-          demoResult.status === "DRAFT_READY" &&
+          orchResult.draft &&
           isTaskInitiatorAllowed(payload.senderStaffId) &&
           process.env.ASSIGNMENT_PHASE_ENABLED === "1"
         ) {
-          outboundMarkdown = truncateMarkdown(markdownText + "\n\n" + buildAssignmentProgressMarkdown());
-          sessionContext = {
-            ...sessionContext,
-            assignmentState: { stage: "RECOMMENDING", lastAssignmentTraceId: demoResult.traceId },
-          };
+          outboundMarkdown += "\n\n" + buildAssignmentProgressMarkdown();
         }
-        chatSessionMemory.set(chatKey, sessionContext);
 
         dingtalkResponse = await sendMarkdownReply({
           client,
           sessionWebhook: payload.sessionWebhook,
           messageId,
           senderStaffId: payload.senderStaffId,
-          title,
+          title: orchResult.draft ? "任务拆解草案" : "消息",
           markdownText: outboundMarkdown,
         });
 
         // Async: assignment phase (fire-and-forget)
         if (
-          demoResult.status === "DRAFT_READY" &&
+          orchResult.draft &&
           isTaskInitiatorAllowed(payload.senderStaffId) &&
           process.env.ASSIGNMENT_PHASE_ENABLED === "1"
         ) {
           void (async () => {
             try {
+              const draft = orchResult.draft!;
+              const tasksFromDraft = (draft as any)?.tasks ?? [];
+              const classFromDraft = (draft as any)?.classification ?? {
+                domain: "QUALITY",
+                subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+              };
               const ar = await runAssignmentRecommendation(
                 {
-                  traceId: demoResult.traceId,
-                  tasks: demoResult.tasks,
-                  classificationSummary: `${demoResult.classification.domain}/${demoResult.classification.subtype}`,
-                  domainHint: demoResult.classification.domain,
+                  traceId: orchResult.traceId,
+                  tasks: tasksFromDraft,
+                  classificationSummary: `${classFromDraft.domain}/${classFromDraft.subtype}`,
+                  domainHint: classFromDraft.domain,
                 },
                 {
                   employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
@@ -312,7 +288,7 @@ async function main(): Promise<void> {
 
               const baseUrl = resolveAssignmentWebPublicBaseUrl();
               const signed = signAssignmentEntry({
-                planId: demoResult.traceId,
+                planId: orchResult.traceId,
                 userId: payload.senderStaffId,
                 role: "manager",
                 ttlSeconds: 1800,
@@ -334,7 +310,7 @@ async function main(): Promise<void> {
               });
 
               if (isDingtalkAssignmentMock()) {
-                mockManagerCard({ traceId: demoResult.traceId, outTrackId: `assign:${demoResult.traceId}` });
+                mockManagerCard({ traceId: orchResult.traceId, outTrackId: `assign:${orchResult.traceId}` });
               }
 
               // Update session state
@@ -342,7 +318,7 @@ async function main(): Promise<void> {
               if (updated) {
                 chatSessionMemory.set(chatKey, {
                   ...updated,
-                  assignmentState: { stage: "AWAITING_DISPATCH_CONFIRM", lastAssignmentTraceId: demoResult.traceId },
+                  assignmentState: { stage: "AWAITING_DISPATCH_CONFIRM", lastAssignmentTraceId: orchResult.traceId },
                 });
               }
             } catch (err) {
