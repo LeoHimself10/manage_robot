@@ -107,6 +107,15 @@ describe("assignment-env", () => {
       vi.stubEnv("ASSIGNMENT_WEB_PORT", "0");
       expect(resolveAssignmentWebPort()).toBe(8787);
     });
+
+    it("rejects float and out-of-range port values", () => {
+      vi.stubEnv("ASSIGNMENT_WEB_PORT", "8787.5");
+      expect(resolveAssignmentWebPort()).toBe(8787);
+      vi.stubEnv("ASSIGNMENT_WEB_PORT", "70000");
+      expect(resolveAssignmentWebPort()).toBe(8787);
+      vi.stubEnv("ASSIGNMENT_WEB_PORT", "-100");
+      expect(resolveAssignmentWebPort()).toBe(8787);
+    });
   });
 
   describe("resolveAssignmentWebPublicBaseUrl", () => {

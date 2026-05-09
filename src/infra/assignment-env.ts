@@ -34,8 +34,10 @@ export function resolveAssignmentWebSecret(): string {
 }
 
 export function resolveAssignmentWebPort(): number {
-  const n = Number(process.env.ASSIGNMENT_WEB_PORT ?? "8787");
-  return Number.isFinite(n) && n > 0 ? n : 8787;
+  const raw = process.env.ASSIGNMENT_WEB_PORT?.trim();
+  if (!raw) return 8787;
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) && n >= 1 && n <= 65535 ? n : 8787;
 }
 
 export function resolveAssignmentWebPublicBaseUrl(): string {
