@@ -476,7 +476,16 @@ function truncateErrorBody(body: string): string {
 export function parseAssistantJsonPayload(content: string): unknown {
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   const normalized = (fenced ?? content).trim();
-  return JSON.parse(normalized);
+  try {
+    return JSON.parse(normalized);
+  } catch {
+    // Qwen3 thinking 模式或 prompt v3.0 下模型可能直接返回自然语言；
+    // 封装为 { message, stopReason: end_turn }，不阻断用户回复
+    if (normalized.length > 0) {
+      return { message: normalized, stopReason: "end_turn" };
+    }
+    throw new Error("Qwen API returned non-JSON content and empty fallback");
+  }
 }
 
 function extractAssistantContent(response: ChatCompletionResponse): string {
