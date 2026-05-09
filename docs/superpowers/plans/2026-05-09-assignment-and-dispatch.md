@@ -4,7 +4,24 @@
 
 **Goal:** After a `DRAFT_READY` turn (v2.11 `responseIntent` `DRAFT` / `REVISE_DRAFT`), run a second LLM pass to produce `AssignmentDraft`, persist it under `./data/`, expose a signed-URL Web workbench for manager overrides, append a DingTalk Markdown follow-up with links (mock interactive cards until DingTalk API permissions exist), and record append-only assignment events—aligned with `docs/superpowers/specs/2026-05-09-assignment-and-dispatch-design.md`.
 
-**Architecture:** Keep `createTaskPlanningDemo` focused on planning; extend its result with `traceId` so downstream code can load `./data/plans/<traceId>.json`. New package `src/agent/assignment/` holds prompt + schema + runner. New `src/integrations/repos/` holds file-backed repos (atomic JSON writes). New `src/security/` holds HMAC signed URLs and initiator whitelist. `src/dingtalk-bot.ts` orchestrates: whitelist → planning → (if `DRAFT_READY`) assignment runner → merge assignment summary into outbound Markdown → start optional HTTP server for Web UI on same process. No DB; no LLM function calling in v1.
+## v0.2 Modifications (current execution)
+
+四项关键调整（参见 spec v0.2 修订摘要）：
+
+1. **Assignment 阶段异步**（影响 Task 9）：DRAFT_READY 立即返回主管草案；`runAssignmentRecommendation` 用 `void (async () => { ... })()` 后台执行；完成后通过 `sessionWebhook` 推送独立「分配建议」消息；后台失败仅写审计日志，不影响主链路。
+2. **单轮 function calling 替代 prompt-only 候选人压缩**（影响 Tasks 5、6）：
+   - `QwenCompatibleClient` 新增 `callWithTools({ messages, tools, toolHandlers, maxIterations })`，内部处理 OpenAI 兼容的 tool_call 协议；v0.2 限定 `maxIterations = 1`
+   - 暴露唯一工具 `search_employees(domain?, skills?, department?, role?)`
+   - LLM 第一轮仅 tool_call 不输出 content；第二轮带 tool result 返回 AssignmentDraft JSON
+   - 工具实现见新增文件 `src/agent/assignment/tools/search-employees.ts`
+3. **assignmentRecommender 加 1 轮 self-correction**（影响 Task 6）：schema validate 失败时把 errors 回传 LLM 修正；仍失败 → `ASSIGNMENT_GENERATION_FAILED`。
+4. **compressProfile 保留 case outcome**（影响 Task 6 Step 3）：cases 段从 `taskType` 改为 `taskType -> outcome`。
+
+执行注意：subagent 在跑 Tasks 5/6/9 时必须先读本 v0.2 段落，再读 task 正文；Tasks 1/2/3/4/7/8/10 不受 v0.2 影响。
+
+---
+
+**Architecture:** Keep `createTaskPlanningDemo` focused on planning; extend its result with `traceId` so downstream code can load `./data/plans/<traceId>.json`. New package `src/agent/assignment/` holds prompt + schema + runner + tools. New `src/integrations/repos/` holds file-backed repos (atomic JSON writes). New `src/security/` holds HMAC signed URLs and initiator whitelist. `src/dingtalk-bot.ts` orchestrates: whitelist → planning → (if `DRAFT_READY`) **async** assignment runner → second `sessionWebhook` push when ready → start optional HTTP server for Web UI on same process. No DB; **single-turn function calling** in v0.2 (LLM 调一次 `search_employees` 工具，再生成 JSON)。
 
 **Tech Stack:** TypeScript (ESM), Node `http`, Vitest, existing `QwenCompatibleClient` extended for generic JSON messages, existing `dotenv` / `tsx` entrypoints.
 
@@ -381,63 +398,159 @@ git commit -m "feat(security): task initiator whitelist for assignment phase"
 
 ---
 
-### Task 5: Extend `QwenCompatibleClient` for arbitrary JSON messages
+### Task 5: Add function calling support to `QwenCompatibleClient`（v0.2）
 
 **Files:**
 - Modify: `src/agent/demo/qwen-compatible-client.ts`
 - Modify: `tests/agent/demo/qwen-compatible-client.test.ts` (or new test file)
 
-- [ ] **Step 1: Add method**
+**目标：** 新增 `callWithTools` 方法，处理 OpenAI 兼容的 `tools` + `tool_calls` 协议；v0.2 限定单轮（`maxIterations=1`）。沿用现有 fetch + retry + SSE 拼装逻辑，但新方法非 stream（避免 stream + tool_call 协议复杂化）。
 
-Add public method:
+- [ ] **Step 1: 接口与类型**
 
 ```ts
-export interface GenerateJsonMessagesRequest {
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>; // JSON Schema
+  };
+}
+
+export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown> | unknown;
+
+export interface CallWithToolsRequest {
   traceId?: string;
-  messages: Array<{ role: "system" | "user"; content: string }>;
+  messages: Array<{ role: "system" | "user" | "assistant" | "tool"; content?: string; tool_call_id?: string; tool_calls?: unknown[] }>;
+  tools: ToolDefinition[];
+  toolHandlers: Record<string, ToolHandler>;
+  maxIterations?: number; // 默认 1
 }
 
-export interface GenerateJsonMessagesResult {
-  payload: unknown;
-  trace: InferenceTrace;
-  rawContent: string;
-}
-
-async generateJsonFromMessages(
-  request: GenerateJsonMessagesRequest
-): Promise<GenerateJsonMessagesResult> {
-  // Copy retry loop from generateStructuredPlan but call new private
-  // buildChatCompletionPayloadFromMessages(request.messages)
+export interface CallWithToolsResult {
+  payload: unknown;       // 最后一轮 assistant content 的 JSON.parse 结果
+  rawContent: string;     // 最后一轮 assistant content 文本
+  trace: InferenceTrace;  // 累计 tokenUsage / latency
+  toolCallsExecuted: number;
 }
 ```
 
-Implement `buildChatCompletionPayloadFromMessages` mirroring `buildChatCompletionPayload` but without importing planner prompts—only `messages`, `model`, `temperature`, `max_tokens`, `stream`.
+- [ ] **Step 2: 实现 callWithTools**
 
-Reuse private `callChatCompletions` **after** refactoring: extract `postChatCompletions(body: Record<string, unknown>): Promise<ChatCompletionResponse>` used by both code paths.
+伪代码（关键路径）：
 
-Parse JSON via existing `parseAssistantJsonPayload` / `extractAssistantContent` exports if available.
+```ts
+async callWithTools(req: CallWithToolsRequest): Promise<CallWithToolsResult> {
+  const maxIter = req.maxIterations ?? 1;
+  const messages = [...req.messages];
+  const traceStart = Date.now();
+  let totalTokens = 0;
+  let toolCallsExecuted = 0;
+  let lastRequestId: string | undefined;
+  let lastModel: string | undefined;
 
-- [ ] **Step 2: Test with mocked `fetch`**
+  for (let iter = 0; iter <= maxIter; iter += 1) {
+    const body = {
+      model: this.config.model,
+      temperature: this.config.temperature,
+      max_tokens: this.config.maxTokens,
+      messages,
+      tools: req.tools,
+      tool_choice: iter === 0 ? "auto" : "none", // v0.2：第二轮强制不再 tool_call
+      response_format: iter === maxIter ? { type: "json_object" } : undefined,
+    };
+    const response = await this.postChatCompletions(body); // 抽出共用 fetch+retry
+    lastRequestId = response.id;
+    lastModel = response.model;
+    totalTokens += response.usage?.total_tokens ?? 0;
 
-Stub global `fetch` to return `{ ok: true, json: () => ({ choices: [{ message: { content: '{"ok":true}' } }] }) } }` and assert `payload.ok === true`.
+    const choice = response.choices?.[0];
+    const msg = choice?.message;
+    if (!msg) throw new Error("Qwen response missing message");
 
-- [ ] **Step 3: Commit**
+    if (msg.tool_calls && msg.tool_calls.length > 0) {
+      if (iter >= maxIter) {
+        throw new Error(`tool_calls returned at last iteration ${iter}; v0.2 limits to ${maxIter}`);
+      }
+      // 把 assistant tool_call 消息追加进 messages，然后逐个执行 handler
+      messages.push({ role: "assistant", tool_calls: msg.tool_calls } as unknown as typeof messages[number]);
+      for (const tc of msg.tool_calls) {
+        const handler = req.toolHandlers[tc.function.name];
+        if (!handler) throw new Error(`No handler for tool ${tc.function.name}`);
+        let parsedArgs: Record<string, unknown> = {};
+        try {
+          parsedArgs = JSON.parse(tc.function.arguments || "{}");
+        } catch {
+          throw new Error(`Invalid tool_call arguments JSON: ${tc.function.arguments}`);
+        }
+        const result = await handler(parsedArgs);
+        toolCallsExecuted += 1;
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: JSON.stringify(result),
+        });
+      }
+      continue;
+    }
+
+    if (msg.content) {
+      const parsed = parseAssistantJsonPayload(msg.content);
+      return {
+        payload: parsed,
+        rawContent: msg.content,
+        trace: {
+          traceId: req.traceId,
+          requestId: lastRequestId ?? `req_${Date.now()}`,
+          model: lastModel ?? this.config.model,
+          tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens },
+          latencyMs: Date.now() - traceStart,
+        },
+        toolCallsExecuted,
+      };
+    }
+
+    throw new Error("Qwen response had neither tool_calls nor content");
+  }
+
+  throw new Error("callWithTools exhausted maxIterations without final content");
+}
+```
+
+- 复用 `postChatCompletions(body)`：把现有 `callChatCompletions` 中 fetch + retry + 错误处理抽出为通用方法，`generateStructuredPlan` 与 `callWithTools` 共用。
+- v0.2 限定 stream=false（即使配置开启 SSE 也不影响 callWithTools；stream 与 tool_call 协议组合会显著增加复杂度，留待后续）。
+- 第二轮强制 `tool_choice: "none"` 避免无限调用；如果模型仍返回 tool_calls 则报错走 self-correction。
+
+- [ ] **Step 3: 单元测试**
+
+测试场景（用 `vi.stubGlobal("fetch", ...)` mock 多轮 fetch）：
+
+1. 单轮 tool_call → 第二轮纯 JSON 响应；断言 `toolCallsExecuted === 1` 且 `payload` 来自第二轮。
+2. 模型未调工具直接出 JSON：`toolCallsExecuted === 0`，结果立即返回。
+3. 第二轮还出 tool_call → 抛错（v0.2 限定单轮）。
+4. tool_call args 是非法 JSON → 抛错。
+5. handler 找不到 → 抛错。
+
+- [ ] **Step 4: 提交**
 
 ```bash
 git add src/agent/demo/qwen-compatible-client.ts tests/agent/demo/qwen-compatible-client.test.ts
-git commit -m "feat(qwen): generic JSON completion helper for assignment LLM"
+git commit -m "feat(qwen): single-turn function calling support for assignment runner"
 ```
 
 ---
 
-### Task 6: Assignment schema + prompt + runner
+### Task 6: Assignment schema + prompt + runner（v0.2：function calling + self-correction + outcome 字段）
 
 **Files:**
 - Create: `src/agent/assignment/types.ts`
 - Create: `src/agent/assignment/assignment-schema.ts`
 - Create: `src/agent/assignment/assignment-prompt.ts`
+- Create: `src/agent/assignment/tools/search-employees.ts`（v0.2 新增）
 - Create: `src/agent/assignment/run-assignment-recommendation.ts`
 - Test: `tests/agent/assignment/assignment-schema.test.ts`
+- Test: `tests/agent/assignment/tools/search-employees.test.ts`（v0.2 新增）
 - Test: `tests/agent/assignment/run-assignment-recommendation.test.ts`
 
 - [ ] **Step 1: Types**
@@ -448,39 +561,145 @@ Mirror spec §5.3 TypeScript interfaces (`AssignmentDraft`, `SubTaskAssignment`,
 
 Implement `coerceAssignmentDraft(raw: unknown): AssignmentDraft` and `validateAssignmentDraft(d: AssignmentDraft): { valid: boolean; errors: string[] }`:
 
-- Every `assignments[].taskId` must exist in input tasks  
-- `primary.userId` / alternates must exist in employee repo  
-- `confidence` ∈ `HIGH|MEDIUM|LOW`  
-- Required string fields non-empty  
+- Every `assignments[].taskId` must exist in input tasks
+- `primary.userId` / alternates must exist in employee repo
+- `confidence` ∈ `HIGH|MEDIUM|LOW`
+- 风险类型 `risks[].type` ∈ `OVERLOAD | MISSING_PERMISSION | CROSS_DEPARTMENT | RECENT_REJECTION | INSUFFICIENT_EVIDENCE | OTHER`
+- alternates 不应包含 primary.userId
+- Required string fields non-empty
 
-- [ ] **Step 3: Prompt**
+- [ ] **Step 3: search_employees tool（v0.2 新增）**
 
-`assignment-prompt.ts`: export `ASSIGNMENT_RECOMMENDER_PROMPT_VERSION = "assignment-recommender-agent-v0.1.0"` and system text instructing: JSON only, single object matching schema, reference candidate evidence in `rationale`, use `LOW` + `managerQuestions` when unsure, never invent userIds.
-
-User payload: stringify `{ planSummary, tasks: simplified task array, candidates: compressed bios }`.
-
-Compression helper in `run-assignment-recommendation.ts`:
+`src/agent/assignment/tools/search-employees.ts`：
 
 ```ts
-function compressProfile(p: EmployeeProfileRecord): string {
+import type { EmployeeProfileRecord } from "../../../integrations/repos/employee-profile-repo";
+import type { ToolDefinition, ToolHandler } from "../../demo/qwen-compatible-client";
+
+export const SEARCH_EMPLOYEES_TOOL: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "search_employees",
+    description:
+      "Search candidate employees by domain, skills, department, or role. " +
+      "Use this ONCE at the start to retrieve a focused candidate list before generating AssignmentDraft. " +
+      "Do not call this tool more than once.",
+    parameters: {
+      type: "object",
+      properties: {
+        domain: {
+          type: "string",
+          enum: ["QUALITY", "RD"],
+          description: "Filter by task domain",
+        },
+        skills: {
+          type: "array",
+          items: { type: "string" },
+          description: "Required skill tags (any-of match)",
+        },
+        department: { type: "string" },
+        role: { type: "string" },
+      },
+    },
+  },
+};
+
+const DEFAULT_LIMIT = 30;
+
+const DOMAIN_DEPARTMENT_HINTS: Record<string, string[]> = {
+  QUALITY: ["质量部", "测试部", "供应商质量"],
+  RD: ["研发部", "硬件部", "软件部", "结构部"],
+};
+
+export interface SearchEmployeesResult {
+  candidates: string[]; // 压缩画像（每位一段）
+  truncated: boolean;
+  total: number;
+}
+
+export function compressProfile(p: EmployeeProfileRecord): string {
+  // v0.2: cases 段保留 taskType -> outcome
   return [
     `${p.userId} ${p.displayName} | ${p.department} | ${p.role}`,
     `tags: ${p.selfProfile.skillTags.join(",")}`,
     `strengths: ${p.selfProfile.strengths.join(";")}`,
     `boundaries: ${p.selfProfile.boundaries.join(";")}`,
-    `cases: ${p.selfProfile.cases.map((c) => c.taskType).join(",")}`,
-  ].join("\n");
+    `cases: ${p.selfProfile.cases.map((c) => `${c.taskType}->${c.outcome}`).join(",")}`,
+    p.selfProfile.availability.capacityHint
+      ? `availability: ${p.selfProfile.availability.capacityHint}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function buildSearchEmployeesHandler(repo: { list(): EmployeeProfileRecord[] }): ToolHandler {
+  return async (args) => {
+    const a = args as {
+      domain?: string;
+      skills?: string[];
+      department?: string;
+      role?: string;
+    };
+    const all = repo.list();
+    let filtered = all;
+
+    if (a.domain) {
+      const allowedDepts = DOMAIN_DEPARTMENT_HINTS[a.domain] ?? [];
+      if (allowedDepts.length > 0) {
+        filtered = filtered.filter((e) => allowedDepts.includes(e.department));
+      }
+    }
+    if (a.department) {
+      filtered = filtered.filter((e) => e.department === a.department);
+    }
+    if (a.role) {
+      filtered = filtered.filter((e) => e.role === a.role);
+    }
+    if (a.skills && a.skills.length > 0) {
+      filtered = filtered.filter((e) =>
+        a.skills!.some((s) => e.selfProfile.skillTags.includes(s))
+      );
+    }
+
+    const truncated = filtered.length > DEFAULT_LIMIT;
+    const top = filtered.slice(0, DEFAULT_LIMIT);
+    return {
+      candidates: top.map(compressProfile),
+      truncated,
+      total: filtered.length,
+    } satisfies SearchEmployeesResult;
+  };
 }
 ```
 
-- [ ] **Step 4: Runner**
+测试要点（`tests/agent/assignment/tools/search-employees.test.ts`）：
+1. 空 args → 返回所有候选人（受 limit 截断）
+2. domain=QUALITY → 只返回 `质量部 / 测试部 / 供应商质量` 的人
+3. skills 命中任一即返回（any-of）
+4. truncated 标志：注入 35 个 fake 员工，断言 truncated=true 且 candidates.length===30
+5. compressProfile 输出包含 `taskType->outcome`（v0.2 验证点）
+
+- [ ] **Step 4: Prompt**
+
+`assignment-prompt.ts`: export `ASSIGNMENT_RECOMMENDER_PROMPT_VERSION = "assignment-recommender-agent-v0.2.0"` and system text instructing:
+- 仅输出 JSON
+- 必须先调用 `search_employees` 工具一次（v0.2 限定单轮）
+- 拿到候选人后基于压缩画像生成 AssignmentDraft
+- 不确定时用 `LOW + managerQuestions`，不要硬编人选
+- 引用候选人画像中的具体证据写进 rationale
+- `primary.userId` 与 `alternates[].userId` 必须来自工具返回的候选人列表，不要凭空捏造
+
+User payload: stringify `{ planSummary, tasks: simplified task array }`（v0.2：候选人不再塞进 prompt，由 tool 调用拉取）。
+
+- [ ] **Step 5: Runner（v0.2：function calling + self-correction）**
 
 ```ts
 export interface RunAssignmentRecommendationInput {
   traceId: string;
   tasks: TaskPackage[];
   classificationSummary: string;
-  assigneeHint?: string;
+  domainHint?: "QUALITY" | "RD";
 }
 
 export interface RunAssignmentRecommendationDeps {
@@ -494,20 +713,66 @@ export async function runAssignmentRecommendation(
   input: RunAssignmentRecommendationInput,
   deps: RunAssignmentRecommendationDeps
 ): Promise<{ ok: true; draft: AssignmentDraft } | { ok: false; reason: string }> {
-  const candidates = deps.employeeRepo.list().map(compressProfile);
   const client = new QwenCompatibleClient(deps.qwenConfig);
+  const handler = buildSearchEmployeesHandler(deps.employeeRepo);
+
   const sys = buildAssignmentSystemPrompt();
-  const user = buildAssignmentUserPrompt(input, candidates);
-  const raw = await client.generateJsonFromMessages({
-    traceId: input.traceId,
-    messages: [
-      { role: "system", content: sys },
-      { role: "user", content: user },
-    ],
-  });
-  const coerced = coerceAssignmentDraft(raw.payload);
-  const v = validateAssignmentDraft(coerced);
-  if (!v.valid) return { ok: false, reason: v.errors.join("; ") };
+  const user = buildAssignmentUserPrompt(input);
+
+  const messages: Array<{ role: "system" | "user" | "assistant" | "tool"; content?: string }> = [
+    { role: "system", content: sys },
+    { role: "user", content: user },
+  ];
+
+  // 第 1 轮：function calling + 生成
+  let response;
+  try {
+    response = await client.callWithTools({
+      traceId: input.traceId,
+      messages,
+      tools: [SEARCH_EMPLOYEES_TOOL],
+      toolHandlers: { search_employees: handler },
+      maxIterations: 1,
+    });
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+
+  let coerced = coerceAssignmentDraft(response.payload);
+  let v = validateAssignmentDraft(coerced, { allowedUserIds: deps.employeeRepo.list().map((e) => e.userId), taskIds: input.tasks.map((t) => t.id) });
+
+  // v0.2：1 轮 self-correction
+  if (!v.valid) {
+    const correctionMessages = [
+      ...messages,
+      {
+        role: "assistant" as const,
+        content: JSON.stringify(response.payload),
+      },
+      {
+        role: "user" as const,
+        content: `你上一次输出未通过 schema 校验，请仅修正以下问题后再次输出完整 JSON：\n${v.errors.map((e) => `- ${e}`).join("\n")}`,
+      },
+    ];
+    try {
+      response = await client.callWithTools({
+        traceId: input.traceId,
+        messages: correctionMessages,
+        tools: [SEARCH_EMPLOYEES_TOOL],
+        toolHandlers: { search_employees: handler },
+        maxIterations: 1,
+      });
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+    coerced = coerceAssignmentDraft(response.payload);
+    v = validateAssignmentDraft(coerced, { allowedUserIds: deps.employeeRepo.list().map((e) => e.userId), taskIds: input.tasks.map((t) => t.id) });
+  }
+
+  if (!v.valid) {
+    return { ok: false, reason: v.errors.join("; ") };
+  }
+
   await deps.draftRepo.save(coerced);
   await deps.eventRepo.append({
     eventId: crypto.randomUUID(),
@@ -515,24 +780,39 @@ export async function runAssignmentRecommendation(
     planId: input.traceId,
     type: "recommended_for_task",
     occurredAt: new Date().toISOString(),
-    payload: { promptVersion: ASSIGNMENT_RECOMMENDER_PROMPT_VERSION },
+    payload: {
+      promptVersion: ASSIGNMENT_RECOMMENDER_PROMPT_VERSION,
+      toolCallsExecuted: response.toolCallsExecuted,
+      correctionUsed: messages.length !== correctionMessages?.length, // 简化：可改为显式 flag
+    },
   });
+
+  logStructured({
+    event: "assignment_draft_ready",
+    traceId: input.traceId,
+    assignmentPromptVersion: ASSIGNMENT_RECOMMENDER_PROMPT_VERSION,
+    assigneeCount: input.tasks.length,
+    toolCallsExecuted: response.toolCallsExecuted,
+  });
+
   return { ok: true, draft: coerced };
 }
 ```
 
-Adjust imports (`crypto` from `node:crypto`).
+Adjust imports (`crypto` from `node:crypto`, `logStructured` from infra)。
 
-- [ ] **Step 5: Tests**
+- [ ] **Step 6: 测试**
 
-- Schema: valid fixture passes; missing taskId fails  
-- Runner: mock `QwenCompatibleClient` by injecting deps **or** pass `generateJsonFromMessages` stub via optional param `llm?: ...` for testability (preferred: optional `depsOverrides` in runner)
+- Schema：valid fixture passes; missing taskId fails; alternates 含 primary 失败
+- search_employees handler：见 Step 3 测试要点
+- Runner 集成：mock `client.callWithTools` 让其返回（a）有 tool_call 触发 handler、（b）最终 JSON；断言 draftRepo.save 被调用、events 被追加
+- Self-correction：mock 第一次返回 invalid payload、第二次返回 valid；断言 callWithTools 被调用 2 次
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/agent/assignment tests/agent/assignment
-git commit -m "feat(assignment): recommender schema, prompt, and runner"
+git commit -m "feat(assignment): function-calling recommender with self-correction"
 ```
 
 ---
@@ -686,37 +966,101 @@ Function `buildAssignmentFollowUpMarkdown(params: { baseUrl: string; token: stri
 
 If `DINGTALK_ASSIGNMENT_MOCK=1`, append line to `CARD_CALLBACKS_PATH` with `{ kind:"mock_manager_card", traceId, outTrackId }`.
 
-- [ ] **Step 4: Bot integration**
+- [ ] **Step 4: Bot integration（v0.2：async）**
 
-In `dingtalk-bot.ts` after `createTaskPlanningDemo`:
+In `dingtalk-bot.ts`:
+
+1. **DRAFT_READY 立即返回主管草案**：使用现有 `formatDemoReply` 拼出 Markdown，调用 `sendMarkdownReply` 推送，**不再等待 assignment**。
+2. **Assignment 异步执行**：满足 `demoResult.status === "DRAFT_READY"` 且 `isTaskInitiatorAllowed(payload.senderStaffId)` 且 `process.env.ASSIGNMENT_PHASE_ENABLED === "1"` 时，用 `void (async () => { ... })()` 启动后台任务；后台任务完成后**单独**通过同一 `sessionWebhook` 推送一条「分配建议」Markdown。
+3. **失败处理**：assignment 后台失败时仅写 `assignment-events.jsonl` + `console.error`，不推送任何错误消息给用户（避免打扰）。
+4. **会话状态更新**：`chatSessionMemory.set` 在 DRAFT_READY 立即同步执行（含 `assignmentState.stage = "RECOMMENDING"`）；后台 assignment 完成时再次 `chatSessionMemory.set` 更新为 `AWAITING_DISPATCH_CONFIRM`。
+5. **签名 URL 与 mock 卡片**：与原 v1 设计一致，但仅在异步任务完成时才生成。
+
+伪代码：
 
 ```ts
-let outboundMarkdown = markdownText;
+// 主链路：先送草案
+const { title, markdownText } = formatDemoReply(demoResult);
+const replyPromise = sendMarkdownReply({ client, sessionWebhook: payload.sessionWebhook, messageId, senderStaffId: payload.senderStaffId, title, markdownText });
+dingtalkResponse = await replyPromise;
+
+// session：先把 conversation state 写好
+let sessionContext = nextSessionContextAfterDemoResult(demoResult, prior, sessionDigestMaxChars);
+
+// 异步：assignment phase
 if (
   demoResult.status === "DRAFT_READY" &&
   isTaskInitiatorAllowed(payload.senderStaffId) &&
   process.env.ASSIGNMENT_PHASE_ENABLED === "1"
 ) {
-  const ar = await runAssignmentRecommendation(...);
-  if (ar.ok) {
-    const signed = signAssignmentEntry({
-      planId: demoResult.traceId,
-      userId: payload.senderStaffId,
-      role: "manager",
-      ttlSeconds: 1800,
-    });
-    const link = `${resolveAssignmentWebPublicBaseUrl()}/assignment/workbench?token=${encodeURIComponent(signed.token)}`;
-    outboundMarkdown = `${markdownText}\n\n${buildAssignmentFollowUpMarkdown({
-      baseUrl: resolveAssignmentWebPublicBaseUrl(),
-      token: signed.token,
-      draft: ar.draft,
-    })}`;
-    if (isDingtalkAssignmentMock()) mockManagerCard(...);
-  }
+  sessionContext = {
+    ...sessionContext,
+    assignmentState: { stage: "RECOMMENDING", lastAssignmentTraceId: demoResult.traceId },
+  };
+  chatSessionMemory.set(chatKey, sessionContext);
+
+  const sessionWebhook = payload.sessionWebhook;
+  const senderStaffId = payload.senderStaffId;
+  const replyMessageId = messageId;
+  void (async () => {
+    try {
+      const ar = await runAssignmentRecommendation(
+        {
+          traceId: demoResult.traceId,
+          tasks: demoResult.tasks,
+          classificationSummary: `${demoResult.classification.domain}/${demoResult.classification.subtype}`,
+          domainHint: demoResult.classification.domain,
+        },
+        {
+          employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
+          qwenConfig,
+          draftRepo: createAssignmentDraftRepo(resolveAssignmentDraftDir()),
+          eventRepo: createAssignmentEventRepo(resolveAssignmentEventsPath()),
+        }
+      );
+      if (!ar.ok) {
+        console.error("[assignment] generation failed:", ar.reason);
+        return;
+      }
+      const signed = signAssignmentEntry({
+        planId: demoResult.traceId,
+        userId: senderStaffId,
+        role: "manager",
+        ttlSeconds: 1800,
+      });
+      const link = `${resolveAssignmentWebPublicBaseUrl()}/assignment/workbench?token=${encodeURIComponent(signed.token)}`;
+      const markdown = buildAssignmentFollowUpMarkdown({
+        baseUrl: resolveAssignmentWebPublicBaseUrl(),
+        token: signed.token,
+        draft: ar.draft,
+      });
+      await sendMarkdownReply({
+        client,
+        sessionWebhook,
+        messageId: replyMessageId,
+        senderStaffId,
+        title: "分配建议",
+        markdownText: markdown,
+      });
+      if (isDingtalkAssignmentMock()) {
+        mockManagerCard({ traceId: demoResult.traceId, outTrackId: `assign:${demoResult.traceId}` });
+      }
+      // 更新 session
+      const next = chatSessionMemory.get(chatKey);
+      chatSessionMemory.set(chatKey, {
+        ...(next ?? sessionContext),
+        assignmentState: { stage: "AWAITING_DISPATCH_CONFIRM", lastAssignmentTraceId: demoResult.traceId },
+      });
+    } catch (err) {
+      console.error("[assignment] background error:", err instanceof Error ? err.message : err);
+    }
+  })();
+} else {
+  chatSessionMemory.set(chatKey, sessionContext);
 }
 ```
 
-Gate behind `ASSIGNMENT_PHASE_ENABLED=1` so production defaults unchanged until ready.
+Gate behind `ASSIGNMENT_PHASE_ENABLED=1` so production defaults unchanged until ready。
 
 - [ ] **Step 5: Tests**
 

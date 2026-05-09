@@ -1,8 +1,30 @@
 # 任务分配与派发能力设计
 
-**文档日期**：2026-05-09
+**文档日期**：2026-05-09（v0.2 修订 2026-05-09）
 **修订人**：姚凯珩
 **状态**：草案；**Conversational intent（v2.11）** 已在 Demo 主线落地（见 **`AGENTS.md`**、**`docs/Qwen-接入实施说明.md`**），本设计可与该实现对齐后进入实施；跨 prompt/schema/钉钉文件的改动需在分支合并后做一次回归核对。
+
+## v0.2 修订摘要（执行前生效）
+
+实施前对原设计的四项关键调整：
+
+1. **Assignment 阶段异步化**（修订 §3.1、§3.2、D3）：
+   - DRAFT_READY 立即返回主管 Markdown，不阻塞用户
+   - assignmentRecommender 在后台执行，完成后通过 `sessionWebhook` 单独推送「分配建议」消息
+   - 主管最长等待时间限定为 60 秒，超时由前端容忍提示「分配建议生成中…」
+2. **LLM 候选人检索改为单轮 function calling**（修订 §5、§18.5）：
+   - 暴露唯一工具 `search_employees(domain?, skills?, department?, role?)` 给模型
+   - 模型先调用 1 次工具拿到候选人压缩画像，再生成 `AssignmentDraft`
+   - 候选人池超过 30 人时，仅返回前 N 条匹配并在结果末尾追加 `truncated:true`
+   - 超过 1 轮 tool call 视为失败，进入 self-correction 路径
+3. **assignmentRecommender 加入 1 轮 self-correction**（修订 §5.1）：
+   - schema validate 失败时，把错误信息回传 LLM 让其修正
+   - 仅 1 轮，仍失败 → `ASSIGNMENT_GENERATION_FAILED`
+4. **候选人压缩画像保留 case outcome**（修订 §5.2）：
+   - cases 字段从只取 `taskType` 改为 `taskType -> outcome`
+   - 让模型能区分「成功完成 8D 报告」与「曾尝试但未完成」
+
+详细落地步骤见 `docs/superpowers/plans/2026-05-09-assignment-and-dispatch.md` 的「v0.2 Modifications」段。
 **关联文档**：
 - `docs/PRD-钉钉任务规划与承接确认机器人.md`
 - `docs/agent-harness-架构与开发计划.md`
@@ -39,9 +61,11 @@
 
 ```text
 输入质检 → Qwen 结构化生成（含 responseIntent）
-        → DRAFT / REVISE_DRAFT 出现时进入 Assignment 阶段
-        → assignmentRecommender（LLM 主导）输出 AssignmentDraft
-        → 钉钉「分配确认卡片」推给主管
+        → DRAFT / REVISE_DRAFT 出现时同步返回主管「任务拆解草案」
+        → 同时**异步**触发 assignmentRecommender（v0.2 修订）
+        → assignmentRecommender 单轮 function calling 调用 search_employees
+        → LLM 输出 AssignmentDraft → schema validate（失败时 1 轮 self-correction）
+        → 钉钉「分配建议」卡片/Markdown 单独推送给主管
         → 主管确认 / 调整（卡片直接确认 或 跳 Web 工作台）
         → DISPATCHED：逐人发送「任务承接卡片」
         → 员工承接 / 需要修改 / 无法承接（承接卡片 或 Web 补充页）
@@ -124,21 +148,25 @@ Assignment 子状态沿用现有约定：
 
 新增独立 LLM 调用，与现有 `runQwenPlanner` 解耦：
 
-- 输入：`PlanDraft`（含子任务、依赖、交付物、完成标准、时间约束、CAPA 建议）+ 候选人压缩画像列表 + 当前会话上下文（精简）。
+- 输入：`PlanDraft`（含子任务、依赖、交付物、完成标准、时间约束、CAPA 建议）+ 当前会话上下文（精简）。
+- 工具调用（v0.2）：暴露 `search_employees` 给模型，单轮 function calling；模型先 tool_call 拿候选人压缩画像，再生成 `AssignmentDraft`。
 - 输出：`AssignmentDraft`，每个子任务一项，含责任人、备选人、理由、风险、置信度、需主管确认的问题、模型自评不确定点。
+- Self-correction（v0.2）：schema validate 失败时把错误信息回传 LLM 修正 1 轮；仍失败进入下条失败回退路径。
 - 失败回退：模型失败或校验失败时返回 `ASSIGNMENT_GENERATION_FAILED`，**不使用规则稿替代**，以「无推荐」状态进入主管 Web 工作台手动分配。
 
 ### 5.2 候选人压缩画像（喂给 LLM 的部分）
 
-每位候选人压缩为可控文本片段：
+每位候选人压缩为可控文本片段（v0.2：cases 段须保留 `taskType -> outcome`，以保留成功 / 失败 / 部分完成的区分能力）：
 
 - 基础：姓名、岗位、部门。
 - 能力摘要：擅长方向、能力边界、关键工具/权限。
-- 最近 N 条任务履历摘要：任务类型、结果、是否准时、是否返工、是否拒接。
+- 最近 N 条任务履历摘要：`任务类型 -> 结果`、是否准时、是否返工、是否拒接。
 - 当前可用性：在手任务数、明显冲突、是否标记不可承接。
 - 可选 Derived 标签：带「系统推断 + 时间 + 置信度」标识。
 
 候选人范围由系统侧硬约束：仅展示组织可见、未离职、有钉钉 ID、未被任务发起人显式排除的员工。其余适配判断交给 LLM。
+
+v0.2 明确：候选人不再一次性全量塞入 prompt，而是由 LLM 通过 `search_employees(domain?, skills?, department?, role?)` 单轮 function calling 主动检索。返回结果按命中度截断（默认上限 30 条），追加 `truncated` 标志由模型自行决定是否补查。
 
 ### 5.3 AssignmentDraft 数据契约（草稿）
 
@@ -550,7 +578,7 @@ interface CardStateRepo {
 | --- | --- | --- | --- |
 | D1 | 钉钉机器人是否已具备互动卡片 + 主动推送 + 通讯录读权限？ | **暂无**，后续开通 | 实施 §6 卡片层与 §18 钉钉工具时阻塞在权限开通；先以 mock 实现走通链路，权限到位后切真实 API |
 | D2 | Web 工作台第一版用哪种登录方式？何时登录？ | **C：短期签名 URL**（卡片点击即认身份） | 服务端密钥签名 `planId + userId + role + expiresAt + nonce`；`expiresAt` 默认 30 分钟、`nonce` 单次有效；动作全审计；未来若新增浏览器直接访问入口再叠加钉钉 SSO |
-| D3 | DRAFT 后启动 assignment 是同步还是异步？ | **同步**：DRAFT 输出后串行调用 assignmentRecommender，再一并返回主管视图与「分配确认卡片」 | 与现有 pipeline 串联；总响应时延需观测，必要时拆出后台异步在 V2 评估 |
+| D3 | DRAFT 后启动 assignment 是同步还是异步？ | **v0.2 修订：异步**。DRAFT_READY 立即返回，assignmentRecommender 在后台执行，完成后通过 sessionWebhook 单独推送「分配建议」 | 解耦草案返回与分配生成的延迟；后台失败不影响 DRAFT_READY 主链路 |
 | D4 | 第一版「主管」如何识别？ | **「主管 = 任务发起人」**；同时新增「**可发起任务的员工白名单**」；不在白名单的钉钉用户即使 @ 了机器人也不进入 assignment 链路 | 白名单存 `./data/initiators.json` 或环境变量；复杂的部门主管/角色权限模型推迟 V2 |
 | D5 | 跨部门派发是否需要二级审批（被借调员工的部门主管确认）？ | **V1 不做**。仅在卡片中显示「跨部门」风险标记 | V2 再评估 |
 
@@ -602,8 +630,9 @@ interface CardStateRepo {
 
 ### 18.5 Function Calling 演进策略
 
-- 第一版 **不暴露**任何工具给模型；所有调用都由代码主动发起。
-- repo 与 dingtalk 层接口面向 function calling 兼容设计：每个工具有 JSON schema 描述 + 同步可测试的纯函数。
-- 当假数据扩展到上百名员工、需要让模型按条件检索人选时，再评估上 `tools[]` 注册器。
+- v0.2 起 **暴露 `search_employees` 工具**给模型；其它 repo（draft / event / card / planSnapshot）一律由代码主动调用，不暴露给模型。
+- 工具上限：v0.2 限定单轮 tool call（LLM 调一次 `search_employees` → 拿候选人 → 生成 AssignmentDraft）；超过 1 轮视作失败进入 self-correction 路径。
+- 工具描述与 JSON schema 维护在 `src/agent/assignment/tools/` 下，独立于现有 `llm-schema`。
+- 当假数据扩展到上百名员工、需要更复杂检索（按多技能取交集、按履历相似度排序、混合查找等）时，再扩展为多轮 + 工具组合。
 
 > 本文档为草案。`2026-05-09-conversational-intent-agent-redesign` 对应能力已在 Demo 实现；启动 assignment 实施前请对照 **`AGENTS.md`** 与 **`docs/Qwen-接入实施说明.md`** 做接触面核对，再基于本文档转入 `writing-plans` 流程，产出可执行的实施计划。
