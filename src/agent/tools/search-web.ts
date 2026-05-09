@@ -1,16 +1,21 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 
-const MAX_QUERY_LENGTH = 200;
+const MAX_QUERY_LENGTH = 80;
 
 export const SEARCH_WEB_TOOL: ToolDefinition = {
   type: "function",
   function: {
     name: "search_web",
-    description: "搜索技术方案、类似案例、解决思路。输入简短中文查询（一句话，不超过200字），返回搜索结果摘要。",
+    description:
+      "搜索技术方案、类似案例、解决思路。query 必须是自然语言短句（如你输入搜索框的一句话），不要堆砌关键词或枚举近义词。",
     parameters: {
       type: "object",
       properties: {
-        query: { type: "string", maxLength: MAX_QUERY_LENGTH, description: "简短中文查询，如 'OCT 主机 USB 掉线 排查方法'" },
+        query: {
+          type: "string",
+          maxLength: MAX_QUERY_LENGTH,
+          description: "自然语言搜索短句，如 'OCT主机USB掉线排查方法' 或 '医疗器械USB数据传输稳定性方案'。不超过80字，不要罗列关键词。",
+        },
       },
       required: ["query"],
     },
@@ -23,9 +28,9 @@ export function buildSearchWebHandler(): ToolHandler {
     let q = (a.query ?? "").trim();
     if (!q) return { results: [], note: "空查询" };
 
-    // 安全截断：防止模型生成超长 query
+    // 防模型发散：超长 query 取前 80 字符 + 去重关键词堆砌
     if (q.length > MAX_QUERY_LENGTH) {
-      q = q.slice(0, MAX_QUERY_LENGTH);
+      q = dedupeRepeatedPhrases(q.slice(0, 200)).slice(0, MAX_QUERY_LENGTH);
     }
 
     const apiKey = process.env.DASHSCOPE_API_KEY || process.env.QWEN_API_KEY;
@@ -51,4 +56,20 @@ export function buildSearchWebHandler(): ToolHandler {
       return { results: [], note: `搜索失败: ${err instanceof Error ? err.message : String(err)}`, query: q };
     }
   };
+}
+
+/** 对模型 key word stuffing 做轻量去重：保留首次出现的长短语，剔除后续相同子串 */
+function dedupeRepeatedPhrases(text: string): string {
+  const tokens = text.split(/\s+/);
+  if (tokens.length < 10) return text;
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const t of tokens) {
+    const key = t.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(t);
+    }
+  }
+  return result.join(" ");
 }

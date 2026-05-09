@@ -70,7 +70,7 @@ describe("QwenCompatibleClient", () => {
     expect(requestBody.messages[0].content).toContain("Orchestrator");
     expect(requestBody.messages[0].content).toContain("gateSelfCheck");
     expect(requestBody.messages[0].content).toContain("不要编造");
-    expect(requestBody.messages[0].content).toContain("orchestrator-agent-v3.0");
+    expect(requestBody.messages[0].content).toContain("orchestrator-agent-v3.1");
     expect(result.trace.requestId).toBe("req_001");
     expect(result.trace.traceId).toBeUndefined();
     expect(result.trace.tokenUsage.totalTokens).toBe(150);

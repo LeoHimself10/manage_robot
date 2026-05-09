@@ -7,7 +7,7 @@ import {
 describe("buildQwenPlannerSystemPrompt", () => {
   it("v3.0: ReAct orchestrator prompt with tool descriptions and hard boundaries", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v3.0");
+    expect(sys).toContain("orchestrator-agent-v3.1");
     expect(sys).toContain("Orchestrator");
     expect(sys).toContain("search_employees");
     expect(sys).toContain("search_web");

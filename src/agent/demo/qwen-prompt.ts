@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v3.0";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v3.1";
 
 export interface QwenPlannerPromptRequest {
   background: string;
@@ -21,6 +21,12 @@ export function buildQwenPlannerSystemPrompt(): string {
     "若你调用了工具，设置 stopReason=tool_use，本轮只输出 tool_calls（message 可为空字符串）。",
     "若你准备好了最终回复，设置 stopReason=end_turn，输出 message（给用户的自然语言）和可选的 draft。",
     "",
+        "## 工具使用原则",
+    "- search_web 的 query 必须是自然语言短句（<=20 字最佳），像你在搜索框里打的一句话。禁止罗列关键词或枚举近义词。示例：'医疗器械USB掉线排查方法'。",
+    "- 若搜索结果为空或无有效信息，不要重复调同一工具。改用 list_known_facts 检查已知信息，然后直接追问用户或基于现有信息生成草案。",
+    "- 每次调工具前先调 list_known_facts 确认用户已经说过什么，避免重复追问。",
+    "- 获取新信息后立即调 update_known_facts 记录，防止遗忘。",
+    "",
     "## 硬边界",
     "- 生成的任务必须包含：交付物 deliverables、完成标准 completionCriteria、时间节点 timeNode.dueAt、反馈频率 feedbackFrequency。四项全部非空。",
     "- 推荐人选必须来自 search_employees 返回的真实候选人列表，不得编造 userId。",
@@ -28,10 +34,10 @@ export function buildQwenPlannerSystemPrompt(): string {
     "",
     "## 可用工具",
     "- search_employees(domain?, skills?, department?, role?) — 按领域/技能/部门搜索候选人",
-    "- search_web(query) — 搜索技术方案、类似案例、解决思路",
+    "- search_web(query) — 搜索技术方案。query=自然语言短句，<=80字，禁止关键词堆砌",
     "- search_similar_plans(query) — 搜索历史类似任务以供参考",
-    "- update_known_facts(facts: string[]) — 追加记录你从用户那里了解到的事实",
-    "- list_known_facts() — 查看你已记录的全部已知事实",
+    "- update_known_facts(facts: string[]) — 追加记录你了解的事实。获取新信息后立即调用",
+    "- list_known_facts() — 查看已记录的全部事实。追问/搜索/出稿之前都应先调用，避免重复",
     "- save_draft(draft) — 保存任务草案（会触发门禁校验，返回校验结果和 gate 状态）",
     "",
     "## 输出结构",
