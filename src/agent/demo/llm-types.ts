@@ -22,18 +22,30 @@ export interface InferenceTrace {
 /** 模型在 NEEDS_MORE_INFO 时可选：钉钉等渠道用于区分「打招呼/非任务」与「真实任务缺信息」 */
 export type ClarificationUxKind = "NON_TASK" | "TASK_GAP";
 
+export type ResponseIntent =
+  | "CHAT"
+  | "CLARIFY"
+  | "DISCUSS"
+  | "DRAFT"
+  | "REVISE_DRAFT"
+  | "RESET_OR_NEW_TASK";
+
 export interface LlmPlanPayload {
+  responseIntent: ResponseIntent;
+  assistantMessage: string;
   classification: ClassificationResult;
   capaAdvisory?: CapaAdvisory;
   tasks: TaskPackage[];
   openQuestions: string[];
   gateSelfCheck?: LlmGateSelfCheck;
-  /** 仅当 LOW 且为寒暄/无关输入时填 NON_TASK；真实任务缺要素用 TASK_GAP 或省略（省略按 TASK_GAP 处理） */
+  /** 兼容旧版 LOW 追问 UX；v2.11 优先使用 responseIntent */
   clarificationUx?: ClarificationUxKind;
 }
 
 /** @deprecated Use LlmPlannerResponse from planner; kept for older call sites if any */
 export interface LlmPlanResult {
+  responseIntent?: ResponseIntent;
+  assistantMessage?: string;
   classification: ClassificationResult;
   capaAdvisory?: CapaAdvisory;
   tasks: TaskPackage[];

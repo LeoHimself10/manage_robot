@@ -248,6 +248,163 @@ describe("validateLlmPlanPayload", () => {
     expect(result.valid).toBe(true);
   });
 
+  it("coerces responseIntent and assistantMessage from model output", () => {
+    const normalized = coerceLlmPlanPayload({
+      responseIntent: "discuss",
+      assistantMessage: "你说得对，这个任务应先确认风险边界。",
+      classification: {
+        domain: "QUALITY",
+        subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+        confidence: "LOW",
+        rationale: ["围绕上一轮草案讨论"],
+        missingInformation: [],
+      },
+      capaAdvisory: {
+        advisory: "INSUFFICIENT_INFO",
+        rationale: ["本轮不是正式质量草案"],
+        disclaimer: CAPA_DISCLAIMER,
+        promptingQuestions: [],
+      },
+      tasks: [],
+      openQuestions: [],
+      gateSelfCheck: { passed: true, missingByTask: [] },
+    });
+
+    expect(normalized.responseIntent).toBe("DISCUSS");
+    expect(normalized.assistantMessage).toBe("你说得对，这个任务应先确认风险边界。");
+  });
+
+  it("derives compatible intent when responseIntent is omitted", () => {
+    const normalized = coerceLlmPlanPayload({
+      clarificationUx: "NON_TASK",
+      classification: {
+        domain: "QUALITY",
+        subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+        confidence: "LOW",
+        rationale: ["寒暄"],
+        missingInformation: [],
+      },
+      capaAdvisory: {
+        advisory: "INSUFFICIENT_INFO",
+        rationale: ["非任务"],
+        disclaimer: CAPA_DISCLAIMER,
+        promptingQuestions: [],
+      },
+      tasks: [],
+      openQuestions: ["你好，我可以帮你拆解质量或研发任务。"],
+      gateSelfCheck: { passed: true, missingByTask: [] },
+    });
+
+    expect(normalized.responseIntent).toBe("CHAT");
+    expect(normalized.assistantMessage).toBe("你好，我可以帮你拆解质量或研发任务。");
+  });
+
+  it("derives DRAFT for omitted responseIntent with high confidence and no questions", () => {
+    const normalized = coerceLlmPlanPayload({
+      classification: {
+        domain: "QUALITY",
+        subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+        confidence: "HIGH",
+        rationale: ["生产异常"],
+        missingInformation: [],
+      },
+      capaAdvisory: {
+        advisory: "UNCERTAIN",
+        rationale: ["需进一步确认"],
+        disclaimer: CAPA_DISCLAIMER,
+        promptingQuestions: [],
+      },
+      tasks: [],
+      openQuestions: [],
+      gateSelfCheck: { passed: true, missingByTask: [] },
+    });
+
+    expect(normalized.responseIntent).toBe("DRAFT");
+  });
+
+  it("rejects invalid responseIntent when present", () => {
+    const result = validateLlmPlanPayload(
+      {
+        responseIntent: "MAKE_TABLE_ALWAYS",
+        assistantMessage: "x",
+        classification: {
+          domain: "QUALITY",
+          subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+          confidence: "LOW",
+          rationale: ["x"],
+          missingInformation: [],
+        },
+        capaAdvisory: {
+          advisory: "INSUFFICIENT_INFO",
+          rationale: ["x"],
+          disclaimer: CAPA_DISCLAIMER,
+          promptingQuestions: [],
+        },
+        tasks: [],
+        openQuestions: [],
+        gateSelfCheck: { passed: true, missingByTask: [] },
+      },
+      { allowEmptyTasks: true }
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("responseIntent is invalid");
+  });
+
+  it("does not hide invalid explicit responseIntent during coercion", () => {
+    const normalized = coerceLlmPlanPayload({
+      responseIntent: "MAKE_TABLE_ALWAYS",
+      assistantMessage: "x",
+      classification: {
+        domain: "QUALITY",
+        subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+        confidence: "LOW",
+        rationale: ["x"],
+        missingInformation: [],
+      },
+      capaAdvisory: {
+        advisory: "INSUFFICIENT_INFO",
+        rationale: ["x"],
+        disclaimer: CAPA_DISCLAIMER,
+        promptingQuestions: [],
+      },
+      tasks: [],
+      openQuestions: [],
+      gateSelfCheck: { passed: true, missingByTask: [] },
+    });
+
+    const result = validateLlmPlanPayload(normalized, { allowEmptyTasks: true });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("responseIntent is invalid");
+  });
+
+  it("does not hide non-string explicit responseIntent during coercion", () => {
+    const normalized = coerceLlmPlanPayload({
+      responseIntent: 123,
+      assistantMessage: "x",
+      classification: {
+        domain: "QUALITY",
+        subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+        confidence: "LOW",
+        rationale: ["x"],
+        missingInformation: [],
+      },
+      capaAdvisory: {
+        advisory: "INSUFFICIENT_INFO",
+        rationale: ["x"],
+        disclaimer: CAPA_DISCLAIMER,
+        promptingQuestions: [],
+      },
+      tasks: [],
+      openQuestions: [],
+      gateSelfCheck: { passed: true, missingByTask: [] },
+    });
+
+    const result = validateLlmPlanPayload(normalized, { allowEmptyTasks: true });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("responseIntent is invalid");
+  });
+
   it("treats dispatch gate fields as structural strings and arrays, not semantic defaults", () => {
     const result = validateLlmPlanPayload({
       classification: {

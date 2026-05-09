@@ -11,7 +11,7 @@ import {
   needsMoreInfoFromLlmPayload,
   validateLlmPlanPayload,
 } from "./llm-schema";
-import type { ClarificationUxKind, DemoGenerationMetadata } from "./llm-types";
+import type { ClarificationUxKind, DemoGenerationMetadata, ResponseIntent } from "./llm-types";
 import {
   InferenceTrace,
   LlmGateSelfCheck,
@@ -53,6 +53,12 @@ const LLM_FAILURE_RECOVERY_SUGGESTIONS = [
 const MISSING_PLANNER_MESSAGE =
   "未提供 llmPlanner：基于规则的分类与 WBS 模板已移除，必须通过模型生成草案。";
 
+const DRAFT_INTENTS = new Set<ResponseIntent>(["DRAFT", "REVISE_DRAFT"]);
+
+function isDraftIntent(intent: ResponseIntent): intent is "DRAFT" | "REVISE_DRAFT" {
+  return DRAFT_INTENTS.has(intent);
+}
+
 export type TaskPlanningDemoResult =
   | {
       status: "NEEDS_MORE_INFO";
@@ -66,6 +72,20 @@ export type TaskPlanningDemoResult =
       tasks?: undefined;
       gate?: undefined;
       generation?: undefined;
+    }
+  | {
+      status: "CONVERSATION";
+      responseIntent: Exclude<ResponseIntent, "DRAFT" | "REVISE_DRAFT">;
+      assistantMessage: string;
+      questions: string[];
+      missingFields: string[];
+      clarificationUx?: ClarificationUxKind;
+      markdown?: undefined;
+      classification?: ClassificationResult;
+      capaAdvisory?: CapaAdvisory;
+      tasks?: undefined;
+      gate?: undefined;
+      generation?: DemoGenerationMetadata;
     }
   | {
       status: "GENERATION_FAILED";
@@ -82,6 +102,8 @@ export type TaskPlanningDemoResult =
     }
   | {
       status: "DRAFT_READY";
+      responseIntent: "DRAFT" | "REVISE_DRAFT";
+      assistantMessage: string;
       questions: string[];
       missingFields: string[];
       classification: ClassificationResult;
@@ -157,7 +179,7 @@ export async function createTaskPlanningDemo(
     const runValidate = (payload: LlmPlanPayload) => {
       const needsMoreInfo = needsMoreInfoFromLlmPayload(payload);
       const validation = validateLlmPlanPayload(payload, {
-        allowEmptyTasks: needsMoreInfo,
+        allowEmptyTasks: !isDraftIntent(payload.responseIntent),
       });
       return { needsMoreInfo, validation };
     };
@@ -182,7 +204,7 @@ export async function createTaskPlanningDemo(
     let normalized = coerceLlmPlanPayload(plannerResponse.rawJson);
     coerceMs += performance.now() - c0;
     let v0 = performance.now();
-    let { needsMoreInfo, validation } = runValidate(normalized);
+    let { validation } = runValidate(normalized);
     validateMs += performance.now() - v0;
 
     if (!validation.valid && correctionEnabled) {
@@ -206,7 +228,7 @@ export async function createTaskPlanningDemo(
       normalized = coerceLlmPlanPayload(plannerResponse.rawJson);
       coerceMs += performance.now() - c0;
       v0 = performance.now();
-      ({ needsMoreInfo, validation } = runValidate(normalized));
+      ({ validation } = runValidate(normalized));
       validateMs += performance.now() - v0;
     }
 
@@ -235,21 +257,32 @@ export async function createTaskPlanningDemo(
       classification.domain === "QUALITY" ? normalized.capaAdvisory : undefined;
     capaAdvisory = ensureCapaDisclaimer(capaAdvisory);
 
-    if (needsMoreInfo) {
+    const responseIntent = normalized.responseIntent;
+    if (!isDraftIntent(responseIntent)) {
       appendDemoRunAudit({
         traceId,
         status: "NEEDS_MORE_INFO",
-        reason: "llm_signals_low_confidence",
+        reason: `llm_response_intent_${responseIntent.toLowerCase()}`,
         tokenTotals: sumTokenTotals(traces),
         wallClockMs: auditWallMs(),
         timingsMs: { plannerMs, coerceMs, validateMs },
         correctionUsed,
       });
       return {
-        status: "NEEDS_MORE_INFO",
+        status: "CONVERSATION",
+        responseIntent,
+        assistantMessage: normalized.assistantMessage,
         questions: normalized.openQuestions,
         missingFields: classification.missingInformation,
         clarificationUx: normalized.clarificationUx,
+        classification,
+        capaAdvisory,
+        generation: {
+          trace: activeTrace,
+          traces,
+          correctionUsed,
+          timings: { plannerMs, coerceMs, validateMs, gateMs: 0, renderMs: 0 },
+        },
       };
     }
 
@@ -300,6 +333,8 @@ export async function createTaskPlanningDemo(
       wallClockMs,
       tokenTotals,
       traceCount: traces.length,
+      responseIntent,
+      taskCount: tasks.length,
     });
 
     appendDemoRunAudit({
@@ -326,6 +361,8 @@ export async function createTaskPlanningDemo(
 
     return {
       status: "DRAFT_READY",
+      responseIntent,
+      assistantMessage: normalized.assistantMessage,
       questions: mergedOpenQuestions,
       missingFields: inputQuality.missingFields,
       classification,

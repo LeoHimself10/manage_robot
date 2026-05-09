@@ -16,6 +16,8 @@ describe("createTaskPlanningDemo", () => {
   it("returns clarificationUx NON_TASK when LLM marks greeting path", async () => {
     const llmPlanner = vi.fn(async () =>
       qualityLlmPlannerResponse({
+        responseIntent: "CHAT",
+        assistantMessage: "我是任务规划 Demo 机器人，可直接发场景与背景描述。",
         clarificationUx: "NON_TASK",
         classification: {
           domain: "QUALITY",
@@ -38,15 +40,90 @@ describe("createTaskPlanningDemo", () => {
       { background: "hi", domainHint: "QUALITY" },
       { llmPlanner }
     );
-    expect(result.status).toBe("NEEDS_MORE_INFO");
-    if (result.status !== "NEEDS_MORE_INFO") throw new Error("expected NEEDS_MORE_INFO");
+    expect(result.status).toBe("CONVERSATION");
+    if (result.status !== "CONVERSATION") throw new Error("expected CONVERSATION");
+    expect(result.responseIntent).toBe("CHAT");
     expect(result.clarificationUx).toBe("NON_TASK");
     expect(result.questions).toEqual(["我是任务规划 Demo 机器人，可直接发场景与背景描述。"]);
+  });
+
+  it("returns CHAT without markdown table for conversational output", async () => {
+    const result = await createTaskPlanningDemo(
+      { background: "你好", domainHint: "QUALITY" },
+      {
+        llmPlanner: async () =>
+          qualityLlmPlannerResponse({
+            responseIntent: "CHAT",
+            assistantMessage: "你好，我可以帮你把质量或研发任务拆成可承接的任务包。",
+            clarificationUx: "NON_TASK",
+            classification: {
+              domain: "QUALITY",
+              subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+              confidence: "LOW",
+              rationale: ["寒暄"],
+              missingInformation: [],
+            },
+            tasks: [],
+            openQuestions: [],
+            capaAdvisory: {
+              advisory: "INSUFFICIENT_INFO",
+              rationale: ["非任务"],
+              disclaimer: CAPA_DISCLAIMER,
+              promptingQuestions: [],
+            },
+            gateSelfCheck: { passed: true, missingByTask: [] },
+          }),
+      }
+    );
+
+    expect(result.status).toBe("CONVERSATION");
+    if (result.status !== "CONVERSATION") throw new Error("expected CONVERSATION");
+    expect(result.responseIntent).toBe("CHAT");
+    expect(result.assistantMessage).toContain("质量或研发任务");
+    expect(result.markdown).toBeUndefined();
+  });
+
+  it("returns RESET_OR_NEW_TASK without carrying a task table", async () => {
+    const result = await createTaskPlanningDemo(
+      { background: "咱们开始一个新任务吧", domainHint: "QUALITY", sessionDigest: "上一轮任务包：旧任务" },
+      {
+        llmPlanner: async () =>
+          qualityLlmPlannerResponse({
+            responseIntent: "RESET_OR_NEW_TASK",
+            assistantMessage: "好的，我们从新任务开始。请直接告诉我新任务的背景、目标和时间要求。",
+            clarificationUx: "NON_TASK",
+            classification: {
+              domain: "QUALITY",
+              subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+              confidence: "LOW",
+              rationale: ["用户明确要求开始新任务"],
+              missingInformation: [],
+            },
+            tasks: [],
+            openQuestions: [],
+            capaAdvisory: {
+              advisory: "INSUFFICIENT_INFO",
+              rationale: ["等待新任务背景"],
+              disclaimer: CAPA_DISCLAIMER,
+              promptingQuestions: [],
+            },
+            gateSelfCheck: { passed: true, missingByTask: [] },
+          }),
+      }
+    );
+
+    expect(result.status).toBe("CONVERSATION");
+    if (result.status !== "CONVERSATION") throw new Error("expected CONVERSATION");
+    expect(result.responseIntent).toBe("RESET_OR_NEW_TASK");
+    expect(result.assistantMessage).toContain("新任务");
+    expect(result.markdown).toBeUndefined();
   });
 
   it("returns clarifying questions from LLM when input is too thin", async () => {
     const llmPlanner = vi.fn(async () =>
       qualityLlmPlannerResponse({
+        responseIntent: "CLARIFY",
+        assistantMessage: "还需要补充问题来源和影响范围后才能形成任务包。",
         classification: {
           domain: "QUALITY",
           subtype: "QUALITY_OTHER_OR_UNCERTAIN",
@@ -66,12 +143,93 @@ describe("createTaskPlanningDemo", () => {
       { llmPlanner }
     );
 
-    expect(result.status).toBe("NEEDS_MORE_INFO");
-    if (result.status !== "NEEDS_MORE_INFO") throw new Error("expected NEEDS_MORE_INFO");
+    expect(result.status).toBe("CONVERSATION");
+    if (result.status !== "CONVERSATION") throw new Error("expected CONVERSATION");
+    expect(result.responseIntent).toBe("CLARIFY");
     expect(result.questions).toEqual(["问题来源是什么？", "影响范围是什么？"]);
     expect(result.missingFields).toEqual(["问题来源", "影响范围"]);
     expect(result.markdown).toBeUndefined();
     expect(llmPlanner).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects draft intent with low confidence when tasks are empty", async () => {
+    const result = await createTaskPlanningDemo(
+      {
+        background: "某产品异常，尽快处理。",
+        domainHint: "QUALITY",
+      },
+      {
+        enableLlmCorrection: false,
+        llmPlanner: async () =>
+          qualityLlmPlannerResponse({
+            responseIntent: "DRAFT",
+            assistantMessage: "当前信息不足，但尝试生成草案。",
+            classification: {
+              domain: "QUALITY",
+              subtype: "QUALITY_OTHER_OR_UNCERTAIN",
+              confidence: "LOW",
+              rationale: ["信息不足"],
+              missingInformation: ["问题来源"],
+            },
+            tasks: [],
+            openQuestions: ["x"],
+            capaAdvisory: {
+              advisory: "INSUFFICIENT_INFO",
+              rationale: ["信息不足"],
+              disclaimer: CAPA_DISCLAIMER,
+              promptingQuestions: [],
+            },
+            gateSelfCheck: { passed: true, missingByTask: [] },
+          }),
+      }
+    );
+
+    expect(result.status).toBe("GENERATION_FAILED");
+    if (result.status !== "GENERATION_FAILED") throw new Error("expected GENERATION_FAILED");
+    expect(result.reason).toContain("tasks must contain at least one task");
+  });
+
+  it("rejects omitted intent with high confidence when tasks are empty", async () => {
+    const result = await createTaskPlanningDemo(
+      {
+        background:
+          "生产测试发现 A 产品开机自检失败率升高，目前影响 20 台，已有测试记录和不良照片，要求两天内完成初步分析。",
+        domainHint: "QUALITY",
+      },
+      {
+        enableLlmCorrection: false,
+        llmPlanner: async () => ({
+          rawJson: {
+            classification: {
+              domain: "QUALITY",
+              subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+              confidence: "HIGH",
+              rationale: ["生产异常"],
+              missingInformation: [],
+            },
+            capaAdvisory: {
+              advisory: "UNCERTAIN",
+              rationale: ["需进一步确认"],
+              disclaimer: CAPA_DISCLAIMER,
+              promptingQuestions: [],
+            },
+            tasks: [],
+            openQuestions: [],
+            gateSelfCheck: { passed: true, missingByTask: [] },
+          },
+          trace: {
+            requestId: "omitted_intent_empty_tasks",
+            model: "qwen-plus",
+            tokenUsage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+          },
+        }),
+      }
+    );
+
+    expect(result.status).toBe("GENERATION_FAILED");
+    if (result.status !== "GENERATION_FAILED") throw new Error("expected GENERATION_FAILED");
+    expect(result.reason).toContain("tasks must contain at least one task");
   });
 
   it("creates a markdown draft for sufficient quality input via LLM", async () => {
@@ -289,6 +447,8 @@ describe("createTaskPlanningDemo", () => {
 
   it("fails when llm payload is invalid and retries once with correction by default", async () => {
     const invalidRaw = {
+      responseIntent: "DRAFT",
+      assistantMessage: "已根据当前信息生成任务拆解草案。",
       classification: {
         domain: "QUALITY",
         subtype: "PRODUCTION_PROCESS_ABNORMALITY",
@@ -339,6 +499,8 @@ describe("createTaskPlanningDemo", () => {
   it("skips correction when enableLlmCorrection is false", async () => {
     const llmPlanner = vi.fn(async () => ({
       rawJson: {
+        responseIntent: "DRAFT",
+        assistantMessage: "已根据当前信息生成任务拆解草案。",
         classification: {
           domain: "QUALITY",
           subtype: "PRODUCTION_PROCESS_ABNORMALITY",

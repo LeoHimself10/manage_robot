@@ -24,6 +24,8 @@ export function qualityLlmResult(
   overrides: Partial<LlmPlanResult> = {}
 ): LlmPlanResult {
   return {
+    responseIntent: "DRAFT",
+    assistantMessage: "已根据当前信息生成任务拆解草案。",
     classification: {
       domain: "QUALITY",
       subtype: "PRODUCTION_PROCESS_ABNORMALITY",
@@ -70,6 +72,8 @@ export function rdVvLlmPlannerResponse(): LlmPlannerResponse {
 
 export function rdVvLlmResult(): LlmPlanResult {
   return {
+    responseIntent: "DRAFT",
+    assistantMessage: "已根据当前信息生成任务拆解草案。",
     classification: {
       domain: "RD",
       subtype: "VERIFICATION_AND_VALIDATION",
@@ -111,6 +115,8 @@ export function rdAmbiguousLlmPlannerResponse(): LlmPlannerResponse {
 
 export function rdAmbiguousLlmResult(): LlmPlanResult {
   return {
+    responseIntent: "DRAFT",
+    assistantMessage: "已根据当前信息生成任务拆解草案。",
     classification: {
       domain: "RD",
       subtype: "RD_OTHER_OR_UNCERTAIN",
