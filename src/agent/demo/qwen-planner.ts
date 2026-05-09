@@ -42,7 +42,7 @@ export function loadQwenPlannerConfigFromEnv():
   const policy = normalizeModelPolicy({
     model: readNonEmptyEnv("QWEN_MODEL"),
     temperature: readNumberEnv("QWEN_TEMPERATURE", 0.2),
-    maxTokens: readNumberEnv("QWEN_MAX_TOKENS", 2500),
+    maxTokens: readNumberEnv("QWEN_MAX_TOKENS", 4000),
     timeoutMs: readNumberEnv("QWEN_TIMEOUT_MS", 60000),
     maxRetries: readNumberEnv("QWEN_MAX_RETRIES", 1),
     requestBudgetTokens: readNumberEnv("QWEN_REQUEST_BUDGET_TOKENS", 12000),
@@ -61,7 +61,16 @@ export function loadQwenPlannerConfigFromEnv():
     maxTokens: cappedMaxTokens,
     /** 默认开启 SSE 拼装；`QWEN_STREAM=0|false|no` 时改为单次整包响应 */
     stream: readQwenStreamEnabled(),
+    /** Qwen3 thinking 默认开启；`QWEN_THINKING=0|false|no` 时关闭 */
+    thinking: readQwenThinkingEnabled(),
   };
+}
+
+/** 默认 true；仅当 `QWEN_THINKING` 为 0 / false / no 时关闭 */
+function readQwenThinkingEnabled(): boolean {
+  const v = process.env.QWEN_THINKING?.trim().toLowerCase();
+  if (v === "0" || v === "false" || v === "no") return false;
+  return true;
 }
 
 /** 默认 true；仅当 `QWEN_STREAM` 为 0 / false / no 时关闭 */

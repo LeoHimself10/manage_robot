@@ -20,6 +20,8 @@ export interface QwenCompatibleClientConfig {
   streamHooks?: {
     onAssistantDelta?: (assembledContent: string) => void;
   };
+  /** Qwen3 thinking mode（开启后在请求体中注入 extra_body.enable_thinking） */
+  thinking?: boolean;
 }
 
 export interface GenerateStructuredPlanRequest {
@@ -163,6 +165,13 @@ export class QwenCompatibleClient {
     body: Record<string, unknown>,
     signal?: AbortSignal
   ): Promise<ChatCompletionResponse> {
+    // Inject Qwen3 thinking if enabled
+    if (this.config.thinking) {
+      (body as Record<string, unknown>).extra_body = {
+        ...((body as Record<string, unknown>).extra_body as Record<string, unknown> ?? {}),
+        enable_thinking: true,
+      };
+    }
     const endpoint = `${this.config.baseUrl.replace(/\/$/, "")}/chat/completions`;
     let response: Response;
     try {
