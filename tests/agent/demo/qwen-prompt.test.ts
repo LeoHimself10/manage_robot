@@ -5,26 +5,17 @@ import {
 } from "../../../src/agent/demo/qwen-prompt";
 
 describe("buildQwenPlannerSystemPrompt", () => {
-  it("v3.0: ReAct orchestrator prompt with tool descriptions and hard boundaries", () => {
+  it("v4.0: two-phase orchestrator with save_draft as termination", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v3.1");
-    expect(sys).toContain("Orchestrator");
-    expect(sys).toContain("search_employees");
-    expect(sys).toContain("search_web");
-    expect(sys).toContain("list_known_facts");
-    expect(sys).toContain("update_known_facts");
+    expect(sys).toContain("orchestrator-agent-v4.0");
+    expect(sys).toContain("回合A");
+    expect(sys).toContain("回合B");
     expect(sys).toContain("save_draft");
+    expect(sys).toContain("list_known_facts");
     expect(sys).toContain("stopReason");
-    expect(sys).toContain("交付物");
-  expect(sys).toContain("deliverables");
-  expect(sys).toContain("completionCriteria");
-  expect(sys).toContain("反馈频率");
-    // v2.11 content should be gone
-    expect(sys).not.toContain("responseIntent 只能是");
-    expect(sys).not.toContain("CHAT、CLARIFY、DISCUSS、DRAFT");
-    expect(sys).not.toContain("clarificationUx");
-    expect(sys).not.toContain("NON_TASK");
-    expect(sys).not.toContain("TASK_GAP");
+    expect(sys).toContain("deliverables");
+    expect(sys).not.toContain("responseIntent");
+    expect(sys).not.toContain("CLARIFY");
   });
 });
 

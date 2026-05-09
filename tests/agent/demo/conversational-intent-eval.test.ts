@@ -33,8 +33,7 @@ describe("conversational intent prompt eval fixtures", () => {
       expect(item.expectedIntent.length).toBeGreaterThan(0);
     }
     expect(prompt).toContain("stopReason");
-    expect(prompt).toContain("tool_use");
     expect(prompt).toContain("end_turn");
-    expect(prompt).toContain("Orchestrator");
+    expect(prompt).toContain("save_draft");
   });
 });
