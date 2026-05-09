@@ -22,7 +22,7 @@ describe("loadQwenPlannerConfigFromEnv", () => {
       baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       maxTokens: 4000,
       stream: true,
-      thinking: false,
+      thinking: true,
     });
   });
 
