@@ -26,6 +26,36 @@
 - CAPA 字段仅为建议，最终是否开启 CAPA 以质量授权人员和公司 QMS 流程判定为准。
 - HR 简历/能力清单可能过时，Demo 阶段不把 HR 推荐作为核心能力；后续若展示推荐，必须显示来源与更新时间。
 
+## 承接指派阶段（v0.2 MVP）
+
+当前承接指派为 v0.2 MVP，**尚未**实现完整 承接三态（accept/modify/reject）；该阶段在草案生成后异步运行，提供人员推荐与指派预览。
+
+### 启用方式
+
+- **`ASSIGNMENT_PHASE_ENABLED=1`**：开启指派阶段。未设置或为 `0` 时，行为与原有 DRAFT_READY 一致（不触发指派）。
+- **发起人白名单**：通过 `TASK_INITIATOR_USER_IDS`（逗号分隔钉钉用户 ID）或 `TASK_INITIATOR_IDS_FILE`（每行一个 ID 的文件路径）控制哪些用户触发的草案会进入指派推荐。白名单外的用户消息不触发指派。
+
+### 调用链
+
+1. **DRAFT_READY 立即返回**：草案 Markdown 先推送给用户，不阻塞等待指派结果。
+2. **后台异步**：指派推荐通过 `void (async () => { ... })()` 在后台执行，不阻塞主响应。
+3. **`runAssignmentRecommendation`**：第二次 LLM 调用（规划之后的独立调用），采用 **单轮 function calling**（`search_employees` 工具）。模型根据草案内容与人员库信息，推荐合适的人员分配。
+4. **结构自纠正**：Schema 校验失败时进行 **1 轮重试**（将校验错误反馈给模型要求修正）。若仍失败，放弃本轮推荐。
+5. **签名 Web 工作台**：生成 **HMAC-SHA256** 签名的工作台 URL（**30 分钟 TTL**，**manager 角色**），发起人可点击链接查看并调整推荐。
+6. **Mock 钉钉交互卡片**：在 `DINGTALK_ASSIGNMENT_MOCK=1` 下，使用本地 mock 的钉钉交互卡片进行预览，无需真实钉钉卡片回调。
+
+### 运维配置
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `ASSIGNMENT_PHASE_ENABLED` | 否 | `1` 开启指派阶段 |
+| `TASK_INITIATOR_USER_IDS` | 否 | 发起人白名单，逗号分隔钉钉用户 ID |
+| `TASK_INITIATOR_IDS_FILE` | 否 | 发起人白名单文件路径，每行一个 ID |
+| `ASSIGNMENT_WEB_PORT` | 否 | 工作台 Web 端口（默认 `8787`） |
+| `ASSIGNMENT_WEB_PUBLIC_BASE_URL` | 否 | 工作台公网地址（ECS 公网 host） |
+| `ASSIGNMENT_WEB_SECRET` | 否 | HMAC-SHA256 签名密钥 |
+| `DINGTALK_ASSIGNMENT_MOCK` | 否 | `1` 启用 mock 钉钉交互卡片 |
+
 ## Agent Harness 基线
 
 ### 核心职责

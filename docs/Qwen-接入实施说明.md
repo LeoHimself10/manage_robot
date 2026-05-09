@@ -59,7 +59,22 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 
 **与钉钉对齐**：模型 JSON 含 **`responseIntent`**、**`assistantMessage`**；可选 **`clarificationUx`**：`NON_TASK`（寒暄/非任务）或 `TASK_GAP`（真实任务缺口）。钉钉非草案气泡渲染 **`assistantMessage`** 与去重后的 **`openQuestions`**（实现见 `src/dingtalk-needs-more-info-markdown.ts`）。**源码锚点**：`src/agent/demo/qwen-prompt.ts`（`QWEN_PLANNER_PROMPT_VERSION`）、`src/agent/demo/qwen-planner.ts`、`src/agent/demo/qwen-compatible-client.ts`（SSE 拼装与可选 `streamHooks`）。
 
-## 4. 风险控制
+## 4. 承接指派阶段的 LLM 调用
+
+启用 `ASSIGNMENT_PHASE_ENABLED=1` 后，每条 `DRAFT_READY` 草案会触发 **第二次 LLM 调用**（`runAssignmentRecommendation`），用于人员推荐与指派预览。
+
+### 调用特征
+
+- **单轮 function calling**：模型通过 `search_employees` 工具查询人员库，根据草案内容匹配推荐人选。与规划调用不同，指派调用使用 function calling 模式而非纯结构化 JSON 输出。
+- **Token 消耗**：每次指派调用额外消耗约 **10K–15K tokens**（含 prompt、人员库上下文与 function call 往返）。
+- **成本影响**：相对于仅规划流程，开启指派阶段使每轮草案的 LLM token 消耗增加至 **2x–3x**（规划 1 次 + 指派 1 次，均可能含自纠正重试）。
+- **自纠正重试**：指派阶段的 Schema 校验失败时会触发 **1 轮重试**（将校验错误反馈给模型修正）。若重试仍失败则放弃本轮推荐。极端情况下自纠正会带来 **第三次 LLM 调用**（规划 + 规划自纠正 + 指派 + 指派自纠正）。
+
+### 延迟特征
+
+指派调用在 **后台异步** 执行（`DRAFT_READY` 先返回给用户），不增加用户体感延迟，但会额外占用 LLM 配额与并发。
+
+## 5. 风险控制（规划）
 
 - Token 与超时：模型策略统一裁剪。
 - 重试：`QWEN_MAX_RETRIES`（HTTP 层可带退避，见 `qwen-compatible-client`）。
@@ -67,7 +82,7 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 - 审计：`requestId/model/tokens/latency/errorCode`；另见 **Demo JSONL**（`AUDIT_DEMO_JSONL_PATH`）与 Harness **`AUDIT_SINK=file`**（部署文档）。
 - 密钥轮换：泄露须即刻在控制台作废 Key。
 
-## 5. 评测方式
+## 6. 评测方式
 
 `npm run demo:eval` 输出：
 
@@ -76,7 +91,7 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 
 `npm run demo:scenarios` 会运行 **十余个**端到端冒烟场景（质量 / 研发 / 信息不足 / 更长现实描述等），打印每场景 JSON 摘要与最终 **`summary.tallies`**。单次运行耗时可数分钟量级，需在 `.env` 配置有效 `QWEN_API_KEY`。
 
-## 6. 分期落地
+## 7. 分期落地
 
 - P0：仅 LLM 主路径 + 规则校验 + 严模式失败语义。（已具备）
 - P1：**Trace / 分段耗时 / JSONL 审计 / 会话与限速 / Plan 快照 / PII 脱敏 / 一致性 warnings**。（工程已落地，见 `docs/harness-next-optimizations.md`）

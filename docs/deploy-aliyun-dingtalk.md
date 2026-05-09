@@ -28,6 +28,7 @@
 2. **安全组**（很重要）：
    - **出站**：默认放行即可（需能访问公网 `HTTPS 443`，否则连不上钉钉与 DashScope）。
    - **入站**： SSH `22` 仅对你办公网或跳板机 IP 放行；若启用下文 `HEALTH_CHECK_PORT`，再按需放行对应 TCP 端口（例如 `8080`）。
+   - **指派工作台入站**：若启用 `ASSIGNMENT_PHASE_ENABLED=1`，需放行 **`ASSIGNMENT_WEB_PORT`**（默认 `8787`）TCP 入站，供发起人通过签名 URL 访问工作台。
 3. 云上常驻进程对应本仓库命令 **`npm run dingtalk-bot`**（容器内等价命令见 Dockerfile）。需要同时备好 **DashScope Key** 与 **钉钉 Stream 机器人** 的应用凭证（见第一节）；缺一不可时进程会启动失败。
 
 ### 2.1 实操：SSH 登录
@@ -241,6 +242,11 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `PLAN_STORE_DIR` | 否 | `DRAFT_READY` 快照目录 |
 | `PLAN_SNAPSHOT_DISABLED` | 否 | `1` 禁用快照 |
 | `CONTENT_FILTER_DISABLED` | 否 | `1` 关闭 Markdown 侧 PII 脱敏 |
+| `ASSIGNMENT_PHASE_ENABLED` | 否 | `1` 开启指派阶段（v0.2 MVP）；见 `AGENTS.md` |
+| `ASSIGNMENT_WEB_PORT` | 否 | 指派工作台 HTTP 端口（默认 `8787`；需安全组放行） |
+| `ASSIGNMENT_WEB_PUBLIC_BASE_URL` | 否 | 指派工作台公网地址（例如 `http://你的ECS公网IP:8787`） |
+| `ASSIGNMENT_WEB_SECRET` | 否 | 指派工作台 URL 的 HMAC-SHA256 签名密钥（防止篡改） |
+| `DINGTALK_ASSIGNMENT_MOCK` | 否 | `1` 使用 mock 钉钉交互卡片（无需真实卡片回调） |
 
 单测默认会设置 `*_DISABLED`，避免写入仓库外路径；与本节生产配置无关。
 
@@ -262,6 +268,7 @@ npm run dingtalk-bot
 
 ## 五、后续可选增强
 
+- **指派工作台 HTTPS**（可选）：`ASSIGNMENT_WEB_PORT` 默认仅提供 HTTP。若需 HTTPS，可在 ECS 前加一层反向代理（如 Nginx / Caddy）做 TLS 终止，将 443 转发到本地 `8787`。此时 `ASSIGNMENT_WEB_PUBLIC_BASE_URL` 应设为 `https://你的域名`。反向代理示例（Caddy）：`caddy reverse-proxy --from 你的域名 --to :8787`，Caddy 会自动申请 Let's Encrypt 证书。
 - **函数计算 FC**：若改为 HTTP 回调型机器人，可使用 FC HTTP 触发器；当前代码路径为 **Stream**，迁移需改用开放平台 HTTP 加解密回调。
 - **高可用**：多实例部署需注意钉钉 Stream 连接模型与机器人会话幂等；试点阶段建议 **单实例**。
 - **集中式审计 / 网关限流**：进程内已实现 Demo JSONL、Harness 可选 FileSink 及会话限速；若要跨实例报表或网关级配额，可再接入集中日志或 API 网关。
