@@ -313,3 +313,312 @@ describe("sleepWithJitter", () => {
     vi.useRealTimers();
   });
 });
+
+describe("callWithTools", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("executes a single tool call then returns forced JSON", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: "req_tc1",
+          model: "qwen-plus",
+          choices: [
+            {
+              finish_reason: "tool_calls",
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: {
+                      name: "search_employees",
+                      arguments: '{"skills":["8D"]}',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: "req_tc2",
+          model: "qwen-plus",
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: '{"ok":true,"employees":[]}' },
+            },
+          ],
+          usage: { prompt_tokens: 60, completion_tokens: 20, total_tokens: 80 },
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0.2,
+      maxTokens: 2048,
+    });
+
+    const searchHandler = vi.fn().mockResolvedValue([{ name: "John" }]);
+
+    const result = await client.callWithTools({
+      messages: [
+        { role: "system", content: "You are a helpful assistant." },
+        { role: "user", content: "Search for 8D employees" },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "search_employees",
+            description: "Search employees by skills",
+            parameters: {
+              type: "object",
+              properties: {
+                skills: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      ],
+      toolHandlers: { search_employees: searchHandler },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(searchHandler).toHaveBeenCalledWith({ skills: ["8D"] });
+    expect(result.toolCallsExecuted).toBe(1);
+    expect((result.payload as Record<string, unknown>).ok).toBe(true);
+    expect(result.trace.tokenUsage.totalTokens).toBe(140);
+    expect(result.rawContent).toBe('{"ok":true,"employees":[]}');
+  });
+
+  it("returns JSON directly when no tool_calls are returned", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: "req_no_tc",
+        model: "qwen-plus",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { content: '{"result":"direct"}' },
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0.2,
+      maxTokens: 2048,
+    });
+
+    const result = await client.callWithTools({
+      messages: [
+        { role: "system", content: "You are a helpful assistant." },
+        { role: "user", content: "Do something" },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: { name: "test_tool", description: "Test", parameters: {} },
+        },
+      ],
+      toolHandlers: { test_tool: async () => ({}) },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.toolCallsExecuted).toBe(0);
+    expect((result.payload as Record<string, unknown>).result).toBe("direct");
+  });
+
+  it("throws when both iterations return tool_calls", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_a",
+                    type: "function",
+                    function: { name: "search_employees", arguments: "{}" },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_b",
+                    type: "function",
+                    function: { name: "other_tool", arguments: "{}" },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0.2,
+      maxTokens: 2048,
+    });
+
+    await expect(
+      client.callWithTools({
+        messages: [{ role: "user", content: "hi" }],
+        tools: [
+          {
+            type: "function",
+            function: { name: "search_employees", description: "x", parameters: {} },
+          },
+        ],
+        toolHandlers: { search_employees: async () => ({}) },
+      })
+    ).rejects.toThrow(/tool_calls returned at last iteration/);
+  });
+
+  it("throws when tool handler is not found", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "nonexistent_tool", arguments: "{}" },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0.2,
+      maxTokens: 2048,
+    });
+
+    await expect(
+      client.callWithTools({
+        messages: [{ role: "user", content: "hi" }],
+        tools: [
+          {
+            type: "function",
+            function: { name: "some_tool", description: "x", parameters: {} },
+          },
+        ],
+        toolHandlers: { some_tool: async () => ({}) },
+      })
+    ).rejects.toThrow(/No handler for tool/);
+  });
+
+  it("throws when tool_call arguments contain invalid JSON", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "some_tool", arguments: "not-json" },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0.2,
+      maxTokens: 2048,
+    });
+
+    await expect(
+      client.callWithTools({
+        messages: [{ role: "user", content: "hi" }],
+        tools: [
+          {
+            type: "function",
+            function: { name: "some_tool", description: "x", parameters: {} },
+          },
+        ],
+        toolHandlers: { some_tool: async () => ({}) },
+      })
+    ).rejects.toThrow(/Invalid JSON in tool_call arguments/);
+  });
+});
