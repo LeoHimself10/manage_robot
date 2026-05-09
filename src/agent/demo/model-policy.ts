@@ -8,7 +8,7 @@ export interface ModelPolicy {
 }
 
 export const DEFAULT_MODEL_POLICY: ModelPolicy = {
-  model: "qwen3-plus",
+  model: "qwen3.6-plus",
   temperature: 0.2,
   maxTokens: 4000,
   timeoutMs: 60000,

@@ -18,7 +18,7 @@ describe("loadQwenPlannerConfigFromEnv", () => {
 
     expect(config).toMatchObject({
       apiKey: "test-key",
-      model: "qwen3-plus",
+      model: "qwen3.6-plus",
       baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       maxTokens: 4000,
       stream: true,
