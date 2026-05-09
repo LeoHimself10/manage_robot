@@ -289,6 +289,8 @@ interface DingTalkDemoSessionContext {
 }
 ```
 
+> v2.11 实际落地时新建了 **`src/dingtalk-session-context.ts`** 单独承载会话态构建。assignment 阶段挂载 `assignmentState` 时应改在该文件扩展，不要在 `session-digest.ts` 或 `dingtalk-bot.ts` 内联定义；`buildConversationStateFromResult` 调用方也走该模块。
+
 ### 8.4 Prompt 与 Schema
 
 - 对方 v2.11 改主 prompt（task-planning），新增 `responseIntent / assistantMessage`。
@@ -539,5 +541,69 @@ interface CardStateRepo {
 - DingTalk 互动卡片：[发送钉钉互动卡片](https://developers.dingtalk.com/document/robots/send-interactive-dynamic-cards)、[响应互动卡片消息](https://developers.dingtalk.com/document/dingstart/responding-to-interactive-messages)、[任务通知最佳实践](https://developers.dingtalk.com/document/group/best-practices-task-notification)。
 - DingTalk 任务管理与会议转任务实践：[Task Management Revolution](https://www.dingtalk-global.com/news/explain/gao-bie-qun-liao-shua-ping-260219)、[Meeting to Tasks Automation](https://www.dingtalk-global.com/en/news/explain/meeting-to-tasks-automation-with-dingtalk-26030567)。
 - 企业 Agent 与人岗匹配方向：StackAI 多 Agent 工作流指南、Salesforce 企业 Agent 经验、人岗匹配 2.0 / 技能图谱实践（2026 中文资料）。
+
+## 17. 待决策项与决策记录
+
+下表是设计过程中遇到的关键开放问题；行末「状态」字段记录当前结论或仍待澄清。落地阶段的实施计划必须以本表为准，不得自行偏离。
+
+| 编号 | 问题 | 当前结论 | 备注 |
+| --- | --- | --- | --- |
+| D1 | 钉钉机器人是否已具备互动卡片 + 主动推送 + 通讯录读权限？ | **暂无**，后续开通 | 实施 §6 卡片层与 §18 钉钉工具时阻塞在权限开通；先以 mock 实现走通链路，权限到位后切真实 API |
+| D2 | Web 工作台第一版用哪种登录方式？何时登录？ | **C：短期签名 URL**（卡片点击即认身份） | 服务端密钥签名 `planId + userId + role + expiresAt + nonce`；`expiresAt` 默认 30 分钟、`nonce` 单次有效；动作全审计；未来若新增浏览器直接访问入口再叠加钉钉 SSO |
+| D3 | DRAFT 后启动 assignment 是同步还是异步？ | **同步**：DRAFT 输出后串行调用 assignmentRecommender，再一并返回主管视图与「分配确认卡片」 | 与现有 pipeline 串联；总响应时延需观测，必要时拆出后台异步在 V2 评估 |
+| D4 | 第一版「主管」如何识别？ | **「主管 = 任务发起人」**；同时新增「**可发起任务的员工白名单**」；不在白名单的钉钉用户即使 @ 了机器人也不进入 assignment 链路 | 白名单存 `./data/initiators.json` 或环境变量；复杂的部门主管/角色权限模型推迟 V2 |
+| D5 | 跨部门派发是否需要二级审批（被借调员工的部门主管确认）？ | **V1 不做**。仅在卡片中显示「跨部门」风险标记 | V2 再评估 |
+
+> 落地阶段如果出现新的待决策项，应追加到本表并标注决策时间与决策人，不要在散落的实现注释里隐藏。
+
+## 18. 工具 / 集成接口清单
+
+以下是 assignment 阶段需要调用或新增的工具能力。**第一版仍保持 prompt-only**（不启用 LLM function calling），但所有外部依赖统一抽象为可独立测试的函数 + 输入输出 schema，便于后续转为 function calling 时只包一层注册器。
+
+业务层禁止直接调用 `fetch / fs / dingtalk SDK`；所有外部依赖必须经过下列工具层。
+
+### 18.1 钉钉集成（`src/integrations/dingtalk/`，依赖 D1）
+
+| 工具 | 用途 | 第一版 |
+| --- | --- | --- |
+| `dingtalk.contacts.listEmployees()` | 拉钉钉通讯录员工列表（userId / 姓名 / 部门 / 岗位 / 直属主管） | mock 读假数据，权限到位后切真实 API |
+| `dingtalk.contacts.getEmployee(userId)` | 单点查询员工 | 同上 |
+| `dingtalk.cards.send({ outTrackId, cardTemplateId, userIds, cardData, callbackRouteKey })` | 主动发互动卡片到单聊 | mock |
+| `dingtalk.cards.update({ outTrackId, cardData, userPrivateData })` | 更新已发送卡片状态 | mock |
+| `dingtalk.cards.registerCallback({ callbackRouteKey, callbackUrl, apiSecret })` | 注册回调（HTTP）或 Stream topic | 优先 Stream，与现网一致 |
+| `dingtalk.messages.sendMarkdown(...)` | 现有 Markdown 推送 | 沿用 |
+| `dingtalk.signature.verify(headers, body, apiSecret)` | 卡片回调签名验签 | 上线即真实实现 |
+
+### 18.2 内部数据 Repo（`src/integrations/repos/`）
+
+接口定义见 §10.7。文件实现，依赖关系：业务 → repo → fs。
+
+- `employeeProfileRepo`：list / get / upsertSelfProfile / upsertDerivedProfile
+- `assignmentDraftRepo`：save / load
+- `assignmentEventRepo`：append / listByPlan
+- `cardStateRepo`：upsert / get / resolveByPlan
+- `planSnapshotRepo`：load（包装现有 `plan-store.readPlanSnapshot`）
+
+### 18.3 LLM 调用（`src/agent/assignment/`）
+
+| 工具 | 用途 |
+| --- | --- |
+| `llm.assignmentRecommender(input, options?)` | 输入 `PlanDraft + 候选人压缩画像列表 + 会话上下文`，输出 `AssignmentDraft`；失败抛 `ASSIGNMENT_GENERATION_FAILED`，不使用规则稿替代 |
+| 第二轮重生成 | 复用同一函数 + `round` 参数；主管补充信息后再调用 |
+
+### 18.4 安全 / 入口（`src/security/`）
+
+| 工具 | 用途 |
+| --- | --- |
+| `webAuth.signEntryUrl({ planId, userId, role, ttlMs })` | 生成 D2 决策的短期签名链接 |
+| `webAuth.verifyEntryToken(token)` | Web 入口校验，校验失败拒绝访问 |
+| `cardCallback.idempotencyKey({ outTrackId, actionType, actorUserId })` | 卡片回调幂等 key |
+| `initiatorWhitelist.check(userId)` | D4 决策的发起人白名单校验 |
+
+### 18.5 Function Calling 演进策略
+
+- 第一版 **不暴露**任何工具给模型；所有调用都由代码主动发起。
+- repo 与 dingtalk 层接口面向 function calling 兼容设计：每个工具有 JSON schema 描述 + 同步可测试的纯函数。
+- 当假数据扩展到上百名员工、需要让模型按条件检索人选时，再评估上 `tools[]` 注册器。
 
 > 本文档为草案。`2026-05-09-conversational-intent-agent-redesign` 对应能力已在 Demo 实现；启动 assignment 实施前请对照 **`AGENTS.md`** 与 **`docs/Qwen-接入实施说明.md`** 做接触面核对，再基于本文档转入 `writing-plans` 流程，产出可执行的实施计划。
