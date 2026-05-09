@@ -2,10 +2,10 @@
 
 ## 判断原则
 
-prompt v2.8 已经让 LLM 承担了：
-- 意图分类（NON_TASK / TASK_GAP）
+prompt v2.11 已经让 LLM 承担了：
+- 意图分类（NON_TASK / TASK_GAP）与 **`responseIntent`**（聊天 / 追问 / 讨论 / 出稿 / 修订 / 重置等）
 - gate 自检（gateSelfCheck：四必填字段逐 task 检查）
-- 反问引导（openQuestions 含身份介绍 + 敬称 + 多句许可）
+- 自然回复（**`assistantMessage`**）与结构化反问（**`openQuestions`**；不再把自然回复仅塞进 openQuestions）
 
 代码如果再把这三件事做一遍，就是"不信任 LLM"的冗余层。应该删。
 

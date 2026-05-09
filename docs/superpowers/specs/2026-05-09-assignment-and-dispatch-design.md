@@ -2,7 +2,7 @@
 
 **文档日期**：2026-05-09
 **修订人**：姚凯珩
-**状态**：草案，待 `2026-05-09-conversational-intent-agent-redesign.md` 落地后进入实施
+**状态**：草案；**Conversational intent（v2.11）** 已在 Demo 主线落地（见 **`AGENTS.md`**、**`docs/Qwen-接入实施说明.md`**），本设计可与该实现对齐后进入实施；跨 prompt/schema/钉钉文件的改动需在分支合并后做一次回归核对。
 **关联文档**：
 - `docs/PRD-钉钉任务规划与承接确认机器人.md`
 - `docs/agent-harness-架构与开发计划.md`
@@ -263,7 +263,7 @@ Assignment 阶段的触发信号采用对方设计的 `responseIntent`：
 
 - `responseIntent === "DRAFT"` 或 `"REVISE_DRAFT"` 时进入 `ASSIGNMENT_RECOMMENDING`。
 - 其他 intent（`CHAT / CLARIFY / DISCUSS / RESET_OR_NEW_TASK`）一律不触发分配。
-- 兼容期：在对方 v2.11 上线前，回退为「`tasks` 非空 + 通过门禁」的旧信号。
+- **v2.11 已上线**：以 `responseIntent` 为首选信号；若极端情况下模型未输出合法 intent，可回退为「`tasks` 非空 + 通过门禁」作为工程兜底（与 `llm-schema` 兼容策略一致）。
 
 ### 8.2 钉钉渲染
 
@@ -506,14 +506,14 @@ interface CardStateRepo {
 - **模型幻觉指派**：可能推荐不存在或不合适的人。缓解：候选人范围由系统硬约束 + 模型必须引用证据；缺乏证据触发低置信度提示。
 - **能力档案污染**：模型推断被误当作员工真实能力。缓解：三层数据分离 + 显式来源标注 + 不允许模型直接修改 Self-Profile。
 - **卡片体验过载**：主管不愿意点开复杂卡片。缓解：卡片只放摘要 + 单步按钮，复杂操作跳 Web。
-- **与 conversational-intent 设计的耦合**：双轨并行可能在 prompt / schema / dingtalk-bot 上冲突。缓解：等对方落地后再实施，文件层面尽量解耦。
+- **与 conversational-intent 设计的耦合**：双轨并行可能在 prompt / schema / dingtalk-bot 上冲突。缓解：**v2.11 已落地**，实施 assignment 前以当前 `main`（或已合并的功能分支）为基线做差异评审，文件层面尽量解耦。
 - **隐私与负向标签风险**：拒接率 / 返工率被误用作绩效。缓解：明确数据用途 + 权限隔离 + 不暴露员工排名。
 - **假数据失真**：假员工不能代表真实组织能力分布。缓解：第一版只用于验证字段是否够用，结论以「能否产出合理推荐 + 是否需要补字段」为准，不作为模型效果的最终判定。
 
 ## 15. 落地分期
 
-### Phase A：等待依赖 + 假数据集
-- 等待 `conversational-intent-agent-redesign` v2.11 落地。
+### Phase A：依赖对齐 + 假数据集
+- **v2.11 conversational intent** 已合并入主线后，复核与本设计接触的 prompt/schema/钉钉渲染差异。
 - 设计并生成假员工数据集与压缩画像规则。
 - 定义 `AssignmentDraft / AssignmentEvent / EmployeeProfile` 数据契约与 schema。
 
@@ -540,4 +540,4 @@ interface CardStateRepo {
 - DingTalk 任务管理与会议转任务实践：[Task Management Revolution](https://www.dingtalk-global.com/news/explain/gao-bie-qun-liao-shua-ping-260219)、[Meeting to Tasks Automation](https://www.dingtalk-global.com/en/news/explain/meeting-to-tasks-automation-with-dingtalk-26030567)。
 - 企业 Agent 与人岗匹配方向：StackAI 多 Agent 工作流指南、Salesforce 企业 Agent 经验、人岗匹配 2.0 / 技能图谱实践（2026 中文资料）。
 
-> 本文档为草案。实施阶段请等 `2026-05-09-conversational-intent-agent-redesign.md` 落地后再启动；启动时基于本文档转入 `writing-plans` 流程，产出可执行的实施计划。
+> 本文档为草案。`2026-05-09-conversational-intent-agent-redesign` 对应能力已在 Demo 实现；启动 assignment 实施前请对照 **`AGENTS.md`** 与 **`docs/Qwen-接入实施说明.md`** 做接触面核对，再基于本文档转入 `writing-plans` 流程，产出可执行的实施计划。

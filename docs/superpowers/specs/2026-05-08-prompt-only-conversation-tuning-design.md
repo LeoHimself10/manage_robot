@@ -1,5 +1,7 @@
 # Prompt-Only Conversation Tuning Design
 
+> **Status:** Superseded by **`docs/superpowers/specs/2026-05-09-conversational-intent-agent-redesign.md`** and prompt **v2.11** (`responseIntent` + `assistantMessage`). Retained for historical context only.
+
 ## Goal
 
 Improve the DingTalk MVP interaction without adding a new routing stage or response-mode field. The robot should still use the current Qwen structured JSON pipeline, but the prompt should stop forcing every follow-up into a full task decomposition. User-facing task tables should use Chinese headers.
