@@ -88,6 +88,15 @@ export async function runOrchestrator(
       msg = `已生成任务拆解草案（${taskCount?.length ?? 0} 个任务包）。请审阅下方的任务详情。`;
     }
 
+    // 兜底：thinking 模式下模型可能输出原始文本而非 JSON，rawContent 本身就是用户可见内容
+    if (!msg.trim() && response.rawContent.trim() && stopReason === "end_turn") {
+      // rawContent 可能是自然语言文本（reasoning_content 兜底的结果）
+      const trimmed = response.rawContent.trim();
+      if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+        msg = redactCommonPii(trimmed);
+      }
+    }
+
     if (msg.trim()) userVisibleMessages.push(msg);
 
     messages.push({ role: "assistant", content: response.rawContent });

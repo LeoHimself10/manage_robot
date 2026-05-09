@@ -77,6 +77,8 @@ interface ChatCompletionResponse {
     finish_reason?: string | null;
     message?: {
       content?: string;
+      /** Qwen3 thinking 模式下的思考过程；content 为空时可用作兜底 */
+      reasoning_content?: string;
       tool_calls?: Array<{
         id: string;
         type: "function";
@@ -91,6 +93,7 @@ interface ChatCompletionResponse {
 
 interface SseAssembledResponse {
   content: string;
+  reasoningContent?: string;
   id?: string;
   model?: string;
   usage?: ChatCompletionResponse["usage"];
@@ -402,13 +405,15 @@ function ingestSseDataLine(dataPayload: string, acc: SseAssembledResponse): void
       id?: string;
       model?: string;
       usage?: ChatCompletionResponse["usage"];
-      choices?: Array<{ delta?: { content?: string } }>;
+      choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>;
     };
     if (json.id) acc.id = json.id;
     if (json.model) acc.model = json.model;
     if (json.usage) acc.usage = json.usage;
     const piece = json.choices?.[0]?.delta?.content;
     if (piece) acc.content += piece;
+    const reasonPiece = json.choices?.[0]?.delta?.reasoning_content;
+    if (reasonPiece) acc.reasoningContent = (acc.reasoningContent ?? "") + reasonPiece;
   } catch {
     /* 忽略单行损坏 */
   }
@@ -456,7 +461,10 @@ function sseAssembledToChatResponse(a: SseAssembledResponse): ChatCompletionResp
     choices: [
       {
         finish_reason: "stop",
-        message: { content: a.content },
+        message: {
+          content: a.content,
+          reasoning_content: a.reasoningContent,
+        },
       },
     ],
   };
@@ -489,11 +497,18 @@ export function parseAssistantJsonPayload(content: string): unknown {
 }
 
 function extractAssistantContent(response: ChatCompletionResponse): string {
-  const content = response.choices?.[0]?.message?.content;
-  if (!content || !content.trim()) {
-    throw new Error("Qwen API returned empty assistant content");
-  }
-  return content;
+  const msg = response.choices?.[0]?.message;
+  const content = msg?.content;
+  if (content?.trim()) return content;
+
+  // Qwen3 thinking 模式下 content 可能为空，用 reasoning_content 兜底
+  const reasoning = msg?.reasoning_content;
+  if (reasoning?.trim()) return reasoning;
+
+  // 有 tool_calls 但无内容 → 返回空字符串（由上游 tool_calls 分支处理）
+  if (msg?.tool_calls?.length) return "";
+
+  throw new Error("Qwen API returned empty assistant content (no content, reasoning, or tool_calls)");
 }
 
 function toTokenUsage(response: ChatCompletionResponse): TokenUsage {
