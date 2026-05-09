@@ -7,9 +7,15 @@ import {
 
 export type { DemoConversationState };
 
+export interface AssignmentSessionState {
+  stage?: "RECOMMENDING" | "AWAITING_DISPATCH_CONFIRM" | "DISPATCHED";
+  lastAssignmentTraceId?: string;
+}
+
 export interface DingTalkDemoSessionContext {
   priorDigest?: string;
   conversationState?: DemoConversationState;
+  assignmentState?: AssignmentSessionState;
 }
 
 export function nextSessionContextAfterDemoResult(

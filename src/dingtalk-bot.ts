@@ -30,6 +30,25 @@ import {
   nextSessionContextAfterDemoResult,
   type DingTalkDemoSessionContext,
 } from "./dingtalk-session-context";
+import {
+  resolveEmployeeProfileDir,
+  resolveAssignmentDraftDir,
+  resolveAssignmentEventsPath,
+  resolveAssignmentWebPublicBaseUrl,
+  isDingtalkAssignmentMock,
+} from "./infra/assignment-env";
+import { createEmployeeProfileRepo } from "./integrations/repos/employee-profile-repo";
+import { createAssignmentDraftRepo } from "./integrations/repos/assignment-draft-repo";
+import { createAssignmentEventRepo } from "./integrations/repos/assignment-event-repo";
+import { runAssignmentRecommendation } from "./agent/assignment/run-assignment-recommendation";
+import { signAssignmentEntry } from "./security/web-entry-token";
+import { handleAssignmentHttp } from "./web/assignment-workbench";
+import {
+  buildAssignmentProgressMarkdown,
+  buildAssignmentFollowUpMarkdown,
+} from "./dingtalk/assignment-markdown-appendix";
+import { mockManagerCard } from "./integrations/dingtalk/assignment-card-mock";
+import { isTaskInitiatorAllowed } from "./security/initiator-whitelist";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -129,18 +148,19 @@ function ackCallback(client: DWClient, messageId: string, dingtalkResponse: unkn
   client.socketCallBackResponse(messageId, dingtalkResponse);
 }
 
-function startHealthServer(port: number): void {
+function startCombinedServer(healthPort: number): void {
   const server = http.createServer((req, res) => {
     if (req.url === "/health" || req.url === "/") {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("ok");
       return;
     }
+    if (handleAssignmentHttp(req, res)) return;
     res.writeHead(404);
     res.end();
   });
-  server.listen(port, () => {
-    console.info(`[health] listening on :${port} (/health)`);
+  server.listen(healthPort, () => {
+    console.info(`[health] listening on :${healthPort} (/health)`);
   });
 }
 
@@ -171,7 +191,7 @@ async function main(): Promise<void> {
 
   const healthPort = Number(process.env.HEALTH_CHECK_PORT ?? "");
   if (Number.isFinite(healthPort) && healthPort > 0) {
-    startHealthServer(healthPort);
+    startCombinedServer(healthPort);
   }
 
   const client = new DWClient({
@@ -233,20 +253,103 @@ async function main(): Promise<void> {
           }
         );
 
-        chatSessionMemory.set(
-          chatKey,
-          nextSessionContextAfterDemoResult(demoResult, prior, sessionDigestMaxChars)
-        );
-
+        // Build session context
+        let sessionContext = nextSessionContextAfterDemoResult(demoResult, prior, sessionDigestMaxChars);
+        let outboundMarkdown: string;
         const { title, markdownText } = formatDemoReply(demoResult);
+        outboundMarkdown = markdownText;
+
+        // Add assignment progress note and update session state when conditions are met
+        if (
+          demoResult.status === "DRAFT_READY" &&
+          isTaskInitiatorAllowed(payload.senderStaffId) &&
+          process.env.ASSIGNMENT_PHASE_ENABLED === "1"
+        ) {
+          outboundMarkdown = truncateMarkdown(markdownText + "\n\n" + buildAssignmentProgressMarkdown());
+          sessionContext = {
+            ...sessionContext,
+            assignmentState: { stage: "RECOMMENDING", lastAssignmentTraceId: demoResult.traceId },
+          };
+        }
+        chatSessionMemory.set(chatKey, sessionContext);
+
         dingtalkResponse = await sendMarkdownReply({
           client,
           sessionWebhook: payload.sessionWebhook,
           messageId,
           senderStaffId: payload.senderStaffId,
           title,
-          markdownText,
+          markdownText: outboundMarkdown,
         });
+
+        // Async: assignment phase (fire-and-forget)
+        if (
+          demoResult.status === "DRAFT_READY" &&
+          isTaskInitiatorAllowed(payload.senderStaffId) &&
+          process.env.ASSIGNMENT_PHASE_ENABLED === "1"
+        ) {
+          void (async () => {
+            try {
+              const ar = await runAssignmentRecommendation(
+                {
+                  traceId: demoResult.traceId,
+                  tasks: demoResult.tasks,
+                  classificationSummary: `${demoResult.classification.domain}/${demoResult.classification.subtype}`,
+                  domainHint: demoResult.classification.domain,
+                },
+                {
+                  employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
+                  qwenConfig,
+                  draftRepo: createAssignmentDraftRepo(resolveAssignmentDraftDir()),
+                  eventRepo: createAssignmentEventRepo(resolveAssignmentEventsPath()),
+                },
+              );
+
+              if (!ar.ok) {
+                console.error("[assignment] generation failed:", ar.reason);
+                return;
+              }
+
+              const baseUrl = resolveAssignmentWebPublicBaseUrl();
+              const signed = signAssignmentEntry({
+                planId: demoResult.traceId,
+                userId: payload.senderStaffId,
+                role: "manager",
+                ttlSeconds: 1800,
+              });
+
+              const followUpMarkdown = buildAssignmentFollowUpMarkdown({
+                baseUrl,
+                token: signed.token,
+                draft: ar.draft,
+              });
+
+              await sendMarkdownReply({
+                client,
+                sessionWebhook: payload.sessionWebhook,
+                messageId,
+                senderStaffId: payload.senderStaffId,
+                title: "分配建议",
+                markdownText: followUpMarkdown,
+              });
+
+              if (isDingtalkAssignmentMock()) {
+                mockManagerCard({ traceId: demoResult.traceId, outTrackId: `assign:${demoResult.traceId}` });
+              }
+
+              // Update session state
+              const updated = chatSessionMemory.get(chatKey);
+              if (updated) {
+                chatSessionMemory.set(chatKey, {
+                  ...updated,
+                  assignmentState: { stage: "AWAITING_DISPATCH_CONFIRM", lastAssignmentTraceId: demoResult.traceId },
+                });
+              }
+            } catch (err) {
+              console.error("[assignment] background error:", err instanceof Error ? err.message : err);
+            }
+          })();
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("[dingtalk-bot] handler error:", msg);

@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 export function createAssignmentDraftRepo(draftDir: string) {
   return {
-    save(draft: { planId: string; traceId: string; promptVersion: string }): void {
+    async save(draft: { planId: string; traceId: string; promptVersion: string }): Promise<void> {
       mkdirSync(draftDir, { recursive: true });
       const file = join(draftDir, `${draft.planId}.assignment.json`);
       const tmp = file + ".tmp";

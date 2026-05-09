@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 
 export function createAssignmentEventRepo(eventsPath: string) {
   return {
-    append(record: Record<string, unknown>): void {
+    async append(record: Record<string, unknown>): Promise<void> {
       mkdirSync(dirname(eventsPath), { recursive: true });
       appendFileSync(eventsPath, JSON.stringify(record) + "\n", "utf8");
     },
