@@ -25,15 +25,16 @@ const cases = [
 ];
 
 describe("conversational intent prompt eval fixtures", () => {
-  it("documents critical user turns the v2.11 prompt must handle", () => {
+  it("documents critical user turns the v3.0 orchestrator prompt must handle", () => {
     const prompt = buildQwenPlannerSystemPrompt();
 
     for (const item of cases) {
       expect(item.input.length).toBeGreaterThan(0);
       expect(item.expectedIntent.length).toBeGreaterThan(0);
     }
-    expect(prompt).toContain("RESET_OR_NEW_TASK");
-    expect(prompt).toContain("DISCUSS");
-    expect(prompt).toContain("10–20");
+    expect(prompt).toContain("stopReason");
+    expect(prompt).toContain("tool_use");
+    expect(prompt).toContain("end_turn");
+    expect(prompt).toContain("Orchestrator");
   });
 });
