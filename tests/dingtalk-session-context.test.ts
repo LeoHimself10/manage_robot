@@ -12,6 +12,7 @@ describe("nextSessionContextAfterDemoResult", () => {
     };
     const result: TaskPlanningDemoResult = {
       status: "CONVERSATION",
+      traceId: "test-trace-id",
       responseIntent: "RESET_OR_NEW_TASK",
       assistantMessage: "好的，我们从新任务开始。",
       questions: [],

@@ -11,6 +11,7 @@ describe("buildConversationStateFromResult", () => {
   it("clears draft context on RESET_OR_NEW_TASK", () => {
     const result: TaskPlanningDemoResult = {
       status: "CONVERSATION",
+      traceId: "test-trace-id",
       responseIntent: "RESET_OR_NEW_TASK",
       assistantMessage: "好的，我们从新任务开始。",
       questions: [],
@@ -32,6 +33,7 @@ describe("buildConversationStateFromResult", () => {
   it("updates draft state on DRAFT_READY", () => {
     const result: TaskPlanningDemoResult = {
       status: "DRAFT_READY",
+      traceId: "test-trace-id",
       responseIntent: "DRAFT",
       assistantMessage: "已生成草案。",
       questions: ["是否存在重复发生？"],
@@ -77,6 +79,7 @@ describe("buildConversationStateFromResult", () => {
     };
     const result: TaskPlanningDemoResult = {
       status: "CONVERSATION",
+      traceId: "test-trace-id",
       responseIntent: "DISCUSS",
       assistantMessage: "风险排查放在后面是因为…",
       questions: [],
@@ -94,6 +97,7 @@ describe("summarizePriorDemoForPrompt", () => {
   it("summarizes NEEDS_MORE_INFO outcomes", () => {
     const digest = summarizePriorDemoForPrompt({
       status: "NEEDS_MORE_INFO",
+      traceId: "test-trace-id",
       questions: ["请给批次号"],
       missingFields: ["batch"],
     });
@@ -105,6 +109,7 @@ describe("summarizePriorDemoForPrompt", () => {
   it("keeps enough DRAFT_READY context without markdown 任务理解摘要", () => {
     const digest = summarizePriorDemoForPrompt({
       status: "DRAFT_READY",
+      traceId: "test-trace-id",
       responseIntent: "DRAFT",
       assistantMessage: "已生成草案。",
       questions: ["是否存在重复发生？"],
@@ -152,6 +157,7 @@ describe("summarizePriorDemoForPrompt", () => {
     const digest = summarizePriorDemoForPrompt(
       {
         status: "DRAFT_READY",
+        traceId: "test-trace-id",
         responseIntent: "DRAFT",
         assistantMessage: "已生成草案。",
         questions: [],
@@ -183,6 +189,7 @@ describe("summarizePriorDemoForPrompt", () => {
     const digest = summarizePriorDemoForPrompt(
       {
         status: "DRAFT_READY",
+        traceId: "test-trace-id",
         responseIntent: "DRAFT",
         assistantMessage: "已生成草案。",
         questions: [],

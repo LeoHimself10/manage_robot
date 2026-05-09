@@ -62,6 +62,7 @@ function isDraftIntent(intent: ResponseIntent): intent is "DRAFT" | "REVISE_DRAF
 export type TaskPlanningDemoResult =
   | {
       status: "NEEDS_MORE_INFO";
+      traceId: string;
       questions: string[];
       missingFields: string[];
       /** 模型标记：寒暄/非任务(NON_TASK) vs 任务信息缺口(TASK_GAP)；渠道文案以 openQuestions 为准 */
@@ -75,6 +76,7 @@ export type TaskPlanningDemoResult =
     }
   | {
       status: "CONVERSATION";
+      traceId: string;
       responseIntent: Exclude<ResponseIntent, "DRAFT" | "REVISE_DRAFT">;
       assistantMessage: string;
       questions: string[];
@@ -89,6 +91,7 @@ export type TaskPlanningDemoResult =
     }
   | {
       status: "GENERATION_FAILED";
+      traceId: string;
       reason: string;
       recoverySuggestions: string[];
       trace?: InferenceTrace;
@@ -102,6 +105,7 @@ export type TaskPlanningDemoResult =
     }
   | {
       status: "DRAFT_READY";
+      traceId: string;
       responseIntent: "DRAFT" | "REVISE_DRAFT";
       assistantMessage: string;
       questions: string[];
@@ -150,6 +154,7 @@ export async function createTaskPlanningDemo(
     });
     return {
       status: "NEEDS_MORE_INFO",
+      traceId,
       questions: inputQuality.questions,
       missingFields: inputQuality.missingFields,
     };
@@ -164,6 +169,7 @@ export async function createTaskPlanningDemo(
     });
     return {
       status: "GENERATION_FAILED",
+      traceId,
       reason: MISSING_PLANNER_MESSAGE,
       recoverySuggestions: [...LLM_FAILURE_RECOVERY_SUGGESTIONS],
       missingFields: inputQuality.missingFields,
@@ -245,6 +251,7 @@ export async function createTaskPlanningDemo(
       });
       return {
         status: "GENERATION_FAILED",
+        traceId,
         reason: reasonMsg,
         recoverySuggestions: [...LLM_FAILURE_RECOVERY_SUGGESTIONS],
         trace: activeTrace,
@@ -270,6 +277,7 @@ export async function createTaskPlanningDemo(
       });
       return {
         status: "CONVERSATION",
+        traceId,
         responseIntent,
         assistantMessage: normalized.assistantMessage,
         questions: normalized.openQuestions,
@@ -361,6 +369,7 @@ export async function createTaskPlanningDemo(
 
     return {
       status: "DRAFT_READY",
+      traceId,
       responseIntent,
       assistantMessage: normalized.assistantMessage,
       questions: mergedOpenQuestions,
@@ -390,6 +399,7 @@ export async function createTaskPlanningDemo(
     });
     return {
       status: "GENERATION_FAILED",
+      traceId,
       reason: error instanceof Error ? error.message : "unknown_error",
       recoverySuggestions: [...LLM_FAILURE_RECOVERY_SUGGESTIONS],
       trace,

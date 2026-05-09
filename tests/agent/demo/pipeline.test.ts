@@ -595,4 +595,16 @@ describe("createTaskPlanningDemo", () => {
     if (result.status !== "GENERATION_FAILED") throw new Error("expected GENERATION_FAILED");
     expect(result.reason).toContain("llmPlanner");
   });
+
+  it("DRAFT_READY includes traceId for downstream assignment", async () => {
+    const result = await createTaskPlanningDemo(
+      { background: "生产批次异常，需两天内初步分析", domainHint: "QUALITY" },
+      { llmPlanner: async () => qualityLlmPlannerResponse({}) }
+    );
+    expect(result.status).toBe("DRAFT_READY");
+    if (result.status !== "DRAFT_READY") throw new Error("expected draft");
+    expect(result.traceId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    );
+  });
 });
