@@ -70,13 +70,25 @@ V1 聚焦：
 
 ### 4.4 Planner（输入质检 + 模型生成草案）
 
-- **当前 Demo 实现**（`src/agent/demo/`）：基础输入护栏后 **`llmPlanner` 必选**，由 **Qwen** 输出信息充分性判断、追问、结构化分类、任务包与门禁自检；**关键词分类 / 模板骨架 WBS / 语义默认补全已移除**。系统提示 **`task-planning-agent-v2.8`**（`qwen-prompt.ts`）；JSON 可选 **`clarificationUx`**。确定性校验见 `llm-schema`、`gate`，只做结构约束与派发门禁二次确认。
+- **当前 Demo 实现**（`src/agent/demo/`）：基础输入护栏后 **`llmPlanner` 必选**，由 **Qwen** 输出信息充分性判断、追问、结构化分类、任务包与门禁自检；**关键词分类 / 模板骨架 WBS / 语义默认补全已移除**。系统提示 **`task-planning-agent-v2.11.0`**（`qwen-prompt.ts`）；JSON 含 **`responseIntent`**（CHAT/CLARIFY/DISCUSS/DRAFT/REVISE_DRAFT/RESET_OR_NEW_TASK）与 **`assistantMessage`**；可选 **`clarificationUx`**（NON_TASK/TASK_GAP）。确定性校验见 `llm-schema`、`gate`，只做结构约束与 LLM 自检一致性确认。Pipeline 状态新增 **`CONVERSATION`**（闲聊/追问/讨论）。
 - **完整 Harness 愿景**：编排层仍可聚合「输入质检 → Model Gateway → 门禁 → 人工审阅」；Planner 与提示词模板版本长期对齐 PRD。
 
-### 4.5 Assignment Recommender（人岗推荐）
+### 4.5 Assignment Recommender（人岗推荐）— v0.2 已实现
 
-- 对接 HR 能力清单（FR-05），输出推荐人及理由与数据更新时间。
-- 支持主管手动覆盖与理由留痕。
+**已落地**（`src/agent/assignment/`）：
+- **独立 LLM 调用**：`runAssignmentRecommendation` 在 `DRAFT_READY` 后**异步**执行，通过 `sessionWebhook` 单独推送 "分配建议" Markdown。
+- **单轮 function calling**：QwenCompatibleClient 新增 `callWithTools` 方法，暴露 `search_employees(domain?, skills?, department?, role?)` 工具；LLM 调一次工具获取候选人压缩画像后再生成 `AssignmentDraft`。
+- **1 轮 self-correction**：schema validate 失败时把错误描述回传 LLM 修正。
+- **10 名假员工档案**（`fixtures/employees-seed.json`），覆盖质量/研发/供应商/项目管理角色，含 cases（taskType → outcome）、skills、availability。
+- **签名 Web 工作台**：HMAC-SHA256 签名的 URL（30min TTL，manager 角色），GET 骨架页面；`handleAssignmentHttp` 与 `/health` 同端口共存。
+- **Mock 钉钉卡片**：`DINGTALK_ASSIGNMENT_MOCK=1` 时写 JSONL 行而非调用真实卡片 API。
+
+**待推进：**
+- 对接真实 HR 能力清单（FR-05），替换假员工档案为实际数据
+- 承接三态（确认/修改/拒接）与卡片回调
+- 主管手动覆盖与理由留痕（Web 工作台 POST 覆盖已预留接口）
+- 多轮 function calling（当员工池 > 100 时扩展）
+- 长期记忆沉淀（Track Record → Derived Profile）
 
 ### 4.6 Acceptance Workflow（承接与验收工作流）
 

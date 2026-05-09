@@ -2,6 +2,8 @@
 
 ## 判断原则
 
+> **实施状态（2026-05-09）**：本文第 1-3 项（删除 `consistency.ts`、pipeline gate 直接取 `gateSelfCheck`、markdown-renderer 删除 warnings 段）已在 `main` 落地。`gate.ts` 的 `validateDemoGate` 保留为 `findDispatchGateMissingFields` 的调用接口（`policies.ts` 仍用）。如需进一步精简参见 `docs/agent-harness-架构与开发计划.md` 最新状态。
+
 prompt v2.11 已经让 LLM 承担了：
 - 意图分类（NON_TASK / TASK_GAP）与 **`responseIntent`**（聊天 / 追问 / 讨论 / 出稿 / 修订 / 重置等）
 - gate 自检（gateSelfCheck：四必填字段逐 task 检查）

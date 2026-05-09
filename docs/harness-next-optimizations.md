@@ -1,8 +1,8 @@
 # Harness 继续优化建议（归档 + 进度）
 
 **位置**：原为仓库根目录草案，现收于 `docs/` 与代码变更同步维护。  
-**状态摘要（2026-05-08）**：下文 **P0 / P1 / P2 / P3 清单主体已在 `main` 落地**（单实例内存会话与限流、无政治词黑名单的输出脱敏、Demo JSONL 与 Harness 可选 FileSink 等）。多副本 Redis、向量记忆、OA 闭环等仍为长期项。  
-**补充（2026-05-08）**：钉钉侧 **仅终稿一条气泡**（无「处理中」/ 流式进度推送）；Qwen **`QWEN_STREAM` 默认 SSE**；追问 Markdown **无列表符号前缀**；提示词 **`task-planning-agent-v2.8`**（见 `docs/deploy-aliyun-dingtalk.md`、`docs/Qwen-接入实施说明.md`）。
+**状态摘要（2026-05-09）**：下文 **P0 / P1 / P2 / P3 清单主体已在 `main` 落地**（单实例内存会话与限流、PII 脱敏、Demo JSONL 与 Harness 可选 FileSink 等）。此外，**指派推荐 v0.2 MVP**（`runAssignmentRecommendation` 单轮 function calling + async + self-correction + 签名 Web 工作台 + 假员工档案 + mock 卡片）也已在 `main` 落地，通过 `ASSIGNMENT_PHASE_ENABLED=1` 可选开启。多副本 Redis、向量记忆、OA 闭环等仍为长期项。  
+**补充（2026-05-09）**：钉钉侧 **仅终稿气泡**（无流式进度推送），但 assignment 完成后会**追加第二条气泡**（「分配建议」Markdown 含工作台链接）；Qwen **`QWEN_STREAM` 默认 SSE**；提示词 **`task-planning-agent-v2.11.0`**；planner 含 `responseIntent`/`assistantMessage`/`gateSelfCheck`；coerce 不再补语义默认值。
 
 ## 当前状态（评分表仍为历史快照，仅供参考）
 

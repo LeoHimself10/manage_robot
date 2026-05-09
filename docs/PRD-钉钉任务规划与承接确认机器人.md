@@ -20,6 +20,7 @@
 | v1.3 | 2026-05-07 | 姚凯珩 | 明确仅 LLM 生成草案；规则仅用于输入质检、Schema/门禁约束；质量域须含 CAPA 建议、研发域不得含；失败为 `GENERATION_FAILED` 不回退规则稿；删除「规则分类/模板 WBS」产品路径 |
 | v1.3.1 | 2026-05-08 | 姚凯珩 | **工程实施说明（非范围扩张）**：实现层增加单次输入字数上限、`sessionDigest` 连续对话摘要、派发前一致性告警、Markdown 侧重信息形态脱敏（手机号/证件号/IP）、运行时 JSONL/文件审计与快照、分段耗时/trace 聚合；不改变 MVP「不做 OA/承接闭环」等产品边界表述 |
 | v1.3.2 | 2026-05-09 | 姚凯珩 | **工程对齐（非范围扩张）**：Qwen prompt v2.11 增加 `responseIntent`/`assistantMessage`；非出稿轮次 pipeline 状态 **`CONVERSATION`**；钉钉单气泡以 **`assistantMessage`** 为主、**`openQuestions`** 为辅；`sessionDigest` 含会话状态摘要、用户侧草案不再展示「任务理解摘要」节 |
+| v1.3.3 | 2026-05-09 | 姚凯珩 | **v0.2 指派推荐**：`DRAFT_READY` 后异步执行 `runAssignmentRecommendation`，单轮 function calling（`search_employees` 工具）+ 1 轮 self-correction；签名 Web 工作台（HMAC-SHA256, 30min TTL）；假员工档案（10 人）；mock 钉钉卡片；通过 `ASSIGNMENT_PHASE_ENABLED=1` 可选开启。仍不做正式派发/承接确认/OA 流转 |
 
 
 ---
