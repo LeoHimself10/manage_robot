@@ -1,0 +1,171 @@
+import { randomUUID } from "node:crypto";
+import type { QwenCompatibleClientConfig, CallWithToolsResult } from "../demo/qwen-compatible-client";
+import { QwenCompatibleClient } from "../demo/qwen-compatible-client";
+import type { EmployeeProfileRecord } from "../../integrations/repos/employee-profile-repo";
+import { logStructured } from "../../infra/logger";
+import type { AssignmentDraft } from "./types";
+import { coerceAssignmentDraft, validateAssignmentDraft } from "./assignment-schema";
+import {
+  ASSIGNMENT_RECOMMENDER_PROMPT_VERSION,
+  buildAssignmentSystemPrompt,
+  buildAssignmentUserPrompt,
+} from "./assignment-prompt";
+import { SEARCH_EMPLOYEES_TOOL, buildSearchEmployeesHandler } from "./tools/search-employees";
+
+export interface TaskPackage {
+  id: string;
+  title: string;
+  objective: string;
+  deliverables: string[];
+  timeNode: { dueAt: string };
+}
+
+export interface RunAssignmentRecommendationInput {
+  traceId: string;
+  tasks: TaskPackage[];
+  classificationSummary: string;
+  domainHint?: "QUALITY" | "RD";
+}
+
+export interface RunAssignmentRecommendationDeps {
+  employeeRepo: { list(): EmployeeProfileRecord[]; get(userId: string): EmployeeProfileRecord | undefined };
+  qwenConfig: QwenCompatibleClientConfig;
+  draftRepo: { save(draft: AssignmentDraft): Promise<void> };
+  eventRepo: { append(event: Record<string, unknown>): Promise<void> };
+}
+
+export async function runAssignmentRecommendation(
+  input: RunAssignmentRecommendationInput,
+  deps: RunAssignmentRecommendationDeps,
+): Promise<{ ok: true; draft: AssignmentDraft } | { ok: false; reason: string }> {
+  const client = new QwenCompatibleClient(deps.qwenConfig);
+
+  const searchHandler = buildSearchEmployeesHandler(deps.employeeRepo);
+
+  const systemPrompt = buildAssignmentSystemPrompt();
+  const userPrompt = buildAssignmentUserPrompt({
+    traceId: input.traceId,
+    tasks: input.tasks,
+    classificationSummary: input.classificationSummary,
+  });
+
+  const messages: Array<{ role: string; content?: string }> = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+
+  // First call: with tools
+  let result: CallWithToolsResult;
+  try {
+    result = await client.callWithTools({
+      traceId: input.traceId,
+      messages: messages as Parameters<QwenCompatibleClient["callWithTools"]>[0]["messages"],
+      tools: [SEARCH_EMPLOYEES_TOOL],
+      toolHandlers: { search_employees: searchHandler },
+    });
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    logStructured({ event: "ASSIGNMENT_RECOMMENDER_FAILED", traceId: input.traceId, reason });
+    return { ok: false, reason };
+  }
+
+  // Coerce
+  let draft: AssignmentDraft;
+  try {
+    draft = coerceAssignmentDraft(result.payload);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    logStructured({ event: "ASSIGNMENT_COERCE_FAILED", traceId: input.traceId, reason });
+    return { ok: false, reason };
+  }
+
+  // Set metadata
+  draft.planId = draft.planId || input.traceId;
+  draft.traceId = input.traceId;
+  draft.generatedAt = draft.generatedAt || new Date().toISOString();
+  draft.promptVersion = ASSIGNMENT_RECOMMENDER_PROMPT_VERSION;
+  draft.modelName = draft.modelName || deps.qwenConfig.model;
+
+  // Validate
+  const allowedUserIds = deps.employeeRepo.list().map((e) => e.userId);
+  const taskIds = input.tasks.map((t) => t.id);
+  const validation = validateAssignmentDraft(draft, { allowedUserIds, taskIds });
+
+  if (!validation.valid) {
+    // Self-correction: one round
+    const errorMsg = `验证失败：${validation.errors.join("；")}\n请修正后重新生成完整的 AssignmentDraft JSON。`;
+
+    const correctedMessages: Array<{ role: string; content?: string }> = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+      { role: "assistant", content: JSON.stringify(result.payload) },
+      { role: "user", content: errorMsg },
+    ];
+
+    try {
+      const correctedResult = await client.callWithTools({
+        traceId: input.traceId,
+        messages: correctedMessages as Parameters<QwenCompatibleClient["callWithTools"]>[0]["messages"],
+        tools: [SEARCH_EMPLOYEES_TOOL],
+        toolHandlers: { search_employees: searchHandler },
+      });
+
+      draft = coerceAssignmentDraft(correctedResult.payload);
+      draft.planId = draft.planId || input.traceId;
+      draft.traceId = input.traceId;
+      draft.generatedAt = draft.generatedAt || new Date().toISOString();
+      draft.promptVersion = ASSIGNMENT_RECOMMENDER_PROMPT_VERSION;
+      draft.modelName = draft.modelName || deps.qwenConfig.model;
+
+      const revalidation = validateAssignmentDraft(draft, { allowedUserIds, taskIds });
+      if (!revalidation.valid) {
+        const reason = `自修正后仍验证失败：${revalidation.errors.join("；")}`;
+        logStructured({ event: "ASSIGNMENT_SELF_CORRECT_FAILED", traceId: input.traceId, reason });
+        return { ok: false, reason };
+      }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      logStructured({ event: "ASSIGNMENT_SELF_CORRECT_ERROR", traceId: input.traceId, reason });
+      return { ok: false, reason };
+    }
+  }
+
+  // Save
+  try {
+    await deps.draftRepo.save(draft);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    logStructured({ event: "ASSIGNMENT_DRAFT_SAVE_FAILED", traceId: input.traceId, reason });
+    return { ok: false, reason };
+  }
+
+  // Append event
+  try {
+    await deps.eventRepo.append({
+      eventType: "ASSIGNMENT_DRAFT_GENERATED",
+      traceId: input.traceId,
+      planId: draft.planId,
+      draftId: randomUUID(),
+      assignmentCount: draft.assignments.length,
+      promptVersion: ASSIGNMENT_RECOMMENDER_PROMPT_VERSION,
+      modelName: draft.modelName,
+      occurredAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    // Non-fatal: log but don't fail
+    logStructured({
+      event: "ASSIGNMENT_EVENT_APPEND_FAILED",
+      traceId: input.traceId,
+      reason: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  logStructured({
+    event: "ASSIGNMENT_DRAFT_GENERATED",
+    traceId: input.traceId,
+    planId: draft.planId,
+    assignmentCount: draft.assignments.length,
+  });
+
+  return { ok: true, draft };
+}
