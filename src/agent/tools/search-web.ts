@@ -1,14 +1,16 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 
+const MAX_QUERY_LENGTH = 200;
+
 export const SEARCH_WEB_TOOL: ToolDefinition = {
   type: "function",
   function: {
     name: "search_web",
-    description: "搜索技术方案、类似案例、解决思路。输入中文查询字符串，返回搜索结果摘要。用于寻找参考方案、排查方法或行业实践。",
+    description: "搜索技术方案、类似案例、解决思路。输入简短中文查询（一句话，不超过200字），返回搜索结果摘要。",
     parameters: {
       type: "object",
       properties: {
-        query: { type: "string", description: "中文搜索查询，如 'OCT 主机 USB 掉线 排查方法'" },
+        query: { type: "string", maxLength: MAX_QUERY_LENGTH, description: "简短中文查询，如 'OCT 主机 USB 掉线 排查方法'" },
       },
       required: ["query"],
     },
@@ -18,8 +20,13 @@ export const SEARCH_WEB_TOOL: ToolDefinition = {
 export function buildSearchWebHandler(): ToolHandler {
   return async (args) => {
     const a = args as { query?: string };
-    const q = (a.query ?? "").trim();
+    let q = (a.query ?? "").trim();
     if (!q) return { results: [], note: "空查询" };
+
+    // 安全截断：防止模型生成超长 query
+    if (q.length > MAX_QUERY_LENGTH) {
+      q = q.slice(0, MAX_QUERY_LENGTH);
+    }
 
     const apiKey = process.env.DASHSCOPE_API_KEY || process.env.QWEN_API_KEY;
     if (!apiKey) {
