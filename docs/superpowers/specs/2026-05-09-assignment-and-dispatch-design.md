@@ -356,7 +356,112 @@ interface AssignmentEvent {
 }
 ```
 
-## 10. 审计与可观测
+## 10. 数据存储与持久化
+
+### 10.1 部署假设
+
+第一版钉钉机器人与 Web 工作台 **同进程同机器** 部署，共享本地文件系统；沿用 `AGENTS.md` 「单实例进程内存 + 文件存储」的现网假设，不引入数据库。多副本 / Redis / 关系型数据库列入长期项，不在本设计范围。
+
+### 10.2 目录约定
+
+在现有 `./data/` 之下扩展，与 `PLAN_STORE_DIR / AUDIT_DEMO_JSONL_PATH` 共用根目录：
+
+```text
+./data/
+  plans/                         # 已有 PLAN_STORE_DIR
+    <planId>.json                # PlanDraft 快照（已有）
+    <planId>.assignment.json     # AssignmentDraft 快照（新增；与同 planId 一一对应）
+  employees/
+    profiles/                    # Self-Profile，每人一个 JSON
+      <userId>.json
+    derived/                     # Derived Profile，每人一个 JSON，含 version / generatedAt / confidence
+      <userId>.json
+    fixtures/                    # 假数据 seed 与导入备份
+      seed.json
+  events/
+    audit-demo.jsonl             # 已有 AUDIT_DEMO_JSONL_PATH
+    assignment-events.jsonl      # 新增：§4.3 / §9 中的 AssignmentEvent
+    card-callbacks.jsonl         # 新增：钉钉卡片回调原始事件（验签后）
+  cards/
+    <outTrackId>.json            # 卡片 ↔ 内部 plan/assignment 的映射 + 当前状态投影
+```
+
+`./data/` 必须保持在 `.gitignore` 中，员工档案与事件流不进 git。
+
+### 10.3 各类数据的存取规则
+
+- **PlanDraft 快照**：复用现有 `plan-store`，逻辑不变。
+- **AssignmentDraft 快照**：新增 `assignment-store`，按 `planId` 写一个 JSON 文件；写入采用「写临时文件 + 原子 rename」，失败时记日志，不阻断主链路（沿用 `plan-store` 风格）。
+- **EmployeeProfile（Self）**：每人一个 JSON 文件；只允许通过统一的 `employee-profile-repo` 读写；第一版假数据由 seed 脚本生成。
+- **Derived Profile**：每人一个 JSON 文件，含 `version / generatedAt / confidence / source`；写入即新版本，不就地改写历史；保留最近 N 版（N 默认 3，可配置）。
+- **AssignmentEvent**：`assignment-events.jsonl` 仅追加；事件以 `traceId` 串联 `audit-demo.jsonl`。
+- **卡片回调**：原始回调（验签通过）写 `card-callbacks.jsonl` 仅追加；业务侧解析后再写 `AssignmentEvent`。
+- **卡片状态投影**：`cards/<outTrackId>.json` 由事件流即时折叠产出，作为「当前是否已派发 / 谁已承接 / 谁待响应」的查询缓存；崩溃后可用事件重建，不视为权威数据源。
+
+### 10.4 并发与一致性
+
+- 同进程内不会并发写同一文件，使用单线程异步串行写即可。
+- 跨「bot 接收回调」与「Web 工作台保存」两个入口对同一对象写入时，统一通过 repo 层加进程内锁（key 为 `planId` 或 `userId`）。
+- 所有写入采用「先写 `.tmp` 再 `fs.rename`」，避免半写文件。
+- 卡片回调需做幂等：以 `outTrackId + actionType + actorUserId` 计算 hash，重复回调直接 ack 不重复处理。
+
+### 10.5 隐私与权限
+
+- `employees/`、`events/`、`cards/` 目录与文件统一 `chmod 0750`，只允许 bot 进程用户与 Web 工作台用户读写。
+- PII 脱敏沿用现有正则；写入审计与事件流前，对 Markdown / 自由文本字段做脱敏。
+- Self-Profile 的原始字段不外发到日志；展示给 LLM 的是压缩画像（§5.2），不直接喂全量。
+
+### 10.6 备份与轮转
+
+- `*.jsonl` 第一版不做自动轮转；通过外部 `BACKUP_DIR` 做日级 rsync 即可（环境变量留口子）。
+- 当单个 `*.jsonl` > 100MB 或单类目录文件数 > 5 万时，进入「需要迁库」的预警，但本版不强制。
+- 员工档案可单独导出脚本，便于未来一次性迁移到 SQLite / PostgreSQL。
+
+### 10.7 抽象与未来迁移
+
+为避免文件存储的实现细节扩散，新增以下最小 repo 抽象（实现可全为文件 IO，接口面向未来 DB 替换）：
+
+```ts
+interface AssignmentDraftRepo {
+  save(draft: AssignmentDraft): Promise<void>;
+  load(planId: string): Promise<AssignmentDraft | undefined>;
+}
+
+interface EmployeeProfileRepo {
+  list(filter?: { department?: string; role?: string }): Promise<EmployeeProfile[]>;
+  get(userId: string): Promise<EmployeeProfile | undefined>;
+  upsertSelfProfile(profile: EmployeeProfile): Promise<void>;        // V1 仅供 seed/导入
+  upsertDerivedProfile(userId: string, derived: EmployeeProfile["derived"]): Promise<void>;
+}
+
+interface AssignmentEventRepo {
+  append(event: AssignmentEvent): Promise<void>;
+  listByPlan(planId: string): Promise<AssignmentEvent[]>;            // 用于折叠状态与审计回放
+}
+
+interface CardStateRepo {
+  upsert(outTrackId: string, projection: Record<string, unknown>): Promise<void>;
+  get(outTrackId: string): Promise<Record<string, unknown> | undefined>;
+  resolveByPlan(planId: string): Promise<{ outTrackId: string; projection: Record<string, unknown> }[]>;
+}
+```
+
+业务层禁止直接 `fs.readFile / writeFile` 这些数据；统一走 repo。后续迁 SQLite / PostgreSQL 时，只需替换 repo 实现，不动业务代码。
+
+### 10.8 环境变量补充
+
+新增配置项（默认值与现网风格一致，可在 `.env.example` 中补齐）：
+
+- `ASSIGNMENT_DRAFT_DIR`（默认 `./data/plans`，与 PlanDraft 同目录）
+- `EMPLOYEE_PROFILE_DIR`（默认 `./data/employees/profiles`）
+- `EMPLOYEE_DERIVED_DIR`（默认 `./data/employees/derived`）
+- `EMPLOYEE_FIXTURE_PATH`（默认 `./data/employees/fixtures/seed.json`）
+- `ASSIGNMENT_EVENTS_PATH`（默认 `./data/events/assignment-events.jsonl`）
+- `CARD_CALLBACKS_PATH`（默认 `./data/events/card-callbacks.jsonl`）
+- `CARD_STATE_DIR`（默认 `./data/cards`）
+- `BACKUP_DIR`（可选，无默认）
+
+## 11. 审计与可观测
 
 - 所有 Assignment 阶段的 LLM 调用打 `InferenceTrace`，并入 `DemoGenerationMetadata.traces[]`，区分 `phase: "assignment"`。
 - 新增段耗时：`assignmentPlanMs / assignmentValidateMs / cardSendMs`，加入 `DemoGenerationTimings`。
@@ -364,7 +469,7 @@ interface AssignmentEvent {
 - Web 工作台所有写操作走同一审计事件流。
 - 钉钉消息发送结果（成功 / 限流 / 失败）记入事件，便于失败重试与排障。
 
-## 11. 安全与合规
+## 12. 安全与合规
 
 - 钉钉卡片回调按钉钉文档要求做签名验签、去重、幂等。
 - Web 工作台基于钉钉登录态识别用户，不做独立账号；主管 / 员工角色由后端基于发起人 / 候选人列表判定。
@@ -372,14 +477,14 @@ interface AssignmentEvent {
 - 员工能力档案、Track Record、Derived Profile 等存储位置须支持权限隔离，避免普通用户拉取全员数据。
 - PII 脱敏规则沿用现网（手机号 / 身份证 / IPv4），同样应用到分配相关 Markdown 与 Web 输出。
 
-## 12. 测试与验收
+## 13. 测试与验收
 
-### 12.1 假数据回归集
+### 13.1 假数据回归集
 
 - 至少 6 个典型任务样本（生产异常 / 客诉 / 需求落地 / 方案论证 / 设计变更 / 跨域协作）。
 - 每个样本期望：模型推荐的责任人合理、给出引用证据、风险提示与员工档案一致、低置信度时给出主管确认问题。
 
-### 12.2 关键测试场景
+### 13.2 关键测试场景
 
 - 草案出现且员工档案充分时，能产出非空 `AssignmentDraft`。
 - 没有合适候选人时，模型输出 `LOW` 置信度并要求主管补充信息，不强行编造推荐。
@@ -389,14 +494,14 @@ interface AssignmentEvent {
 - LLM 调用失败时返回 `ASSIGNMENT_GENERATION_FAILED`，不使用规则稿替代。
 - PII 脱敏在卡片与 Web 输出上都有效。
 
-### 12.3 验收标准
+### 13.3 验收标准
 
 - 主管能在不依赖 Web 的情况下，对中等复杂度任务一键确认并完成派发。
 - 至少一类任务上，模型推荐的首选责任人在评测集中的合理率达到内部预设阈值（具体数值在评测建立后确定，不在本设计中硬编码）。
 - 主管覆盖推荐时，覆盖原因可在事件流回放，并能用于下一次推荐的上下文。
 - 员工承接结果与 Plan 状态机一致；失败重试可保证至少一次到达。
 
-## 13. 风险与缓解
+## 14. 风险与缓解
 
 - **模型幻觉指派**：可能推荐不存在或不合适的人。缓解：候选人范围由系统硬约束 + 模型必须引用证据；缺乏证据触发低置信度提示。
 - **能力档案污染**：模型推断被误当作员工真实能力。缓解：三层数据分离 + 显式来源标注 + 不允许模型直接修改 Self-Profile。
@@ -405,7 +510,7 @@ interface AssignmentEvent {
 - **隐私与负向标签风险**：拒接率 / 返工率被误用作绩效。缓解：明确数据用途 + 权限隔离 + 不暴露员工排名。
 - **假数据失真**：假员工不能代表真实组织能力分布。缓解：第一版只用于验证字段是否够用，结论以「能否产出合理推荐 + 是否需要补字段」为准，不作为模型效果的最终判定。
 
-## 14. 落地分期
+## 15. 落地分期
 
 ### Phase A：等待依赖 + 假数据集
 - 等待 `conversational-intent-agent-redesign` v2.11 落地。
@@ -429,7 +534,7 @@ interface AssignmentEvent {
 
 后续阶段（不在本设计范围）：节点反馈、超时升级、验收闭环、OA / 电子签名、外部 Agent 链接、多副本与 Redis 化。
 
-## 15. 参考与延伸
+## 16. 参考与延伸
 
 - DingTalk 互动卡片：[发送钉钉互动卡片](https://developers.dingtalk.com/document/robots/send-interactive-dynamic-cards)、[响应互动卡片消息](https://developers.dingtalk.com/document/dingstart/responding-to-interactive-messages)、[任务通知最佳实践](https://developers.dingtalk.com/document/group/best-practices-task-notification)。
 - DingTalk 任务管理与会议转任务实践：[Task Management Revolution](https://www.dingtalk-global.com/news/explain/gao-bie-qun-liao-shua-ping-260219)、[Meeting to Tasks Automation](https://www.dingtalk-global.com/en/news/explain/meeting-to-tasks-automation-with-dingtalk-26030567)。
