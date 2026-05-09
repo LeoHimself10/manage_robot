@@ -1,0 +1,342 @@
+{
+  "profiles": [
+    {
+      "userId": "emp_qa_001",
+      "displayName": "张明",
+      "department": "质量部",
+      "role": "质量工程师",
+      "level": "P5",
+      "managerUserId": "emp_qa_003",
+      "location": "深圳",
+      "selfProfile": {
+        "skillTags": ["来料检验", "过程巡检", "SPC", "8D报告", "QC七大手法"],
+        "strengths": ["来料异常快速判定", "检验标准编写"],
+        "boundaries": ["不处理供应商审核"],
+        "cases": [
+          {
+            "taskType": "来料异常处理",
+            "contribution": "主导塑胶壳来料色差异常的围堵与根因分析",
+            "deliverable": "8D报告",
+            "outcome": "按期关闭"
+          },
+          {
+            "taskType": "过程巡检优化",
+            "contribution": "重新设计SMT产线巡检路线与频次",
+            "deliverable": "巡检规范文档",
+            "outcome": "已完成"
+          }
+        ],
+        "tools": ["卡尺", "色差仪", "Minitab"],
+        "availability": {
+          "capacityHint": "正常",
+          "emergencyOk": true
+        }
+      }
+    },
+    {
+      "userId": "emp_qa_002",
+      "displayName": "李芳",
+      "department": "质量部",
+      "role": "高级质量工程师",
+      "level": "P6",
+      "managerUserId": "emp_qa_003",
+      "location": "深圳",
+      "selfProfile": {
+        "skillTags": ["供应商审核", "APQP", "PPAP", "FMEA", "MSA", "六西格玛绿带"],
+        "strengths": ["新项目质量策划", "供应商能力评估"],
+        "boundaries": ["不做产线日常巡检"],
+        "cases": [
+          {
+            "taskType": "新供应商导入审核",
+            "contribution": "主导3家PCB供应商的QSA/QPA审核",
+            "deliverable": "供应商审核报告",
+            "outcome": "按期关闭"
+          },
+          {
+            "taskType": "新品APQP",
+            "contribution": "负责新款电机控制器的APQP全流程质量策划",
+            "deliverable": "控制计划与PFMEA",
+            "outcome": "超期1周关闭"
+          },
+          {
+            "taskType": "客诉8D",
+            "contribution": "牵头处理欧洲客户关于电机异响的投诉",
+            "deliverable": "8D报告与改善措施验证",
+            "outcome": "按期关闭"
+          }
+        ],
+        "tools": ["Minitab", "AutoCAD", "SAP QM"],
+        "availability": {
+          "capacityHint": "忙碌",
+          "emergencyOk": true,
+          "rejectedTaskTypes": ["产线巡检"]
+        }
+      }
+    },
+    {
+      "userId": "emp_qa_003",
+      "displayName": "王建国",
+      "department": "质量部",
+      "role": "质量主管",
+      "level": "P7",
+      "location": "深圳",
+      "selfProfile": {
+        "skillTags": ["质量体系", "ISO 9001", "IATF 16949", "团队管理", "客户审核", "管理评审"],
+        "strengths": ["质量战略规划", "跨部门协调", "客户关系维护"],
+        "boundaries": ["不直接参与产线操作"],
+        "cases": [
+          {
+            "taskType": "年度管理评审",
+            "contribution": "组织全部门完成年度管理评审并输出改进计划",
+            "deliverable": "管理评审报告与改进项清单",
+            "outcome": "按期关闭"
+          },
+          {
+            "taskType": "IATF 16949认证审核",
+            "contribution": "统筹迎审准备，协调各部门关闭审核发现项",
+            "deliverable": "审核发现项整改证据包",
+            "outcome": "审核中"
+          }
+        ],
+        "tools": ["Minitab", "SAP QM", "Office 365"],
+        "availability": {
+          "capacityHint": "正常",
+          "emergencyOk": true
+        }
+      }
+    },
+    {
+      "userId": "emp_rd_001",
+      "displayName": "陈伟",
+      "department": "研发部",
+      "role": "嵌入式工程师",
+      "level": "P5",
+      "managerUserId": "emp_rd_004",
+      "location": "深圳",
+      "selfProfile": {
+        "skillTags": ["C/C++", "ARM Cortex-M", "FreeRTOS", "I2C/SPI/UART", "蓝牙BLE"],
+        "strengths": ["低功耗固件开发", "驱动调试"],
+        "boundaries": ["不做硬件原理图设计"],
+        "cases": [
+          {
+            "taskType": "BLE固件开发",
+            "contribution": "独立完成新一代智能门锁BLE通信协议栈移植",
+            "deliverable": "固件源码与通信协议文档",
+            "outcome": "按期关闭"
+          },
+          {
+            "taskType": "功耗优化",
+            "contribution": "将待机功耗从120uA优化至18uA",
+            "deliverable": "功耗测试报告",
+            "outcome": "已完成"
+          }
+        ],
+        "tools": ["Keil MDK", "J-Link", "逻辑分析仪", "示波器"],
+        "availability": {
+          "capacityHint": "正常",
+          "emergencyOk": true
+        }
+      }
+    },
+    {
+      "userId": "emp_rd_002",
+      "displayName": "赵雪梅",
+      "department": "研发部",
+      "role": "结构工程师",
+      "level": "P6",
+      "managerUserId": "emp_rd_004",
+      "location": "深圳",
+      "selfProfile": {
+        "skillTags": ["SolidWorks", "Pro/E", "DFM", "塑胶模具", "钣金设计", "公差分析"],
+        "strengths": ["复杂曲面建模", "模具评审"],
+        "boundaries": ["不负责热仿真"],
+        "cases": [
+          {
+            "taskType": "新品结构设计",
+            "contribution": "完成智能传感器外壳的ID到MD全流程设计",
+            "deliverable": "3D模型与2D工程图",
+            "outcome": "按期关闭"
+          },
+          {
+            "taskType": "模具改模跟进",
+            "contribution": "跟进修模进度并验证改模后尺寸",
+            "deliverable": "改模确认报告",
+            "outcome": "部分完成"
+          }
+        ],
+        "tools": ["SolidWorks 2024", "ANSYS", "CAD"],
+        "availability": {
+          "capacityHint": "正常",
+          "emergencyOk": false,
+          "rejectedTaskTypes": ["热仿真", "流体仿真"]
+        }
+      }
+    },
+    {
+      "userId": "emp_rd_003",
+      "displayName": "刘洋",
+      "department": "研发部",
+      "role": "硬件测试工程师",
+      "level": "P5",
+      "managerUserId": "emp_rd_004",
+      "location": "深圳",
+      "selfProfile": {
+        "skillTags": ["示波器", "频谱仪", "EMC测试", "环境可靠性", "高低温试验", "盐雾试验"],
+        "strengths": ["EMC整改", "可靠性测试方案设计"],
+        "boundaries": ["不做PCB Layout"],
+        "cases": [
+          {
+            "taskType": "EMC预扫测试",
+            "contribution": "完成新款控制器RE/CE预扫并输出整改建议",
+            "deliverable": "EMC预扫报告与整改建议书",
+            "outcome": "按期关闭"
+          },
+          {
+            "taskType": "环境可靠性测试",
+            "contribution": "执行高低温循环与振动测试共240小时",
+            "deliverable": "可靠性测试记录与判定报告",
+            "outcome": "已完成"
+          }
+        ],
+        "tools": ["示波器DSO-X 4024A", "频谱仪N9020A", "恒温恒湿箱"],
+        "availability": {
+          "capacityHint": "正常",
+          "emergencyOk": true
+        }
+      }
+    },
+    {
+      "userId": "emp_sqe_001",
+      "displayName": "孙丽华",
+      "department": "质量部",
+      "role": "供应商质量工程师",
+      "level": "P6",
+      "managerUserId": "emp_qa_003",
+      "location": "东莞",
+      "selfProfile": {
+        "skillTags": ["供应商审核", "VDA 6.3", "8D", "PPAP", "来料判定", "供应商绩效"],
+        "strengths": ["注塑/冲压工艺审核", "供应商能力提升"],
+        "boundaries": ["不做内部过程质量控制"],
+        "cases": [
+          {
+            "taskType": "供应商质量问题闭环",
+            "contribution": "推动供应商完成3项重复来料不良的根本原因对策",
+            "deliverable": "供应商8D报告与现场验证记录",
+            "outcome": "按期关闭"
+          },
+          {
+            "taskType": "供应商年度审核",
+            "contribution": "完成5家关键供应商的VDA 6.3过程审核",
+            "deliverable": "审核评分卡与改善行动计划",
+            "outcome": "超期1周关闭"
+          }
+        ],
+        "tools": ["VDA审核检查表", "Minitab", "SAP QM"],
+        "availability": {
+          "capacityHint": "忙碌",
+          "emergencyOk": false,
+          "rejectedTaskTypes": ["内部产线巡检", "内部过程审核"]
+        }
+      }
+    },
+    {
+      "userId": "emp_pm_001",
+      "displayName": "周文博",
+      "department": "项目管理部",
+      "role": "项目经理",
+      "level": "P7",
+      "location": "深圳",
+      "selfProfile": {
+        "skillTags": ["项目管理", "敏捷/Scrum", "风险管理", "干系人沟通", "PMP"],
+        "strengths": ["跨部门资源协调", "进度风险预判"],
+        "boundaries": ["不做具体技术实现"],
+        "cases": [
+          {
+            "taskType": "新项目立项",
+            "contribution": "完成智能家居网关项目的立项评审与资源规划",
+            "deliverable": "项目章程与里程碑计划",
+            "outcome": "按期关闭"
+          },
+          {
+            "taskType": "项目阶段评审",
+            "contribution": "主持EVT阶段评审并协调解决3项关键资源冲突",
+            "deliverable": "阶段评审报告",
+            "outcome": "部分完成"
+          }
+        ],
+        "tools": ["Jira", "Microsoft Project", "飞书"],
+        "availability": {
+          "capacityHint": "正常",
+          "emergencyOk": true
+        }
+      }
+    },
+    {
+      "userId": "emp_rd_005",
+      "displayName": "吴大伟",
+      "department": "研发部",
+      "role": "嵌入式系统工程师",
+      "level": "P6",
+      "managerUserId": "emp_rd_004",
+      "location": "深圳",
+      "selfProfile": {
+        "skillTags": ["嵌入式Linux", "驱动开发", "Yocto", "Python", "Shell", "CI/CD"],
+        "strengths": ["系统架构设计", "性能调优", "疑难问题攻关"],
+        "boundaries": ["不做纯硬件调试"],
+        "cases": [
+          {
+            "taskType": "Linux BSP移植",
+            "contribution": "完成i.MX 8M Plus平台的BSP移植与驱动适配",
+            "deliverable": "BSP源码包与移植文档",
+            "outcome": "按期关闭"
+          },
+          {
+            "taskType": "OTA升级系统",
+            "contribution": "设计并实现支持A/B分区的OTA升级框架",
+            "deliverable": "OTA服务端与客户端代码",
+            "outcome": "已完成"
+          },
+          {
+            "taskType": "系统性能优化",
+            "contribution": "将系统启动时间从12s优化至3.5s",
+            "deliverable": "性能优化报告",
+            "outcome": "已完成"
+          }
+        ],
+        "tools": ["Linux", "Yocto", "Git", "Jenkins"],
+        "availability": {
+          "capacityHint": "满载",
+          "emergencyOk": false,
+          "rejectedTaskTypes": ["硬件调试", "产线支持"]
+        }
+      }
+    },
+    {
+      "userId": "emp_rd_006",
+      "displayName": "郑小雨",
+      "department": "研发部",
+      "role": "助理硬件工程师",
+      "level": "P4",
+      "managerUserId": "emp_rd_004",
+      "location": "深圳",
+      "selfProfile": {
+        "skillTags": ["焊接", "万用表"],
+        "strengths": ["学习意愿强", "做事认真"],
+        "boundaries": ["独立完成复杂调试"],
+        "cases": [
+          {
+            "taskType": "样品焊接与测试辅助",
+            "contribution": "协助完成新项目EVT阶段手工焊接与基本电气测试",
+            "deliverable": "焊接样品与测试数据记录",
+            "outcome": "已完成"
+          }
+        ],
+        "tools": ["烙铁", "万用表", "直流电源"],
+        "availability": {
+          "capacityHint": "空闲",
+          "emergencyOk": true
+        }
+      }
+    }
+  ]
+}

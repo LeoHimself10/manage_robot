@@ -11,7 +11,8 @@
     "demo:eval": "tsx src/demo-eval.ts",
     "demo:scenarios": "tsx scripts/run-qwen-scenarios.ts",
     "demo:hi-latency": "tsx scripts/qwen-hi-latency.ts",
-    "dingtalk-bot": "tsx src/dingtalk-bot.ts"
+    "dingtalk-bot": "tsx src/dingtalk-bot.ts",
+    "seed:employees": "tsx scripts/seed-employee-profiles.ts"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
