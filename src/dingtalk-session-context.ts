@@ -16,6 +16,7 @@ export interface DingTalkDemoSessionContext {
   priorDigest?: string;
   conversationState?: DemoConversationState;
   assignmentState?: AssignmentSessionState;
+  knownFacts?: string[];
 }
 
 export function nextSessionContextAfterDemoResult(
@@ -42,5 +43,23 @@ export function nextSessionContextAfterDemoResult(
   return {
     priorDigest: digest ?? prior?.priorDigest,
     conversationState,
+    knownFacts: prior?.knownFacts,
   };
+}
+
+export function getSessionKnownFacts(ctx?: DingTalkDemoSessionContext): string[] {
+  return ctx?.knownFacts ?? [];
+}
+
+export function updateSessionKnownFacts(
+  ctx: DingTalkDemoSessionContext | undefined,
+  newFacts: string[]
+): string[] {
+  const existing = ctx?.knownFacts ?? [];
+  const merged = [...existing];
+  for (const f of newFacts) {
+    if (!merged.includes(f)) merged.push(f);
+  }
+  if (ctx) ctx.knownFacts = merged;
+  return merged;
 }
