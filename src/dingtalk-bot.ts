@@ -179,6 +179,16 @@ async function main(): Promise<void> {
 
         const prior = chatSessionMemory.get(chatKey);
 
+        // 后台先发"处理中"气泡，掩盖 tools 调用延迟
+        const ackPromise = sendMarkdownReply({
+          client,
+          sessionWebhook: payload.sessionWebhook,
+          messageId,
+          senderStaffId: payload.senderStaffId,
+          title: "处理中",
+          markdownText: "正在分析任务并搜集信息，请稍候…",
+        }).catch(() => {});
+
         // Run ReAct orchestrator
         const orchResult = await runOrchestrator(background, {
           clientConfig: qwenConfig,

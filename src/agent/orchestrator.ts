@@ -90,14 +90,16 @@ export async function runOrchestrator(
 
     // 兜底：thinking 模式下模型可能输出原始文本而非 JSON，rawContent 本身就是用户可见内容
     if (!msg.trim() && response.rawContent.trim() && stopReason === "end_turn") {
-      // rawContent 可能是自然语言文本（reasoning_content 兜底的结果）
       const trimmed = response.rawContent.trim();
       if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
         msg = redactCommonPii(trimmed);
       }
     }
 
-    if (msg.trim()) userVisibleMessages.push(msg);
+    // 只在最后一轮 (end_turn) 展示消息给用户，中间工具调用轮次静默
+    if (stopReason === "end_turn" && msg.trim()) {
+      userVisibleMessages.push(msg);
+    }
 
     messages.push({ role: "assistant", content: response.rawContent });
 
