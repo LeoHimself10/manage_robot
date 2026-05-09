@@ -241,12 +241,7 @@ export class QwenCompatibleClient {
   async callWithTools(
     request: CallWithToolsRequest
   ): Promise<CallWithToolsResult> {
-    const maxIterations = request.maxIterations ?? 1;
-    if (maxIterations !== 1) {
-      throw new Error(
-        `v0.2 only supports maxIterations=1, got ${maxIterations}`
-      );
-    }
+    const maxIterations = request.maxIterations ?? 6;
 
     let lastError: unknown = null;
     const startedAt = Date.now();
@@ -263,143 +258,104 @@ export class QwenCompatibleClient {
         let toolCallsExecuted = 0;
         let iterations = 0;
 
-        // Round 1: send with tools
-        const body0: Record<string, unknown> = {
-          model: this.config.model,
-          temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens,
-          messages: currentMessages,
-          tools: request.tools.map((t) => ({
-            type: t.type,
-            function: {
-              name: t.function.name,
-              description: t.function.description,
-              parameters: t.function.parameters,
-            },
-          })),
-        };
+        while (iterations < maxIterations) {
+          const isLastIter = iterations >= maxIterations - 1;
 
-        const ctrl0 = new AbortController();
-        const timer0 = setTimeout(
-          () => ctrl0.abort(),
-          this.config.timeoutMs
-        );
-        let resp0: ChatCompletionResponse;
-        try {
-          resp0 = await this.postChatCompletions(body0, ctrl0.signal);
-        } finally {
-          clearTimeout(timer0);
-        }
-
-        accumulatedUsage = accumulateTokenUsage(
-          accumulatedUsage,
-          resp0.usage
-        );
-
-        const msg0 = resp0.choices?.[0]?.message;
-
-        // If no tool_calls, direct JSON response
-        if (!msg0?.tool_calls || msg0.tool_calls.length === 0) {
-          const content0 = extractAssistantContent(resp0);
-          const payload0 = parseAssistantJsonPayload(content0);
-          return {
-            payload: payload0,
-            rawContent: content0,
-            trace: {
-              traceId: request.traceId,
-              requestId: resp0.id ?? `req_${Date.now()}`,
-              model: resp0.model ?? this.config.model,
-              tokenUsage: accumulatedUsage,
-              latencyMs: Date.now() - startedAt,
-            },
-            toolCallsExecuted: 0,
+          // Build body: last iteration forces json_object and strips tools
+          const body: Record<string, unknown> = {
+            model: this.config.model,
+            temperature: this.config.temperature,
+            max_tokens: this.config.maxTokens,
+            messages: currentMessages,
+            ...(isLastIter
+              ? { response_format: { type: "json_object" } }
+              : {
+                  tools: request.tools.map((t) => ({
+                    type: t.type,
+                    function: {
+                      name: t.function.name,
+                      description: t.function.description,
+                      parameters: t.function.parameters,
+                    },
+                  })),
+                }),
           };
-        }
 
-        // Handle tool calls
-        currentMessages.push({
-          role: "assistant",
-          tool_calls: msg0.tool_calls,
-        });
-
-        for (const tc of msg0.tool_calls) {
-          const handler = request.toolHandlers[tc.function.name];
-          if (!handler) {
-            throw new Error(
-              `No handler for tool: ${tc.function.name}`
-            );
-          }
-
-          let parsedArgs: Record<string, unknown>;
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), this.config.timeoutMs);
+          let resp: ChatCompletionResponse;
           try {
-            parsedArgs = JSON.parse(
-              tc.function.arguments
-            ) as Record<string, unknown>;
-          } catch {
-            throw new Error(
-              `Invalid JSON in tool_call arguments for ${tc.function.name}: ${tc.function.arguments}`
-            );
+            resp = await this.postChatCompletions(body, ctrl.signal);
+          } finally {
+            clearTimeout(timer);
           }
 
-          const result = await handler(parsedArgs);
-          currentMessages.push({
-            role: "tool",
-            tool_call_id: tc.id,
-            content: JSON.stringify(result),
-          });
-          toolCallsExecuted++;
-        }
-
-        iterations++;
-
-        // Round 2: force JSON output with response_format
-        const body1: Record<string, unknown> = {
-          model: this.config.model,
-          temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens,
-          messages: currentMessages,
-          response_format: { type: "json_object" },
-        };
-
-        const ctrl1 = new AbortController();
-        const timer1 = setTimeout(
-          () => ctrl1.abort(),
-          this.config.timeoutMs
-        );
-        let resp1: ChatCompletionResponse;
-        try {
-          resp1 = await this.postChatCompletions(body1, ctrl1.signal);
-        } finally {
-          clearTimeout(timer1);
-        }
-
-        accumulatedUsage = accumulateTokenUsage(
-          accumulatedUsage,
-          resp1.usage
-        );
-
-        const msg1 = resp1.choices?.[0]?.message;
-        if (msg1?.tool_calls && msg1.tool_calls.length > 0) {
-          throw new Error(
-            `v0.2 limit: tool_calls returned at last iteration (${iterations})`
+          accumulatedUsage = accumulateTokenUsage(
+            accumulatedUsage,
+            resp.usage
           );
+
+          const msg = resp.choices?.[0]?.message;
+
+          // No tool_calls OR forced last iteration: return parsed JSON
+          if (!msg?.tool_calls || msg.tool_calls.length === 0 || isLastIter) {
+            const content = extractAssistantContent(resp);
+            const payload = parseAssistantJsonPayload(content);
+            return {
+              payload,
+              rawContent: content,
+              trace: {
+                traceId: request.traceId,
+                requestId: resp.id ?? `req_${Date.now()}`,
+                model: resp.model ?? this.config.model,
+                tokenUsage: accumulatedUsage,
+                latencyMs: Date.now() - startedAt,
+              },
+              toolCallsExecuted,
+            };
+          }
+
+          // Process tool_calls: push assistant msg + execute handlers + push tool results
+          currentMessages.push({
+            role: "assistant",
+            tool_calls: msg.tool_calls,
+            content: null,
+          });
+
+          for (const tc of msg.tool_calls) {
+            const handler = request.toolHandlers[tc.function.name];
+            if (!handler) {
+              throw new Error(
+                `No handler for tool: ${tc.function.name}`
+              );
+            }
+
+            let parsedArgs: Record<string, unknown> = {};
+            try {
+              parsedArgs = JSON.parse(
+                tc.function.arguments || "{}"
+              ) as Record<string, unknown>;
+            } catch {
+              throw new Error(
+                `Invalid JSON in tool_call arguments for ${tc.function.name}: ${tc.function.arguments}`
+              );
+            }
+
+            const result = await handler(parsedArgs);
+            toolCallsExecuted += 1;
+            currentMessages.push({
+              role: "tool",
+              tool_call_id: tc.id,
+              content: JSON.stringify(result),
+            });
+          }
+
+          iterations++;
         }
 
-        const content1 = extractAssistantContent(resp1);
-        const payload1 = parseAssistantJsonPayload(content1);
-
-        return {
-          payload: payload1,
-          rawContent: content1,
-          trace: {
-            traceId: request.traceId,
-            requestId: resp1.id ?? `req_${Date.now()}`,
-            model: resp1.model ?? this.config.model,
-            tokenUsage: accumulatedUsage,
-            latencyMs: Date.now() - startedAt,
-          },
-          toolCallsExecuted,
-        };
+        throw new Error(
+          `ReAct loop exceeded max iterations (${maxIterations})`
+        );
       } catch (error) {
         // Do not retry tool-related errors (programming errors)
         if (
@@ -408,7 +364,7 @@ export class QwenCompatibleClient {
             error.message.startsWith(
               "Invalid JSON in tool_call arguments"
             ) ||
-            error.message.startsWith("v0.2 limit"))
+            error.message.startsWith("ReAct loop exceeded"))
         ) {
           throw error;
         }

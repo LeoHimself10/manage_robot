@@ -525,7 +525,7 @@ describe("callWithTools", () => {
         ],
         toolHandlers: { search_employees: async () => ({}) },
       })
-    ).rejects.toThrow(/tool_calls returned at last iteration/);
+    ).rejects.toThrow(/No handler for tool: other_tool/);
   });
 
   it("throws when tool handler is not found", async () => {
@@ -620,5 +620,108 @@ describe("callWithTools", () => {
         toolHandlers: { some_tool: async () => ({}) },
       })
     ).rejects.toThrow(/Invalid JSON in tool_call arguments/);
+  });
+
+  it("supports multi-round tool calling in v3.0", async () => {
+    let callCount = 0;
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        callCount += 1;
+        if (callCount === 1)
+          return {
+            choices: [
+              {
+                message: {
+                  tool_calls: [
+                    {
+                      id: "c1",
+                      type: "function",
+                      function: {
+                        name: "search_employees",
+                        arguments: '{"domain":"QUALITY"}',
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+            usage: { total_tokens: 50 },
+          };
+        if (callCount === 2)
+          return {
+            choices: [
+              {
+                message: {
+                  tool_calls: [
+                    {
+                      id: "c2",
+                      type: "function",
+                      function: {
+                        name: "search_web",
+                        arguments: '{"query":"test"}',
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+            usage: { total_tokens: 50 },
+          };
+        return {
+          choices: [{ message: { content: '{"ok":true}' } }],
+          usage: { total_tokens: 50 },
+        };
+      },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://test",
+      apiKey: "k",
+      model: "qwen",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0,
+      maxTokens: 2000,
+    });
+
+    const result = await client.callWithTools({
+      messages: [{ role: "user", content: "test" }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "search_employees",
+            description: "search employees",
+            parameters: {
+              type: "object",
+              properties: { domain: { type: "string" } },
+            },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            name: "search_web",
+            description: "search web",
+            parameters: {
+              type: "object",
+              properties: { query: { type: "string" } },
+            },
+          },
+        },
+      ],
+      toolHandlers: {
+        search_employees: async () => ({ candidates: [], total: 0 }),
+        search_web: async () => ({ results: [] }),
+      },
+      maxIterations: 6,
+    });
+
+    expect(result.toolCallsExecuted).toBe(2);
+    expect(result.payload).toEqual({ ok: true });
+    expect(callCount).toBe(3); // 2 tool_call rounds + 1 final
   });
 });
