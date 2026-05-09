@@ -8,9 +8,13 @@ The next version should relax over-constrained prompt behavior, preserve the mod
 
 This design supersedes the prior prompt-only tuning direction. The new direction is a lightweight response-intent layer: keep structured JSON and validation, but make the first-class model decision "what kind of turn is this?" instead of forcing every turn through the full task draft surface.
 
+## Implementation status
+
+**Shipped** in this repository (2026-05-09): prompt **`task-planning-agent-v2.11.0`**, pipeline status **`CONVERSATION`** for non-draft intents, DingTalk rendering from **`assistantMessage`** + **`openQuestions`**, and session digest **`conversationState`**. Authoritative runtime summary: **`AGENTS.md`**, **`docs/Qwen-接入实施说明.md`**, **`docs/deploy-aliyun-dingtalk.md`**.
+
 ## Background
 
-Current production behavior has several user-facing problems:
+The following described **pre-v2.11** user-facing problems that motivated this redesign (model tuning may still be ongoing):
 
 - After two or more turns about the same task, a follow-up can be misread as a new task or as another missing-information prompt.
 - Clarification, post-draft discussion, and unrelated chat can still sound like the same task-planning template.

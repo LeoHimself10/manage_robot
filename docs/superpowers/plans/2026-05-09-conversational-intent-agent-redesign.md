@@ -1,5 +1,7 @@
 # Conversational Intent Agent Redesign Implementation Plan
 
+**Status（2026-05-09）：** 已在 `feat/conversational-intent-agent` 落地并完成 `npm test` / `npm run typecheck`；下文保留为实施记录与任务分解，勾选状态以仓库提交为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a lightweight conversational intent layer so the DingTalk task-planning robot can chat, clarify, discuss, reset, draft, and revise without forcing every turn into a rigid task-table reply.

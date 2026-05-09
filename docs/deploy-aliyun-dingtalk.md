@@ -11,7 +11,7 @@
   - **Demo / 钉钉链路**：只调用 `createTaskPlanningDemo`，完结时追加 **`AUDIT_DEMO_JSONL_PATH`**（默认 `./data/demo-runs.jsonl`），字段含 `traceId`、`status`、`reason?`、`gatePassed?`、`tokenTotals?` 等；现网排障建议挂载或收集该文件。
   - **Harness 编排层**：`createHarness` 可选 `AUDIT_SINK=file` + `AUDIT_JSONL_PATH`，与上者独立。
 - **会话与限流**：首版为 **单实例进程内** `Map` + TTL；多副本需后续外置存储（如 Redis），参见 `AGENTS.md`。
-- **用户可见回复**：单次任务规划链路结束后 **只推送一条会话 Markdown**（`NEEDS_MORE_INFO` / `DRAFT_READY` / `GENERATION_FAILED`，以及非文本/限速等护栏提示）；追问正文取自模型 **`openQuestions`**，`formatNeedsMoreInfoDingTalkMarkdown` **用空行拼接、不加 `-`/`•`**。服务端可用 **SSE** 拼装 Qwen JSON；**不向用户发送**「处理中」或流式进度等中间气泡。
+- **用户可见回复**：单次任务规划链路结束后 **只推送一条会话 Markdown**（`CONVERSATION` / `NEEDS_MORE_INFO` / `DRAFT_READY` / `GENERATION_FAILED`，以及非文本/限速等护栏提示）。**`CONVERSATION`** 与输入护栏 **`NEEDS_MORE_INFO`** 的正文以模型 **`assistantMessage`** 为主，结构化追问可来自 **`openQuestions`**；`formatNeedsMoreInfoDingTalkMarkdown` **用空行拼接、不加 `-`/`•`**，并与首条追问去重。服务端可用 **SSE** 拼装 Qwen JSON；**不向用户发送**「处理中」或流式进度等中间气泡。
 
 ## 一、钉钉开放平台配置
 
