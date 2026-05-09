@@ -10,9 +10,12 @@ RUN npm ci --omit=dev
 COPY tsconfig.json ./
 COPY AGENTS.md ./
 COPY docs ./docs/
+COPY fixtures ./fixtures/
 COPY src ./src
 COPY scripts ./scripts
 
+RUN chmod +x ./scripts/docker-entrypoint-dingtalk.sh
+
 EXPOSE 8080
 
-CMD ["npx", "tsx", "src/dingtalk-bot.ts"]
+CMD ["./scripts/docker-entrypoint-dingtalk.sh"]
