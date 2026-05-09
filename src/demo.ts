@@ -44,6 +44,12 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (result.status === "CONVERSATION") {
+    console.log(result.assistantMessage);
+    for (const question of result.questions) console.log(`- ${question}`);
+    return;
+  }
+
   console.log(result.markdown);
   console.log("\n---\n");
   if (result.generation.trace) {

@@ -97,6 +97,48 @@ describe("demo gate and markdown output", () => {
     expect(markdown).not.toContain("状态：通过");
   });
 
+  it("omits task understanding summary for user-facing drafts", () => {
+    const markdown = renderPlanDraftMarkdown({
+      summary: "这段不应出现在用户侧。",
+      classification: {
+        domain: "QUALITY",
+        subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+        confidence: "HIGH",
+        rationale: ["生产异常"],
+        missingInformation: [],
+      },
+      capaAdvisory: {
+        advisory: "UNCERTAIN",
+        rationale: ["需要确认是否重复发生"],
+        disclaimer:
+          "该建议仅用于任务拆解与质量沟通参考，最终是否开启 CAPA 以质量授权人员和公司 QMS 流程判定为准。",
+        promptingQuestions: [],
+      },
+      tasks: [
+        {
+          id: "task_1",
+          title: "问题事实确认",
+          objective: "确认事实",
+          collaborators: [],
+          inputMaterials: ["生产记录"],
+          actions: ["确认事实"],
+          deliverables: ["事实确认记录"],
+          completionCriteria: ["范围清楚"],
+          timeNode: { checkpoints: ["T+0.5"], dueAt: "T+1" },
+          feedbackFrequency: "每日",
+          risksAndOpenQuestions: [],
+          dependencyTaskIds: [],
+        },
+      ],
+      gate: { passed: true, missingByTask: [] },
+      openQuestions: [],
+    });
+
+    expect(markdown).not.toContain("## 任务理解摘要");
+    expect(markdown).not.toContain("这段不应出现在用户侧。");
+    expect(markdown).toContain("## 建议任务包");
+  });
+
   it("renders gate gaps as draft supplements instead of internal gate wording", () => {
     const markdown = renderPlanDraftMarkdown({
       summary: "生产测试发现不良率升高。",
@@ -176,6 +218,7 @@ describe("demo gate and markdown output", () => {
     );
 
     expect(markdown).toContain("## 场景分类");
+    expect(markdown).toContain("## 任务理解摘要");
     expect(markdown).toContain("## 派发门禁");
     expect(markdown).toContain("状态：通过");
   });

@@ -29,7 +29,6 @@ export function renderPlanDraftMarkdown(
     ["# 任务拆解草案", "_以下草案可继续回复「再细化」「调整截止时间」「补充风险」等要求进行修改。_"].join(
       "\n\n"
     ),
-    renderSummary(input.summary),
   ];
 
   if (input.capaAdvisory) {

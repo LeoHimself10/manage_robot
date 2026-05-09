@@ -11,6 +11,8 @@ function draftResult(
 ): TaskPlanningDemoResult {
   return {
     status: "DRAFT_READY",
+    responseIntent: "DRAFT",
+    assistantMessage: "已生成草案。",
     questions: [],
     missingFields: [],
     classification: {

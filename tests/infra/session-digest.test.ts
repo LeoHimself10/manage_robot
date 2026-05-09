@@ -1,7 +1,94 @@
 import { describe, expect, it } from "vitest";
-import { summarizePriorDemoForPrompt } from "../../src/infra/session-digest";
+import {
+  buildConversationStateFromResult,
+  summarizePriorDemoForPrompt,
+} from "../../src/infra/session-digest";
 import { CAPA_DISCLAIMER } from "../../src/domain/capa";
 import { minimalQualityTask } from "../agent/demo/llm-fixtures";
+import type { TaskPlanningDemoResult } from "../../src/agent/demo/pipeline";
+
+describe("buildConversationStateFromResult", () => {
+  it("clears draft context on RESET_OR_NEW_TASK", () => {
+    const result: TaskPlanningDemoResult = {
+      status: "CONVERSATION",
+      responseIntent: "RESET_OR_NEW_TASK",
+      assistantMessage: "好的，我们从新任务开始。",
+      questions: [],
+      missingFields: [],
+      clarificationUx: "NON_TASK",
+    };
+    const state = buildConversationStateFromResult(result, {
+      currentTopicSummary: "旧质量问题",
+      activeDraftBrief: "旧草案",
+      unresolvedQuestions: ["旧问题现象是什么？"],
+    });
+    expect(state.userRejectedTemplate).toBe(true);
+    expect(state.activeDraftBrief).toBeUndefined();
+    expect(state.currentTopicSummary).toBeUndefined();
+    expect(state.unresolvedQuestions).toEqual([]);
+    expect(state.lastResponseIntent).toBe("RESET_OR_NEW_TASK");
+  });
+
+  it("updates draft state on DRAFT_READY", () => {
+    const result: TaskPlanningDemoResult = {
+      status: "DRAFT_READY",
+      responseIntent: "DRAFT",
+      assistantMessage: "已生成草案。",
+      questions: ["是否存在重复发生？"],
+      missingFields: [],
+      classification: {
+        domain: "QUALITY",
+        subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+        confidence: "HIGH",
+        rationale: ["生产异常"],
+        missingInformation: [],
+      },
+      capaAdvisory: {
+        advisory: "UNCERTAIN",
+        rationale: ["需要确认是否重复发生"],
+        disclaimer: CAPA_DISCLAIMER,
+        promptingQuestions: [],
+      },
+      tasks: [
+        minimalQualityTask({
+          id: "task_1",
+          title: "问题事实确认",
+          deliverables: ["事实确认记录"],
+          completionCriteria: ["影响范围明确"],
+          timeNode: { checkpoints: ["T+0.5"], dueAt: "T+1 工作日" },
+          feedbackFrequency: "每日 17:00 更新",
+        }),
+      ],
+      gate: { passed: true, missingByTask: [] },
+      markdown: "# 任务拆解草案\n\n## 建议任务包",
+      generation: {},
+    };
+    const state = buildConversationStateFromResult(result);
+    expect(state.currentTopicSummary).toBe("QUALITY/PRODUCTION_PROCESS_ABNORMALITY");
+    expect(state.lastResponseIntent).toBe("DRAFT");
+    expect(state.activeDraftBrief).toContain("task_1 问题事实确认");
+    expect(state.userRejectedTemplate).toBe(false);
+  });
+
+  it("preserves active draft brief on DISCUSS when previous had draft", () => {
+    const prev = {
+      activeDraftBrief: "task_1 事实确认：收集证据",
+      currentTopicSummary: "QUALITY/PRODUCTION_PROCESS_ABNORMALITY",
+    };
+    const result: TaskPlanningDemoResult = {
+      status: "CONVERSATION",
+      responseIntent: "DISCUSS",
+      assistantMessage: "风险排查放在后面是因为…",
+      questions: [],
+      missingFields: [],
+      clarificationUx: undefined,
+    };
+    const state = buildConversationStateFromResult(result, prev);
+    expect(state.lastResponseIntent).toBe("DISCUSS");
+    expect(state.activeDraftBrief).toBe(prev.activeDraftBrief);
+    expect(state.lastUserIntent).toContain("风险排查");
+  });
+});
 
 describe("summarizePriorDemoForPrompt", () => {
   it("summarizes NEEDS_MORE_INFO outcomes", () => {
@@ -15,9 +102,11 @@ describe("summarizePriorDemoForPrompt", () => {
     expect(digest).toContain("上轮上下文");
   });
 
-  it("keeps enough DRAFT_READY context for follow-up revisions", () => {
+  it("keeps enough DRAFT_READY context without markdown 任务理解摘要", () => {
     const digest = summarizePriorDemoForPrompt({
       status: "DRAFT_READY",
+      responseIntent: "DRAFT",
+      assistantMessage: "已生成草案。",
       questions: ["是否存在重复发生？"],
       missingFields: [],
       classification: {
@@ -44,18 +133,11 @@ describe("summarizePriorDemoForPrompt", () => {
         }),
       ],
       gate: { passed: true, missingByTask: [] },
-      markdown: [
-        "# 任务拆解 Demo 草案",
-        "",
-        "## 任务理解摘要",
-        "",
-        "生产测试发现 A 产品开机自检失败率升高，需要两天内完成初步分析。",
-      ].join("\n"),
+      markdown: "# 任务拆解草案\n\n（用户侧已无任务理解摘要节）",
       generation: {},
     });
 
-    expect(digest).toContain("上一轮任务理解");
-    expect(digest).toContain("生产测试发现 A 产品开机自检失败率升高");
+    expect(digest).not.toContain("## 任务理解摘要");
     expect(digest).toContain("PRODUCTION_PROCESS_ABNORMALITY");
     expect(digest).toContain("CAPA建议=UNCERTAIN");
     expect(digest).toContain("task_1 问题事实确认");
@@ -66,10 +148,43 @@ describe("summarizePriorDemoForPrompt", () => {
     expect(digest).toContain("仍需关注的问题：是否存在重复发生？");
   });
 
+  it("includes conversation state block when state is passed", () => {
+    const digest = summarizePriorDemoForPrompt(
+      {
+        status: "DRAFT_READY",
+        responseIntent: "DRAFT",
+        assistantMessage: "已生成草案。",
+        questions: [],
+        missingFields: [],
+        classification: {
+          domain: "QUALITY",
+          subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+          confidence: "HIGH",
+          rationale: [],
+          missingInformation: [],
+        },
+        tasks: [minimalQualityTask()],
+        gate: { passed: true, missingByTask: [] },
+        markdown: "# x",
+        generation: {},
+      },
+      4000,
+      {
+        lastResponseIntent: "DISCUSS",
+        userRejectedTemplate: true,
+      }
+    );
+    expect(digest).toContain("当前会话状态");
+    expect(digest).toContain("DISCUSS");
+    expect(digest).toContain("用户已表达不希望重复");
+  });
+
   it("bounds DRAFT_READY digest length", () => {
     const digest = summarizePriorDemoForPrompt(
       {
         status: "DRAFT_READY",
+        responseIntent: "DRAFT",
+        assistantMessage: "已生成草案。",
         questions: [],
         missingFields: [],
         classification: {

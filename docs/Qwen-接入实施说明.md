@@ -49,15 +49,15 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 1. `checkInputQuality`：空文本等基础护栏；**超长输入**（`INPUT_MAX_CHARS`，见 `.env.example`）则不进入模型、`canGenerateWbs: false`，以追问提示分段。**不静默截断**用户原文。
 2. **必须传入** `llmPlanner`（通常 `runQwenPlanner`）；否则 `GENERATION_FAILED`。
 3. `runQwenPlanner`：**薄封装**，返回 `rawJson` + `trace`；结构与域校验、`traceId` 贯穿、可选 **一轮结构自纠正**（`correction`）均在 `createTaskPlanningDemo`。默认 HTTP **流式（SSE）** 接收、整段 JSON 齐后再解析；可通过 `QWEN_STREAM=0` 关掉。
-4. **prompt v2.10**：JSON 结构保持不变，在提示词层做会话化调优。对寒暄/无关输入要求 **LOW + `clarificationUx=NON_TASK`**，`openQuestions` 内给出自然、简短的回复或引导，不再要求固定身份段落或机械重发完整背景；追问进 `openQuestions`，钉钉侧**不**自动加列表符号或固定引导句。用户补充事实、提出明确更新/修订要求时，模型应基于上轮上下文重新生成或更新草案；用户提出批评、问题或挑战时，先给自然解释、建议或取舍说明，不要求每轮都完整输出任务表。任务包数量由任务复杂度驱动，简单任务可少量拆分，复杂任务可拆成数十个任务包；用户可见任务表表头使用中文。
-5. 可选 **`sessionDigest`**：由上轮会话摘要拼装，写入 Qwen **user prompt**（钉钉侧注入），不改变 `background` 原文（便于审计对齐）。当前为单进程内存 TTL 记忆；摘要会保留上轮任务理解、分类、CAPA 摘要、任务包关键字段和仍需关注问题，用于支持同一钉钉会话内的多轮修订。
-6. Qwen 根据版本化 prompt 输出分类、追问、任务包、质量域 CAPA 建议与 `gateSelfCheck`；信息不足时输出低置信度与 `openQuestions`，pipeline 返回 `NEEDS_MORE_INFO`。
+4. **prompt v2.11**：在 JSON 中增加 **`responseIntent`** 与 **`assistantMessage`**。模型先判断本轮是聊天、追问、讨论、出稿、修订还是新任务重置；仅 `DRAFT` / `REVISE_DRAFT` 输出完整任务表；其余意图以自然语言为主（`assistantMessage`），追问可进 `openQuestions`。寒暄/无关仍可用 **LOW + `clarificationUx=NON_TASK`**。复杂任务可拆到 **10–20+** 个任务包量级；用户可见任务表表头为中文；用户侧 Markdown **不再展示**「任务理解摘要」节（诊断视图可保留）。
+5. 可选 **`sessionDigest`**：由上轮会话摘要与 **`conversationState`** 拼装，写入 Qwen **user prompt**（钉钉侧注入），不改变 `background` 原文（便于审计对齐）。当前为单进程内存 TTL 记忆；摘要含「当前会话状态」、上轮分类/CAPA/任务包要点与仍需关注问题，用于同一钉钉会话内多轮修订与重置后上下文清理。
+6. Qwen 根据版本化 prompt 输出 `responseIntent`、`assistantMessage`、分类、追问、任务包、质量域 CAPA 建议与 `gateSelfCheck`；非出稿意图时 pipeline 返回 **`CONVERSATION`**；输入护栏拦截仍为 **`NEEDS_MORE_INFO`**。
 7. `validateLlmPlanPayload`：做结构与域约束校验；质量域必须包含 `capaAdvisory`，研发域不得包含 `capaAdvisory`。
 8. `gateSelfCheck`：模型按交付物、完成标准、时间节点、反馈频率四项自检，并检查依赖引用；结构化结果、审计与快照保留门禁信息，用户 Markdown 默认只在缺失时以“草案待补充”提示。
 9. `DRAFT_READY`：渲染后对 Markdown 做 **PII 正则脱敏**（手机号、身份证、IPv4），可用 `CONTENT_FILTER_DISABLED=1` 关闭（见部署文档）。
 10. 失败：`GENERATION_FAILED` + `trace.errorCode`；成功或门禁未通过均输出面向用户的 Markdown、**`DemoGenerationMetadata`**（`timings`、`traces[]` 等）及 **Demo JSONL 审计行**（若未禁用）。用户 Markdown 默认不展示“派发门禁通过/未通过”等内部措辞；门禁未通过时以“草案待补充”列出缺失项。审计与 stdout 会带 **`wallClockMs`**（本轮管线墙钟 ms）与 **`timingsMs.plannerMs`** 等分段；`DRAFT_READY` 另有 **`demo_draft_ready`** 结构化日志含 **`wallClockMs`**。`DEMO_TIMING_LOG_STDOUT=0` 可关闭非终稿的 **`demo_pipeline_timing`** 行。
 
-**与钉钉对齐（可选字段）**：模型 JSON 可含 **`clarificationUx`**：`NON_TASK`（寒暄/非任务）或 `TASK_GAP`（真实任务缺口），供审计或其它渠道使用；钉钉追问气泡 **只渲染 `openQuestions` 正文**（实现见 `src/dingtalk-needs-more-info-markdown.ts`）。**源码锚点**：`src/agent/demo/qwen-prompt.ts`（`QWEN_PLANNER_PROMPT_VERSION`）、`src/agent/demo/qwen-planner.ts`、`src/agent/demo/qwen-compatible-client.ts`（SSE 拼装与可选 `streamHooks`）。
+**与钉钉对齐**：模型 JSON 含 **`responseIntent`**、**`assistantMessage`**；可选 **`clarificationUx`**：`NON_TASK`（寒暄/非任务）或 `TASK_GAP`（真实任务缺口）。钉钉非草案气泡渲染 **`assistantMessage`** 与去重后的 **`openQuestions`**（实现见 `src/dingtalk-needs-more-info-markdown.ts`）。**源码锚点**：`src/agent/demo/qwen-prompt.ts`（`QWEN_PLANNER_PROMPT_VERSION`）、`src/agent/demo/qwen-planner.ts`、`src/agent/demo/qwen-compatible-client.ts`（SSE 拼装与可选 `streamHooks`）。
 
 ## 4. 风险控制
 

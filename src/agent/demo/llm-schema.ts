@@ -5,7 +5,7 @@ import {
 } from "../../domain/classification";
 import { TaskPackage } from "../../domain/task-package";
 import { PlanDomain } from "../harness/types";
-import { ClarificationUxKind, LlmPlanPayload } from "./llm-types";
+import { ClarificationUxKind, LlmPlanPayload, ResponseIntent } from "./llm-types";
 
 interface ValidationResult {
   valid: boolean;
@@ -38,6 +38,15 @@ const capaValues = new Set<CapaAdvisoryValue>([
   "RECOMMENDED",
   "UNCERTAIN",
   "INSUFFICIENT_INFO",
+]);
+
+const responseIntentValues = new Set<ResponseIntent>([
+  "CHAT",
+  "CLARIFY",
+  "DISCUSS",
+  "DRAFT",
+  "REVISE_DRAFT",
+  "RESET_OR_NEW_TASK",
 ]);
 
 const subtypeValues = new Set<TaskSubtype>([
@@ -111,6 +120,22 @@ export function validateLlmPlanPayload(
   }
 
   const candidate = payload as Record<string, unknown>;
+  if (candidate.responseIntent !== undefined) {
+    const intent =
+      typeof candidate.responseIntent === "string"
+        ? candidate.responseIntent.trim().toUpperCase()
+        : "";
+    if (!responseIntentValues.has(intent as ResponseIntent)) {
+      errors.push("responseIntent is invalid");
+    }
+  }
+  if (
+    candidate.assistantMessage !== undefined &&
+    typeof candidate.assistantMessage !== "string"
+  ) {
+    errors.push("assistantMessage must be string when present");
+  }
+
   const classification = candidate.classification as Record<string, unknown> | undefined;
   let domainForCapa: PlanDomain | undefined;
   if (!classification || typeof classification !== "object") {
@@ -191,15 +216,56 @@ export function coerceLlmPlanPayload(payload: unknown): LlmPlanPayload {
       ? normalizeCapaAdvisory(candidate.capaAdvisory, openQuestions)
       : undefined;
   const tasks = normalizeTasks(candidate.tasks);
+  const clarificationUx = normalizeClarificationUx(candidate.clarificationUx);
+  const responseIntent = normalizeResponseIntent(
+    candidate.responseIntent,
+    tasks,
+    clarificationUx,
+    classification.confidence,
+    openQuestions
+  );
+  const assistantMessage = normalizeAssistantMessage(
+    candidate.assistantMessage,
+    openQuestions
+  );
 
   return {
+    responseIntent,
+    assistantMessage,
     classification,
     capaAdvisory,
     tasks,
     openQuestions,
     gateSelfCheck: normalizeGateSelfCheck(candidate.gateSelfCheck),
-    clarificationUx: normalizeClarificationUx(candidate.clarificationUx),
+    clarificationUx,
   };
+}
+
+function normalizeResponseIntent(
+  raw: unknown,
+  tasks: TaskPackage[],
+  clarificationUx: ClarificationUxKind | undefined,
+  confidence: ClassificationConfidence,
+  openQuestions: string[]
+): ResponseIntent {
+  if (raw !== undefined && raw !== null && typeof raw !== "string") {
+    return String(raw).trim().toUpperCase() as ResponseIntent;
+  }
+  const explicit = asString(raw).toUpperCase();
+  if (responseIntentValues.has(explicit as ResponseIntent)) {
+    return explicit as ResponseIntent;
+  }
+  if (explicit) return explicit as ResponseIntent;
+  if (tasks.length > 0) return "DRAFT";
+  if (clarificationUx === "NON_TASK") return "CHAT";
+  if (confidence === "LOW" || openQuestions.length > 0) return "CLARIFY";
+  return "DRAFT";
+}
+
+function normalizeAssistantMessage(raw: unknown, openQuestions: string[]): string {
+  const explicit = asString(raw);
+  if (explicit) return explicit;
+  return openQuestions[0] ?? "";
 }
 
 function normalizeClarificationUx(raw: unknown): ClarificationUxKind | undefined {

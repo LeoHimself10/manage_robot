@@ -25,15 +25,14 @@ import {
   readDemoLlmCorrectionEnabled,
   readSessionDigestMaxChars,
 } from "./infra/demo-runtime-env";
-import { summarizePriorDemoForPrompt } from "./infra/session-digest";
 import { formatNeedsMoreInfoDingTalkMarkdown } from "./dingtalk-needs-more-info-markdown";
+import {
+  nextSessionContextAfterDemoResult,
+  type DingTalkDemoSessionContext,
+} from "./dingtalk-session-context";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
-
-interface DingTalkDemoSessionContext {
-  priorDigest?: string;
-}
 
 function parseDomainHint(raw: string | undefined): PlanDomain | undefined {
   if (!raw?.trim()) return undefined;
@@ -67,8 +66,24 @@ function formatDemoReply(result: TaskPlanningDemoResult): {
     if (result.trace?.errorCode) lines.push("", `_errorCode=${result.trace.errorCode}_`);
     return { title: "生成失败", markdownText: lines.join("\n") };
   }
+  if (result.status === "CONVERSATION") {
+    const title =
+      result.responseIntent === "CHAT"
+        ? "消息"
+        : result.responseIntent === "CLARIFY"
+          ? "待补充信息"
+          : result.responseIntent === "DISCUSS"
+            ? "任务讨论"
+            : "新任务";
+    return {
+      title,
+      markdownText: truncateMarkdown(
+        formatNeedsMoreInfoDingTalkMarkdown(result.questions, result.assistantMessage)
+      ),
+    };
+  }
   return {
-    title: "任务拆解草案",
+    title: result.responseIntent === "REVISE_DRAFT" ? "任务拆解草案（已更新）" : "任务拆解草案",
     markdownText: truncateMarkdown(result.markdown),
   };
 }
@@ -218,12 +233,10 @@ async function main(): Promise<void> {
           }
         );
 
-        const nextDigest =
-          summarizePriorDemoForPrompt(demoResult, sessionDigestMaxChars) ??
-          prior?.priorDigest;
-        chatSessionMemory.set(chatKey, {
-          priorDigest: nextDigest,
-        });
+        chatSessionMemory.set(
+          chatKey,
+          nextSessionContextAfterDemoResult(demoResult, prior, sessionDigestMaxChars)
+        );
 
         const { title, markdownText } = formatDemoReply(demoResult);
         dingtalkResponse = await sendMarkdownReply({
@@ -267,7 +280,9 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exitCode = 1;
-});
+if (process.env.NODE_ENV !== "test") {
+  main().catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  });
+}
