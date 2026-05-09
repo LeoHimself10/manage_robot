@@ -80,7 +80,14 @@ export async function runOrchestrator(
 
     const payload = response.payload as Record<string, unknown> | undefined;
     const stopReason = (payload?.stopReason as string) || "end_turn";
-    const msg = redactCommonPii(String(payload?.message ?? ""));
+    let msg = redactCommonPii(String(payload?.message ?? ""));
+
+    // 兜底：有 draft 但 message 为空时自动生成说明文字
+    if (!msg.trim() && stopReason === "end_turn" && payload?.draft) {
+      const taskCount = (payload.draft as Record<string, unknown>)?.tasks as unknown[] | undefined;
+      msg = `已生成任务拆解草案（${taskCount?.length ?? 0} 个任务包）。请审阅下方的任务详情。`;
+    }
+
     if (msg.trim()) userVisibleMessages.push(msg);
 
     messages.push({ role: "assistant", content: response.rawContent });

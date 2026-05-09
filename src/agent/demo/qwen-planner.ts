@@ -66,11 +66,10 @@ export function loadQwenPlannerConfigFromEnv():
   };
 }
 
-/** 默认 true；仅当 `QWEN_THINKING` 为 0 / false / no 时关闭 */
+/** 默认关闭 thinking（Qwen3 tool calling + json_object 模式下 content 可能为空）；`QWEN_THINKING=1|true|yes` 时开启 */
 function readQwenThinkingEnabled(): boolean {
   const v = process.env.QWEN_THINKING?.trim().toLowerCase();
-  if (v === "0" || v === "false" || v === "no") return false;
-  return true;
+  return v === "1" || v === "true" || v === "yes";
 }
 
 /** 默认 true；仅当 `QWEN_STREAM` 为 0 / false / no 时关闭 */
