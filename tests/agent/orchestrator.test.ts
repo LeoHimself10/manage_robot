@@ -13,39 +13,64 @@ describe("runOrchestrator", () => {
     vi.clearAllMocks();
   });
 
-  it("returns message for simple end_turn response", async () => {
+  it("returns message for simple response", async () => {
     mockCallWithTools.mockResolvedValueOnce({
-      payload: { message: "你好，我是任务规划助手。", stopReason: "end_turn" },
-      rawContent: JSON.stringify({ message: "你好，我是任务规划助手。", stopReason: "end_turn" }),
-      trace: { requestId: "t1", model: "qwen3-plus", tokenUsage: { totalTokens: 50 }, latencyMs: 100 },
+      payload: { message: "你好，我是任务规划助手。" },
+      rawContent: JSON.stringify({ message: "你好，我是任务规划助手。" }),
+      trace: { requestId: "t1", model: "qwen3.6-plus", tokenUsage: { totalTokens: 50 }, latencyMs: 100 },
       toolCallsExecuted: 0,
     });
 
     const { runOrchestrator } = await import("../../src/agent/orchestrator");
-    const result = await runOrchestrator("你好", {
-      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3-plus", timeoutMs: 1000, maxRetries: 0, temperature: 0, maxTokens: 100 },
+    const result = await runOrchestrator("hi", {
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 1000, maxRetries: 0, temperature: 0, maxTokens: 100 },
       employeeRepo: { list: () => [] },
     });
 
     expect(result.messages).toContain("你好，我是任务规划助手。");
-    expect(result.turns).toBe(1);
     expect(result.toolCallsTotal).toBe(0);
   });
 
-  it("stops at max 6 turns", async () => {
-    mockCallWithTools.mockResolvedValue({
-      payload: { message: "", stopReason: "tool_use" },
-      rawContent: JSON.stringify({ message: "", stopReason: "tool_use" }),
-      trace: { requestId: "t", model: "qwen3-plus", tokenUsage: { totalTokens: 10 }, latencyMs: 10 },
+  it("returns draft when model produces valid draft", async () => {
+    mockCallWithTools.mockResolvedValueOnce({
+      payload: {
+        message: "已生成草案",
+        draft: {
+          classification: { domain: "QUALITY", subtype: "PRODUCTION_PROCESS_ABNORMALITY", confidence: "HIGH", rationale: ["test"], missingInformation: [] },
+          capaAdvisory: { advisory: "UNCERTAIN", rationale: ["x"], disclaimer: "免责声明", promptingQuestions: [] },
+          tasks: [{ id: "t1", title: "task", objective: "do", collaborators: [], inputMaterials: [], actions: [], deliverables: ["d"], completionCriteria: ["c"], timeNode: { checkpoints: [], dueAt: "T+1" }, feedbackFrequency: "daily", risksAndOpenQuestions: [], dependencyTaskIds: [] }],
+          openQuestions: [],
+        },
+      },
+      rawContent: "{}",
+      trace: { requestId: "t2", model: "qwen3.6-plus", tokenUsage: { totalTokens: 100 }, latencyMs: 200 },
+      toolCallsExecuted: 2,
+    });
+
+    const { runOrchestrator } = await import("../../src/agent/orchestrator");
+    const result = await runOrchestrator("test", {
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 1000, maxRetries: 0, temperature: 0, maxTokens: 100 },
+      employeeRepo: { list: () => [] },
+    });
+
+    expect(result.draft).toBeDefined();
+    expect(result.toolCallsTotal).toBe(2);
+  });
+
+  it("always returns at least one message (fallback)", async () => {
+    mockCallWithTools.mockResolvedValueOnce({
+      payload: {},
+      rawContent: "",
+      trace: { requestId: "t3", model: "qwen3.6-plus", tokenUsage: { totalTokens: 0 }, latencyMs: 0 },
       toolCallsExecuted: 0,
     });
 
     const { runOrchestrator } = await import("../../src/agent/orchestrator");
     const result = await runOrchestrator("test", {
-      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3-plus", timeoutMs: 1000, maxRetries: 0, temperature: 0, maxTokens: 100 },
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 1000, maxRetries: 0, temperature: 0, maxTokens: 100 },
       employeeRepo: { list: () => [] },
     });
 
-    expect(result.turns).toBe(6);
+    expect(result.messages.length).toBeGreaterThan(0);
   });
 });

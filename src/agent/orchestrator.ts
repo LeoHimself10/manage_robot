@@ -8,7 +8,7 @@ import { redactCommonPii } from "../infra/content-filter";
 import { logStructured } from "../infra/logger";
 import type { EmployeeProfileRecord } from "../integrations/repos/employee-profile-repo";
 
-const MAX_REACT_TURNS = 6;
+const MAX_TOOL_ITERATIONS = 8;
 
 export interface OrchestratorConfig {
   clientConfig: QwenCompatibleClientConfig;
@@ -55,69 +55,60 @@ export async function runOrchestrator(
   const sysPrompt = buildQwenPlannerSystemPrompt();
   const userPrompt = buildQwenPlannerUserPrompt({ background: userMessage, traceId });
 
-  const messages: Array<{ role: string; content?: string; tool_calls?: unknown[]; tool_call_id?: string }> = [
-    { role: "system", content: sysPrompt },
-    { role: "user", content: userPrompt },
-  ];
+  // 单次 callWithTools — 模型自主决定调多少轮工具
+  const response = await client.callWithTools({
+    traceId,
+    messages: [
+      { role: "system", content: sysPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    tools,
+    toolHandlers: handlers,
+    maxIterations: MAX_TOOL_ITERATIONS,
+  });
 
-  const userVisibleMessages: string[] = [];
-  let draft: Record<string, unknown> | undefined;
-  let turns = 0;
-  let toolCallsTotal = 0;
+  const toolCallsTotal = response.toolCallsExecuted;
+  const payload = response.payload as Record<string, unknown> | undefined;
+  let msg = redactCommonPii(String(payload?.message ?? ""));
 
-  while (turns < MAX_REACT_TURNS) {
-    turns += 1;
+  // 兜底：有 draft 但 message 为空
+  if (!msg.trim() && payload?.draft) {
+    const taskCount = (payload.draft as Record<string, unknown>)?.tasks as unknown[] | undefined;
+    msg = `已生成任务拆解草案（${taskCount?.length ?? 0} 个任务包）。`;
+  }
 
-    const response = await client.callWithTools({
-      traceId,
-      messages,
-      tools,
-      toolHandlers: handlers,
-      maxIterations: 2,
-    });
-
-    toolCallsTotal += response.toolCallsExecuted;
-
-    const payload = response.payload as Record<string, unknown> | undefined;
-    const stopReason = (payload?.stopReason as string) || "end_turn";
-    let msg = redactCommonPii(String(payload?.message ?? ""));
-
-    // 兜底：有 draft 但 message 为空时自动生成说明文字
-    if (!msg.trim() && stopReason === "end_turn" && payload?.draft) {
-      const taskCount = (payload.draft as Record<string, unknown>)?.tasks as unknown[] | undefined;
-      msg = `已生成任务拆解草案（${taskCount?.length ?? 0} 个任务包）。请审阅下方的任务详情。`;
-    }
-
-    // 兜底：thinking 模式下模型可能输出原始文本而非 JSON，rawContent 本身就是用户可见内容
-    if (!msg.trim() && response.rawContent.trim() && stopReason === "end_turn") {
-      const trimmed = response.rawContent.trim();
-      if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-        msg = redactCommonPii(trimmed);
-      }
-    }
-
-    // 只在最后一轮 (end_turn) 展示消息给用户，中间工具调用轮次静默
-    if (stopReason === "end_turn" && msg.trim()) {
-      userVisibleMessages.push(msg);
-    }
-
-    messages.push({ role: "assistant", content: response.rawContent });
-
-    if (stopReason === "end_turn") {
-      if (payload?.draft) {
-        const coerced = coerceLlmPlanPayload(payload.draft);
-        const needsMore = needsMoreInfoFromLlmPayload(coerced);
-        const validation = validateLlmPlanPayload(coerced, { allowEmptyTasks: needsMore });
-        if (validation.valid) {
-          draft = coerced as unknown as Record<string, unknown>;
-        }
-      }
-
-      logStructured({ event: "orchestrator_end_turn", traceId, turns, toolCallsTotal, hasDraft: draft !== undefined });
-      return { messages: userVisibleMessages, draft, traceId, turns, toolCallsTotal };
+  // 兜底：模型输出原始文本
+  if (!msg.trim() && response.rawContent.trim()) {
+    const trimmed = response.rawContent.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+      msg = redactCommonPii(trimmed);
     }
   }
 
-  logStructured({ event: "orchestrator_max_turns_exceeded", traceId, turns, toolCallsTotal });
-  return { messages: userVisibleMessages, draft, traceId, turns, toolCallsTotal };
+  // 兜底：最终的兜底——模型完全没给内容
+  if (!msg.trim()) {
+    msg = "已收到您的需求。请提供更多信息以便我更好地帮助您。";
+  }
+
+  const messages: string[] = msg.trim() ? [msg] : [];
+  let draft: Record<string, unknown> | undefined;
+
+  if (payload?.draft) {
+    const coerced = coerceLlmPlanPayload(payload.draft);
+    const needsMore = needsMoreInfoFromLlmPayload(coerced);
+    const validation = validateLlmPlanPayload(coerced, { allowEmptyTasks: needsMore });
+    if (validation.valid) {
+      draft = coerced as unknown as Record<string, unknown>;
+    }
+  }
+
+  logStructured({
+    event: "orchestrator_done",
+    traceId,
+    toolCallsTotal,
+    hasDraft: draft !== undefined,
+    messageChars: msg.length,
+  });
+
+  return { messages, draft, traceId, turns: 1, toolCallsTotal };
 }
