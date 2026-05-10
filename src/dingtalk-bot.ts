@@ -120,7 +120,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  const sessionDigestMaxChars = readSessionDigestMaxChars();
   const debug = process.env.DINGTALK_STREAM_DEBUG === "1" || process.env.DINGTALK_STREAM_DEBUG === "true";
 
   const healthPort = Number(process.env.HEALTH_CHECK_PORT ?? "");
