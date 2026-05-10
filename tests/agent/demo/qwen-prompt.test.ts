@@ -5,15 +5,14 @@ import {
 } from "../../../src/agent/demo/qwen-prompt";
 
 describe("buildQwenPlannerSystemPrompt", () => {
-  it("v4.0: two-phase orchestrator with save_draft as termination", () => {
+  it("v4.1: first-round-question, second-round-draft prompt", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v4.0");
-    expect(sys).toContain("回合A");
-    expect(sys).toContain("回合B");
+    expect(sys).toContain("orchestrator-agent-v4.1");
     expect(sys).toContain("save_draft");
     expect(sys).toContain("list_known_facts");
-    expect(sys).toContain("stopReason");
     expect(sys).toContain("deliverables");
+    expect(sys).toContain("待确认");
+    expect(sys).toContain("不要再问");
     expect(sys).not.toContain("responseIntent");
     expect(sys).not.toContain("CLARIFY");
   });

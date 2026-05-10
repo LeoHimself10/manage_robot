@@ -108,6 +108,7 @@ export async function runOrchestrator(
     toolCallsTotal,
     hasDraft: draft !== undefined,
     messageChars: msg.length,
+    messagePreview: msg.slice(0, 200),
   });
 
   return { messages, draft, traceId, turns: 1, toolCallsTotal };
