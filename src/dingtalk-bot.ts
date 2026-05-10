@@ -179,11 +179,15 @@ async function main(): Promise<void> {
 
         const prior = chatSessionMemory.get(chatKey);
 
+        // Determine if this is a follow-up (second+ message in conversation)
+        const isFollowUp = prior?.conversationState?.lastResponseIntent !== undefined
+          || (prior?.knownFacts?.length ?? 0) > 0;
+
         // Run ReAct orchestrator
         const orchResult = await runOrchestrator(background, {
           clientConfig: qwenConfig,
           employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
-          sessionContext: { knownFacts: getSessionKnownFacts(prior) },
+          sessionContext: { knownFacts: getSessionKnownFacts(prior), isFollowUp },
         });
 
         // Sync known facts back to session
@@ -233,14 +237,6 @@ async function main(): Promise<void> {
         let outboundMarkdown = orchResult.messages.join("\n\n") || "已收到您的消息。";
         if (outboundMarkdown.length > MAX_MARKDOWN_CHARS) {
           outboundMarkdown = outboundMarkdown.slice(0, MAX_MARKDOWN_CHARS) + "\n\n_(内容过长已截断)_";
-        }
-
-        if (
-          orchResult.draft &&
-          isTaskInitiatorAllowed(payload.senderStaffId) &&
-          process.env.ASSIGNMENT_PHASE_ENABLED === "1"
-        ) {
-          outboundMarkdown += "\n\n" + buildAssignmentProgressMarkdown();
         }
 
         dingtalkResponse = await sendMarkdownReply({
