@@ -13,8 +13,10 @@ const MAX_TOOL_ITERATIONS = 8;
 export interface OrchestratorConfig {
   clientConfig: QwenCompatibleClientConfig;
   employeeRepo: { list(): EmployeeProfileRecord[] };
-  sessionContext?: { knownFacts?: string[]; isFollowUp?: boolean };
+  sessionContext?: { knownFacts?: string[] };
   traceId?: string;
+  /** 用户消息长度。短消息(<80字)视为对上一轮追问的回答→draft；长消息视为新任务→ask */
+  userMessageLength?: number;
 }
 
 export interface OrchestratorResult {
@@ -26,17 +28,20 @@ export interface OrchestratorResult {
 }
 
 const PROMPT_PHASE1 = [
-  "你是任务规划助手。这是本轮对话的第一条消息，你的任务是了解情况。",
+  "你是任务规划助手。用户刚发来一条任务描述。你的唯一任务是了解情况。",
   "",
-  "**你必须做的事：**",
-  "1. 先调 list_known_facts 查看已知信息",
-  "2. 如果关键信息缺失（任务背景/环境/频率/截止时间等），向用户追问 1-3 个最关键的问题",
-  "3. stopReason=end_turn（本轮不可出草案，不可调 save_draft）",
+  "**你必须做：**",
+  "1. list_known_facts",
+  "2. 追问 1-3 个最关键问题。message 里只写追问，一句废话都不要有",
+  "3. stopReason=end_turn",
   "",
-  "**追问原则：** 只问对拆解任务最关键的信息。不要问已经知道的事。",
+  "**绝对禁止：**",
+  "- 禁止生成任何任务草案/任务包/task list/WBS",
+  "- 禁止在 message 里写\"已生成草案\"\"草案如下\"\"建议按以下步骤\"之类的出稿语言",
+  "- 禁止调用 save_draft",
+  "- 你的 message 只能包含追问，不能包含任何分析或建议",
   "",
-  "**输出：** {\"message\":\"你的追问\",\"stopReason\":\"end_turn\",\"tool_calls\":[...]}",
-  "只输出 JSON，不用 markdown 围栏。每轮最多 3 次工具。",
+  "{\"message\":\"只写追问\",\"stopReason\":\"end_turn\",\"tool_calls\":[...]}",
 ].join("\n");
 
 const PROMPT_PHASE2 = [
@@ -78,7 +83,10 @@ export async function runOrchestrator(
   const client = new QwenCompatibleClient(config.clientConfig);
 
   const knownFacts: string[] = config.sessionContext?.knownFacts ?? [];
-  const isFollowUp = config.sessionContext?.isFollowUp ?? false;
+  // 短消息（<80字）大概率是回答上一轮的追问 → phase 2（出草案）
+  // 长消息 → 新任务描述 → phase 1（追问）
+  const msgLen = config.userMessageLength ?? userMessage.length;
+  const isFollowUp = msgLen < 80 && knownFacts.length > 0;
 
   const fullRegistry = buildToolRegistry({
     employeeRepo: config.employeeRepo,

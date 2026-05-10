@@ -179,15 +179,12 @@ async function main(): Promise<void> {
 
         const prior = chatSessionMemory.get(chatKey);
 
-        // Determine if this is a follow-up (second+ message in conversation)
-        const isFollowUp = prior?.conversationState?.lastResponseIntent !== undefined
-          || (prior?.knownFacts?.length ?? 0) > 0;
-
         // Run ReAct orchestrator
         const orchResult = await runOrchestrator(background, {
           clientConfig: qwenConfig,
           employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
-          sessionContext: { knownFacts: getSessionKnownFacts(prior), isFollowUp },
+          sessionContext: { knownFacts: getSessionKnownFacts(prior) },
+          userMessageLength: background.length,
         });
 
         // Sync known facts back to session
