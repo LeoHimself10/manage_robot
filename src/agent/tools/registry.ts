@@ -15,6 +15,7 @@ export interface ToolRegistryEntry {
 export interface ToolRegistryDeps {
   employeeRepo: { list(): EmployeeProfileRecord[] };
   knownFacts: KnownFactsStore;
+  onDraftSaved?: (draft: Record<string, unknown>) => void;
 }
 
 export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRegistryEntry> {
@@ -47,7 +48,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     },
     save_draft: {
       definition: SAVE_DRAFT_TOOL,
-      handler: buildSaveDraftHandler(),
+      handler: buildSaveDraftHandler({ onDraftSaved: deps.onDraftSaved }),
     },
   };
 }

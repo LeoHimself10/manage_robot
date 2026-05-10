@@ -53,6 +53,7 @@ export async function runOrchestrator(
   const client = new QwenCompatibleClient(config.clientConfig);
 
   const knownFacts: string[] = config.sessionContext?.knownFacts ?? [];
+  let savedDraft: Record<string, unknown> | undefined;
 
   const toolRegistry = buildToolRegistry({
     employeeRepo: config.employeeRepo,
@@ -63,6 +64,9 @@ export async function runOrchestrator(
           if (!knownFacts.includes(f)) knownFacts.push(f);
         }
       },
+    },
+    onDraftSaved: (draft) => {
+      savedDraft = draft;
     },
   });
 
@@ -90,7 +94,10 @@ export async function runOrchestrator(
   const messages: string[] = msg.trim() ? [msg] : [];
   let draft: Record<string, unknown> | undefined;
 
-  if (payload?.draft) {
+  // 优先用 save_draft 工具回调存储的已验证 draft
+  if (savedDraft) {
+    draft = savedDraft;
+  } else if (payload?.draft) {
     const coerced = coerceLlmPlanPayload(payload.draft);
     const needsMore = needsMoreInfoFromLlmPayload(coerced);
     const validation = validateLlmPlanPayload(coerced, { allowEmptyTasks: needsMore });
