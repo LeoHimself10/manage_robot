@@ -18,27 +18,11 @@ import {
 import {
   type DingTalkDemoSessionContext,
 } from "./dingtalk-session-context";
-import {
-  resolveEmployeeProfileDir,
-  resolveAssignmentDraftDir,
-  resolveAssignmentEventsPath,
-  resolveAssignmentWebPublicBaseUrl,
-  isDingtalkAssignmentMock,
-} from "./infra/assignment-env";
+import { resolveEmployeeProfileDir } from "./infra/assignment-env";
 import { createEmployeeProfileRepo } from "./integrations/repos/employee-profile-repo";
-import { createAssignmentDraftRepo } from "./integrations/repos/assignment-draft-repo";
-import { createAssignmentEventRepo } from "./integrations/repos/assignment-event-repo";
-import { runAssignmentRecommendation } from "./agent/assignment/run-assignment-recommendation";
-import { signAssignmentEntry } from "./security/web-entry-token";
 import { handleAssignmentHttp } from "./web/assignment-workbench";
-import {
-  buildAssignmentFollowUpMarkdown,
-} from "./dingtalk/assignment-markdown-appendix";
-import { mockManagerCard } from "./integrations/dingtalk/assignment-card-mock";
-import { isTaskInitiatorAllowed } from "./security/initiator-whitelist";
 import { runOrchestrator } from "./agent/orchestrator";
-import { getSessionKnownFacts, updateSessionKnownFacts } from "./dingtalk-session-context";
-import { renderPlanDraftMarkdown } from "./agent/demo/markdown-renderer";
+import { getSessionKnownFacts } from "./dingtalk-session-context";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -188,32 +172,37 @@ async function main(): Promise<void> {
         const orchResult = await runOrchestrator(background, {
           clientConfig: qwenConfig,
           employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
-          sessionContext: { knownFacts: getSessionKnownFacts(prior) },
+          sessionContext: {
+            knownFacts: getSessionKnownFacts(prior),
+            conversationHistory: (prior as any)?.conversationHistory,
+          },
         });
 
-        // Session: 保留 knownFacts 供后续对话
+        // Session: 保留 knownFacts + 对话历史供后续对话
+        const prevHistory = (prior as any)?.conversationHistory ?? [];
         chatSessionMemory.set(chatKey, {
           priorDigest: prior?.priorDigest,
           knownFacts: prior?.knownFacts ?? [],
+          conversationHistory: [
+            ...prevHistory,
+            { role: "user" as const, content: background },
+            { role: "assistant" as const, content: orchResult.messages.join("\n") },
+          ].slice(-10),
         } as any);
 
-        // 构建输出：message + 可选表格草案
+        // 模型自己决定输出格式，代码只做兜底
         let outboundMarkdown = orchResult.messages.join("\n\n");
-        if (orchResult.draft) {
-          const markdown = renderPlanDraftMarkdown({
-            summary: background.slice(0, 120),
-            classification: (orchResult.draft as any).classification ?? { domain: "QUALITY", subtype: "QUALITY_OTHER_OR_UNCERTAIN", confidence: "MEDIUM", rationale: [], missingInformation: [] },
-            capaAdvisory: (orchResult.draft as any).capaAdvisory,
-            tasks: (orchResult.draft as any).tasks ?? [],
-            gate: (orchResult.draft as any).gateSelfCheck ?? { passed: true, missingByTask: [] },
-            openQuestions: (orchResult.draft as any).openQuestions ?? [],
-          });
-          outboundMarkdown += "\n\n" + markdown;
+        // 如果模型输出的消息里已经包含表格，不再重复渲染
+        if (orchResult.draft && !outboundMarkdown.includes("|")) {
+          const tasks = (orchResult.draft as any)?.tasks;
+          if (Array.isArray(tasks) && tasks.length > 0) {
+            const rows = tasks.map((t: any, i: number) =>
+              `| ${i + 1} | ${t.title ?? ""} | ${t.objective ?? ""} | ${(t.deliverables ?? []).join("；") || "-"} | ${(t.completionCriteria ?? []).join("；") || "-"} | ${t.timeNode?.dueAt ?? "待确认"} |`
+            );
+            outboundMarkdown += "\n\n### 任务列表\n| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 |\n|---|---|---|---|---|---|\n" + rows.join("\n");
+          }
         }
-        if (!outboundMarkdown.trim()) outboundMarkdown = orchResult.messages.join("\n\n") || "已收到，正在处理中。";
-
-        if (outboundMarkdown.length > MAX_MARKDOWN_CHARS) {
-          outboundMarkdown = outboundMarkdown.slice(0, MAX_MARKDOWN_CHARS) + "\n\n_(内容过长已截断)_";
+        if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
         }
 
         dingtalkResponse = await sendMarkdownReply({
@@ -222,80 +211,6 @@ async function main(): Promise<void> {
           markdownText: outboundMarkdown,
         });
 
-        // Async: assignment phase (fire-and-forget)
-        if (
-          orchResult.draft &&
-          isTaskInitiatorAllowed(payload.senderStaffId) &&
-          process.env.ASSIGNMENT_PHASE_ENABLED === "1"
-        ) {
-          void (async () => {
-            try {
-              const draft = orchResult.draft!;
-              const tasksFromDraft = (draft as any)?.tasks ?? [];
-              const classFromDraft = (draft as any)?.classification ?? {
-                domain: "QUALITY",
-                subtype: "QUALITY_OTHER_OR_UNCERTAIN",
-              };
-              const ar = await runAssignmentRecommendation(
-                {
-                  traceId: orchResult.traceId,
-                  tasks: tasksFromDraft,
-                  classificationSummary: `${classFromDraft.domain}/${classFromDraft.subtype}`,
-                  domainHint: classFromDraft.domain,
-                },
-                {
-                  employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
-                  qwenConfig,
-                  draftRepo: createAssignmentDraftRepo(resolveAssignmentDraftDir()),
-                  eventRepo: createAssignmentEventRepo(resolveAssignmentEventsPath()),
-                },
-              );
-
-              if (!ar.ok) {
-                console.error("[assignment] generation failed:", ar.reason);
-                return;
-              }
-
-              const baseUrl = resolveAssignmentWebPublicBaseUrl();
-              const signed = signAssignmentEntry({
-                planId: orchResult.traceId,
-                userId: senderStaffId,
-                role: "manager",
-                ttlSeconds: 1800,
-              });
-
-              const followUpMarkdown = buildAssignmentFollowUpMarkdown({
-                baseUrl,
-                token: signed.token,
-                draft: ar.draft,
-              });
-
-              await sendMarkdownReply({
-                client,
-                sessionWebhook,
-                messageId,
-                senderStaffId,
-                title: "分配建议",
-                markdownText: followUpMarkdown,
-              });
-
-              if (isDingtalkAssignmentMock()) {
-                mockManagerCard({ traceId: orchResult.traceId, outTrackId: `assign:${orchResult.traceId}` });
-              }
-
-              // Update session state
-              const updated = chatSessionMemory.get(chatKey);
-              if (updated) {
-                chatSessionMemory.set(chatKey, {
-                  ...updated,
-                  assignmentState: { stage: "AWAITING_DISPATCH_CONFIRM", lastAssignmentTraceId: orchResult.traceId },
-                });
-              }
-            } catch (err) {
-              console.error("[assignment] background error:", err instanceof Error ? err.message : err);
-            }
-          })();
-        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("[dingtalk-bot] handler error:", msg);

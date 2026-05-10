@@ -271,7 +271,7 @@ export class QwenCompatibleClient {
             max_tokens: this.config.maxTokens,
             messages: currentMessages,
             ...(isLastIter
-              ? { response_format: { type: "json_object" } }
+              ? {}
               : {
                   tools: request.tools.map((t) => ({
                     type: t.type,

@@ -5,7 +5,7 @@ export const SAVE_DRAFT_TOOL: ToolDefinition = {
   type: "function",
   function: {
     name: "save_draft",
-    description: "保存任务草案。调用后 stopReason=end_turn，不要再调任何工具。",
+    description: "保存任务草案。保存后直接回复用户即可。",
     parameters: {
       type: "object",
       properties: {
@@ -40,7 +40,7 @@ export function buildSaveDraftHandler(opts?: { onDraftSaved?: (draft: Record<str
       taskCount: coerced.tasks.length,
       gatePassed: gate.passed,
       warnings: warnings.length > 0 ? warnings : undefined,
-      note: "草案已保存。model must output stopReason=end_turn now。不要再调工具。",
+      note: "草案已保存，可以直接回复用户了。",
     };
   };
 }
