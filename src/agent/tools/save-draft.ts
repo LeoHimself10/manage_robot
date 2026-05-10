@@ -5,7 +5,7 @@ export const SAVE_DRAFT_TOOL: ToolDefinition = {
   type: "function",
   function: {
     name: "save_draft",
-    description: "保存任务草案并触发门禁校验。调用后本轮必须 stopReason=end_turn 并输出 message+完整 draft JSON。",
+    description: "保存任务草案。调用后 stopReason=end_turn，不要再调任何工具。",
     parameters: {
       type: "object",
       properties: {
@@ -22,24 +22,25 @@ export function buildSaveDraftHandler(opts?: { onDraftSaved?: (draft: Record<str
   return async (args) => {
     const payload = args as Record<string, unknown>;
     const coerced = coerceLlmPlanPayload(payload);
+
+    // Always save — just note gate issues. Don't make the model fight format.
+    opts?.onDraftSaved?.(coerced as unknown as Record<string, unknown>);
+
     const needsMoreInfo = needsMoreInfoFromLlmPayload(coerced);
     const validation = validateLlmPlanPayload(coerced, { allowEmptyTasks: needsMoreInfo });
-    if (!validation.valid) {
-      return {
-        saved: false,
-        errors: validation.errors,
-        hint: "以上字段缺失或格式错误，请在 draft JSON 中修正后重新调用 save_draft",
-      };
-    }
-    // Store validated draft for orchestrator to pick up
-    opts?.onDraftSaved?.(coerced as unknown as Record<string, unknown>);
     const gate = coerced.gateSelfCheck ?? { passed: true, missingByTask: [] };
+
+    const warnings: string[] = [];
+    if (!gate.passed) {
+      warnings.push(`门禁未通过：${gate.missingByTask.map((m: { taskId: string; missingFields: string[] }) => `${m.taskId} 缺失 ${m.missingFields.join(",")}`).join("；")}`);
+    }
+
     return {
       saved: true,
-      gatePassed: gate.passed,
-      gateMissingByTask: gate.missingByTask,
       taskCount: coerced.tasks.length,
-      draftsSaved: "草案已保存。现在你必须输出 stopReason=end_turn + message(草案摘要) + 完整 draft JSON。不要再调任何工具。",
+      gatePassed: gate.passed,
+      warnings: warnings.length > 0 ? warnings : undefined,
+      note: "草案已保存。model must output stopReason=end_turn now。不要再调工具。",
     };
   };
 }
