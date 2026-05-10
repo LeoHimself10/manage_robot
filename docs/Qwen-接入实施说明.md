@@ -16,10 +16,11 @@
 可选配置（均有默认值）：
 
 - `QWEN_BASE_URL`：默认 `https://dashscope.aliyuncs.com/compatible-mode/v1`
-- `QWEN_MODEL`：默认 `qwen-plus`；当前 ECS 冒烟测试已验证 `qwen3.6-plus` 可用
+- `QWEN_MODEL`：默认 `qwen3.6-plus`（支持 function calling + thinking）。ECS 已切换至 `qwen3.6-plus`
+  > `qwen-turbo` 不支持 tool_calls 协议，不可用于 orchestrator 链路。
 - `QWEN_TEMPERATURE`：默认 `0.2`
-- `QWEN_MAX_TOKENS`：默认 `2500`
-- `QWEN_TIMEOUT_MS`：`runQwenPlanner` 装载配置时默认 **`60000`** ms；与 `model-policy` 合并后**限制在 `5000–120000` ms**
+- `QWEN_MAX_TOKENS`：默认 `4000`
+- `QWEN_TIMEOUT_MS`：默认 **`60000`** ms；限制在 `5000–120000` ms
 - `QWEN_MAX_RETRIES`：默认 `1`
 - `QWEN_REQUEST_BUDGET_TOKENS`：默认 `12000`
 - **`QWEN_STREAM`**：默认为 **开启**（OpenAI 兼容 **SSE**，服务端拼装完整 `content` 后再 `JSON.parse`）。设为 **`0` / `false` / `no`** 时使用单次整包响应。钉钉机器人 **仅推送一条终稿 Markdown**，不在会话中发送「处理中」或流式进度类气泡（与 `QWEN_STREAM` 是否开启无关）。
