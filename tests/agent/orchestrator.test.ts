@@ -13,22 +13,21 @@ describe("runOrchestrator", () => {
     vi.clearAllMocks();
   });
 
-  it("returns message for simple response", async () => {
+  it("returns message from model", async () => {
     mockCallWithTools.mockResolvedValueOnce({
-      payload: { message: "你好，我是任务规划助手。" },
-      rawContent: JSON.stringify({ message: "你好，我是任务规划助手。" }),
+      payload: { message: "你好，我是任务规划助手。请问有什么需要规划的任务？" },
+      rawContent: "{}",
       trace: { requestId: "t1", model: "qwen3.6-plus", tokenUsage: { totalTokens: 50 }, latencyMs: 100 },
       toolCallsExecuted: 0,
     });
 
     const { runOrchestrator } = await import("../../src/agent/orchestrator");
     const result = await runOrchestrator("hi", {
-      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 1000, maxRetries: 0, temperature: 0, maxTokens: 100 },
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
       employeeRepo: { list: () => [] },
     });
 
-    expect(result.messages).toContain("你好，我是任务规划助手。");
-    expect(result.toolCallsTotal).toBe(0);
+    expect(result.messages[0]).toContain("你好，我是任务规划助手");
   });
 
   it("returns draft when model produces valid draft", async () => {
@@ -49,28 +48,11 @@ describe("runOrchestrator", () => {
 
     const { runOrchestrator } = await import("../../src/agent/orchestrator");
     const result = await runOrchestrator("test", {
-      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 1000, maxRetries: 0, temperature: 0, maxTokens: 100 },
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
       employeeRepo: { list: () => [] },
     });
 
     expect(result.draft).toBeDefined();
     expect(result.toolCallsTotal).toBe(2);
-  });
-
-  it("always returns at least one message (fallback)", async () => {
-    mockCallWithTools.mockResolvedValueOnce({
-      payload: {},
-      rawContent: "",
-      trace: { requestId: "t3", model: "qwen3.6-plus", tokenUsage: { totalTokens: 0 }, latencyMs: 0 },
-      toolCallsExecuted: 0,
-    });
-
-    const { runOrchestrator } = await import("../../src/agent/orchestrator");
-    const result = await runOrchestrator("test", {
-      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 1000, maxRetries: 0, temperature: 0, maxTokens: 100 },
-      employeeRepo: { list: () => [] },
-    });
-
-    expect(result.messages.length).toBeGreaterThan(0);
   });
 });

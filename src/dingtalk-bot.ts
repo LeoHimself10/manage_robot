@@ -7,7 +7,6 @@ import {
   EventAck,
   TOPIC_ROBOT,
   type DWClientDownStream,
-  type RobotMessage,
 } from "dingtalk-stream";
 
 import { loadQwenPlannerConfigFromEnv } from "./agent/demo/qwen-planner";
@@ -16,9 +15,7 @@ import {
   MemoryChatSessionStore,
   readRateLimitWindowMs,
 } from "./infra/session-store";
-import { readSessionDigestMaxChars } from "./infra/demo-runtime-env";
 import {
-  nextSessionContextAfterDemoResult,
   type DingTalkDemoSessionContext,
 } from "./dingtalk-session-context";
 import {
@@ -35,13 +32,13 @@ import { runAssignmentRecommendation } from "./agent/assignment/run-assignment-r
 import { signAssignmentEntry } from "./security/web-entry-token";
 import { handleAssignmentHttp } from "./web/assignment-workbench";
 import {
-  buildAssignmentProgressMarkdown,
   buildAssignmentFollowUpMarkdown,
 } from "./dingtalk/assignment-markdown-appendix";
 import { mockManagerCard } from "./integrations/dingtalk/assignment-card-mock";
 import { isTaskInitiatorAllowed } from "./security/initiator-whitelist";
 import { runOrchestrator } from "./agent/orchestrator";
 import { getSessionKnownFacts, updateSessionKnownFacts } from "./dingtalk-session-context";
+import { renderPlanDraftMarkdown } from "./agent/demo/markdown-renderer";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -145,102 +142,83 @@ async function main(): Promise<void> {
       let dingtalkResponse: unknown = { errcode: 0, errmsg: "ok" };
 
       try {
-        const payload = JSON.parse(res.data) as RobotMessage;
-        if (payload.msgtype !== "text" || !payload.text?.content?.trim()) {
+        const payload = JSON.parse(res.data) as Record<string, unknown>;
+        const msgtype = String(payload.msgtype ?? "");
+
+        // 提取文本内容：支持 text / paragraph / markdown 等格式
+        const textContent =
+          (payload as Record<string, unknown>).text as Record<string, unknown> | undefined;
+        const content = String(
+          textContent?.content ??
+          (payload as Record<string, unknown>).content ??
+          ""
+        ).trim();
+
+        if (!content) {
           dingtalkResponse = await sendMarkdownReply({
             client,
-            sessionWebhook: payload.sessionWebhook,
+            sessionWebhook: String(payload.sessionWebhook ?? ""),
             messageId,
-            senderStaffId: payload.senderStaffId,
+            senderStaffId: String(payload.senderStaffId ?? ""),
             title: "提示",
-            markdownText: "当前仅支持 **文本** 消息，请直接发送任务背景描述。",
+            markdownText: "请直接发送任务背景描述，我会帮你拆解为可执行的任务草案。",
           });
           return;
         }
 
-        const background = payload.text.content.trim();
+        const background = content;
+        const senderStaffId = String(payload.senderStaffId ?? "");
+        const sessionWebhook = String(payload.sessionWebhook ?? "");
         const chatKey = deriveChatSessionKey({
-          sessionWebhook: payload.sessionWebhook,
-          senderStaffId: payload.senderStaffId,
+          sessionWebhook,
+          senderStaffId,
         });
 
         if (!chatSessionMemory.checkRateLimitThenTouch(chatKey, readRateLimitWindowMs())) {
           dingtalkResponse = await sendMarkdownReply({
-            client,
-            sessionWebhook: payload.sessionWebhook,
-            messageId,
-            senderStaffId: payload.senderStaffId,
+            client, sessionWebhook, messageId, senderStaffId,
             title: "请稍后再试",
-            markdownText:
-              "**请求过于频繁。** 同一会话在短时间内仅处理一条任务规划，请稍后再发，避免重复消耗模型配额。",
+            markdownText: "**请求过于频繁。** 同一会话在短时间内仅处理一条任务规划，请稍后再发。",
           });
           return;
         }
 
         const prior = chatSessionMemory.get(chatKey);
 
-        // Run ReAct orchestrator
+        // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
         const orchResult = await runOrchestrator(background, {
           clientConfig: qwenConfig,
           employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
           sessionContext: { knownFacts: getSessionKnownFacts(prior) },
-          userMessageLength: background.length,
         });
 
-        // Sync known facts back to session
-        const updatedKnownFacts = updateSessionKnownFacts(prior, []);
-        // (knownFacts already mutated in-place by orchestrator through the store reference)
-
-        const sessionContext = nextSessionContextAfterDemoResult(
-          // build a compatible legacy result for session digest
-          {
-            status: orchResult.draft ? "DRAFT_READY" as const : "CONVERSATION" as const,
-            responseIntent: orchResult.draft ? "DRAFT" as const : "CHAT" as const,
-            assistantMessage: orchResult.messages[orchResult.messages.length - 1] ?? "",
-            questions: [],
-            missingFields: [],
-            classification: (orchResult.draft as any)?.classification ?? {
-              domain: "QUALITY",
-              subtype: "QUALITY_OTHER_OR_UNCERTAIN",
-              confidence: "LOW",
-              rationale: ["orchestrator output"],
-              missingInformation: [],
-            },
-            capaAdvisory: (orchResult.draft as any)?.capaAdvisory,
-            tasks: (orchResult.draft as any)?.tasks ?? [],
-            gate: (orchResult.draft as any)?.gateSelfCheck ?? { passed: true, missingByTask: [] },
-            generation: {
-              trace: {
-                traceId: orchResult.traceId,
-                requestId: orchResult.traceId,
-                model: qwenConfig.model,
-                tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-                latencyMs: 0,
-              },
-              traces: [],
-            },
-            traceId: orchResult.traceId,
-          } as any,
-          prior,
-          sessionDigestMaxChars
-        );
-
+        // Session: 保留 knownFacts 供后续对话
         chatSessionMemory.set(chatKey, {
-          ...sessionContext,
-          knownFacts: prior?.knownFacts ?? updatedKnownFacts,
-        });
+          priorDigest: prior?.priorDigest,
+          knownFacts: prior?.knownFacts ?? [],
+        } as any);
 
-        // Send messages back
-        let outboundMarkdown = orchResult.messages.join("\n\n") || "已收到您的消息。";
+        // 构建输出：message + 可选表格草案
+        let outboundMarkdown = orchResult.messages.join("\n\n");
+        if (orchResult.draft) {
+          const markdown = renderPlanDraftMarkdown({
+            summary: background.slice(0, 120),
+            classification: (orchResult.draft as any).classification ?? { domain: "QUALITY", subtype: "QUALITY_OTHER_OR_UNCERTAIN", confidence: "MEDIUM", rationale: [], missingInformation: [] },
+            capaAdvisory: (orchResult.draft as any).capaAdvisory,
+            tasks: (orchResult.draft as any).tasks ?? [],
+            gate: (orchResult.draft as any).gateSelfCheck ?? { passed: true, missingByTask: [] },
+            openQuestions: (orchResult.draft as any).openQuestions ?? [],
+          });
+          outboundMarkdown += "\n\n" + markdown;
+        }
+        if (!outboundMarkdown.trim()) outboundMarkdown = orchResult.messages.join("\n\n") || "已收到，正在处理中。";
+
         if (outboundMarkdown.length > MAX_MARKDOWN_CHARS) {
           outboundMarkdown = outboundMarkdown.slice(0, MAX_MARKDOWN_CHARS) + "\n\n_(内容过长已截断)_";
         }
 
         dingtalkResponse = await sendMarkdownReply({
-          client,
-          sessionWebhook: payload.sessionWebhook,
-          messageId,
-          senderStaffId: payload.senderStaffId,
+          client, sessionWebhook, messageId, senderStaffId,
           title: orchResult.draft ? "任务拆解草案" : "消息",
           markdownText: outboundMarkdown,
         });
@@ -282,7 +260,7 @@ async function main(): Promise<void> {
               const baseUrl = resolveAssignmentWebPublicBaseUrl();
               const signed = signAssignmentEntry({
                 planId: orchResult.traceId,
-                userId: payload.senderStaffId,
+                userId: senderStaffId,
                 role: "manager",
                 ttlSeconds: 1800,
               });
@@ -295,9 +273,9 @@ async function main(): Promise<void> {
 
               await sendMarkdownReply({
                 client,
-                sessionWebhook: payload.sessionWebhook,
+                sessionWebhook,
                 messageId,
-                senderStaffId: payload.senderStaffId,
+                senderStaffId,
                 title: "分配建议",
                 markdownText: followUpMarkdown,
               });
