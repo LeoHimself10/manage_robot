@@ -23,6 +23,8 @@ import { createEmployeeProfileRepo } from "./integrations/repos/employee-profile
 import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { runOrchestrator } from "./agent/orchestrator";
 import { getSessionKnownFacts } from "./dingtalk-session-context";
+import { savePlanSnapshot } from "./infra/plan-store";
+import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -189,6 +191,21 @@ async function main(): Promise<void> {
             { role: "assistant" as const, content: orchResult.messages.join("\n") },
           ].slice(-10),
         } as any);
+
+        // 长期记忆：有草案时自动存快照+embedding
+        if (orchResult.draft) {
+          savePlanSnapshot(orchResult.traceId, {
+            traceId: orchResult.traceId,
+            status: "DRAFT_READY",
+            draft: orchResult.draft,
+            messagePreview: orchResult.messages[0]?.slice(0, 500),
+          });
+          // 生成 embedding 用于未来相似任务检索
+          const summary = `领域:${(orchResult.draft as any)?.classification?.domain ?? "未知"} 子类型:${(orchResult.draft as any)?.classification?.subtype ?? "未知"}`;
+          generateQueryEmbedding(summary).then((emb) => {
+            if (emb) savePlanEmbedding(orchResult.traceId, summary, emb);
+          }).catch(() => {});
+        }
 
         // 模型自己决定输出格式，代码只做兜底
         let outboundMarkdown = orchResult.messages.join("\n\n");

@@ -34,13 +34,21 @@ export function buildSaveDraftHandler(opts?: { onDraftSaved?: (draft: Record<str
     if (!gate.passed) {
       warnings.push(`门禁未通过：${gate.missingByTask.map((m: { taskId: string; missingFields: string[] }) => `${m.taskId} 缺失 ${m.missingFields.join(",")}`).join("；")}`);
     }
+    // 检查空 objective
+    const emptyObjectives = coerced.tasks
+      .filter((t) => !t.objective?.trim())
+      .map((t) => t.id || t.title);
+    if (emptyObjectives.length > 0) {
+      warnings.push(`以下任务缺少 objective（任务目标）：${emptyObjectives.join(", ")}`);
+    }
 
     return {
       saved: true,
       taskCount: coerced.tasks.length,
       gatePassed: gate.passed,
       warnings: warnings.length > 0 ? warnings : undefined,
-      note: "草案已保存，可以直接回复用户了。",
+      tasksSummary: coerced.tasks.map((t) => ({ id: t.id, title: t.title, objective: t.objective || "(空)" })),
+      note: `已保存 ${coerced.tasks.length} 个任务。${warnings.length > 0 ? `注意：${warnings.join("；")}` : ""}现在直接回复用户即可。`,
     };
   };
 }
