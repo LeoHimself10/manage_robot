@@ -53,13 +53,10 @@ docker run -d --name manage-robot-dingtalk --restart unless-stopped \
 docker ps --filter name=manage-robot-dingtalk
 docker logs --tail 30 manage-robot-dingtalk
 '@
-$remoteBash = (
-  $remoteBash
-    .Replace("__REPODIR__", $RepoDir)
-    .Replace("__ENVFILE__", $EnvFile)
-    .Replace("__PORT__", $PublishPort)
-    .Replace("__DATADIR__", $DataDir)
-)
+$remoteBash = $remoteBash.Replace("__REPODIR__", $RepoDir)
+$remoteBash = $remoteBash.Replace("__ENVFILE__", $EnvFile)
+$remoteBash = $remoteBash.Replace("__PORT__", $PublishPort)
+$remoteBash = $remoteBash.Replace("__DATADIR__", $DataDir)
 $remoteBash = ($remoteBash -replace "`r", "").TrimEnd() + "`n"
 $b64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($remoteBash))
 
