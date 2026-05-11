@@ -25,9 +25,17 @@ import { runOrchestrator } from "./agent/orchestrator";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
 import { createPlanSessionStore, type PlanSession } from "./infra/plan-session-store";
+import { logStructured } from "./infra/logger";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
+
+function truncateMarkdown(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const suffix = "\n\n_(内容过长，已截断展示；完整草案见结构化任务表。)_";
+  const budget = Math.max(0, maxChars - suffix.length);
+  return text.slice(0, budget) + suffix;
+}
 
 async function sendMarkdownReply(params: {
   client: DWClient;
@@ -63,11 +71,18 @@ async function sendMarkdownReply(params: {
   if (!res.ok) {
     throw new Error(`sessionWebhook HTTP ${res.status}: ${JSON.stringify(data)}`);
   }
+  if (data && typeof data === "object" && "errcode" in data) {
+    const code = (data as { errcode?: number }).errcode;
+    if (code !== undefined && code !== 0) {
+      throw new Error(`sessionWebhook errcode ${code}: ${JSON.stringify(data)}`);
+    }
+  }
   return data;
 }
 
-function ackCallback(client: DWClient, messageId: string, dingtalkResponse: unknown): void {
-  client.socketCallBackResponse(messageId, dingtalkResponse);
+/** Stream 侧 ACK：机器人回调协议建议 data.response 可为 null；须尽早调用以免 60s 内重推、并与 sessionWebhook 时效竞态。 */
+function ackStreamRobot(client: DWClient, messageId: string): void {
+  client.socketCallBackResponse(messageId, null);
 }
 
 function startCombinedServer(healthPort: number): void {
@@ -129,10 +144,10 @@ async function main(): Promise<void> {
     void (async () => {
       const messageId = res.headers.messageId;
       let dingtalkResponse: unknown = { errcode: 0, errmsg: "ok" };
+      let streamAckSent = false;
 
       try {
         const payload = JSON.parse(res.data) as Record<string, unknown>;
-        const msgtype = String(payload.msgtype ?? "");
 
         // 提取文本内容：支持 text / paragraph / richText / mixed 等格式
         const raw = payload as Record<string, unknown>;
@@ -162,12 +177,30 @@ async function main(): Promise<void> {
         });
 
         if (!chatSessionMemory.checkRateLimitThenTouch(chatKey, readRateLimitWindowMs())) {
+          ackStreamRobot(client, messageId);
+          streamAckSent = true;
           dingtalkResponse = await sendMarkdownReply({
             client, sessionWebhook, messageId, senderStaffId,
             title: "请稍后再试",
             markdownText: "**请求过于频繁。** 同一会话在短时间内仅处理一条任务规划，请稍后再发。",
           });
           return;
+        }
+
+        // 尽早 ACK：避免 Stream 60s 内重推；并让后续 sessionWebhook 尽量仍在有效期内（长模型调用常见 >60s）。
+        ackStreamRobot(client, messageId);
+        streamAckSent = true;
+
+        const webhookDeadline =
+          typeof payload.sessionWebhookExpiredTime === "number"
+            ? payload.sessionWebhookExpiredTime
+            : undefined;
+        if (webhookDeadline !== undefined && Date.now() > webhookDeadline) {
+          logStructured({
+            event: "dingtalk_session_webhook_already_expired",
+            messageId,
+            webhookDeadline,
+          });
         }
 
         const session = planSessionStore.loadOrCreate(chatKey);
@@ -229,8 +262,16 @@ async function main(): Promise<void> {
         }
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
 
-        // 分配推荐：有草案且开启配置时，自动追加
+        const mainMarkdown = truncateMarkdown(outboundMarkdown, MAX_MARKDOWN_CHARS);
+        dingtalkResponse = await sendMarkdownReply({
+          client, sessionWebhook, messageId, senderStaffId,
+          title: currentDraft ? "任务拆解草案" : "消息",
+          markdownText: mainMarkdown,
+        });
+
+        // 分配推荐放在首条回复之后：避免 sessionWebhook 在长推理后失效导致「模型已完成但用户收不到」。
         let latestAssignment: Record<string, unknown> | undefined = session.latestAssignment;
+        let assignmentSection = "";
         if (currentDraft && process.env.ASSIGNMENT_PHASE_ENABLED === "1") {
           try {
             const tasksForAssignment = (currentDraft as any)?.tasks ?? [];
@@ -261,7 +302,28 @@ async function main(): Promise<void> {
                 const rows = assignments.map((a: any) =>
                   `| ${a.taskId ?? ""} | ${a.primary?.displayName ?? "-"} | ${a.confidence ?? "-"} | ${a.primary?.rationale?.slice(0, 60) ?? "-"} |`
                 );
-                outboundMarkdown += "\n\n### 分配建议\n| 任务 | 推荐负责人 | 置信度 | 理由 |\n|---|---|---|---|\n" + rows.join("\n");
+                assignmentSection =
+                  "\n\n### 分配建议\n| 任务 | 推荐负责人 | 置信度 | 理由 |\n|---|---|---|---|\n" +
+                  rows.join("\n");
+                try {
+                  await sendMarkdownReply({
+                    client,
+                    sessionWebhook,
+                    messageId,
+                    senderStaffId,
+                    title: "分配建议",
+                    markdownText: truncateMarkdown(assignmentSection.trim(), MAX_MARKDOWN_CHARS),
+                  });
+                } catch (sendErr) {
+                  const sm = sendErr instanceof Error ? sendErr.message : String(sendErr);
+                  console.error("[dingtalk-bot] assignment reply send failed:", sm);
+                  logStructured({
+                    event: "dingtalk_assignment_reply_send_failed",
+                    messageId,
+                    traceId: orchResult.traceId,
+                    reason: sm,
+                  });
+                }
               }
               planSessionStore.appendEvent({
                 planId: session.planId,
@@ -278,6 +340,7 @@ async function main(): Promise<void> {
           }
         }
 
+        const fullOutboundForHistory = outboundMarkdown + assignmentSection;
         const nextRevisionEvents = [
           ...(session.revisionEvents ?? []),
           {
@@ -290,7 +353,7 @@ async function main(): Promise<void> {
         const nextConversationHistory = [
           ...session.conversationHistory,
           { role: "user" as const, content: background },
-          { role: "assistant" as const, content: outboundMarkdown },
+          { role: "assistant" as const, content: fullOutboundForHistory },
         ].slice(-10);
         planSessionStore.save({
           ...session,
@@ -300,12 +363,6 @@ async function main(): Promise<void> {
           latestDraft: currentDraft,
           latestAssignment,
           revisionEvents: nextRevisionEvents,
-        });
-
-        dingtalkResponse = await sendMarkdownReply({
-          client, sessionWebhook, messageId, senderStaffId,
-          title: currentDraft ? "任务拆解草案" : "消息",
-          markdownText: outboundMarkdown,
         });
 
       } catch (e) {
@@ -327,7 +384,9 @@ async function main(): Promise<void> {
           // ignore secondary failure
         }
       } finally {
-        ackCallback(client, messageId, dingtalkResponse);
+        if (!streamAckSent) {
+          ackStreamRobot(client, messageId);
+        }
       }
     })();
   });
