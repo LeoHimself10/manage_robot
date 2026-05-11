@@ -18,8 +18,11 @@ import {
 import {
   type DingTalkDemoSessionContext,
 } from "./dingtalk-session-context";
-import { resolveEmployeeProfileDir } from "./infra/assignment-env";
+import { resolveEmployeeProfileDir, resolveAssignmentDraftDir, resolveAssignmentEventsPath } from "./infra/assignment-env";
 import { createEmployeeProfileRepo } from "./integrations/repos/employee-profile-repo";
+import { createAssignmentDraftRepo } from "./integrations/repos/assignment-draft-repo";
+import { createAssignmentEventRepo } from "./integrations/repos/assignment-event-repo";
+import { runAssignmentRecommendation } from "./agent/assignment/run-assignment-recommendation";
 import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { runOrchestrator } from "./agent/orchestrator";
 import { getSessionKnownFacts } from "./dingtalk-session-context";
@@ -220,6 +223,39 @@ async function main(): Promise<void> {
           }
         }
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
+
+        // 分配推荐：有草案时同步运行，追加到同一条消息
+        if (orchResult.draft && process.env.ASSIGNMENT_PHASE_ENABLED === "1") {
+          try {
+            const tasksForAssignment = (orchResult.draft as any)?.tasks ?? [];
+            const classification = (orchResult.draft as any)?.classification ?? { domain: "QUALITY", subtype: "QUALITY_OTHER_OR_UNCERTAIN" };
+            const ar = await runAssignmentRecommendation(
+              {
+                traceId: orchResult.traceId,
+                tasks: tasksForAssignment,
+                classificationSummary: `${classification.domain}/${classification.subtype}`,
+                domainHint: classification.domain,
+              },
+              {
+                employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
+                qwenConfig,
+                draftRepo: createAssignmentDraftRepo(resolveAssignmentDraftDir()),
+                eventRepo: createAssignmentEventRepo(resolveAssignmentEventsPath()),
+              },
+            );
+            if (ar.ok) {
+              const assignments = ar.draft.assignments ?? [];
+              if (assignments.length > 0) {
+                const rows = assignments.map((a: any) =>
+                  `| ${a.taskId ?? ""} | ${a.primary?.displayName ?? "-"} | ${a.confidence ?? "-"} | ${a.primary?.rationale?.slice(0, 60) ?? "-"} |`
+                );
+                outboundMarkdown += "\n\n### 分配建议\n| 任务 | 推荐负责人 | 置信度 | 理由 |\n|---|---|---|---|\n" + rows.join("\n");
+              }
+            }
+          } catch (err) {
+            console.error("[assignment] error:", err instanceof Error ? err.message : String(err));
+          }
+        }
 
         dingtalkResponse = await sendMarkdownReply({
           client, sessionWebhook, messageId, senderStaffId,
