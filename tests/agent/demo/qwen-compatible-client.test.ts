@@ -70,7 +70,7 @@ describe("QwenCompatibleClient", () => {
     expect(requestBody.messages[0].content).toContain("医疗器械");
     expect(requestBody.messages[0].content).toContain("save_draft");
     expect(requestBody.messages[0].content).toContain("deliverables");
-    expect(requestBody.messages[0].content).toContain("orchestrator-agent-v5.4");
+    expect(requestBody.messages[0].content).toContain("orchestrator-agent-v5.5");
     expect(result.trace.requestId).toBe("req_001");
     expect(result.trace.traceId).toBeUndefined();
     expect(result.trace.tokenUsage.totalTokens).toBe(150);

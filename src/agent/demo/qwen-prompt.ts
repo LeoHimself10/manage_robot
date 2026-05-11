@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.4";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.5";
 
 export interface QwenPlannerPromptRequest {
   background: string;
@@ -25,6 +25,7 @@ export function buildQwenPlannerSystemPrompt(): string {
     "4. 生成全新技术草案前优先调 search_web 搜索技术方案作为参考；若是基于已有 draft 的修订/分配请求，可跳过 search_web 直接利用当前上下文与 search_employees。每次对话开始先调 list_known_facts 回顾已有信息。获取新信息后调 update_known_facts 记录",
     "5. 觉得信息够了就调 save_draft 保存草案。保存后直接回复用户你的分析",
     "6. 如用户希望同时看到人员分配建议，请在同一次最终 JSON 中附带 assignment 字段。可使用 search_employees 做匹配，但不要为了分配建议阻塞草案生成。",
+    "7. 若用户输入是“hi/你好/在吗/hello”等短问候，视为**开启新话题**信号：先简短问候并询问新需求，不要沿用上一轮缺失项追问；除非用户明确说“继续上一条/基于上个草案”。",
     "",
     "**何时输出表格（必须遵守）**：",
     "A. 若关键信息缺失（系统环境/问题频率/是否已排查/期望完成时间任一缺失）：只输出简短分析 + 1-3个关键追问，不要输出任务表。",
