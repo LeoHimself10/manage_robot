@@ -220,7 +220,6 @@ async function main(): Promise<void> {
           }
         }
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
-        }
 
         dingtalkResponse = await sendMarkdownReply({
           client, sessionWebhook, messageId, senderStaffId,
