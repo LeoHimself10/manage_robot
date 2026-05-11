@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createPlanSessionStore,
   hashChatKey,
+  type ConversationSessionState,
   type PlanSession,
 } from "../../src/infra/plan-session-store";
 
@@ -71,6 +72,49 @@ describe("plan-session-store", () => {
     expect((restored?.latestDraft as { tasks?: unknown[] } | undefined)?.tasks?.length).toBe(
       1,
     );
+  });
+
+  it("round-trips conversation sessions after process restart", () => {
+    sessionDir = join(tmpdir(), `sessions-${Date.now()}`);
+    eventsPath = join(tmpdir(), `session-events-${Date.now()}.jsonl`);
+    process.env.PLAN_SESSION_DIR = sessionDir;
+    process.env.PLAN_SESSION_EVENTS_PATH = eventsPath;
+
+    const storeA = createPlanSessionStore();
+    const created = storeA.loadOrCreate("chat-key-conversations");
+    const conversationSessions: ConversationSessionState[] = [
+      {
+        conversationId: "conv-model",
+        stage: "WAITING_MODEL",
+        updatedAt: "2026-05-11T03:00:00.000Z",
+      },
+      {
+        conversationId: "conv-manager",
+        stage: "WAITING_MANAGER",
+        managerUserId: "manager-1",
+        updatedAt: "2026-05-11T03:01:00.000Z",
+      },
+      {
+        conversationId: "conv-employee",
+        stage: "WAITING_EMPLOYEE",
+        employeeUserId: "employee-1",
+        updatedAt: "2026-05-11T03:02:00.000Z",
+      },
+      {
+        conversationId: "conv-ready",
+        stage: "READY_TO_APPLY",
+        updatedAt: "2026-05-11T03:03:00.000Z",
+      },
+    ];
+
+    storeA.save({
+      ...created,
+      conversationSessions,
+    });
+
+    const restored = createPlanSessionStore().loadByChatKey("chat-key-conversations");
+
+    expect(restored?.conversationSessions).toEqual(conversationSessions);
   });
 
   it("appends session events into jsonl", () => {

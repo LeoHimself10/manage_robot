@@ -114,13 +114,13 @@ function ackStreamRobot(client: DWClient, messageId: string): void {
 }
 
 function startCombinedServer(healthPort: number): void {
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     if (req.url === "/health" || req.url === "/") {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("ok");
       return;
     }
-    if (handleAssignmentHttp(req, res)) return;
+    if (await handleAssignmentHttp(req, res)) return;
     res.writeHead(404);
     res.end();
   });

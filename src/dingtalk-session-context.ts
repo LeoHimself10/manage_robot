@@ -10,6 +10,7 @@ export type { DemoConversationState };
 export interface AssignmentSessionState {
   stage?: "RECOMMENDING" | "AWAITING_DISPATCH_CONFIRM" | "DISPATCHED";
   lastAssignmentTraceId?: string;
+  inProgressConversationIds?: string[];
 }
 
 export interface DingTalkDemoSessionContext {

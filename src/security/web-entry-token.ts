@@ -2,10 +2,12 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 const DEFAULT_TTL_SECONDS = 30 * 60; // 30 minutes
 
+export type WebEntryRole = "manager" | "employee";
+
 export interface SignParams {
   planId: string;
   userId: string;
-  role: "manager";
+  role: WebEntryRole;
   ttlSeconds?: number;
 }
 
@@ -18,7 +20,7 @@ export interface SignedToken {
 export interface VerifiedToken {
   planId: string;
   userId: string;
-  role: string;
+  role: WebEntryRole;
   exp: number;
   nonce: string;
 }
@@ -32,11 +34,16 @@ function readSecret(): string {
 function serializePayload(params: {
   planId: string;
   userId: string;
-  role: string;
+  role: WebEntryRole;
   exp: number;
   nonce: string;
 }): string {
   return `v1|${params.planId}|${params.userId}|${params.role}|${params.exp}|${params.nonce}`;
+}
+
+function parseRole(role: string): WebEntryRole {
+  if (role === "manager" || role === "employee") return role;
+  throw new Error("Invalid token: bad role");
 }
 
 export function signAssignmentEntry(params: SignParams): SignedToken {
@@ -57,10 +64,17 @@ export function verifyAssignmentEntry(token: string): VerifiedToken {
     throw new Error("Invalid token format");
   }
   const [version, planId, userId, role, expStr, nonce, sig] = parts;
+  const verifiedRole = parseRole(role);
   const exp = Number(expStr);
   if (!Number.isFinite(exp)) throw new Error("Invalid token: bad exp");
 
-  const payload = serializePayload({ planId, userId, role, exp, nonce });
+  const payload = serializePayload({
+    planId,
+    userId,
+    role: verifiedRole,
+    exp,
+    nonce,
+  });
   const expectedSig = createHmac("sha256", secret)
     .update(payload)
     .digest("hex");
@@ -76,5 +90,5 @@ export function verifyAssignmentEntry(token: string): VerifiedToken {
   }
 
   if (Date.now() / 1000 > exp) throw new Error("Token expired");
-  return { planId, userId, role, exp, nonce };
+  return { planId, userId, role: verifiedRole, exp, nonce };
 }
