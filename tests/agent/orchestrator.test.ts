@@ -99,4 +99,23 @@ describe("runOrchestrator", () => {
     expect(result.knownFacts).toContain("负责人偏好质量部");
     expect(result.knownFacts).toContain("系统是Linux");
   });
+
+  it("forwards maxToolIterations to callWithTools", async () => {
+    mockCallWithTools.mockResolvedValueOnce({
+      payload: { message: "ok" },
+      rawContent: "{}",
+      trace: { requestId: "t4", model: "qwen3.6-plus", tokenUsage: { totalTokens: 20 }, latencyMs: 80 },
+      toolCallsExecuted: 0,
+    });
+
+    const { runOrchestrator } = await import("../../src/agent/orchestrator");
+    await runOrchestrator("test", {
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
+      employeeRepo: { list: () => [] },
+      maxToolIterations: 3,
+    });
+
+    const requestArg = mockCallWithTools.mock.calls[0]?.[0] as { maxIterations?: number };
+    expect(requestArg.maxIterations).toBe(3);
+  });
 });

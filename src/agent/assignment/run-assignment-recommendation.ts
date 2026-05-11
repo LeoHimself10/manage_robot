@@ -36,6 +36,8 @@ export interface RunAssignmentRecommendationDeps {
   qwenConfig: QwenCompatibleClientConfig;
   draftRepo: { save(draft: AssignmentDraft): Promise<void> };
   eventRepo: { append(event: Record<string, unknown>): Promise<void> };
+  maxToolIterations?: number;
+  selfCorrectionAttempts?: number;
 }
 
 export async function runAssignmentRecommendation(
@@ -43,6 +45,8 @@ export async function runAssignmentRecommendation(
   deps: RunAssignmentRecommendationDeps,
 ): Promise<{ ok: true; draft: AssignmentDraft } | { ok: false; reason: string }> {
   const client = new QwenCompatibleClient(deps.qwenConfig);
+  const maxToolIterations = Math.max(1, deps.maxToolIterations ?? 6);
+  const selfCorrectionAttempts = Math.max(0, deps.selfCorrectionAttempts ?? 1);
 
   const searchHandler = buildSearchEmployeesHandler(deps.employeeRepo);
 
@@ -70,6 +74,7 @@ export async function runAssignmentRecommendation(
       messages: messages as Parameters<QwenCompatibleClient["callWithTools"]>[0]["messages"],
       tools: [SEARCH_EMPLOYEES_TOOL],
       toolHandlers: { search_employees: searchHandler },
+      maxIterations: maxToolIterations,
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
@@ -100,6 +105,12 @@ export async function runAssignmentRecommendation(
   const validation = validateAssignmentDraft(draft, { allowedUserIds, taskIds });
 
   if (!validation.valid) {
+    if (selfCorrectionAttempts === 0) {
+      const reason = `验证失败：${validation.errors.join("；")}`;
+      logStructured({ event: "ASSIGNMENT_VALIDATION_FAILED", traceId: input.traceId, reason });
+      return { ok: false, reason };
+    }
+
     // Self-correction: one round
     const errorMsg = `验证失败：${validation.errors.join("；")}\n请修正后重新生成完整的 AssignmentDraft JSON。`;
 
@@ -116,6 +127,7 @@ export async function runAssignmentRecommendation(
         messages: correctedMessages as Parameters<QwenCompatibleClient["callWithTools"]>[0]["messages"],
         tools: [SEARCH_EMPLOYEES_TOOL],
         toolHandlers: { search_employees: searchHandler },
+        maxIterations: maxToolIterations,
       });
 
       draft = coerceAssignmentDraft(correctedResult.payload);

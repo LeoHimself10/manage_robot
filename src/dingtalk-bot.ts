@@ -29,12 +29,31 @@ import { logStructured } from "./infra/logger";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
+const DEFAULT_DINGTALK_MAX_TOKENS = 2200;
+const DEFAULT_DINGTALK_ORCH_ITERATIONS = 4;
+const DEFAULT_DINGTALK_ASSIGNMENT_ITERATIONS = 3;
 
 function truncateMarkdown(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   const suffix = "\n\n_(内容过长，已截断展示；完整草案见结构化任务表。)_";
   const budget = Math.max(0, maxChars - suffix.length);
   return text.slice(0, budget) + suffix;
+}
+
+function readEnvBool(name: string, fallback: boolean): boolean {
+  const v = process.env[name]?.trim().toLowerCase();
+  if (!v) return fallback;
+  if (v === "1" || v === "true" || v === "yes") return true;
+  if (v === "0" || v === "false" || v === "no") return false;
+  return fallback;
+}
+
+function readEnvInt(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(1, Math.trunc(value));
 }
 
 async function sendMarkdownReply(params: {
@@ -112,14 +131,31 @@ async function main(): Promise<void> {
     return;
   }
 
-  const qwenConfig = loadQwenPlannerConfigFromEnv();
-  if (!qwenConfig) {
+  const baseQwenConfig = loadQwenPlannerConfigFromEnv();
+  if (!baseQwenConfig) {
     console.error(
       "未检测到 QWEN_API_KEY。请在环境变量或 .env 中配置（与 DashScope 一致），切勿提交密钥。"
     );
     process.exitCode = 1;
     return;
   }
+  const dingtalkQwenConfig = {
+    ...baseQwenConfig,
+    // 钉钉链路优先首条时延：默认关闭 thinking，可用 DINGTALK_QWEN_THINKING=1 覆盖。
+    thinking: readEnvBool("DINGTALK_QWEN_THINKING", false),
+    maxTokens: Math.min(
+      baseQwenConfig.maxTokens,
+      readEnvInt("DINGTALK_QWEN_MAX_TOKENS", DEFAULT_DINGTALK_MAX_TOKENS),
+    ),
+  };
+  const dingtalkOrchestratorMaxIterations = readEnvInt(
+    "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS",
+    DEFAULT_DINGTALK_ORCH_ITERATIONS,
+  );
+  const dingtalkAssignmentMaxIterations = readEnvInt(
+    "DINGTALK_ASSIGNMENT_MAX_ITERATIONS",
+    DEFAULT_DINGTALK_ASSIGNMENT_ITERATIONS,
+  );
 
   const debug = process.env.DINGTALK_STREAM_DEBUG === "1" || process.env.DINGTALK_STREAM_DEBUG === "true";
 
@@ -203,13 +239,16 @@ async function main(): Promise<void> {
           });
         }
 
+        const handlerStartedAt = Date.now();
         const session = planSessionStore.loadOrCreate(chatKey);
         const knownFacts = [...session.knownFacts];
 
         // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
+        const orchestratorStartedAt = Date.now();
         const orchResult = await runOrchestrator(background, {
-          clientConfig: qwenConfig,
+          clientConfig: dingtalkQwenConfig,
           employeeRepo,
+          maxToolIterations: dingtalkOrchestratorMaxIterations,
           sessionContext: {
             knownFacts,
             conversationHistory: session.conversationHistory,
@@ -219,6 +258,7 @@ async function main(): Promise<void> {
             memorySummary: buildMemorySummary(session),
           },
         });
+        const orchestratorMs = Date.now() - orchestratorStartedAt;
 
         const currentDraft = orchResult.draft ?? session.latestDraft;
         const updatedKnownFacts = [...orchResult.knownFacts];
@@ -262,14 +302,7 @@ async function main(): Promise<void> {
         }
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
 
-        const mainMarkdown = truncateMarkdown(outboundMarkdown, MAX_MARKDOWN_CHARS);
-        dingtalkResponse = await sendMarkdownReply({
-          client, sessionWebhook, messageId, senderStaffId,
-          title: currentDraft ? "任务拆解草案" : "消息",
-          markdownText: mainMarkdown,
-        });
-
-        // 分配推荐放在首条回复之后：避免 sessionWebhook 在长推理后失效导致「模型已完成但用户收不到」。
+        const assignmentStartedAt = Date.now();
         let latestAssignment: Record<string, unknown> | undefined = session.latestAssignment;
         let assignmentSection = "";
         if (currentDraft && process.env.ASSIGNMENT_PHASE_ENABLED === "1") {
@@ -290,9 +323,11 @@ async function main(): Promise<void> {
               },
               {
                 employeeRepo,
-                qwenConfig,
+                qwenConfig: dingtalkQwenConfig,
                 draftRepo: assignmentDraftRepo,
                 eventRepo: assignmentEventRepo,
+                maxToolIterations: dingtalkAssignmentMaxIterations,
+                selfCorrectionAttempts: 0,
               },
             );
             if (ar.ok) {
@@ -305,25 +340,6 @@ async function main(): Promise<void> {
                 assignmentSection =
                   "\n\n### 分配建议\n| 任务 | 推荐负责人 | 置信度 | 理由 |\n|---|---|---|---|\n" +
                   rows.join("\n");
-                try {
-                  await sendMarkdownReply({
-                    client,
-                    sessionWebhook,
-                    messageId,
-                    senderStaffId,
-                    title: "分配建议",
-                    markdownText: truncateMarkdown(assignmentSection.trim(), MAX_MARKDOWN_CHARS),
-                  });
-                } catch (sendErr) {
-                  const sm = sendErr instanceof Error ? sendErr.message : String(sendErr);
-                  console.error("[dingtalk-bot] assignment reply send failed:", sm);
-                  logStructured({
-                    event: "dingtalk_assignment_reply_send_failed",
-                    messageId,
-                    traceId: orchResult.traceId,
-                    reason: sm,
-                  });
-                }
               }
               planSessionStore.appendEvent({
                 planId: session.planId,
@@ -339,8 +355,32 @@ async function main(): Promise<void> {
             console.error("[assignment] error:", err instanceof Error ? err.message : String(err));
           }
         }
+        const assignmentMs = Date.now() - assignmentStartedAt;
 
         const fullOutboundForHistory = outboundMarkdown + assignmentSection;
+        const sendReplyStartedAt = Date.now();
+        dingtalkResponse = await sendMarkdownReply({
+          client,
+          sessionWebhook,
+          messageId,
+          senderStaffId,
+          title: currentDraft ? "任务拆解草案" : "消息",
+          markdownText: truncateMarkdown(fullOutboundForHistory, MAX_MARKDOWN_CHARS),
+        });
+        const sendReplyMs = Date.now() - sendReplyStartedAt;
+        const totalMs = Date.now() - handlerStartedAt;
+        logStructured({
+          event: "dingtalk_handler_timing",
+          traceId: orchResult.traceId,
+          messageId,
+          hasDraft: currentDraft !== undefined,
+          hasAssignmentSection: assignmentSection.length > 0,
+          orchestratorMs,
+          assignmentMs,
+          sendReplyMs,
+          totalMs,
+        });
+
         const nextRevisionEvents = [
           ...(session.revisionEvents ?? []),
           {

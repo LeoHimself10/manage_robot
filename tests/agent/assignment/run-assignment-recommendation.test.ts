@@ -363,6 +363,71 @@ describe("runAssignmentRecommendation", () => {
     expect(draftSave).not.toHaveBeenCalled();
   });
 
+  it("skips self-correction when selfCorrectionAttempts is 0", async () => {
+    const invalidDraft = {
+      ...VALID_DRAFT,
+      assignments: [],
+      planId: "",
+      traceId: "trace_test",
+      promptVersion: "",
+      modelName: "",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockFetchResponse({
+          toolCalls: [{ id: "call_no_fix_1", name: "search_employees", args: "{}" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockFetchResponse({ content: JSON.stringify(invalidDraft) }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const draftSave = vi.fn().mockResolvedValue(undefined);
+    const eventAppend = vi.fn().mockResolvedValue(undefined);
+
+    const result = await runAssignmentRecommendation(
+      {
+        planId: "plan_test",
+        traceId: "trace_test",
+        tasks: [
+          {
+            id: "task_1",
+            title: "分析异常",
+            objective: "root cause analysis",
+            deliverables: ["报告"],
+            timeNode: { dueAt: "T+3" },
+          },
+        ],
+        classificationSummary: "QUALITY",
+      },
+      {
+        employeeRepo: {
+          list: () => MOCK_EMPLOYEES,
+          get: (uid: string) => MOCK_EMPLOYEES.find((e) => e.userId === uid),
+        },
+        qwenConfig: {
+          baseUrl: "https://test.api",
+          apiKey: "test-key",
+          model: "qwen-plus",
+          timeoutMs: 10000,
+          maxRetries: 0,
+          temperature: 0.2,
+          maxTokens: 2048,
+        },
+        draftRepo: { save: draftSave },
+        eventRepo: { append: eventAppend },
+        selfCorrectionAttempts: 0,
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(draftSave).not.toHaveBeenCalled();
+    expect(eventAppend).not.toHaveBeenCalled();
+  });
+
   it("uses stable planId and carries revision context into prompt", async () => {
     const draftWithoutPlan = {
       ...VALID_DRAFT,

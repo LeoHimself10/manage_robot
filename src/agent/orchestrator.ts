@@ -11,6 +11,7 @@ const MAX_TOOL_ITERATIONS = 6;
 export interface OrchestratorConfig {
   clientConfig: QwenCompatibleClientConfig;
   employeeRepo: { list(): EmployeeProfileRecord[] };
+  maxToolIterations?: number;
   sessionContext?: {
     knownFacts?: string[];
     conversationHistory?: Array<{ role: string; content: string }>;
@@ -95,12 +96,13 @@ export async function runOrchestrator(
   }
   allMessages.push({ role: "user", content: userMessage });
 
+  const maxToolIterations = Math.max(1, config.maxToolIterations ?? MAX_TOOL_ITERATIONS);
   const response = await client.callWithTools({
     traceId,
     messages: allMessages,
     tools,
     toolHandlers: handlers,
-    maxIterations: MAX_TOOL_ITERATIONS,
+    maxIterations: maxToolIterations,
   });
 
   const toolCallsTotal = response.toolCallsExecuted;
