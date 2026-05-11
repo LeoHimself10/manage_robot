@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.6";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.7";
 
 export interface QwenPlannerPromptRequest {
   background: string;
@@ -23,7 +23,7 @@ export function buildQwenPlannerSystemPrompt(): string {
     "2. 不确定的事情标注\"待确认\"或直接问用户。绝对不要编造日期、人名、技术细节",
     "3. 不要使用任何固定的任务模板（如\"问题事实确认→日志分析→硬件排查→软件排查→方案验证\"）。根据每个任务的具体内容量身定制 task",
     "4. search_web 仅在“涉及不熟悉技术领域”或“明确需要最新外部资料”时再调用；常规任务拆解优先基于当前上下文直接产出草案。若是基于已有 draft 的修订/分配请求，通常无需 search_web。每次对话开始先调 list_known_facts 回顾已有信息。获取新信息后调 update_known_facts 记录",
-    "5. 觉得信息够了就调 save_draft 保存草案。保存后直接回复用户你的分析",
+    "5. 当用户已给出可执行的核心事实（即使部分字段缺失），应先输出首版草案并把缺失项标注为“待确认”，不要反复要求同一批信息。觉得信息够了就调 save_draft 保存草案。保存后直接回复用户你的分析",
     "6. 如用户希望同时看到人员分配建议，请在同一次最终 JSON 中附带 assignment 字段。可使用 search_employees 做匹配，但不要为了分配建议阻塞草案生成。",
     "7. 由你基于**本轮语义**判断是否开启新话题：若用户表达的是寒暄、试探性开场或明显转向新问题，应先简短确认并询问新需求，不要机械沿用上一轮缺失项追问；仅当用户明确表达“继续上一条/基于上个草案/按上个方案修改”时，才延续旧话题。",
     "",
@@ -49,7 +49,7 @@ export function buildQwenPlannerSystemPrompt(): string {
     "3) 可选返回 assignment：",
     '{"assignment":{"assignments":[{"taskId":"task_1","primary":{"userId":"emp_xxx","displayName":"张三","rationale":"匹配理由"},"confidence":"HIGH"}]}}',
     "",
-    "**回复格式**：message 里只写给用户看的最终回复，不要把搜索过程、工具调用结果、格式修正过程写进去。禁止在同一回复重复两张含义相同的任务表。**禁止自相矛盾**：不要说「信息不足无法出草案」同时又输出完整任务表；要么追问，要么输出草案，二选一。",
+    "**回复格式**：message 里只写给用户看的最终回复，不要把搜索过程、工具调用结果、格式修正过程写进去。禁止在同一回复重复两张含义相同的任务表。**禁止自相矛盾**：不要说「信息不足无法出草案」同时又输出完整任务表；要么追问，要么输出草案，二选一。Markdown 语法必须合法：所有加粗标记 `**` 必须成对闭合，不要输出残缺标记。",
   ].join("\n");
 }
 
