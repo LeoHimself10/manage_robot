@@ -52,6 +52,8 @@
 | `ASSIGNMENT_PHASE_ENABLED` | 否 | `1` 开启指派阶段 |
 | `TASK_INITIATOR_USER_IDS` | 否 | 发起人白名单（当前主链路暂未生效，保留为后续接入项） |
 | `TASK_INITIATOR_IDS_FILE` | 否 | 发起人白名单文件路径（当前主链路暂未生效） |
+| `WORKBENCH_MANAGER_USER_IDS` | 否 | **主管**工作台身份白名单（与发起人独立）；逗号分隔钉钉 `userId`。供后续钉钉网页应用免登/Session 路由判定；未配置则 `isWorkbenchManager` 恒为 false（见 `src/security/workbench-manager-whitelist.ts`） |
+| `WORKBENCH_MANAGER_IDS_FILE` | 否 | 主管名单 JSON 数组文件（可选；优先级高于 env 列表） |
 | `ASSIGNMENT_WEB_PORT` | 否 | 工作台 Web 端口（默认 `8787`） |
 | `ASSIGNMENT_WEB_PUBLIC_BASE_URL` | 否 | 工作台公网地址（ECS 公网 host） |
 | `ASSIGNMENT_WEB_SECRET` | 否 | HMAC-SHA256 签名密钥 |

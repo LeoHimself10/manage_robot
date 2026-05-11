@@ -18,17 +18,19 @@ export function renderWorkbenchRootLandingHtml(): string {
 </head>
 <body>
   <h1>任务规划工作台</h1>
-  <p>这是站点<strong>首页</strong>。业务页面需要服务端签发的 <code>token</code>（HMAC），不能只填域名根路径。</p>
-  <p class="muted">若旧版本在这里只看到「ok」，那是探活响应；请使用下方路径或机器人消息里的完整链接。</p>
-  <h2>可用路径（均需 <code>?token=...</code>）</h2>
+  <p>这是站点<strong>首页</strong>，可直接作为钉钉网页应用首页 URL 使用。</p>
+  <p class="muted">当前先提供可直达的工作台壳页面；后续接入钉钉免登后，将自动识别主管/员工并加载真实数据。</p>
+  <h2>可用路径（支持固定 URL 直达）</h2>
   <ul>
-    <li><code>/workbench/manager</code> — 主管分配与追踪</li>
-    <li><code>/workbench/employee</code> — 员工我的任务</li>
-    <li><code>/workbench/conversation</code> — 任务对话中心</li>
-    <li><code>/workbench/in-progress</code> — 进行中任务</li>
-    <li><code>/assignment/workbench</code> — 兼容入口（分配工作台）</li>
+    <li><code>/workbench</code> — 登录入口（已登录将跳转对应角色首页）</li>
+    <li><code>/workbench/manager/tasks</code> — 主管 · 历史任务与改派</li>
+    <li><code>/workbench/manager/chat</code> — 主管 · Agent 会话</li>
+    <li><code>/workbench/employee/new</code> — 员工 · 新任务承接</li>
+    <li><code>/workbench/employee/current</code> — 员工 · 当前任务进度</li>
+    <li class="muted"><code>/workbench/manager</code>、<code>/workbench/conversation</code> 等旧书签会自动跳转到上述页面。</li>
+    <li><code>/assignment/workbench</code> — 兼容入口（携带 token 时写入会话并跳转）</li>
   </ul>
-  <p><strong>钉钉网页应用</strong>：开放平台里的首页 URL 不要只填 <code>https://域名/</code>；请填机器人推送的<strong>完整 HTTPS 链接</strong>（含 token），或后续接入钉钉免登后再用固定首页。</p>
+  <p><strong>钉钉网页应用</strong>：可将首页 URL 配置为 <code>https://你的域名/workbench</code>（或根路径 <code>/</code>）。</p>
   <p class="muted">探活：<a href="/health">/health</a> 返回纯文本 <code>ok</code>。</p>
 </body>
 </html>`;

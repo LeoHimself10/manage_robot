@@ -121,16 +121,24 @@ function startCombinedServer(healthPort: number): void {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
     // Load balancers / Docker health probes — keep plain text only on this path.
-    if (url.pathname === "/health") {
+    if (url.pathname === "/health" && (req.method === "GET" || req.method === "HEAD")) {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end("ok");
+      if (req.method === "HEAD") {
+        res.end();
+      } else {
+        res.end("ok");
+      }
       return;
     }
 
     // DingTalk micro-app home URL is often configured as https://host/ — show HTML, not "ok".
-    if (req.method === "GET" && url.pathname === "/") {
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(renderWorkbenchRootLandingHtml());
+      if (req.method === "HEAD") {
+        res.end();
+      } else {
+        res.end(renderWorkbenchRootLandingHtml());
+      }
       return;
     }
 
