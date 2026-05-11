@@ -107,7 +107,10 @@ describe("runOrchestrator", () => {
       employeeRepo: { list: () => [] },
       sessionContext: {
         knownFacts: existingFacts,
-        conversationHistory: [{ role: "assistant", content: "上轮已输出任务草案" }],
+        conversationHistory: [
+          { role: "assistant", content: "上轮已输出任务草案" },
+          { role: "employee_update", content: "[DONE] 已完成样机拆解" },
+        ],
         planId: "plan-123",
         latestDraft: { tasks: [{ id: "t1", title: "旧任务" }] },
         latestAssignment: { assignments: [{ taskId: "t1", primary: { userId: "u1" } }] },
@@ -124,6 +127,14 @@ describe("runOrchestrator", () => {
     expect(memoryMsg).toBeDefined();
     expect(memoryMsg?.content).toContain("latestDraftSummary");
     expect(memoryMsg?.content).toContain("latestAssignmentSummary");
+    expect(
+      requestArg.messages.some((m) => m.role === "employee_update"),
+    ).toBe(false);
+    expect(
+      requestArg.messages.some(
+        (m) => m.role === "assistant" && m.content.includes("[employee_update]"),
+      ),
+    ).toBe(true);
 
     expect(result.knownFacts).toContain("负责人偏好质量部");
     expect(result.knownFacts).toContain("系统是Linux");

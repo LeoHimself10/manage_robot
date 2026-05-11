@@ -91,9 +91,11 @@ export async function runOrchestrator(
     });
   }
 
-  const history = config.sessionContext?.conversationHistory ?? [];
+  const history = normalizeConversationHistoryForModel(
+    config.sessionContext?.conversationHistory ?? [],
+  );
   for (const h of history.slice(-5)) {
-    allMessages.push({ role: h.role, content: h.content });
+    allMessages.push(h);
   }
   allMessages.push({ role: "user", content: userMessage });
 
@@ -204,6 +206,24 @@ function summarizeAssignmentForPrompt(
       .filter((id) => id.length > 0)
       .slice(0, 8),
   };
+}
+
+function normalizeConversationHistoryForModel(
+  history: Array<{ role: string; content: string }>,
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const normalized: Array<{ role: "user" | "assistant"; content: string }> = [];
+  for (const row of history) {
+    const content = String(row?.content ?? "").trim();
+    if (!content) continue;
+    if (row.role === "user" || row.role === "assistant") {
+      normalized.push({ role: row.role, content });
+      continue;
+    }
+    // Some subsystems (e.g. workbench updates) persist custom roles like employee_update.
+    // Map them to assistant message to keep context while preserving OpenAI-compatible roles.
+    normalized.push({ role: "assistant", content: `[${row.role}] ${content}` });
+  }
+  return normalized;
 }
 
 /**
