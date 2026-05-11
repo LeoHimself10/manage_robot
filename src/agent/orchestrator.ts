@@ -130,6 +130,7 @@ export async function runOrchestrator(
 
   const toolCallsTotal = response.toolCallsExecuted;
   const payload = response.payload as Record<string, unknown> | undefined;
+  const timing = response.timing;
 
   const msg = String(payload?.message ?? "").trim();
   const assignment = isPlainObject(payload?.assignment) ? payload?.assignment as Record<string, unknown> : undefined;
@@ -141,6 +142,11 @@ export async function runOrchestrator(
     event: "orchestrator_done",
     traceId,
     toolCallsTotal,
+    llmMsTotal: timing?.llmMsTotal ?? null,
+    toolsMsTotal: timing?.toolsMsTotal ?? null,
+    parseMsTotal: timing?.parseMsTotal ?? null,
+    orchestratorLoopMs: timing?.totalMs ?? null,
+    loopIterations: timing?.iterations.length ?? null,
     hasDraft: draft !== undefined,
     hasAssignment: assignment !== undefined,
     messageChars: msg.length,

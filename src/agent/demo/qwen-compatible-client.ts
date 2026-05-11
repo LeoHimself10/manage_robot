@@ -1,6 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 import { LlmPlanPayload, InferenceTrace, TokenUsage } from "./llm-types";
+import { logStructured } from "../../infra/logger";
 import {
   buildQwenPlannerSystemPrompt,
   buildQwenPlannerUserPrompt,
@@ -63,6 +64,24 @@ export interface CallWithToolsResult {
   rawContent: string;
   trace: InferenceTrace;
   toolCallsExecuted: number;
+  timing?: {
+    totalMs: number;
+    llmMsTotal: number;
+    toolsMsTotal: number;
+    parseMsTotal: number;
+    iterations: Array<{
+      iteration: number;
+      llmMs: number;
+      parseMs: number;
+      toolsMs: number;
+      toolCalls: number;
+      totalMs: number;
+      tools: Array<{
+        toolName: string;
+        elapsedMs: number;
+      }>;
+    }>;
+  };
 }
 
 interface ChatCompletionResponse {
@@ -260,8 +279,22 @@ export class QwenCompatibleClient {
           request.messages.map((m) => ({ ...m }));
         let toolCallsExecuted = 0;
         let iterations = 0;
+        const iterationTimings: Array<{
+          iteration: number;
+          llmMs: number;
+          parseMs: number;
+          toolsMs: number;
+          toolCalls: number;
+          totalMs: number;
+          tools: Array<{
+            toolName: string;
+            elapsedMs: number;
+          }>;
+        }> = [];
 
         while (iterations < maxIterations) {
+          const iterationNo = iterations + 1;
+          const iterationStartedAt = Date.now();
           const body: Record<string, unknown> = {
             model: this.config.model,
             temperature: this.config.temperature,
@@ -280,11 +313,13 @@ export class QwenCompatibleClient {
           const ctrl = new AbortController();
           const timer = setTimeout(() => ctrl.abort(), this.config.timeoutMs);
           let resp: ChatCompletionResponse;
+          const llmStartedAt = Date.now();
           try {
             resp = await this.postChatCompletions(body, ctrl.signal);
           } finally {
             clearTimeout(timer);
           }
+          const llmMs = Date.now() - llmStartedAt;
 
           accumulatedUsage = accumulateTokenUsage(
             accumulatedUsage,
@@ -292,11 +327,36 @@ export class QwenCompatibleClient {
           );
 
           const msg = resp.choices?.[0]?.message;
+          const parseStartedAt = Date.now();
+          let parseMs = 0;
+          let toolsMs = 0;
+          let toolCallsThisIteration = 0;
+          const tools: Array<{ toolName: string; elapsedMs: number }> = [];
 
           // No tool_calls: return parsed JSON
           if (!msg?.tool_calls || msg.tool_calls.length === 0) {
             const content = extractAssistantContent(resp);
             const payload = parseAssistantJsonPayload(content);
+            parseMs = Date.now() - parseStartedAt;
+            const totalMs = Date.now() - iterationStartedAt;
+            const row = {
+              iteration: iterationNo,
+              llmMs,
+              parseMs,
+              toolsMs,
+              toolCalls: toolCallsThisIteration,
+              totalMs,
+              tools,
+            };
+            iterationTimings.push(row);
+            logStructured({
+              event: "orchestrator_iteration_timing",
+              traceId: request.traceId,
+              ...row,
+            });
+            const llmMsTotal = iterationTimings.reduce((s, x) => s + x.llmMs, 0);
+            const toolsMsTotal = iterationTimings.reduce((s, x) => s + x.toolsMs, 0);
+            const parseMsTotal = iterationTimings.reduce((s, x) => s + x.parseMs, 0);
             return {
               payload,
               rawContent: content,
@@ -308,6 +368,13 @@ export class QwenCompatibleClient {
                 latencyMs: Date.now() - startedAt,
               },
               toolCallsExecuted,
+              timing: {
+                totalMs: Date.now() - startedAt,
+                llmMsTotal,
+                toolsMsTotal,
+                parseMsTotal,
+                iterations: iterationTimings,
+              },
             };
           }
 
@@ -337,7 +404,12 @@ export class QwenCompatibleClient {
               );
             }
 
+            const toolStartedAt = Date.now();
             const result = await handler(parsedArgs);
+            const toolElapsedMs = Date.now() - toolStartedAt;
+            tools.push({ toolName: tc.function.name, elapsedMs: toolElapsedMs });
+            toolsMs += toolElapsedMs;
+            toolCallsThisIteration += 1;
             toolCallsExecuted += 1;
             currentMessages.push({
               role: "tool",
@@ -346,8 +418,36 @@ export class QwenCompatibleClient {
             });
           }
 
+          parseMs = Date.now() - parseStartedAt;
+          const totalMs = Date.now() - iterationStartedAt;
+          const row = {
+            iteration: iterationNo,
+            llmMs,
+            parseMs,
+            toolsMs,
+            toolCalls: toolCallsThisIteration,
+            totalMs,
+            tools,
+          };
+          iterationTimings.push(row);
+          logStructured({
+            event: "orchestrator_iteration_timing",
+            traceId: request.traceId,
+            ...row,
+          });
           iterations++;
         }
+
+        logStructured({
+          event: "orchestrator_timing_breakdown_on_exceeded",
+          traceId: request.traceId,
+          maxIterations,
+          totalMs: Date.now() - startedAt,
+          llmMsTotal: iterationTimings.reduce((s, x) => s + x.llmMs, 0),
+          toolsMsTotal: iterationTimings.reduce((s, x) => s + x.toolsMs, 0),
+          parseMsTotal: iterationTimings.reduce((s, x) => s + x.parseMs, 0),
+          iterations: iterationTimings,
+        });
 
         throw new Error(
           `ReAct loop exceeded max iterations (${maxIterations})`
