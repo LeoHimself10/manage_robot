@@ -26,6 +26,7 @@ export interface OrchestratorConfig {
 export interface OrchestratorResult {
   messages: string[];
   draft?: Record<string, unknown>;
+  assignment?: Record<string, unknown>;
   traceId: string;
   toolCallsTotal: number;
   knownFacts: string[];
@@ -118,6 +119,7 @@ export async function runOrchestrator(
       return {
         messages: ["我先给你一个简版结论：当前问题较复杂，我还需要1-2条关键信息才能输出完整草案。请补充“是否已做过初步排查结果”和“期望完成时间”。"],
         draft: savedDraft,
+        assignment: undefined,
         traceId,
         toolCallsTotal: maxToolIterations,
         knownFacts: [...knownFacts],
@@ -130,6 +132,7 @@ export async function runOrchestrator(
   const payload = response.payload as Record<string, unknown> | undefined;
 
   const msg = String(payload?.message ?? "").trim();
+  const assignment = isPlainObject(payload?.assignment) ? payload?.assignment as Record<string, unknown> : undefined;
 
   const messages: string[] = msg ? [msg] : [];
   let draft: Record<string, unknown> | undefined = savedDraft ?? (payload?.draft as Record<string, unknown> | undefined);
@@ -139,11 +142,12 @@ export async function runOrchestrator(
     traceId,
     toolCallsTotal,
     hasDraft: draft !== undefined,
+    hasAssignment: assignment !== undefined,
     messageChars: msg.length,
     messagePreview: msg.slice(0, 200),
   });
 
-  return { messages, draft, traceId, toolCallsTotal, knownFacts: [...knownFacts] };
+  return { messages, draft, assignment, traceId, toolCallsTotal, knownFacts: [...knownFacts] };
 }
 
 function safeJson(input: unknown): string {
@@ -152,4 +156,8 @@ function safeJson(input: unknown): string {
   } catch {
     return "{}";
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

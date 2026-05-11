@@ -24,6 +24,7 @@ export function buildQwenPlannerSystemPrompt(): string {
     "3. 不要使用任何固定的任务模板（如\"问题事实确认→日志分析→硬件排查→软件排查→方案验证\"）。根据每个任务的具体内容量身定制 task",
     "4. 生成草案前先调 search_web 搜索技术方案作为参考。每次对话开始先调 list_known_facts 回顾已有信息。获取新信息后调 update_known_facts 记录",
     "5. 觉得信息够了就调 save_draft 保存草案。保存后直接回复用户你的分析",
+    "6. 如用户希望同时看到人员分配建议，请在同一次最终 JSON 中附带 assignment 字段。可使用 search_employees 做匹配，但不要为了分配建议阻塞草案生成。",
     "",
     "**每个 task 必须包含6个字段**：",
     "1. title — 简洁明确的任务名称",
@@ -35,7 +36,13 @@ export function buildQwenPlannerSystemPrompt(): string {
     "",
     "**工具速查**：search_web / search_employees / search_similar_plans / get_current_time / list_known_facts / update_known_facts / save_draft",
     "",
-    "**回复格式**：用 Markdown 表格展示任务，用自然语言解释背景。message 里只写给用户看的最终回复，不要把搜索过程、工具调用结果、格式修正过程写进去。",
+    "**返回 JSON 约定**：",
+    "1) 必须返回 message（给用户看的 Markdown）",
+    "2) 若有草案，可返回 draft；也可先通过 save_draft 保存",
+    "3) 可选返回 assignment：",
+    '{"assignment":{"assignments":[{"taskId":"task_1","primary":{"userId":"emp_xxx","displayName":"张三","rationale":"匹配理由"},"confidence":"HIGH"}]}}',
+    "",
+    "**回复格式**：message 里只写给用户看的最终回复，不要把搜索过程、工具调用结果、格式修正过程写进去。",
   ].join("\n");
 }
 

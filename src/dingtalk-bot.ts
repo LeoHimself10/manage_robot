@@ -19,9 +19,9 @@ import { resolveEmployeeProfileDir, resolveAssignmentDraftDir, resolveAssignment
 import { createEmployeeProfileRepo } from "./integrations/repos/employee-profile-repo";
 import { createAssignmentDraftRepo } from "./integrations/repos/assignment-draft-repo";
 import { createAssignmentEventRepo } from "./integrations/repos/assignment-event-repo";
-import { runAssignmentRecommendation } from "./agent/assignment/run-assignment-recommendation";
 import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { runOrchestrator } from "./agent/orchestrator";
+import { extractLightAssignment, renderLightAssignmentSection } from "./agent/assignment/light-assignment";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
 import { createPlanSessionStore, type PlanSession } from "./infra/plan-session-store";
@@ -31,7 +31,6 @@ import { logStructured } from "./infra/logger";
 const MAX_MARKDOWN_CHARS = 18_000;
 const DEFAULT_DINGTALK_MAX_TOKENS = 2200;
 const DEFAULT_DINGTALK_ORCH_ITERATIONS = 6;
-const DEFAULT_DINGTALK_ASSIGNMENT_ITERATIONS = 3;
 
 function truncateMarkdown(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -160,10 +159,6 @@ async function main(): Promise<void> {
   const dingtalkOrchestratorMaxIterations = readEnvInt(
     "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS",
     DEFAULT_DINGTALK_ORCH_ITERATIONS,
-  );
-  const dingtalkAssignmentMaxIterations = readEnvInt(
-    "DINGTALK_ASSIGNMENT_MAX_ITERATIONS",
-    DEFAULT_DINGTALK_ASSIGNMENT_ITERATIONS,
   );
   const appendStructuredTaskTable = readEnvBool(
     "DINGTALK_APPEND_STRUCTURED_TABLE",
@@ -324,53 +319,58 @@ async function main(): Promise<void> {
         let latestAssignment: Record<string, unknown> | undefined = session.latestAssignment;
         let assignmentSection = "";
         if (currentDraft && process.env.ASSIGNMENT_PHASE_ENABLED === "1") {
-          try {
-            const tasksForAssignment = (currentDraft as any)?.tasks ?? [];
-            const classification = (currentDraft as any)?.classification ?? { domain: "QUALITY", subtype: "QUALITY_OTHER_OR_UNCERTAIN" };
-            const previousAssignment = latestAssignment ?? assignmentDraftRepo.load(session.planId);
-            const ar = await runAssignmentRecommendation(
-              {
-                planId: session.planId,
+          const taskIds = Array.isArray((currentDraft as any)?.tasks)
+            ? (currentDraft as any).tasks
+                .map((t: any) => (typeof t?.id === "string" ? t.id : ""))
+                .filter((id: string) => id.length > 0)
+            : [];
+          const assignmentResult = extractLightAssignment({
+            rawAssignment: orchResult.assignment,
+            planId: session.planId,
+            traceId: orchResult.traceId,
+            modelName: dingtalkQwenConfig.model,
+            taskIds,
+            employees: employeeRepo.list().map((e) => ({
+              userId: e.userId,
+              displayName: e.displayName,
+            })),
+          });
+          if (assignmentResult.ok) {
+            latestAssignment = assignmentResult.draft as unknown as Record<string, unknown>;
+            assignmentSection = renderLightAssignmentSection(assignmentResult.draft);
+            planSessionStore.appendEvent({
+              planId: session.planId,
+              chatKeyHash: session.chatKeyHash,
+              eventType: "ASSIGNMENT_UPDATED",
+              payload: {
                 traceId: orchResult.traceId,
-                tasks: tasksForAssignment,
-                classificationSummary: `${classification.domain}/${classification.subtype}`,
-                domainHint: classification.domain,
-                userInstruction: background,
-                previousAssignment,
-                knownFacts: updatedKnownFacts,
+                assignmentCount: assignmentResult.draft.assignments.length,
               },
-              {
-                employeeRepo,
-                qwenConfig: dingtalkQwenConfig,
-                draftRepo: assignmentDraftRepo,
-                eventRepo: assignmentEventRepo,
-                maxToolIterations: dingtalkAssignmentMaxIterations,
-                selfCorrectionAttempts: 0,
-              },
-            );
-            if (ar.ok) {
-              latestAssignment = ar.draft as unknown as Record<string, unknown>;
-              const assignments = ar.draft.assignments ?? [];
-              if (assignments.length > 0) {
-                const rows = assignments.map((a: any) =>
-                  `| ${a.taskId ?? ""} | ${a.primary?.displayName ?? "-"} | ${a.confidence ?? "-"} | ${a.primary?.rationale ?? "-"} |`
-                );
-                assignmentSection =
-                  "\n\n### 分配建议\n| 任务 | 推荐负责人 | 置信度 | 理由 |\n|---|---|---|---|\n" +
-                  rows.join("\n");
-              }
-              planSessionStore.appendEvent({
-                planId: session.planId,
-                chatKeyHash: session.chatKeyHash,
-                eventType: "ASSIGNMENT_UPDATED",
-                payload: {
-                  traceId: orchResult.traceId,
-                  assignmentCount: assignments.length,
-                },
+            });
+            try {
+              await assignmentDraftRepo.save(assignmentResult.draft as unknown as { planId: string; traceId: string; promptVersion: string });
+              await assignmentEventRepo.append({
+                eventType: "ASSIGNMENT_DRAFT_GENERATED",
+                traceId: orchResult.traceId,
+                planId: assignmentResult.draft.planId,
+                assignmentCount: assignmentResult.draft.assignments.length,
+                promptVersion: assignmentResult.draft.promptVersion,
+                modelName: assignmentResult.draft.modelName,
+                occurredAt: new Date().toISOString(),
+              });
+            } catch (persistErr) {
+              logStructured({
+                event: "dingtalk_assignment_persist_failed",
+                traceId: orchResult.traceId,
+                reason: persistErr instanceof Error ? persistErr.message : String(persistErr),
               });
             }
-          } catch (err) {
-            console.error("[assignment] error:", err instanceof Error ? err.message : String(err));
+          } else if (orchResult.assignment !== undefined) {
+            logStructured({
+              event: "dingtalk_assignment_light_validation_failed",
+              traceId: orchResult.traceId,
+              reason: assignmentResult.reason,
+            });
           }
         }
         const assignmentMs = Date.now() - assignmentStartedAt;

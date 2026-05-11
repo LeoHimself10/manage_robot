@@ -56,6 +56,35 @@ describe("runOrchestrator", () => {
     expect(result.toolCallsTotal).toBe(2);
   });
 
+  it("returns assignment when model includes assignment payload", async () => {
+    mockCallWithTools.mockResolvedValueOnce({
+      payload: {
+        message: "已生成拆解与分配建议",
+        assignment: {
+          assignments: [
+            {
+              taskId: "task_1",
+              primary: { userId: "emp_qa_001", displayName: "张三", rationale: "经验匹配" },
+              confidence: "HIGH",
+            },
+          ],
+        },
+      },
+      rawContent: "{}",
+      trace: { requestId: "t2b", model: "qwen3.6-plus", tokenUsage: { totalTokens: 90 }, latencyMs: 160 },
+      toolCallsExecuted: 1,
+    });
+
+    const { runOrchestrator } = await import("../../src/agent/orchestrator");
+    const result = await runOrchestrator("给我拆解并分配", {
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
+      employeeRepo: { list: () => [] },
+    });
+
+    expect(result.assignment).toBeDefined();
+    expect((result.assignment as { assignments?: unknown[] })?.assignments?.length).toBe(1);
+  });
+
   it("injects persistent memory context and returns updated knownFacts", async () => {
     mockCallWithTools.mockImplementationOnce(async (req: {
       toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<unknown> | unknown>;
