@@ -7,12 +7,12 @@ import {
 describe("buildQwenPlannerSystemPrompt", () => {
   it("v4.1: first-round-question, second-round-draft prompt", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v4.1");
+    expect(sys).toContain("orchestrator-agent-v5.2");
     expect(sys).toContain("save_draft");
     expect(sys).toContain("list_known_facts");
     expect(sys).toContain("deliverables");
     expect(sys).toContain("待确认");
-    expect(sys).toContain("不要再问");
+    expect(sys).toContain("医疗器械");
     expect(sys).not.toContain("responseIntent");
     expect(sys).not.toContain("CLARIFY");
   });

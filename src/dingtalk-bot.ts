@@ -170,22 +170,23 @@ async function main(): Promise<void> {
         }
 
         const prior = chatSessionMemory.get(chatKey);
+        const knownFacts = getSessionKnownFacts(prior);
 
         // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
         const orchResult = await runOrchestrator(background, {
           clientConfig: qwenConfig,
           employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
           sessionContext: {
-            knownFacts: getSessionKnownFacts(prior),
+            knownFacts,
             conversationHistory: (prior as any)?.conversationHistory,
           },
         });
 
-        // Session: 保留 knownFacts + 对话历史供后续对话
+        // Session: 保留 knownFacts（同一引用，orchestrator 已通过工具回调修改）
         const prevHistory = (prior as any)?.conversationHistory ?? [];
         chatSessionMemory.set(chatKey, {
           priorDigest: prior?.priorDigest,
-          knownFacts: prior?.knownFacts ?? [],
+          knownFacts,
           conversationHistory: [
             ...prevHistory,
             { role: "user" as const, content: background },

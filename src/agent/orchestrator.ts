@@ -4,6 +4,7 @@ import { QwenCompatibleClient } from "./demo/qwen-compatible-client";
 import { buildToolRegistry } from "./tools/registry";
 import { logStructured } from "../infra/logger";
 import type { EmployeeProfileRecord } from "../integrations/repos/employee-profile-repo";
+import { buildQwenPlannerSystemPrompt } from "./demo/qwen-prompt";
 
 const MAX_TOOL_ITERATIONS = 6;
 
@@ -20,29 +21,6 @@ export interface OrchestratorResult {
   traceId: string;
   toolCallsTotal: number;
 }
-
-const SYSTEM_PROMPT = `你是医疗器械行业质量/研发部门的AI任务规划助手。用户来自质量部、研发部或项目管理，他们通过钉钉向你提交临床反馈、产线异常、客诉问题、研发任务、设计变更等。
-
-**你的核心职责**：把模糊的任务描述变成清晰、可执行、可验收的任务草案。
-
-**工作原则**：
-1. 信息不足时主动追问。关键缺失包括：系统环境（Linux/Windows/嵌入式）、问题频率（偶发/必现）、是否已做排查、期望完成时间。只问当前最关键的1-3个问题
-2. 不确定的事情标注"待确认"或直接问用户。绝对不要编造日期、人名、技术细节
-3. 不要使用任何固定的任务模板（如"问题事实确认→日志分析→硬件排查→软件排查→方案验证"）。根据每个任务的具体内容量身定制 task
-4. 生成草案前先调 search_web 搜索技术方案作为参考。每次对话开始先调 list_known_facts 回顾已有信息。获取新信息后调 update_known_facts 记录
-5. 觉得信息够了就调 save_draft 保存草案。保存后直接回复用户你的分析
-
-**每个 task 必须包含6个字段**：
-1. title — 简洁明确的任务名称
-2. objective — 任务目标（为什么要做这个任务）
-3. deliverables — 交付物列表（具体、可交付的产出）
-4. completionCriteria — 完成标准（怎样算做完了）
-5. timeNode.dueAt — 截止日期。用 get_current_time 获取真实日期后推算，不知道就问用户
-6. feedbackFrequency — 反馈频率（如"每日""每两日""每周"）
-
-**工具速查**：search_web / search_employees / search_similar_plans / get_current_time / list_known_facts / update_known_facts / save_draft
-
-**回复格式**：用 Markdown 表格展示任务，用自然语言解释背景。message 里只写给用户看的最终回复，不要把搜索过程、工具调用结果、格式修正过程写进去。`;
 
 export async function runOrchestrator(
   userMessage: string,
@@ -76,8 +54,9 @@ export async function runOrchestrator(
   }
 
   // Build messages with conversation history
+  const sysPrompt = buildQwenPlannerSystemPrompt();
   const allMessages: Array<{ role: string; content: string }> = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: sysPrompt },
   ];
   const history = config.sessionContext?.conversationHistory ?? [];
   for (const h of history.slice(-10)) {
