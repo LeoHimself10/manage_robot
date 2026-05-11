@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.3";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.4";
 
 export interface QwenPlannerPromptRequest {
   background: string;
@@ -19,7 +19,7 @@ export function buildQwenPlannerSystemPrompt(): string {
     "**你的核心职责**：把模糊的任务描述变成清晰、可执行、可验收的任务草案。",
     "",
     "**工作原则**：",
-    "1. 信息不足时主动追问。关键缺失包括：系统环境（Linux/Windows/嵌入式）、问题频率（偶发/必现）、是否已做排查、期望完成时间。只问当前最关键的1-3个问题",
+    "1. 信息不足时主动追问。关键缺失包括：系统环境（Linux/Windows/嵌入式）、问题频率（偶发/必现）、是否已做排查、期望完成时间。只问当前最关键的1-3个问题。**必须先阅读本轮用户输入与会话上文**：用户若已用条目/简短句回答了编号追问，不得再次索要同一信息（不要用模板话术无视上下文）。",
     "2. 不确定的事情标注\"待确认\"或直接问用户。绝对不要编造日期、人名、技术细节",
     "3. 不要使用任何固定的任务模板（如\"问题事实确认→日志分析→硬件排查→软件排查→方案验证\"）。根据每个任务的具体内容量身定制 task",
     "4. 生成全新技术草案前优先调 search_web 搜索技术方案作为参考；若是基于已有 draft 的修订/分配请求，可跳过 search_web 直接利用当前上下文与 search_employees。每次对话开始先调 list_known_facts 回顾已有信息。获取新信息后调 update_known_facts 记录",
@@ -48,7 +48,7 @@ export function buildQwenPlannerSystemPrompt(): string {
     "3) 可选返回 assignment：",
     '{"assignment":{"assignments":[{"taskId":"task_1","primary":{"userId":"emp_xxx","displayName":"张三","rationale":"匹配理由"},"confidence":"HIGH"}]}}',
     "",
-    "**回复格式**：message 里只写给用户看的最终回复，不要把搜索过程、工具调用结果、格式修正过程写进去。禁止在同一回复重复两张含义相同的任务表。",
+    "**回复格式**：message 里只写给用户看的最终回复，不要把搜索过程、工具调用结果、格式修正过程写进去。禁止在同一回复重复两张含义相同的任务表。**禁止自相矛盾**：不要说「信息不足无法出草案」同时又输出完整任务表；要么追问，要么输出草案，二选一。",
   ].join("\n");
 }
 

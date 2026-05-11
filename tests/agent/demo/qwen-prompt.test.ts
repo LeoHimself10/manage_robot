@@ -7,7 +7,7 @@ import {
 describe("buildQwenPlannerSystemPrompt", () => {
   it("v4.1: first-round-question, second-round-draft prompt", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.2");
+    expect(sys).toContain("orchestrator-agent-v5.4");
     expect(sys).toContain("save_draft");
     expect(sys).toContain("list_known_facts");
     expect(sys).toContain("deliverables");

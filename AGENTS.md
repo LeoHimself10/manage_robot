@@ -19,8 +19,8 @@
 ## 当前实现边界（2026-05-11）
 
 - **主链路**：钉钉消息 → **`runOrchestrator`（ReAct loop + tool calling）**→ 结构化草案补表 + 可选指派推荐 + Plan 快照。`createTaskPlanningDemo` 保留给 CLI/demo/eval 回归链路。
-- **模型**：`qwen3.6-plus`（DashScope），支持 function calling。`QWEN_MODEL` 默认 `qwen3.6-plus`（见 `model-policy.ts`），`QWEN_THINKING` 默认开启（`QWEN_THINKING=0|false|no` 关闭）。
-- **提示词**：`orchestrator-agent-v5.2`（`src/agent/demo/qwen-prompt.ts`），`runOrchestrator` 与 `generateStructuredPlan` 共享同一 system prompt 源。
+- **模型**：DashScope OpenAI 兼容接口；仓库默认策略见 `model-policy.ts`。线上可通过 **`QWEN_MODEL`** 切换（例如 **`qwen3.6-flash`** 降低延迟，需自行验证工具调用与草案质量）。钉钉链路默认 **`DINGTALK_QWEN_THINKING=0`**（关闭 thinking 以降低首包时延）；全局 `QWEN_THINKING` 仍可按环境关闭。
+- **提示词**：`orchestrator-agent-v5.4`（`src/agent/demo/qwen-prompt.ts`），`runOrchestrator` 与 `generateStructuredPlan` 共享同一 system prompt 源。
 - **工具**（`src/agent/tools/`）：`list_known_facts`、`update_known_facts`、`search_web`、`search_similar_plans`（embedding + cosine）、`save_draft`（以 coerce 为主，尽量少硬校验）、`search_employees`（假员工档案 10 人）。
 - **短期记忆**：`knownFacts[]`（session-store），模型通过 `update_known_facts` / `list_known_facts` 自主维护。
 - **长期记忆**：`plan-index.ts`（embedding + cosine 文件遍历），`search_similar_plans` 工具触发。

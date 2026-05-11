@@ -158,7 +158,7 @@ describe("runOrchestrator", () => {
       maxToolIterations: 4,
     });
 
-    expect(result.messages[0]).toContain("我先给你一个简版结论");
+    expect(result.messages[0]).toContain("编排工具轮次上限");
     expect(result.traceId).toBeDefined();
   });
 });

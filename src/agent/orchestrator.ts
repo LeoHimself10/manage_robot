@@ -115,9 +115,14 @@ export async function runOrchestrator(
         traceId,
         maxToolIterations,
         reason: msg,
+        hasPartialDraft: savedDraft !== undefined,
       });
       return {
-        messages: ["我先给你一个简版结论：当前问题较复杂，我还需要1-2条关键信息才能输出完整草案。请补充“是否已做过初步排查结果”和“期望完成时间”。"],
+        messages: [
+          buildOrchestratorIterationLimitMessage(userMessage, {
+            hasPartialDraft: savedDraft !== undefined,
+          }),
+        ],
         draft: savedDraft,
         assignment: undefined,
         traceId,
@@ -166,4 +171,32 @@ function safeJson(input: unknown): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 编排轮次用尽时的用户可见说明：必须是「技术性中断」，不得伪装成「用户未提供信息」，
+ * 否则会在用户已补充答案时表现为「失忆」。
+ */
+function buildOrchestratorIterationLimitMessage(
+  userMessage: string,
+  options: { hasPartialDraft: boolean },
+): string {
+  const preview = userMessage.trim().slice(0, 400);
+  const parts = [
+    "**说明**：本轮已达到编排工具轮次上限（模型在多轮工具调用后仍未给出最终 JSON）。这是**流程中断**，不是你没有提供信息。",
+  ];
+  if (options.hasPartialDraft) {
+    parts.push(
+      "已通过工具暂存了**部分草案**；请在下一条直接发「**继续**」或「**继续生成草案**」，我会在同一会话里接着补全。",
+    );
+  } else {
+    parts.push("请在下一条发「**继续**」，或把需求再简述一次，我会重新编排。");
+  }
+  if (preview.length > 0) {
+    parts.push(
+      "",
+      `你刚发送的内容（节选）：${preview}${userMessage.trim().length > 400 ? "…" : ""}`,
+    );
+  }
+  return parts.join("\n\n");
 }
