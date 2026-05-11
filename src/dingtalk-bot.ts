@@ -22,6 +22,7 @@ import { createAssignmentDraftRepo } from "./integrations/repos/assignment-draft
 import { createAssignmentEventRepo } from "./integrations/repos/assignment-event-repo";
 import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { runOrchestrator } from "./agent/orchestrator";
+import { routeIntentWithModel } from "./agent/intent-router";
 import { extractLightAssignment, renderLightAssignmentSection } from "./agent/assignment/light-assignment";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
@@ -167,6 +168,7 @@ async function main(): Promise<void> {
     "DINGTALK_APPEND_STRUCTURED_TABLE",
     false,
   );
+  const intentRoutingEnabled = readEnvBool("DINGTALK_INTENT_ROUTING_ENABLED", true);
 
   const debug = process.env.DINGTALK_STREAM_DEBUG === "1" || process.env.DINGTALK_STREAM_DEBUG === "true";
 
@@ -294,6 +296,75 @@ async function main(): Promise<void> {
         });
 
         const knownFacts = [...session.knownFacts];
+
+        if (intentRoutingEnabled) {
+          const routeStartedAt = Date.now();
+          const routeResult = await routeIntentWithModel(
+            {
+              userMessage: background,
+              memorySummary: buildMemorySummary(session),
+              latestDraft: session.latestDraft,
+            },
+            dingtalkQwenConfig,
+          ).catch((err) => {
+            logStructured({
+              event: "dingtalk_intent_routing_failed",
+              messageId,
+              reason: err instanceof Error ? err.message : String(err),
+            });
+            return undefined;
+          });
+          const routeMs = Date.now() - routeStartedAt;
+          if (routeResult) {
+            logStructured({
+              event: "dingtalk_intent_routed",
+              messageId,
+              route: routeResult.route,
+              confidence: routeResult.confidence,
+              routeMs,
+              reason: routeResult.reason,
+            });
+            if (routeResult.route === "SMALL_TALK") {
+              const replyText = routeResult.reply.trim() || "你好，我在线。你可以直接说一个新任务，我来帮你拆解。";
+              const sendReplyStartedAt = Date.now();
+              dingtalkResponse = await sendMarkdownReply({
+                client,
+                sessionWebhook,
+                messageId,
+                senderStaffId,
+                title: "消息",
+                markdownText: truncateMarkdown(replyText, MAX_MARKDOWN_CHARS),
+              });
+              const sendReplyMs = Date.now() - sendReplyStartedAt;
+              const totalMs = Date.now() - handlerStartedAt;
+              planSessionStore.save({
+                ...session,
+                conversationId: conversationId || session.conversationId,
+                conversationType: conversationType || session.conversationType,
+                senderStaffId: senderStaffId || session.senderStaffId,
+                sessionWebhookLastSeen: sessionWebhook || session.sessionWebhookLastSeen,
+                conversationHistory: [
+                  ...session.conversationHistory,
+                  { role: "user" as const, content: background },
+                  { role: "assistant" as const, content: replyText },
+                ].slice(-10),
+              });
+              logStructured({
+                event: "dingtalk_handler_timing",
+                traceId: "intent_router_short_circuit",
+                messageId,
+                hasDraft: false,
+                hasAssignmentSection: false,
+                orchestratorMs: 0,
+                assignmentMs: 0,
+                sendReplyMs,
+                totalMs,
+                routeMs,
+              });
+              return;
+            }
+          }
+        }
 
         // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
         const orchestratorStartedAt = Date.now();
