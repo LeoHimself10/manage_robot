@@ -165,6 +165,10 @@ async function main(): Promise<void> {
     "DINGTALK_ASSIGNMENT_MAX_ITERATIONS",
     DEFAULT_DINGTALK_ASSIGNMENT_ITERATIONS,
   );
+  const appendStructuredTaskTable = readEnvBool(
+    "DINGTALK_APPEND_STRUCTURED_TABLE",
+    false,
+  );
 
   const debug = process.env.DINGTALK_STREAM_DEBUG === "1" || process.env.DINGTALK_STREAM_DEBUG === "true";
 
@@ -299,10 +303,15 @@ async function main(): Promise<void> {
 
         // 模型自己决定输出格式，代码只做兜底
         let outboundMarkdown = orchResult.messages.join("\n\n");
-        // 仅在模型未输出任务表时兜底补表，避免出现“草案重复两遍”
+        // 默认不再自动补结构化任务表，避免和模型正文重复；可通过 DINGTALK_APPEND_STRUCTURED_TABLE=1 手动开启。
         if (currentDraft) {
           const tasks = (currentDraft as any)?.tasks;
-          if (Array.isArray(tasks) && tasks.length > 0 && !hasTaskTableInMessage(outboundMarkdown)) {
+          if (
+            appendStructuredTaskTable &&
+            Array.isArray(tasks) &&
+            tasks.length > 0 &&
+            !hasTaskTableInMessage(outboundMarkdown)
+          ) {
             const rows = tasks.map((t: any, i: number) =>
               `| ${i + 1} | ${t.title ?? ""} | ${t.objective ?? ""} | ${(t.deliverables ?? []).join("；") || "-"} | ${(t.completionCriteria ?? []).join("；") || "-"} | ${t.timeNode?.dueAt ?? "待确认"} | ${t.feedbackFrequency ?? "待确认"} |`
             );
