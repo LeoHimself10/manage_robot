@@ -21,6 +21,7 @@ import { createAssignmentDraftRepo } from "./integrations/repos/assignment-draft
 import { createAssignmentEventRepo } from "./integrations/repos/assignment-event-repo";
 import { runAssignmentRecommendation } from "./agent/assignment/run-assignment-recommendation";
 import { handleAssignmentHttp } from "./web/assignment-workbench";
+import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import { runOrchestrator } from "./agent/orchestrator";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
@@ -115,17 +116,26 @@ function ackStreamRobot(client: DWClient, messageId: string): void {
 
 function startCombinedServer(healthPort: number): void {
   const server = http.createServer(async (req, res) => {
-    if (req.url === "/health" || req.url === "/") {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
+    if (url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("ok");
       return;
     }
+
+    if (req.method === "GET" && url.pathname === "/") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(renderWorkbenchRootLandingHtml());
+      return;
+    }
+
     if (await handleAssignmentHttp(req, res)) return;
     res.writeHead(404);
     res.end();
   });
   server.listen(healthPort, () => {
-    console.info(`[health] listening on :${healthPort} (/health)`);
+    console.info(`[health] listening on :${healthPort} (/health, / → workbench landing)`);
   });
 }
 
