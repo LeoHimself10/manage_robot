@@ -152,8 +152,6 @@ async function main(): Promise<void> {
           }
         }
 
-        if (!content) {
-
         const background = content;
         const senderStaffId = String(payload.senderStaffId ?? "");
         const sessionWebhook = String(payload.sessionWebhook ?? "");
@@ -267,13 +265,13 @@ async function main(): Promise<void> {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("[dingtalk-bot] handler error:", msg);
         try {
-          const fallback = JSON.parse(res.data) as Partial<RobotMessage>;
+          const fallback = JSON.parse(res.data) as Record<string, unknown>;
           if (fallback.sessionWebhook && fallback.senderStaffId) {
             dingtalkResponse = await sendMarkdownReply({
               client,
-              sessionWebhook: fallback.sessionWebhook,
+              sessionWebhook: String(fallback.sessionWebhook ?? ""),
               messageId,
-              senderStaffId: fallback.senderStaffId,
+              senderStaffId: String(fallback.senderStaffId ?? ""),
               title: "内部错误",
               markdownText: `处理消息时出错：${msg}`,
             });
