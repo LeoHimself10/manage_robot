@@ -211,20 +211,20 @@ async function main(): Promise<void> {
 
         // 模型自己决定输出格式，代码只做兜底
         let outboundMarkdown = orchResult.messages.join("\n\n");
-        // 如果模型输出的消息里已经包含表格，不再重复渲染
-        if (orchResult.draft && !outboundMarkdown.includes("|")) {
+        // 只要有结构化草案，统一补充字段完整的任务表，避免模型自由格式漏字段
+        if (orchResult.draft) {
           const tasks = (orchResult.draft as any)?.tasks;
           if (Array.isArray(tasks) && tasks.length > 0) {
             const rows = tasks.map((t: any, i: number) =>
-              `| ${i + 1} | ${t.title ?? ""} | ${t.objective ?? ""} | ${(t.deliverables ?? []).join("；") || "-"} | ${(t.completionCriteria ?? []).join("；") || "-"} | ${t.timeNode?.dueAt ?? "待确认"} |`
+              `| ${i + 1} | ${t.title ?? ""} | ${t.objective ?? ""} | ${(t.deliverables ?? []).join("；") || "-"} | ${(t.completionCriteria ?? []).join("；") || "-"} | ${t.timeNode?.dueAt ?? "待确认"} | ${t.feedbackFrequency ?? "待确认"} |`
             );
-            outboundMarkdown += "\n\n### 任务列表\n| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 |\n|---|---|---|---|---|---|\n" + rows.join("\n");
+            outboundMarkdown += "\n\n### 任务列表（结构化字段）\n| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |\n|---|---|---|---|---|---|---|\n" + rows.join("\n");
           }
         }
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
 
-        // 分配推荐：有草案且模型没自己做分配时，自动追加
-        if (orchResult.draft && !outboundMarkdown.includes("分配") && process.env.ASSIGNMENT_PHASE_ENABLED === "1") {
+        // 分配推荐：有草案且开启配置时，自动追加
+        if (orchResult.draft && process.env.ASSIGNMENT_PHASE_ENABLED === "1") {
           try {
             const tasksForAssignment = (orchResult.draft as any)?.tasks ?? [];
             const classification = (orchResult.draft as any)?.classification ?? { domain: "QUALITY", subtype: "QUALITY_OTHER_OR_UNCERTAIN" };

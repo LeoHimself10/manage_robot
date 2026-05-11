@@ -262,26 +262,19 @@ export class QwenCompatibleClient {
         let iterations = 0;
 
         while (iterations < maxIterations) {
-          const isLastIter = iterations >= maxIterations - 1;
-
-          // Build body: last iteration forces json_object and strips tools
           const body: Record<string, unknown> = {
             model: this.config.model,
             temperature: this.config.temperature,
             max_tokens: this.config.maxTokens,
             messages: currentMessages,
-            ...(isLastIter
-              ? {}
-              : {
-                  tools: request.tools.map((t) => ({
-                    type: t.type,
-                    function: {
-                      name: t.function.name,
-                      description: t.function.description,
-                      parameters: t.function.parameters,
-                    },
-                  })),
-                }),
+            tools: request.tools.map((t) => ({
+              type: t.type,
+              function: {
+                name: t.function.name,
+                description: t.function.description,
+                parameters: t.function.parameters,
+              },
+            })),
           };
 
           const ctrl = new AbortController();
@@ -300,8 +293,8 @@ export class QwenCompatibleClient {
 
           const msg = resp.choices?.[0]?.message;
 
-          // No tool_calls OR forced last iteration: return parsed JSON
-          if (!msg?.tool_calls || msg.tool_calls.length === 0 || isLastIter) {
+          // No tool_calls: return parsed JSON
+          if (!msg?.tool_calls || msg.tool_calls.length === 0) {
             const content = extractAssistantContent(resp);
             const payload = parseAssistantJsonPayload(content);
             return {

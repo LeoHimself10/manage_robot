@@ -183,7 +183,7 @@ describe("validateLlmPlanPayload", () => {
     expect(normalized.tasks[0].feedbackFrequency).toBe("");
   });
 
-  it("normalizes non-enum capa advisory strings from model output", () => {
+  it("falls back to UNCERTAIN for non-enum capa advisory strings", () => {
     const normalized = coerceLlmPlanPayload(
       {
         classification: {
@@ -219,7 +219,7 @@ describe("validateLlmPlanPayload", () => {
       }
     );
 
-    expect(normalized.capaAdvisory?.advisory).toBe("RECOMMENDED");
+    expect(normalized.capaAdvisory?.advisory).toBe("UNCERTAIN");
   });
 
   it("allows empty tasks when validating NEEDS_MORE_INFO shaped payloads", () => {

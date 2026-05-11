@@ -557,18 +557,6 @@ function normalizeCapaAdvisoryValue(input: unknown): CapaAdvisoryValue {
   if (capaValues.has(compact as CapaAdvisoryValue)) {
     return compact as CapaAdvisoryValue;
   }
-  if (/RECOMMENDED|建议开启|推荐CAPA|建议CAPA/i.test(raw)) {
-    return "RECOMMENDED";
-  }
-  if (/NOT[_\s]?REQUIRED|不必|不需要|无需CAPA|可不开启/i.test(raw)) {
-    return "NOT_REQUIRED";
-  }
-  if (/INSUFFICIENT|信息不足|资料不足|不足以判断/i.test(raw)) {
-    return "INSUFFICIENT_INFO";
-  }
-  if (/UNCERTAIN|不确定|待评估|尚不明确/i.test(raw)) {
-    return "UNCERTAIN";
-  }
   return "UNCERTAIN";
 }
 

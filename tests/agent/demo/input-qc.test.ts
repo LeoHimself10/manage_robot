@@ -39,16 +39,15 @@ describe("checkInputQuality", () => {
     expect(result.missingFields).toEqual([]);
   });
 
-  it("blocks overly long background with INPUT_MAX_CHARS", () => {
-    process.env.INPUT_MAX_CHARS = "20";
+  it("allows overly long background and leaves semantic judgment to the model", () => {
     const background = "a".repeat(30);
     const result = checkInputQuality({
       domainHint: "QUALITY",
       background,
     });
-    expect(result.canGenerateWbs).toBe(false);
-    expect(result.missingFields).toContain("background");
-    expect(result.questions.some((q) => q.includes("分段") || q.includes("缩短"))).toBe(true);
+    expect(result.canGenerateWbs).toBe(true);
+    expect(result.missingFields).toEqual([]);
+    expect(result.questions).toEqual([]);
   });
 
   it("allows WBS generation when quality context contains key facts", () => {
