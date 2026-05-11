@@ -22,7 +22,7 @@ export function buildQwenPlannerSystemPrompt(): string {
     "1. 信息不足时主动追问。关键缺失包括：系统环境（Linux/Windows/嵌入式）、问题频率（偶发/必现）、是否已做排查、期望完成时间。只问当前最关键的1-3个问题",
     "2. 不确定的事情标注\"待确认\"或直接问用户。绝对不要编造日期、人名、技术细节",
     "3. 不要使用任何固定的任务模板（如\"问题事实确认→日志分析→硬件排查→软件排查→方案验证\"）。根据每个任务的具体内容量身定制 task",
-    "4. 生成草案前先调 search_web 搜索技术方案作为参考。每次对话开始先调 list_known_facts 回顾已有信息。获取新信息后调 update_known_facts 记录",
+    "4. 生成全新技术草案前优先调 search_web 搜索技术方案作为参考；若是基于已有 draft 的修订/分配请求，可跳过 search_web 直接利用当前上下文与 search_employees。每次对话开始先调 list_known_facts 回顾已有信息。获取新信息后调 update_known_facts 记录",
     "5. 觉得信息够了就调 save_draft 保存草案。保存后直接回复用户你的分析",
     "6. 如用户希望同时看到人员分配建议，请在同一次最终 JSON 中附带 assignment 字段。可使用 search_employees 做匹配，但不要为了分配建议阻塞草案生成。",
     "",

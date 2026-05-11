@@ -31,6 +31,7 @@ import { logStructured } from "./infra/logger";
 const MAX_MARKDOWN_CHARS = 18_000;
 const DEFAULT_DINGTALK_MAX_TOKENS = 2200;
 const DEFAULT_DINGTALK_ORCH_ITERATIONS = 6;
+const DEFAULT_DINGTALK_TIMEOUT_MS = 90000;
 
 function truncateMarkdown(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -151,6 +152,7 @@ async function main(): Promise<void> {
     ...baseQwenConfig,
     // 钉钉链路优先首条时延：默认关闭 thinking，可用 DINGTALK_QWEN_THINKING=1 覆盖。
     thinking: readEnvBool("DINGTALK_QWEN_THINKING", false),
+    timeoutMs: readEnvInt("DINGTALK_QWEN_TIMEOUT_MS", DEFAULT_DINGTALK_TIMEOUT_MS),
     maxTokens: Math.min(
       baseQwenConfig.maxTokens,
       readEnvInt("DINGTALK_QWEN_MAX_TOKENS", DEFAULT_DINGTALK_MAX_TOKENS),
