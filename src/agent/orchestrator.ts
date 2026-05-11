@@ -96,9 +96,12 @@ export async function runOrchestrator(
   const toolCallsTotal = response.toolCallsExecuted;
   const payload = response.payload as Record<string, unknown> | undefined;
 
-  // Extract message — strip any leaked JSON field names
+  // Extract message — strip any leaked JSON field names and thinking artifacts
   let msg = String(payload?.message ?? "").trim();
+  // Strip stopReason leaks
   msg = msg.replace(/\b\w*[Ss]top[Rr]eason\w*\s*[:=]\s*\w+/g, "").trim();
+  // Strip thinking/reasoning prefixes that leaked into the message
+  msg = msg.replace(/^```json\s*\{[\s\S]*?\}\s*```\s*/g, "").trim();
   if (!msg && response.rawContent?.trim()) {
     const trimmed = response.rawContent.trim();
     if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {

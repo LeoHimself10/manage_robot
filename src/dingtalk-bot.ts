@@ -133,26 +133,26 @@ async function main(): Promise<void> {
         const payload = JSON.parse(res.data) as Record<string, unknown>;
         const msgtype = String(payload.msgtype ?? "");
 
-        // 提取文本内容：支持 text / paragraph / markdown 等格式
-        const textContent =
-          (payload as Record<string, unknown>).text as Record<string, unknown> | undefined;
-        const content = String(
-          textContent?.content ??
-          (payload as Record<string, unknown>).content ??
-          ""
-        ).trim();
+        // 提取文本内容：支持 text / paragraph / richText / mixed 等格式
+        const raw = payload as Record<string, unknown>;
+        const textObj = raw.text as Record<string, unknown> | undefined;
+        let content = "";
+        if (typeof textObj?.content === "string" && textObj.content.trim()) {
+          content = textObj.content.trim();
+        } else if (typeof raw.content === "string" && raw.content.trim()) {
+          content = raw.content.trim();
+        } else if (Array.isArray((raw as any)?.richText)) {
+          // DingTalk richText message — extract text from array of segments
+          content = (raw as any).richText.map((s: any) => s.text ?? "").join("").trim();
+        } else if (typeof raw === "object") {
+          // Fallback: try JSON stringify and strip to detect if it's [object Object]
+          const fallback = JSON.stringify(raw);
+          if (!fallback.includes("[object Object]")) {
+            content = String(textObj?.content ?? "").replace(/^\[object Object\]$/, "").trim();
+          }
+        }
 
         if (!content) {
-          dingtalkResponse = await sendMarkdownReply({
-            client,
-            sessionWebhook: String(payload.sessionWebhook ?? ""),
-            messageId,
-            senderStaffId: String(payload.senderStaffId ?? ""),
-            title: "提示",
-            markdownText: "请直接发送任务背景描述，我会帮你拆解为可执行的任务草案。",
-          });
-          return;
-        }
 
         const background = content;
         const senderStaffId = String(payload.senderStaffId ?? "");
@@ -224,8 +224,8 @@ async function main(): Promise<void> {
         }
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
 
-        // 分配推荐：有草案时同步运行，追加到同一条消息
-        if (orchResult.draft && process.env.ASSIGNMENT_PHASE_ENABLED === "1") {
+        // 分配推荐：有草案且模型没自己做分配时，自动追加
+        if (orchResult.draft && !outboundMarkdown.includes("分配") && process.env.ASSIGNMENT_PHASE_ENABLED === "1") {
           try {
             const tasksForAssignment = (orchResult.draft as any)?.tasks ?? [];
             const classification = (orchResult.draft as any)?.classification ?? { domain: "QUALITY", subtype: "QUALITY_OTHER_OR_UNCERTAIN" };
