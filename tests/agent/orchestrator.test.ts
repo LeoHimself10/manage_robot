@@ -122,8 +122,8 @@ describe("runOrchestrator", () => {
 
     const memoryMsg = requestArg.messages.find((m) => m.role === "assistant" && m.content.includes("planId: plan-123"));
     expect(memoryMsg).toBeDefined();
-    expect(memoryMsg?.content).toContain("latestDraft");
-    expect(memoryMsg?.content).toContain("latestAssignment");
+    expect(memoryMsg?.content).toContain("latestDraftSummary");
+    expect(memoryMsg?.content).toContain("latestAssignmentSummary");
 
     expect(result.knownFacts).toContain("负责人偏好质量部");
     expect(result.knownFacts).toContain("系统是Linux");

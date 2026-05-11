@@ -385,36 +385,66 @@ export class QwenCompatibleClient {
             content: null,
           });
 
-          for (const tc of msg.tool_calls) {
+          const preparedCalls = msg.tool_calls.map((tc) => {
             const handler = request.toolHandlers[tc.function.name];
             if (!handler) {
-              throw new Error(
-                `No handler for tool: ${tc.function.name}`
-              );
+              throw new Error(`No handler for tool: ${tc.function.name}`);
             }
-
             let parsedArgs: Record<string, unknown> = {};
             try {
-              parsedArgs = JSON.parse(
-                tc.function.arguments || "{}"
-              ) as Record<string, unknown>;
+              parsedArgs = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
             } catch {
               throw new Error(
                 `Invalid JSON in tool_call arguments for ${tc.function.name}: ${tc.function.arguments}`
               );
             }
+            return { tc, handler, parsedArgs };
+          });
 
+          const parallelCalls = preparedCalls.filter((call) =>
+            isParallelSafeTool(call.tc.function.name),
+          );
+          const sequentialCalls = preparedCalls.filter(
+            (call) => !isParallelSafeTool(call.tc.function.name),
+          );
+
+          const runToolCall = async (call: typeof preparedCalls[number]) => {
             const toolStartedAt = Date.now();
-            const result = await handler(parsedArgs);
+            const result = await call.handler(call.parsedArgs);
             const toolElapsedMs = Date.now() - toolStartedAt;
-            tools.push({ toolName: tc.function.name, elapsedMs: toolElapsedMs });
-            toolsMs += toolElapsedMs;
+            return {
+              toolCallId: call.tc.id,
+              toolName: call.tc.function.name,
+              result,
+              elapsedMs: toolElapsedMs,
+            };
+          };
+
+          const parallelResults = await Promise.all(parallelCalls.map((call) => runToolCall(call)));
+          const sequentialResults: Array<{
+            toolCallId: string;
+            toolName: string;
+            result: unknown;
+            elapsedMs: number;
+          }> = [];
+          for (const call of sequentialCalls) {
+            sequentialResults.push(await runToolCall(call));
+          }
+
+          const resultsById = new Map(
+            [...parallelResults, ...sequentialResults].map((item) => [item.toolCallId, item]),
+          );
+          for (const call of preparedCalls) {
+            const toolResult = resultsById.get(call.tc.id);
+            if (!toolResult) continue;
+            tools.push({ toolName: toolResult.toolName, elapsedMs: toolResult.elapsedMs });
+            toolsMs += toolResult.elapsedMs;
             toolCallsThisIteration += 1;
             toolCallsExecuted += 1;
             currentMessages.push({
               role: "tool",
-              tool_call_id: tc.id,
-              content: JSON.stringify(result),
+              tool_call_id: call.tc.id,
+              content: JSON.stringify(toolResult.result),
             });
           }
 
@@ -631,4 +661,8 @@ export function sleepWithJitter(
   const exponential = Math.min(capMs, baseMs * Math.pow(2, attempt));
   const jittered = exponential * (0.75 + Math.random() * 0.5);
   return new Promise((resolve) => setTimeout(resolve, jittered));
+}
+
+function isParallelSafeTool(toolName: string): boolean {
+  return toolName !== "update_known_facts" && toolName !== "save_draft";
 }

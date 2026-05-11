@@ -77,11 +77,11 @@ export async function runOrchestrator(
     memoryParts.push(`memorySummary: ${config.sessionContext.memorySummary}`);
   }
   if (config.sessionContext?.latestDraft) {
-    memoryParts.push(`latestDraft: ${safeJson(config.sessionContext.latestDraft)}`);
+    memoryParts.push(`latestDraftSummary: ${safeJson(summarizeDraftForPrompt(config.sessionContext.latestDraft))}`);
   }
   if (config.sessionContext?.latestAssignment) {
     memoryParts.push(
-      `latestAssignment: ${safeJson(config.sessionContext.latestAssignment)}`,
+      `latestAssignmentSummary: ${safeJson(summarizeAssignmentForPrompt(config.sessionContext.latestAssignment))}`,
     );
   }
   if (memoryParts.length > 0) {
@@ -92,7 +92,7 @@ export async function runOrchestrator(
   }
 
   const history = config.sessionContext?.conversationHistory ?? [];
-  for (const h of history.slice(-10)) {
+  for (const h of history.slice(-5)) {
     allMessages.push({ role: h.role, content: h.content });
   }
   allMessages.push({ role: "user", content: userMessage });
@@ -171,6 +171,39 @@ function safeJson(input: unknown): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function summarizeDraftForPrompt(draft: Record<string, unknown>): Record<string, unknown> {
+  const tasks = Array.isArray((draft as { tasks?: unknown[] }).tasks)
+    ? ((draft as { tasks: Array<Record<string, unknown>> }).tasks)
+    : [];
+  const taskTitles = tasks
+    .map((t) => String(t?.title ?? "").trim())
+    .filter((t) => t.length > 0)
+    .slice(0, 5);
+  return {
+    hasDraft: true,
+    taskCount: tasks.length,
+    taskTitles,
+    domain: (draft as { classification?: { domain?: unknown } }).classification?.domain ?? null,
+    subtype: (draft as { classification?: { subtype?: unknown } }).classification?.subtype ?? null,
+  };
+}
+
+function summarizeAssignmentForPrompt(
+  assignment: Record<string, unknown>,
+): Record<string, unknown> {
+  const assignments = Array.isArray((assignment as { assignments?: unknown[] }).assignments)
+    ? (assignment as { assignments: Array<Record<string, unknown>> }).assignments
+    : [];
+  return {
+    hasAssignment: true,
+    assignmentCount: assignments.length,
+    taskIds: assignments
+      .map((a) => String(a?.taskId ?? "").trim())
+      .filter((id) => id.length > 0)
+      .slice(0, 8),
+  };
 }
 
 /**
