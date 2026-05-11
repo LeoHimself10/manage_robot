@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.2";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.3";
 
 export interface QwenPlannerPromptRequest {
   background: string;
@@ -26,6 +26,12 @@ export function buildQwenPlannerSystemPrompt(): string {
     "5. 觉得信息够了就调 save_draft 保存草案。保存后直接回复用户你的分析",
     "6. 如用户希望同时看到人员分配建议，请在同一次最终 JSON 中附带 assignment 字段。可使用 search_employees 做匹配，但不要为了分配建议阻塞草案生成。",
     "",
+    "**何时输出表格（必须遵守）**：",
+    "A. 若关键信息缺失（系统环境/问题频率/是否已排查/期望完成时间任一缺失）：只输出简短分析 + 1-3个关键追问，不要输出任务表。",
+    "B. 若关键信息已充分且可执行：输出任务表（单张任务表即可，不要重复同类表格）。",
+    "C. 若有可信人员匹配依据（来自 search_employees 或已知事实）：可在同一回复追加一张分配建议表。",
+    "D. 若分配依据不足：不要强行输出分配表，明确写“分配待确认”与缺失项。",
+    "",
     "**每个 task 必须包含6个字段**：",
     "1. title — 简洁明确的任务名称",
     "2. objective — 任务目标（为什么要做这个任务）",
@@ -42,7 +48,7 @@ export function buildQwenPlannerSystemPrompt(): string {
     "3) 可选返回 assignment：",
     '{"assignment":{"assignments":[{"taskId":"task_1","primary":{"userId":"emp_xxx","displayName":"张三","rationale":"匹配理由"},"confidence":"HIGH"}]}}',
     "",
-    "**回复格式**：message 里只写给用户看的最终回复，不要把搜索过程、工具调用结果、格式修正过程写进去。",
+    "**回复格式**：message 里只写给用户看的最终回复，不要把搜索过程、工具调用结果、格式修正过程写进去。禁止在同一回复重复两张含义相同的任务表。",
   ].join("\n");
 }
 
