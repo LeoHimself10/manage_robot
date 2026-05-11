@@ -42,7 +42,7 @@ const SYSTEM_PROMPT = `你是医疗器械行业质量/研发部门的AI任务规
 
 **工具速查**：search_web / search_employees / search_similar_plans / get_current_time / list_known_facts / update_known_facts / save_draft
 
-**回复格式**：你可以用 Markdown 表格展示任务列表，用自然语言解释背景和分析。`;
+**回复格式**：用 Markdown 表格展示任务，用自然语言解释背景。message 里只写给用户看的最终回复，不要把搜索过程、工具调用结果、格式修正过程写进去。`;
 
 export async function runOrchestrator(
   userMessage: string,
@@ -96,18 +96,7 @@ export async function runOrchestrator(
   const toolCallsTotal = response.toolCallsExecuted;
   const payload = response.payload as Record<string, unknown> | undefined;
 
-  // Extract message — strip any leaked JSON field names and thinking artifacts
-  let msg = String(payload?.message ?? "").trim();
-  // Strip stopReason leaks
-  msg = msg.replace(/\b\w*[Ss]top[Rr]eason\w*\s*[:=]\s*\w+/g, "").trim();
-  // Strip thinking/reasoning prefixes that leaked into the message
-  msg = msg.replace(/^```json\s*\{[\s\S]*?\}\s*```\s*/g, "").trim();
-  if (!msg && response.rawContent?.trim()) {
-    const trimmed = response.rawContent.trim();
-    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-      msg = trimmed;
-    }
-  }
+  const msg = String(payload?.message ?? "").trim();
 
   const messages: string[] = msg ? [msg] : [];
   let draft: Record<string, unknown> | undefined = savedDraft ?? (payload?.draft as Record<string, unknown> | undefined);
