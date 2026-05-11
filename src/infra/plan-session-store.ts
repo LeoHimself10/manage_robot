@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { appendJsonlLine } from "./write-jsonl";
@@ -17,6 +17,10 @@ export interface PlanSession {
   planId: string;
   createdAt: string;
   updatedAt: string;
+  conversationId?: string;
+  conversationType?: string;
+  senderStaffId?: string;
+  sessionWebhookLastSeen?: string;
   lastTraceId?: string;
   knownFacts: string[];
   conversationHistory: Array<{ role: string; content: string }>;
@@ -44,6 +48,10 @@ export function createPlanSessionStore() {
       return loadByChatKeyHash(chatKeyHash);
     },
 
+    loadByChatKeyHash(chatKeyHash: string): PlanSession | undefined {
+      return loadByChatKeyHash(chatKeyHash);
+    },
+
     loadOrCreate(chatKey: string): PlanSession {
       const chatKeyHash = hashChatKey(chatKey);
       const existing = loadByChatKeyHash(chatKeyHash);
@@ -66,6 +74,11 @@ export function createPlanSessionStore() {
         ...session,
         updatedAt: new Date().toISOString(),
       });
+    },
+
+    deleteByChatKey(chatKey: string): void {
+      const chatKeyHash = hashChatKey(chatKey);
+      deleteByChatKeyHash(chatKeyHash);
     },
 
     appendEvent(event: PlanSessionEvent): void {
@@ -101,4 +114,13 @@ function writeSession(session: PlanSession): void {
   const dir = resolvePlanSessionDir();
   mkdirSync(dir, { recursive: true });
   writeFileSync(sessionFile(session.chatKeyHash), JSON.stringify(session, null, 2), "utf8");
+}
+
+function deleteByChatKeyHash(chatKeyHash: string): void {
+  try {
+    const file = sessionFile(chatKeyHash);
+    if (existsSync(file)) unlinkSync(file);
+  } catch {
+    // ignore delete failures
+  }
 }

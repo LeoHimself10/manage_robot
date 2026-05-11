@@ -12,12 +12,52 @@ export function readChatSessionTtlMs(): number {
 }
 
 export function deriveChatSessionKey(payload: {
+  conversationId?: string;
+  conversationType?: string;
+  sessionWebhook?: string;
+  senderStaffId?: string;
+}): string {
+  return deriveStableChatSessionKey(payload).chatKey;
+}
+
+export function deriveLegacyChatSessionKey(payload: {
   sessionWebhook?: string;
   senderStaffId?: string;
 }): string {
   const w = (payload.sessionWebhook ?? "").trim();
   const u = (payload.senderStaffId ?? "").trim();
   return `${w}::${u}`;
+}
+
+export function deriveStableChatSessionKey(payload: {
+  conversationId?: string;
+  conversationType?: string;
+  sessionWebhook?: string;
+  senderStaffId?: string;
+}): {
+  chatKey: string;
+  source: "conversation" | "webhook_fallback";
+  legacyChatKey: string;
+} {
+  const conversationId = (payload.conversationId ?? "").trim();
+  const conversationType = (payload.conversationType ?? "").trim();
+  const senderStaffId = (payload.senderStaffId ?? "").trim();
+  const legacyChatKey = deriveLegacyChatSessionKey({
+    sessionWebhook: payload.sessionWebhook,
+    senderStaffId,
+  });
+  if (conversationId) {
+    return {
+      chatKey: `${conversationId}::${conversationType || "unknown"}::${senderStaffId}`,
+      source: "conversation",
+      legacyChatKey,
+    };
+  }
+  return {
+    chatKey: legacyChatKey,
+    source: "webhook_fallback",
+    legacyChatKey,
+  };
 }
 
 export function readRateLimitWindowMs(): number {

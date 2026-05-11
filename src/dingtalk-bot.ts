@@ -11,7 +11,8 @@ import {
 
 import { loadQwenPlannerConfigFromEnv } from "./agent/demo/qwen-planner";
 import {
-  deriveChatSessionKey,
+  deriveLegacyChatSessionKey,
+  deriveStableChatSessionKey,
   MemoryChatSessionStore,
   readRateLimitWindowMs,
 } from "./infra/session-store";
@@ -24,7 +25,7 @@ import { runOrchestrator } from "./agent/orchestrator";
 import { extractLightAssignment, renderLightAssignmentSection } from "./agent/assignment/light-assignment";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
-import { createPlanSessionStore, type PlanSession } from "./infra/plan-session-store";
+import { createPlanSessionStore, hashChatKey, type PlanSession } from "./infra/plan-session-store";
 import { logStructured } from "./infra/logger";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
@@ -217,9 +218,24 @@ async function main(): Promise<void> {
         const background = content;
         const senderStaffId = String(payload.senderStaffId ?? "");
         const sessionWebhook = String(payload.sessionWebhook ?? "");
-        const chatKey = deriveChatSessionKey({
+        const conversationId = String(payload.conversationId ?? "");
+        const conversationType = String(payload.conversationType ?? "");
+        const stableKey = deriveStableChatSessionKey({
+          conversationId,
+          conversationType,
           sessionWebhook,
           senderStaffId,
+        });
+        const chatKey = stableKey.chatKey;
+        const legacyChatKey = deriveLegacyChatSessionKey({
+          sessionWebhook,
+          senderStaffId,
+        });
+        logStructured({
+          event: "memory_key_resolved",
+          messageId,
+          source: stableKey.source,
+          hasConversationId: conversationId.length > 0,
         });
 
         if (!chatSessionMemory.checkRateLimitThenTouch(chatKey, readRateLimitWindowMs())) {
@@ -250,7 +266,33 @@ async function main(): Promise<void> {
         }
 
         const handlerStartedAt = Date.now();
-        const session = planSessionStore.loadOrCreate(chatKey);
+        let session = planSessionStore.loadByChatKey(chatKey);
+        if (!session && chatKey !== legacyChatKey) {
+          const legacy = planSessionStore.loadByChatKey(legacyChatKey);
+          if (legacy) {
+            session = {
+              ...legacy,
+              chatKeyHash: hashChatKey(chatKey),
+            };
+            planSessionStore.save(session);
+            planSessionStore.deleteByChatKey(legacyChatKey);
+            logStructured({
+              event: "memory_session_migrated",
+              messageId,
+              planId: session.planId,
+            });
+          }
+        }
+        if (!session) {
+          session = planSessionStore.loadOrCreate(chatKey);
+        }
+        logStructured({
+          event: "memory_session_loaded",
+          messageId,
+          planId: session.planId,
+          hit: session.conversationHistory.length > 0 || session.knownFacts.length > 0,
+        });
+
         const knownFacts = [...session.knownFacts];
 
         // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
@@ -417,6 +459,10 @@ async function main(): Promise<void> {
         ].slice(-10);
         planSessionStore.save({
           ...session,
+          conversationId: conversationId || session.conversationId,
+          conversationType: conversationType || session.conversationType,
+          senderStaffId: senderStaffId || session.senderStaffId,
+          sessionWebhookLastSeen: sessionWebhook || session.sessionWebhookLastSeen,
           lastTraceId: orchResult.traceId,
           knownFacts: updatedKnownFacts,
           conversationHistory: nextConversationHistory,

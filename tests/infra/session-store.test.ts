@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deriveChatSessionKey,
+  deriveLegacyChatSessionKey,
+  deriveStableChatSessionKey,
   MemoryChatSessionStore,
   readChatSessionTtlMs,
   readRateLimitWindowMs,
@@ -30,12 +32,32 @@ describe("MemoryChatSessionStore", () => {
     expect(store.checkRateLimitThenTouch("chat-a", 5000)).toBe(true);
   });
 
-  it("deriveChatSessionKey is stable composite", () => {
+  it("deriveChatSessionKey prefers conversation identity", () => {
     expect(
       deriveChatSessionKey({
-        sessionWebhook: "https://example/webhook",
+        conversationId: "cid-1",
+        conversationType: "2",
         senderStaffId: "u123",
       })
+    ).toBe("cid-1::2::u123");
+  });
+
+  it("deriveStableChatSessionKey falls back to legacy webhook key", () => {
+    const resolved = deriveStableChatSessionKey({
+      sessionWebhook: "https://example/webhook",
+      senderStaffId: "u123",
+    });
+    expect(resolved.source).toBe("webhook_fallback");
+    expect(resolved.chatKey).toBe("https://example/webhook::u123");
+    expect(resolved.legacyChatKey).toBe("https://example/webhook::u123");
+  });
+
+  it("deriveLegacyChatSessionKey keeps old behavior", () => {
+    expect(
+      deriveLegacyChatSessionKey({
+        sessionWebhook: "https://example/webhook",
+        senderStaffId: "u123",
+      }),
     ).toBe("https://example/webhook::u123");
   });
 

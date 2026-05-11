@@ -20,7 +20,10 @@ param(
   [string]$EnvFile = "/etc/manage-robot.env",
 
   [Parameter(Mandatory = $false)]
-  [string]$PublishPort = "8080"
+  [string]$PublishPort = "8080",
+
+  [Parameter(Mandatory = $false)]
+  [string]$DataDir = "/opt/manage_robot/data"
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,19 +44,26 @@ git pull --ff-only
 docker stop manage-robot-dingtalk 2>/dev/null || true
 docker rm manage-robot-dingtalk 2>/dev/null || true
 docker build -t manage-robot:dingtalk .
+mkdir -p __DATADIR__/sessions __DATADIR__/events __DATADIR__/plans
 docker run -d --name manage-robot-dingtalk --restart unless-stopped \
   --env-file __ENVFILE__ \
+  -v __DATADIR__:/app/data \
   -p __PORT__:8080 \
   manage-robot:dingtalk
 docker ps --filter name=manage-robot-dingtalk
 docker logs --tail 30 manage-robot-dingtalk
 '@
-$remoteBash = $remoteBash.Replace("__REPODIR__", $RepoDir).Replace("__ENVFILE__", $EnvFile).Replace("__PORT__", $PublishPort)
+$remoteBash = $remoteBash
+  .Replace("__REPODIR__", $RepoDir)
+  .Replace("__ENVFILE__", $EnvFile)
+  .Replace("__PORT__", $PublishPort)
+  .Replace("__DATADIR__", $DataDir)
 $remoteBash = ($remoteBash -replace "`r", "").TrimEnd() + "`n"
 $b64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($remoteBash))
 
 Write-Host "SSH -> $sshTarget"
 Write-Host "Repo: $RepoDir ; env-file: $EnvFile ; port: $PublishPort"
+Write-Host "Data dir: $DataDir"
 
 ssh `
   -i $PemPath `

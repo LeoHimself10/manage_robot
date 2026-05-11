@@ -73,6 +73,38 @@ describe("plan-session-store", () => {
     );
   });
 
+  it("supports legacy session migration to a new chat key", () => {
+    sessionDir = join(tmpdir(), `sessions-${Date.now()}`);
+    eventsPath = join(tmpdir(), `session-events-${Date.now()}.jsonl`);
+    process.env.PLAN_SESSION_DIR = sessionDir;
+    process.env.PLAN_SESSION_EVENTS_PATH = eventsPath;
+
+    const store = createPlanSessionStore();
+    const legacy = store.loadOrCreate("legacy-key");
+    store.save({
+      ...legacy,
+      conversationId: "cid-1",
+      conversationType: "2",
+      senderStaffId: "u1",
+      sessionWebhookLastSeen: "https://example/webhook",
+      knownFacts: ["fact-legacy"],
+    });
+
+    const loadedLegacy = store.loadByChatKey("legacy-key");
+    expect(loadedLegacy?.knownFacts).toContain("fact-legacy");
+
+    store.save({
+      ...loadedLegacy!,
+      chatKeyHash: hashChatKey("stable-key"),
+    });
+    store.deleteByChatKey("legacy-key");
+
+    expect(store.loadByChatKey("legacy-key")).toBeUndefined();
+    const stable = store.loadByChatKey("stable-key");
+    expect(stable?.knownFacts).toContain("fact-legacy");
+    expect(stable?.conversationId).toBe("cid-1");
+  });
+
   it("appends session events into jsonl", () => {
     sessionDir = join(tmpdir(), `sessions-${Date.now()}`);
     eventsPath = join(tmpdir(), `session-events-${Date.now()}.jsonl`);
