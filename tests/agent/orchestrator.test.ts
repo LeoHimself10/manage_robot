@@ -118,4 +118,18 @@ describe("runOrchestrator", () => {
     const requestArg = mockCallWithTools.mock.calls[0]?.[0] as { maxIterations?: number };
     expect(requestArg.maxIterations).toBe(3);
   });
+
+  it("returns fallback message when tool iterations are exceeded", async () => {
+    mockCallWithTools.mockRejectedValueOnce(new Error("ReAct loop exceeded max iterations (4)"));
+
+    const { runOrchestrator } = await import("../../src/agent/orchestrator");
+    const result = await runOrchestrator("复杂问题", {
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
+      employeeRepo: { list: () => [] },
+      maxToolIterations: 4,
+    });
+
+    expect(result.messages[0]).toContain("我先给你一个简版结论");
+    expect(result.traceId).toBeDefined();
+  });
 });

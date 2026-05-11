@@ -97,13 +97,34 @@ export async function runOrchestrator(
   allMessages.push({ role: "user", content: userMessage });
 
   const maxToolIterations = Math.max(1, config.maxToolIterations ?? MAX_TOOL_ITERATIONS);
-  const response = await client.callWithTools({
-    traceId,
-    messages: allMessages,
-    tools,
-    toolHandlers: handlers,
-    maxIterations: maxToolIterations,
-  });
+  let response;
+  try {
+    response = await client.callWithTools({
+      traceId,
+      messages: allMessages,
+      tools,
+      toolHandlers: handlers,
+      maxIterations: maxToolIterations,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("ReAct loop exceeded max iterations")) {
+      logStructured({
+        event: "orchestrator_max_turns_exceeded",
+        traceId,
+        maxToolIterations,
+        reason: msg,
+      });
+      return {
+        messages: ["我先给你一个简版结论：当前问题较复杂，我还需要1-2条关键信息才能输出完整草案。请补充“是否已做过初步排查结果”和“期望完成时间”。"],
+        draft: savedDraft,
+        traceId,
+        toolCallsTotal: maxToolIterations,
+        knownFacts: [...knownFacts],
+      };
+    }
+    throw err;
+  }
 
   const toolCallsTotal = response.toolCallsExecuted;
   const payload = response.payload as Record<string, unknown> | undefined;
