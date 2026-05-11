@@ -40,6 +40,15 @@ function truncateMarkdown(text: string, maxChars: number): string {
   return text.slice(0, budget) + suffix;
 }
 
+function hasTaskTableInMessage(markdown: string): boolean {
+  const normalized = markdown.toLowerCase();
+  return (
+    normalized.includes("### 任务列表（结构化字段）") ||
+    normalized.includes("| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |") ||
+    normalized.includes("| 序号 | 任务名称 |")
+  );
+}
+
 function readEnvBool(name: string, fallback: boolean): boolean {
   const v = process.env[name]?.trim().toLowerCase();
   if (!v) return fallback;
@@ -290,10 +299,10 @@ async function main(): Promise<void> {
 
         // 模型自己决定输出格式，代码只做兜底
         let outboundMarkdown = orchResult.messages.join("\n\n");
-        // 只要有结构化草案，统一补充字段完整的任务表，避免模型自由格式漏字段
+        // 仅在模型未输出任务表时兜底补表，避免出现“草案重复两遍”
         if (currentDraft) {
           const tasks = (currentDraft as any)?.tasks;
-          if (Array.isArray(tasks) && tasks.length > 0) {
+          if (Array.isArray(tasks) && tasks.length > 0 && !hasTaskTableInMessage(outboundMarkdown)) {
             const rows = tasks.map((t: any, i: number) =>
               `| ${i + 1} | ${t.title ?? ""} | ${t.objective ?? ""} | ${(t.deliverables ?? []).join("；") || "-"} | ${(t.completionCriteria ?? []).join("；") || "-"} | ${t.timeNode?.dueAt ?? "待确认"} | ${t.feedbackFrequency ?? "待确认"} |`
             );
@@ -335,7 +344,7 @@ async function main(): Promise<void> {
               const assignments = ar.draft.assignments ?? [];
               if (assignments.length > 0) {
                 const rows = assignments.map((a: any) =>
-                  `| ${a.taskId ?? ""} | ${a.primary?.displayName ?? "-"} | ${a.confidence ?? "-"} | ${a.primary?.rationale?.slice(0, 60) ?? "-"} |`
+                  `| ${a.taskId ?? ""} | ${a.primary?.displayName ?? "-"} | ${a.confidence ?? "-"} | ${a.primary?.rationale ?? "-"} |`
                 );
                 assignmentSection =
                   "\n\n### 分配建议\n| 任务 | 推荐负责人 | 置信度 | 理由 |\n|---|---|---|---|\n" +
