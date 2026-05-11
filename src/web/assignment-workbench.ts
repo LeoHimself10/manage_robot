@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   resolveAssignmentDraftDir,
   resolveEmployeeProfileDir,
@@ -108,6 +109,12 @@ interface WorkbenchSession {
 
 const WORKBENCH_COOKIE_NAME = "wb_session";
 const WORKBENCH_SESSION_TTL_SECONDS = 12 * 60 * 60;
+
+const assignmentWorkbenchDir = dirname(fileURLToPath(import.meta.url));
+
+function resolveWorkbenchDdLoginBundlePath(): string {
+  return join(assignmentWorkbenchDir, "..", "..", "dist", "workbench-dd-login.js");
+}
 
 const planSessionStore = createPlanSessionStore();
 const employeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
@@ -536,145 +543,48 @@ button { margin-top: 10px; border: 1px solid #1d4ed8; background: #2563eb; color
   <button id="loginBtn" type="button">测试登录（非钉钉环境）</button>
   <div class="muted" id="result">正在尝试钉钉免登...</div>
 </main>
-<script src="https://g.alicdn.com/dingding/dingtalk-jsapi/2.0.57/dingtalk.open.js"></script>
 <script>
-const configuredCorpId = ${JSON.stringify(corpId)};
-const ssoHint = document.getElementById('ssoHint');
-const btn = document.getElementById('loginBtn');
-
-function setResult(msg) {
-  const result = document.getElementById('result');
-  result.textContent = msg;
-}
-
-function requestAuthCodeWithRuntime(corpId) {
-  return new Promise(function(resolve, reject) {
-    if (!window.dd || !dd.runtime || !dd.runtime.permission || !dd.runtime.permission.requestAuthCode) {
-      reject(new Error('requestAuthCode is unavailable'));
-      return;
-    }
-    dd.runtime.permission.requestAuthCode({
-      corpId: corpId,
-      onSuccess: function(res) {
-        resolve(String(res.code || res.authCode || '').trim());
-      },
-      onFail: function(err) {
-        reject(new Error((err && (err.errorMessage || err.message)) || 'requestAuthCode failed'));
+window.__WB_CONFIGURED_CORP_ID = ${JSON.stringify(corpId)};
+</script>
+<script src="/static/workbench-dd-login.js"></script>
+<script>
+(function () {
+  const btn = document.getElementById('loginBtn');
+  function setResult(msg) {
+    var result = document.getElementById('result');
+    if (result) result.textContent = msg;
+  }
+  if (typeof window.__wbTryDingTalkLogin === 'function') {
+    void window.__wbTryDingTalkLogin();
+  } else {
+    setResult('登录脚本未加载，请刷新或联系管理员运行 npm run build:workbench-login');
+  }
+  if (btn) {
+    btn.addEventListener('click', async function () {
+      const userId = (document.getElementById('userId').value || '').trim();
+      const role = document.getElementById('role').value;
+      if (!userId) {
+        setResult('请填写 userId');
+        return;
+      }
+      setResult('登录中...');
+      try {
+        const res = await fetch('/api/workbench/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, role }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || ('HTTP ' + res.status));
+        }
+        window.location.href = data.redirectTo || '/workbench';
+      } catch (err) {
+        setResult('登录失败：' + (err && err.message ? err.message : String(err)));
       }
     });
-  });
-}
-
-function requestAuthCodeWithGetAuthCode(corpId) {
-  return new Promise(function(resolve, reject) {
-    if (!window.dd || typeof dd.getAuthCode !== 'function') {
-      reject(new Error('getAuthCode is unavailable'));
-      return;
-    }
-    dd.getAuthCode({
-      corpId: corpId,
-      success: function(res) {
-        resolve(String(res.authCode || res.code || '').trim());
-      },
-      fail: function(err) {
-        reject(new Error((err && (err.errorMessage || err.message)) || 'getAuthCode failed'));
-      }
-    });
-  });
-}
-
-function requestAuthCodeWithRequestAuthCode(corpId) {
-  return new Promise(function(resolve, reject) {
-    if (!window.dd || typeof dd.requestAuthCode !== 'function') {
-      reject(new Error('requestAuthCode is unavailable'));
-      return;
-    }
-    dd.requestAuthCode({
-      corpId: corpId,
-      onSuccess: function(res) {
-        resolve(String(res.code || res.authCode || '').trim());
-      },
-      onFail: function(err) {
-        reject(new Error((err && (err.errorMessage || err.message)) || 'requestAuthCode failed'));
-      }
-    });
-  });
-}
-
-async function tryDingTalkAuth() {
-  if (!window.dd) {
-    ssoHint.textContent = '当前不是钉钉内网页环境，可使用测试登录。';
-    setResult('未检测到钉钉 JSAPI。');
-    return;
   }
-  const corpId = (configuredCorpId || window.dd.corpId || '').trim();
-  if (!corpId) {
-    ssoHint.textContent = '未获取到 corpId，暂时切换为测试登录。';
-    setResult('请确认应用在钉钉容器中打开。');
-    return;
-  }
-  ssoHint.textContent = '检测到钉钉环境，正在自动免登...';
-  let authCode = '';
-  const attempts = [
-    requestAuthCodeWithRuntime,
-    requestAuthCodeWithGetAuthCode,
-    requestAuthCodeWithRequestAuthCode,
-  ];
-  let lastError = null;
-  for (const fn of attempts) {
-    try {
-      authCode = await fn(corpId);
-      if (authCode) break;
-    } catch (err) {
-      lastError = err;
-    }
-  }
-  if (!authCode) {
-    const msg = lastError && lastError.message ? lastError.message : '无法获取 authCode';
-    setResult('免登失败：' + msg);
-    return;
-  }
-  try {
-    const res = await fetch('/api/workbench/auth/dingtalk', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ authCode: authCode }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) {
-      throw new Error(data.error || ('HTTP ' + res.status));
-    }
-    setResult('免登成功，正在跳转...');
-    window.location.href = data.redirectTo || '/workbench';
-  } catch (err) {
-    setResult('免登失败：' + (err && err.message ? err.message : String(err)));
-  }
-}
-
-btn.addEventListener('click', async function () {
-  const userId = (document.getElementById('userId').value || '').trim();
-  const role = document.getElementById('role').value;
-  if (!userId) {
-    setResult('请填写 userId');
-    return;
-  }
-  setResult('登录中...');
-  try {
-    const res = await fetch('/api/workbench/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, role }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) {
-      throw new Error(data.error || ('HTTP ' + res.status));
-    }
-    window.location.href = data.redirectTo || '/workbench';
-  } catch (err) {
-    setResult('登录失败：' + (err && err.message ? err.message : String(err)));
-  }
-});
-void tryDingTalkAuth();
+})();
 </script>
 </body>
 </html>`;
@@ -748,6 +658,28 @@ export function handleAssignmentHttp(
   );
 
   const isGetOrHead = req.method === "GET" || req.method === "HEAD";
+
+  if (isGetOrHead && url.pathname === "/static/workbench-dd-login.js") {
+    const bundlePath = resolveWorkbenchDdLoginBundlePath();
+    if (!existsSync(bundlePath)) {
+      res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end(
+        "// Workbench login bundle missing on server. Run: npm run build:workbench-login\n",
+      );
+      return true;
+    }
+    const body = readFileSync(bundlePath);
+    res.writeHead(200, {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    });
+    if (req.method === "HEAD") {
+      res.end();
+    } else {
+      res.end(body);
+    }
+    return true;
+  }
 
   if (req.method === "POST" && url.pathname === "/api/workbench/auth/dingtalk") {
     void (async () => {

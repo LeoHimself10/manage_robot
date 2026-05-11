@@ -97,6 +97,28 @@ describe("assignment-workbench HTTP handler", () => {
     expect(handleAssignmentHttp(req, res)).toBe(false);
   });
 
+  it("GET /static/workbench-dd-login.js serves login bundle", () => {
+    const req = stubReq({ url: "/static/workbench-dd-login.js", method: "GET" });
+    const { res, captured } = stubRes();
+    expect(handleAssignmentHttp(req, res)).toBe(true);
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(String(c.headers["Content-Type"] ?? "")).toContain("javascript");
+    const bodyStr = typeof c.body === "string" ? c.body : Buffer.from(c.body as Uint8Array).toString("utf8");
+    expect(bodyStr.length).toBeGreaterThan(500);
+    expect(bodyStr).toContain("__wbTryDingTalkLogin");
+  });
+
+  it("GET /workbench login page loads dingtalk-jsapi bundle", () => {
+    const req = stubReq({ url: "/workbench", method: "GET" });
+    const { res, captured } = stubRes();
+    expect(handleAssignmentHttp(req, res)).toBe(true);
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(c.body).toContain('/static/workbench-dd-login.js');
+    expect(c.body).toContain("__WB_CONFIGURED_CORP_ID");
+  });
+
   it("GET without token redirects to /workbench", () => {
     const req = stubReq({
       url: "/assignment/workbench",

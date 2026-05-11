@@ -135,7 +135,8 @@ QWEN_TIMEOUT_MS=60000
 QWEN_MAX_RETRIES=0
 DINGTALK_CLIENT_ID=钉钉ClientID
 DINGTALK_CLIENT_SECRET=钉钉ClientSecret
-# 工作台网页应用免登（/workbench）使用
+# 工作台网页应用免登（/workbench）：页面内置 dingtalk-jsapi 打包脚本，优先 JSAPI 获取 corpId；
+# 若容器仍无法解析 corpId，取消下行注释作为兜底（注入页面）。
 # DINGTALK_CORP_ID=dingxxxxxxxxxxxxxxxx
 HEALTH_CHECK_PORT=8080
 EOF
@@ -146,7 +147,7 @@ docker run -d --name manage-robot-dingtalk --restart unless-stopped \
   manage-robot:dingtalk
 ```
 
-**务必确认** `/etc/manage-robot.env` 中同时包含 **`QWEN_API_KEY`** 与 **`DINGTALK_CLIENT_ID` / `DINGTALK_CLIENT_SECRET`**。仅配 Qwen、不配钉钉时，进程会反复报错退出（与本地行为一致）。若要启用工作台免登，还需补充 **`DINGTALK_CORP_ID`**。
+**务必确认** `/etc/manage-robot.env` 中同时包含 **`QWEN_API_KEY`** 与 **`DINGTALK_CLIENT_ID` / `DINGTALK_CLIENT_SECRET`**。仅配 Qwen、不配钉钉时，进程会反复报错退出（与本地行为一致）。工作台免登在钉钉内打开时由 **`dingtalk-jsapi`**（镜像构建时 `npm run build:workbench-login` 打入 `/app/dist/workbench-dd-login.js`）调用 **`getCurrentCorpId`** / **`getAuthCode`**；仅当 JSAPI 仍拿不到 corpId 时，才需要配置 **`DINGTALK_CORP_ID`** 兜底。
 
 如需在容器重启后仍保留 **demo 审计 JSONL、Plan 快照** 等文件，可增加数据卷挂载，例如（路径可按主机调整）：
 
@@ -224,7 +225,7 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `QWEN_API_KEY` | 是 | DashScope Compatible API Key |
 | `DINGTALK_CLIENT_ID` | 是 | 钉钉应用 Client ID |
 | `DINGTALK_CLIENT_SECRET` | 是 | 钉钉应用 Client Secret |
-| `DINGTALK_CORP_ID` | 否 | 钉钉网页应用免登 corpId；配置后 `/workbench` 会自动尝试 `authCode` 免登 |
+| `DINGTALK_CORP_ID` | 否 | 工作台免登 **兜底**：服务端注入页面的 corpId；首选钉钉 JSAPI `getCurrentCorpId`，失败或未开通时再依赖此项 |
 | `QWEN_*` | 否 | 模型、超时、重试等；**SSE 流式默认开**（`QWEN_STREAM=0` 关闭），见 `docs/Qwen-接入实施说明.md` |
 | `DEMO_DOMAIN_HINT` | 否 | `QUALITY` 或 `RD`，默认由模型判断 |
 | `DEMO_LLM_CORRECTION` | 否 | 默认开；`0`/`false`/`no` 关闭校验失败后的第二轮模型自纠正（更快，失败率可能升），见 `docs/Qwen-接入实施说明.md` |
