@@ -1,5 +1,7 @@
 # 任务分配与派发能力设计
 
+> **历史文档快照**：本文记录特定阶段的设计草案，**可能与当前 `main` 代码不一致**（例如指派异步、发起人白名单接入状态等）。请以仓库根目录 [`AGENTS.md`](../../../AGENTS.md)、[`docs/Qwen-接入实施说明.md`](../../Qwen-接入实施说明.md)、[`docs/deploy-aliyun-dingtalk.md`](../../deploy-aliyun-dingtalk.md) 为准；本目录说明见 [`README.md`](../README.md)。
+
 **文档日期**：2026-05-09（v0.2 修订 2026-05-09）
 **修订人**：姚凯珩
 **状态**：草案；**Conversational intent（v2.11）** 已在 Demo 主线落地（见 **`AGENTS.md`**、**`docs/Qwen-接入实施说明.md`**），本设计可与该实现对齐后进入实施；跨 prompt/schema/钉钉文件的改动需在分支合并后做一次回归核对。

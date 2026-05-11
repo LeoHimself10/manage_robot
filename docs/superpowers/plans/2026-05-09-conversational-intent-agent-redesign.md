@@ -1,5 +1,7 @@
 # Conversational Intent Agent Redesign Implementation Plan
 
+> **历史文档快照**：本文记录特定阶段的实施计划与勾选进度，**钉钉主链路已演进为 `runOrchestrator`（ReAct）**，下文中的 pipeline / `responseIntent` 描述主要用于 CLI demo 与归档。请以仓库根目录 [`AGENTS.md`](../../../AGENTS.md)、[`docs/Qwen-接入实施说明.md`](../../Qwen-接入实施说明.md)、[`docs/deploy-aliyun-dingtalk.md`](../../deploy-aliyun-dingtalk.md) 为准；本目录说明见 [`README.md`](../README.md)。
+
 **Status（2026-05-09）：** 已在 `feat/conversational-intent-agent` 落地并完成 `npm test` / `npm run typecheck`；下文保留为实施记录与任务分解，勾选状态以仓库提交为准。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

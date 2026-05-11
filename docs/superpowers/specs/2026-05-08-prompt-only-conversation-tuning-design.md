@@ -1,5 +1,7 @@
 # Prompt-Only Conversation Tuning Design
 
+> **历史文档快照**：本文已被后续方案取代，**不等同于当前 `main` 实现**。请以仓库根目录 [`AGENTS.md`](../../../AGENTS.md)、[`docs/Qwen-接入实施说明.md`](../../Qwen-接入实施说明.md)、[`docs/deploy-aliyun-dingtalk.md`](../../deploy-aliyun-dingtalk.md) 为准；本目录说明见 [`README.md`](../README.md)。
+
 > **Status:** Superseded by **`docs/superpowers/specs/2026-05-09-conversational-intent-agent-redesign.md`** and prompt **v2.11** (`responseIntent` + `assistantMessage`). Retained for historical context only.
 
 ## Goal

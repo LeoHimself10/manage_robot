@@ -21,10 +21,14 @@ export interface TaskPackage {
 }
 
 export interface RunAssignmentRecommendationInput {
+  planId: string;
   traceId: string;
   tasks: TaskPackage[];
   classificationSummary: string;
   domainHint?: "QUALITY" | "RD";
+  userInstruction?: string;
+  previousAssignment?: Record<string, unknown>;
+  knownFacts?: string[];
 }
 
 export interface RunAssignmentRecommendationDeps {
@@ -44,9 +48,13 @@ export async function runAssignmentRecommendation(
 
   const systemPrompt = buildAssignmentSystemPrompt();
   const userPrompt = buildAssignmentUserPrompt({
+    planId: input.planId,
     traceId: input.traceId,
     tasks: input.tasks,
     classificationSummary: input.classificationSummary,
+    userInstruction: input.userInstruction,
+    previousAssignment: input.previousAssignment,
+    knownFacts: input.knownFacts,
   });
 
   const messages: Array<{ role: string; content?: string }> = [
@@ -80,7 +88,7 @@ export async function runAssignmentRecommendation(
   }
 
   // Set metadata
-  draft.planId = draft.planId || input.traceId;
+  draft.planId = draft.planId || input.planId;
   draft.traceId = input.traceId;
   draft.generatedAt = draft.generatedAt || new Date().toISOString();
   draft.promptVersion = ASSIGNMENT_RECOMMENDER_PROMPT_VERSION;
@@ -111,7 +119,7 @@ export async function runAssignmentRecommendation(
       });
 
       draft = coerceAssignmentDraft(correctedResult.payload);
-      draft.planId = draft.planId || input.traceId;
+      draft.planId = draft.planId || input.planId;
       draft.traceId = input.traceId;
       draft.generatedAt = draft.generatedAt || new Date().toISOString();
       draft.promptVersion = ASSIGNMENT_RECOMMENDER_PROMPT_VERSION;

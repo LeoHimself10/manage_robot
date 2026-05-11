@@ -1,5 +1,7 @@
 # Task Planning Demo MVP Implementation Plan
 
+> **历史文档快照**：下文含阶段性警告与归档说明，**勿当作当前实现的操作手册**。请以仓库根目录 [`AGENTS.md`](../../../AGENTS.md)、[`docs/Qwen-接入实施说明.md`](../../Qwen-接入实施说明.md)、[`docs/deploy-aliyun-dingtalk.md`](../../deploy-aliyun-dingtalk.md) 为准；本目录说明见 [`README.md`](../README.md)。
+
 > **⚠️ 历史计划（部分已过期）**  
 > 截至 2026-05-07 工程实现已演进为：**仅 Qwen 生成**分类与 WBS；**已删除** `classifier.ts` / `capa-advisor.ts` / `templates.ts` / `wbs-generator.ts` 等规则生成路径。  
 > **当前事实来源**：`src/agent/demo/pipeline.ts`、`qwen-planner.ts`、`llm-schema.ts`、`docs/Qwen-接入实施说明.md`、PRD v1.3。  

@@ -1,5 +1,7 @@
 # ReAct Agent v3 Implementation Plan
 
+> **历史文档快照**：本文记录特定阶段的设计与实施计划，**可能与当前 `main` 代码不一致**。请以仓库根目录 [`AGENTS.md`](../../../AGENTS.md)、[`docs/Qwen-接入实施说明.md`](../../Qwen-接入实施说明.md)、[`docs/deploy-aliyun-dingtalk.md`](../../deploy-aliyun-dingtalk.md) 为准；本目录说明见 [`README.md`](../README.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the 6-intent state machine with a bounded ReAct loop (max 6 turns), let the model freely choose tools, maintain its own short-term memory via `update_known_facts`/`list_known_facts`, and add long-term memory via embedding + file traversal. Prompt trimmed from ~45 to ~25 lines.

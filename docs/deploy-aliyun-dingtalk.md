@@ -8,10 +8,11 @@
 - **Qwen（DashScope）**：进程访问 `https://dashscope.aliyuncs.com/compatible-mode/v1`，须允许 **出站 HTTPS**。
 - **健康检查**：可选开启 `HEALTH_CHECK_PORT`，对外提供 `GET /health`，便于负载均衡或编排探活（钉钉链路不依赖该端口）。
 - **审计（双轨）**：
-  - **Demo / 钉钉链路**：只调用 `createTaskPlanningDemo`，完结时追加 **`AUDIT_DEMO_JSONL_PATH`**（默认 `./data/demo-runs.jsonl`），字段含 `traceId`、`status`、`reason?`、`gatePassed?`、`tokenTotals?` 等；现网排障建议挂载或收集该文件。
+  - **钉钉主链路**：调用 `runOrchestrator`，stdout 输出 `orchestrator_done` 等结构化事件；有草案时写 `./data/plans/<traceId>.json` 快照，并可写 embedding 索引。
+  - **Demo/评测链路**：`createTaskPlanningDemo` 仍写 **`AUDIT_DEMO_JSONL_PATH`**（默认 `./data/demo-runs.jsonl`），用于 CLI 回归与离线评测。
   - **Harness 编排层**：`createHarness` 可选 `AUDIT_SINK=file` + `AUDIT_JSONL_PATH`，与上者独立。
 - **会话与限流**：首版为 **单实例进程内** `Map` + TTL；多副本需后续外置存储（如 Redis），参见 `AGENTS.md`。
-- **用户可见回复**：单次任务规划链路结束后 **只推送一条会话 Markdown**（`CONVERSATION` / `NEEDS_MORE_INFO` / `DRAFT_READY` / `GENERATION_FAILED`，以及非文本/限速等护栏提示）。**`CONVERSATION`** 与输入护栏 **`NEEDS_MORE_INFO`** 的正文以模型 **`assistantMessage`** 为主，结构化追问可来自 **`openQuestions`**；`formatNeedsMoreInfoDingTalkMarkdown` **用空行拼接、不加 `-`/`•`**，并与首条追问去重。服务端可用 **SSE** 拼装 Qwen JSON；**不向用户发送**「处理中」或流式进度等中间气泡。
+- **用户可见回复**：钉钉链路单次返回一条 Markdown（草案/追问/错误），并在有 `draft` 时自动补充“结构化字段任务表”。`ASSIGNMENT_PHASE_ENABLED=1` 时，会在同一条回复中追加“分配建议”表（推荐成功时）。
 
 ## 一、钉钉开放平台配置
 
@@ -236,7 +237,7 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `AUDIT_DEMO_DISABLED` | 否 | `1` 禁用 Demo JSONL |
 | `AUDIT_SINK` | 否 | Harness：`memory`（默认）或 `file` |
 | `AUDIT_JSONL_PATH` | 否 | `AUDIT_SINK=file` 时的 Harness 审计路径 |
-| `INPUT_MAX_CHARS` | 否 | 单次输入最大字符（超限则追问，不切静默），默认见 `.env.example` |
+| `INPUT_MAX_CHARS` | 否 | 历史变量；当前 `dingtalk-bot` 主链路不再用它阻断模型调用（仅保留在 demo/pipeline 相关资料中） |
 | `CHAT_SESSION_TTL_MS` | 否 | 钉钉会话 TTL（毫秒） |
 | `RATE_LIMIT_WINDOW_MS` | 否 | 同会话最短间隔窗口（毫秒） |
 | `PLAN_STORE_DIR` | 否 | `DRAFT_READY` 快照目录 |
@@ -264,7 +265,7 @@ npm run dingtalk-bot
 - **回复长度**：机器人 reply 使用 Markdown，超长内容会在服务端截断并标注（见 `src/dingtalk-bot.ts` 常量）。
 - **合规**：CAPA 等字段仍为建议性质，与 PRD v1.3 一致；正式记录以公司 QMS 为准。
 - **同会话限速**：短时内重复发问可能收到「请稍后再试」（`RATE_LIMIT_WINDOW_MS`）。
-- **可观测**：容器标准输出可见结构化事件；`createTaskPlanningDemo` 每轮会写 **JSONL 审计**（`wallClockMs` 总耗时 ms、`timingsMs.plannerMs` 等分段，见 `src/infra/demo-run-audit.ts`）。`DRAFT_READY` 另有 `event=demo_draft_ready` 一行（含 `wallClockMs`）。非终稿状态默认还有 `event=demo_pipeline_timing` 到 stdout，可用 `DEMO_TIMING_LOG_STDOUT=0` 关闭。按需 `tail -f data/demo-runs.jsonl`（若已挂载卷）。
+- **可观测**：容器标准输出可见结构化事件（如 `orchestrator_done`、assignment 相关事件）；钉钉主链路建议重点看容器日志 + `data/plans` 快照。`createTaskPlanningDemo` 的 JSONL 审计（`demo-runs.jsonl`）主要用于 CLI demo/eval 回归。
 
 ## 五、后续可选增强
 

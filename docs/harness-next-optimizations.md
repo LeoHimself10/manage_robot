@@ -1,12 +1,12 @@
 # Harness 继续优化建议（归档 + 进度）
 
 **位置**：原为仓库根目录草案，现收于 `docs/` 与代码变更同步维护。  
-**状态摘要（2026-05-10）**：下文 P0/P1/P2/P3 清单主体已在 `main` 落地。此外：
-- **ReAct Agent v4.0**：`runOrchestrator` 替换 `createTaskPlanningDemo`，二阶段 prompt（追问/出稿），6 tool function calling
-- **指派推荐 v0.2 MVP**：async + search_employees + signed URL + mock 卡片
+**状态摘要（2026-05-11）**：下文 P0/P1/P2/P3 清单主体已在 `main` 落地。此外：
+- **ReAct Agent v5.2**：`runOrchestrator` 为钉钉主链路，`qwen-prompt.ts` 单一提示词来源
+- **指派推荐 v0.2 MVP**：search_employees + signed URL + mock 卡片（当前主链路为同请求内拼接分配建议）
 - **短期记忆**：knownFacts[] 模型自主维护
 - **长期记忆**：embedding + cosine 文件遍历
-- **模型**：`qwen3.6-plus`（默认），支持 function calling，thinking 默认关
+- **模型**：`qwen3.6-plus`（默认），支持 function calling，thinking 默认开（可通过 `QWEN_THINKING=0` 关闭）
 - 多副本 Redis、OA 闭环等仍为长期项。
 
 ## 当前状态（评分表仍为历史快照，仅供参考）
@@ -29,13 +29,14 @@
 ### ✅ P0-1：会话级短期记忆（已落地）
 
 - `src/infra/session-store.ts`：内存 TTL、同会话速率窗口（见 `RATE_LIMIT_WINDOW_MS`）。
-- `src/dingtalk-bot.ts`：合成 session key，`sessionDigest` 经 `session-digest` 拼装后传入 `createTaskPlanningDemo`。
+- `src/dingtalk-bot.ts`：合成 session key，维护 `knownFacts + conversationHistory` 并传入 `runOrchestrator`。
 - `src/agent/demo/qwen-prompt.ts`：可选「上轮上下文」段注入模型 user prompt。
 - **部署**：多 ECS 副本需后续 Redis；当前与 `AGENTS.md` 假设一致：**单实例进程内存**。
 
 ### ✅ P0-2：审计持久化（已落地）
 
-- **Demo 主链路**：`createTaskPlanningDemo` 每次完结追加一行 **`AUDIT_DEMO_JSONL_PATH`**（默认 `./data/demo-runs.jsonl`）；钉钉仅走 pipeline，此轨为线上可观测主体。
+- **钉钉主链路**：`runOrchestrator` 的结构化日志 + `data/plans` 快照为线上可观测主体。
+- **Demo 回归链路**：`createTaskPlanningDemo` 每次完结追加一行 **`AUDIT_DEMO_JSONL_PATH`**（默认 `./data/demo-runs.jsonl`）。
 - **Harness 编排**：`AUDIT_SINK=file` + `AUDIT_JSONL_PATH` → `src/infra/audit-file-sink.ts` 实现 `AuditSink`。
 
 ### ✅ P0-3：Plan 快照存储（已落地）
@@ -47,9 +48,9 @@
 
 ## P1：安全与对齐
 
-### ✅ P1-1：输入长度限制（已落地）
+### ✅ P1-1：输入质量护栏（已调整）
 
-- `INPUT_MAX_CHARS`（默认 3000）在 **`checkInputQuality`** 中校验；**超长不静默截断**，而是阻断 WBS 生成并追问分段/缩短（与「不缺信息不瞎生成」口径一致）。
+- 当前主链路仅保留“空输入”硬拦截，去除按长度阻断模型调用的策略；优先把判断权交给模型。
 
 ### ✅ P1-2：输出合规过滤（已落地，范围收窄）
 
@@ -96,7 +97,7 @@
 | P0     | P0-1   | 会话短期记忆   | ✅                 |
 | P0     | P0-2   | 审计持久化     | ✅                 |
 | P0     | P0-3   | Plan 快照      | ✅                 |
-| P1     | P1-1   | 输入长度       | ✅                 |
+| P1     | P1-1   | 输入质量护栏   | ✅（已去除长度硬拦截） |
 | P1     | P1-2   | 输出过滤       | ✅（PII 正则）      |
 | P1     | P1-3   | 频率限制       | ✅                 |
 | P2     | P2-1   | 结构化日志     | ✅                 |

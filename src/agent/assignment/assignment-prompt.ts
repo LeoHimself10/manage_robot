@@ -19,6 +19,7 @@ export function buildAssignmentSystemPrompt(): string {
 }
 
 export interface AssignmentUserPromptInput {
+  planId: string;
   traceId: string;
   tasks: Array<{
     id: string;
@@ -28,12 +29,25 @@ export interface AssignmentUserPromptInput {
     timeNode: { dueAt: string };
   }>;
   classificationSummary: string;
+  userInstruction?: string;
+  previousAssignment?: Record<string, unknown>;
+  knownFacts?: string[];
 }
 
 export function buildAssignmentUserPrompt(input: AssignmentUserPromptInput): string {
+  const knownFacts = input.knownFacts?.length
+    ? input.knownFacts.map((f) => `- ${f}`).join("\n")
+    : "- (无)";
+
   return [
+    `planId: ${input.planId}`,
     `traceId: ${input.traceId}`,
     `任务领域摘要：${input.classificationSummary}`,
+    `已知事实（knownFacts）：\n${knownFacts}`,
+    input.userInstruction
+      ? `用户本轮修改要求：${input.userInstruction}`
+      : "用户本轮修改要求：（无，按当前草案推荐）",
+    `上一版分配草案：${JSON.stringify(input.previousAssignment ?? { assignments: [] })}`,
     `子任务列表：`,
     ...input.tasks.map(
       (t) =>

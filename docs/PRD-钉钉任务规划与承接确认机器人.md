@@ -22,6 +22,7 @@
 | v1.3.2 | 2026-05-09 | 姚凯珩 | **工程对齐（非范围扩张）**：Qwen prompt v2.11 增加 `responseIntent`/`assistantMessage`；非出稿轮次 pipeline 状态 **`CONVERSATION`**；钉钉单气泡以 **`assistantMessage`** 为主、**`openQuestions`** 为辅；`sessionDigest` 含会话状态摘要、用户侧草案不再展示「任务理解摘要」节 |
 | v1.3.3 | 2026-05-09 | 姚凯珩 | **v0.2 指派推荐**：`DRAFT_READY` 后异步执行 `runAssignmentRecommendation`，单轮 function calling（`search_employees` 工具）+ 1 轮 self-correction；签名 Web 工作台（HMAC-SHA256, 30min TTL）；假员工档案（10 人）；mock 钉钉卡片；通过 `ASSIGNMENT_PHASE_ENABLED=1` 可选开启。仍不做正式派发/承接确认/OA 流转 |
 | v1.4 | 2026-05-10 | Leo | **ReAct Agent v4.0**：`runOrchestrator` 替换 `createTaskPlanningDemo` 为钉钉主链路；两阶段 prompt（追问/出稿）；6 tool function calling（search_web/search_employees/save_draft/list_known_facts/update_known_facts/search_similar_plans）；模型自主维护 knownFacts；embedding + cosine 长期记忆；默认模型 `qwen3.6-plus`（支持 tool_calls）；停止使用 responseIntent/assistantMessage 六态分流 |
+| v1.4.1 | 2026-05-11 | Leo | **文档对齐现网实现**：prompt 升级 `orchestrator-agent-v5.2`；钉钉链路取消输入超长硬拦截、降低代码侧强门禁；`ASSIGNMENT_PHASE_ENABLED=1` 时在同一请求内同步追加分配建议；`createTaskPlanningDemo` 保留为 demo/eval 辅助链路 |
 
 
 ---
@@ -47,7 +48,7 @@
 | **不是什么** | MVP 不做 OA 自动流程、承接三态、电子签名、执行中变更、节点反馈与验收闭环          |
 | **合规声明** | CAPA 字段仅为**建议**，最终是否开启 CAPA 以质量授权人员和公司 QMS 流程判定为准 |
 | **模型策略** | MVP 默认接入 Qwen 云 API（首选）；当前不做自动决策闭环，仅提供可审阅建议       |
-| **工程补强（v1.3.1 文档）** | 实现可对过长输入先做护栏、对大段 Markdown 可做有限 PII 脱敏、会话内带摘要以降低重复描述；均为 **工程与合规辅助**，不视为新增「产品能力」或扩大 FR 范围（仍不做 OA/承接三态等） |
+| **工程补强（v1.3.1+）** | 保留 PII 脱敏、会话摘要、审计与快照等工程能力；当前钉钉主链路不再用输入超长作为硬拦截，而是优先交由模型处理；仍不扩大 OA/承接三态等产品范围 |
 
 
 ---
@@ -209,10 +210,10 @@ MVP 不自动派发任务，仅输出可用于业务评审和人工继续协作�
 
 ### 5.4 Qwen 接入后的推理链路（MVP）
 
-1. **预处理层（确定性约束）**：只做空输入等基础护栏、**`INPUT_MAX_CHARS` 超长护栏（不静默截断）**与上下文拼接；非空输入交给模型判断语义充分性。
+1. **预处理层（确定性约束）**：主链路仅做空输入等基础护栏与上下文拼接；尽量减少由代码对模型输入的硬拦截。
 2. **策略层（可配置）**：按域提示选择系统提示词、Qwen 型号与参数。
-3. **生成层（Qwen 云 API）**：结构化 JSON 输出（**`responseIntent`/`assistantMessage`**、信息充分性、分类、任务包、追问列表、`gateSelfCheck`；**质量域须含 CAPA 建议对象**，研发域不含）。HTTP 层可 **SSE 流式接收**后拼成整段再解析，语义上仍为 **单次结构化结果**。
-4. **校验层（确定性规则）**：基于字段 Schema、域内 CAPA 规则与派发门禁二次确认；归一化层不得为核心业务字段填充语义默认值；不通过则 **`GENERATION_FAILED`** 或输出门禁未通过草案，**不使用关键词分类或模板 WBS 替代模型输出**。
+3. **生成层（Qwen 云 API）**：钉钉主链路使用 `runOrchestrator` + tool calling（ReAct），模型自主决定追问、检索、保存草案等动作；HTTP 层可 **SSE** 接收并拼装响应。
+4. **校验层（确定性规则）**：当前策略为“可运行优先、模型优先”，减少强门禁阻断；仍保留必要的结构归一化与安全兜底，不回退关键词分类或模板 WBS。
 5. **可选重试**：可在产品层配置「同请求有限次重试」；当前实现以显式失败与人工介入为主。
 6. **输出层（人审优先）**：校验通过后输出 Markdown/表格拆解稿，并附带 trace（请求 ID、模型、Token、时延等）。
 
@@ -220,7 +221,7 @@ MVP 不自动派发任务，仅输出可用于业务评审和人工继续协作�
 
 ### 5.5 钉钉 Stream 机器人（工程试点）
 
-与 PRD 产品边界对齐的 **试点部署**：企业通过 **钉钉 Stream** 收文本、`createTaskPlanningDemo` 出稿。单次用户触发 **原则上一条 Markdown 终稿**（闲聊 / 追问 / 讨论 / 成功草案 / 失败说明）；**主文案**来自模型 **`assistantMessage`**，结构化追问可来自 **`openQuestions`**，**不由代码拼接固定引导标题或 Markdown 列表符号前缀**。服务端 Qwen **`QWEN_STREAM` 默认开**；钉钉不向用户推送「处理中」或流式进度气泡（详见 **`docs/deploy-aliyun-dingtalk.md`**、**`docs/Qwen-接入实施说明.md`**）。一键更新容器：`scripts/ecs-deploy-dingtalk.ps1`。
+与 PRD 产品边界对齐的 **试点部署**：企业通过 **钉钉 Stream** 收文本，现网主链路由 `runOrchestrator` 出稿。单次用户触发返回一条 Markdown（可包含结构化任务表；开启 `ASSIGNMENT_PHASE_ENABLED=1` 且推荐成功时，同条消息追加“分配建议”）。服务端 Qwen **`QWEN_STREAM` 默认开**；钉钉不向用户推送「处理中」或流式进度气泡（详见 **`docs/deploy-aliyun-dingtalk.md`**、**`docs/Qwen-接入实施说明.md`**）。一键更新容器：`scripts/ecs-deploy-dingtalk.ps1`。
 
 ---
 

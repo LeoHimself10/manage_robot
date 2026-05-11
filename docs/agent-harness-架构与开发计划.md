@@ -70,13 +70,13 @@ V1 聚焦：
 
 ### 4.4 Planner（输入质检 + 模型生成草案）
 
-- **当前 Demo 实现**（`src/agent/demo/`）：基础输入护栏后 **`llmPlanner` 必选**，由 **Qwen** 输出信息充分性判断、追问、结构化分类、任务包与门禁自检；**关键词分类 / 模板骨架 WBS / 语义默认补全已移除**。系统提示 **`task-planning-agent-v2.11.0`**（`qwen-prompt.ts`）；JSON 含 **`responseIntent`**（CHAT/CLARIFY/DISCUSS/DRAFT/REVISE_DRAFT/RESET_OR_NEW_TASK）与 **`assistantMessage`**；可选 **`clarificationUx`**（NON_TASK/TASK_GAP）。确定性校验见 `llm-schema`、`gate`，只做结构约束与 LLM 自检一致性确认。Pipeline 状态新增 **`CONVERSATION`**（闲聊/追问/讨论）。
+- **当前 Demo 实现**：钉钉主链路使用 `src/agent/orchestrator.ts`（ReAct + tool calling），`src/agent/demo/pipeline.ts` 保留给 CLI demo/eval。提示词版本见 `src/agent/demo/qwen-prompt.ts`（当前 `orchestrator-agent-v5.2`），关键词分类 / 模板骨架 WBS / 语义默认补全已移除。
 - **完整 Harness 愿景**：编排层仍可聚合「输入质检 → Model Gateway → 门禁 → 人工审阅」；Planner 与提示词模板版本长期对齐 PRD。
 
 ### 4.5 Assignment Recommender（人岗推荐）— v0.2 已实现
 
 **已落地**（`src/agent/assignment/`）：
-- **独立 LLM 调用**：`runAssignmentRecommendation` 在 `DRAFT_READY` 后**异步**执行，通过 `sessionWebhook` 单独推送 "分配建议" Markdown。
+- **独立 LLM 调用**：`runAssignmentRecommendation` 在草案生成后触发；当前 `dingtalk-bot` 主链路在同请求内等待该结果并拼接“分配建议”。
 - **单轮 function calling**：QwenCompatibleClient 新增 `callWithTools` 方法，暴露 `search_employees(domain?, skills?, department?, role?)` 工具；LLM 调一次工具获取候选人压缩画像后再生成 `AssignmentDraft`。
 - **1 轮 self-correction**：schema validate 失败时把错误描述回传 LLM 修正。
 - **10 名假员工档案**（`fixtures/employees-seed.json`），覆盖质量/研发/供应商/项目管理角色，含 cases（taskType → outcome）、skills、availability。
@@ -107,7 +107,7 @@ V1 聚焦：
 - **完整 Harness**：记录派发、修改、承接、升级、验收等；支持追溯「谁在何时做了什么变更」。
 - **当前代码**：
   - `createHarness` / `bootstrap` 可选用 **`AUDIT_SINK=file`**，由 `AuditSink` 写入 **`AUDIT_JSONL_PATH`**（JSONL）。
-  - **钉钉 → `createTaskPlanningDemo` 主线**另行写入 **`AUDIT_DEMO_JSONL_PATH`**（每条管道完结一行，含 `traceId`、`status` 等）；两轨并行、用途不同——上线排障优先考虑 Demo JSONL。详见 **`docs/deploy-aliyun-dingtalk.md`**。
+  - **钉钉主线**：`runOrchestrator` 输出结构化日志（如 `orchestrator_done`）并写 `data/plans` 快照；**Demo JSONL** 主要用于 `createTaskPlanningDemo` 回归链路。详见 **`docs/deploy-aliyun-dingtalk.md`**。
 
 ## 5. 状态机（建议）
 

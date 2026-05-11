@@ -1,5 +1,7 @@
 # Conversational Intent Agent Redesign
 
+> **历史文档快照**：本文记录特定阶段的设计意图，**钉钉主链路已演进为 `runOrchestrator`（ReAct）**。请以仓库根目录 [`AGENTS.md`](../../../AGENTS.md)、[`docs/Qwen-接入实施说明.md`](../../Qwen-接入实施说明.md)、[`docs/deploy-aliyun-dingtalk.md`](../../deploy-aliyun-dingtalk.md) 为准；本目录说明见 [`README.md`](../README.md)。
+
 ## Goal
 
 Redesign the DingTalk task-planning MVP so it behaves more like a conversational task-planning agent and less like a rigid task-table generator.

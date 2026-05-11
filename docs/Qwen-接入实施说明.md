@@ -3,7 +3,7 @@
 ## 1. 接入目标
 
 - 任务拆解草案**仅由大模型生成**；已删除基于关键词的分类、规则 CAPA、模板 WBS 等实现。
-- **规则层**仅用于：空输入等基础护栏、输出 Schema 校验、派发门禁二次确认、（必要时）兼容层字段归一化——用于**约束 AI 输出**，不替代模型生成内容，也不为核心业务字段填充语义默认值。
+- 当前实现偏“模型优先”：规则层以稳定运行与最小结构归一化为主，尽量减少对模型行为的硬编码拦截。
 - 模型调用失败或校验失败时返回 `GENERATION_FAILED`，**不回退规则稿**。
 - **命令行**（`npm run demo` / `npm run demo:eval` / `npm run demo:scenarios`）必须配置 `QWEN_API_KEY`（可用项目根目录 `.env`，已被 git 忽略）。
 
@@ -24,7 +24,7 @@
 - `QWEN_MAX_RETRIES`：默认 `1`
 - `QWEN_REQUEST_BUDGET_TOKENS`：默认 `12000`
 - **`QWEN_STREAM`**：默认为 **开启**（OpenAI 兼容 **SSE**，服务端拼装完整 `content` 后再 `JSON.parse`）。设为 **`0` / `false` / `no`** 时使用单次整包响应。钉钉机器人 **仅推送一条终稿 Markdown**，不在会话中发送「处理中」或流式进度类气泡（与 `QWEN_STREAM` 是否开启无关）。
-- **`DEMO_LLM_CORRECTION`**：默认**开启**（未设置或 `1` / `true` / `yes`）。设为 **`0` / `false` / `no`** 时，`createTaskPlanningDemo` **不进行**校验失败后的第二轮自纠正（`enableLlmCorrection: false`），可缩短尾延迟，但 Schema 一次不过则直接 `GENERATION_FAILED`。钉钉与 CLI（`demo` / `demo:eval` / `demo:scenarios`）均读取该变量。实现见 `src/infra/demo-runtime-env.ts`。
+- **`DEMO_LLM_CORRECTION`**：默认**开启**（未设置或 `1` / `true` / `yes`）。设为 **`0` / `false` / `no`** 时，`createTaskPlanningDemo` **不进行**校验失败后的第二轮自纠正（`enableLlmCorrection: false`）。该变量主要影响 CLI demo/eval/pipeline 路径，不是钉钉 `runOrchestrator` 主链路的关键开关。
 - **`SESSION_DIGEST_MAX_CHARS`**：钉钉多轮会话里，上轮摘要注入 Qwen user prompt 的**最大字符数**（默认 `2000`，有效范围 `200`–`8000`；非法或未解析的数字回退默认）。仅影响**同会话第二轮及以后**的 prompt 体积，对首条消息无影响。
 
 本地可将变量写在项目根目录 `**.env`**，CLI 已 `import "dotenv/config"` 自动加载。可参考 `.env.example`。
@@ -47,18 +47,15 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 
 ## 3. 调用链路
 
-1. `checkInputQuality`：空文本等基础护栏；**超长输入**（`INPUT_MAX_CHARS`，见 `.env.example`）则不进入模型、`canGenerateWbs: false`，以追问提示分段。**不静默截断**用户原文。
-2. **必须传入** `llmPlanner`（通常 `runQwenPlanner`）；否则 `GENERATION_FAILED`。
-3. `runQwenPlanner`：**薄封装**，返回 `rawJson` + `trace`；结构与域校验、`traceId` 贯穿、可选 **一轮结构自纠正**（`correction`）均在 `createTaskPlanningDemo`。默认 HTTP **流式（SSE）** 接收、整段 JSON 齐后再解析；可通过 `QWEN_STREAM=0` 关掉。
-4. **prompt v2.11**：在 JSON 中增加 **`responseIntent`** 与 **`assistantMessage`**。模型先判断本轮是聊天、追问、讨论、出稿、修订还是新任务重置；仅 `DRAFT` / `REVISE_DRAFT` 输出完整任务表；其余意图以自然语言为主（`assistantMessage`），追问可进 `openQuestions`。寒暄/无关仍可用 **LOW + `clarificationUx=NON_TASK`**。复杂任务可拆到 **10–20+** 个任务包量级；用户可见任务表表头为中文；用户侧 Markdown **不再展示**「任务理解摘要」节（诊断视图可保留）。
-5. 可选 **`sessionDigest`**：由上轮会话摘要与 **`conversationState`** 拼装，写入 Qwen **user prompt**（钉钉侧注入），不改变 `background` 原文（便于审计对齐）。当前为单进程内存 TTL 记忆；摘要含「当前会话状态」、上轮分类/CAPA/任务包要点与仍需关注问题，用于同一钉钉会话内多轮修订与重置后上下文清理。
-6. Qwen 根据版本化 prompt 输出 `responseIntent`、`assistantMessage`、分类、追问、任务包、质量域 CAPA 建议与 `gateSelfCheck`；非出稿意图时 pipeline 返回 **`CONVERSATION`**；输入护栏拦截仍为 **`NEEDS_MORE_INFO`**。
-7. `validateLlmPlanPayload`：做结构与域约束校验；质量域必须包含 `capaAdvisory`，研发域不得包含 `capaAdvisory`。
-8. `gateSelfCheck`：模型按交付物、完成标准、时间节点、反馈频率四项自检，并检查依赖引用；结构化结果、审计与快照保留门禁信息，用户 Markdown 默认只在缺失时以“草案待补充”提示。
-9. `DRAFT_READY`：渲染后对 Markdown 做 **PII 正则脱敏**（手机号、身份证、IPv4），可用 `CONTENT_FILTER_DISABLED=1` 关闭（见部署文档）。
-10. 失败：`GENERATION_FAILED` + `trace.errorCode`；成功或门禁未通过均输出面向用户的 Markdown、**`DemoGenerationMetadata`**（`timings`、`traces[]` 等）及 **Demo JSONL 审计行**（若未禁用）。用户 Markdown 默认不展示“派发门禁通过/未通过”等内部措辞；门禁未通过时以“草案待补充”列出缺失项。审计与 stdout 会带 **`wallClockMs`**（本轮管线墙钟 ms）与 **`timingsMs.plannerMs`** 等分段；`DRAFT_READY` 另有 **`demo_draft_ready`** 结构化日志含 **`wallClockMs`**。`DEMO_TIMING_LOG_STDOUT=0` 可关闭非终稿的 **`demo_pipeline_timing`** 行。
+1. **钉钉主链路**：`src/dingtalk-bot.ts` 调 `runOrchestrator`，由 `QwenCompatibleClient.callWithTools` 驱动 ReAct（tool_calls 循环）生成最终 `message + draft`。
+2. **工具循环**：`callWithTools` 默认最多 6 轮；每轮都可继续使用工具，直到模型不再返回 `tool_calls`（不会在“最后一轮”被代码强制关工具）。
+3. **prompt 版本**：当前 `QWEN_PLANNER_PROMPT_VERSION` 为 `orchestrator-agent-v5.2`（见 `src/agent/demo/qwen-prompt.ts`），`runOrchestrator` 与 `generateStructuredPlan` 共用同一 system prompt 来源。
+4. **`save_draft` 行为**：当前偏“保存优先”，主要做 `coerceLlmPlanPayload` 归一化，不再依赖强门禁去阻断模型保存。
+5. **会话记忆**：`knownFacts` 通过 `list_known_facts` / `update_known_facts` 在同会话内持续累积，`conversationHistory` 参与后续轮次上下文。
+6. **输出补齐**：钉钉端拿到 `draft` 后会补充结构化字段表（含 `feedbackFrequency`），避免模型自由 Markdown 漏字段。
+7. **可观测**：主链路关注 `orchestrator_done`、assignment 事件与 `data/plans` 快照；`createTaskPlanningDemo` 的 `DemoGenerationMetadata`/JSONL 主要用于 demo/eval 路径。
 
-**与钉钉对齐**：模型 JSON 含 **`responseIntent`**、**`assistantMessage`**；可选 **`clarificationUx`**：`NON_TASK`（寒暄/非任务）或 `TASK_GAP`（真实任务缺口）。钉钉非草案气泡渲染 **`assistantMessage`** 与去重后的 **`openQuestions`**（实现见 `src/dingtalk-needs-more-info-markdown.ts`）。**源码锚点**：`src/agent/demo/qwen-prompt.ts`（`QWEN_PLANNER_PROMPT_VERSION`）、`src/agent/demo/qwen-planner.ts`、`src/agent/demo/qwen-compatible-client.ts`（SSE 拼装与可选 `streamHooks`）。
+> 说明：`createTaskPlanningDemo` 仍保留在 `src/agent/demo/pipeline.ts`，用于 CLI demo/eval 与历史兼容，不是钉钉现网主路径。
 
 ## 4. 承接指派阶段的 LLM 调用
 
@@ -73,7 +70,7 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 
 ### 延迟特征
 
-指派调用在 **后台异步** 执行（`DRAFT_READY` 先返回给用户），不增加用户体感延迟，但会额外占用 LLM 配额与并发。
+当前 `dingtalk-bot` 默认在同一请求中 `await runAssignmentRecommendation`；推荐成功时把“分配建议”直接拼到同一条回复 Markdown。若后续要恢复异步推送，需要显式改为后台任务 + 二次 webhook 发送。
 
 ## 5. 风险控制（规划）
 

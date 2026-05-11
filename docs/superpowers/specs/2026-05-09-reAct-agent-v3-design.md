@@ -1,5 +1,7 @@
 # ReAct Agent v3 架构设计
 
+> **历史文档快照**：本文记录特定阶段的设计草案，**可能与当前 `main` 代码不一致**。请以仓库根目录 [`AGENTS.md`](../../../AGENTS.md)、[`docs/Qwen-接入实施说明.md`](../../Qwen-接入实施说明.md)、[`docs/deploy-aliyun-dingtalk.md`](../../deploy-aliyun-dingtalk.md) 为准；本目录说明见 [`README.md`](../README.md)。
+
 **文档日期**：2026-05-09
 **修订人**：Leo + Claude
 **状态**：草案

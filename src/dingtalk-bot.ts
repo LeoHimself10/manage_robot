@@ -15,9 +15,6 @@ import {
   MemoryChatSessionStore,
   readRateLimitWindowMs,
 } from "./infra/session-store";
-import {
-  type DingTalkDemoSessionContext,
-} from "./dingtalk-session-context";
 import { resolveEmployeeProfileDir, resolveAssignmentDraftDir, resolveAssignmentEventsPath } from "./infra/assignment-env";
 import { createEmployeeProfileRepo } from "./integrations/repos/employee-profile-repo";
 import { createAssignmentDraftRepo } from "./integrations/repos/assignment-draft-repo";
@@ -25,9 +22,9 @@ import { createAssignmentEventRepo } from "./integrations/repos/assignment-event
 import { runAssignmentRecommendation } from "./agent/assignment/run-assignment-recommendation";
 import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { runOrchestrator } from "./agent/orchestrator";
-import { getSessionKnownFacts } from "./dingtalk-session-context";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
+import { createPlanSessionStore, type PlanSession } from "./infra/plan-session-store";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -122,7 +119,11 @@ async function main(): Promise<void> {
     debug,
   });
 
-  const chatSessionMemory = new MemoryChatSessionStore<DingTalkDemoSessionContext>();
+  const chatSessionMemory = new MemoryChatSessionStore<Record<string, unknown>>();
+  const planSessionStore = createPlanSessionStore();
+  const employeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
+  const assignmentDraftRepo = createAssignmentDraftRepo(resolveAssignmentDraftDir());
+  const assignmentEventRepo = createAssignmentEventRepo(resolveAssignmentEventsPath());
 
   client.registerCallbackListener(TOPIC_ROBOT, (res: DWClientDownStream) => {
     void (async () => {
@@ -169,51 +170,56 @@ async function main(): Promise<void> {
           return;
         }
 
-        const prior = chatSessionMemory.get(chatKey);
-        const knownFacts = getSessionKnownFacts(prior);
+        const session = planSessionStore.loadOrCreate(chatKey);
+        const knownFacts = [...session.knownFacts];
 
         // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
         const orchResult = await runOrchestrator(background, {
           clientConfig: qwenConfig,
-          employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
+          employeeRepo,
           sessionContext: {
             knownFacts,
-            conversationHistory: (prior as any)?.conversationHistory,
+            conversationHistory: session.conversationHistory,
+            planId: session.planId,
+            latestDraft: session.latestDraft,
+            latestAssignment: session.latestAssignment,
+            memorySummary: buildMemorySummary(session),
           },
         });
 
-        // Session: 保留 knownFacts（同一引用，orchestrator 已通过工具回调修改）
-        const prevHistory = (prior as any)?.conversationHistory ?? [];
-        chatSessionMemory.set(chatKey, {
-          priorDigest: prior?.priorDigest,
-          knownFacts,
-          conversationHistory: [
-            ...prevHistory,
-            { role: "user" as const, content: background },
-            { role: "assistant" as const, content: orchResult.messages.join("\n") },
-          ].slice(-10),
-        } as any);
+        const currentDraft = orchResult.draft ?? session.latestDraft;
+        const updatedKnownFacts = [...orchResult.knownFacts];
 
         // 长期记忆：有草案时自动存快照+embedding
-        if (orchResult.draft) {
+        if (currentDraft) {
+          savePlanSnapshot(session.planId, {
+            planId: session.planId,
+            traceId: orchResult.traceId,
+            status: "DRAFT_READY",
+            draft: currentDraft,
+            messagePreview: orchResult.messages[0]?.slice(0, 500),
+          });
           savePlanSnapshot(orchResult.traceId, {
             traceId: orchResult.traceId,
             status: "DRAFT_READY",
-            draft: orchResult.draft,
+            draft: currentDraft,
             messagePreview: orchResult.messages[0]?.slice(0, 500),
           });
           // 生成 embedding 用于未来相似任务检索
-          const summary = `领域:${(orchResult.draft as any)?.classification?.domain ?? "未知"} 子类型:${(orchResult.draft as any)?.classification?.subtype ?? "未知"}`;
+          const summary = `领域:${(currentDraft as any)?.classification?.domain ?? "未知"} 子类型:${(currentDraft as any)?.classification?.subtype ?? "未知"}`;
           generateQueryEmbedding(summary).then((emb) => {
-            if (emb) savePlanEmbedding(orchResult.traceId, summary, emb);
+            if (emb) {
+              savePlanEmbedding(orchResult.traceId, summary, emb);
+              savePlanEmbedding(session.planId, summary, emb);
+            }
           }).catch(() => {});
         }
 
         // 模型自己决定输出格式，代码只做兜底
         let outboundMarkdown = orchResult.messages.join("\n\n");
         // 只要有结构化草案，统一补充字段完整的任务表，避免模型自由格式漏字段
-        if (orchResult.draft) {
-          const tasks = (orchResult.draft as any)?.tasks;
+        if (currentDraft) {
+          const tasks = (currentDraft as any)?.tasks;
           if (Array.isArray(tasks) && tasks.length > 0) {
             const rows = tasks.map((t: any, i: number) =>
               `| ${i + 1} | ${t.title ?? ""} | ${t.objective ?? ""} | ${(t.deliverables ?? []).join("；") || "-"} | ${(t.completionCriteria ?? []).join("；") || "-"} | ${t.timeNode?.dueAt ?? "待确认"} | ${t.feedbackFrequency ?? "待确认"} |`
@@ -224,25 +230,32 @@ async function main(): Promise<void> {
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
 
         // 分配推荐：有草案且开启配置时，自动追加
-        if (orchResult.draft && process.env.ASSIGNMENT_PHASE_ENABLED === "1") {
+        let latestAssignment: Record<string, unknown> | undefined = session.latestAssignment;
+        if (currentDraft && process.env.ASSIGNMENT_PHASE_ENABLED === "1") {
           try {
-            const tasksForAssignment = (orchResult.draft as any)?.tasks ?? [];
-            const classification = (orchResult.draft as any)?.classification ?? { domain: "QUALITY", subtype: "QUALITY_OTHER_OR_UNCERTAIN" };
+            const tasksForAssignment = (currentDraft as any)?.tasks ?? [];
+            const classification = (currentDraft as any)?.classification ?? { domain: "QUALITY", subtype: "QUALITY_OTHER_OR_UNCERTAIN" };
+            const previousAssignment = latestAssignment ?? assignmentDraftRepo.load(session.planId);
             const ar = await runAssignmentRecommendation(
               {
+                planId: session.planId,
                 traceId: orchResult.traceId,
                 tasks: tasksForAssignment,
                 classificationSummary: `${classification.domain}/${classification.subtype}`,
                 domainHint: classification.domain,
+                userInstruction: background,
+                previousAssignment,
+                knownFacts: updatedKnownFacts,
               },
               {
-                employeeRepo: createEmployeeProfileRepo(resolveEmployeeProfileDir()),
+                employeeRepo,
                 qwenConfig,
-                draftRepo: createAssignmentDraftRepo(resolveAssignmentDraftDir()),
-                eventRepo: createAssignmentEventRepo(resolveAssignmentEventsPath()),
+                draftRepo: assignmentDraftRepo,
+                eventRepo: assignmentEventRepo,
               },
             );
             if (ar.ok) {
+              latestAssignment = ar.draft as unknown as Record<string, unknown>;
               const assignments = ar.draft.assignments ?? [];
               if (assignments.length > 0) {
                 const rows = assignments.map((a: any) =>
@@ -250,15 +263,48 @@ async function main(): Promise<void> {
                 );
                 outboundMarkdown += "\n\n### 分配建议\n| 任务 | 推荐负责人 | 置信度 | 理由 |\n|---|---|---|---|\n" + rows.join("\n");
               }
+              planSessionStore.appendEvent({
+                planId: session.planId,
+                chatKeyHash: session.chatKeyHash,
+                eventType: "ASSIGNMENT_UPDATED",
+                payload: {
+                  traceId: orchResult.traceId,
+                  assignmentCount: assignments.length,
+                },
+              });
             }
           } catch (err) {
             console.error("[assignment] error:", err instanceof Error ? err.message : String(err));
           }
         }
 
+        const nextRevisionEvents = [
+          ...(session.revisionEvents ?? []),
+          {
+            occurredAt: new Date().toISOString(),
+            eventType: currentDraft ? "DRAFT_UPDATED" : "MESSAGE_ONLY",
+            userInput: background.slice(0, 2000),
+            traceId: orchResult.traceId,
+          },
+        ].slice(-30);
+        const nextConversationHistory = [
+          ...session.conversationHistory,
+          { role: "user" as const, content: background },
+          { role: "assistant" as const, content: outboundMarkdown },
+        ].slice(-10);
+        planSessionStore.save({
+          ...session,
+          lastTraceId: orchResult.traceId,
+          knownFacts: updatedKnownFacts,
+          conversationHistory: nextConversationHistory,
+          latestDraft: currentDraft,
+          latestAssignment,
+          revisionEvents: nextRevisionEvents,
+        });
+
         dingtalkResponse = await sendMarkdownReply({
           client, sessionWebhook, messageId, senderStaffId,
-          title: orchResult.draft ? "任务拆解草案" : "消息",
+          title: currentDraft ? "任务拆解草案" : "消息",
           markdownText: outboundMarkdown,
         });
 
@@ -300,4 +346,21 @@ if (process.env.NODE_ENV !== "test") {
     console.error(e);
     process.exitCode = 1;
   });
+}
+
+function buildMemorySummary(session: PlanSession): string {
+  const lines: string[] = [`planId=${session.planId}`];
+  if (session.lastTraceId) lines.push(`lastTraceId=${session.lastTraceId}`);
+  const latestTasks = Array.isArray((session.latestDraft as any)?.tasks)
+    ? (session.latestDraft as any).tasks.length
+    : 0;
+  if (latestTasks > 0) lines.push(`latestDraftTasks=${latestTasks}`);
+  const assignmentCount = Array.isArray((session.latestAssignment as any)?.assignments)
+    ? (session.latestAssignment as any).assignments.length
+    : 0;
+  if (assignmentCount > 0) lines.push(`latestAssignments=${assignmentCount}`);
+  if ((session.revisionEvents?.length ?? 0) > 0) {
+    lines.push(`revisionEvents=${session.revisionEvents?.length ?? 0}`);
+  }
+  return lines.join("; ");
 }

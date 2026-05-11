@@ -1,5 +1,7 @@
 # Assignment and Dispatch Implementation Plan
 
+> **历史文档快照**：本文记录特定阶段的设计与实施计划，**可能与当前 `main` 代码不一致**（例如指派异步方案、工具轮次限制等）。请以仓库根目录 [`AGENTS.md`](../../../AGENTS.md)、[`docs/Qwen-接入实施说明.md`](../../Qwen-接入实施说明.md)、[`docs/deploy-aliyun-dingtalk.md`](../../deploy-aliyun-dingtalk.md) 为准；本目录说明见 [`README.md`](../README.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** After a `DRAFT_READY` turn (v2.11 `responseIntent` `DRAFT` / `REVISE_DRAFT`), run a second LLM pass to produce `AssignmentDraft`, persist it under `./data/`, expose a signed-URL Web workbench for manager overrides, append a DingTalk Markdown follow-up with links (mock interactive cards until DingTalk API permissions exist), and record append-only assignment events—aligned with `docs/superpowers/specs/2026-05-09-assignment-and-dispatch-design.md`.

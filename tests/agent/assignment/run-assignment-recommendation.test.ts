@@ -115,6 +115,7 @@ describe("runAssignmentRecommendation", () => {
 
     const result = await runAssignmentRecommendation(
       {
+        planId: "plan_test",
         traceId: "trace_test",
         tasks: [
           {
@@ -201,6 +202,7 @@ describe("runAssignmentRecommendation", () => {
 
     const result = await runAssignmentRecommendation(
       {
+        planId: "plan_test",
         traceId: "trace_test",
         tasks: [
           {
@@ -250,6 +252,7 @@ describe("runAssignmentRecommendation", () => {
 
     const result = await runAssignmentRecommendation(
       {
+        planId: "plan_test",
         traceId: "trace_test",
         tasks: [
           {
@@ -324,6 +327,7 @@ describe("runAssignmentRecommendation", () => {
 
     const result = await runAssignmentRecommendation(
       {
+        planId: "plan_test",
         traceId: "trace_test",
         tasks: [
           {
@@ -357,5 +361,79 @@ describe("runAssignmentRecommendation", () => {
 
     expect(result.ok).toBe(false);
     expect(draftSave).not.toHaveBeenCalled();
+  });
+
+  it("uses stable planId and carries revision context into prompt", async () => {
+    const draftWithoutPlan = {
+      ...VALID_DRAFT,
+      planId: "",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockFetchResponse({
+          toolCalls: [{ id: "call_ctx_1", name: "search_employees", args: "{}" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockFetchResponse({ content: JSON.stringify(draftWithoutPlan) }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const draftSave = vi.fn().mockResolvedValue(undefined);
+    const eventAppend = vi.fn().mockResolvedValue(undefined);
+
+    const result = await runAssignmentRecommendation(
+      {
+        planId: "plan-persistent-1",
+        traceId: "trace_ctx",
+        tasks: [
+          {
+            id: "task_1",
+            title: "重新分配任务",
+            objective: "按用户要求调整负责人",
+            deliverables: ["新版分配表"],
+            timeNode: { dueAt: "T+2" },
+          },
+        ],
+        classificationSummary: "QUALITY",
+        userInstruction: "把 task_1 改给测试部负责人",
+        previousAssignment: {
+          assignments: [{ taskId: "task_1", primary: { userId: "emp_qa_001" } }],
+        },
+        knownFacts: ["测试部今天有空余产能"],
+      },
+      {
+        employeeRepo: {
+          list: () => MOCK_EMPLOYEES,
+          get: (uid: string) => MOCK_EMPLOYEES.find((e) => e.userId === uid),
+        },
+        qwenConfig: {
+          baseUrl: "https://test.api",
+          apiKey: "test-key",
+          model: "qwen-plus",
+          timeoutMs: 10000,
+          maxRetries: 0,
+          temperature: 0.2,
+          maxTokens: 2048,
+        },
+        draftRepo: { save: draftSave },
+        eventRepo: { append: eventAppend },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.draft.planId).toBe("plan-persistent-1");
+    }
+
+    const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}")) as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    const userContent = firstBody.messages?.find((m) => m.role === "user")?.content ?? "";
+    expect(userContent).toContain("用户本轮修改要求");
+    expect(userContent).toContain("上一版分配草案");
+    expect(userContent).toContain("knownFacts");
+    expect(userContent).toContain("plan-persistent-1");
   });
 });

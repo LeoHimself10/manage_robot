@@ -1,5 +1,7 @@
 # Prompt-Only Conversation Tuning Implementation Plan
 
+> **历史文档快照**：本文记录特定阶段的实施计划，**可能与当前 `main` 代码不一致**。请以仓库根目录 [`AGENTS.md`](../../../AGENTS.md)、[`docs/Qwen-接入实施说明.md`](../../Qwen-接入实施说明.md)、[`docs/deploy-aliyun-dingtalk.md`](../../deploy-aliyun-dingtalk.md) 为准；本目录说明见 [`README.md`](../README.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make DingTalk follow-up conversations less rigid through prompt-only tuning, while changing user-facing task package table headers to Chinese.

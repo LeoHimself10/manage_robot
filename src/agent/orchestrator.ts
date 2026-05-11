@@ -11,7 +11,14 @@ const MAX_TOOL_ITERATIONS = 6;
 export interface OrchestratorConfig {
   clientConfig: QwenCompatibleClientConfig;
   employeeRepo: { list(): EmployeeProfileRecord[] };
-  sessionContext?: { knownFacts?: string[]; conversationHistory?: Array<{ role: string; content: string }> };
+  sessionContext?: {
+    knownFacts?: string[];
+    conversationHistory?: Array<{ role: string; content: string }>;
+    planId?: string;
+    latestDraft?: Record<string, unknown>;
+    latestAssignment?: Record<string, unknown>;
+    memorySummary?: string;
+  };
   traceId?: string;
 }
 
@@ -20,6 +27,7 @@ export interface OrchestratorResult {
   draft?: Record<string, unknown>;
   traceId: string;
   toolCallsTotal: number;
+  knownFacts: string[];
 }
 
 export async function runOrchestrator(
@@ -58,6 +66,29 @@ export async function runOrchestrator(
   const allMessages: Array<{ role: string; content: string }> = [
     { role: "system", content: sysPrompt },
   ];
+
+  const memoryParts: string[] = [];
+  if (config.sessionContext?.planId) {
+    memoryParts.push(`planId: ${config.sessionContext.planId}`);
+  }
+  if (config.sessionContext?.memorySummary) {
+    memoryParts.push(`memorySummary: ${config.sessionContext.memorySummary}`);
+  }
+  if (config.sessionContext?.latestDraft) {
+    memoryParts.push(`latestDraft: ${safeJson(config.sessionContext.latestDraft)}`);
+  }
+  if (config.sessionContext?.latestAssignment) {
+    memoryParts.push(
+      `latestAssignment: ${safeJson(config.sessionContext.latestAssignment)}`,
+    );
+  }
+  if (memoryParts.length > 0) {
+    allMessages.push({
+      role: "assistant",
+      content: `[memory_context]\n${memoryParts.join("\n")}`,
+    });
+  }
+
   const history = config.sessionContext?.conversationHistory ?? [];
   for (const h of history.slice(-10)) {
     allMessages.push({ role: h.role, content: h.content });
@@ -89,5 +120,13 @@ export async function runOrchestrator(
     messagePreview: msg.slice(0, 200),
   });
 
-  return { messages, draft, traceId, toolCallsTotal };
+  return { messages, draft, traceId, toolCallsTotal, knownFacts: [...knownFacts] };
+}
+
+function safeJson(input: unknown): string {
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return "{}";
+  }
 }
