@@ -22,7 +22,7 @@ export function renderManagerTasksPage(params: {
   userLabel?: string;
 }): string {
   const ctx = params.planId
-    ? `<div class="banner-plan">当前聚焦任务：<code>${escapeHtml(params.planId)}</code></div>`
+    ? `<div class="banner-plan">当前聚焦线程：<code>${escapeHtml(params.planId)}</code>（发布后会生成业务编号 taskNo）</div>`
     : "";
   const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
 
@@ -54,39 +54,63 @@ export function renderManagerTasksPage(params: {
 
   ${ctx}
 
-  <section class="kpis" aria-live="polite">
-    <div class="kpi"><div class="lbl">任务总数</div><div class="val" id="kpiTotal">—</div></div>
-    <div class="kpi"><div class="lbl">待处理 / 待确认</div><div class="val" id="kpiPending">—</div></div>
-    <div class="kpi"><div class="lbl">进行中 / 阻塞</div><div class="val" id="kpiActive">—</div></div>
-  </section>
-
   <div class="card">
-    <h2>任务列表</h2>
-    <p class="page-desc" style="margin:0 0 14px;">${who}可见的全部任务，按状态优先级排序。</p>
-    <div id="taskTableMount">
-      <div class="empty-state">加载中…</div>
+    <div class="tabs" role="tablist" aria-label="任务操作">
+      <button type="button" class="tabs-btn" role="tab" aria-selected="true" aria-controls="mgrPanelList" id="mgrTabList" data-tab-target="mgrPanelList">任务列表</button>
+      <button type="button" class="tabs-btn" role="tab" aria-selected="false" aria-controls="mgrPanelPublish" id="mgrTabPublish" data-tab-target="mgrPanelPublish">发布正式任务</button>
+      <button type="button" class="tabs-btn" role="tab" aria-selected="false" aria-controls="mgrPanelReassign" id="mgrTabReassign" data-tab-target="mgrPanelReassign">调整分配</button>
     </div>
-    <div class="feedback muted" id="tableFeedback"></div>
-  </div>
 
-  <div class="card">
-    <h2>调整分配</h2>
-    <p class="page-desc" style="margin:0 0 14px;">选择任务并指定新负责人，保存后立即生效。</p>
-    <div class="form-stack">
-      <label>任务
-        <select id="reassignPlanId"><option value="">请选择任务</option></select>
-      </label>
-      <label>新负责人（钉钉 userId）
-        <input id="reassignAssignee" type="text" autocomplete="off" placeholder="例如 emp_qa_001" />
-      </label>
-      <label>说明
-        <textarea id="reassignNote" placeholder="简要说明改派原因"></textarea>
-      </label>
+    <section class="tab-panel panel-stack" id="mgrPanelList" role="tabpanel" aria-labelledby="mgrTabList">
+      <section class="kpis" aria-live="polite">
+        <div class="kpi"><div class="lbl">任务总数</div><div class="val" id="kpiTotal">—</div></div>
+        <div class="kpi"><div class="lbl">待处理 / 待确认</div><div class="val" id="kpiPending">—</div></div>
+        <div class="kpi"><div class="lbl">进行中 / 阻塞</div><div class="val" id="kpiActive">—</div></div>
+      </section>
       <div>
-        <button type="button" class="btn btn-primary" id="reassignBtn">保存改派</button>
+        <p class="page-desc" style="margin:0 0 14px;">${who}可见的全部任务，按状态优先级排序。</p>
+        <div id="taskTableMount">
+          <div class="empty-state">加载中…</div>
+        </div>
+        <div class="feedback muted" id="tableFeedback"></div>
       </div>
-      <div class="feedback muted" id="reassignFeedback"></div>
-    </div>
+    </section>
+
+    <section class="tab-panel" id="mgrPanelPublish" role="tabpanel" aria-labelledby="mgrTabPublish" hidden>
+      <h2>发布正式任务</h2>
+      <p class="page-desc" style="margin:0 0 14px;">主管确认后写入正式任务库（SQLite）。可不填 planId，默认发布你最近会话。</p>
+      <div class="form-stack">
+        <label>planId
+          <input id="publishPlanId" type="text" autocomplete="off" placeholder="可选：不填则发布最近会话" />
+        </label>
+        <div class="inline-actions">
+          <button type="button" class="btn btn-secondary" id="preparePublishBtn">Agent 填表预览</button>
+          <button type="button" class="btn btn-primary" id="publishBtn">确认发布</button>
+        </div>
+        <pre id="publishPreview" class="muted" style="white-space:pre-wrap;margin:0;padding:8px;border:1px dashed #cbd5e1;border-radius:8px;display:none;"></pre>
+        <div class="feedback muted" id="publishFeedback"></div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="mgrPanelReassign" role="tabpanel" aria-labelledby="mgrTabReassign" hidden>
+      <h2>调整分配</h2>
+      <p class="page-desc" style="margin:0 0 14px;">选择任务并指定新负责人，保存后立即生效。</p>
+      <div class="form-stack">
+        <label>任务
+          <select id="reassignPlanId"><option value="">请选择任务</option></select>
+        </label>
+        <label>新负责人（钉钉 userId）
+          <input id="reassignAssignee" type="text" autocomplete="off" placeholder="例如 emp_qa_001" />
+        </label>
+        <label>说明
+          <textarea id="reassignNote" placeholder="简要说明改派原因"></textarea>
+        </label>
+        <div>
+          <button type="button" class="btn btn-primary" id="reassignBtn">保存改派</button>
+        </div>
+        <div class="feedback muted" id="reassignFeedback"></div>
+      </div>
+    </section>
   </div>
 </div>
 <script>
@@ -101,6 +125,20 @@ export function renderManagerTasksPage(params: {
     el.textContent = msg || '';
     el.className = 'feedback ' + (kind || 'muted');
   }
+  function setActiveTab(targetId) {
+    document.querySelectorAll('.tabs-btn[data-tab-target]').forEach(function (btn) {
+      var active = btn.getAttribute('data-tab-target') === targetId;
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    document.querySelectorAll('.tab-panel[id^="mgrPanel"]').forEach(function (panel) {
+      panel.hidden = panel.id !== targetId;
+    });
+  }
+  document.querySelectorAll('.tabs-btn[data-tab-target]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setActiveTab(btn.getAttribute('data-tab-target') || 'mgrPanelList');
+    });
+  });
   function priorityRank(status) {
     if (status === 'BLOCKED') return 0;
     if (status === 'ASSIGNED' || status === 'CHANGES_REQUESTED') return 1;
@@ -156,22 +194,22 @@ export function renderManagerTasksPage(params: {
       }
 
       var rows = tasks.map(function (t) {
-        var note = t.progressNote ? '<br><span class="meta">最近进度：' + escapeHtml(t.progressNote) + '</span>' : '';
+        var detail = '<a href="/workbench/manager/task?taskNo=' + encodeURIComponent(t.taskNo || '') + '">查看详情</a>';
         return '<tr>'
-          + '<td><code>' + escapeHtml(t.planId) + '</code></td>'
+          + '<td><code>' + escapeHtml(t.taskNo || '—') + '</code><br><span class="meta">planId: ' + escapeHtml(t.planId) + '</span></td>'
           + '<td>' + escapeHtml(t.title || '—') + '</td>'
-          + '<td>' + escapeHtml(t.assigneeUserId || '—') + '</td>'
+          + '<td>' + escapeHtml(String(t.subtasksCount || 0)) + '（阻塞 ' + escapeHtml(String(t.blockedCount || 0)) + '）</td>'
           + '<td><span class="badge ' + badgeClass(t.status) + '">' + escapeHtml(t.statusLabel || t.status) + '</span></td>'
-          + '<td>' + escapeHtml(t.updatedAt || '—') + '</td>'
+          + '<td>' + escapeHtml(t.updatedAt || '—') + '<br>' + detail + '</td>'
           + '</tr>';
       }).join('');
 
       mount.innerHTML = '<div class="table-wrap"><table class="data">'
-        + '<thead><tr><th>任务 ID</th><th>标题</th><th>负责人</th><th>状态</th><th>更新时间</th></tr></thead>'
+        + '<thead><tr><th>任务编号</th><th>标题</th><th>子任务</th><th>状态</th><th>更新时间</th></tr></thead>'
         + '<tbody>' + rows + '</tbody></table></div>';
 
       sel.innerHTML = '<option value="">请选择任务</option>' + tasks.map(function (t) {
-        return '<option value="' + escapeHtml(t.planId) + '">' + escapeHtml(t.planId) + ' · ' + escapeHtml(t.statusLabel || t.status) + '</option>';
+        return '<option value="' + escapeHtml(t.planId) + '">' + escapeHtml(t.taskNo || t.planId) + ' · ' + escapeHtml(t.statusLabel || t.status) + '</option>';
       }).join('');
 
       var focus = ${JSON.stringify(params.planId ?? "")};
@@ -212,6 +250,61 @@ export function renderManagerTasksPage(params: {
     }
   });
 
+  document.getElementById('publishBtn').addEventListener('click', async function () {
+    var planId = (document.getElementById('publishPlanId').value || '').trim();
+    var btn = document.getElementById('publishBtn');
+    btn.disabled = true;
+    setFb('publishFeedback', '发布中…', 'muted');
+    try {
+      var res = await fetch('/api/workbench/manager/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(planId ? { planId: planId } : {})
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      var taskNo = data.task && data.task.taskNo ? String(data.task.taskNo) : '';
+      setFb('publishFeedback', (data.alreadyPublished ? '该计划已发布。' : '发布成功。') + (taskNo ? (' taskNo=' + taskNo) : ''), 'ok');
+      await loadTasks();
+    } catch (e) {
+      setFb('publishFeedback', String(e && e.message ? e.message : e), 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('preparePublishBtn').addEventListener('click', async function () {
+    var planId = (document.getElementById('publishPlanId').value || '').trim();
+    if (!planId) {
+      setFb('publishFeedback', '请先填写或选择 planId', 'err');
+      return;
+    }
+    setFb('publishFeedback', '准备中…', 'muted');
+    try {
+      var detailRes = await fetch('/api/workbench/tasks/detail?taskNo=' + encodeURIComponent(planId));
+      if (!detailRes.ok) {
+        // ignore detail miss, still allow a minimal prepare request
+      }
+      var prepareRes = await fetch('/api/workbench/manager/publish/prepare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId: planId,
+          title: '待主管确认发布',
+          subtasks: [{ taskId: 'pending', title: '由发布接口自动生成', assigneeUserId: 'pending' }]
+        })
+      });
+      var data = await prepareRes.json().catch(function () { return {}; });
+      if (!prepareRes.ok || !data.ok) throw new Error(data.error || ('HTTP ' + prepareRes.status));
+      var preview = document.getElementById('publishPreview');
+      preview.style.display = 'block';
+      preview.textContent = JSON.stringify(data.prepared || {}, null, 2);
+      setFb('publishFeedback', 'Agent 填表已生成，确认后可发布。', 'ok');
+    } catch (e) {
+      setFb('publishFeedback', String(e && e.message ? e.message : e), 'err');
+    }
+  });
+
   document.getElementById('logoutBtn').addEventListener('click', async function () {
     await fetch('/api/workbench/logout', { method: 'POST' });
     window.location.href = '/workbench';
@@ -241,13 +334,13 @@ export function renderManagerChatPage(params: {
 <title>Agent 对话 · 主管工作台</title>
 <style>${WORKBENCH_APP_BASE_CSS}</style>
 </head>
-<body>
+<body class="page-shell--chat">
 <div class="app-shell">
-  <header class="topbar">
+  <header class="topbar topbar--compact">
     <div>
       <div class="brand">主管工作台</div>
       <h1 class="page-title">与 Agent 对话</h1>
-      <p class="page-desc">继续已有任务线程或开启新的规划会话。消息仅展示业务内容，便于追溯。</p>
+      <p class="page-desc">像常规 AI 对话一样继续任务线程，回复会自动写入会话记录便于追溯。</p>
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="主管导航">
@@ -261,33 +354,52 @@ export function renderManagerChatPage(params: {
 
   ${ctx}
 
-  <div class="card">
-    <div class="page-desc" style="margin:0 0 12px;">操作者：<strong>${who}</strong></div>
-    <div class="split-chat">
-      <div>
-        <h3 style="margin-top:0;">会话线程</h3>
-        <ul class="thread-list" id="threadList"><li class="muted" style="cursor:default;border-style:dashed;">加载中…</li></ul>
+  <div class="chat-main">
+    <aside class="chat-thread-pane">
+      <h3 class="chat-pane-title">会话线程</h3>
+      <ul class="thread-list" id="threadList"><li class="muted" style="cursor:default;border-style:dashed;">加载中…</li></ul>
+    </aside>
+
+    <section class="chat-message-pane">
+      <div class="thread-toolbar">
+        <button type="button" class="btn btn-secondary" id="openThreadSheetBtn">选择会话</button>
       </div>
-      <div>
-        <h3 style="margin-top:0;">消息与输入</h3>
-        <label style="display:grid;gap:6px;font-size:13px;font-weight:500;margin-bottom:10px;">
-          当前任务 ID
-          <select id="planSelect"><option value="">请选择线程</option></select>
-        </label>
-        <ul class="msg-list" id="msgList"><li class="muted" style="border-style:dashed;">请选择左侧线程</li></ul>
-        <div class="form-stack" style="margin-top:12px;">
+      <div style="padding:12px 12px 8px;">
+        <div class="page-desc" style="margin:0;">操作者：<strong>${who}</strong> · 当前线程：<strong id="currentPlanLabel">未选择</strong></div>
+      </div>
+      <div class="chat-stream" aria-live="polite">
+        <ul class="msg-list" id="msgList"><li class="muted" style="border-style:dashed;">请选择线程</li></ul>
+      </div>
+      <div class="chat-composer">
+        <div class="form-stack">
           <label>发送给 Agent
             <textarea id="msgInput" placeholder="补充背景、调整诉求或追问草案…"></textarea>
           </label>
-          <button type="button" class="btn btn-primary" id="sendBtn">发送</button>
+          <div class="chat-composer-actions">
+            <span class="muted" id="currentPlanHint">请先选择线程后再发送</span>
+            <button type="button" class="btn btn-primary" id="sendBtn">发送</button>
+          </div>
           <div class="feedback muted" id="sendFeedback"></div>
         </div>
       </div>
-    </div>
+    </section>
   </div>
 </div>
+
+<div class="chat-mobile-sheet" id="threadSheet" hidden>
+  <div class="chat-mobile-sheet-inner">
+    <div class="inline-actions" style="justify-content:space-between;">
+      <strong>选择会话线程</strong>
+      <button type="button" class="btn btn-ghost" id="closeThreadSheetBtn">关闭</button>
+    </div>
+    <ul class="thread-list" id="threadListMobile"><li class="muted" style="cursor:default;border-style:dashed;">加载中…</li></ul>
+  </div>
+</div>
+
 <script>
 (function () {
+  var activePlanId = ${JSON.stringify(params.planId ?? "")};
+
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
@@ -297,6 +409,55 @@ export function renderManagerChatPage(params: {
     el.textContent = msg || '';
     el.className = 'feedback ' + (kind || 'muted');
   }
+  function renderThreadItems(threads) {
+    if (!threads.length) {
+      return '<li style="cursor:default;border-style:dashed;color:#64748b;">暂无会话，点击右上角开启新会话。</li>';
+    }
+    return threads.map(function (t) {
+      return '<li data-plan-id="' + escapeHtml(t.planId) + '" tabindex="0" role="button">'
+        + '<strong>' + escapeHtml(t.planId) + '</strong><br>'
+        + '<span style="font-size:12px;color:#64748b;">更新 ' + escapeHtml(t.updatedAt || '—') + ' · ' + (t.turns || 0) + ' 轮</span>'
+        + '</li>';
+    }).join('');
+  }
+  function highlightThread(planId) {
+    document.querySelectorAll('.thread-list li[data-plan-id]').forEach(function (li) {
+      li.classList.toggle('active', li.getAttribute('data-plan-id') === planId);
+    });
+    var label = document.getElementById('currentPlanLabel');
+    var hint = document.getElementById('currentPlanHint');
+    if (label) label.textContent = planId || '未选择';
+    if (hint) hint.textContent = planId ? ('当前发送到 ' + planId) : '请先选择线程后再发送';
+  }
+  function bindThreadClicks() {
+    document.querySelectorAll('.thread-list li[data-plan-id]').forEach(function (li) {
+      li.addEventListener('click', function () {
+        var pid = li.getAttribute('data-plan-id') || '';
+        activePlanId = pid;
+        highlightThread(pid);
+        hideThreadSheet();
+        void loadMessages(pid);
+      });
+      li.addEventListener('keydown', function (evt) {
+        if (evt.key === 'Enter' || evt.key === ' ') {
+          evt.preventDefault();
+          li.click();
+        }
+      });
+    });
+  }
+  function roleClass(role) {
+    var normalized = String(role || '').toLowerCase();
+    if (normalized === 'user') return 'msg-bubble--user';
+    if (normalized === 'assistant') return 'msg-bubble--assistant';
+    return 'msg-bubble--system';
+  }
+  function showThreadSheet() {
+    document.getElementById('threadSheet').hidden = false;
+  }
+  function hideThreadSheet() {
+    document.getElementById('threadSheet').hidden = true;
+  }
 
   async function loadThreads() {
     try {
@@ -304,47 +465,24 @@ export function renderManagerChatPage(params: {
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var threads = data.threads || [];
-      var ul = document.getElementById('threadList');
-      var sel = document.getElementById('planSelect');
+      document.getElementById('threadList').innerHTML = renderThreadItems(threads);
+      document.getElementById('threadListMobile').innerHTML = renderThreadItems(threads);
+      bindThreadClicks();
       if (!threads.length) {
-        ul.innerHTML = '<li style="cursor:default;border-style:dashed;color:#64748b;">暂无会话，点击右上角开启新会话。</li>';
-        sel.innerHTML = '<option value="">暂无线程</option>';
+        activePlanId = '';
+        highlightThread('');
+        document.getElementById('msgList').innerHTML = '<li class="muted" style="border-style:dashed;">暂无消息，请先创建会话。</li>';
         return;
       }
-      ul.innerHTML = threads.map(function (t, i) {
-        return '<li data-plan-id="' + escapeHtml(t.planId) + '" tabindex="0" role="button">'
-          + '<strong>' + escapeHtml(t.planId) + '</strong><br>'
-          + '<span style="font-size:12px;color:#64748b;">更新 ' + escapeHtml(t.updatedAt || '—') + ' · ' + (t.turns || 0) + ' 轮</span>'
-          + '</li>';
-      }).join('');
-      sel.innerHTML = '<option value="">请选择线程</option>' + threads.map(function (t) {
-        return '<option value="' + escapeHtml(t.planId) + '">' + escapeHtml(t.planId) + '</option>';
-      }).join('');
 
-      var focus = ${JSON.stringify(params.planId ?? "")};
-      if (focus) {
-        sel.value = focus;
-        highlightThread(focus);
-        void loadMessages(focus);
-      }
-
-      ul.querySelectorAll('li[data-plan-id]').forEach(function (li) {
-        li.addEventListener('click', function () {
-          var pid = li.getAttribute('data-plan-id') || '';
-          sel.value = pid;
-          highlightThread(pid);
-          void loadMessages(pid);
-        });
-      });
+      var hasFocus = threads.some(function (t) { return t.planId === activePlanId; });
+      if (!hasFocus) activePlanId = threads[0].planId;
+      highlightThread(activePlanId);
+      await loadMessages(activePlanId);
     } catch (e) {
       document.getElementById('threadList').innerHTML = '<li style="cursor:default;color:#dc2626;">加载失败</li>';
+      document.getElementById('threadListMobile').innerHTML = '<li style="cursor:default;color:#dc2626;">加载失败</li>';
     }
-  }
-
-  function highlightThread(planId) {
-    document.querySelectorAll('.thread-list li[data-plan-id]').forEach(function (li) {
-      li.classList.toggle('active', li.getAttribute('data-plan-id') === planId);
-    });
   }
 
   async function loadMessages(planId) {
@@ -364,7 +502,8 @@ export function renderManagerChatPage(params: {
         return;
       }
       box.innerHTML = msgs.map(function (m) {
-        return '<li><strong>' + escapeHtml(m.role || '') + '</strong>' + escapeHtml(m.content || '') + '</li>';
+        var role = String(m.role || 'system');
+        return '<li><div class="msg-bubble ' + roleClass(role) + '"><strong>' + escapeHtml(role) + '</strong>' + escapeHtml(m.content || '') + '</div></li>';
       }).join('');
       box.scrollTop = box.scrollHeight;
     } catch (e) {
@@ -372,14 +511,8 @@ export function renderManagerChatPage(params: {
     }
   }
 
-  document.getElementById('planSelect').addEventListener('change', function () {
-    var pid = this.value || '';
-    highlightThread(pid);
-    void loadMessages(pid);
-  });
-
   document.getElementById('sendBtn').addEventListener('click', async function () {
-    var planId = (document.getElementById('planSelect').value || '').trim();
+    var planId = String(activePlanId || '').trim();
     var message = (document.getElementById('msgInput').value || '').trim();
     if (!planId) { setFb('sendFeedback', '请先选择任务线程', 'err'); return; }
     if (!message) { setFb('sendFeedback', '请输入消息内容', 'err'); return; }
@@ -421,11 +554,18 @@ export function renderManagerChatPage(params: {
     }
   });
 
+  document.getElementById('openThreadSheetBtn').addEventListener('click', showThreadSheet);
+  document.getElementById('closeThreadSheetBtn').addEventListener('click', hideThreadSheet);
+  document.getElementById('threadSheet').addEventListener('click', function (evt) {
+    if (evt.target === evt.currentTarget) hideThreadSheet();
+  });
+
   document.getElementById('logoutBtn').addEventListener('click', async function () {
     await fetch('/api/workbench/logout', { method: 'POST' });
     window.location.href = '/workbench';
   });
 
+  highlightThread(activePlanId);
   void loadThreads();
 })();
 </script>

@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { QwenCompatibleClientConfig } from "./demo/qwen-compatible-client";
 import { QwenCompatibleClient } from "./demo/qwen-compatible-client";
-import { buildToolRegistry } from "./tools/registry";
+import { buildToolRegistry, type ToolProfile } from "./tools/registry";
 import { logStructured } from "../infra/logger";
 import type { EmployeeProfileRecord } from "../integrations/repos/employee-profile-repo";
-import { buildQwenPlannerSystemPrompt } from "./demo/qwen-prompt";
+import { buildQwenPlannerSystemPrompt, type AgentPromptProfile } from "./demo/qwen-prompt";
 
 const MAX_TOOL_ITERATIONS = 6;
 
@@ -12,13 +12,18 @@ export interface OrchestratorConfig {
   clientConfig: QwenCompatibleClientConfig;
   employeeRepo: { list(): EmployeeProfileRecord[] };
   maxToolIterations?: number;
+  toolProfile?: ToolProfile;
+  promptProfile?: AgentPromptProfile;
+  trustedActorUserId?: string;
+  allowSearchWeb?: boolean;
   sessionContext?: {
-    knownFacts?: string[];
     conversationHistory?: Array<{ role: string; content: string }>;
     planId?: string;
     latestDraft?: Record<string, unknown>;
     latestAssignment?: Record<string, unknown>;
     memorySummary?: string;
+    memoryFacts?: string[];
+    currentTimeIso?: string;
   };
   traceId?: string;
 }
@@ -29,7 +34,6 @@ export interface OrchestratorResult {
   assignment?: Record<string, unknown>;
   traceId: string;
   toolCallsTotal: number;
-  knownFacts: string[];
 }
 
 export async function runOrchestrator(
@@ -39,21 +43,16 @@ export async function runOrchestrator(
   const traceId = config.traceId ?? randomUUID();
   const client = new QwenCompatibleClient(config.clientConfig);
 
-  const knownFacts: string[] = config.sessionContext?.knownFacts ?? [];
   let savedDraft: Record<string, unknown> | undefined;
+  const previousDraft = config.sessionContext?.latestDraft;
 
   const toolRegistry = buildToolRegistry({
     employeeRepo: config.employeeRepo,
-    knownFacts: {
-      get: () => [...knownFacts],
-      update: (facts: string[]) => {
-        for (const f of facts) {
-          if (!knownFacts.includes(f)) knownFacts.push(f);
-        }
-      },
-    },
+    toolProfile: config.toolProfile ?? "planner",
+    trustedActorUserId: config.trustedActorUserId,
+    allowSearchWeb: config.allowSearchWeb,
     onDraftSaved: (draft: Record<string, unknown>) => {
-      savedDraft = draft;
+      savedDraft = stabilizeDraftTaskIds(draft, previousDraft);
     },
   });
 
@@ -64,7 +63,7 @@ export async function runOrchestrator(
   }
 
   // Build messages with conversation history
-  const sysPrompt = buildQwenPlannerSystemPrompt();
+  const sysPrompt = buildQwenPlannerSystemPrompt(config.promptProfile ?? "planner");
   const allMessages: Array<{ role: string; content: string }> = [
     { role: "system", content: sysPrompt },
   ];
@@ -75,6 +74,13 @@ export async function runOrchestrator(
   }
   if (config.sessionContext?.memorySummary) {
     memoryParts.push(`memorySummary: ${config.sessionContext.memorySummary}`);
+  }
+  if (config.sessionContext?.currentTimeIso) {
+    memoryParts.push(`currentTime: ${config.sessionContext.currentTimeIso}`);
+  }
+  const memoryFacts = (config.sessionContext?.memoryFacts ?? []).map((f) => String(f).trim()).filter(Boolean);
+  if (memoryFacts.length > 0) {
+    memoryParts.push(`topFacts: ${safeJson(memoryFacts.slice(0, 8))}`);
   }
   if (config.sessionContext?.latestDraft) {
     memoryParts.push(`latestDraftSummary: ${safeJson(summarizeDraftForPrompt(config.sessionContext.latestDraft))}`);
@@ -94,7 +100,7 @@ export async function runOrchestrator(
   const history = normalizeConversationHistoryForModel(
     config.sessionContext?.conversationHistory ?? [],
   );
-  for (const h of history.slice(-5)) {
+  for (const h of history.slice(-4)) {
     allMessages.push(h);
   }
   allMessages.push({ role: "user", content: userMessage });
@@ -108,6 +114,9 @@ export async function runOrchestrator(
       tools,
       toolHandlers: handlers,
       maxIterations: maxToolIterations,
+      maxTotalMs: Number(process.env.AGENT_MAX_TOTAL_MS ?? "120000"),
+      maxToolCalls: Number(process.env.AGENT_MAX_TOOL_CALLS ?? "12"),
+      maxTotalTokens: Number(process.env.AGENT_MAX_TOTAL_TOKENS ?? "12000"),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -129,7 +138,6 @@ export async function runOrchestrator(
         assignment: undefined,
         traceId,
         toolCallsTotal: maxToolIterations,
-        knownFacts: [...knownFacts],
       };
     }
     throw err;
@@ -140,10 +148,16 @@ export async function runOrchestrator(
   const timing = response.timing;
 
   const msg = String(payload?.message ?? "").trim();
-  const assignment = isPlainObject(payload?.assignment) ? payload?.assignment as Record<string, unknown> : undefined;
+  let assignment = isPlainObject(payload?.assignment) ? payload?.assignment as Record<string, unknown> : undefined;
 
   const messages: string[] = msg ? [msg] : [];
   let draft: Record<string, unknown> | undefined = savedDraft ?? (payload?.draft as Record<string, unknown> | undefined);
+  if (draft) {
+    draft = stabilizeDraftTaskIds(draft, previousDraft);
+  }
+  if (assignment && draft) {
+    assignment = alignAssignmentTaskIds(assignment, draft);
+  }
 
   logStructured({
     event: "orchestrator_done",
@@ -160,7 +174,7 @@ export async function runOrchestrator(
     messagePreview: msg.slice(0, 200),
   });
 
-  return { messages, draft, assignment, traceId, toolCallsTotal, knownFacts: [...knownFacts] };
+  return { messages, draft, assignment, traceId, toolCallsTotal };
 }
 
 function safeJson(input: unknown): string {
@@ -206,6 +220,82 @@ function summarizeAssignmentForPrompt(
       .filter((id) => id.length > 0)
       .slice(0, 8),
   };
+}
+
+function stabilizeDraftTaskIds(
+  draft: Record<string, unknown>,
+  previous?: Record<string, unknown>,
+): Record<string, unknown> {
+  const tasks = Array.isArray((draft as { tasks?: unknown[] }).tasks)
+    ? ((draft as { tasks: Array<Record<string, unknown>> }).tasks)
+    : [];
+  if (tasks.length === 0) return draft;
+  const previousTasks = Array.isArray((previous as { tasks?: unknown[] } | undefined)?.tasks)
+    ? ((previous as { tasks: Array<Record<string, unknown>> }).tasks)
+    : [];
+  const byFingerprint = new Map<string, string>();
+  for (const task of previousTasks) {
+    const id = String(task?.id ?? "").trim();
+    if (!id) continue;
+    byFingerprint.set(fingerprintTask(task), id);
+  }
+  const used = new Set<string>();
+  const nextTasks = tasks.map((task, index) => {
+    const cloned = { ...task };
+    let id = String(cloned.id ?? "").trim();
+    if (!id) {
+      const prevAtIndex = previousTasks[index];
+      const prevId = String(prevAtIndex?.id ?? "").trim();
+      if (prevId) {
+        id = prevId;
+      } else {
+        id = byFingerprint.get(fingerprintTask(cloned)) ?? "";
+      }
+    }
+    if (!id || used.has(id)) {
+      id = allocTaskId(index, used);
+    }
+    used.add(id);
+    cloned.id = id;
+    return cloned;
+  });
+  return { ...draft, tasks: nextTasks };
+}
+
+function alignAssignmentTaskIds(
+  assignment: Record<string, unknown>,
+  draft: Record<string, unknown>,
+): Record<string, unknown> {
+  const assignments = Array.isArray((assignment as { assignments?: unknown[] }).assignments)
+    ? (assignment as { assignments: Array<Record<string, unknown>> }).assignments
+    : [];
+  const draftTasks = Array.isArray((draft as { tasks?: unknown[] }).tasks)
+    ? (draft as { tasks: Array<Record<string, unknown>> }).tasks
+    : [];
+  const draftIds = draftTasks.map((t) => String(t?.id ?? "").trim()).filter(Boolean);
+  const normalized = assignments.map((row, index) => {
+    const taskId = String(row?.taskId ?? "").trim();
+    if (taskId) return row;
+    return {
+      ...row,
+      taskId: draftIds[index] ?? `task_${index + 1}`,
+    };
+  });
+  return { ...assignment, assignments: normalized };
+}
+
+function fingerprintTask(task: Record<string, unknown>): string {
+  const title = String(task?.title ?? "").trim().toLowerCase();
+  const objective = String(task?.objective ?? "").trim().toLowerCase();
+  return `${title}::${objective}`;
+}
+
+function allocTaskId(index: number, used: Set<string>): string {
+  const base = `task_${index + 1}`;
+  if (!used.has(base)) return base;
+  let seq = index + 1;
+  while (used.has(`task_${seq}`)) seq += 1;
+  return `task_${seq}`;
 }
 
 function normalizeConversationHistoryForModel(

@@ -14,10 +14,9 @@ import {
   type PlanSession,
 } from "../infra/plan-session-store";
 import {
-  createWorkbenchTaskStore,
-  type WorkbenchTaskRecord,
+  createWorkbenchFormalTaskStore,
   type WorkbenchTaskStatus,
-} from "../infra/workbench-task-store";
+} from "../infra/workbench-formal-task-store";
 import { loadQwenPlannerConfigFromEnv } from "../agent/demo/qwen-planner";
 import { runOrchestrator } from "../agent/orchestrator";
 import {
@@ -27,9 +26,23 @@ import {
   getDingTalkCorpId,
 } from "../integrations/dingtalk/dingtalk-auth";
 import { buildWorkbenchJsapiConfig } from "../integrations/dingtalk/dingtalk-jsapi-config";
+import {
+  createWorkbenchPublishNotifier,
+  type WorkbenchPublishNotifier,
+} from "../integrations/dingtalk/workbench-notify";
 import { createEmployeeProfileRepo } from "../integrations/repos/employee-profile-repo";
-import { isWorkbenchManager } from "../security/workbench-manager-whitelist";
+import { createDingTalkContactSyncService } from "../infra/dingtalk-contact-sync";
+import { createPeopleDirectoryStore } from "../infra/people-directory-store";
+import { buildPreparePublishTaskHandler } from "../agent/tools/prepare-publish-task";
+import {
+  appendMemoryEvents,
+  loadMemoryContextForPlan,
+} from "../infra/workbench-memory-store";
+import { listDynamicWorkbenchManagers, setDynamicWorkbenchManager } from "../security/workbench-manager-directory";
+import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
+import { resolveWorkbenchRole, type WorkbenchRole } from "../security/workbench-role-resolver";
 import { verifyAssignmentEntry } from "../security/web-entry-token";
+import { renderAdminWorkbenchPage } from "./admin-workbench-pages";
 import {
   renderManagerChatPage,
   renderManagerTasksPage,
@@ -38,18 +51,22 @@ import {
   renderEmployeeCurrentTasksPage,
   renderEmployeeNewTasksPage,
 } from "./employee-workbench-pages";
+import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
 const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/manager/tasks",
   "/workbench/manager/chat",
+  "/workbench/manager/task",
 ]);
 
 const EMPLOYEE_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/employee/new",
   "/workbench/employee/current",
+  "/workbench/employee/task",
 ]);
+const ADMIN_WORKBENCH_PAGE_PATHS = new Set(["/workbench/admin", "/workbench/admin/task"]);
 
 /** Legacy bookmarks → canonical paths (302 after session + role check). */
 const LEGACY_WORKBENCH_REDIRECTS: Record<string, string> = {
@@ -71,6 +88,7 @@ function isWorkbenchHtmlPath(pathname: string): boolean {
   return (
     MANAGER_WORKBENCH_PAGE_PATHS.has(pathname) ||
     EMPLOYEE_WORKBENCH_PAGE_PATHS.has(pathname) ||
+    ADMIN_WORKBENCH_PAGE_PATHS.has(pathname) ||
     pathname in LEGACY_WORKBENCH_REDIRECTS
   );
 }
@@ -91,8 +109,6 @@ interface SessionSummary {
   conversationTurns: number;
 }
 
-type WorkbenchRole = "manager" | "employee";
-
 interface WorkbenchSession {
   sid: string;
   userId: string;
@@ -110,6 +126,8 @@ interface WorkbenchSession {
 
 const WORKBENCH_COOKIE_NAME = "wb_session";
 const WORKBENCH_SESSION_TTL_SECONDS = 12 * 60 * 60;
+const ACTION_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const seenActionKeys = new Map<string, { action: string; at: number }>();
 
 const assignmentWorkbenchDir = dirname(fileURLToPath(import.meta.url));
 
@@ -120,11 +138,36 @@ function resolveWorkbenchDdLoginBundlePath(): string {
 const planSessionStore = createPlanSessionStore();
 const employeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
 const qwenConfig = loadQwenPlannerConfigFromEnv();
-const workbenchTaskStore = createWorkbenchTaskStore();
+let formalTaskStore: ReturnType<typeof createWorkbenchFormalTaskStore> | undefined;
 let dingtalkAuthClient: DingTalkAuthClient = createDingTalkAuthClient();
+let workbenchPublishNotifier: WorkbenchPublishNotifier = createWorkbenchPublishNotifier();
+const preparePublishTaskHandler = buildPreparePublishTaskHandler();
+
+function withPeopleDirectoryStore<T>(fn: (store: ReturnType<typeof createPeopleDirectoryStore>) => T): T {
+  const store = createPeopleDirectoryStore();
+  try {
+    return fn(store);
+  } finally {
+    store.close();
+  }
+}
+
+function getFormalTaskStore(): ReturnType<typeof createWorkbenchFormalTaskStore> {
+  formalTaskStore = formalTaskStore ?? createWorkbenchFormalTaskStore();
+  return formalTaskStore;
+}
 
 export function __setDingTalkAuthClientForTest(client?: DingTalkAuthClient): void {
   dingtalkAuthClient = client ?? createDingTalkAuthClient();
+}
+
+export function __setWorkbenchPublishNotifierForTest(notifier?: WorkbenchPublishNotifier): void {
+  workbenchPublishNotifier = notifier ?? createWorkbenchPublishNotifier();
+}
+
+export function __resetWorkbenchStoresForTest(): void {
+  formalTaskStore = undefined;
+  workbenchPublishNotifier = createWorkbenchPublishNotifier();
 }
 
 function getWorkbenchSessionSecret(): string {
@@ -183,7 +226,9 @@ function getSessionFromRequest(req: IncomingMessage): WorkbenchSession | undefin
     const parsed = JSON.parse(fromBase64Url(payloadB64)) as WorkbenchSession;
     if (!parsed?.userId || !parsed?.role || !parsed?.exp) return undefined;
     if (Date.now() > parsed.exp * 1000) return undefined;
-    if (parsed.role !== "manager" && parsed.role !== "employee") return undefined;
+    if (parsed.role !== "admin" && parsed.role !== "manager" && parsed.role !== "employee") {
+      return undefined;
+    }
     return parsed;
   } catch {
     return undefined;
@@ -191,7 +236,7 @@ function getSessionFromRequest(req: IncomingMessage): WorkbenchSession | undefin
 }
 
 function resolveRoleForUser(userId: string): WorkbenchRole {
-  return isWorkbenchManager(userId) ? "manager" : "employee";
+  return resolveWorkbenchRole(userId);
 }
 
 function createWorkbenchSession(params: {
@@ -353,6 +398,18 @@ function findLatestSessionByPlanId(
   return sessions[0];
 }
 
+function findLatestSessionForManager(
+  userId: string,
+): (PlanSession & { chatKeyHash: string }) | undefined {
+  const sessions = loadAllSessions().filter((s) => s.senderStaffId === userId);
+  sessions.sort((a, b) => {
+    const ta = Date.parse(a.updatedAt ?? "") || 0;
+    const tb = Date.parse(b.updatedAt ?? "") || 0;
+    return tb - ta;
+  });
+  return sessions[0];
+}
+
 function ensureSessionForPlanId(params: {
   planId: string;
   userId: string;
@@ -375,29 +432,26 @@ function ensureSessionForPlanId(params: {
 }
 
 function buildOverviewPayload(view: WorkbenchView, userId?: string) {
-  workbenchTaskStore.syncFromSessions();
   const plans = safeReadRecentPlans();
   const sessions = safeReadRecentSessions();
-  const allTasks = workbenchTaskStore.listAll();
+  const allTasks = getFormalTaskStore().listAdminTasks();
   const normalizedUserId = userId?.trim() || undefined;
 
   let filteredSessions = sessions;
-  let filteredTasks = allTasks;
+  let filteredTasks: Array<{ planId: string; status: WorkbenchTaskStatus }> = allTasks;
   if (view === "employee") {
     filteredSessions = normalizedUserId
       ? sessions.filter((s) => s.senderStaffId === normalizedUserId)
       : sessions.filter((s) => Boolean(s.senderStaffId));
     filteredTasks = normalizedUserId
-      ? allTasks.filter((t) => t.assigneeUserId === normalizedUserId)
+      ? getFormalTaskStore().listEmployeeSubtasks(normalizedUserId)
       : [];
   } else if (view === "in-progress") {
     filteredSessions = sessions.filter((s) => s.conversationTurns > 0);
     filteredTasks = normalizedUserId
-      ? allTasks.filter(
-          (t) =>
-            t.assigneeUserId === normalizedUserId &&
-            (t.status === "ACCEPTED" || t.status === "IN_PROGRESS" || t.status === "BLOCKED"),
-        )
+      ? getFormalTaskStore()
+          .listEmployeeSubtasks(normalizedUserId)
+          .filter((t) => t.status === "ACCEPTED" || t.status === "IN_PROGRESS" || t.status === "BLOCKED")
       : allTasks.filter(
           (t) => t.status === "ACCEPTED" || t.status === "IN_PROGRESS" || t.status === "BLOCKED",
         );
@@ -454,27 +508,20 @@ function buildSessionMemorySummary(session: PlanSession): string {
   return lines.join("; ");
 }
 
+function isExplicitSearchRequest(input: string): boolean {
+  const text = input.trim().toLowerCase();
+  if (!text) return false;
+  return /联网|搜索|查最新|外部资料|行业资料|外部案例|web search|search web|latest/i.test(text);
+}
+
 function taskStatusLabel(status: WorkbenchTaskStatus): string {
   if (status === "ASSIGNED") return "待处理";
-  if (status === "CHANGES_REQUESTED") return "待确认";
+  if (status === "CHANGES_REQUESTED") return "待修改";
   if (status === "ACCEPTED") return "已接受";
   if (status === "IN_PROGRESS") return "进行中";
   if (status === "BLOCKED") return "阻塞中";
   if (status === "DONE") return "已完成";
   return "已拒绝";
-}
-
-function classifyEmployeeTasks(tasks: WorkbenchTaskRecord[]): {
-  newTasks: WorkbenchTaskRecord[];
-  currentTasks: WorkbenchTaskRecord[];
-} {
-  const newTasks = tasks.filter(
-    (t) => t.status === "ASSIGNED" || t.status === "CHANGES_REQUESTED",
-  );
-  const currentTasks = tasks.filter(
-    (t) => t.status === "ACCEPTED" || t.status === "IN_PROGRESS" || t.status === "BLOCKED",
-  );
-  return { newTasks, currentTasks };
 }
 
 /** Keep session.latestAssignment.assignments[0].primary.userId aligned after manager reassign. */
@@ -502,13 +549,51 @@ function patchLatestAssignmentAssignee(
 }
 
 function defaultPathForRole(role: WorkbenchRole): string {
-  return role === "manager"
-    ? "/workbench/manager/tasks"
-    : "/workbench/employee/new";
+  if (role === "admin") return "/workbench/admin";
+  if (role === "manager") return "/workbench/manager/tasks";
+  return "/workbench/employee/new";
+}
+
+function rememberActionKey(action: string, key: string): boolean {
+  const normalized = key.trim();
+  if (!normalized) return true;
+  const now = Date.now();
+  for (const [k, v] of seenActionKeys.entries()) {
+    if (now - v.at > ACTION_IDEMPOTENCY_TTL_MS) seenActionKeys.delete(k);
+  }
+  const hit = seenActionKeys.get(normalized);
+  if (hit && hit.action === action) return false;
+  seenActionKeys.set(normalized, { action, at: now });
+  return true;
+}
+
+function shouldEnforceActionGuards(): boolean {
+  const raw = String(process.env.WORKBENCH_ENFORCE_ACTION_GUARDS ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
+function isWorkbenchTestLoginEnabled(): boolean {
+  const raw = String(process.env.WORKBENCH_TEST_LOGIN_ENABLED ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
 }
 
 function renderWorkbenchEntryLoginHtml(): string {
   const corpId = getDingTalkCorpId() ?? "";
+  const testLoginEnabled = isWorkbenchTestLoginEnabled();
+  const loginFormHtml = testLoginEnabled
+    ? `<label>钉钉 userId
+    <input id="userId" placeholder="例如 641871342" />
+  </label>
+  <label>身份
+    <select id="role">
+      <option value="auto">自动判定（推荐）</option>
+      <option value="admin">管理员</option>
+      <option value="manager">主管</option>
+      <option value="employee">员工</option>
+    </select>
+  </label>
+  <button id="loginBtn" type="button">测试登录（非钉钉环境）</button>`
+    : `<div class="muted">当前环境已关闭测试登录。请在钉钉工作台中打开本页面完成免登。</div>`;
   return `<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -529,19 +614,9 @@ button { margin-top: 10px; border: 1px solid #1d4ed8; background: #2563eb; color
 <body>
 <main class="wrap">
   <h1>任务规划工作台登录</h1>
-  <p>优先尝试钉钉免登。登录后按身份自动跳转主管或员工界面。</p>
+  <p>优先尝试钉钉免登。登录后按身份自动跳转到对应界面。</p>
   <div class="muted" id="ssoHint"></div>
-  <label>钉钉 userId
-    <input id="userId" placeholder="例如 641871342" />
-  </label>
-  <label>身份
-    <select id="role">
-      <option value="auto">自动判定（推荐）</option>
-      <option value="manager">主管</option>
-      <option value="employee">员工</option>
-    </select>
-  </label>
-  <button id="loginBtn" type="button">测试登录（非钉钉环境）</button>
+  ${loginFormHtml}
   <div class="muted" id="result">正在尝试钉钉免登...</div>
 </main>
 <script>
@@ -591,6 +666,73 @@ window.__WB_CONFIGURED_CORP_ID = ${JSON.stringify(corpId)};
 </html>`;
 }
 
+function renderTaskDetailPage(params: {
+  roleLabel: "admin" | "manager" | "employee";
+  backPath: string;
+}): string {
+  return `<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任务详情</title>
+<style>${WORKBENCH_APP_BASE_CSS}</style>
+</head>
+<body>
+<div class="app-shell" style="max-width:980px;">
+  <div class="card">
+    <div class="brand">工作台</div>
+    <h1 class="page-title" style="font-size:22px;">任务详情</h1>
+    <p class="page-desc" style="margin-top:4px;">当前角色：${params.roleLabel}</p>
+    <div style="margin-top:10px;"><a href="${params.backPath}">返回</a></div>
+  </div>
+  <div class="card" id="taskMount">加载中…</div>
+  <div class="card">
+    <h3 style="margin:0 0 10px;">子任务</h3>
+    <div id="subtasksMount" class="muted">加载中…</div>
+  </div>
+  <div class="card">
+    <h3 style="margin:0 0 10px;">事件</h3>
+    <div id="eventsMount" class="muted">加载中…</div>
+  </div>
+</div>
+<script>
+(function(){
+  function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  async function load(){
+    var taskNo = new URLSearchParams(location.search).get('taskNo') || '';
+    if(!taskNo){ document.getElementById('taskMount').textContent='缺少 taskNo 参数'; return; }
+    var res = await fetch('/api/workbench/tasks/detail?taskNo='+encodeURIComponent(taskNo));
+    var data = await res.json().catch(function(){ return {}; });
+    if(!res.ok || !data.ok){ document.getElementById('taskMount').textContent = data.error || ('HTTP '+res.status); return; }
+    var t=data.task||{};
+    document.getElementById('taskMount').innerHTML =
+      '<div><b>'+esc(t.title||'—')+'</b></div>'
+      +'<div class="muted">taskNo <code>'+esc(t.taskNo||taskNo)+'</code> · 状态 '+esc(t.status||'—')+'</div>'
+      +'<div class="muted">planId <code>'+esc(t.planId||'—')+'</code></div>';
+    var subs = data.subtasks || [];
+    if(!subs.length){ document.getElementById('subtasksMount').textContent='暂无子任务'; }
+    else{
+      document.getElementById('subtasksMount').innerHTML =
+      '<div class="table-wrap"><table class="data"><thead><tr><th>子任务</th><th>负责人</th><th>状态</th><th>进度</th></tr></thead><tbody>'
+      +subs.map(function(s){ return '<tr><td>'+esc(s.title||'—')+'</td><td>'+esc(s.assigneeUserId||'—')+'</td><td>'+esc(s.status||'—')+'</td><td>'+esc(s.progressNote||'—')+'</td></tr>'; }).join('')
+      +'</tbody></table></div>';
+    }
+    var events = data.events || [];
+    if(!events.length){ document.getElementById('eventsMount').textContent='暂无事件';}
+    else{
+      document.getElementById('eventsMount').innerHTML = '<ul>'+events.slice(0,30).map(function(e){
+        return '<li><code>'+esc(e.event_type||'')+'</code> '+esc(e.occurred_at||'')+' '+esc(e.note||'')+'</li>';
+      }).join('')+'</ul>';
+    }
+  }
+  void load();
+})();
+</script>
+</body>
+</html>`;
+}
+
 function writeJson(
   res: ServerResponse,
   status: number,
@@ -621,9 +763,13 @@ function requireSession(
     writeAuthError(res, 401, "Session required");
     return undefined;
   }
-  if (expectedRole && session.role !== expectedRole) {
+  const runtimeRole = resolveRoleForUser(session.userId);
+  if (expectedRole && runtimeRole !== expectedRole) {
     writeAuthError(res, 403, "Role forbidden");
     return undefined;
+  }
+  if (runtimeRole !== session.role) {
+    return { ...session, role: runtimeRole };
   }
   return session;
 }
@@ -778,9 +924,43 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/workbench/dingtalk/contact-event") {
+    void (async () => {
+      try {
+        const expectedToken = String(process.env.DINGTALK_CONTACT_EVENT_TOKEN ?? "").trim();
+        if (expectedToken) {
+          const token = String(req.headers["x-contact-event-token"] ?? "").trim();
+          if (token !== expectedToken) {
+            writeJson(res, 403, { ok: false, error: "forbidden" });
+            return;
+          }
+        }
+        const body = await readJsonBody(req, 256 * 1024);
+        const syncPayload = (body.biz_data && typeof body.biz_data === "object")
+          ? (body.biz_data as Record<string, unknown>)
+          : body;
+        const result = await createDingTalkContactSyncService().applyContactEvent(syncPayload);
+        writeJson(res, 200, { ok: true, result });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "contact event handling failed",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/workbench/login") {
     void (async () => {
       try {
+        if (!isWorkbenchTestLoginEnabled()) {
+          writeJson(res, 403, {
+            ok: false,
+            error: "Test login is disabled in this environment",
+          });
+          return;
+        }
         const body = await readJsonBody(req);
         const userId = String(body.userId ?? "").trim();
         const roleInput = String(body.role ?? "auto").trim();
@@ -789,7 +969,14 @@ export function handleAssignmentHttp(
           return;
         }
         const autoRole = resolveRoleForUser(userId);
-        if (roleInput === "manager" && autoRole !== "manager") {
+        if (roleInput === "admin" && autoRole !== "admin") {
+          writeJson(res, 403, {
+            ok: false,
+            error: "userId is not in admin whitelist",
+          });
+          return;
+        }
+        if (roleInput === "manager" && autoRole === "employee") {
           writeJson(res, 403, {
             ok: false,
             error: "userId is not in manager whitelist",
@@ -797,7 +984,7 @@ export function handleAssignmentHttp(
           return;
         }
         const role: WorkbenchRole =
-          roleInput === "manager" || roleInput === "employee"
+          roleInput === "admin" || roleInput === "manager" || roleInput === "employee"
             ? roleInput
             : autoRole;
         const session = createWorkbenchSession({
@@ -845,10 +1032,11 @@ export function handleAssignmentHttp(
       writeAuthError(res, 401, "Session required");
       return true;
     }
+    const runtimeRole = resolveRoleForUser(session.userId);
     writeJson(res, 200, {
       ok: true,
       userId: session.userId,
-      role: session.role,
+      role: runtimeRole,
       loginSource: session.loginSource,
       dingUser: session.dingUser ?? null,
       exp: session.exp,
@@ -859,8 +1047,7 @@ export function handleAssignmentHttp(
   if (isGetOrHead && url.pathname === "/api/workbench/manager/tasks") {
     const session = requireSession(req, res, "manager");
     if (!session) return true;
-    workbenchTaskStore.syncFromSessions();
-    const tasks = workbenchTaskStore.listForManager(session.userId).map((t) => ({
+    const tasks = getFormalTaskStore().listManagerTasks(session.userId).map((t) => ({
       ...t,
       statusLabel: taskStatusLabel(t.status),
     }));
@@ -868,11 +1055,342 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/publish") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        const body = await readJsonBody(req);
+        if (shouldEnforceActionGuards()) {
+          const confirmed = body.confirm === true;
+          if (!confirmed) {
+            writeJson(res, 400, {
+              ok: false,
+              error: "confirm=true is required before publish",
+            });
+            return;
+          }
+          const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+          if (!idempotencyKey) {
+            writeJson(res, 400, {
+              ok: false,
+              error: "idempotencyKey is required",
+            });
+            return;
+          }
+          if (!rememberActionKey("manager_publish", idempotencyKey)) {
+            writeJson(res, 200, { ok: true, duplicated: true, alreadyHandled: true });
+            return;
+          }
+        }
+        const planId = String(body.planId ?? "").trim()
+          || String(body.currentPlanId ?? "").trim();
+        const resolvedPlanId = planId || findLatestSessionForManager(session.userId)?.planId || "";
+        if (!resolvedPlanId) {
+          writeJson(res, 400, { ok: false, error: "No active plan found to publish" });
+          return;
+        }
+        const target = findLatestSessionByPlanId(resolvedPlanId);
+        if (!target) {
+          writeJson(res, 404, { ok: false, error: "No session found for planId" });
+          return;
+        }
+        if (target.senderStaffId && target.senderStaffId !== session.userId) {
+          writeJson(res, 403, {
+            ok: false,
+            error: "Plan does not belong to current manager",
+          });
+          return;
+        }
+        const initiatorUserId = String(target.senderStaffId ?? session.userId).trim();
+        const initiatorDepartment =
+          employeeRepo.get(initiatorUserId)?.department?.trim() || "未配置部门";
+        const assignments = Array.isArray((target.latestAssignment as { assignments?: unknown[] } | undefined)?.assignments)
+          ? ((target.latestAssignment as { assignments: Array<Record<string, unknown>> }).assignments)
+          : [];
+        for (const row of assignments) {
+          const primary = row?.primary as Record<string, unknown> | undefined;
+          const assignee = String(primary?.userId ?? "").trim();
+          if (!assignee) continue;
+          const contact = withPeopleDirectoryStore((store) => store.getContact(assignee));
+          if (!contact || !contact.active) {
+            writeJson(res, 400, {
+              ok: false,
+              error: `assignee is missing or inactive in contacts: ${assignee}`,
+            });
+            return;
+          }
+        }
+        const published = getFormalTaskStore().publishFromSession({
+          planId: resolvedPlanId,
+          session: target,
+          managerUserId: session.userId,
+          initiatorDepartment,
+          actorUserId: session.userId,
+          actorName: session.dingUser?.name,
+        });
+        const warnings: string[] = [];
+        const groupedAssignees = new Map<string, string[]>();
+        published.subtasks.forEach((subtask) => {
+          const current = groupedAssignees.get(subtask.assigneeUserId) ?? [];
+          current.push(subtask.title);
+          groupedAssignees.set(subtask.assigneeUserId, current);
+        });
+        const notifyResult = await workbenchPublishNotifier.notifyPublishedTask({
+          taskNo: published.task.taskNo,
+          title: published.task.title,
+          managerUserId: session.userId,
+          assignees: [...groupedAssignees.entries()].map(([userId, subtaskTitles]) => ({
+            userId,
+            subtaskTitles,
+          })),
+        });
+        const store = getFormalTaskStore();
+        if (!notifyResult.enabled) {
+          warnings.push(notifyResult.skippedReason || "employee notification skipped");
+          store.appendTaskEvent({
+            taskId: published.task.taskId,
+            eventType: "EMPLOYEE_NOTIFY_SKIPPED",
+            actorUserId: session.userId,
+            note: notifyResult.skippedReason || "notification disabled",
+            payload: {
+              taskNo: published.task.taskNo,
+            },
+          });
+        } else {
+          notifyResult.success.forEach((item) => {
+            store.appendTaskEvent({
+              taskId: published.task.taskId,
+              eventType: "EMPLOYEE_NOTIFIED",
+              actorUserId: session.userId,
+              note: `notified ${item.userId}`,
+              payload: {
+                userId: item.userId,
+                cardMessageId: item.cardMessageId,
+                todoId: item.todoId,
+                taskNo: published.task.taskNo,
+              },
+            });
+          });
+          notifyResult.failed.forEach((item) => {
+            warnings.push(`通知失败: ${item.userId}`);
+            store.appendTaskEvent({
+              taskId: published.task.taskId,
+              eventType: "EMPLOYEE_NOTIFY_FAILED",
+              actorUserId: session.userId,
+              note: item.reason,
+              payload: {
+                userId: item.userId,
+                taskNo: published.task.taskNo,
+              },
+            });
+          });
+        }
+        writeJson(res, 200, {
+          ok: true,
+          alreadyPublished: published.alreadyPublished,
+          task: published.task,
+          subtasks: published.subtasks,
+          warnings,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "publish failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/publish/prepare") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        const body = await readJsonBody(req);
+        const prepared = preparePublishTaskHandler(body) as Record<string, unknown>;
+        writeJson(res, 200, {
+          ok: true,
+          prepared,
+          requiresManagerConfirm: true,
+          managerUserId: session.userId,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "prepare publish failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/admin/tasks") {
+    const session = requireSession(req, res, "admin");
+    if (!session) return true;
+    const status = String(url.searchParams.get("status") ?? "").trim();
+    const department = String(url.searchParams.get("department") ?? "").trim();
+    const assignee = String(url.searchParams.get("assignee") ?? "").trim();
+    const taskNo = String(url.searchParams.get("taskNo") ?? "").trim();
+    const keyword = String(url.searchParams.get("keyword") ?? "").trim();
+    const tasks = getFormalTaskStore().listAdminTasks({
+      status,
+      department,
+      assignee,
+      taskNo,
+      keyword,
+    });
+    writeJson(res, 200, { ok: true, tasks });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/admin/task-detail") {
+    const session = requireSession(req, res, "admin");
+    if (!session) return true;
+    const taskId = String(url.searchParams.get("taskId") ?? "").trim();
+    const planId = String(url.searchParams.get("planId") ?? "").trim();
+    const taskNo = String(url.searchParams.get("taskNo") ?? "").trim();
+    const key = taskNo || taskId || planId;
+    if (!key) {
+      writeJson(res, 400, { ok: false, error: "taskNo or taskId or planId is required" });
+      return true;
+    }
+    const detail = getFormalTaskStore().getTaskDetail(key);
+    if (!detail) {
+      writeJson(res, 404, { ok: false, error: "Task not found" });
+      return true;
+    }
+    writeJson(res, 200, { ok: true, ...detail });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/tasks/detail") {
+    const session = requireSession(req, res);
+    if (!session) return true;
+    const taskNo = String(url.searchParams.get("taskNo") ?? "").trim();
+    if (!taskNo) {
+      writeJson(res, 400, { ok: false, error: "taskNo is required" });
+      return true;
+    }
+    const detail = getFormalTaskStore().getTaskDetail(taskNo);
+    if (!detail) {
+      writeJson(res, 404, { ok: false, error: "Task not found" });
+      return true;
+    }
+    if (session.role === "manager" && detail.task.managerUserId !== session.userId) {
+      writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
+      return true;
+    }
+    if (session.role === "employee") {
+      const own = detail.subtasks.some((subtask) => subtask.assigneeUserId === session.userId);
+      if (!own) {
+        writeJson(res, 403, { ok: false, error: "Task does not belong to current employee" });
+        return true;
+      }
+      const scopedSubtasks = detail.subtasks.filter((subtask) => subtask.assigneeUserId === session.userId);
+      writeJson(res, 200, {
+        ok: true,
+        task: detail.task,
+        subtasks: scopedSubtasks,
+        events: detail.events,
+      });
+      return true;
+    }
+    writeJson(res, 200, { ok: true, ...detail });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/admin/employees") {
+    const session = requireSession(req, res, "admin");
+    if (!session) return true;
+    const keyword = String(url.searchParams.get("keyword") ?? "").trim().toLowerCase();
+    const contacts = withPeopleDirectoryStore((store) =>
+      keyword ? store.searchContacts(keyword, 50) : store.listContacts().slice(0, 50),
+    );
+    const employees = contacts
+      .slice(0, 50)
+      .map((contact) => ({
+        userId: contact.userId,
+        name: contact.name,
+        departmentName: contact.departmentNames[0] ?? "未分配部门",
+        title: contact.position ?? "Employee",
+        active: contact.active,
+        isManager: listWorkbenchManagerIds().has(contact.userId),
+      }));
+    writeJson(res, 200, { ok: true, employees });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/admin/metrics") {
+    const session = requireSession(req, res, "admin");
+    if (!session) return true;
+    writeJson(res, 200, { ok: true, metrics: getFormalTaskStore().getMetrics() });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/admin/managers") {
+    const session = requireSession(req, res, "admin");
+    if (!session) return true;
+    writeJson(res, 200, {
+      ok: true,
+      dynamicManagers: listDynamicWorkbenchManagers(),
+      effectiveManagers: [...listWorkbenchManagerIds()].sort(),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/admin/managers") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "admin");
+        if (!session) return;
+        const body = await readJsonBody(req);
+        const userId = String(body.userId ?? "").trim();
+        const enabled = Boolean(body.enabled);
+        const contact = withPeopleDirectoryStore((store) => store.getContact(userId));
+        if (!contact) {
+          writeJson(res, 404, { ok: false, error: "contact not found" });
+          return;
+        }
+        if (enabled && !contact.active) {
+          writeJson(res, 400, { ok: false, error: "cannot grant manager to inactive contact" });
+          return;
+        }
+        const mutation = setDynamicWorkbenchManager(userId, enabled);
+        getFormalTaskStore().appendPermissionEvent({
+          actorUserId: session.userId,
+          targetUserId: userId,
+          before: mutation.before,
+          after: mutation.after,
+          payload: {
+            changed: mutation.changed,
+            source: "admin_api",
+          },
+        });
+        writeJson(res, 200, {
+          ok: true,
+          userId,
+          before: mutation.before,
+          after: mutation.after,
+          changed: mutation.changed,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "update manager permission failed",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (isGetOrHead && url.pathname === "/api/workbench/employee/tasks/new") {
     const session = requireSession(req, res, "employee");
     if (!session) return true;
-    workbenchTaskStore.syncFromSessions();
-    const tasks = classifyEmployeeTasks(workbenchTaskStore.listForEmployee(session.userId)).newTasks;
+    const tasks = getFormalTaskStore()
+      .listEmployeeSubtasks(session.userId)
+      .filter((t) => t.status === "ASSIGNED" || t.status === "CHANGES_REQUESTED");
     writeJson(res, 200, {
       ok: true,
       tasks: tasks.map((t) => ({ ...t, statusLabel: taskStatusLabel(t.status) })),
@@ -883,12 +1401,114 @@ export function handleAssignmentHttp(
   if (isGetOrHead && url.pathname === "/api/workbench/employee/tasks/current") {
     const session = requireSession(req, res, "employee");
     if (!session) return true;
-    workbenchTaskStore.syncFromSessions();
-    const tasks = classifyEmployeeTasks(workbenchTaskStore.listForEmployee(session.userId)).currentTasks;
+    const tasks = getFormalTaskStore()
+      .listEmployeeSubtasks(session.userId)
+      .filter((t) => t.status === "ACCEPTED" || t.status === "IN_PROGRESS" || t.status === "BLOCKED");
     writeJson(res, 200, {
       ok: true,
       tasks: tasks.map((t) => ({ ...t, statusLabel: taskStatusLabel(t.status) })),
     });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/employee/profile") {
+    const session = requireSession(req, res, "employee");
+    if (!session) return true;
+    const snapshot = withPeopleDirectoryStore((store) =>
+      store.getEmployeeSnapshot(session.userId),
+    );
+    writeJson(res, 200, {
+      ok: true,
+      profile: snapshot?.selfProfile ?? {
+        skillTags: [],
+        strengths: [],
+        boundaries: [],
+        cases: [],
+        tools: [],
+        availability: {},
+      },
+      updatedAt: withPeopleDirectoryStore((store) => store.getProfile(session.userId)?.updatedAt ?? null),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/employee/profile") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "employee");
+        if (!session) return;
+        const body = await readJsonBody(req);
+        const toStringArray = (value: unknown): string[] =>
+          Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+        const skillTags = toStringArray(body.skillTags);
+        const strengths = toStringArray(body.strengths);
+        const boundaries = toStringArray(body.boundaries);
+        const tools = toStringArray(body.tools);
+        const casesInput = Array.isArray(body.cases) ? body.cases : [];
+        const cases: Array<{
+          taskType: string;
+          contribution?: string;
+          deliverable?: string;
+          outcome: string;
+        }> = [];
+        for (const item of casesInput) {
+          const row = item as Record<string, unknown>;
+          const taskType = String(row.taskType ?? "").trim();
+          const outcome = String(row.outcome ?? "").trim();
+          if (!taskType || !outcome) continue;
+          cases.push({
+            taskType,
+            contribution: String(row.contribution ?? "").trim() || undefined,
+            deliverable: String(row.deliverable ?? "").trim() || undefined,
+            outcome,
+          });
+        }
+        const availabilityRaw =
+          body.availability && typeof body.availability === "object"
+            ? (body.availability as Record<string, unknown>)
+            : {};
+        const rejectedTaskTypes = toStringArray(availabilityRaw.rejectedTaskTypes);
+        const availability = {
+          capacityHint: String(availabilityRaw.capacityHint ?? "").trim() || undefined,
+          emergencyOk:
+            typeof availabilityRaw.emergencyOk === "boolean"
+              ? availabilityRaw.emergencyOk
+              : undefined,
+          rejectedTaskTypes,
+        };
+        withPeopleDirectoryStore((store) => {
+          store.upsertProfile({
+            userId: session.userId,
+            skillTags,
+            strengths,
+            boundaries,
+            cases,
+            tools,
+            availability,
+            source: "employee_self_service",
+            selfUpdatedAt: new Date().toISOString(),
+          });
+          store.appendProfileEvent({
+            userId: session.userId,
+            eventType: "employee_profile_updated",
+            actorUserId: session.userId,
+            payload: {
+              skillTagsCount: skillTags.length,
+              strengthsCount: strengths.length,
+              boundariesCount: boundaries.length,
+              toolsCount: tools.length,
+              casesCount: cases.length,
+            },
+          });
+        });
+        writeJson(res, 200, { ok: true });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "profile update failed",
+        });
+      }
+    })();
     return true;
   }
 
@@ -898,6 +1518,22 @@ export function handleAssignmentHttp(
         const session = requireSession(req, res, "manager");
         if (!session) return;
         const body = await readJsonBody(req);
+        if (shouldEnforceActionGuards()) {
+          const confirmed = body.confirm === true;
+          if (!confirmed) {
+            writeJson(res, 400, { ok: false, error: "confirm=true is required" });
+            return;
+          }
+          const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+          if (!idempotencyKey) {
+            writeJson(res, 400, { ok: false, error: "idempotencyKey is required" });
+            return;
+          }
+          if (!rememberActionKey("manager_reassign", idempotencyKey)) {
+            writeJson(res, 200, { ok: true, duplicated: true, alreadyHandled: true });
+            return;
+          }
+        }
         const planId = String(body.planId ?? "").trim();
         const assigneeUserId = String(body.assigneeUserId ?? "").trim();
         const note = String(body.note ?? "").trim();
@@ -909,41 +1545,12 @@ export function handleAssignmentHttp(
           writeJson(res, 400, { ok: false, error: "assigneeUserId is required" });
           return;
         }
-        workbenchTaskStore.syncFromSessions();
-        const prior = workbenchTaskStore.listAll().find((t) => t.planId === planId);
-        if (!prior) {
-          writeJson(res, 404, { ok: false, error: "Task not found for planId" });
-          return;
-        }
-        if (prior.managerUserId !== session.userId) {
-          writeJson(res, 403, {
-            ok: false,
-            error: "Task does not belong to current manager",
-          });
-          return;
-        }
-        if (prior.status === "DONE" || prior.status === "REJECTED") {
-          writeJson(res, 400, {
-            ok: false,
-            error: "Cannot reassign a finished or rejected task",
-          });
-          return;
-        }
-        const updated = workbenchTaskStore.updateTask(planId, (task) => ({
-          ...task,
+        const updated = getFormalTaskStore().reassignTask({
+          planId,
+          managerUserId: session.userId,
           assigneeUserId,
-          status: "ASSIGNED",
-          history: [
-            ...(task.history ?? []),
-            {
-              type: "MANAGER_REASSIGN",
-              actorUserId: session.userId,
-              note,
-              occurredAt: new Date().toISOString(),
-              payload: { assigneeUserId },
-            },
-          ],
-        }));
+          note,
+        });
 
         const targetSession = findLatestSessionByPlanId(planId);
         const occurredAt = new Date().toISOString();
@@ -982,6 +1589,7 @@ export function handleAssignmentHttp(
           ok: true,
           task: {
             ...updated,
+            assigneeUserId,
             statusLabel: taskStatusLabel(updated.status),
           },
         });
@@ -995,17 +1603,33 @@ export function handleAssignmentHttp(
     return true;
   }
 
-  if (req.method === "POST" && url.pathname === "/api/workbench/employee/action") {
+  if (
+    req.method === "POST"
+    && (url.pathname === "/api/workbench/employee/action"
+      || url.pathname === "/api/workbench/employee/subtasks/action")
+  ) {
     void (async () => {
       try {
         const session = requireSession(req, res, "employee");
         if (!session) return;
         const body = await readJsonBody(req);
+        if (shouldEnforceActionGuards()) {
+          const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+          if (!idempotencyKey) {
+            writeJson(res, 400, { ok: false, error: "idempotencyKey is required" });
+            return;
+          }
+          if (!rememberActionKey("employee_action", idempotencyKey)) {
+            writeJson(res, 200, { ok: true, duplicated: true, alreadyHandled: true });
+            return;
+          }
+        }
         const planId = String(body.planId ?? "").trim();
+        const subtaskIdInput = String(body.subtaskId ?? "").trim();
         const action = String(body.action ?? "").trim();
         const note = String(body.note ?? "").trim();
-        if (!planId) {
-          writeJson(res, 400, { ok: false, error: "planId is required" });
+        if (!planId && !subtaskIdInput) {
+          writeJson(res, 400, { ok: false, error: "subtaskId or planId is required" });
           return;
         }
         if (!action) {
@@ -1013,62 +1637,48 @@ export function handleAssignmentHttp(
           return;
         }
         if (
-          (action === "reject" ||
-            action === "customize" ||
-            action === "request_changes") &&
-          !note
+          action !== "accept"
+          && action !== "reject"
+          && action !== "request_changes"
+          && action !== "customize"
         ) {
+          writeJson(res, 400, { ok: false, error: "unsupported action" });
+          return;
+        }
+        if ((action === "reject" || action === "request_changes" || action === "customize") && !note) {
           writeJson(res, 400, {
             ok: false,
             error: "note is required for this action",
           });
           return;
         }
-        workbenchTaskStore.syncFromSessions();
-        const updated = workbenchTaskStore.updateTask(planId, (task) => {
-          if (task.assigneeUserId !== session.userId) {
-            throw new Error("Task does not belong to current employee");
-          }
-          let status: WorkbenchTaskStatus = task.status;
-          let eventType:
-            | "EMPLOYEE_ACCEPT"
-            | "EMPLOYEE_REJECT"
-            | "EMPLOYEE_CUSTOMIZE"
-            | "EMPLOYEE_REQUEST_CHANGES" = "EMPLOYEE_ACCEPT";
-          if (action === "accept") {
-            status = "ACCEPTED";
-            eventType = "EMPLOYEE_ACCEPT";
-          } else if (action === "reject") {
-            status = "REJECTED";
-            eventType = "EMPLOYEE_REJECT";
-          } else if (action === "customize") {
-            status = "CHANGES_REQUESTED";
-            eventType = "EMPLOYEE_CUSTOMIZE";
-          } else if (action === "request_changes") {
-            status = "CHANGES_REQUESTED";
-            eventType = "EMPLOYEE_REQUEST_CHANGES";
-          } else {
-            throw new Error("Unsupported action");
-          }
-          return {
-            ...task,
-            status,
-            history: [
-              ...(task.history ?? []),
-              {
-                type: eventType,
-                actorUserId: session.userId,
-                note,
-                occurredAt: new Date().toISOString(),
-              },
-            ],
-          };
+        const targetSubtaskId = subtaskIdInput || (() => {
+          const first = getFormalTaskStore()
+            .listEmployeeSubtasks(session.userId)
+            .find((item) => item.planId === planId);
+          return first?.subtaskId ?? "";
+        })();
+        if (!targetSubtaskId) {
+          writeJson(res, 404, { ok: false, error: "Subtask not found" });
+          return;
+        }
+        const updated = getFormalTaskStore().updateSubtaskStatus({
+          subtaskId: targetSubtaskId,
+          actorUserId: session.userId,
+          action: action === "accept"
+            ? "accept"
+            : action === "reject"
+              ? "reject"
+              : "request_changes",
+          note,
         });
         writeJson(res, 200, {
           ok: true,
-          planId: updated.planId,
-          status: updated.status,
-          statusLabel: taskStatusLabel(updated.status),
+          planId: updated.task.planId,
+          taskStatus: updated.task.status,
+          subtaskId: updated.subtask.subtaskId,
+          status: updated.subtask.status,
+          statusLabel: taskStatusLabel(updated.subtask.status),
         });
       } catch (err) {
         writeJson(res, 400, {
@@ -1088,22 +1698,38 @@ export function handleAssignmentHttp(
       else res.end(renderWorkbenchEntryLoginHtml());
       return true;
     }
-    redirect(res, defaultPathForRole(session.role));
+    redirect(res, defaultPathForRole(resolveRoleForUser(session.userId)));
     return true;
   }
 
-  if (req.method === "POST" && url.pathname === "/api/workbench/employee/progress") {
+  if (
+    req.method === "POST"
+    && (url.pathname === "/api/workbench/employee/progress"
+      || url.pathname === "/api/workbench/employee/subtasks/progress")
+  ) {
     void (async () => {
       try {
         const session = requireSession(req, res, "employee");
         if (!session) return;
         const body = await readJsonBody(req);
+        if (shouldEnforceActionGuards()) {
+          const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+          if (!idempotencyKey) {
+            writeJson(res, 400, { ok: false, error: "idempotencyKey is required" });
+            return;
+          }
+          if (!rememberActionKey("employee_progress", idempotencyKey)) {
+            writeJson(res, 200, { ok: true, duplicated: true, alreadyHandled: true });
+            return;
+          }
+        }
         const planId = String(body.planId ?? "").trim();
+        const subtaskIdInput = String(body.subtaskId ?? "").trim();
         const progressStatus = String(body.progressStatus ?? "").trim();
         const note = String(body.note ?? "").trim();
 
-        if (!planId) {
-          writeJson(res, 400, { ok: false, error: "planId is required" });
+        if (!planId && !subtaskIdInput) {
+          writeJson(res, 400, { ok: false, error: "subtaskId or planId is required" });
           return;
         }
         if (!progressStatus) {
@@ -1115,89 +1741,34 @@ export function handleAssignmentHttp(
           return;
         }
 
-        const target = findLatestSessionByPlanId(planId);
-        if (!target) {
-          writeJson(res, 404, {
-            ok: false,
-            error: "No session found for given planId",
-          });
+        const targetSubtaskId =
+          subtaskIdInput ||
+          getFormalTaskStore()
+            .listEmployeeSubtasks(session.userId)
+            .find((item) => item.planId === planId)?.subtaskId;
+        if (!targetSubtaskId) {
+          writeJson(res, 404, { ok: false, error: "Subtask not found" });
           return;
         }
 
         const now = new Date().toISOString();
-        const eventRecord: Record<string, unknown> = {
-          type: "employee_progress_update",
-          planId,
-          progressStatus,
+        const updated = getFormalTaskStore().updateSubtaskStatus({
+          subtaskId: targetSubtaskId,
+          actorUserId: session.userId,
+          action: "progress",
           note,
-          actorUserId:
-            session.userId || target.senderStaffId || "unknown",
-          actorName: session.dingUser?.name ?? undefined,
-          updatedAt: now,
-          source: "workbench_api",
-        };
-
-        const nextRevisionEvents = Array.isArray(target.revisionEvents)
-          ? [...target.revisionEvents, eventRecord]
-          : [eventRecord];
-        const nextConversationHistory = Array.isArray(target.conversationHistory)
-          ? [
-              ...target.conversationHistory,
-              { role: "employee_update", content: `[${progressStatus}] ${note}` },
-            ]
-          : [{ role: "employee_update", content: `[${progressStatus}] ${note}` }];
-
-        planSessionStore.save({
-          ...target,
-          revisionEvents: nextRevisionEvents,
-          conversationHistory: nextConversationHistory,
+          progressStatus:
+            progressStatus === "DONE"
+              ? "DONE"
+              : progressStatus === "BLOCKED"
+                ? "BLOCKED"
+                : "IN_PROGRESS",
         });
-        planSessionStore.appendEvent({
-          planId: target.planId,
-          chatKeyHash: target.chatKeyHash,
-          eventType: "employee_progress_submitted",
-          payload: eventRecord,
-        });
-
-        workbenchTaskStore.syncFromSessions();
-        try {
-          workbenchTaskStore.updateTask(planId, (task) => {
-            if (task.assigneeUserId !== session.userId) {
-              throw new Error("Task does not belong to current employee");
-            }
-            const nextStatus: WorkbenchTaskStatus =
-              progressStatus === "DONE"
-                ? "DONE"
-                : progressStatus === "BLOCKED"
-                  ? "BLOCKED"
-                  : "IN_PROGRESS";
-            return {
-              ...task,
-              status: nextStatus,
-              progressNote: note,
-              history: [
-                ...(task.history ?? []),
-                {
-                  type: "EMPLOYEE_PROGRESS",
-                  actorUserId: session.userId,
-                  note,
-                  occurredAt: now,
-                  payload: { progressStatus },
-                },
-              ],
-            };
-          });
-        } catch (err) {
-          writeJson(res, 403, {
-            ok: false,
-            error: err instanceof Error ? err.message : "progress update forbidden",
-          });
-          return;
-        }
 
         writeJson(res, 200, {
           ok: true,
-          planId,
+          planId: updated.task.planId,
+          subtaskId: updated.subtask.subtaskId,
           progressStatus,
           updatedAt: now,
         });
@@ -1379,6 +1950,7 @@ export function handleAssignmentHttp(
           planId,
           userId: session.userId,
         });
+        const memoryContext = loadMemoryContextForPlan(planId);
         const orch = await runOrchestrator(message, {
           clientConfig: {
             ...qwenConfig,
@@ -1391,13 +1963,17 @@ export function handleAssignmentHttp(
           maxToolIterations: Number(
             process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? "6",
           ),
+          toolProfile: "manager",
+          promptProfile: "manager",
+          allowSearchWeb: isExplicitSearchRequest(message),
           sessionContext: {
-            knownFacts: target.knownFacts,
             conversationHistory: target.conversationHistory,
             planId: target.planId,
             latestDraft: target.latestDraft,
             latestAssignment: target.latestAssignment,
-            memorySummary: buildSessionMemorySummary(target),
+            memorySummary: memoryContext.summary || buildSessionMemorySummary(target),
+            memoryFacts: memoryContext.facts,
+            currentTimeIso: new Date().toISOString(),
           },
         });
         const assistantMessage = orch.messages.join("\n\n").trim() || "已处理。";
@@ -1410,7 +1986,6 @@ export function handleAssignmentHttp(
           ...target,
           senderStaffId: session.userId,
           lastTraceId: orch.traceId,
-          knownFacts: orch.knownFacts,
           latestDraft: orch.draft ?? target.latestDraft,
           latestAssignment: orch.assignment ?? target.latestAssignment,
           conversationHistory: nextConversationHistory,
@@ -1436,6 +2011,19 @@ export function handleAssignmentHttp(
             actorName: session.dingUser?.name ?? undefined,
           },
         });
+        appendMemoryEvents({
+          planId,
+          userMessage: message,
+          assistantMessage,
+          latestDraft: orch.draft ?? target.latestDraft,
+          latestAssignment: orch.assignment ?? target.latestAssignment,
+          traceId: orch.traceId,
+          modelConfig: {
+            apiKey: qwenConfig.apiKey,
+            baseUrl: qwenConfig.baseUrl,
+            timeoutMs: qwenConfig.timeoutMs,
+          },
+        }).catch(() => {});
         writeJson(res, 200, {
           ok: true,
           planId,
@@ -1485,7 +2073,30 @@ export function handleAssignmentHttp(
       const html =
         url.pathname === "/workbench/manager/tasks"
           ? renderManagerTasksPage({ planId, userLabel })
-          : renderManagerChatPage({ planId, userLabel });
+          : url.pathname === "/workbench/manager/chat"
+            ? renderManagerChatPage({ planId, userLabel })
+            : renderTaskDetailPage({
+              roleLabel: "manager",
+              backPath: "/workbench/manager/tasks",
+            });
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      if (req.method === "HEAD") res.end();
+      else res.end(html);
+      return true;
+    }
+
+    if (ADMIN_WORKBENCH_PAGE_PATHS.has(url.pathname)) {
+      if (session.role !== "admin") {
+        redirect(res, defaultPathForRole(session.role));
+        return true;
+      }
+      const userLabel = session.dingUser?.name ?? session.userId;
+      const html = url.pathname === "/workbench/admin/task"
+        ? renderTaskDetailPage({
+          roleLabel: "admin",
+          backPath: "/workbench/admin",
+        })
+        : renderAdminWorkbenchPage({ userLabel });
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       if (req.method === "HEAD") res.end();
       else res.end(html);
@@ -1500,7 +2111,12 @@ export function handleAssignmentHttp(
       const html =
         url.pathname === "/workbench/employee/new"
           ? renderEmployeeNewTasksPage()
-          : renderEmployeeCurrentTasksPage();
+          : url.pathname === "/workbench/employee/current"
+            ? renderEmployeeCurrentTasksPage()
+            : renderTaskDetailPage({
+              roleLabel: "employee",
+              backPath: "/workbench/employee/current",
+            });
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       if (req.method === "HEAD") res.end();
       else res.end(html);

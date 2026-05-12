@@ -12,6 +12,7 @@ export interface SearchEmployeesResult {
   candidates: string[];
   truncated: boolean;
   total: number;
+  note?: string;
 }
 
 const DOMAIN_DEPARTMENT_MAP: Record<string, string[]> = {
@@ -88,6 +89,11 @@ export function compressProfile(p: EmployeeProfileRecord): string {
   if (avail.rejectedTaskTypes && avail.rejectedTaskTypes.length > 0) {
     lines.push(`rejectedTaskTypes: [${avail.rejectedTaskTypes.join(", ")}]`);
   }
+  if (p.taskHistory) {
+    lines.push(
+      `taskHistory: assigned=${p.taskHistory.totalAssigned}, done=${p.taskHistory.doneCount}, blocked=${p.taskHistory.blockedCount}, rejected=${p.taskHistory.rejectedCount}, accepted=${p.taskHistory.acceptedCount}, inProgress=${p.taskHistory.inProgressCount}`,
+    );
+  }
 
   return lines.join("\n");
 }
@@ -98,7 +104,8 @@ export function buildSearchEmployeesHandler(
   return (args: Record<string, unknown>): SearchEmployeesResult => {
     const { domain, skills, department, role } = args as unknown as SearchEmployeesArgs;
 
-    let all = repo.list();
+    const baseAll = repo.list();
+    let all = [...baseAll];
 
     // Filter by domain → department mapping
     if (domain && DOMAIN_DEPARTMENT_MAP[domain]) {
@@ -112,11 +119,17 @@ export function buildSearchEmployeesHandler(
     }
 
     // Filter by skills (any-of match)
+    let fallbackNote: string | undefined;
     if (skills && skills.length > 0) {
       const skillSet = new Set(skills.map((s) => s.toLowerCase()));
-      all = all.filter((p) =>
+      const skillFiltered = all.filter((p) =>
         p.selfProfile.skillTags.some((tag) => skillSet.has(tag.toLowerCase())),
       );
+      if (skillFiltered.length === 0) {
+        fallbackNote = "能力画像暂缺，已按部门/岗位/历史任务降级推荐";
+      } else {
+        all = skillFiltered;
+      }
     }
 
     // Filter by role
@@ -129,6 +142,6 @@ export function buildSearchEmployeesHandler(
     const truncated = total > MAX_CANDIDATES;
     const candidates = all.slice(0, MAX_CANDIDATES).map(compressProfile);
 
-    return { candidates, truncated, total };
+    return { candidates, truncated, total, note: fallbackNote };
   };
 }

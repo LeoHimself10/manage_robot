@@ -29,14 +29,24 @@ export function buildSearchWebHandler(): ToolHandler {
     if (!apiKey) {
       return { results: [], note: "搜索 API 未配置（缺少 QWEN_API_KEY）", query: q };
     }
+    const model = String(process.env.SEARCH_WEB_MODEL ?? process.env.QWEN_MODEL ?? "qwen3.6-flash").trim();
+    const timeoutMs = Math.max(1000, Math.min(30000, Number(process.env.SEARCH_WEB_TIMEOUT_MS ?? "8000")));
+    const strategy = String(process.env.SEARCH_WEB_STRATEGY ?? "turbo").trim();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const resp = await fetch("https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
         body: JSON.stringify({
-          model: "qwen-max",
+          model,
           input: { messages: [{ role: "user", content: `搜索以下主题并给出中文摘要：${q}` }] },
-          parameters: { enable_search: true, result_format: "message" },
+          parameters: {
+            enable_search: true,
+            result_format: "message",
+            search_options: { search_strategy: strategy },
+          },
         }),
       });
       const data = await resp.json() as Record<string, unknown>;
@@ -45,7 +55,12 @@ export function buildSearchWebHandler(): ToolHandler {
       const text = output?.text ?? JSON.stringify(data).slice(0, 1000);
       return { results: [{ text }], query: q };
     } catch (err) {
-      return { results: [], note: `搜索失败: ${err instanceof Error ? err.message : String(err)}`, query: q };
+      const note = err instanceof Error && err.name === "AbortError"
+        ? `搜索超时（>${timeoutMs}ms），已跳过`
+        : `搜索失败: ${err instanceof Error ? err.message : String(err)}`;
+      return { results: [], note, query: q };
+    } finally {
+      clearTimeout(timer);
     }
   };
 }

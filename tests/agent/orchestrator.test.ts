@@ -85,11 +85,10 @@ describe("runOrchestrator", () => {
     expect((result.assignment as { assignments?: unknown[] })?.assignments?.length).toBe(1);
   });
 
-  it("injects persistent memory context and returns updated knownFacts", async () => {
+  it("injects persistent memory context summaries", async () => {
     mockCallWithTools.mockImplementationOnce(async (req: {
       toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<unknown> | unknown>;
     }) => {
-      await req.toolHandlers.update_known_facts?.({ facts: ["负责人偏好质量部"] });
       return {
         payload: {
           message: "已根据上一版计划完成修订",
@@ -101,12 +100,10 @@ describe("runOrchestrator", () => {
     });
 
     const { runOrchestrator } = await import("../../src/agent/orchestrator");
-    const existingFacts = ["系统是Linux"];
     const result = await runOrchestrator("把第二项任务拆细并重新分配", {
       clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
       employeeRepo: { list: () => [] },
       sessionContext: {
-        knownFacts: existingFacts,
         conversationHistory: [
           { role: "assistant", content: "上轮已输出任务草案" },
           { role: "employee_update", content: "[DONE] 已完成样机拆解" },
@@ -115,6 +112,7 @@ describe("runOrchestrator", () => {
         latestDraft: { tasks: [{ id: "t1", title: "旧任务" }] },
         latestAssignment: { assignments: [{ taskId: "t1", primary: { userId: "u1" } }] },
         memorySummary: "当前是同一计划的二次修改",
+        memoryFacts: ["系统是Linux", "负责人偏好质量部"],
       },
     });
 
@@ -135,9 +133,7 @@ describe("runOrchestrator", () => {
         (m) => m.role === "assistant" && m.content.includes("[employee_update]"),
       ),
     ).toBe(true);
-
-    expect(result.knownFacts).toContain("负责人偏好质量部");
-    expect(result.knownFacts).toContain("系统是Linux");
+    expect(result.messages[0]).toContain("已根据上一版计划完成修订");
   });
 
   it("forwards maxToolIterations to callWithTools", async () => {
@@ -171,5 +167,44 @@ describe("runOrchestrator", () => {
 
     expect(result.messages[0]).toContain("编排工具轮次上限");
     expect(result.traceId).toBeDefined();
+  });
+
+  it("stabilizes draft task ids across revisions and aligns assignment ids", async () => {
+    mockCallWithTools.mockResolvedValueOnce({
+      payload: {
+        message: "已更新",
+        draft: {
+          tasks: [
+            { title: "任务A", objective: "目标A", deliverables: [], completionCriteria: [], timeNode: {}, feedbackFrequency: "每日" },
+            { title: "任务B", objective: "目标B", deliverables: [], completionCriteria: [], timeNode: {}, feedbackFrequency: "每日" },
+          ],
+        },
+        assignment: {
+          assignments: [{ primary: { userId: "u-1" } }, { primary: { userId: "u-2" } }],
+        },
+      },
+      rawContent: "{}",
+      trace: { requestId: "t5", model: "qwen3.6-plus", tokenUsage: { totalTokens: 60 }, latencyMs: 100 },
+      toolCallsExecuted: 0,
+    });
+    const { runOrchestrator } = await import("../../src/agent/orchestrator");
+    const result = await runOrchestrator("修改", {
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
+      employeeRepo: { list: () => [] },
+      sessionContext: {
+        latestDraft: {
+          tasks: [
+            { id: "task_11", title: "任务A", objective: "目标A" },
+            { id: "task_22", title: "任务B", objective: "目标B" },
+          ],
+        },
+      },
+    });
+    const tasks = ((result.draft as { tasks?: Array<{ id?: string }> })?.tasks ?? []);
+    expect(tasks[0]?.id).toBe("task_11");
+    expect(tasks[1]?.id).toBe("task_22");
+    const assignments = ((result.assignment as { assignments?: Array<{ taskId?: string }> })?.assignments ?? []);
+    expect(assignments[0]?.taskId).toBe("task_11");
+    expect(assignments[1]?.taskId).toBe("task_22");
   });
 });

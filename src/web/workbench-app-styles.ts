@@ -36,9 +36,12 @@ a:hover { text-decoration: underline; }
   flex-wrap: wrap;
   margin-bottom: 20px;
 }
+.topbar.topbar--compact { margin-bottom: 14px; }
 .brand { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; color: var(--muted); text-transform: uppercase; }
 .page-title { margin: 4px 0 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
 .page-desc { margin: 6px 0 0; font-size: 14px; color: var(--muted); max-width: 560px; }
+.topbar.topbar--compact .page-title { font-size: 22px; }
+.topbar.topbar--compact .page-desc { max-width: 480px; }
 .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .nav-pills { display: flex; gap: 6px; flex-wrap: wrap; }
 .nav-pills a {
@@ -148,14 +151,71 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   border-radius: var(--radius);
   background: #fafbfc;
 }
-.split-chat {
-  display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-  gap: 16px;
-  min-height: 520px;
+.tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
 }
-@media (max-width: 860px) {
-  .split-chat { grid-template-columns: 1fr; min-height: auto; }
+.tabs[role="tablist"] { border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.tabs-btn {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tabs-btn[aria-selected="true"] {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: var(--primary-hover);
+}
+.tab-panel[hidden] { display: none; }
+.panel-stack { display: grid; gap: 16px; }
+.inline-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.page-shell--chat { min-height: 100vh; min-height: 100dvh; }
+.page-shell--chat .app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.chat-main {
+  display: grid;
+  grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+  flex: 1;
+}
+.chat-thread-pane,
+.chat-message-pane {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.chat-thread-pane {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.chat-message-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.chat-pane-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.thread-toolbar {
+  display: none;
+  margin-bottom: 10px;
 }
 .thread-list {
   list-style: none;
@@ -164,7 +224,6 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 480px;
   overflow-y: auto;
 }
 .thread-list li {
@@ -177,6 +236,14 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
 }
 .thread-list li:hover { border-color: #cbd5e1; background: #fff; }
 .thread-list li.active { border-color: #93c5fd; background: #eff6ff; }
+.chat-stream {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid #f1f5f9;
+  border-bottom: 1px solid #f1f5f9;
+  padding: 12px;
+}
 .msg-list {
   list-style: none;
   margin: 0;
@@ -184,18 +251,76 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 360px;
-  overflow-y: auto;
-  padding-right: 4px;
 }
 .msg-list li {
-  padding: 10px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   font-size: 13px;
   background: #fff;
 }
-.msg-list li strong { display: block; margin-bottom: 4px; font-size: 12px; color: var(--muted); text-transform: capitalize; }
+.msg-bubble {
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-bubble strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.msg-bubble--user { background: #eff6ff; border-radius: var(--radius-sm); }
+.msg-bubble--assistant { background: #fff; border-radius: var(--radius-sm); }
+.msg-bubble--system { background: #f8fafc; border-radius: var(--radius-sm); }
+.chat-composer {
+  padding: 12px;
+  background: #fcfdff;
+}
+.chat-composer .form-stack { gap: 10px; }
+.chat-composer textarea { min-height: 96px; }
+.chat-composer-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.chat-mobile-sheet[hidden] { display: none; }
+.chat-mobile-sheet {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 20;
+}
+.chat-mobile-sheet-inner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 70vh;
+  background: #fff;
+  border-radius: 14px 14px 0 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chat-mobile-sheet .thread-list { max-height: 48vh; }
+.split-chat {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 16px;
+  min-height: 520px;
+}
+@media (max-width: 860px) {
+  .chat-main { grid-template-columns: 1fr; }
+  .chat-thread-pane { display: none; }
+  .thread-toolbar { display: flex; }
+  .topbar.topbar--compact .page-title { font-size: 20px; }
+  .split-chat { grid-template-columns: 1fr; min-height: auto; }
+}
 .task-cards { display: grid; gap: 12px; }
 .task-card {
   border: 1px solid var(--border);
@@ -207,6 +332,8 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
 .task-card .title { font-weight: 650; font-size: 15px; margin: 0 0 6px; word-break: break-word; }
 .task-card .meta { font-size: 12px; color: var(--muted); }
 .task-card .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.task-card-clickable { cursor: pointer; }
+.task-card-clickable:hover { border-color: #bfdbfe; background: #f8fbff; }
 .banner-plan {
   background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
   border: 1px solid #bfdbfe;

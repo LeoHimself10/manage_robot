@@ -23,17 +23,21 @@ import { createAssignmentEventRepo } from "./integrations/repos/assignment-event
 import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import { runOrchestrator } from "./agent/orchestrator";
-import { routeIntentWithModel } from "./agent/intent-router";
 import { extractLightAssignment, renderLightAssignmentSection } from "./agent/assignment/light-assignment";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
 import { createPlanSessionStore, hashChatKey, type PlanSession } from "./infra/plan-session-store";
 import { logStructured } from "./infra/logger";
+import { createDingTalkContactSyncService } from "./infra/dingtalk-contact-sync";
+import {
+  appendMemoryEvents,
+  loadMemoryContextForPlan,
+} from "./infra/workbench-memory-store";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
 const DEFAULT_DINGTALK_MAX_TOKENS = 2200;
-const DEFAULT_DINGTALK_ORCH_ITERATIONS = 6;
+const DEFAULT_DINGTALK_ORCH_ITERATIONS = 3;
 const DEFAULT_DINGTALK_TIMEOUT_MS = 90000;
 
 function truncateMarkdown(text: string, maxChars: number): string {
@@ -50,6 +54,12 @@ function hasTaskTableInMessage(markdown: string): boolean {
     normalized.includes("| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |") ||
     normalized.includes("| 序号 | 任务名称 |")
   );
+}
+
+function isExplicitSearchRequest(input: string): boolean {
+  const text = input.trim().toLowerCase();
+  if (!text) return false;
+  return /联网|搜索|查最新|外部资料|行业资料|外部案例|web search|search web|latest/i.test(text);
 }
 
 function readEnvBool(name: string, fallback: boolean): boolean {
@@ -188,7 +198,6 @@ async function main(): Promise<void> {
     "DINGTALK_APPEND_STRUCTURED_TABLE",
     false,
   );
-  const intentRoutingEnabled = readEnvBool("DINGTALK_INTENT_ROUTING_ENABLED", true);
 
   const debug = process.env.DINGTALK_STREAM_DEBUG === "1" || process.env.DINGTALK_STREAM_DEBUG === "true";
 
@@ -219,6 +228,16 @@ async function main(): Promise<void> {
   const employeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
   const assignmentDraftRepo = createAssignmentDraftRepo(resolveAssignmentDraftDir());
   const assignmentEventRepo = createAssignmentEventRepo(resolveAssignmentEventsPath());
+  const contactSyncService = createDingTalkContactSyncService();
+  if (process.env.DINGTALK_CONTACT_SYNC_ENABLED === "1") {
+    void contactSyncService.runFullSync().catch((err) => {
+      logStructured({
+        event: "dingtalk_contact_initial_sync_failed",
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    });
+    contactSyncService.startIntervalLoop();
+  }
 
   client.registerCallbackListener(TOPIC_ROBOT, (res: DWClientDownStream) => {
     void (async () => {
@@ -323,79 +342,9 @@ async function main(): Promise<void> {
           event: "memory_session_loaded",
           messageId,
           planId: session.planId,
-          hit: session.conversationHistory.length > 0 || session.knownFacts.length > 0,
+          hit: session.conversationHistory.length > 0,
         });
-
-        const knownFacts = [...session.knownFacts];
-
-        if (intentRoutingEnabled) {
-          const routeStartedAt = Date.now();
-          const routeResult = await routeIntentWithModel(
-            {
-              userMessage: background,
-              memorySummary: buildMemorySummary(session),
-              latestDraft: session.latestDraft,
-            },
-            dingtalkQwenConfig,
-          ).catch((err) => {
-            logStructured({
-              event: "dingtalk_intent_routing_failed",
-              messageId,
-              reason: err instanceof Error ? err.message : String(err),
-            });
-            return undefined;
-          });
-          const routeMs = Date.now() - routeStartedAt;
-          if (routeResult) {
-            logStructured({
-              event: "dingtalk_intent_routed",
-              messageId,
-              route: routeResult.route,
-              confidence: routeResult.confidence,
-              routeMs,
-              reason: routeResult.reason,
-            });
-            if (routeResult.route === "SMALL_TALK") {
-              const replyText = routeResult.reply.trim() || "你好，我在线。你可以直接说一个新任务，我来帮你拆解。";
-              const sendReplyStartedAt = Date.now();
-              dingtalkResponse = await sendMarkdownReply({
-                client,
-                sessionWebhook,
-                messageId,
-                senderStaffId,
-                title: "消息",
-                markdownText: truncateMarkdown(replyText, MAX_MARKDOWN_CHARS),
-              });
-              const sendReplyMs = Date.now() - sendReplyStartedAt;
-              const totalMs = Date.now() - handlerStartedAt;
-              planSessionStore.save({
-                ...session,
-                conversationId: conversationId || session.conversationId,
-                conversationType: conversationType || session.conversationType,
-                senderStaffId: senderStaffId || session.senderStaffId,
-                sessionWebhookLastSeen: sessionWebhook || session.sessionWebhookLastSeen,
-                conversationHistory: [
-                  ...session.conversationHistory,
-                  { role: "user" as const, content: background },
-                  { role: "assistant" as const, content: replyText },
-                ].slice(-10),
-              });
-              logStructured({
-                event: "dingtalk_handler_timing",
-                traceId: "intent_router_short_circuit",
-                messageId,
-                hasDraft: false,
-                hasAssignmentSection: false,
-                orchestratorMs: 0,
-                assignmentMs: 0,
-                sendReplyMs,
-                totalMs,
-                routeMs,
-              });
-              return;
-            }
-          }
-        }
+        const memoryContext = loadMemoryContextForPlan(session.planId);
 
         // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
         const orchestratorStartedAt = Date.now();
@@ -403,19 +352,22 @@ async function main(): Promise<void> {
           clientConfig: dingtalkQwenConfig,
           employeeRepo,
           maxToolIterations: dingtalkOrchestratorMaxIterations,
+          toolProfile: "planner",
+          promptProfile: "planner",
+          allowSearchWeb: isExplicitSearchRequest(background),
           sessionContext: {
-            knownFacts,
             conversationHistory: session.conversationHistory,
             planId: session.planId,
             latestDraft: session.latestDraft,
             latestAssignment: session.latestAssignment,
-            memorySummary: buildMemorySummary(session),
+            memorySummary: memoryContext.summary || buildMemorySummary(session),
+            memoryFacts: memoryContext.facts,
+            currentTimeIso: new Date().toISOString(),
           },
         });
         const orchestratorMs = Date.now() - orchestratorStartedAt;
 
         const currentDraft = orchResult.draft ?? session.latestDraft;
-        const updatedKnownFacts = [...orchResult.knownFacts];
 
         // 长期记忆：有草案时自动存快照+embedding
         if (currentDraft) {
@@ -566,11 +518,31 @@ async function main(): Promise<void> {
           senderStaffId: senderStaffId || session.senderStaffId,
           sessionWebhookLastSeen: sessionWebhook || session.sessionWebhookLastSeen,
           lastTraceId: orchResult.traceId,
-          knownFacts: updatedKnownFacts,
           conversationHistory: nextConversationHistory,
           latestDraft: currentDraft,
           latestAssignment,
           revisionEvents: nextRevisionEvents,
+        });
+
+        appendMemoryEvents({
+          planId: session.planId,
+          userMessage: background,
+          assistantMessage: fullOutboundForHistory,
+          latestDraft: currentDraft,
+          latestAssignment,
+          traceId: orchResult.traceId,
+          modelConfig: {
+            apiKey: dingtalkQwenConfig.apiKey,
+            baseUrl: dingtalkQwenConfig.baseUrl,
+            timeoutMs: dingtalkQwenConfig.timeoutMs,
+          },
+        }).catch((err) => {
+          logStructured({
+            event: "memory_worker_failed",
+            planId: session.planId,
+            traceId: orchResult.traceId,
+            reason: err instanceof Error ? err.message : String(err),
+          });
         });
 
       } catch (e) {

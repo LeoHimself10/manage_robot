@@ -11,6 +11,8 @@ export function buildAssignmentSystemPrompt(): string {
     "- 备选人（alternates）：选择能力相邻可承接的其他候选人，至少 1 人。",
     "- 理由（rationale）：引用候选人画像中的具体证据（tags、strengths、cases->outcome）。",
     "- 置信度（confidence）：匹配度高用 HIGH，有所保留用 MEDIUM，不确定用 LOW。",
+    "- 若候选人画像缺少 skillTags/strengths/cases，不得编造能力；只能引用部门、岗位、历史任务等现有信息。",
+    "- 当能力证据不足时，confidence 最高只能为 MEDIUM；明显不确定时必须用 LOW。",
     "- managerQuestions：当置信度为 LOW 或存在风险时，列出需主管确认的问题。",
     "- modelSelfCritique：记录模型在此次推荐中不确定的因素。",
     "禁止编造 userId。所有 userId 必须来自 search_employees 返回的候选人列表。",

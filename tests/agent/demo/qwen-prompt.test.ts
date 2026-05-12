@@ -9,7 +9,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
     const sys = buildQwenPlannerSystemPrompt();
     expect(sys).toContain("orchestrator-agent-v5.7");
     expect(sys).toContain("save_draft");
-    expect(sys).toContain("list_known_facts");
+    expect(sys).toContain("search_web");
     expect(sys).toContain("deliverables");
     expect(sys).toContain("待确认");
     expect(sys).toContain("医疗器械");

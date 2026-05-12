@@ -1,5 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 
 export interface EmployeeProfileRecord {
   userId: string;
@@ -26,23 +25,63 @@ export interface EmployeeProfileRecord {
       rejectedTaskTypes?: string[];
     };
   };
+  taskHistory?: {
+    totalAssigned: number;
+    doneCount: number;
+    blockedCount: number;
+    rejectedCount: number;
+    acceptedCount: number;
+    inProgressCount: number;
+  };
 }
 
-export function createEmployeeProfileRepo(profileDir: string) {
+export function createEmployeeProfileRepo(_profileDir?: string) {
+  function toRecord(snapshot: ReturnType<ReturnType<typeof createPeopleDirectoryStore>["getEmployeeSnapshot"]>): EmployeeProfileRecord | undefined {
+    if (!snapshot) return undefined;
+    return {
+      userId: snapshot.userId,
+      displayName: snapshot.displayName || snapshot.userId,
+      department: snapshot.department || "未分配部门",
+      role: snapshot.role || "Employee",
+      level: snapshot.level,
+      managerUserId: snapshot.managerUserId,
+      location: snapshot.location,
+      selfProfile: {
+        skillTags: snapshot.selfProfile.skillTags ?? [],
+        strengths: snapshot.selfProfile.strengths ?? [],
+        boundaries: snapshot.selfProfile.boundaries ?? [],
+        cases: (snapshot.selfProfile.cases ?? []).map((item) => ({
+          taskType: item.taskType,
+          contribution: item.contribution ?? "",
+          deliverable: item.deliverable ?? "",
+          outcome: item.outcome,
+        })),
+        tools: snapshot.selfProfile.tools ?? [],
+        availability: snapshot.selfProfile.availability ?? {},
+      },
+      taskHistory: snapshot.taskHistory,
+    };
+  }
+
   return {
     list(): EmployeeProfileRecord[] {
-      const names = readdirSync(profileDir).filter((f) => f.endsWith(".json"));
-      return names.map(
-        (n) => JSON.parse(readFileSync(join(profileDir, n), "utf8")) as EmployeeProfileRecord,
-      );
+      const peopleStore = createPeopleDirectoryStore();
+      try {
+        return peopleStore
+          .listEmployeeSnapshots()
+          .filter((snapshot) => snapshot.active)
+          .map((snapshot) => toRecord(snapshot))
+          .filter((snapshot): snapshot is EmployeeProfileRecord => Boolean(snapshot));
+      } finally {
+        peopleStore.close();
+      }
     },
     get(userId: string): EmployeeProfileRecord | undefined {
+      const peopleStore = createPeopleDirectoryStore();
       try {
-        return JSON.parse(
-          readFileSync(join(profileDir, `${userId}.json`), "utf8"),
-        ) as EmployeeProfileRecord;
-      } catch {
-        return undefined;
+        return toRecord(peopleStore.getEmployeeSnapshot(userId));
+      } finally {
+        peopleStore.close();
       }
     },
   };

@@ -6,10 +6,13 @@ import { isWorkbenchManager } from "../../src/security/workbench-manager-whiteli
 
 describe("isWorkbenchManager", () => {
   let tmpFile: string | undefined;
+  let dynamicFile: string | undefined;
 
   beforeEach(() => {
     vi.unstubAllEnvs();
     tmpFile = undefined;
+    dynamicFile = join(tmpdir(), `test-workbench-managers-dynamic-${Date.now()}.json`);
+    vi.stubEnv("WORKBENCH_DYNAMIC_MANAGER_IDS_FILE", dynamicFile);
   });
 
   afterEach(() => {
@@ -60,7 +63,13 @@ describe("isWorkbenchManager", () => {
     vi.stubEnv("WORKBENCH_MANAGER_IDS_FILE", tmpFile);
     vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "from-env,other");
     expect(isWorkbenchManager("from-file")).toBe(true);
-    expect(isWorkbenchManager("from-env")).toBe(false);
+    expect(isWorkbenchManager("from-env")).toBe(true);
+  });
+
+  it("includes dynamic manager ids from admin-managed file", () => {
+    if (!dynamicFile) throw new Error("missing dynamic file");
+    writeFileSync(dynamicFile, JSON.stringify(["dynamic-1"]), "utf8");
+    expect(isWorkbenchManager("dynamic-1")).toBe(true);
   });
 
   it("treats empty WORKBENCH_MANAGER_USER_IDS as no managers when file absent", () => {

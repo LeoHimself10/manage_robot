@@ -228,6 +228,13 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DINGTALK_CLIENT_SECRET` | 是 | 钉钉应用 Client Secret |
 | `DINGTALK_CORP_ID` | 工作台强烈建议 | **JSAPI `dd.config` 与企业 corpId**：用于签名接口返回及兜底注入；仅在仅靠旧版 `getCurrentCorpId` 时可不配（不推荐） |
 | `DINGTALK_AGENT_ID` | 工作台强烈建议 | 开放平台微应用 **AgentId**（数字），与 `dd.config` 一致；缺则 `/api/workbench/auth/jsapi-config` 不可用 |
+| `WORKBENCH_DINGTALK_NOTIFY_ENABLED` | 否 | `1` 时启用“主管发布后通知员工”流程（卡片+待办），默认关闭 |
+| `WORKBENCH_NOTIFY_DETAIL_URL_BASE` | 否 | 通知卡片/待办详情链接基础地址，建议设为 `https://你的域名/workbench/employee/task` |
+| `WORKBENCH_DINGTALK_NOTIFY_AGENT_ID` | 否 | 覆盖通知使用的 AgentId；不填时复用 `DINGTALK_AGENT_ID` |
+| `DINGTALK_CONTACT_SYNC_ENABLED` | 否 | `1` 开启钉钉通讯录同步（落地到 SQLite `dingtalk_contacts`） |
+| `DINGTALK_CONTACT_SYNC_INTERVAL_MS` | 否 | 通讯录兜底同步周期（默认 `1800000`，即 30 分钟） |
+| `DINGTALK_CONTACT_ROOT_DEPT_ID` | 否 | 通讯录全量同步部门根节点（默认 `1`） |
+| `DINGTALK_CONTACT_EVENT_TOKEN` | 否 | 通讯录事件回调鉴权 token；配置后需在请求头 `x-contact-event-token` 传入 |
 | `QWEN_*` | 否 | 模型、超时、重试等；**SSE 流式默认开**（`QWEN_STREAM=0` 关闭），见 `docs/Qwen-接入实施说明.md` |
 | `DEMO_DOMAIN_HINT` | 否 | `QUALITY` 或 `RD`，默认由模型判断 |
 | `DEMO_LLM_CORRECTION` | 否 | 默认开；`0`/`false`/`no` 关闭校验失败后的第二轮模型自纠正（更快，失败率可能升），见 `docs/Qwen-接入实施说明.md` |
@@ -281,3 +288,19 @@ npm run dingtalk-bot
 - **函数计算 FC**：若改为 HTTP 回调型机器人，可使用 FC HTTP 触发器；当前代码路径为 **Stream**，迁移需改用开放平台 HTTP 加解密回调。
 - **高可用**：多实例部署需注意钉钉 Stream 连接模型与机器人会话幂等；试点阶段建议 **单实例**。
 - **集中式审计 / 网关限流**：进程内已实现 Demo JSONL、Harness 可选 FileSink 及会话限速；若要跨实例报表或网关级配额，可再接入集中日志或 API 网关。
+- **发布后员工通知**：若启用 `WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`，`POST /api/workbench/manager/publish` 会在写入 SQLite 后尝试发送钉钉卡片并创建待办。通知失败不会回滚发布，会在响应 `warnings` 与 `task_events` 中留痕（`EMPLOYEE_NOTIFY_FAILED`）。
+
+## 六、上线前清库（纯 SQLite 模式）
+
+若你希望以“全新正式任务数据”上线，发布前在 ECS 执行：
+
+```bash
+rm -f /opt/manage_robot/data/workbench/workbench.sqlite
+rm -f /opt/manage_robot/data/workbench/tasks.json
+docker restart manage-robot-dingtalk
+```
+
+说明：
+
+- 当前工作台运行时只读 SQLite 正式任务库。
+- `tasks.json` 不再作为运行时查询源，保留该文件仅用于人工备份排查。

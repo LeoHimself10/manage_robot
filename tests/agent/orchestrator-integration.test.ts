@@ -80,7 +80,7 @@ const CHOICE_THINKING_EMPTY_CONTENT = {
 };
 
 // ============================================================
-// CHOICE4 = tool_call（调 list_known_facts）
+// CHOICE4 = tool_call（调 save_draft）
 // ============================================================
 const CHOICE_TOOL_CALL_1 = {
   id: "req-005a",
@@ -95,7 +95,36 @@ const CHOICE_TOOL_CALL_1 = {
           {
             id: "call_1",
             type: "function",
-            function: { name: "list_known_facts", arguments: "{}" },
+            function: {
+              name: "save_draft",
+              arguments: JSON.stringify({
+                draft: {
+                  classification: {
+                    domain: "QUALITY",
+                    subtype: "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE",
+                    confidence: "MEDIUM",
+                    rationale: ["test"],
+                    missingInformation: [],
+                  },
+                  tasks: [
+                    {
+                      id: "task_1",
+                      title: "初步排查",
+                      objective: "定位问题",
+                      collaborators: [],
+                      inputMaterials: [],
+                      actions: [],
+                      deliverables: ["排查记录"],
+                      completionCriteria: ["形成结论"],
+                      timeNode: { checkpoints: [], dueAt: "待确认" },
+                      feedbackFrequency: "每日",
+                      risksAndOpenQuestions: [],
+                      dependencyTaskIds: [],
+                    },
+                  ],
+                },
+              }),
+            },
           },
         ],
       },
@@ -185,8 +214,34 @@ const CHOICE_OCT_MULTI_TOOL_1 = {
             id: "call_oct_m1",
             type: "function",
             function: {
-              name: "list_known_facts",
-              arguments: "{}",
+              name: "save_draft",
+              arguments: JSON.stringify({
+                draft: {
+                  classification: {
+                    domain: "QUALITY",
+                    subtype: "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE",
+                    confidence: "MEDIUM",
+                    rationale: ["test"],
+                    missingInformation: [],
+                  },
+                  tasks: [
+                    {
+                      id: "task_1",
+                      title: "U盘兼容性排查",
+                      objective: "定位问题",
+                      collaborators: [],
+                      inputMaterials: [],
+                      actions: [],
+                      deliverables: ["排查记录"],
+                      completionCriteria: ["形成结论"],
+                      timeNode: { checkpoints: [], dueAt: "待确认" },
+                      feedbackFrequency: "每日",
+                      risksAndOpenQuestions: [],
+                      dependencyTaskIds: [],
+                    },
+                  ],
+                },
+              }),
             },
           },
           {
@@ -321,6 +376,7 @@ describe("orchestrator integration — Qwen3 response patterns", () => {
         thinking: true,
       },
       employeeRepo: { list: () => [] },
+      allowSearchWeb: true,
     });
   }
 
@@ -380,7 +436,7 @@ describe("orchestrator integration — Qwen3 response patterns", () => {
   });
 
   // ==========================================
-  it("5. 模型调用 tool (list_known_facts) 然后生成回复 → 正常", async () => {
+  it("5. 模型调用 tool (save_draft) 然后生成回复 → 正常", async () => {
     mockFetch
       .mockResolvedValueOnce(makeFetchOk(CHOICE_TOOL_CALL_1))
       .mockResolvedValueOnce(makeFetchOk(CHOICE_TOOL_CALL_1_RESULT));

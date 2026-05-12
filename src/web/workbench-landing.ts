@@ -25,6 +25,7 @@ export function renderWorkbenchRootLandingHtml(): string {
     <li><code>/workbench</code> — 登录入口（已登录将跳转对应角色首页）</li>
     <li><code>/workbench/manager/tasks</code> — 主管 · 历史任务与改派</li>
     <li><code>/workbench/manager/chat</code> — 主管 · Agent 会话</li>
+    <li><code>/workbench/admin</code> — 管理员 · 全公司任务与权限配置</li>
     <li><code>/workbench/employee/new</code> — 员工 · 新任务承接</li>
     <li><code>/workbench/employee/current</code> — 员工 · 当前任务进度</li>
     <li class="muted"><code>/workbench/manager</code>、<code>/workbench/conversation</code> 等旧书签会自动跳转到上述页面。</li>
