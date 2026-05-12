@@ -287,11 +287,17 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   flex-wrap: wrap;
 }
 .chat-mobile-sheet[hidden] { display: none; }
+html.sheet-open,
+html.sheet-open body {
+  overflow: hidden;
+  height: 100%;
+}
 .chat-mobile-sheet {
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.45);
   z-index: 20;
+  touch-action: none;
 }
 .chat-mobile-sheet-inner {
   position: absolute;

@@ -399,6 +399,13 @@ export function renderManagerChatPage(params: {
 <script>
 (function () {
   var activePlanId = ${JSON.stringify(params.planId ?? "")};
+  var openThreadSheetBtn = document.getElementById('openThreadSheetBtn');
+  var closeThreadSheetBtn = document.getElementById('closeThreadSheetBtn');
+  var threadSheet = document.getElementById('threadSheet');
+  var msgInput = document.getElementById('msgInput');
+  var escapeSheetHandler = function (evt) {
+    if (evt.key === 'Escape') hideThreadSheet();
+  };
 
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -452,11 +459,38 @@ export function renderManagerChatPage(params: {
     if (normalized === 'assistant') return 'msg-bubble--assistant';
     return 'msg-bubble--system';
   }
+  function scrollMessageStreamToBottom() {
+    var box = document.getElementById('msgList');
+    if (!box) return;
+    var stream = box.closest('.chat-stream');
+    if (!stream) return;
+    stream.scrollTop = stream.scrollHeight;
+  }
+  function focusComposer() {
+    if (!msgInput) return;
+    requestAnimationFrame(function () {
+      msgInput.focus();
+      var composer = document.querySelector('.chat-composer');
+      if (composer && window.innerWidth <= 860) {
+        composer.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    });
+  }
   function showThreadSheet() {
-    document.getElementById('threadSheet').hidden = false;
+    if (!threadSheet) return;
+    threadSheet.hidden = false;
+    document.documentElement.classList.add('sheet-open');
+    document.body.classList.add('sheet-open');
+    document.addEventListener('keydown', escapeSheetHandler);
+    if (closeThreadSheetBtn) closeThreadSheetBtn.focus();
   }
   function hideThreadSheet() {
-    document.getElementById('threadSheet').hidden = true;
+    if (!threadSheet) return;
+    threadSheet.hidden = true;
+    document.documentElement.classList.remove('sheet-open');
+    document.body.classList.remove('sheet-open');
+    document.removeEventListener('keydown', escapeSheetHandler);
+    if (openThreadSheetBtn) openThreadSheetBtn.focus();
   }
 
   async function loadThreads() {
@@ -505,7 +539,7 @@ export function renderManagerChatPage(params: {
         var role = String(m.role || 'system');
         return '<li><div class="msg-bubble ' + roleClass(role) + '"><strong>' + escapeHtml(role) + '</strong>' + escapeHtml(m.content || '') + '</div></li>';
       }).join('');
-      box.scrollTop = box.scrollHeight;
+      scrollMessageStreamToBottom();
     } catch (e) {
       box.innerHTML = '<li style="color:#dc2626;">加载消息失败</li>';
     }
@@ -531,6 +565,8 @@ export function renderManagerChatPage(params: {
       setFb('sendFeedback', '已发送', 'ok');
       await loadMessages(planId);
       await loadThreads();
+      scrollMessageStreamToBottom();
+      focusComposer();
     } catch (e) {
       setFb('sendFeedback', String(e && e.message ? e.message : e), 'err');
     } finally {
@@ -554,9 +590,9 @@ export function renderManagerChatPage(params: {
     }
   });
 
-  document.getElementById('openThreadSheetBtn').addEventListener('click', showThreadSheet);
-  document.getElementById('closeThreadSheetBtn').addEventListener('click', hideThreadSheet);
-  document.getElementById('threadSheet').addEventListener('click', function (evt) {
+  openThreadSheetBtn.addEventListener('click', showThreadSheet);
+  closeThreadSheetBtn.addEventListener('click', hideThreadSheet);
+  threadSheet.addEventListener('click', function (evt) {
     if (evt.target === evt.currentTarget) hideThreadSheet();
   });
 
