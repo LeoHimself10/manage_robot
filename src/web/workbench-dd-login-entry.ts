@@ -8,7 +8,7 @@ declare global {
   interface Window {
     __WB_CONFIGURED_CORP_ID?: string;
     __wbTryDingTalkLogin?: () => Promise<void>;
-    /** Legacy container global (may coexist with npm SDK). */
+    /** Legacy DingTalk container global; older webviews may expose this API surface. */
     dd?: legacyDingTalkContainer & Record<string, unknown>;
   }
 }
@@ -36,6 +36,20 @@ type legacyDingTalkContainer = {
   }) => void;
 };
 
+type JsapiConfigPayload = {
+  corpId: string;
+  agentId: string;
+  timeStamp: string;
+  nonceStr: string;
+  signature: string;
+};
+
+type DingTalkCore = typeof dd & {
+  config?: (p: Record<string, unknown>) => void;
+  ready?: (cb: () => void) => void;
+  error?: (cb: (err: unknown) => void) => void;
+};
+
 function setSsoHint(msg: string): void {
   const el = document.getElementById("ssoHint");
   if (el) el.textContent = msg;
@@ -51,16 +65,42 @@ function errMsg(err: unknown): string {
   return String(err);
 }
 
+function getQueryValue(...names: string[]): string {
+  try {
+    const search = new URLSearchParams(window.location.search);
+    for (const name of names) {
+      const value = search.get(name)?.trim();
+      if (value) return value;
+    }
+  } catch {
+    // ignore malformed location/search in unusual webviews
+  }
+  return "";
+}
+
+function isLikelyDingTalkWebview(): boolean {
+  const ua = navigator.userAgent.toLowerCase();
+  return (
+    ua.includes("dingtalk") ||
+    ua.includes("aliapp") ||
+    Boolean(window.dd) ||
+    Boolean((dd as unknown as Record<string, unknown>).env)
+  );
+}
+
 async function resolveCorpId(configured: string): Promise<string> {
   const trimmed = configured.trim();
   if (trimmed) return trimmed;
+
+  const queryCorpId = getQueryValue("corpId", "corp_id", "corpid");
+  if (queryCorpId) return queryCorpId;
 
   try {
     const res = await dd.getCurrentCorpId({});
     const id = res?.corpId ? String(res.corpId).trim() : "";
     if (id) return id;
   } catch {
-    // ignore — fall through to legacy
+    // fall through to legacy APIs
   }
 
   const legacy = window.dd?.corpId;
@@ -71,7 +111,7 @@ async function resolveCorpId(configured: string): Promise<string> {
 
 async function authCodeViaNpmSdk(corpId: string): Promise<string> {
   const res = await dd.getAuthCode({ corpId });
-  const code = res?.authCode ? String(res.authCode).trim() : "";
+  const code = String(res?.authCode || (res as { code?: string })?.code || "").trim();
   if (!code) throw new Error("getAuthCode returned empty");
   return code;
 }
@@ -80,17 +120,14 @@ function authCodeViaLegacyRuntime(corpId: string): Promise<string> {
   const w = window.dd;
   return new Promise((resolve, reject) => {
     if (!w?.runtime?.permission?.requestAuthCode) {
-      reject(new Error("requestAuthCode is unavailable"));
+      reject(new Error("runtime.permission.requestAuthCode is unavailable"));
       return;
     }
     w.runtime.permission.requestAuthCode({
       corpId,
-      onSuccess: (res) => {
-        resolve(String(res.code || res.authCode || "").trim());
-      },
-      onFail: (err) => {
-        reject(new Error(err?.errorMessage || err?.message || "requestAuthCode failed"));
-      },
+      onSuccess: (res) => resolve(String(res.code || res.authCode || "").trim()),
+      onFail: (err) =>
+        reject(new Error(err?.errorMessage || err?.message || "requestAuthCode failed")),
     });
   });
 }
@@ -99,14 +136,13 @@ function authCodeViaLegacyGetAuthCode(corpId: string): Promise<string> {
   const w = window.dd;
   return new Promise((resolve, reject) => {
     if (typeof w?.getAuthCode !== "function") {
-      reject(new Error("getAuthCode is unavailable"));
+      reject(new Error("dd.getAuthCode is unavailable"));
       return;
     }
     w.getAuthCode({
       corpId,
       success: (res) => resolve(String(res.authCode || res.code || "").trim()),
-      fail: (err) =>
-        reject(new Error(err?.errorMessage || err?.message || "getAuthCode failed")),
+      fail: (err) => reject(new Error(err?.errorMessage || err?.message || "getAuthCode failed")),
     });
   });
 }
@@ -115,7 +151,7 @@ function authCodeViaLegacyRequestAuthCode(corpId: string): Promise<string> {
   const w = window.dd;
   return new Promise((resolve, reject) => {
     if (typeof w?.requestAuthCode !== "function") {
-      reject(new Error("requestAuthCode (legacy) is unavailable"));
+      reject(new Error("dd.requestAuthCode is unavailable"));
       return;
     }
     w.requestAuthCode({
@@ -123,6 +159,78 @@ function authCodeViaLegacyRequestAuthCode(corpId: string): Promise<string> {
       onSuccess: (res) => resolve(String(res.code || res.authCode || "").trim()),
       onFail: (err) =>
         reject(new Error(err?.errorMessage || err?.message || "requestAuthCode failed")),
+    });
+  });
+}
+
+async function fetchJsapiConfigPayload(pageUrl: string): Promise<{
+  payload: JsapiConfigPayload | null;
+  serverError: string;
+}> {
+  try {
+    const res = await fetch(
+      `/api/workbench/auth/jsapi-config?url=${encodeURIComponent(pageUrl)}`,
+    );
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      corpId?: string;
+      agentId?: string;
+      timeStamp?: string;
+      nonceStr?: string;
+      signature?: string;
+    };
+    if (!res.ok || !data.ok) {
+      return {
+        payload: null,
+        serverError: typeof data.error === "string" ? data.error : `HTTP ${res.status}`,
+      };
+    }
+    const payload: JsapiConfigPayload = {
+      corpId: String(data.corpId ?? "").trim(),
+      agentId: String(data.agentId ?? "").trim(),
+      timeStamp: String(data.timeStamp ?? "").trim(),
+      nonceStr: String(data.nonceStr ?? "").trim(),
+      signature: String(data.signature ?? "").trim(),
+    };
+    if (!payload.corpId || !payload.agentId || !payload.signature) {
+      return { payload: null, serverError: "JSAPI config response is incomplete" };
+    }
+    return { payload, serverError: "" };
+  } catch (e) {
+    return { payload: null, serverError: errMsg(e) };
+  }
+}
+
+async function applyDdConfig(payload: JsapiConfigPayload): Promise<void> {
+  const api = dd as DingTalkCore;
+  if (
+    typeof api.config !== "function" ||
+    typeof api.ready !== "function" ||
+    typeof api.error !== "function"
+  ) {
+    throw new Error("dd.config is unavailable");
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const once = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+    api.error?.((err: unknown) => {
+      once(() => reject(err instanceof Error ? err : new Error(errMsg(err))));
+    });
+    api.ready?.(() => once(() => resolve()));
+    api.config?.({
+      agentId: payload.agentId,
+      corpId: payload.corpId,
+      timeStamp: payload.timeStamp,
+      nonceStr: payload.nonceStr,
+      signature: payload.signature,
+      type: 0,
+      jsApiList: ["getAuthCode", "getCurrentCorpId", "runtime.permission.requestAuthCode"],
     });
   });
 }
@@ -147,12 +255,45 @@ async function resolveAuthCode(corpId: string): Promise<string> {
 }
 
 async function tryDingTalkLogin(): Promise<void> {
-  const configured = window.__WB_CONFIGURED_CORP_ID ?? "";
+  if (!isLikelyDingTalkWebview()) {
+    setSsoHint("当前不是钉钉容器，已跳过自动免登。可用下方测试登录验证员工/主管页面。");
+    setResult("在钉钉工作台打开 /workbench 后会自动免登。");
+    return;
+  }
 
-  const corpId = await resolveCorpId(configured);
+  const configured = window.__WB_CONFIGURED_CORP_ID ?? "";
+  const pageUrl = typeof location !== "undefined" ? location.href.split("#")[0] : "";
+  let corpId = "";
+  let serverJsapiHint = "";
+
+  if (pageUrl) {
+    const { payload, serverError } = await fetchJsapiConfigPayload(pageUrl);
+    serverJsapiHint = serverError;
+    if (payload) {
+      try {
+        setSsoHint("正在进行钉钉 JSAPI 鉴权（dd.config）...");
+        await applyDdConfig(payload);
+        corpId = payload.corpId;
+      } catch (err) {
+        setSsoHint(`JSAPI 鉴权失败：${errMsg(err)}。将尝试兼容免登路径。`);
+      }
+    }
+  }
+
+  if (!corpId) corpId = await resolveCorpId(configured);
+
   if (!corpId) {
-    setSsoHint("未获取到 corpId：请在钉钉内打开，或在服务端配置 DINGTALK_CORP_ID 作为兜底。");
-    setResult("请确认应用在钉钉容器中打开，或联系管理员配置企业 corpId。");
+    const extra =
+      serverJsapiHint && !serverJsapiHint.includes("fetch") && serverJsapiHint.length < 220
+        ? ` 服务端返回：${serverJsapiHint}`
+        : "";
+    setSsoHint(
+      "未获取到 corpId。请配置 DINGTALK_CORP_ID 和 DINGTALK_AGENT_ID，或临时用 /workbench?corpId=dingxxxx 兜底。" +
+        extra,
+    );
+    setResult(
+      "若在钉钉内仍失败：请核对微应用 AgentId、应用首页 URL 与当前页面 URL 一致，并确认已开通免登/JSAPI 权限。",
+    );
     return;
   }
 
@@ -176,10 +317,12 @@ async function tryDingTalkLogin(): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ authCode }),
     });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; redirectTo?: string };
-    if (!res.ok || !data.ok) {
-      throw new Error(data.error || `HTTP ${res.status}`);
-    }
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      redirectTo?: string;
+    };
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
     setResult("免登成功，正在跳转...");
     window.location.href = data.redirectTo || "/workbench";
   } catch (err) {

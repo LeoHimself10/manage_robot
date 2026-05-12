@@ -26,6 +26,7 @@ import {
   createDingTalkAuthClient,
   getDingTalkCorpId,
 } from "../integrations/dingtalk/dingtalk-auth";
+import { buildWorkbenchJsapiConfig } from "../integrations/dingtalk/dingtalk-jsapi-config";
 import { createEmployeeProfileRepo } from "../integrations/repos/employee-profile-repo";
 import { isWorkbenchManager } from "../security/workbench-manager-whitelist";
 import { verifyAssignmentEntry } from "../security/web-entry-token";
@@ -678,6 +679,49 @@ export function handleAssignmentHttp(
     } else {
       res.end(body);
     }
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/workbench/auth/jsapi-config") {
+    void (async () => {
+      try {
+        const rawUrl = String(url.searchParams.get("url") ?? "").trim();
+        if (!rawUrl) {
+          writeJson(res, 400, { ok: false, error: "url query parameter is required" });
+          return;
+        }
+        let parsed: URL;
+        try {
+          parsed = new URL(rawUrl);
+        } catch {
+          writeJson(res, 400, { ok: false, error: "invalid url" });
+          return;
+        }
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          writeJson(res, 400, { ok: false, error: "url must be http(s)" });
+          return;
+        }
+        const pageUrlForSign = `${parsed.origin}${parsed.pathname}${parsed.search}`;
+        const cfg = await buildWorkbenchJsapiConfig(pageUrlForSign);
+        writeJson(res, 200, {
+          ok: true,
+          corpId: cfg.corpId,
+          agentId: cfg.agentId,
+          timeStamp: cfg.timeStamp,
+          nonceStr: cfg.nonceStr,
+          signature: cfg.signature,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const status =
+          msg.includes("DINGTALK_CORP_ID") ||
+          msg.includes("DINGTALK_AGENT_ID") ||
+          msg.includes("CLIENT_ID")
+            ? 503
+            : 502;
+        writeJson(res, status, { ok: false, error: msg });
+      }
+    })();
     return true;
   }
 

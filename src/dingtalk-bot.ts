@@ -16,7 +16,7 @@ import {
   MemoryChatSessionStore,
   readRateLimitWindowMs,
 } from "./infra/session-store";
-import { resolveEmployeeProfileDir, resolveAssignmentDraftDir, resolveAssignmentEventsPath } from "./infra/assignment-env";
+import { resolveEmployeeProfileDir, resolveAssignmentDraftDir, resolveAssignmentEventsPath, resolveAssignmentWebPort } from "./infra/assignment-env";
 import { createEmployeeProfileRepo } from "./integrations/repos/employee-profile-repo";
 import { createAssignmentDraftRepo } from "./integrations/repos/assignment-draft-repo";
 import { createAssignmentEventRepo } from "./integrations/repos/assignment-event-repo";
@@ -192,9 +192,20 @@ async function main(): Promise<void> {
 
   const debug = process.env.DINGTALK_STREAM_DEBUG === "1" || process.env.DINGTALK_STREAM_DEBUG === "true";
 
+  const ports = new Set<number>();
   const healthPort = Number(process.env.HEALTH_CHECK_PORT ?? "");
   if (Number.isFinite(healthPort) && healthPort > 0) {
-    startCombinedServer(healthPort);
+    ports.add(Math.trunc(healthPort));
+  }
+  if (
+    process.env.ASSIGNMENT_WEB_PORT?.trim() ||
+    process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL?.trim() ||
+    process.env.ASSIGNMENT_PHASE_ENABLED === "1"
+  ) {
+    ports.add(resolveAssignmentWebPort());
+  }
+  for (const port of ports) {
+    startCombinedServer(port);
   }
 
   const client = new DWClient({
