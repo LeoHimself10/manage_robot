@@ -626,6 +626,11 @@ async function main(): Promise<void> {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("[dingtalk-bot] handler error:", msg);
+        logStructured({
+          event: "dingtalk_handler_error",
+          messageId,
+          reason: msg,
+        });
         try {
           const fallback = JSON.parse(res.data) as Record<string, unknown>;
           if (fallback.sessionWebhook && fallback.senderStaffId) {

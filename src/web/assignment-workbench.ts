@@ -52,6 +52,7 @@ import {
   renderEmployeeNewTasksPage,
 } from "./employee-workbench-pages";
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
+import { logStructured } from "../infra/logger";
 
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
@@ -765,6 +766,15 @@ function requireSession(
   }
   const runtimeRole = resolveRoleForUser(session.userId);
   if (expectedRole && runtimeRole !== expectedRole) {
+    logStructured({
+      event: "workbench_role_forbidden",
+      path: req.url ?? "",
+      expectedRole,
+      runtimeRole,
+      sessionRole: session.role,
+      userId: session.userId,
+      loginSource: session.loginSource,
+    });
     writeAuthError(res, 403, "Role forbidden");
     return undefined;
   }
@@ -882,6 +892,12 @@ export function handleAssignmentHttp(
         }
         const dingIdentity = await dingtalkAuthClient.resolveIdentityByAuthCode(authCode);
         const role = resolveRoleForUser(dingIdentity.userId);
+        logStructured({
+          event: "workbench_dingtalk_auth_ok",
+          userId: dingIdentity.userId,
+          role,
+          name: dingIdentity.name ?? "",
+        });
         const session = createWorkbenchSession({
           userId: dingIdentity.userId,
           role,
@@ -907,6 +923,10 @@ export function handleAssignmentHttp(
           }),
         );
       } catch (err) {
+        logStructured({
+          event: "workbench_dingtalk_auth_failed",
+          reason: err instanceof Error ? err.message : String(err),
+        });
         if (err instanceof DingTalkAuthError) {
           writeJson(res, err.statusCode, {
             ok: false,
