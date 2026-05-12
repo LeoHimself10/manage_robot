@@ -17,6 +17,7 @@ export interface PlanSession {
   planId: string;
   createdAt: string;
   updatedAt: string;
+  lastAgentProfile?: "planner" | "manager" | "employee";
   conversationId?: string;
   conversationType?: string;
   senderStaffId?: string;

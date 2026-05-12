@@ -389,14 +389,30 @@ async function main(): Promise<void> {
           planId: session.planId,
           hit: session.conversationHistory.length > 0,
         });
-        const memoryContext = loadMemoryContextForPlan(session.planId);
-
-        // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
         const routing = buildDingtalkOrchestratorRoutingParams({
           senderStaffId,
           employeeRepo,
         });
         const selectedProfile = routing.selectedProfile;
+        const previousProfile = session.lastAgentProfile;
+        if (previousProfile && previousProfile !== selectedProfile) {
+          // 防止跨角色（employee/manager/planner）时被旧会话语气与意图污染。
+          session = {
+            ...session,
+            conversationHistory: [],
+          };
+          logStructured({
+            event: "dingtalk_profile_switched",
+            messageId,
+            planId: session.planId,
+            fromProfile: previousProfile,
+            toProfile: selectedProfile,
+          });
+        }
+
+        const memoryContext = loadMemoryContextForPlan(session.planId);
+
+        // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
         logStructured({
           event: "dingtalk_role_routing",
           messageId,
@@ -574,6 +590,7 @@ async function main(): Promise<void> {
         ].slice(-10);
         planSessionStore.save({
           ...session,
+          lastAgentProfile: selectedProfile,
           conversationId: conversationId || session.conversationId,
           conversationType: conversationType || session.conversationType,
           senderStaffId: senderStaffId || session.senderStaffId,
