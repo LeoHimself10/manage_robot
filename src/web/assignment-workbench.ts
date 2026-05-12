@@ -204,6 +204,19 @@ function clearSessionCookie(): string {
   return `${WORKBENCH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
+function appendSetCookie(res: ServerResponse, cookie: string): void {
+  const existing = res.getHeader("Set-Cookie");
+  if (!existing) {
+    res.setHeader("Set-Cookie", cookie);
+    return;
+  }
+  if (Array.isArray(existing)) {
+    res.setHeader("Set-Cookie", [...existing, cookie]);
+    return;
+  }
+  res.setHeader("Set-Cookie", [String(existing), cookie]);
+}
+
 function parseCookies(req: IncomingMessage): Record<string, string> {
   const raw = req.headers.cookie ?? "";
   const out: Record<string, string> = {};
@@ -238,6 +251,34 @@ function getSessionFromRequest(req: IncomingMessage): WorkbenchSession | undefin
 
 function resolveRoleForUser(userId: string): WorkbenchRole {
   return resolveWorkbenchRole(userId);
+}
+
+/**
+ * Read session cookie and self-heal `role` against runtime resolution.
+ * If the cookie role is stale (e.g. user was promoted/demoted after login),
+ * we transparently issue a refreshed cookie and return a session whose role
+ * already matches the runtime answer. Returns `undefined` when no valid
+ * session cookie is present.
+ */
+function resolveEffectiveSession(
+  req: IncomingMessage,
+  res: ServerResponse,
+): WorkbenchSession | undefined {
+  const session = getSessionFromRequest(req);
+  if (!session) return undefined;
+  const runtimeRole = resolveRoleForUser(session.userId);
+  if (runtimeRole === session.role) return session;
+  const refreshed: WorkbenchSession = { ...session, role: runtimeRole };
+  appendSetCookie(res, buildSessionCookie(refreshed));
+  logStructured({
+    event: "workbench_session_role_refreshed",
+    path: req.url ?? "",
+    userId: session.userId,
+    fromRole: session.role,
+    toRole: runtimeRole,
+    loginSource: session.loginSource,
+  });
+  return refreshed;
 }
 
 function createWorkbenchSession(params: {
@@ -765,6 +806,18 @@ function requireSession(
     return undefined;
   }
   const runtimeRole = resolveRoleForUser(session.userId);
+  const cookieStale = runtimeRole !== session.role;
+  if (cookieStale) {
+    appendSetCookie(res, buildSessionCookie({ ...session, role: runtimeRole }));
+    logStructured({
+      event: "workbench_session_role_refreshed",
+      path: req.url ?? "",
+      userId: session.userId,
+      fromRole: session.role,
+      toRole: runtimeRole,
+      loginSource: session.loginSource,
+    });
+  }
   if (expectedRole && runtimeRole !== expectedRole) {
     logStructured({
       event: "workbench_role_forbidden",
@@ -778,10 +831,7 @@ function requireSession(
     writeAuthError(res, 403, "Role forbidden");
     return undefined;
   }
-  if (runtimeRole !== session.role) {
-    return { ...session, role: runtimeRole };
-  }
-  return session;
+  return cookieStale ? { ...session, role: runtimeRole } : session;
 }
 
 async function readJsonBody(
@@ -1047,16 +1097,15 @@ export function handleAssignmentHttp(
   }
 
   if (isGetOrHead && url.pathname === "/api/workbench/me") {
-    const session = getSessionFromRequest(req);
+    const session = resolveEffectiveSession(req, res);
     if (!session) {
       writeAuthError(res, 401, "Session required");
       return true;
     }
-    const runtimeRole = resolveRoleForUser(session.userId);
     writeJson(res, 200, {
       ok: true,
       userId: session.userId,
-      role: runtimeRole,
+      role: session.role,
       loginSource: session.loginSource,
       dingUser: session.dingUser ?? null,
       exp: session.exp,
@@ -1711,14 +1760,14 @@ export function handleAssignmentHttp(
   }
 
   if (isGetOrHead && url.pathname === "/workbench") {
-    const session = getSessionFromRequest(req);
+    const session = resolveEffectiveSession(req, res);
     if (!session) {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       if (req.method === "HEAD") res.end();
       else res.end(renderWorkbenchEntryLoginHtml());
       return true;
     }
-    redirect(res, defaultPathForRole(resolveRoleForUser(session.userId)));
+    redirect(res, defaultPathForRole(session.role));
     return true;
   }
 
@@ -2063,7 +2112,7 @@ export function handleAssignmentHttp(
   }
 
   if (isGetOrHead && isWorkbenchHtmlPath(url.pathname)) {
-    const session = getSessionFromRequest(req);
+    const session = resolveEffectiveSession(req, res);
     if (!session) {
       redirect(res, WORKBENCH_LOGIN_PATH);
       return true;
@@ -2148,7 +2197,7 @@ export function handleAssignmentHttp(
   if (url.pathname === "/assignment/workbench" && isGetOrHead) {
     const tokenParam = url.searchParams.get("token");
     if (!tokenParam && !url.searchParams.get("access_token")) {
-      const session = getSessionFromRequest(req);
+      const session = resolveEffectiveSession(req, res);
       if (session) {
         const to = defaultPathForRole(session.role);
         redirect(res, to);
