@@ -68,9 +68,9 @@ describe("QwenCompatibleClient", () => {
     const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(requestBody).not.toHaveProperty("response_format");
     expect(requestBody.messages[0].content).toContain("医疗器械");
-    expect(requestBody.messages[0].content).toContain("save_draft");
+    expect(requestBody.messages[0].content).toContain("capaAdvisory");
     expect(requestBody.messages[0].content).toContain("deliverables");
-    expect(requestBody.messages[0].content).toContain("orchestrator-agent-v5.7");
+    expect(requestBody.messages[0].content).toContain("legacy-demo-planner-v1");
     expect(result.trace.requestId).toBe("req_001");
     expect(result.trace.traceId).toBeUndefined();
     expect(result.trace.tokenUsage.totalTokens).toBe(150);
@@ -723,5 +723,114 @@ describe("callWithTools", () => {
     expect(result.toolCallsExecuted).toBe(2);
     expect(result.payload).toEqual({ ok: true });
     expect(callCount).toBe(3); // 2 tool_call rounds + 1 final
+  });
+
+  it("tracks parseMs separately from tool execution time", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    id: "slow_call",
+                    type: "function",
+                    function: { name: "search_employees", arguments: "{}" },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: { total_tokens: 20 },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '{"ok":true}' } }],
+          usage: { total_tokens: 20 },
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://test",
+      apiKey: "k",
+      model: "qwen",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0,
+      maxTokens: 2000,
+    });
+    const result = await client.callWithTools({
+      messages: [{ role: "user", content: "test" }],
+      tools: [
+        {
+          type: "function",
+          function: { name: "search_employees", description: "x", parameters: {} },
+        },
+      ],
+      toolHandlers: {
+        search_employees: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          return { candidates: [] };
+        },
+      },
+      maxIterations: 2,
+    });
+    expect(result.timing?.iterations[0].toolsMs).toBeGreaterThanOrEqual(20);
+    expect(result.timing?.iterations[0].parseMs).toBeLessThan(result.timing?.iterations[0].toolsMs ?? 0);
+  });
+
+  it("stops when total token budget is exceeded", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    id: "c1",
+                    type: "function",
+                    function: { name: "search_employees", arguments: "{}" },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: { total_tokens: 200, prompt_tokens: 100, completion_tokens: 100 },
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://test",
+      apiKey: "k",
+      model: "qwen",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0,
+      maxTokens: 2000,
+    });
+    await expect(
+      client.callWithTools({
+        messages: [{ role: "user", content: "test" }],
+        tools: [
+          {
+            type: "function",
+            function: { name: "search_employees", description: "x", parameters: {} },
+          },
+        ],
+        toolHandlers: { search_employees: async () => ({}) },
+        maxTotalTokens: 120,
+      }),
+    ).rejects.toThrow(/token budget/);
   });
 });

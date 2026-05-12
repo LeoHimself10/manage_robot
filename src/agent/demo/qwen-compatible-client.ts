@@ -3,7 +3,7 @@ import type { LlmCorrectionContext } from "./llm-types";
 import { LlmPlanPayload, InferenceTrace, TokenUsage } from "./llm-types";
 import { logStructured } from "../../infra/logger";
 import {
-  buildQwenPlannerSystemPrompt,
+  buildLegacyDemoPlannerSystemPrompt,
   buildQwenPlannerUserPrompt,
 } from "./qwen-prompt";
 
@@ -57,6 +57,9 @@ export interface CallWithToolsRequest {
   toolHandlers: Record<string, ToolHandler>;
   /** v0.2: default 1 (single tool_call, then force JSON) */
   maxIterations?: number;
+  maxTotalMs?: number;
+  maxToolCalls?: number;
+  maxTotalTokens?: number;
 }
 
 export interface CallWithToolsResult {
@@ -168,7 +171,7 @@ export class QwenCompatibleClient {
       messages: [
         {
           role: "system",
-          content: buildQwenPlannerSystemPrompt(),
+          content: buildLegacyDemoPlannerSystemPrompt(),
         },
         {
           role: "user",
@@ -264,6 +267,10 @@ export class QwenCompatibleClient {
     request: CallWithToolsRequest
   ): Promise<CallWithToolsResult> {
     const maxIterations = request.maxIterations ?? 6;
+    const maxTotalMs = request.maxTotalMs ?? Number(process.env.AGENT_MAX_TOTAL_MS ?? "120000");
+    const maxToolCalls = request.maxToolCalls ?? Number(process.env.AGENT_MAX_TOOL_CALLS ?? "12");
+    const maxTotalTokens =
+      request.maxTotalTokens ?? Number(process.env.AGENT_MAX_TOTAL_TOKENS ?? "12000");
 
     let lastError: unknown = null;
     const startedAt = Date.now();
@@ -293,6 +300,9 @@ export class QwenCompatibleClient {
         }> = [];
 
         while (iterations < maxIterations) {
+          if (Date.now() - startedAt > maxTotalMs) {
+            throw new Error(`ReAct loop exceeded total time budget (${maxTotalMs}ms)`);
+          }
           const iterationNo = iterations + 1;
           const iterationStartedAt = Date.now();
           const body: Record<string, unknown> = {
@@ -325,6 +335,9 @@ export class QwenCompatibleClient {
             accumulatedUsage,
             resp.usage
           );
+          if (accumulatedUsage.totalTokens > maxTotalTokens) {
+            throw new Error(`ReAct loop exceeded token budget (${maxTotalTokens})`);
+          }
 
           const msg = resp.choices?.[0]?.message;
           const parseStartedAt = Date.now();
@@ -400,6 +413,11 @@ export class QwenCompatibleClient {
             }
             return { tc, handler, parsedArgs };
           });
+          parseMs = Date.now() - parseStartedAt;
+
+          if (toolCallsExecuted + preparedCalls.length > maxToolCalls) {
+            throw new Error(`ReAct loop exceeded tool call budget (${maxToolCalls})`);
+          }
 
           const parallelCalls = preparedCalls.filter((call) =>
             isParallelSafeTool(call.tc.function.name),
@@ -448,7 +466,6 @@ export class QwenCompatibleClient {
             });
           }
 
-          parseMs = Date.now() - parseStartedAt;
           const totalMs = Date.now() - iterationStartedAt;
           const row = {
             iteration: iterationNo,
