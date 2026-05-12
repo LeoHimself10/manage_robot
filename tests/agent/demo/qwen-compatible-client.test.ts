@@ -833,4 +833,120 @@ describe("callWithTools", () => {
       }),
     ).rejects.toThrow(/token budget/);
   });
+
+  it("supports tool calling over SSE streaming when config.stream is true", async () => {
+    /**
+     * Regression guard for the DingTalk timeout fix: under stream=true the ReAct loop must
+     * reassemble OpenAI-compatible streamed tool_calls (delta.tool_calls with index +
+     * incrementally streamed function.arguments) into a complete tool_call before invoking
+     * the local handler and then accept the final SSE answer chunk.
+     */
+    const toolCallSseChunks = [
+      JSON.stringify({
+        id: "req_stream_tc",
+        model: "qwen-plus",
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_stream_1",
+                  type: "function",
+                  function: { name: "search_employees", arguments: '{"skil' },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  function: { arguments: 'ls":["8D"]}' },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+        usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 },
+      }),
+    ];
+    const toolCallSseText =
+      toolCallSseChunks.map((c) => `data: ${c}`).join("\n\n") + "\n\ndata: [DONE]\n";
+
+    const finalSseChunks = [
+      JSON.stringify({
+        id: "req_stream_final",
+        model: "qwen-plus",
+        choices: [
+          { delta: { content: '{"ok":true,"employees":[]}' }, finish_reason: "stop" },
+        ],
+        usage: { prompt_tokens: 60, completion_tokens: 20, total_tokens: 80 },
+      }),
+    ];
+    const finalSseText =
+      finalSseChunks.map((c) => `data: ${c}`).join("\n\n") + "\n\ndata: [DONE]\n";
+
+    const makeStream = (text: string) =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(text));
+          controller.close();
+        },
+      });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, body: makeStream(toolCallSseText) })
+      .mockResolvedValueOnce({ ok: true, status: 200, body: makeStream(finalSseText) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0.2,
+      maxTokens: 2048,
+      stream: true,
+    });
+
+    const searchHandler = vi.fn().mockResolvedValue([{ name: "Alice" }]);
+    const result = await client.callWithTools({
+      messages: [
+        { role: "system", content: "you are helpful" },
+        { role: "user", content: "find 8D experts" },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "search_employees",
+            description: "search by skills",
+            parameters: {
+              type: "object",
+              properties: { skills: { type: "array", items: { type: "string" } } },
+            },
+          },
+        },
+      ],
+      toolHandlers: { search_employees: searchHandler },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(firstBody.stream).toBe(true);
+    expect(firstBody.stream_options).toEqual({ include_usage: true });
+    expect(searchHandler).toHaveBeenCalledWith({ skills: ["8D"] });
+    expect(result.toolCallsExecuted).toBe(1);
+    expect((result.payload as Record<string, unknown>).ok).toBe(true);
+    expect(result.rawContent).toBe('{"ok":true,"employees":[]}');
+  });
 });

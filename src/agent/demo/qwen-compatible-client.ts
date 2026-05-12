@@ -119,6 +119,18 @@ interface SseAssembledResponse {
   id?: string;
   model?: string;
   usage?: ChatCompletionResponse["usage"];
+  /**
+   * tool_calls 在 SSE 增量协议下按 index 累加：
+   *   delta.tool_calls = [{ index, id?, function?: { name?, arguments? } }]
+   * 同一 index 的多个 delta 需要拼接 function.arguments 字符串。
+   */
+  toolCalls?: Array<{
+    index: number;
+    id?: string;
+    type?: "function";
+    function: { name: string; arguments: string };
+  }>;
+  finishReason?: string;
 }
 
 export class QwenCompatibleClient {
@@ -319,6 +331,10 @@ export class QwenCompatibleClient {
               },
             })),
           };
+          if (this.config.stream) {
+            body.stream = true;
+            body.stream_options = { include_usage: true };
+          }
 
           const ctrl = new AbortController();
           const timer = setTimeout(() => ctrl.abort(), this.config.timeoutMs);
@@ -545,15 +561,51 @@ function ingestSseDataLine(dataPayload: string, acc: SseAssembledResponse): void
       id?: string;
       model?: string;
       usage?: ChatCompletionResponse["usage"];
-      choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>;
+      choices?: Array<{
+        finish_reason?: string | null;
+        delta?: {
+          content?: string;
+          reasoning_content?: string;
+          tool_calls?: Array<{
+            index?: number;
+            id?: string;
+            type?: "function";
+            function?: { name?: string; arguments?: string };
+          }>;
+        };
+      }>;
     };
     if (json.id) acc.id = json.id;
     if (json.model) acc.model = json.model;
     if (json.usage) acc.usage = json.usage;
-    const piece = json.choices?.[0]?.delta?.content;
+    const choice = json.choices?.[0];
+    const delta = choice?.delta;
+    if (choice?.finish_reason) acc.finishReason = choice.finish_reason;
+    const piece = delta?.content;
     if (piece) acc.content += piece;
-    const reasonPiece = json.choices?.[0]?.delta?.reasoning_content;
+    const reasonPiece = delta?.reasoning_content;
     if (reasonPiece) acc.reasoningContent = (acc.reasoningContent ?? "") + reasonPiece;
+    const toolDeltas = delta?.tool_calls;
+    if (Array.isArray(toolDeltas) && toolDeltas.length > 0) {
+      if (!acc.toolCalls) acc.toolCalls = [];
+      for (const td of toolDeltas) {
+        const idx = typeof td.index === "number" ? td.index : acc.toolCalls.length;
+        let row = acc.toolCalls.find((r) => r.index === idx);
+        if (!row) {
+          row = {
+            index: idx,
+            id: td.id,
+            type: td.type ?? "function",
+            function: { name: "", arguments: "" },
+          };
+          acc.toolCalls.push(row);
+        } else if (!row.id && td.id) {
+          row.id = td.id;
+        }
+        if (td.function?.name) row.function.name += td.function.name;
+        if (td.function?.arguments) row.function.arguments += td.function.arguments;
+      }
+    }
   } catch {
     /* 忽略单行损坏 */
   }
@@ -594,16 +646,29 @@ async function readSseChatCompletionStream(
 }
 
 function sseAssembledToChatResponse(a: SseAssembledResponse): ChatCompletionResponse {
+  const toolCalls = a.toolCalls
+    ?.slice()
+    .sort((x, y) => x.index - y.index)
+    .map((row, idx) => ({
+      id: row.id ?? `tool_${idx}`,
+      type: "function" as const,
+      function: {
+        name: row.function.name,
+        arguments: row.function.arguments,
+      },
+    }))
+    .filter((row) => row.function.name.length > 0);
   return {
     id: a.id,
     model: a.model,
     usage: a.usage,
     choices: [
       {
-        finish_reason: "stop",
+        finish_reason: a.finishReason ?? "stop",
         message: {
           content: a.content,
           reasoning_content: a.reasoningContent,
+          tool_calls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
         },
       },
     ],

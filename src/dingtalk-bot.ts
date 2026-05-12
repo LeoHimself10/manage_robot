@@ -234,6 +234,10 @@ async function main(): Promise<void> {
       baseQwenConfig.maxTokens,
       readEnvInt("DINGTALK_QWEN_MAX_TOKENS", DEFAULT_DINGTALK_MAX_TOKENS),
     ),
+    // 钉钉链路启用 SSE 流式：避免长 prompt/慢生成下 keep-alive 被中间网关 idle-断开，
+    // 让 fetch 在 chunk 流入期间保持活跃，显著降低"单次 LLM 调用挂死 120s"的概率。
+    // 可通过 DINGTALK_QWEN_STREAM=0 关掉作为应急回退。
+    stream: readEnvBool("DINGTALK_QWEN_STREAM", true),
   };
   const dingtalkOrchestratorMaxIterations = readEnvInt(
     "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS",
