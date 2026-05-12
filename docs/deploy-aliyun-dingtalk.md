@@ -230,11 +230,16 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DINGTALK_AGENT_ID` | 工作台强烈建议 | 开放平台微应用 **AgentId**（数字），与 `dd.config` 一致；缺则 `/api/workbench/auth/jsapi-config` 不可用 |
 | `WORKBENCH_DINGTALK_NOTIFY_ENABLED` | 否 | `1` 时启用“主管发布后通知员工”流程（卡片+待办），默认关闭 |
 | `WORKBENCH_NOTIFY_DETAIL_URL_BASE` | 否 | 通知卡片/待办详情链接基础地址，建议设为 `https://你的域名/workbench/employee/task` |
-| `WORKBENCH_DINGTALK_NOTIFY_AGENT_ID` | 否 | 覆盖通知使用的 AgentId；不填时复用 `DINGTALK_AGENT_ID` |
+| `WORKBENCH_DINGTALK_NOTIFY_AGENT_ID` | 否 | 通知备用 AgentId。当前实现优先读取 `DINGTALK_AGENT_ID`，为空时才回退此变量 |
 | `DINGTALK_CONTACT_SYNC_ENABLED` | 否 | `1` 开启钉钉通讯录同步（落地到 SQLite `dingtalk_contacts`） |
 | `DINGTALK_CONTACT_SYNC_INTERVAL_MS` | 否 | 通讯录兜底同步周期（默认 `1800000`，即 30 分钟） |
 | `DINGTALK_CONTACT_ROOT_DEPT_ID` | 否 | 通讯录全量同步部门根节点（默认 `1`） |
 | `DINGTALK_CONTACT_EVENT_TOKEN` | 否 | 通讯录事件回调鉴权 token；配置后需在请求头 `x-contact-event-token` 传入 |
+| `DINGTALK_ROLE_ROUTING_ENABLED` | 否 | `1` 时按身份动态路由到 `manager/employee/planner` profile；默认 `0` 固定 planner（兼容旧行为） |
+| `SEARCH_WEB_ENABLED` | 否 | `0` 全局关闭 `search_web` 工具；默认 `1`（仍受“用户明确要求搜索”语义门控） |
+| `SEARCH_WEB_MODEL` | 否 | 搜索补充调用模型（默认 `qwen-turbo`） |
+| `SEARCH_WEB_TIMEOUT_MS` | 否 | 搜索调用超时（毫秒，默认 `8000`） |
+| `SEARCH_WEB_STRATEGY` | 否 | `turbo`/`quality`/`adaptive`；默认 `turbo` |
 | `QWEN_*` | 否 | 模型、超时、重试等；**SSE 流式默认开**（`QWEN_STREAM=0` 关闭），见 `docs/Qwen-接入实施说明.md` |
 | `DEMO_DOMAIN_HINT` | 否 | `QUALITY` 或 `RD`，默认由模型判断 |
 | `DEMO_LLM_CORRECTION` | 否 | 默认开；`0`/`false`/`no` 关闭校验失败后的第二轮模型自纠正（更快，失败率可能升），见 `docs/Qwen-接入实施说明.md` |

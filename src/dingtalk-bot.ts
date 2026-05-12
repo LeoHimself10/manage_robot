@@ -23,6 +23,10 @@ import { createAssignmentEventRepo } from "./integrations/repos/assignment-event
 import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import { runOrchestrator } from "./agent/orchestrator";
+import {
+  isDingtalkRoleRoutingEnabled,
+  resolveDingtalkAgentRouting,
+} from "./agent/role-routing";
 import { extractLightAssignment, renderLightAssignmentSection } from "./agent/assignment/light-assignment";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
@@ -76,6 +80,47 @@ function readEnvInt(name: string, fallback: number): number {
   const value = Number(raw);
   if (!Number.isFinite(value)) return fallback;
   return Math.max(1, Math.trunc(value));
+}
+
+function maskUserId(userId: string): string {
+  const normalized = userId.trim();
+  if (!normalized) return "";
+  if (normalized.length <= 6) return `${normalized.slice(0, 1)}***`;
+  return `${normalized.slice(0, 2)}***${normalized.slice(-2)}`;
+}
+
+export function buildDingtalkOrchestratorRoutingParams(input: {
+  senderStaffId: string;
+  employeeRepo: ReturnType<typeof createEmployeeProfileRepo>;
+}): {
+  roleRoutingEnabled: boolean;
+  selectedProfile: "planner" | "manager" | "employee";
+  resolvedRole: "admin" | "manager" | "employee" | "unknown";
+  reason:
+    | "routing_disabled"
+    | "missing_sender"
+    | "manager_role"
+    | "employee_directory_match"
+    | "employee_directory_miss";
+  toolProfile: "planner" | "manager" | "employee" | "full";
+  promptProfile: "planner" | "manager" | "employee";
+  trustedActorUserId?: string;
+} {
+  const roleRoutingEnabled = isDingtalkRoleRoutingEnabled();
+  const route = resolveDingtalkAgentRouting({
+    senderStaffId: input.senderStaffId,
+    employeeRepo: input.employeeRepo,
+    roleRoutingEnabled,
+  });
+  return {
+    roleRoutingEnabled,
+    selectedProfile: route.promptProfile,
+    resolvedRole: route.resolvedRole,
+    reason: route.reason,
+    toolProfile: route.toolProfile,
+    promptProfile: route.promptProfile,
+    trustedActorUserId: route.trustedActorUserId,
+  };
 }
 
 async function sendMarkdownReply(params: {
@@ -347,13 +392,28 @@ async function main(): Promise<void> {
         const memoryContext = loadMemoryContextForPlan(session.planId);
 
         // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
+        const routing = buildDingtalkOrchestratorRoutingParams({
+          senderStaffId,
+          employeeRepo,
+        });
+        const selectedProfile = routing.selectedProfile;
+        logStructured({
+          event: "dingtalk_role_routing",
+          messageId,
+          senderStaffIdMasked: maskUserId(senderStaffId),
+          resolvedRole: routing.resolvedRole,
+          selectedProfile,
+          routingEnabled: routing.roleRoutingEnabled,
+          reason: routing.reason,
+        });
         const orchestratorStartedAt = Date.now();
         const orchResult = await runOrchestrator(background, {
           clientConfig: dingtalkQwenConfig,
           employeeRepo,
           maxToolIterations: dingtalkOrchestratorMaxIterations,
-          toolProfile: "planner",
-          promptProfile: "planner",
+          toolProfile: routing.toolProfile,
+          promptProfile: routing.promptProfile,
+          trustedActorUserId: routing.trustedActorUserId,
           allowSearchWeb: isExplicitSearchRequest(background),
           sessionContext: {
             conversationHistory: session.conversationHistory,
@@ -489,6 +549,7 @@ async function main(): Promise<void> {
           event: "dingtalk_handler_timing",
           traceId: orchResult.traceId,
           messageId,
+          selectedProfile,
           hasDraft: currentDraft !== undefined,
           hasAssignmentSection: assignmentSection.length > 0,
           orchestratorMs,
