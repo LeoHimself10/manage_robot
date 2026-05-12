@@ -83,6 +83,13 @@ export interface CallWithToolsResult {
         toolName: string;
         elapsedMs: number;
       }>;
+      afterHeadersMs?: number;
+      firstBodyChunkMs?: number;
+      firstSseDataLineMs?: number;
+      firstAssistantTokenMs?: number;
+      promptTokens?: number;
+      completionTokens?: number;
+      totalTokens?: number;
     }>;
   };
 }
@@ -111,6 +118,18 @@ interface ChatCompletionResponse {
       }>;
     };
   }>;
+}
+
+/** 相对同一次 LLM 调用的 `llmWallClockStart`（ms）的传输层观测，用于区分排队/TTFB vs 生成耗时 */
+export interface LlmTransportTiming {
+  /** 从 `llmWallClockStart` 到收到 HTTP Response headers 完毕 */
+  afterHeadersMs: number;
+  /** 从 `llmWallClockStart` 到 body 流上第一次 `reader.read()` 返回非空 chunk（近似 TTFB） */
+  firstBodyChunkMs?: number;
+  /** 从 `llmWallClockStart` 到解析到首条 `data:` SSE 行（不含 `[DONE]`） */
+  firstSseDataLineMs?: number;
+  /** 从 `llmWallClockStart` 到首条对 assistant 可见的 delta（content / reasoning / tool_calls 片段） */
+  firstAssistantTokenMs?: number;
 }
 
 interface SseAssembledResponse {
@@ -200,8 +219,13 @@ export class QwenCompatibleClient {
 
   private async postChatCompletions(
     body: Record<string, unknown>,
-    signal?: AbortSignal
-  ): Promise<ChatCompletionResponse> {
+    signal?: AbortSignal,
+    llmWallClockStart?: number,
+  ): Promise<{
+    response: ChatCompletionResponse;
+    transportTiming?: LlmTransportTiming;
+  }> {
+    const t0 = llmWallClockStart ?? Date.now();
     // Inject Qwen3 thinking if enabled
     if (this.config.thinking) {
       (body as Record<string, unknown>).extra_body = {
@@ -230,6 +254,8 @@ export class QwenCompatibleClient {
       throw error;
     }
 
+    const afterHeadersMs = Date.now() - t0;
+
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
       const detail = errorBody ? `: ${truncateErrorBody(errorBody)}` : "";
@@ -242,14 +268,25 @@ export class QwenCompatibleClient {
           throw new Error("Qwen stream response has no body");
         }
         const onDelta = this.config.streamHooks?.onAssistantDelta;
-        const assembled = await readSseChatCompletionStream(
+        const { assembled, transportTail } = await readSseChatCompletionStream(
           response.body,
-          onDelta ? (acc) => onDelta(acc.content) : undefined
+          onDelta ? (acc) => onDelta(acc.content) : undefined,
+          t0,
         );
-        return sseAssembledToChatResponse(assembled);
+        return {
+          response: sseAssembledToChatResponse(assembled),
+          transportTiming: {
+            afterHeadersMs,
+            ...transportTail,
+          },
+        };
       }
 
-      return (await response.json()) as ChatCompletionResponse;
+      const json = (await response.json()) as ChatCompletionResponse;
+      return {
+        response: json,
+        transportTiming: { afterHeadersMs },
+      };
     } catch (error) {
       if (isLikelyFetchAbort(error)) {
         throw new Error(
@@ -266,10 +303,13 @@ export class QwenCompatibleClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
     try {
-      return await this.postChatCompletions(
+      const llmStart = Date.now();
+      const { response } = await this.postChatCompletions(
         this.buildChatCompletionPayload(request),
-        controller.signal
+        controller.signal,
+        llmStart,
       );
+      return response;
     } finally {
       clearTimeout(timer);
     }
@@ -298,18 +338,8 @@ export class QwenCompatibleClient {
           request.messages.map((m) => ({ ...m }));
         let toolCallsExecuted = 0;
         let iterations = 0;
-        const iterationTimings: Array<{
-          iteration: number;
-          llmMs: number;
-          parseMs: number;
-          toolsMs: number;
-          toolCalls: number;
-          totalMs: number;
-          tools: Array<{
-            toolName: string;
-            elapsedMs: number;
-          }>;
-        }> = [];
+        type IterationRow = NonNullable<CallWithToolsResult["timing"]>["iterations"][number];
+        const iterationTimings: IterationRow[] = [];
 
         while (iterations < maxIterations) {
           if (Date.now() - startedAt > maxTotalMs) {
@@ -338,14 +368,24 @@ export class QwenCompatibleClient {
 
           const ctrl = new AbortController();
           const timer = setTimeout(() => ctrl.abort(), this.config.timeoutMs);
-          let resp: ChatCompletionResponse;
           const llmStartedAt = Date.now();
+          let resp: ChatCompletionResponse;
+          let transportTiming: LlmTransportTiming | undefined;
           try {
-            resp = await this.postChatCompletions(body, ctrl.signal);
+            const post = await this.postChatCompletions(body, ctrl.signal, llmStartedAt);
+            resp = post.response;
+            transportTiming = post.transportTiming;
           } finally {
             clearTimeout(timer);
           }
           const llmMs = Date.now() - llmStartedAt;
+
+          const usage = resp.usage;
+          const usageFields = {
+            promptTokens: usage?.prompt_tokens,
+            completionTokens: usage?.completion_tokens,
+            totalTokens: usage?.total_tokens,
+          };
 
           accumulatedUsage = accumulateTokenUsage(
             accumulatedUsage,
@@ -368,7 +408,7 @@ export class QwenCompatibleClient {
             const payload = parseAssistantJsonPayload(content);
             parseMs = Date.now() - parseStartedAt;
             const totalMs = Date.now() - iterationStartedAt;
-            const row = {
+            const row: IterationRow = {
               iteration: iterationNo,
               llmMs,
               parseMs,
@@ -376,11 +416,17 @@ export class QwenCompatibleClient {
               toolCalls: toolCallsThisIteration,
               totalMs,
               tools,
+              afterHeadersMs: transportTiming?.afterHeadersMs,
+              firstBodyChunkMs: transportTiming?.firstBodyChunkMs,
+              firstSseDataLineMs: transportTiming?.firstSseDataLineMs,
+              firstAssistantTokenMs: transportTiming?.firstAssistantTokenMs,
+              ...usageFields,
             };
             iterationTimings.push(row);
             logStructured({
               event: "orchestrator_iteration_timing",
               traceId: request.traceId,
+              stream: this.config.stream === true,
               ...row,
             });
             const llmMsTotal = iterationTimings.reduce((s, x) => s + x.llmMs, 0);
@@ -483,7 +529,7 @@ export class QwenCompatibleClient {
           }
 
           const totalMs = Date.now() - iterationStartedAt;
-          const row = {
+          const row: IterationRow = {
             iteration: iterationNo,
             llmMs,
             parseMs,
@@ -491,11 +537,17 @@ export class QwenCompatibleClient {
             toolCalls: toolCallsThisIteration,
             totalMs,
             tools,
+            afterHeadersMs: transportTiming?.afterHeadersMs,
+            firstBodyChunkMs: transportTiming?.firstBodyChunkMs,
+            firstSseDataLineMs: transportTiming?.firstSseDataLineMs,
+            firstAssistantTokenMs: transportTiming?.firstAssistantTokenMs,
+            ...usageFields,
           };
           iterationTimings.push(row);
           logStructured({
             event: "orchestrator_iteration_timing",
             traceId: request.traceId,
+            stream: this.config.stream === true,
             ...row,
           });
           iterations++;
@@ -611,18 +663,44 @@ function ingestSseDataLine(dataPayload: string, acc: SseAssembledResponse): void
   }
 }
 
+function sseAssistantSignalSig(acc: SseAssembledResponse): string {
+  const parts = (acc.toolCalls ?? []).map(
+    (t) => `${t.index}:${t.function.name}:${t.function.arguments}`,
+  );
+  return `${acc.content}\n${acc.reasoningContent ?? ""}\n${parts.join(";;")}`;
+}
+
 async function readSseChatCompletionStream(
   body: ReadableStream<Uint8Array>,
-  onDelta?: (acc: SseAssembledResponse) => void
-): Promise<SseAssembledResponse> {
+  onDelta: ((acc: SseAssembledResponse) => void) | undefined,
+  llmWallClockStart: number,
+): Promise<{
+  assembled: SseAssembledResponse;
+  transportTail: Pick<
+    LlmTransportTiming,
+    "firstBodyChunkMs" | "firstSseDataLineMs" | "firstAssistantTokenMs"
+  >;
+}> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
   const acc = emptySseAssembly();
+  let firstBodyChunkMs: number | undefined;
+  let firstSseDataLineMs: number | undefined;
+  let firstAssistantTokenMs: number | undefined;
+  const markFirstAssistantIfNeeded = (beforeSig: string) => {
+    if (firstAssistantTokenMs !== undefined) return;
+    if (sseAssistantSignalSig(acc) !== beforeSig) {
+      firstAssistantTokenMs = Date.now() - llmWallClockStart;
+    }
+  };
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (value && value.byteLength > 0 && firstBodyChunkMs === undefined) {
+        firstBodyChunkMs = Date.now() - llmWallClockStart;
+      }
       buf += decoder.decode(value, { stream: true });
       for (;;) {
         const i = buf.indexOf("\n");
@@ -630,19 +708,43 @@ async function readSseChatCompletionStream(
         const line = buf.slice(0, i).replace(/\r$/, "").trim();
         buf = buf.slice(i + 1);
         if (!line.startsWith("data:")) continue;
-        ingestSseDataLine(line.slice(5).trim(), acc);
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        if (firstSseDataLineMs === undefined) {
+          firstSseDataLineMs = Date.now() - llmWallClockStart;
+        }
+        const beforeSig = sseAssistantSignalSig(acc);
+        ingestSseDataLine(payload, acc);
+        markFirstAssistantIfNeeded(beforeSig);
         onDelta?.(acc);
       }
     }
     const tail = buf.replace(/\r$/, "").trim();
     if (tail.startsWith("data:")) {
-      ingestSseDataLine(tail.slice(5).trim(), acc);
-      onDelta?.(acc);
+      const payload = tail.slice(5).trim();
+      if (payload !== "[DONE]") {
+        if (firstSseDataLineMs === undefined) {
+          firstSseDataLineMs = Date.now() - llmWallClockStart;
+        }
+        const beforeSig = sseAssistantSignalSig(acc);
+        ingestSseDataLine(payload, acc);
+        markFirstAssistantIfNeeded(beforeSig);
+        onDelta?.(acc);
+      }
     }
   } finally {
     reader.releaseLock();
   }
-  return acc;
+  const transportTail: Pick<
+    LlmTransportTiming,
+    "firstBodyChunkMs" | "firstSseDataLineMs" | "firstAssistantTokenMs"
+  > = {};
+  if (firstBodyChunkMs !== undefined) transportTail.firstBodyChunkMs = firstBodyChunkMs;
+  if (firstSseDataLineMs !== undefined) transportTail.firstSseDataLineMs = firstSseDataLineMs;
+  if (firstAssistantTokenMs !== undefined) {
+    transportTail.firstAssistantTokenMs = firstAssistantTokenMs;
+  }
+  return { assembled: acc, transportTail };
 }
 
 function sseAssembledToChatResponse(a: SseAssembledResponse): ChatCompletionResponse {
