@@ -9,7 +9,16 @@ export interface WorkbenchPublishTaskNotifyInput {
   taskNo: string;
   title: string;
   managerUserId: string;
-  assignees: Array<{ userId: string; subtaskTitles: string[] }>;
+  assignees: Array<{
+    userId: string;
+    /**
+     * 钉钉 unionId。
+     * 创建钉钉原生待办（v1.0/todo/users/{unionId}/tasks）必填；缺失时降级为只发工作消息卡片，
+     * 并把"missing unionId"作为 failed 一条记录返回，调用方应将其写入 warnings/EMPLOYEE_NOTIFY_FAILED。
+     */
+    unionId?: string;
+    subtaskTitles: string[];
+  }>;
 }
 
 export interface WorkbenchNotifyResult {
@@ -91,12 +100,13 @@ async function sendCard(params: {
 async function createTodo(params: {
   fetchImpl: typeof fetch;
   accessToken: string;
-  userId: string;
+  unionId: string;
+  sourceId: string;
   subject: string;
   detailUrl: string;
 }): Promise<string | undefined> {
   const res = await params.fetchImpl(
-    `https://api.dingtalk.com/v1.0/todo/users/${encodeURIComponent(params.userId)}/tasks`,
+    `https://api.dingtalk.com/v1.0/todo/users/${encodeURIComponent(params.unionId)}/tasks`,
     {
       method: "POST",
       headers: {
@@ -104,7 +114,7 @@ async function createTodo(params: {
         "x-acs-dingtalk-access-token": params.accessToken,
       },
       body: JSON.stringify({
-        sourceId: `workbench:${params.userId}:${Date.now()}`,
+        sourceId: params.sourceId,
         subject: params.subject,
         description: params.subject,
         detailUrl: params.detailUrl,
@@ -138,8 +148,9 @@ export function createWorkbenchPublishNotifier(fetchImpl: typeof fetch = fetch):
         const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}`;
         const subject = `[${input.taskNo}] ${input.title}`;
         const markdown = `### ${subject}\n- 负责人：${assignee.userId}\n- 子任务数：${assignee.subtaskTitles.length}\n- 发布人：${input.managerUserId}`;
+        let cardMessageId: string | undefined;
         try {
-          const cardMessageId = await sendCard({
+          cardMessageId = await sendCard({
             fetchImpl,
             accessToken: token,
             agentId,
@@ -148,10 +159,27 @@ export function createWorkbenchPublishNotifier(fetchImpl: typeof fetch = fetch):
             markdown,
             detailUrl,
           });
+        } catch (err) {
+          failed.push({
+            userId: assignee.userId,
+            reason: `send card failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+          continue;
+        }
+        if (!assignee.unionId) {
+          failed.push({
+            userId: assignee.userId,
+            reason: "skip create todo: unionId missing (need contact sync or unionId resolver)",
+          });
+          success.push({ userId: assignee.userId, cardMessageId });
+          continue;
+        }
+        try {
           const todoId = await createTodo({
             fetchImpl,
             accessToken: token,
-            userId: assignee.userId,
+            unionId: assignee.unionId,
+            sourceId: `workbench:${input.taskNo}:${assignee.userId}`,
             subject,
             detailUrl,
           });
@@ -159,8 +187,9 @@ export function createWorkbenchPublishNotifier(fetchImpl: typeof fetch = fetch):
         } catch (err) {
           failed.push({
             userId: assignee.userId,
-            reason: err instanceof Error ? err.message : String(err),
+            reason: `create todo failed: ${err instanceof Error ? err.message : String(err)}`,
           });
+          success.push({ userId: assignee.userId, cardMessageId });
         }
       }
       return { enabled: true, success, failed };

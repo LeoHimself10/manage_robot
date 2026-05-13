@@ -1179,6 +1179,7 @@ export function handleAssignmentHttp(
         const assignments = Array.isArray((target.latestAssignment as { assignments?: unknown[] } | undefined)?.assignments)
           ? ((target.latestAssignment as { assignments: Array<Record<string, unknown>> }).assignments)
           : [];
+        const unionIdByUser = new Map<string, string | undefined>();
         for (const row of assignments) {
           const primary = row?.primary as Record<string, unknown> | undefined;
           const assignee = String(primary?.userId ?? "").trim();
@@ -1191,6 +1192,7 @@ export function handleAssignmentHttp(
             });
             return;
           }
+          unionIdByUser.set(assignee, contact.unionId);
         }
         const published = getFormalTaskStore().publishFromSession({
           planId: resolvedPlanId,
@@ -1213,6 +1215,7 @@ export function handleAssignmentHttp(
           managerUserId: session.userId,
           assignees: [...groupedAssignees.entries()].map(([userId, subtaskTitles]) => ({
             userId,
+            unionId: unionIdByUser.get(userId),
             subtaskTitles,
           })),
         });

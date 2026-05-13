@@ -23,7 +23,7 @@ type AppendTaskEventFn = (input: {
   payload?: Record<string, unknown>;
 }) => void;
 
-type GetContactFn = (userId: string) => { active?: boolean } | undefined;
+type GetContactFn = (userId: string) => { active?: boolean; unionId?: string } | undefined;
 
 export interface PublishTaskRecentStore {
   get(planId: string): number | undefined;
@@ -150,11 +150,13 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
       current.push(subtask.title);
       groupedAssignees.set(subtask.assigneeUserId, current);
     });
+    const unionIdByUser = new Map<string, string | undefined>();
     for (const assigneeUserId of groupedAssignees.keys()) {
       const contact = deps.getContact(assigneeUserId);
       if (!contact || !contact.active) {
         throw new Error(`assignee is missing or inactive in contacts: ${assigneeUserId}`);
       }
+      unionIdByUser.set(assigneeUserId, contact.unionId);
     }
     const warnings: string[] = [];
     const notifyResult = await deps.notifier.notifyPublishedTask({
@@ -163,6 +165,7 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
       managerUserId: trustedActor,
       assignees: [...groupedAssignees.entries()].map(([userId, subtaskTitles]) => ({
         userId,
+        unionId: unionIdByUser.get(userId),
         subtaskTitles,
       })),
     });
