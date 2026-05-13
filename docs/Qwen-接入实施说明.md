@@ -49,7 +49,7 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 
 1. **钉钉主链路**：`src/dingtalk-bot.ts` 调 `runOrchestrator`，由 `QwenCompatibleClient.callWithTools` 驱动 ReAct（tool_calls 循环）生成最终 `message + draft`。
 2. **工具循环**：`callWithTools` 默认最多 6 轮；每轮都可继续使用工具，直到模型不再返回 `tool_calls`（不会在“最后一轮”被代码强制关工具）。
-3. **prompt 版本**：当前 `QWEN_PLANNER_PROMPT_VERSION` 为 `orchestrator-agent-v5.2`（见 `src/agent/demo/qwen-prompt.ts`），`runOrchestrator` 与 `generateStructuredPlan` 共用同一 system prompt 来源。
+3. **prompt 版本**：当前 `QWEN_PLANNER_PROMPT_VERSION` 为 `orchestrator-agent-v5.8`（见 `src/agent/demo/qwen-prompt.ts`）；`runOrchestrator` 使用 `buildQwenPlannerSystemPrompt`，`generateStructuredPlan`（demo/eval）使用 `buildLegacyDemoPlannerSystemPrompt`，二者解耦。
 4. **`save_draft` 行为**：当前偏“保存优先”，主要做 `coerceLlmPlanPayload` 归一化，不再依赖强门禁去阻断模型保存。
 5. **会话记忆**：`knownFacts` 通过 `list_known_facts` / `update_known_facts` 在同会话内持续累积，`conversationHistory` 参与后续轮次上下文。
 6. **输出补齐**：钉钉端拿到 `draft` 后会补充结构化字段表（含 `feedbackFrequency`），避免模型自由 Markdown 漏字段。
@@ -63,13 +63,13 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 
 ### 现网钉钉主路径（light-assignment）
 
-- orchestrator 在 ReAct loop 内自主调用 `search_employees`（默认精简画像，按本部门优先）+ **`get_employee_details`**（按需拉完整 cases / background），并把分配结果作为 `assignment` JSON 一起输出。
+- orchestrator 在 ReAct loop 内自主调用 `search_employees`（默认精简画像，按本部门优先）+ **`get_employee_details`**（按需拉完整 cases / background），并把分配结果作为 `assignment` JSON 一起输出；**若用户本轮仅为「主管显式点将」**（见 `qwen-prompt.ts`「主管显式指派纪律」），则仅允许一次 `search_employees(name=…)` 定人，**不得**再调 `get_employee_details` / `search_similar_plans` / `prepare_publish_task`。
 - `dingtalk-bot` 通过 `extractLightAssignment` 做轻量 schema 校验后，将「分配建议」段落拼入同一条回复 Markdown。
 - 不再触发第二次独立 LLM 调用；token 增量主要体现在 orchestrator 多出的一两轮工具回合，而非一次完整对话。
 
 ### `runAssignmentRecommendation`（备用 / 测试链路）
 
-- **多轮 function calling**：暴露 `search_employees` + **`get_employee_details`**，模型先列候选再拉完整画像写 rationale；prompt 版本 **`assignment-recommender-agent-v0.3.0`**。
+- **多轮 function calling**：暴露 `search_employees` + **`get_employee_details`**，模型先列候选再拉完整画像写 rationale；prompt 版本 **`assignment-recommender-agent-v0.3.1`**（主管显式指定时可跳过 `get_employee_details`，见 `assignment-prompt.ts`）。
 - **Token 消耗**：完整跑一次额外约 **10K–15K tokens**（含 prompt、压缩画像与 function call 往返）。
 - **自纠正重试**：Schema 校验失败时 **1 轮重试**；若仍失败放弃本轮推荐。
 - 主链路当前不调用该函数；如需恢复独立异步推送，需显式接回 `dingtalk-bot` 并处理与 light-assignment 的优先级。

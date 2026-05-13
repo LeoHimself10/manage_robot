@@ -6,7 +6,7 @@ const VALID_DRAFT: AssignmentDraft = {
   planId: "plan_001",
   traceId: "trace_abc",
   generatedAt: "2026-05-09T00:00:00.000Z",
-  promptVersion: "assignment-recommender-agent-v0.2.0",
+  promptVersion: "assignment-recommender-agent-v0.3.1",
   modelName: "qwen-plus",
   assignments: [
     {

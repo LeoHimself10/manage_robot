@@ -7,7 +7,7 @@ import {
 describe("buildQwenPlannerSystemPrompt", () => {
   it("v4.1: first-round-question, second-round-draft prompt", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.7");
+    expect(sys).toContain("orchestrator-agent-v5.8");
     expect(sys).toContain("search_web");
     expect(sys).toContain("deliverables");
     expect(sys).toContain("待确认");
@@ -17,7 +17,8 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("必须成对闭合");
     expect(sys).not.toContain("responseIntent");
     expect(sys).not.toContain("CLARIFY");
-    expect(sys.length).toBeLessThanOrEqual(1900);
+    expect(sys).toContain("主管显式指派纪律");
+    expect(sys.length).toBeLessThanOrEqual(3200);
   });
 });
 
