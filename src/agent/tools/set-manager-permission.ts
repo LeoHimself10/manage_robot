@@ -16,7 +16,7 @@ export const SET_MANAGER_PERMISSION_TOOL: ToolDefinition = {
         userId: { type: "string" },
         enabled: { type: "boolean" },
       },
-      required: ["actorUserId", "userId", "enabled"],
+      required: ["userId", "enabled"],
     },
   },
 };

@@ -11,7 +11,7 @@ export const GET_MY_PROFILE_TOOL: ToolDefinition = {
       properties: {
         actorUserId: { type: "string" },
       },
-      required: ["actorUserId"],
+      required: [],
     },
   },
 };

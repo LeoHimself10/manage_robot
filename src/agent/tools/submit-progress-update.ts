@@ -18,7 +18,7 @@ export const SUBMIT_PROGRESS_UPDATE_TOOL: ToolDefinition = {
         },
         note: { type: "string" },
       },
-      required: ["subtaskId", "actorUserId", "progressStatus", "note"],
+      required: ["subtaskId", "progressStatus", "note"],
     },
   },
 };

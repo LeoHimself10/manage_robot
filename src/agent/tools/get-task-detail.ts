@@ -6,7 +6,7 @@ export const GET_TASK_DETAIL_TOOL: ToolDefinition = {
   function: {
     name: "get_task_detail",
     description:
-      "查看任务详情（task + subtasks + events）。manager 仅可看本人管理任务；employee 仅可看分配给自己的子任务；admin 不受限。若用户只描述任务标题/关键词而未提供 ID，请先调 list_managed_tasks（manager）或 list_my_tasks（employee）或 admin_list_all_tasks（admin）找到 taskNo/planId 再调本工具，不要反问用户索要 ID。",
+      "查看任务详情（task + subtasks + events）。manager 仅可看本人管理任务；employee 仅可看分配给自己的子任务；admin 不受限。钉钉免登链路由系统注入当前操作者身份，arguments 中 actorUserId/actorRole 可省略。若用户只描述任务标题/关键词而未提供 ID，请先调 list_managed_tasks（manager）或 list_my_tasks（employee）或 admin_list_all_tasks（admin）找到 taskNo/planId 再调本工具，不要反问用户索要 ID。",
     parameters: {
       type: "object",
       properties: {
@@ -19,7 +19,7 @@ export const GET_TASK_DETAIL_TOOL: ToolDefinition = {
         taskId: { type: "string" },
         planId: { type: "string" },
       },
-      required: ["actorUserId", "actorRole"],
+      required: [],
     },
   },
 };
@@ -33,7 +33,7 @@ export function buildGetTaskDetailHandler(
   const taskStore = deps.taskStore ?? createWorkbenchFormalTaskStore();
   return (args: Record<string, unknown>) => {
     const actorUserId = String(args.actorUserId ?? "").trim();
-    const role = String(args.actorRole ?? deps.actorRole ?? "").trim();
+    const role = String(deps.actorRole ?? args.actorRole ?? "").trim();
     const actorRole =
       role === "admin" || role === "manager" || role === "employee"
         ? role

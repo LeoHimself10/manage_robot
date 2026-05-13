@@ -17,7 +17,7 @@ export const UPDATE_EMPLOYEE_PROFILE_TOOL: ToolDefinition = {
         tools: { type: "array", items: { type: "string" } },
         availability: { type: "object" },
       },
-      required: ["actorUserId"],
+      required: [],
     },
   },
 };

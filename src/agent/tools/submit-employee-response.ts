@@ -19,7 +19,7 @@ export const SUBMIT_EMPLOYEE_RESPONSE_TOOL: ToolDefinition = {
         note: { type: "string" },
         managerSummary: { type: "string" },
       },
-      required: ["subtaskId", "actorUserId", "action"],
+      required: ["subtaskId", "action"],
     },
   },
 };

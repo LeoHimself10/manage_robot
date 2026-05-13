@@ -33,6 +33,20 @@ describe("get_task_detail tool", () => {
     );
   });
 
+  it("prefers handler-bound actorRole over model args", () => {
+    const handler = buildGetTaskDetailHandler({
+      taskStore: { getTaskDetail: () => detailFixture() } as any,
+      actorRole: "manager",
+    });
+    const result = handler({
+      actorUserId: "mgr-1",
+      actorRole: "employee",
+      taskNo: "TASK-1",
+    }) as any;
+    expect(result.ok).toBe(true);
+    expect(result.subtasks.length).toBe(2);
+  });
+
   it("scopes employee subtasks", () => {
     const handler = buildGetTaskDetailHandler({
       taskStore: { getTaskDetail: () => detailFixture() } as any,

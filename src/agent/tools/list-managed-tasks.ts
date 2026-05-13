@@ -12,7 +12,7 @@ export const LIST_MANAGED_TASKS_TOOL: ToolDefinition = {
       properties: {
         actorUserId: { type: "string" },
       },
-      required: ["actorUserId"],
+      required: [],
     },
   },
 };

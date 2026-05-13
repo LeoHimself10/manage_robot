@@ -11,7 +11,7 @@ export const LIST_MY_TASKS_TOOL: ToolDefinition = {
       properties: {
         actorUserId: { type: "string" },
       },
-      required: ["actorUserId"],
+      required: [],
     },
   },
 };

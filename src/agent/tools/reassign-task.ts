@@ -68,7 +68,7 @@ export const REASSIGN_TASK_TOOL: ToolDefinition = {
         note: { type: "string" },
         actorName: { type: "string" },
       },
-      required: ["actorUserId", "planId", "assigneeUserId"],
+      required: ["planId", "assigneeUserId"],
     },
   },
 };
