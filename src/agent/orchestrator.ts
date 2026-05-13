@@ -46,6 +46,8 @@ export interface OrchestratorResult {
   publishResult?: Record<string, unknown>;
   traceId: string;
   toolCallsTotal: number;
+  /** 本次 ReAct 实际执行过的工具名（按调用顺序，含重复）。供 eval / 观测使用。 */
+  toolInvocationNames?: string[];
 }
 
 export async function runOrchestrator(
@@ -162,6 +164,7 @@ export async function runOrchestrator(
         publishResult,
         traceId,
         toolCallsTotal: maxToolIterations,
+        toolInvocationNames: [],
       };
     }
     throw err;
@@ -170,6 +173,8 @@ export async function runOrchestrator(
   const toolCallsTotal = response.toolCallsExecuted;
   const payload = response.payload as Record<string, unknown> | undefined;
   const timing = response.timing;
+  const toolInvocationNames =
+    timing?.iterations?.flatMap((it) => (it.tools ?? []).map((t) => t.toolName)) ?? [];
 
   const msg = String(payload?.message ?? "").trim();
   let assignment = isPlainObject(payload?.assignment) ? payload?.assignment as Record<string, unknown> : undefined;
@@ -194,7 +199,7 @@ export async function runOrchestrator(
     toolsMsTotal: timing?.toolsMsTotal ?? null,
     parseMsTotal: timing?.parseMsTotal ?? null,
     orchestratorLoopMs: timing?.totalMs ?? null,
-    loopIterations: timing?.iterations.length ?? null,
+    loopIterations: timing?.iterations?.length ?? null,
     hasDraft: draft !== undefined,
     hasAssignment: assignment !== undefined,
     hasPublishResult: publishResult !== undefined,
@@ -202,7 +207,15 @@ export async function runOrchestrator(
     messagePreview: msg.slice(0, 200),
   });
 
-  return { messages, draft, assignment, publishResult, traceId, toolCallsTotal };
+  return {
+    messages,
+    draft,
+    assignment,
+    publishResult,
+    traceId,
+    toolCallsTotal,
+    toolInvocationNames,
+  };
 }
 
 function safeJson(input: unknown): string {
