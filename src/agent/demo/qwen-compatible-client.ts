@@ -331,6 +331,8 @@ export class QwenCompatibleClient {
       completionTokens: 0,
       totalTokens: 0,
     };
+    let maxPromptTokensSeen = 0;
+    let accumulatedCompletionTokens = 0;
 
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt += 1) {
       try {
@@ -391,7 +393,9 @@ export class QwenCompatibleClient {
             accumulatedUsage,
             resp.usage
           );
-          if (accumulatedUsage.totalTokens > maxTotalTokens) {
+          maxPromptTokensSeen = Math.max(maxPromptTokensSeen, usage?.prompt_tokens ?? 0);
+          accumulatedCompletionTokens += usage?.completion_tokens ?? 0;
+          if (maxPromptTokensSeen + accumulatedCompletionTokens > maxTotalTokens) {
             throw new Error(`ReAct loop exceeded token budget (${maxTotalTokens})`);
           }
 

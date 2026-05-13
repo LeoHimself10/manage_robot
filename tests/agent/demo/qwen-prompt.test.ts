@@ -8,16 +8,16 @@ describe("buildQwenPlannerSystemPrompt", () => {
   it("v4.1: first-round-question, second-round-draft prompt", () => {
     const sys = buildQwenPlannerSystemPrompt();
     expect(sys).toContain("orchestrator-agent-v5.7");
-    expect(sys).toContain("save_draft");
     expect(sys).toContain("search_web");
     expect(sys).toContain("deliverables");
     expect(sys).toContain("待确认");
     expect(sys).toContain("医疗器械");
-    expect(sys).toContain("开启新话题");
+    expect(sys).toContain("新话题");
     expect(sys).toContain("待确认");
     expect(sys).toContain("必须成对闭合");
     expect(sys).not.toContain("responseIntent");
     expect(sys).not.toContain("CLARIFY");
+    expect(sys.length).toBeLessThanOrEqual(1300);
   });
 });
 

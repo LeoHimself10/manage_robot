@@ -834,6 +834,85 @@ describe("callWithTools", () => {
     ).rejects.toThrow(/token budget/);
   });
 
+  it("uses max(prompt) + sum(completion) token budget for multi-round guard", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    id: "c1",
+                    type: "function",
+                    function: { name: "search_employees", arguments: "{}" },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: { prompt_tokens: 3000, completion_tokens: 3000, total_tokens: 6000 },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    id: "c2",
+                    type: "function",
+                    function: { name: "search_employees", arguments: "{}" },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: { prompt_tokens: 3000, completion_tokens: 3000, total_tokens: 6000 },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '{"ok":true}' } }],
+          usage: { prompt_tokens: 3000, completion_tokens: 1000, total_tokens: 4000 },
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://test",
+      apiKey: "k",
+      model: "qwen",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0,
+      maxTokens: 2000,
+    });
+
+    const result = await client.callWithTools({
+      messages: [{ role: "user", content: "test" }],
+      tools: [
+        {
+          type: "function",
+          function: { name: "search_employees", description: "x", parameters: {} },
+        },
+      ],
+      toolHandlers: { search_employees: async () => ({ ok: true }) },
+      maxTotalTokens: 10000,
+    });
+
+    expect(result.toolCallsExecuted).toBe(2);
+    expect(result.payload).toEqual({ ok: true });
+  });
+
   it("supports tool calling over SSE streaming when config.stream is true", async () => {
     /**
      * Regression guard for the DingTalk timeout fix: under stream=true the ReAct loop must

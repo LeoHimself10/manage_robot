@@ -254,7 +254,6 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
 
   const profileTools: Record<ToolProfile, string[]> = {
     planner: [
-      "save_draft",
       "search_employees",
       "search_similar_plans",
       "search_web",
@@ -263,7 +262,6 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "list_known_facts",
     ],
     manager: [
-      "save_draft",
       "prepare_publish_task",
       "publish_task",
       "list_managed_tasks",
@@ -277,7 +275,6 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "list_known_facts",
     ],
     admin: [
-      "save_draft",
       "prepare_publish_task",
       "publish_task",
       "list_managed_tasks",

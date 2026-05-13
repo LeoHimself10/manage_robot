@@ -23,7 +23,7 @@ describe("tool registry profiles", () => {
       toolProfile: "planner",
       allowSearchWeb: false,
     });
-    expect(registry.save_draft).toBeDefined();
+    expect(registry.save_draft).toBeUndefined();
     expect(registry.search_employees).toBeDefined();
     expect(registry.list_my_tasks).toBeUndefined();
     expect(registry.submit_employee_response).toBeUndefined();

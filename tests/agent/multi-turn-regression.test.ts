@@ -33,7 +33,7 @@ describe("multi-turn regression scenarios", () => {
     });
     const req = mockCallWithTools.mock.calls[0]?.[0] as { tools: Array<{ function: { name: string } }> };
     const toolNames = req.tools.map((t) => t.function.name);
-    expect(toolNames).toContain("save_draft");
+    expect(toolNames).toContain("search_employees");
     expect(toolNames).not.toContain("search_web");
   });
 

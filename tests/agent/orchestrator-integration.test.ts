@@ -80,7 +80,7 @@ const CHOICE_THINKING_EMPTY_CONTENT = {
 };
 
 // ============================================================
-// CHOICE4 = tool_call（调 save_draft）
+// CHOICE4 = tool_call（调 get_current_time）
 // ============================================================
 const CHOICE_TOOL_CALL_1 = {
   id: "req-005a",
@@ -96,34 +96,8 @@ const CHOICE_TOOL_CALL_1 = {
             id: "call_1",
             type: "function",
             function: {
-              name: "save_draft",
-              arguments: JSON.stringify({
-                draft: {
-                  classification: {
-                    domain: "QUALITY",
-                    subtype: "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE",
-                    confidence: "MEDIUM",
-                    rationale: ["test"],
-                    missingInformation: [],
-                  },
-                  tasks: [
-                    {
-                      id: "task_1",
-                      title: "初步排查",
-                      objective: "定位问题",
-                      collaborators: [],
-                      inputMaterials: [],
-                      actions: [],
-                      deliverables: ["排查记录"],
-                      completionCriteria: ["形成结论"],
-                      timeNode: { checkpoints: [], dueAt: "待确认" },
-                      feedbackFrequency: "每日",
-                      risksAndOpenQuestions: [],
-                      dependencyTaskIds: [],
-                    },
-                  ],
-                },
-              }),
+              name: "get_current_time",
+              arguments: JSON.stringify({}),
             },
           },
         ],
@@ -198,7 +172,7 @@ const CHOICE_OCT_TOOL_RESULT = {
 };
 
 // ============================================================
-// CHOICE6 = OCT 场景 → 多次 tool_call (search_web → search_similar_plans)
+// CHOICE6 = OCT 场景 → 多次 tool_call
 // ============================================================
 const CHOICE_OCT_MULTI_TOOL_1 = {
   id: "req-007a",
@@ -214,34 +188,8 @@ const CHOICE_OCT_MULTI_TOOL_1 = {
             id: "call_oct_m1",
             type: "function",
             function: {
-              name: "save_draft",
-              arguments: JSON.stringify({
-                draft: {
-                  classification: {
-                    domain: "QUALITY",
-                    subtype: "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE",
-                    confidence: "MEDIUM",
-                    rationale: ["test"],
-                    missingInformation: [],
-                  },
-                  tasks: [
-                    {
-                      id: "task_1",
-                      title: "U盘兼容性排查",
-                      objective: "定位问题",
-                      collaborators: [],
-                      inputMaterials: [],
-                      actions: [],
-                      deliverables: ["排查记录"],
-                      completionCriteria: ["形成结论"],
-                      timeNode: { checkpoints: [], dueAt: "待确认" },
-                      feedbackFrequency: "每日",
-                      risksAndOpenQuestions: [],
-                      dependencyTaskIds: [],
-                    },
-                  ],
-                },
-              }),
+              name: "get_current_time",
+              arguments: JSON.stringify({}),
             },
           },
           {
@@ -436,7 +384,7 @@ describe("orchestrator integration — Qwen3 response patterns", () => {
   });
 
   // ==========================================
-  it("5. 模型调用 tool (save_draft) 然后生成回复 → 正常", async () => {
+  it("5. 模型调用 tool (get_current_time) 然后生成回复 → 正常", async () => {
     mockFetch
       .mockResolvedValueOnce(makeFetchOk(CHOICE_TOOL_CALL_1))
       .mockResolvedValueOnce(makeFetchOk(CHOICE_TOOL_CALL_1_RESULT));

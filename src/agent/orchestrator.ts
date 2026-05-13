@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { QwenCompatibleClientConfig } from "./demo/qwen-compatible-client";
 import { QwenCompatibleClient } from "./demo/qwen-compatible-client";
+import { coerceLlmPlanPayload } from "./demo/llm-schema";
 import { buildToolRegistry, type ToolProfile } from "./tools/registry";
 import { logStructured } from "../infra/logger";
 import type { EmployeeProfileRecord } from "../integrations/repos/employee-profile-repo";
@@ -174,7 +175,10 @@ export async function runOrchestrator(
   let assignment = isPlainObject(payload?.assignment) ? payload?.assignment as Record<string, unknown> : undefined;
 
   const messages: string[] = msg ? [msg] : [];
-  let draft: Record<string, unknown> | undefined = savedDraft ?? (payload?.draft as Record<string, unknown> | undefined);
+  const payloadDraft = isPlainObject(payload?.draft)
+    ? (coerceLlmPlanPayload(payload?.draft) as unknown as Record<string, unknown>)
+    : undefined;
+  let draft: Record<string, unknown> | undefined = savedDraft ?? payloadDraft;
   if (draft) {
     draft = stabilizeDraftTaskIds(draft, previousDraft);
   }

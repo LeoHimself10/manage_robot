@@ -168,7 +168,7 @@ async function main(): Promise<void> {
           subtype: result.classification.subtype,
           confidence: result.classification.confidence,
           traceRequestId: result.generation.trace?.requestId ?? null,
-          gatePassed: result.gate.passed,
+          gatePassed: result.gate?.passed ?? null,
           taskCount: result.tasks.length,
           firstTaskTitles: result.tasks.slice(0, 3).map((task) => task.title),
           openQuestionCount: result.questions.length,
