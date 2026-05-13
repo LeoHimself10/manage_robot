@@ -74,6 +74,15 @@ const EVAL_DATA_DIR =
   // ASSIGNMENT_PHASE_ENABLED 设为 0（专注 ReAct 主链路本身）。
   process.env.ASSIGNMENT_PHASE_ENABLED =
     process.env.ASSIGNMENT_PHASE_ENABLED ?? "0";
+
+  // eval 默认与 dingtalk-bot 线上保持一致：关闭 Qwen3 thinking 模式。
+  // 思考块会让 completion token 翻几倍，撑爆 ReAct token budget，且与 prod 体感不一致。
+  // 想做对照实验时显式设 `QWEN_THINKING=1 npm run eval:agent`。
+  process.env.QWEN_THINKING = process.env.QWEN_THINKING ?? "0";
+
+  // 安全保险：eval 即便从 prod env-file 继承，也强制关闭钉钉发卡片 / 待办，避免误发。
+  process.env.WORKBENCH_DINGTALK_NOTIFY_ENABLED = "0";
+  process.env.DINGTALK_CONTACT_SYNC_ENABLED = "0";
 })();
 
 import { runOrchestrator } from "../src/agent/orchestrator";
@@ -636,13 +645,20 @@ async function main(): Promise<void> {
   console.log("QWEN_MODEL =", process.env.QWEN_MODEL || "(default policy)");
   console.log(
     "QWEN_THINKING =",
-    process.env.QWEN_THINKING ?? "(default=on)",
+    process.env.QWEN_THINKING,
+    "(eval default=0, override with QWEN_THINKING=1)",
   );
   console.log(
     "DINGTALK_QWEN_THINKING =",
     process.env.DINGTALK_QWEN_THINKING ?? "(default=off in prod)",
   );
   console.log("AGENT_MAX_TOTAL_TOKENS =", process.env.AGENT_MAX_TOTAL_TOKENS || "(default 12000)");
+  console.log(
+    "[safety] WORKBENCH_DINGTALK_NOTIFY_ENABLED =",
+    process.env.WORKBENCH_DINGTALK_NOTIFY_ENABLED,
+    "DINGTALK_CONTACT_SYNC_ENABLED =",
+    process.env.DINGTALK_CONTACT_SYNC_ENABLED,
+  );
   console.log("");
 
   console.log("[seed] 写入 people directory + capability profile ...");

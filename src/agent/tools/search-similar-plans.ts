@@ -20,12 +20,31 @@ export function buildSearchSimilarPlansHandler(): ToolHandler {
   return async (args) => {
     const a = args as { query?: string };
     const q = (a.query ?? "").trim();
-    if (!q) return { results: [], note: "空查询" };
+    if (!q) {
+      return {
+        results: [],
+        query: q,
+        hint: "empty_query_provide_keywords_first",
+      };
+    }
 
     const embedding = await generateQueryEmbedding(q);
-    if (!embedding) return { results: [], note: "embedding API 不可用" };
+    if (!embedding) {
+      return {
+        results: [],
+        query: q,
+        hint: "embedding_api_unavailable_do_not_retry_same_query",
+      };
+    }
 
     const results = searchWithEmbedding(embedding, 3);
+    if (results.length === 0) {
+      return {
+        results,
+        query: q,
+        hint: "no_match_in_plan_index_do_not_retry_same_query",
+      };
+    }
     return { results, query: q };
   };
 }

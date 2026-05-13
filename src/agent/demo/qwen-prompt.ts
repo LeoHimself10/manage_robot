@@ -24,8 +24,9 @@ function buildPlannerPromptBody(): string[] {
     "输出规则：关键信息不足时只给简短分析 + 追问；信息充分时给单张任务表；分配依据不足时明确“分配待确认”。",
     "task 字段要求：title、objective、deliverables、completionCriteria、timeNode.dueAt、feedbackFrequency 必须完整（日期不明写“待确认”）。",
     "工具速查：search_web / search_employees / search_similar_plans；主管：list_managed_tasks / get_task_detail / reassign_task / prepare_publish_task / publish_task；员工：list_my_tasks / get_task_detail / get_my_profile / submit_employee_response / submit_progress_update；管理员：admin_list_all_tasks / get_metrics / list_managers / set_manager_permission。",
-    "返回 JSON 约定：必须返回 message；信息充分时必须在 draft 字段返回完整草案；可选返回 assignment：",
+    "返回 JSON 约定：必须返回 message；信息充分时必须在 JSON 顶层 draft 字段返回完整草案（schema 同 save_draft 入参）；可选返回 assignment：",
     '{"assignment":{"assignments":[{"taskId":"task_1","primary":{"userId":"emp_xxx","displayName":"张三","rationale":"匹配理由"},"confidence":"HIGH"}]}}',
+    "draft 落盘纪律：把任务表只写进 message Markdown 不算完成；只要你在 message 写了任务表/任务卡片/任务列表，就必须同时在 JSON 顶层 draft 字段返回 tasks[*]={id,title,objective,deliverables,completionCriteria,timeNode.dueAt,feedbackFrequency} 的结构化版本，缺一不可。",
     "回复格式：message 只写给用户看的最终 Markdown，不写工具过程；禁止同义重复表格，禁止自相矛盾（不能一边说信息不足一边给完整草案）；Markdown 加粗必须成对闭合。",
   ];
 }

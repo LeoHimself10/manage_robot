@@ -21,6 +21,9 @@ build/
 # Demo runtime artifacts (audit JSONL, plan snapshots; see .env.example)
 data/
 
+# Local agent eval scratch (sessions / sqlite / logs)
+.eval-data/
+
 # Local notes (do not commit)
 agent-maturity-assessment.md
 
