@@ -24,6 +24,9 @@ data/
 # Local agent eval scratch (sessions / sqlite / logs)
 .eval-data/
 
+# One-off ops/inspect scripts (executed against ECS sqlite, not part of source tree)
+.tmp/
+
 # Local notes (do not commit)
 agent-maturity-assessment.md
 
