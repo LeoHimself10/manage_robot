@@ -37,6 +37,8 @@ import {
   appendMemoryEvents,
   loadMemoryContextForPlan,
 } from "./infra/workbench-memory-store";
+import { createRecentPublishStore } from "./agent/tools/publish-task";
+import type { KnownFactsStore } from "./agent/tools/update-known-facts";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -87,6 +89,38 @@ function maskUserId(userId: string): string {
   if (!normalized) return "";
   if (normalized.length <= 6) return `${normalized.slice(0, 1)}***`;
   return `${normalized.slice(0, 2)}***${normalized.slice(-2)}`;
+}
+
+export function shouldUseAnonymousSession(senderStaffId: string): boolean {
+  return !String(senderStaffId ?? "").trim();
+}
+
+export function appendPublishSummaryMarkdown(
+  outboundMarkdown: string,
+  publishResult?: Record<string, unknown>,
+): string {
+  if (!publishResult || String((publishResult as any).ok ?? "") !== "true") return outboundMarkdown;
+  const publishTaskNo = String((publishResult as any)?.task?.taskNo ?? "").trim();
+  if (String((publishResult as any).alreadyPublished ?? "") === "true") {
+    if (publishTaskNo) {
+      return `${outboundMarkdown}\n\n【已发布】此计划已发布过（任务编号 ${publishTaskNo}），未重复推送。`;
+    }
+    return `${outboundMarkdown}\n\n【已发布】此计划已发布过，未重复推送。`;
+  }
+  const subtaskCount = Array.isArray((publishResult as any).subtasks)
+    ? (publishResult as any).subtasks.length
+    : 0;
+  const assignees = new Set<string>(
+    Array.isArray((publishResult as any).subtasks)
+      ? (publishResult as any).subtasks.map((s: any) => String(s?.assigneeUserId ?? "").trim()).filter(Boolean)
+      : [],
+  );
+  const warningText = Array.isArray((publishResult as any).warnings)
+    ? (publishResult as any).warnings.join("；")
+    : "";
+  let next = `${outboundMarkdown}\n\n【已发布】任务编号 ${publishTaskNo || "未知"}\n标题：${String((publishResult as any)?.task?.title ?? "未命名任务")}\n子任务 ${subtaskCount} 个 → 已通知 ${assignees.size} 名员工`;
+  if (warningText) next += `\n${warningText}`;
+  return next;
 }
 
 export function buildDingtalkOrchestratorRoutingParams(input: {
@@ -273,6 +307,7 @@ async function main(): Promise<void> {
   });
 
   const chatSessionMemory = new MemoryChatSessionStore<Record<string, unknown>>();
+  const publishRecentStore = createRecentPublishStore();
   const planSessionStore = createPlanSessionStore();
   const employeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
   const assignmentDraftRepo = createAssignmentDraftRepo(resolveAssignmentDraftDir());
@@ -318,6 +353,8 @@ async function main(): Promise<void> {
 
         const background = content;
         const senderStaffId = String(payload.senderStaffId ?? "");
+        const isAnonymousSender = shouldUseAnonymousSession(senderStaffId);
+        const anonymousChatKey = `anon:${messageId || Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
         const sessionWebhook = String(payload.sessionWebhook ?? "");
         const conversationId = String(payload.conversationId ?? "");
         const conversationType = String(payload.conversationType ?? "");
@@ -327,7 +364,7 @@ async function main(): Promise<void> {
           sessionWebhook,
           senderStaffId,
         });
-        const chatKey = stableKey.chatKey;
+        const chatKey = isAnonymousSender ? anonymousChatKey : stableKey.chatKey;
         const legacyChatKey = deriveLegacyChatSessionKey({
           sessionWebhook,
           senderStaffId,
@@ -335,9 +372,16 @@ async function main(): Promise<void> {
         logStructured({
           event: "memory_key_resolved",
           messageId,
-          source: stableKey.source,
+          source: isAnonymousSender ? "anonymous" : stableKey.source,
           hasConversationId: conversationId.length > 0,
         });
+        if (isAnonymousSender) {
+          logStructured({
+            event: "dingtalk_anonymous_sender_fallback",
+            messageId,
+            conversationId,
+          });
+        }
 
         if (!chatSessionMemory.checkRateLimitThenTouch(chatKey, readRateLimitWindowMs())) {
           ackStreamRobot(client, messageId);
@@ -367,25 +411,38 @@ async function main(): Promise<void> {
         }
 
         const handlerStartedAt = Date.now();
-        let session = planSessionStore.loadByChatKey(chatKey);
-        if (!session && chatKey !== legacyChatKey) {
-          const legacy = planSessionStore.loadByChatKey(legacyChatKey);
-          if (legacy) {
-            session = {
-              ...legacy,
-              chatKeyHash: hashChatKey(chatKey),
-            };
-            planSessionStore.save(session);
-            planSessionStore.deleteByChatKey(legacyChatKey);
-            logStructured({
-              event: "memory_session_migrated",
-              messageId,
-              planId: session.planId,
-            });
+        let session: PlanSession | undefined;
+        if (!isAnonymousSender) {
+          session = planSessionStore.loadByChatKey(chatKey);
+          if (!session && chatKey !== legacyChatKey) {
+            const legacy = planSessionStore.loadByChatKey(legacyChatKey);
+            if (legacy) {
+              session = {
+                ...legacy,
+                chatKeyHash: hashChatKey(chatKey),
+              };
+              planSessionStore.save(session);
+              planSessionStore.deleteByChatKey(legacyChatKey);
+              logStructured({
+                event: "memory_session_migrated",
+                messageId,
+                planId: session.planId,
+              });
+            }
           }
-        }
-        if (!session) {
-          session = planSessionStore.loadOrCreate(chatKey);
+          if (!session) {
+            session = planSessionStore.loadOrCreate(chatKey);
+          }
+        } else {
+          const now = new Date().toISOString();
+          session = {
+            chatKeyHash: hashChatKey(chatKey),
+            planId: `anon:${messageId || Date.now()}`,
+            createdAt: now,
+            updatedAt: now,
+            knownFacts: [],
+            conversationHistory: [],
+          };
         }
         logStructured({
           event: "memory_session_loaded",
@@ -414,7 +471,21 @@ async function main(): Promise<void> {
           });
         }
 
-        const memoryContext = loadMemoryContextForPlan(session.planId);
+        const memoryContext = isAnonymousSender
+          ? { summary: "", facts: [] as string[] }
+          : loadMemoryContextForPlan(session.planId);
+        let mutableKnownFacts = [...(session.knownFacts ?? [])];
+        const knownFactsStore: KnownFactsStore = {
+          get: () => mutableKnownFacts,
+          update: (facts: string[]) => {
+            const merged = Array.from(new Set([
+              ...mutableKnownFacts,
+              ...facts.map((f) => String(f).trim()).filter(Boolean),
+            ])).slice(-50);
+            mutableKnownFacts = merged;
+          },
+        };
+        let publishResult: Record<string, unknown> | undefined;
 
         // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
         logStructured({
@@ -435,13 +506,21 @@ async function main(): Promise<void> {
           promptProfile: routing.promptProfile,
           trustedActorUserId: routing.trustedActorUserId,
           allowSearchWeb: isExplicitSearchRequest(background),
+          knownFactsStore,
+          currentSessionPlanId: session.planId,
+          currentSession: session,
+          publishRecentStore,
+          actorName: (payload.senderNick as string | undefined)?.trim(),
+          onPublishTaskResult: (result) => {
+            publishResult = result;
+          },
           sessionContext: {
             conversationHistory: session.conversationHistory,
             planId: session.planId,
             latestDraft: session.latestDraft,
             latestAssignment: session.latestAssignment,
             memorySummary: memoryContext.summary || buildMemorySummary(session),
-            memoryFacts: memoryContext.facts,
+            memoryFacts: [...memoryContext.facts, ...mutableKnownFacts].slice(0, 8),
             currentTimeIso: new Date().toISOString(),
           },
         });
@@ -450,7 +529,7 @@ async function main(): Promise<void> {
         const currentDraft = orchResult.draft ?? session.latestDraft;
 
         // 长期记忆：有草案时自动存快照+embedding
-        if (currentDraft) {
+        if (currentDraft && !isAnonymousSender) {
           savePlanSnapshot(session.planId, {
             planId: session.planId,
             traceId: orchResult.traceId,
@@ -516,32 +595,34 @@ async function main(): Promise<void> {
           if (assignmentResult.ok) {
             latestAssignment = assignmentResult.draft as unknown as Record<string, unknown>;
             assignmentSection = renderLightAssignmentSection(assignmentResult.draft);
-            planSessionStore.appendEvent({
-              planId: session.planId,
-              chatKeyHash: session.chatKeyHash,
-              eventType: "ASSIGNMENT_UPDATED",
-              payload: {
-                traceId: orchResult.traceId,
-                assignmentCount: assignmentResult.draft.assignments.length,
-              },
-            });
-            try {
-              await assignmentDraftRepo.save(assignmentResult.draft as unknown as { planId: string; traceId: string; promptVersion: string });
-              await assignmentEventRepo.append({
-                eventType: "ASSIGNMENT_DRAFT_GENERATED",
-                traceId: orchResult.traceId,
-                planId: assignmentResult.draft.planId,
-                assignmentCount: assignmentResult.draft.assignments.length,
-                promptVersion: assignmentResult.draft.promptVersion,
-                modelName: assignmentResult.draft.modelName,
-                occurredAt: new Date().toISOString(),
+            if (!isAnonymousSender) {
+              planSessionStore.appendEvent({
+                planId: session.planId,
+                chatKeyHash: session.chatKeyHash,
+                eventType: "ASSIGNMENT_UPDATED",
+                payload: {
+                  traceId: orchResult.traceId,
+                  assignmentCount: assignmentResult.draft.assignments.length,
+                },
               });
-            } catch (persistErr) {
-              logStructured({
-                event: "dingtalk_assignment_persist_failed",
-                traceId: orchResult.traceId,
-                reason: persistErr instanceof Error ? persistErr.message : String(persistErr),
-              });
+              try {
+                await assignmentDraftRepo.save(assignmentResult.draft as unknown as { planId: string; traceId: string; promptVersion: string });
+                await assignmentEventRepo.append({
+                  eventType: "ASSIGNMENT_DRAFT_GENERATED",
+                  traceId: orchResult.traceId,
+                  planId: assignmentResult.draft.planId,
+                  assignmentCount: assignmentResult.draft.assignments.length,
+                  promptVersion: assignmentResult.draft.promptVersion,
+                  modelName: assignmentResult.draft.modelName,
+                  occurredAt: new Date().toISOString(),
+                });
+              } catch (persistErr) {
+                logStructured({
+                  event: "dingtalk_assignment_persist_failed",
+                  traceId: orchResult.traceId,
+                  reason: persistErr instanceof Error ? persistErr.message : String(persistErr),
+                });
+              }
             }
           } else if (orchResult.assignment !== undefined) {
             logStructured({
@@ -553,7 +634,8 @@ async function main(): Promise<void> {
         }
         const assignmentMs = Date.now() - assignmentStartedAt;
 
-        const fullOutboundForHistory = outboundMarkdown + assignmentSection;
+        outboundMarkdown = appendPublishSummaryMarkdown(outboundMarkdown, publishResult);
+        const finalOutboundForHistory = outboundMarkdown + assignmentSection;
         const sendReplyStartedAt = Date.now();
         dingtalkResponse = await sendMarkdownReply({
           client,
@@ -561,7 +643,7 @@ async function main(): Promise<void> {
           messageId,
           senderStaffId,
           title: currentDraft ? "任务拆解草案" : "消息",
-          markdownText: truncateMarkdown(fullOutboundForHistory, MAX_MARKDOWN_CHARS),
+          markdownText: truncateMarkdown(finalOutboundForHistory, MAX_MARKDOWN_CHARS),
         });
         const sendReplyMs = Date.now() - sendReplyStartedAt;
         const totalMs = Date.now() - handlerStartedAt;
@@ -590,42 +672,47 @@ async function main(): Promise<void> {
         const nextConversationHistory = [
           ...session.conversationHistory,
           { role: "user" as const, content: background },
-          { role: "assistant" as const, content: fullOutboundForHistory },
+          { role: "assistant" as const, content: finalOutboundForHistory },
         ].slice(-10);
-        planSessionStore.save({
-          ...session,
-          lastAgentProfile: selectedProfile,
-          conversationId: conversationId || session.conversationId,
-          conversationType: conversationType || session.conversationType,
-          senderStaffId: senderStaffId || session.senderStaffId,
-          sessionWebhookLastSeen: sessionWebhook || session.sessionWebhookLastSeen,
-          lastTraceId: orchResult.traceId,
-          conversationHistory: nextConversationHistory,
-          latestDraft: currentDraft,
-          latestAssignment,
-          revisionEvents: nextRevisionEvents,
-        });
-
-        appendMemoryEvents({
-          planId: session.planId,
-          userMessage: background,
-          assistantMessage: fullOutboundForHistory,
-          latestDraft: currentDraft,
-          latestAssignment,
-          traceId: orchResult.traceId,
-          modelConfig: {
-            apiKey: dingtalkQwenConfig.apiKey,
-            baseUrl: dingtalkQwenConfig.baseUrl,
-            timeoutMs: dingtalkQwenConfig.timeoutMs,
-          },
-        }).catch((err) => {
-          logStructured({
-            event: "memory_worker_failed",
-            planId: session.planId,
-            traceId: orchResult.traceId,
-            reason: err instanceof Error ? err.message : String(err),
+        if (!isAnonymousSender) {
+          planSessionStore.save({
+            ...session,
+            lastAgentProfile: selectedProfile,
+            conversationId: conversationId || session.conversationId,
+            conversationType: conversationType || session.conversationType,
+            senderStaffId: senderStaffId || session.senderStaffId,
+            sessionWebhookLastSeen: sessionWebhook || session.sessionWebhookLastSeen,
+            lastTraceId: orchResult.traceId,
+            knownFacts: mutableKnownFacts,
+            conversationHistory: nextConversationHistory,
+            latestDraft: currentDraft,
+            latestAssignment,
+            revisionEvents: nextRevisionEvents,
           });
-        });
+        }
+
+        if (!isAnonymousSender) {
+          appendMemoryEvents({
+            planId: session.planId,
+            userMessage: background,
+            assistantMessage: finalOutboundForHistory,
+            latestDraft: currentDraft,
+            latestAssignment,
+            traceId: orchResult.traceId,
+            modelConfig: {
+              apiKey: dingtalkQwenConfig.apiKey,
+              baseUrl: dingtalkQwenConfig.baseUrl,
+              timeoutMs: dingtalkQwenConfig.timeoutMs,
+            },
+          }).catch((err) => {
+            logStructured({
+              event: "memory_worker_failed",
+              planId: session.planId,
+              traceId: orchResult.traceId,
+              reason: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
 
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -677,16 +764,5 @@ if (process.env.NODE_ENV !== "test") {
 function buildMemorySummary(session: PlanSession): string {
   const lines: string[] = [`planId=${session.planId}`];
   if (session.lastTraceId) lines.push(`lastTraceId=${session.lastTraceId}`);
-  const latestTasks = Array.isArray((session.latestDraft as any)?.tasks)
-    ? (session.latestDraft as any).tasks.length
-    : 0;
-  if (latestTasks > 0) lines.push(`latestDraftTasks=${latestTasks}`);
-  const assignmentCount = Array.isArray((session.latestAssignment as any)?.assignments)
-    ? (session.latestAssignment as any).assignments.length
-    : 0;
-  if (assignmentCount > 0) lines.push(`latestAssignments=${assignmentCount}`);
-  if ((session.revisionEvents?.length ?? 0) > 0) {
-    lines.push(`revisionEvents=${session.revisionEvents?.length ?? 0}`);
-  }
   return lines.join("; ");
 }

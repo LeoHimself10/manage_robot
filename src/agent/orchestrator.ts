@@ -5,6 +5,9 @@ import { buildToolRegistry, type ToolProfile } from "./tools/registry";
 import { logStructured } from "../infra/logger";
 import type { EmployeeProfileRecord } from "../integrations/repos/employee-profile-repo";
 import { buildQwenPlannerSystemPrompt, type AgentPromptProfile } from "./demo/qwen-prompt";
+import type { KnownFactsStore } from "./tools/update-known-facts";
+import type { PlanSession } from "../infra/plan-session-store";
+import type { PublishTaskRecentStore } from "./tools/publish-task";
 
 const MAX_TOOL_ITERATIONS = 6;
 
@@ -16,6 +19,12 @@ export interface OrchestratorConfig {
   promptProfile?: AgentPromptProfile;
   trustedActorUserId?: string;
   allowSearchWeb?: boolean;
+  knownFactsStore?: KnownFactsStore;
+  currentSessionPlanId?: string;
+  currentSession?: PlanSession;
+  publishRecentStore?: PublishTaskRecentStore;
+  actorName?: string;
+  onPublishTaskResult?: (result: Record<string, unknown>) => void;
   sessionContext?: {
     conversationHistory?: Array<{ role: string; content: string }>;
     planId?: string;
@@ -32,6 +41,7 @@ export interface OrchestratorResult {
   messages: string[];
   draft?: Record<string, unknown>;
   assignment?: Record<string, unknown>;
+  publishResult?: Record<string, unknown>;
   traceId: string;
   toolCallsTotal: number;
 }
@@ -44,6 +54,7 @@ export async function runOrchestrator(
   const client = new QwenCompatibleClient(config.clientConfig);
 
   let savedDraft: Record<string, unknown> | undefined;
+  let publishResult: Record<string, unknown> | undefined;
   const previousDraft = config.sessionContext?.latestDraft;
 
   const toolRegistry = buildToolRegistry({
@@ -51,6 +62,15 @@ export async function runOrchestrator(
     toolProfile: config.toolProfile ?? "planner",
     trustedActorUserId: config.trustedActorUserId,
     allowSearchWeb: config.allowSearchWeb,
+    knownFactsStore: config.knownFactsStore,
+    currentSessionPlanId: config.currentSessionPlanId,
+    currentSession: config.currentSession,
+    publishRecentStore: config.publishRecentStore,
+    actorName: config.actorName,
+    onPublishTaskResult: (result: Record<string, unknown>) => {
+      publishResult = result;
+      config.onPublishTaskResult?.(result);
+    },
     onDraftSaved: (draft: Record<string, unknown>) => {
       savedDraft = stabilizeDraftTaskIds(draft, previousDraft);
     },
@@ -136,6 +156,7 @@ export async function runOrchestrator(
         ],
         draft: savedDraft,
         assignment: undefined,
+        publishResult,
         traceId,
         toolCallsTotal: maxToolIterations,
       };
@@ -170,11 +191,12 @@ export async function runOrchestrator(
     loopIterations: timing?.iterations.length ?? null,
     hasDraft: draft !== undefined,
     hasAssignment: assignment !== undefined,
+    hasPublishResult: publishResult !== undefined,
     messageChars: msg.length,
     messagePreview: msg.slice(0, 200),
   });
 
-  return { messages, draft, assignment, traceId, toolCallsTotal };
+  return { messages, draft, assignment, publishResult, traceId, toolCallsTotal };
 }
 
 function safeJson(input: unknown): string {
@@ -199,7 +221,6 @@ function summarizeDraftForPrompt(draft: Record<string, unknown>): Record<string,
     .slice(0, 5);
   return {
     hasDraft: true,
-    taskCount: tasks.length,
     taskTitles,
     domain: (draft as { classification?: { domain?: unknown } }).classification?.domain ?? null,
     subtype: (draft as { classification?: { subtype?: unknown } }).classification?.subtype ?? null,
@@ -214,7 +235,6 @@ function summarizeAssignmentForPrompt(
     : [];
   return {
     hasAssignment: true,
-    assignmentCount: assignments.length,
     taskIds: assignments
       .map((a) => String(a?.taskId ?? "").trim())
       .filter((id) => id.length > 0)

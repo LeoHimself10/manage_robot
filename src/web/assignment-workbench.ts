@@ -19,6 +19,7 @@ import {
 } from "../infra/workbench-formal-task-store";
 import { loadQwenPlannerConfigFromEnv } from "../agent/demo/qwen-planner";
 import { runOrchestrator } from "../agent/orchestrator";
+import type { KnownFactsStore } from "../agent/tools/update-known-facts";
 import {
   DingTalkAuthError,
   type DingTalkAuthClient,
@@ -2020,6 +2021,17 @@ export function handleAssignmentHttp(
           userId: session.userId,
         });
         const memoryContext = loadMemoryContextForPlan(planId);
+        let mutableKnownFacts = [...(target.knownFacts ?? [])];
+        const knownFactsStore: KnownFactsStore = {
+          get: () => mutableKnownFacts,
+          update: (facts: string[]) => {
+            const merged = Array.from(new Set([
+              ...mutableKnownFacts,
+              ...facts.map((f) => String(f).trim()).filter(Boolean),
+            ])).slice(-50);
+            mutableKnownFacts = merged;
+          },
+        };
         const orch = await runOrchestrator(message, {
           clientConfig: {
             ...qwenConfig,
@@ -2033,7 +2045,11 @@ export function handleAssignmentHttp(
             process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? "6",
           ),
           toolProfile: "manager",
-          promptProfile: "manager",
+          promptProfile: "planner",
+          knownFactsStore,
+          currentSessionPlanId: target.planId,
+          currentSession: target,
+          actorName: session.dingUser?.name,
           allowSearchWeb: isExplicitSearchRequest(message),
           sessionContext: {
             conversationHistory: target.conversationHistory,
@@ -2041,7 +2057,7 @@ export function handleAssignmentHttp(
             latestDraft: target.latestDraft,
             latestAssignment: target.latestAssignment,
             memorySummary: memoryContext.summary || buildSessionMemorySummary(target),
-            memoryFacts: memoryContext.facts,
+            memoryFacts: [...memoryContext.facts, ...mutableKnownFacts].slice(0, 8),
             currentTimeIso: new Date().toISOString(),
           },
         });
@@ -2055,6 +2071,7 @@ export function handleAssignmentHttp(
           ...target,
           senderStaffId: session.userId,
           lastTraceId: orch.traceId,
+          knownFacts: mutableKnownFacts,
           latestDraft: orch.draft ?? target.latestDraft,
           latestAssignment: orch.assignment ?? target.latestAssignment,
           conversationHistory: nextConversationHistory,

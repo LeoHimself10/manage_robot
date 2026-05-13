@@ -25,9 +25,9 @@ describe("dingtalk entry routing integration", () => {
       senderStaffId: "mgr_001",
       employeeRepo: fakeRepo([]) as any,
     });
-    expect(params.promptProfile).toBe("manager");
+    expect(params.promptProfile).toBe("planner");
     expect(params.toolProfile).toBe("manager");
-    expect(params.trustedActorUserId).toBeUndefined();
+    expect(params.trustedActorUserId).toBe("mgr_001");
   });
 
   it("passes employee profile + trusted actor for employee users", () => {

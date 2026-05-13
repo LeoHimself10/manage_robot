@@ -1,6 +1,28 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const mockCallWithTools = vi.fn();
+vi.mock("../../src/integrations/dingtalk/workbench-notify", () => ({
+  createWorkbenchPublishNotifier: () => ({
+    notifyPublishedTask: vi.fn(async () => ({
+      enabled: false,
+      skippedReason: "off",
+      success: [],
+      failed: [],
+    })),
+  }),
+}));
+vi.mock("../../src/integrations/repos/employee-profile-repo", () => ({
+  createEmployeeProfileRepo: () => ({
+    get: () => ({ department: "质量部" }),
+    list: () => [],
+  }),
+}));
+vi.mock("../../src/infra/people-directory-store", () => ({
+  createPeopleDirectoryStore: () => ({
+    getContact: () => ({ active: true }),
+    close: () => {},
+  }),
+}));
 vi.mock("../../src/agent/demo/qwen-compatible-client", () => ({
   QwenCompatibleClient: vi.fn(function(this: Record<string, unknown>) {
     this.callWithTools = mockCallWithTools;
@@ -85,6 +107,48 @@ describe("runOrchestrator", () => {
     expect((result.assignment as { assignments?: unknown[] })?.assignments?.length).toBe(1);
   });
 
+  it("captures publish tool result via callback and return payload", async () => {
+    mockCallWithTools.mockImplementationOnce(async (req: {
+      toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<unknown> | unknown>;
+    }) => {
+      await req.toolHandlers.publish_task({ planId: "plan-123", confirmationContext: "确认发布" });
+      return {
+        payload: { message: "已发布" },
+        rawContent: "{}",
+        trace: { requestId: "t2c", model: "qwen3.6-plus", tokenUsage: { totalTokens: 60 }, latencyMs: 90 },
+        toolCallsExecuted: 1,
+      };
+    });
+    const onPublishTaskResult = vi.fn();
+    const { runOrchestrator } = await import("../../src/agent/orchestrator");
+    const result = await runOrchestrator("确认发布", {
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
+      employeeRepo: { list: () => [] },
+      toolProfile: "manager",
+      trustedActorUserId: "manager-1",
+      currentSessionPlanId: "plan-123",
+      currentSession: {
+        chatKeyHash: "hash",
+        planId: "plan-123",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        senderStaffId: "manager-1",
+        knownFacts: [],
+        conversationHistory: [],
+        latestDraft: {
+          title: "任务",
+          tasks: [{ id: "task-1", title: "子任务1" }],
+        },
+        latestAssignment: {
+          assignments: [{ taskId: "task-1", primary: { userId: "emp-1" } }],
+        },
+      },
+      onPublishTaskResult,
+    });
+    expect(onPublishTaskResult).toHaveBeenCalled();
+    expect(result.publishResult).toBeDefined();
+  });
+
   it("injects persistent memory context summaries", async () => {
     mockCallWithTools.mockImplementationOnce(async (req: {
       toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<unknown> | unknown>;
@@ -125,6 +189,9 @@ describe("runOrchestrator", () => {
     expect(memoryMsg).toBeDefined();
     expect(memoryMsg?.content).toContain("latestDraftSummary");
     expect(memoryMsg?.content).toContain("latestAssignmentSummary");
+    expect(memoryMsg?.content).not.toContain("latestDraftTasks");
+    expect(memoryMsg?.content).not.toContain("taskCount");
+    expect(memoryMsg?.content).not.toContain("assignmentCount");
     expect(
       requestArg.messages.some((m) => m.role === "employee_update"),
     ).toBe(false);
@@ -153,6 +220,33 @@ describe("runOrchestrator", () => {
 
     const requestArg = mockCallWithTools.mock.calls[0]?.[0] as { maxIterations?: number };
     expect(requestArg.maxIterations).toBe(3);
+  });
+
+  it("supports known facts tools when store is provided", async () => {
+    let facts: string[] = ["旧事实"];
+    mockCallWithTools.mockImplementationOnce(async (req: {
+      toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<unknown> | unknown>;
+    }) => {
+      await req.toolHandlers.update_known_facts({ facts: ["新事实"] });
+      return {
+        payload: { message: "ok" },
+        rawContent: "{}",
+        trace: { requestId: "t4b", model: "qwen3.6-plus", tokenUsage: { totalTokens: 20 }, latencyMs: 80 },
+        toolCallsExecuted: 1,
+      };
+    });
+    const { runOrchestrator } = await import("../../src/agent/orchestrator");
+    await runOrchestrator("记住这件事", {
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
+      employeeRepo: { list: () => [] },
+      knownFactsStore: {
+        get: () => facts,
+        update: (next: string[]) => {
+          facts = [...new Set([...facts, ...next])];
+        },
+      },
+    });
+    expect(facts).toContain("新事实");
   });
 
   it("returns fallback message when tool iterations are exceeded", async () => {

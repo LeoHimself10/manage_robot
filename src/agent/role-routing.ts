@@ -52,8 +52,9 @@ export function resolveDingtalkAgentRouting(
   if (resolved === "admin" || resolved === "manager") {
     return {
       resolvedRole: resolved,
-      promptProfile: "manager",
+      promptProfile: "planner",
       toolProfile: "manager",
+      trustedActorUserId: sender,
       reason: "manager_role",
     };
   }

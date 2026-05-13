@@ -24,8 +24,26 @@ import {
   LIST_MY_TASKS_TOOL,
   buildListMyTasksHandler,
 } from "./list-my-tasks";
+import { GET_CURRENT_TIME_TOOL, buildGetCurrentTimeHandler } from "./get-current-time";
+import {
+  UPDATE_KNOWN_FACTS_TOOL,
+  LIST_KNOWN_FACTS_TOOL,
+  buildKnownFactsHandlers,
+  type KnownFactsStore,
+} from "./update-known-facts";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
+import {
+  PUBLISH_TASK_TOOL,
+  buildPublishTaskHandler,
+  createRecentPublishStore,
+  type PublishTaskRecentStore,
+} from "./publish-task";
+import { createWorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
+import { createEmployeeProfileRepo } from "../../integrations/repos/employee-profile-repo";
+import { resolveEmployeeProfileDir } from "../../infra/assignment-env";
+import type { PlanSession } from "../../infra/plan-session-store";
+import { logStructured } from "../../infra/logger";
 
 export interface ToolRegistryEntry {
   definition: ToolDefinition;
@@ -38,6 +56,12 @@ export interface ToolRegistryDeps {
   toolProfile?: ToolProfile;
   trustedActorUserId?: string;
   allowSearchWeb?: boolean;
+  knownFactsStore?: KnownFactsStore;
+  currentSessionPlanId?: string;
+  currentSession?: PlanSession;
+  publishRecentStore?: PublishTaskRecentStore;
+  actorName?: string;
+  onPublishTaskResult?: (result: Record<string, unknown>) => void;
 }
 
 export type ToolProfile = "planner" | "employee" | "manager" | "full";
@@ -49,6 +73,10 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   const trustedActor = deps.trustedActorUserId?.trim();
   const allowSearchWeb = deps.allowSearchWeb ?? false;
   const searchWebEnabled = String(process.env.SEARCH_WEB_ENABLED ?? "1").trim() !== "0";
+  const knownFactsHandlers = deps.knownFactsStore ? buildKnownFactsHandlers(deps.knownFactsStore) : undefined;
+  const publishRecentStore = deps.publishRecentStore ?? createRecentPublishStore();
+  const notifyEmployeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
+  const notifier = createWorkbenchPublishNotifier();
 
   const all: Record<string, ToolRegistryEntry> = {
     search_employees: {
@@ -83,7 +111,40 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       definition: LIST_MY_TASKS_TOOL,
       handler: buildListMyTasksHandler({ taskStore }),
     },
+    get_current_time: {
+      definition: GET_CURRENT_TIME_TOOL,
+      handler: buildGetCurrentTimeHandler(),
+    },
+    publish_task: {
+      definition: PUBLISH_TASK_TOOL,
+      handler: buildPublishTaskHandler({
+        trustedActorUserId: deps.trustedActorUserId,
+        currentSessionPlanId: deps.currentSessionPlanId,
+        currentSession: deps.currentSession,
+        actorName: deps.actorName,
+        initiatorDepartment:
+          notifyEmployeeRepo.get(String(deps.currentSession?.senderStaffId ?? deps.trustedActorUserId ?? "").trim())
+            ?.department?.trim() || "未配置部门",
+        publishFromSession: taskStore.publishFromSession,
+        appendTaskEvent: taskStore.appendTaskEvent,
+        getContact: (userId) => peopleStore.getContact(userId),
+        notifier,
+        recentPublished: publishRecentStore,
+        onAudit: (entry) => logStructured(entry),
+        onPublishResult: deps.onPublishTaskResult,
+      }),
+    },
   };
+  if (knownFactsHandlers) {
+    all.update_known_facts = {
+      definition: UPDATE_KNOWN_FACTS_TOOL,
+      handler: knownFactsHandlers.update,
+    };
+    all.list_known_facts = {
+      definition: LIST_KNOWN_FACTS_TOOL,
+      handler: knownFactsHandlers.get,
+    };
+  }
 
   if (searchWebEnabled && (allowSearchWeb || profile === "full")) {
     all.search_web = {
@@ -98,6 +159,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     "submit_employee_response",
     "submit_progress_update",
     "update_employee_profile",
+    "publish_task",
   ] as const;
   if (trustedActor) {
     const enforceActor = (handler: ToolHandler): ToolHandler => (args) =>
@@ -121,13 +183,34 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   }
 
   const profileTools: Record<ToolProfile, string[]> = {
-    planner: ["save_draft", "search_employees", "search_similar_plans", "search_web"],
-    manager: ["save_draft", "prepare_publish_task", "search_employees", "search_similar_plans", "search_web"],
+    planner: [
+      "save_draft",
+      "search_employees",
+      "search_similar_plans",
+      "search_web",
+      "get_current_time",
+      "update_known_facts",
+      "list_known_facts",
+    ],
+    manager: [
+      "save_draft",
+      "prepare_publish_task",
+      "publish_task",
+      "search_employees",
+      "search_similar_plans",
+      "search_web",
+      "get_current_time",
+      "update_known_facts",
+      "list_known_facts",
+    ],
     employee: [
       "list_my_tasks",
       "submit_employee_response",
       "submit_progress_update",
       "update_employee_profile",
+      "get_current_time",
+      "update_known_facts",
+      "list_known_facts",
     ],
     full: Object.keys(all),
   };

@@ -33,7 +33,7 @@ describe("resolveDingtalkAgentRouting", () => {
     expect(result.trustedActorUserId).toBeUndefined();
   });
 
-  it("routes admin/manager to manager profile", () => {
+  it("routes admin/manager to planner prompt with manager tools", () => {
     process.env.WORKBENCH_ADMIN_USER_IDS = "admin_1";
     process.env.WORKBENCH_MANAGER_USER_IDS = "mgr_1";
 
@@ -42,16 +42,18 @@ describe("resolveDingtalkAgentRouting", () => {
       employeeRepo: fakeRepo([]) as any,
       roleRoutingEnabled: true,
     });
-    expect(adminResult.promptProfile).toBe("manager");
+    expect(adminResult.promptProfile).toBe("planner");
     expect(adminResult.toolProfile).toBe("manager");
+    expect(adminResult.trustedActorUserId).toBe("admin_1");
 
     const managerResult = resolveDingtalkAgentRouting({
       senderStaffId: "mgr_1",
       employeeRepo: fakeRepo([]) as any,
       roleRoutingEnabled: true,
     });
-    expect(managerResult.promptProfile).toBe("manager");
+    expect(managerResult.promptProfile).toBe("planner");
     expect(managerResult.toolProfile).toBe("manager");
+    expect(managerResult.trustedActorUserId).toBe("mgr_1");
   });
 
   it("routes employee to employee profile only when in people directory", () => {

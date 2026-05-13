@@ -1,6 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildToolRegistry } from "../../../src/agent/tools/registry";
 
+vi.mock("../../../src/integrations/dingtalk/workbench-notify", () => ({
+  createWorkbenchPublishNotifier: () => ({
+    notifyPublishedTask: vi.fn(async () => ({
+      enabled: false,
+      skippedReason: "off",
+      success: [],
+      failed: [],
+    })),
+  }),
+}));
+
 describe("tool registry profiles", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -17,6 +28,7 @@ describe("tool registry profiles", () => {
     expect(registry.list_my_tasks).toBeUndefined();
     expect(registry.submit_employee_response).toBeUndefined();
     expect(registry.search_web).toBeUndefined();
+    expect(registry.get_current_time).toBeDefined();
   });
 
   it("employee profile includes employee tools and rejects without trusted actor", async () => {
@@ -26,6 +38,7 @@ describe("tool registry profiles", () => {
     });
     expect(registry.list_my_tasks).toBeDefined();
     expect(registry.submit_progress_update).toBeDefined();
+    expect(registry.get_current_time).toBeDefined();
     const result = await registry.list_my_tasks.handler({});
     expect(result).toEqual({
       ok: false,
@@ -49,5 +62,48 @@ describe("tool registry profiles", () => {
       allowSearchWeb: true,
     });
     expect(enabled.search_web).toBeDefined();
+  });
+
+  it("manager profile includes publish_task and trusted actor is enforced", async () => {
+    const registry = buildToolRegistry({
+      employeeRepo: { list: () => [] },
+      toolProfile: "manager",
+      currentSessionPlanId: "plan-1",
+      currentSession: {
+        chatKeyHash: "hash",
+        planId: "plan-1",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        senderStaffId: "manager-1",
+        knownFacts: [],
+        conversationHistory: [],
+      },
+    });
+    expect(registry.publish_task).toBeDefined();
+    const res = await registry.publish_task.handler({ planId: "plan-1" });
+    expect(res).toEqual({ ok: false, error: "trusted_actor_required" });
+  });
+
+  it("known facts tools are exposed only when store is provided", () => {
+    const withoutFacts = buildToolRegistry({
+      employeeRepo: { list: () => [] },
+      toolProfile: "planner",
+    });
+    expect(withoutFacts.update_known_facts).toBeUndefined();
+    expect(withoutFacts.list_known_facts).toBeUndefined();
+
+    let facts: string[] = [];
+    const withFacts = buildToolRegistry({
+      employeeRepo: { list: () => [] },
+      toolProfile: "planner",
+      knownFactsStore: {
+        get: () => facts,
+        update: (next) => {
+          facts = [...new Set([...facts, ...next])];
+        },
+      },
+    });
+    expect(withFacts.update_known_facts).toBeDefined();
+    expect(withFacts.list_known_facts).toBeDefined();
   });
 });
