@@ -21,7 +21,11 @@ export interface QwenCompatibleClientConfig {
   streamHooks?: {
     onAssistantDelta?: (assembledContent: string) => void;
   };
-  /** Qwen3 thinking mode（开启后在请求体中注入 extra_body.enable_thinking） */
+  /**
+   * Qwen3 thinking mode. DashScope OpenAI-compatible 接口对 `enable_thinking` 取**请求顶层**
+   * 字段（`extra_body.enable_thinking` 在实测中**不生效**）。注入时同时写顶层 + extra_body
+   * 兼容更多前置网关；缺省时不显式注入。
+   */
   thinking?: boolean;
 }
 
@@ -252,11 +256,14 @@ export class QwenCompatibleClient {
     transportTiming?: LlmTransportTiming;
   }> {
     const t0 = llmWallClockStart ?? Date.now();
-    // Inject Qwen3 thinking if enabled
-    if (this.config.thinking) {
+    // Qwen3 thinking flag: 显式写顶层（DashScope 兼容接口仅识别顶层 enable_thinking），
+    // 同时镜像写 extra_body 兼容部分前置网关；false 时也必须显式发送以**关闭**模型默认 thinking。
+    if (typeof this.config.thinking === "boolean") {
+      const enable = this.config.thinking;
+      (body as Record<string, unknown>).enable_thinking = enable;
       (body as Record<string, unknown>).extra_body = {
         ...((body as Record<string, unknown>).extra_body as Record<string, unknown> ?? {}),
-        enable_thinking: true,
+        enable_thinking: enable,
       };
     }
     const endpoint = `${this.config.baseUrl.replace(/\/$/, "")}/chat/completions`;
