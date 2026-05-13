@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { QwenCompatibleClientConfig } from "./demo/qwen-compatible-client";
-import { QwenCompatibleClient } from "./demo/qwen-compatible-client";
+import {
+  MaxToolIterationsExceededError,
+  QwenCompatibleClient,
+} from "./demo/qwen-compatible-client";
 import { coerceLlmPlanPayload } from "./demo/llm-schema";
 import { buildToolRegistry, type ToolProfile } from "./tools/registry";
 import { logStructured } from "../infra/logger";
@@ -144,27 +147,56 @@ export async function runOrchestrator(
       maxTotalTokens: Number(process.env.AGENT_MAX_TOTAL_TOKENS ?? "12000"),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("ReAct loop exceeded max iterations")) {
+    if (err instanceof MaxToolIterationsExceededError) {
+      // 抢救：把客户端记录的工具序列 / 已经"溢出"的中间内容 / 上次会话草案，统一回填给上层，
+      // 避免用户看到一句空洞的"流程中断"。
+      const toolNames = err.iterationTimings.flatMap((it) =>
+        (it.tools ?? []).map((t) => t.toolName),
+      );
+      // 模型若在最后一轮 inline 给了内容，且能解析出 draft，就把 draft 抢救出来
+      let salvagedDraft: Record<string, unknown> | undefined = savedDraft;
+      let salvagedMessage = err.lastAssistantContent.trim();
+      if (salvagedMessage && !salvagedDraft) {
+        try {
+          const parsed = JSON.parse(salvagedMessage) as Record<string, unknown>;
+          if (parsed && typeof parsed === "object") {
+            if (isPlainObject(parsed.draft)) {
+              salvagedDraft = stabilizeDraftTaskIds(
+                coerceLlmPlanPayload(parsed.draft) as unknown as Record<string, unknown>,
+                previousDraft,
+              );
+            }
+            if (typeof parsed.message === "string" && parsed.message.trim()) {
+              salvagedMessage = parsed.message.trim();
+            }
+          }
+        } catch {
+          // 不是 JSON，直接作为自然语言抢救输出
+        }
+      }
       logStructured({
         event: "orchestrator_max_turns_exceeded",
         traceId,
         maxToolIterations,
-        reason: msg,
-        hasPartialDraft: savedDraft !== undefined,
+        reason: err.message,
+        toolCallsExecuted: err.toolCallsExecuted,
+        toolInvocationNames: toolNames,
+        hasPartialDraft: salvagedDraft !== undefined,
+        hasSalvagedMessage: salvagedMessage.length > 0,
       });
+      const fallbackMessage = salvagedMessage
+        ? salvagedMessage
+        : buildOrchestratorIterationLimitMessage(userMessage, {
+            hasPartialDraft: salvagedDraft !== undefined,
+          });
       return {
-        messages: [
-          buildOrchestratorIterationLimitMessage(userMessage, {
-            hasPartialDraft: savedDraft !== undefined,
-          }),
-        ],
-        draft: savedDraft,
+        messages: [fallbackMessage],
+        draft: salvagedDraft,
         assignment: undefined,
         publishResult,
         traceId,
-        toolCallsTotal: maxToolIterations,
-        toolInvocationNames: [],
+        toolCallsTotal: err.toolCallsExecuted,
+        toolInvocationNames: toolNames,
       };
     }
     throw err;

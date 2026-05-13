@@ -62,6 +62,32 @@ export interface CallWithToolsRequest {
   maxTotalTokens?: number;
 }
 
+/**
+ * Max-iter 触发时保留：已执行工具数、迭代统计、模型在最后一轮（带 tool_calls 的轮次）随
+ * tool_calls 一并返回的 content 文本（Qwen3 流式下偶尔会同时给出）。
+ * Orchestrator 用它来恢复 toolInvocationNames、向用户回放模型已经写出来的中间结论，
+ * 而不是只丢一句"流程中断"。
+ */
+export class MaxToolIterationsExceededError extends Error {
+  public readonly maxIterations: number;
+  public readonly toolCallsExecuted: number;
+  public readonly iterationTimings: NonNullable<CallWithToolsResult["timing"]>["iterations"];
+  public readonly lastAssistantContent: string;
+  constructor(input: {
+    maxIterations: number;
+    toolCallsExecuted: number;
+    iterationTimings: NonNullable<CallWithToolsResult["timing"]>["iterations"];
+    lastAssistantContent: string;
+  }) {
+    super(`ReAct loop exceeded max iterations (${input.maxIterations})`);
+    this.name = "MaxToolIterationsExceededError";
+    this.maxIterations = input.maxIterations;
+    this.toolCallsExecuted = input.toolCallsExecuted;
+    this.iterationTimings = input.iterationTimings;
+    this.lastAssistantContent = input.lastAssistantContent;
+  }
+}
+
 export interface CallWithToolsResult {
   payload: unknown;
   rawContent: string;
@@ -333,6 +359,9 @@ export class QwenCompatibleClient {
     };
     let maxPromptTokensSeen = 0;
     let accumulatedCompletionTokens = 0;
+    // 抢救：模型在带 tool_calls 的轮次有时同时返回 content（中间结论 / 半成稿）。
+    // max-iter 触发时由 orchestrator 用作 fallback 消息，避免用户感受到完全断线。
+    let lastAssistantContent = "";
 
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt += 1) {
       try {
@@ -457,6 +486,17 @@ export class QwenCompatibleClient {
             };
           }
 
+          // Qwen3 在带 tool_calls 的轮次偶尔会同时返回 content（半成稿/中间结论）。
+          // 抢救出来：max-iter 触发时由 orchestrator 作为用户可见 fallback，避免完全断线。
+          try {
+            const inline = extractAssistantContent(resp);
+            if (typeof inline === "string" && inline.trim()) {
+              lastAssistantContent = inline.trim();
+            }
+          } catch {
+            // ignore — best-effort salvage
+          }
+
           // Process tool_calls: push assistant msg + execute handlers + push tool results
           currentMessages.push({
             role: "assistant",
@@ -568,9 +608,12 @@ export class QwenCompatibleClient {
           iterations: iterationTimings,
         });
 
-        throw new Error(
-          `ReAct loop exceeded max iterations (${maxIterations})`
-        );
+        throw new MaxToolIterationsExceededError({
+          maxIterations,
+          toolCallsExecuted,
+          iterationTimings: [...iterationTimings],
+          lastAssistantContent,
+        });
       } catch (error) {
         // Do not retry tool-related errors (programming errors)
         if (

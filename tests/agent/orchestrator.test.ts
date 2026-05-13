@@ -23,12 +23,50 @@ vi.mock("../../src/infra/people-directory-store", () => ({
     close: () => {},
   }),
 }));
-vi.mock("../../src/agent/demo/qwen-compatible-client", () => ({
-  QwenCompatibleClient: vi.fn(function(this: Record<string, unknown>) {
-    this.callWithTools = mockCallWithTools;
-  }),
-  QwenCompatibleClientConfig: {} as never,
-}));
+vi.mock("../../src/agent/demo/qwen-compatible-client", () => {
+  class MaxToolIterationsExceededError extends Error {
+    public readonly maxIterations: number;
+    public readonly toolCallsExecuted: number;
+    public readonly iterationTimings: Array<{
+      iteration: number;
+      llmMs: number;
+      parseMs: number;
+      toolsMs: number;
+      toolCalls: number;
+      totalMs: number;
+      tools: Array<{ toolName: string; elapsedMs: number }>;
+    }>;
+    public readonly lastAssistantContent: string;
+    constructor(input: {
+      maxIterations: number;
+      toolCallsExecuted: number;
+      iterationTimings: Array<{
+        iteration: number;
+        llmMs: number;
+        parseMs: number;
+        toolsMs: number;
+        toolCalls: number;
+        totalMs: number;
+        tools: Array<{ toolName: string; elapsedMs: number }>;
+      }>;
+      lastAssistantContent: string;
+    }) {
+      super(`ReAct loop exceeded max iterations (${input.maxIterations})`);
+      this.name = "MaxToolIterationsExceededError";
+      this.maxIterations = input.maxIterations;
+      this.toolCallsExecuted = input.toolCallsExecuted;
+      this.iterationTimings = input.iterationTimings;
+      this.lastAssistantContent = input.lastAssistantContent;
+    }
+  }
+  return {
+    QwenCompatibleClient: vi.fn(function(this: Record<string, unknown>) {
+      this.callWithTools = mockCallWithTools;
+    }),
+    QwenCompatibleClientConfig: {} as never,
+    MaxToolIterationsExceededError,
+  };
+});
 
 describe("runOrchestrator", () => {
   beforeEach(() => {
@@ -267,7 +305,17 @@ describe("runOrchestrator", () => {
   });
 
   it("returns fallback message when tool iterations are exceeded", async () => {
-    mockCallWithTools.mockRejectedValueOnce(new Error("ReAct loop exceeded max iterations (4)"));
+    const { MaxToolIterationsExceededError } = await import(
+      "../../src/agent/demo/qwen-compatible-client"
+    );
+    mockCallWithTools.mockRejectedValueOnce(
+      new MaxToolIterationsExceededError({
+        maxIterations: 4,
+        toolCallsExecuted: 0,
+        iterationTimings: [],
+        lastAssistantContent: "",
+      }),
+    );
 
     const { runOrchestrator } = await import("../../src/agent/orchestrator");
     const result = await runOrchestrator("复杂问题", {
@@ -278,6 +326,40 @@ describe("runOrchestrator", () => {
 
     expect(result.messages[0]).toContain("编排工具轮次上限");
     expect(result.traceId).toBeDefined();
+    expect(result.toolInvocationNames).toEqual([]);
+  });
+
+  it("salvages tool invocation names and inline content on max-iter", async () => {
+    const { MaxToolIterationsExceededError } = await import(
+      "../../src/agent/demo/qwen-compatible-client"
+    );
+    mockCallWithTools.mockRejectedValueOnce(
+      new MaxToolIterationsExceededError({
+        maxIterations: 3,
+        toolCallsExecuted: 3,
+        iterationTimings: [
+          { iteration: 1, llmMs: 1, parseMs: 0, toolsMs: 0, toolCalls: 1, totalMs: 1, tools: [{ toolName: "search_similar_plans", elapsedMs: 0 }] },
+          { iteration: 2, llmMs: 1, parseMs: 0, toolsMs: 0, toolCalls: 1, totalMs: 1, tools: [{ toolName: "search_employees", elapsedMs: 0 }] },
+          { iteration: 3, llmMs: 1, parseMs: 0, toolsMs: 0, toolCalls: 1, totalMs: 1, tools: [{ toolName: "update_known_facts", elapsedMs: 0 }] },
+        ],
+        lastAssistantContent: "我先整理一份草案，正在核对人员…",
+      }),
+    );
+
+    const { runOrchestrator } = await import("../../src/agent/orchestrator");
+    const result = await runOrchestrator("帮我拆 OCT 客诉", {
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
+      employeeRepo: { list: () => [] },
+      maxToolIterations: 3,
+    });
+
+    expect(result.messages[0]).toBe("我先整理一份草案，正在核对人员…");
+    expect(result.toolInvocationNames).toEqual([
+      "search_similar_plans",
+      "search_employees",
+      "update_known_facts",
+    ]);
+    expect(result.toolCallsTotal).toBe(3);
   });
 
   it("stabilizes draft task ids across revisions and aligns assignment ids", async () => {

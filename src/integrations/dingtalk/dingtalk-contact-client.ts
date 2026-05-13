@@ -20,6 +20,9 @@ interface UserListResp {
       dept_id_list?: number[];
       mobile?: string;
       email?: string;
+      // 实际钉钉 topapi/v2/user/list 返回的是 `title`（员工"职务"），
+      // 老接口 / 部分版本字段名是 `position`，二者都兼容。
+      title?: string;
       position?: string;
       job_number?: string;
       is_admin?: boolean;
@@ -217,7 +220,12 @@ export function createDingTalkContactClient(fetchImpl: typeof fetch = fetch): Di
               departmentIds: deptIdStrings,
               // DingTalk user list does not always include department names; keep ids here.
               departmentNames: [],
-              position: typeof row?.position === "string" ? row.position : undefined,
+              position:
+                typeof row?.title === "string" && row.title.trim()
+                  ? row.title
+                  : typeof row?.position === "string"
+                    ? row.position
+                    : undefined,
               jobNumber: typeof row?.job_number === "string" ? row.job_number : undefined,
               mobileMasked: maskMobile(typeof row?.mobile === "string" ? row.mobile : undefined),
               emailMasked: maskEmail(typeof row?.email === "string" ? row.email : undefined),

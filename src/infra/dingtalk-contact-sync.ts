@@ -44,7 +44,12 @@ function toContactFromEvent(payload: Record<string, unknown>): DingTalkContactRe
     name: String(payload.name ?? userId),
     departmentIds: deptIds,
     departmentNames: [],
-    position: typeof payload.position === "string" ? payload.position : undefined,
+    position:
+      typeof payload.title === "string" && payload.title.trim()
+        ? (payload.title as string)
+        : typeof payload.position === "string"
+          ? payload.position
+          : undefined,
     jobNumber: typeof payload.jobnumber === "string" ? payload.jobnumber : undefined,
     mobileMasked: undefined,
     emailMasked: undefined,
