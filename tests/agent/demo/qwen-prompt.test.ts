@@ -17,7 +17,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("必须成对闭合");
     expect(sys).not.toContain("responseIntent");
     expect(sys).not.toContain("CLARIFY");
-    expect(sys.length).toBeLessThanOrEqual(1300);
+    expect(sys.length).toBeLessThanOrEqual(1700);
   });
 });
 

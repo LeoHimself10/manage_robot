@@ -6,7 +6,7 @@ export const SUBMIT_EMPLOYEE_RESPONSE_TOOL: ToolDefinition = {
   function: {
     name: "submit_employee_response",
     description:
-      "提交员工对任务的响应（accept/reject/request_changes/customize）。工具负责状态落库和审计。",
+      "提交员工对任务的响应（accept/reject/request_changes/customize）。工具负责状态落库和审计。若用户只用任务标题/序号描述对象（如“第一个任务”“产线那个”）而未提供 subtaskId，请先调 list_my_tasks 拿到 subtaskId 再调本工具，不要反问用户索要 ID。",
     parameters: {
       type: "object",
       properties: {

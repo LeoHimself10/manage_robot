@@ -6,7 +6,7 @@ export const GET_TASK_DETAIL_TOOL: ToolDefinition = {
   function: {
     name: "get_task_detail",
     description:
-      "查看任务详情（task + subtasks + events）。manager 仅可看本人管理任务；employee 仅可看分配给自己的子任务；admin 不受限。",
+      "查看任务详情（task + subtasks + events）。manager 仅可看本人管理任务；employee 仅可看分配给自己的子任务；admin 不受限。若用户只描述任务标题/关键词而未提供 ID，请先调 list_managed_tasks（manager）或 list_my_tasks（employee）或 admin_list_all_tasks（admin）找到 taskNo/planId 再调本工具，不要反问用户索要 ID。",
     parameters: {
       type: "object",
       properties: {

@@ -5,7 +5,8 @@ export const SUBMIT_PROGRESS_UPDATE_TOOL: ToolDefinition = {
   type: "function",
   function: {
     name: "submit_progress_update",
-    description: "提交员工任务进度（IN_PROGRESS/BLOCKED/DONE）并记录说明。",
+    description:
+      "提交员工任务进度（IN_PROGRESS/BLOCKED/DONE）并记录说明。若用户未提供 subtaskId，请先调 list_my_tasks 拿到对应 subtaskId 再调本工具，不要反问用户索要 ID。",
     parameters: {
       type: "object",
       properties: {

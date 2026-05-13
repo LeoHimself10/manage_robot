@@ -8,7 +8,7 @@ export const SET_MANAGER_PERMISSION_TOOL: ToolDefinition = {
   function: {
     name: "set_manager_permission",
     description:
-      "管理员设置某用户是否拥有主管权限。会写权限审计日志；调用前必须明确 userId 与 enabled(true/false)。",
+      "管理员设置某用户是否拥有主管权限。会写权限审计日志；调用前必须明确 userId 与 enabled(true/false)。若用户用人名描述对象，请先调 search_employees 解析 userId 并在 message 里向管理员复述“将把 <显示名>(<userId>) 设为/取消主管，确认吗？”，待管理员明确确认后再调本工具。",
     parameters: {
       type: "object",
       properties: {

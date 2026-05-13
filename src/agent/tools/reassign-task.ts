@@ -57,7 +57,8 @@ export const REASSIGN_TASK_TOOL: ToolDefinition = {
   type: "function",
   function: {
     name: "reassign_task",
-    description: "主管改派任务负责人（按 planId 改派全部未完成子任务），并同步写入会话修订事件。",
+    description:
+      "主管改派任务负责人（按 planId 改派全部未完成子任务），并同步写入会话修订事件。若用户用人名/任务标题描述对象，请先调 list_managed_tasks 解析 planId、调 search_employees 解析 assigneeUserId，再调本工具，不要反问用户索要 ID。",
     parameters: {
       type: "object",
       properties: {
