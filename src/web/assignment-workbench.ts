@@ -35,6 +35,7 @@ import { createEmployeeProfileRepo } from "../integrations/repos/employee-profil
 import { createDingTalkContactSyncService } from "../infra/dingtalk-contact-sync";
 import { createPeopleDirectoryStore } from "../infra/people-directory-store";
 import { buildPreparePublishTaskHandler } from "../agent/tools/prepare-publish-task";
+import { executeReassignWithSideEffects } from "../agent/workbench/reassign-with-side-effects";
 import {
   appendMemoryEvents,
   loadMemoryContextForPlan,
@@ -1615,45 +1616,21 @@ export function handleAssignmentHttp(
           writeJson(res, 400, { ok: false, error: "assigneeUserId is required" });
           return;
         }
-        const updated = getFormalTaskStore().reassignTask({
-          planId,
-          managerUserId: session.userId,
-          assigneeUserId,
-          note,
-        });
-
-        const targetSession = findLatestSessionByPlanId(planId);
-        const occurredAt = new Date().toISOString();
-        if (targetSession) {
-          const eventRecord: Record<string, unknown> = {
-            occurredAt,
-            eventType: "MANAGER_REASSIGN_SAVED",
+        const { task: updated } = executeReassignWithSideEffects(
+          {
             planId,
-            actorUserId: session.userId,
-            actorName: session.dingUser?.name ?? undefined,
+            managerUserId: session.userId,
             assigneeUserId,
             note,
-          };
-          planSessionStore.save({
-            ...targetSession,
-            latestAssignment: patchLatestAssignmentAssignee(
-              targetSession.latestAssignment,
-              assigneeUserId,
-            ),
-            revisionEvents: [...(targetSession.revisionEvents ?? []), eventRecord].slice(-60),
-          });
-          planSessionStore.appendEvent({
-            planId,
-            chatKeyHash: targetSession.chatKeyHash,
-            eventType: "manager_reassign_saved",
-            payload: {
-              actorUserId: session.userId,
-              actorName: session.dingUser?.name ?? undefined,
-              assigneeUserId,
-              note,
-            },
-          });
-        }
+            actorName: session.dingUser?.name,
+          },
+          {
+            taskStore: getFormalTaskStore(),
+            findLatestSessionByPlanId,
+            planSessionStore,
+            patchLatestAssignmentAssignee,
+          },
+        );
 
         writeJson(res, 200, {
           ok: true,
@@ -2044,12 +2021,13 @@ export function handleAssignmentHttp(
           maxToolIterations: Number(
             process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? "6",
           ),
-          toolProfile: "manager",
+          toolProfile: session.role === "admin" ? "admin" : "manager",
           promptProfile: "planner",
           knownFactsStore,
           currentSessionPlanId: target.planId,
           currentSession: target,
           actorName: session.dingUser?.name,
+          actorRole: "manager",
           allowSearchWeb: isExplicitSearchRequest(message),
           sessionContext: {
             conversationHistory: target.conversationHistory,

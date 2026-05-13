@@ -24,6 +24,38 @@ import {
   LIST_MY_TASKS_TOOL,
   buildListMyTasksHandler,
 } from "./list-my-tasks";
+import {
+  LIST_MANAGED_TASKS_TOOL,
+  buildListManagedTasksHandler,
+} from "./list-managed-tasks";
+import {
+  GET_TASK_DETAIL_TOOL,
+  buildGetTaskDetailHandler,
+} from "./get-task-detail";
+import {
+  REASSIGN_TASK_TOOL,
+  buildReassignTaskHandler,
+} from "./reassign-task";
+import {
+  GET_MY_PROFILE_TOOL,
+  buildGetMyProfileHandler,
+} from "./get-my-profile";
+import {
+  ADMIN_LIST_ALL_TASKS_TOOL,
+  buildAdminListAllTasksHandler,
+} from "./admin-list-all-tasks";
+import {
+  GET_METRICS_TOOL,
+  buildGetMetricsHandler,
+} from "./get-metrics";
+import {
+  LIST_MANAGERS_TOOL,
+  buildListManagersHandler,
+} from "./list-managers";
+import {
+  SET_MANAGER_PERMISSION_TOOL,
+  buildSetManagerPermissionHandler,
+} from "./set-manager-permission";
 import { GET_CURRENT_TIME_TOOL, buildGetCurrentTimeHandler } from "./get-current-time";
 import {
   UPDATE_KNOWN_FACTS_TOOL,
@@ -61,10 +93,11 @@ export interface ToolRegistryDeps {
   currentSession?: PlanSession;
   publishRecentStore?: PublishTaskRecentStore;
   actorName?: string;
+  actorRole?: "admin" | "manager" | "employee";
   onPublishTaskResult?: (result: Record<string, unknown>) => void;
 }
 
-export type ToolProfile = "planner" | "employee" | "manager" | "full";
+export type ToolProfile = "planner" | "employee" | "manager" | "admin" | "full";
 
 export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRegistryEntry> {
   const profile = deps.toolProfile ?? "planner";
@@ -111,6 +144,38 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       definition: LIST_MY_TASKS_TOOL,
       handler: buildListMyTasksHandler({ taskStore }),
     },
+    list_managed_tasks: {
+      definition: LIST_MANAGED_TASKS_TOOL,
+      handler: buildListManagedTasksHandler({ taskStore }),
+    },
+    get_task_detail: {
+      definition: GET_TASK_DETAIL_TOOL,
+      handler: buildGetTaskDetailHandler({ taskStore, actorRole: deps.actorRole }),
+    },
+    reassign_task: {
+      definition: REASSIGN_TASK_TOOL,
+      handler: buildReassignTaskHandler({ taskStore }),
+    },
+    get_my_profile: {
+      definition: GET_MY_PROFILE_TOOL,
+      handler: buildGetMyProfileHandler({ peopleStore }),
+    },
+    admin_list_all_tasks: {
+      definition: ADMIN_LIST_ALL_TASKS_TOOL,
+      handler: buildAdminListAllTasksHandler({ taskStore }),
+    },
+    get_metrics: {
+      definition: GET_METRICS_TOOL,
+      handler: buildGetMetricsHandler({ taskStore }),
+    },
+    list_managers: {
+      definition: LIST_MANAGERS_TOOL,
+      handler: buildListManagersHandler(),
+    },
+    set_manager_permission: {
+      definition: SET_MANAGER_PERMISSION_TOOL,
+      handler: buildSetManagerPermissionHandler({ taskStore, peopleStore }),
+    },
     get_current_time: {
       definition: GET_CURRENT_TIME_TOOL,
       handler: buildGetCurrentTimeHandler(),
@@ -156,6 +221,11 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   // Never trust actor identity from model arguments.
   const sensitiveTools = [
     "list_my_tasks",
+    "list_managed_tasks",
+    "get_task_detail",
+    "reassign_task",
+    "get_my_profile",
+    "set_manager_permission",
     "submit_employee_response",
     "submit_progress_update",
     "update_employee_profile",
@@ -196,6 +266,27 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "save_draft",
       "prepare_publish_task",
       "publish_task",
+      "list_managed_tasks",
+      "get_task_detail",
+      "reassign_task",
+      "search_employees",
+      "search_similar_plans",
+      "search_web",
+      "get_current_time",
+      "update_known_facts",
+      "list_known_facts",
+    ],
+    admin: [
+      "save_draft",
+      "prepare_publish_task",
+      "publish_task",
+      "list_managed_tasks",
+      "get_task_detail",
+      "reassign_task",
+      "admin_list_all_tasks",
+      "get_metrics",
+      "list_managers",
+      "set_manager_permission",
       "search_employees",
       "search_similar_plans",
       "search_web",
@@ -205,6 +296,8 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     ],
     employee: [
       "list_my_tasks",
+      "get_task_detail",
+      "get_my_profile",
       "submit_employee_response",
       "submit_progress_update",
       "update_employee_profile",

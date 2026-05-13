@@ -53,7 +53,7 @@ export function resolveDingtalkAgentRouting(
     return {
       resolvedRole: resolved,
       promptProfile: "planner",
-      toolProfile: "manager",
+      toolProfile: resolved === "admin" ? "admin" : "manager",
       trustedActorUserId: sender,
       reason: "manager_role",
     };

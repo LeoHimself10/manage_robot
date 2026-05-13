@@ -43,7 +43,7 @@ describe("resolveDingtalkAgentRouting", () => {
       roleRoutingEnabled: true,
     });
     expect(adminResult.promptProfile).toBe("planner");
-    expect(adminResult.toolProfile).toBe("manager");
+    expect(adminResult.toolProfile).toBe("admin");
     expect(adminResult.trustedActorUserId).toBe("admin_1");
 
     const managerResult = resolveDingtalkAgentRouting({

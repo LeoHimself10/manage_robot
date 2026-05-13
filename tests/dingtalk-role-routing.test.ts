@@ -30,6 +30,18 @@ describe("dingtalk entry routing integration", () => {
     expect(params.trustedActorUserId).toBe("mgr_001");
   });
 
+  it("passes admin profile for admin users", () => {
+    process.env.DINGTALK_ROLE_ROUTING_ENABLED = "1";
+    process.env.WORKBENCH_ADMIN_USER_IDS = "admin_001";
+    const params = buildDingtalkOrchestratorRoutingParams({
+      senderStaffId: "admin_001",
+      employeeRepo: fakeRepo([]) as any,
+    });
+    expect(params.promptProfile).toBe("planner");
+    expect(params.toolProfile).toBe("admin");
+    expect(params.trustedActorUserId).toBe("admin_001");
+  });
+
   it("passes employee profile + trusted actor for employee users", () => {
     process.env.DINGTALK_ROLE_ROUTING_ENABLED = "1";
     const params = buildDingtalkOrchestratorRoutingParams({

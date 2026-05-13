@@ -24,6 +24,7 @@ export interface OrchestratorConfig {
   currentSession?: PlanSession;
   publishRecentStore?: PublishTaskRecentStore;
   actorName?: string;
+  actorRole?: "admin" | "manager" | "employee";
   onPublishTaskResult?: (result: Record<string, unknown>) => void;
   sessionContext?: {
     conversationHistory?: Array<{ role: string; content: string }>;
@@ -67,6 +68,7 @@ export async function runOrchestrator(
     currentSession: config.currentSession,
     publishRecentStore: config.publishRecentStore,
     actorName: config.actorName,
+    actorRole: config.actorRole,
     onPublishTaskResult: (result: Record<string, unknown>) => {
       publishResult = result;
       config.onPublishTaskResult?.(result);

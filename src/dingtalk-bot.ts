@@ -136,7 +136,7 @@ export function buildDingtalkOrchestratorRoutingParams(input: {
     | "manager_role"
     | "employee_directory_match"
     | "employee_directory_miss";
-  toolProfile: "planner" | "manager" | "employee" | "full";
+  toolProfile: "planner" | "manager" | "employee" | "admin" | "full";
   promptProfile: "planner" | "manager" | "employee";
   trustedActorUserId?: string;
 } {
@@ -511,6 +511,12 @@ async function main(): Promise<void> {
           currentSession: session,
           publishRecentStore,
           actorName: (payload.senderNick as string | undefined)?.trim(),
+          actorRole:
+            routing.resolvedRole === "admin"
+              ? "admin"
+              : routing.resolvedRole === "manager"
+                ? "manager"
+                : "employee",
           onPublishTaskResult: (result) => {
             publishResult = result;
           },

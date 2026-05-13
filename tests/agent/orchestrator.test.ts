@@ -222,6 +222,23 @@ describe("runOrchestrator", () => {
     expect(requestArg.maxIterations).toBe(3);
   });
 
+  it("accepts actorRole in orchestrator config", async () => {
+    mockCallWithTools.mockResolvedValueOnce({
+      payload: { message: "ok" },
+      rawContent: "{}",
+      trace: { requestId: "t4c", model: "qwen3.6-plus", tokenUsage: { totalTokens: 20 }, latencyMs: 80 },
+      toolCallsExecuted: 0,
+    });
+    const { runOrchestrator } = await import("../../src/agent/orchestrator");
+    const result = await runOrchestrator("test", {
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
+      employeeRepo: { list: () => [] },
+      actorRole: "admin",
+      toolProfile: "admin",
+    });
+    expect(result.messages[0]).toBe("ok");
+  });
+
   it("supports known facts tools when store is provided", async () => {
     let facts: string[] = ["旧事实"];
     mockCallWithTools.mockImplementationOnce(async (req: {

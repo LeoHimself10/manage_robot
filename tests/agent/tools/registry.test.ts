@@ -84,6 +84,32 @@ describe("tool registry profiles", () => {
     expect(res).toEqual({ ok: false, error: "trusted_actor_required" });
   });
 
+  it("admin profile includes admin tools while manager profile does not", () => {
+    const adminRegistry = buildToolRegistry({
+      employeeRepo: { list: () => [] },
+      toolProfile: "admin",
+      trustedActorUserId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(adminRegistry.admin_list_all_tasks).toBeDefined();
+    expect(adminRegistry.get_metrics).toBeDefined();
+    expect(adminRegistry.list_managers).toBeDefined();
+    expect(adminRegistry.set_manager_permission).toBeDefined();
+    expect(adminRegistry.list_managed_tasks).toBeDefined();
+    expect(adminRegistry.reassign_task).toBeDefined();
+
+    const managerRegistry = buildToolRegistry({
+      employeeRepo: { list: () => [] },
+      toolProfile: "manager",
+      trustedActorUserId: "manager-1",
+      actorRole: "manager",
+    });
+    expect(managerRegistry.admin_list_all_tasks).toBeUndefined();
+    expect(managerRegistry.get_metrics).toBeUndefined();
+    expect(managerRegistry.list_managers).toBeUndefined();
+    expect(managerRegistry.set_manager_permission).toBeUndefined();
+  });
+
   it("known facts tools are exposed only when store is provided", () => {
     const withoutFacts = buildToolRegistry({
       employeeRepo: { list: () => [] },

@@ -29,6 +29,7 @@ function buildPlannerPromptBody(): string[] {
     "6. 如用户希望同时看到人员分配建议，请在同一次最终 JSON 中附带 assignment 字段。可使用 search_employees 做匹配，但不要为了分配建议阻塞草案生成。",
     "7. 由你基于**本轮语义**判断是否开启新话题：若用户表达的是寒暄、试探性开场或明显转向新问题，应先简短确认并询问新需求，不要机械沿用上一轮缺失项追问；仅当用户明确表达“继续上一条/基于上个草案/按上个方案修改”时，才延续旧话题。",
     "8. 当涉及任务正式发布时，必须遵守发布纪律：先 prepare_publish_task 展示预览，再等待主管在下一条消息明确确认（如“确认发布”“可以”“发吧”“OK”）才可调用 publish_task。若主管表达否定/犹豫（如“不行”“再改改”“等一下”“先别”）或只是提问，禁止调用 publish_task。",
+    "9. 当对话对象是管理员时，可使用 admin_list_all_tasks / get_metrics / list_managers / set_manager_permission。尤其 set_manager_permission 属于敏感动作：必须拿到明确的 userId 与 enabled(true/false) 指令后再调用，不能猜测或代填。",
     "",
     "**何时输出表格（必须遵守）**：",
     "A. 若关键信息缺失（系统环境/问题频率/是否已排查/期望完成时间任一缺失）：只输出简短分析 + 1-3个关键追问，不要输出任务表。",
