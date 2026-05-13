@@ -10,7 +10,12 @@ import {
   buildAssignmentSystemPrompt,
   buildAssignmentUserPrompt,
 } from "./assignment-prompt";
-import { SEARCH_EMPLOYEES_TOOL, buildSearchEmployeesHandler } from "./tools/search-employees";
+import {
+  SEARCH_EMPLOYEES_TOOL,
+  GET_EMPLOYEE_DETAILS_TOOL,
+  buildSearchEmployeesHandler,
+  buildGetEmployeeDetailsHandler,
+} from "./tools/search-employees";
 
 export interface TaskPackage {
   id: string;
@@ -32,7 +37,12 @@ export interface RunAssignmentRecommendationInput {
 }
 
 export interface RunAssignmentRecommendationDeps {
-  employeeRepo: { list(): EmployeeProfileRecord[]; get(userId: string): EmployeeProfileRecord | undefined };
+  employeeRepo: {
+    list(): EmployeeProfileRecord[];
+    get?(userId: string): EmployeeProfileRecord | undefined;
+  };
+  /** 用于 search_employees 本部门优先排序（与钉钉主链路一致时可传发起人 userId） */
+  actorUserId?: string;
   qwenConfig: QwenCompatibleClientConfig;
   draftRepo: { save(draft: AssignmentDraft): Promise<void> };
   eventRepo: { append(event: Record<string, unknown>): Promise<void> };
@@ -48,7 +58,19 @@ export async function runAssignmentRecommendation(
   const maxToolIterations = Math.max(1, deps.maxToolIterations ?? 6);
   const selfCorrectionAttempts = Math.max(0, deps.selfCorrectionAttempts ?? 1);
 
-  const searchHandler = buildSearchEmployeesHandler(deps.employeeRepo);
+  const listFn = () => deps.employeeRepo.list();
+  const getFn = (userId: string) =>
+    deps.employeeRepo.get?.(userId) ?? listFn().find((e) => e.userId === userId);
+  const employeeRepoResolved = { list: listFn, get: getFn };
+  const searchHandler = buildSearchEmployeesHandler(employeeRepoResolved, {
+    actorUserId: deps.actorUserId,
+  });
+  const detailsHandler = buildGetEmployeeDetailsHandler(employeeRepoResolved);
+  const assignmentTools = [SEARCH_EMPLOYEES_TOOL, GET_EMPLOYEE_DETAILS_TOOL];
+  const assignmentToolHandlers = {
+    search_employees: searchHandler,
+    get_employee_details: detailsHandler,
+  };
 
   const systemPrompt = buildAssignmentSystemPrompt();
   const userPrompt = buildAssignmentUserPrompt({
@@ -72,8 +94,8 @@ export async function runAssignmentRecommendation(
     result = await client.callWithTools({
       traceId: input.traceId,
       messages: messages as Parameters<QwenCompatibleClient["callWithTools"]>[0]["messages"],
-      tools: [SEARCH_EMPLOYEES_TOOL],
-      toolHandlers: { search_employees: searchHandler },
+      tools: assignmentTools,
+      toolHandlers: assignmentToolHandlers,
       maxIterations: maxToolIterations,
     });
   } catch (err) {
@@ -125,8 +147,8 @@ export async function runAssignmentRecommendation(
       const correctedResult = await client.callWithTools({
         traceId: input.traceId,
         messages: correctedMessages as Parameters<QwenCompatibleClient["callWithTools"]>[0]["messages"],
-        tools: [SEARCH_EMPLOYEES_TOOL],
-        toolHandlers: { search_employees: searchHandler },
+        tools: assignmentTools,
+        toolHandlers: assignmentToolHandlers,
         maxIterations: maxToolIterations,
       });
 

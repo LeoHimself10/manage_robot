@@ -283,6 +283,12 @@ export function renderEmployeeCurrentTasksPage(): string {
         <label>常用工具
           <textarea id="pfTools" placeholder="例如 Minitab, Jira"></textarea>
         </label>
+        <label>职业背景与协作偏好（自填）
+          <textarea id="pfBackground" rows="5" placeholder="例如 从业经历、擅长领域补充、希望如何协作等"></textarea>
+        </label>
+        <label>系统沉淀案例（只读，来自已完成任务）
+          <div id="pfCasesReadonly" class="muted" style="white-space:pre-wrap;border:1px solid #ddd;border-radius:6px;padding:10px;min-height:48px;background:#fafafa;">暂无</div>
+        </label>
         <label>容量提示
           <input id="pfCapacityHint" type="text" placeholder="例如 正常 / 忙碌 / 满载" />
         </label>
@@ -389,6 +395,19 @@ export function renderEmployeeCurrentTasksPage(): string {
       document.getElementById('pfBoundaries').value = (profile.boundaries || []).join(', ');
       document.getElementById('pfTools').value = (profile.tools || []).join(', ');
       document.getElementById('pfCapacityHint').value = (profile.availability && profile.availability.capacityHint) || '';
+      document.getElementById('pfBackground').value = profile.background || '';
+      var cases = profile.cases || [];
+      var casesEl = document.getElementById('pfCasesReadonly');
+      if (!cases.length) {
+        casesEl.textContent = '暂无';
+      } else {
+        casesEl.textContent = cases.map(function (c) {
+          var line = '[' + (c.taskType || '') + '] ' + (c.outcome || '');
+          if (c.deliverable) line += '\n  交付物: ' + c.deliverable;
+          if (c.contribution) line += '\n  贡献: ' + c.contribution;
+          return line;
+        }).join('\n\n');
+      }
     } catch (e) {
       setFb('profileFeedback', String(e && e.message ? e.message : e), 'err');
     }
@@ -431,6 +450,7 @@ export function renderEmployeeCurrentTasksPage(): string {
         strengths: splitTokens(document.getElementById('pfStrengths').value),
         boundaries: splitTokens(document.getElementById('pfBoundaries').value),
         tools: splitTokens(document.getElementById('pfTools').value),
+        background: (document.getElementById('pfBackground').value || ''),
         availability: {
           capacityHint: (document.getElementById('pfCapacityHint').value || '').trim() || undefined
         }

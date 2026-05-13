@@ -17,7 +17,10 @@ const MAX_TOOL_ITERATIONS = 6;
 
 export interface OrchestratorConfig {
   clientConfig: QwenCompatibleClientConfig;
-  employeeRepo: { list(): EmployeeProfileRecord[] };
+  employeeRepo: {
+    list(): EmployeeProfileRecord[];
+    get?(userId: string): EmployeeProfileRecord | undefined;
+  };
   maxToolIterations?: number;
   toolProfile?: ToolProfile;
   promptProfile?: AgentPromptProfile;

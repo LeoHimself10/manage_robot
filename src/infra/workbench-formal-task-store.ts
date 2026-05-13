@@ -522,6 +522,22 @@ export function createWorkbenchFormalTaskStore() {
       return { task, subtasks, events };
     },
 
+    getSubtaskWithTask(subtaskId: string):
+      | { subtask: WorkbenchSubtaskRow; task: WorkbenchTaskRow }
+      | undefined {
+      const subtaskRow = db
+        .prepare("SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?")
+        .get(subtaskId) as Record<string, unknown> | undefined;
+      if (!subtaskRow) return undefined;
+      const taskRow = qTaskById.get(String(subtaskRow.task_id ?? "")) as Record<string, unknown> | undefined;
+      if (!taskRow) return undefined;
+      const task = mapTaskRow(taskRow);
+      return {
+        task,
+        subtask: mapSubtaskRow({ ...subtaskRow, plan_id: task.planId }),
+      };
+    },
+
     updateSubtaskStatus(input: {
       subtaskId: string;
       actorUserId: string;

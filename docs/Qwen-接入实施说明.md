@@ -59,18 +59,29 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 
 ## 4. 承接指派阶段的 LLM 调用
 
-启用 `ASSIGNMENT_PHASE_ENABLED=1` 后，每条 `DRAFT_READY` 草案会触发 **第二次 LLM 调用**（`runAssignmentRecommendation`），用于人员推荐与指派预览。
+启用 `ASSIGNMENT_PHASE_ENABLED=1` 后，钉钉主链路在同一次 orchestrator 输出中追加分配建议；`runAssignmentRecommendation` 仍保留给测试 / 独立调用路径。
 
-### 调用特征
+### 现网钉钉主路径（light-assignment）
 
-- **单轮 function calling**：模型通过 `search_employees` 工具查询人员库，根据草案内容匹配推荐人选。与规划调用不同，指派调用使用 function calling 模式而非纯结构化 JSON 输出。
-- **Token 消耗**：每次指派调用额外消耗约 **10K–15K tokens**（含 prompt、人员库上下文与 function call 往返）。
-- **成本影响**：相对于仅规划流程，开启指派阶段使每轮草案的 LLM token 消耗增加至 **2x–3x**（规划 1 次 + 指派 1 次，均可能含自纠正重试）。
-- **自纠正重试**：指派阶段的 Schema 校验失败时会触发 **1 轮重试**（将校验错误反馈给模型修正）。若重试仍失败则放弃本轮推荐。极端情况下自纠正会带来 **第三次 LLM 调用**（规划 + 规划自纠正 + 指派 + 指派自纠正）。
+- orchestrator 在 ReAct loop 内自主调用 `search_employees`（默认精简画像，按本部门优先）+ **`get_employee_details`**（按需拉完整 cases / background），并把分配结果作为 `assignment` JSON 一起输出。
+- `dingtalk-bot` 通过 `extractLightAssignment` 做轻量 schema 校验后，将「分配建议」段落拼入同一条回复 Markdown。
+- 不再触发第二次独立 LLM 调用；token 增量主要体现在 orchestrator 多出的一两轮工具回合，而非一次完整对话。
 
-### 延迟特征
+### `runAssignmentRecommendation`（备用 / 测试链路）
 
-当前 `dingtalk-bot` 默认在同一请求中 `await runAssignmentRecommendation`；推荐成功时把“分配建议”直接拼到同一条回复 Markdown。若后续要恢复异步推送，需要显式改为后台任务 + 二次 webhook 发送。
+- **多轮 function calling**：暴露 `search_employees` + **`get_employee_details`**，模型先列候选再拉完整画像写 rationale；prompt 版本 **`assignment-recommender-agent-v0.3.0`**。
+- **Token 消耗**：完整跑一次额外约 **10K–15K tokens**（含 prompt、压缩画像与 function call 往返）。
+- **自纠正重试**：Schema 校验失败时 **1 轮重试**；若仍失败放弃本轮推荐。
+- 主链路当前不调用该函数；如需恢复独立异步推送，需显式接回 `dingtalk-bot` 并处理与 light-assignment 的优先级。
+
+## 4.1 子任务 DONE 后的画像 worker
+
+启用条件：`PROFILE_CASE_WORKER_ENABLED=1`（默认开启）。
+
+- 触发点：员工通过钉钉工具 `submit_progress_update` 或工作台 `/api/workbench/employee/subtasks/progress` 将子任务置为 **`DONE`**。
+- 行为：异步 `runProfileCaseWorkerOnce` 抽取一条 case → `mergeCasesByOutcome` 合并写回 `employee_profiles.cases_json`（幂等 outcome key=`workbench_subtask:<subtaskId>`），同时 `appendProfileEvent("CASE_FROM_WORKBENCH_DONE")`。
+- LLM 调用：短上下文（≤512 tokens），无 `QWEN_API_KEY` 时退化为规则兜底；失败仅写 `profile_case_worker_*` 结构化日志，不阻塞员工动作。无钉钉通知。
+- 相关变量：`PROFILE_CASE_WORKER_MODEL`（覆盖模型）、`PROFILE_CASE_WORKER_SKILL_LOG=1`（旁路技能词启发日志，不落库）。
 
 ## 5. 风险控制（规划）
 

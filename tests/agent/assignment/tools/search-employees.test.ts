@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { EmployeeProfileRecord } from "../../../../src/integrations/repos/employee-profile-repo";
 import {
+  buildGetEmployeeDetailsHandler,
   buildSearchEmployeesHandler,
   compressProfile,
+  compressProfileBrief,
+  compressProfileFull,
   SEARCH_EMPLOYEES_TOOL,
 } from "../../../../src/agent/assignment/tools/search-employees";
 
@@ -31,11 +34,45 @@ function makeProfile(overrides: Partial<EmployeeProfileRecord> & { userId: strin
 
 const PROFILES: EmployeeProfileRecord[] = [
   makeProfile({ userId: "emp_qa_001", department: "质量部", role: "Engineer" }),
-  makeProfile({ userId: "emp_qa_002", department: "测试部", role: "Technician", selfProfile: { skillTags: ["QC 7 tools"], strengths: ["inspection"], boundaries: [], cases: [], tools: [], availability: {} } }),
-  makeProfile({ userId: "emp_rd_001", department: "研发部", role: "Manager", selfProfile: { skillTags: ["CAD", "Python"], strengths: ["design"], boundaries: [], cases: [], tools: [], availability: {} } }),
-  makeProfile({ userId: "emp_rd_002", department: "软件部", role: "Engineer", selfProfile: { skillTags: ["Python", "DOE"], strengths: ["coding"], boundaries: [], cases: [], tools: [], availability: {} } }),
-  makeProfile({ userId: "emp_qa_003", department: "供应商质量", role: "Engineer", selfProfile: { skillTags: ["8D", "CAPA"], strengths: ["supplier audit"], boundaries: [], cases: [], tools: [], availability: {} } }),
+  makeProfile({
+    userId: "emp_qa_002",
+    department: "测试部",
+    role: "Technician",
+    selfProfile: {
+      skillTags: ["QC 7 tools"],
+      strengths: ["inspection"],
+      boundaries: [],
+      cases: [],
+      tools: [],
+      availability: {},
+    },
+  }),
+  makeProfile({
+    userId: "emp_rd_001",
+    department: "研发部",
+    role: "Manager",
+    selfProfile: { skillTags: ["CAD", "Python"], strengths: ["design"], boundaries: [], cases: [], tools: [], availability: {} },
+  }),
+  makeProfile({
+    userId: "emp_rd_002",
+    department: "软件部",
+    role: "Engineer",
+    selfProfile: { skillTags: ["Python", "DOE"], strengths: ["coding"], boundaries: [], cases: [], tools: [], availability: {} },
+  }),
+  makeProfile({
+    userId: "emp_qa_003",
+    department: "供应商质量",
+    role: "Engineer",
+    selfProfile: { skillTags: ["8D", "CAPA"], strengths: ["supplier audit"], boundaries: [], cases: [], tools: [], availability: {} },
+  }),
 ];
+
+function repoWithGet(list: EmployeeProfileRecord[]) {
+  return {
+    list: () => list,
+    get: (userId: string) => list.find((p) => p.userId === userId),
+  };
+}
 
 describe("SEARCH_EMPLOYEES_TOOL", () => {
   it("has correct tool definition structure", () => {
@@ -43,126 +80,102 @@ describe("SEARCH_EMPLOYEES_TOOL", () => {
     expect(SEARCH_EMPLOYEES_TOOL.function.name).toBe("search_employees");
     expect(SEARCH_EMPLOYEES_TOOL.function.parameters).toHaveProperty("properties");
     expect(SEARCH_EMPLOYEES_TOOL.function.parameters.properties).toHaveProperty("domain");
-    expect(SEARCH_EMPLOYEES_TOOL.function.parameters.properties).toHaveProperty("skills");
+    expect(SEARCH_EMPLOYEES_TOOL.function.parameters.properties).toHaveProperty("name");
   });
 });
 
-describe("compressProfile", () => {
+describe("compressProfileFull / compressProfile", () => {
   it("includes outcome in case descriptions", () => {
-    const compressed = compressProfile(PROFILES[0]);
+    const compressed = compressProfileFull(PROFILES[0]);
     expect(compressed).toContain("outcome=closed");
   });
 
   it("includes userId and displayName", () => {
-    const compressed = compressProfile(PROFILES[0]);
+    const compressed = compressProfileFull(PROFILES[0]);
     expect(compressed).toContain("userId: emp_qa_001");
     expect(compressed).toContain("displayName: Test User");
   });
 
-  it("includes skillTags and strengths", () => {
-    const compressed = compressProfile(PROFILES[0]);
-    expect(compressed).toContain("skillTags:");
-    expect(compressed).toContain("strengths:");
+  it("includes background when present", () => {
+    const p = makeProfile({
+      userId: "u_bg",
+      selfProfile: {
+        ...PROFILES[0].selfProfile,
+        background: "Former QE lead in automotive.",
+      },
+    });
+    expect(compressProfile(p)).toContain("background:");
+    expect(compressProfile(p)).toContain("Former QE lead");
   });
 
   it("handles profile with empty cases", () => {
-    const compressed = compressProfile(PROFILES[1]);
-    expect(compressed).not.toContain("cases:");
+    const compressed = compressProfileFull(PROFILES[1]);
+    expect(compressed).not.toContain("cases:\n");
+  });
+});
+
+describe("compressProfileBrief", () => {
+  it("marks local flag", () => {
+    const line = compressProfileBrief(PROFILES[0], true);
+    expect(line).toContain("local=true");
+    const line2 = compressProfileBrief(PROFILES[0], false);
+    expect(line2).toContain("local=false");
+  });
+});
+
+describe("buildGetEmployeeDetailsHandler", () => {
+  it("returns compressed blocks per userId", () => {
+    const handler = buildGetEmployeeDetailsHandler(repoWithGet(PROFILES));
+    const out = handler({ userIds: ["emp_qa_001", "missing"] }) as { employees: string[] };
+    expect(out.employees).toHaveLength(2);
+    expect(out.employees[0]).toContain("emp_qa_001");
+    expect(out.employees[1]).toContain("missing");
   });
 });
 
 describe("buildSearchEmployeesHandler", () => {
-  const repo = { list: () => PROFILES };
+  const repo = repoWithGet(PROFILES);
   const handler = buildSearchEmployeesHandler(repo);
 
-  it("returns all candidates with empty args", () => {
-    const result = handler({}) as {
-      candidates: string[];
-      truncated: boolean;
-      total: number;
-    };
-    expect(result.total).toBe(5);
-    expect(result.truncated).toBe(false);
-    expect(result.candidates).toHaveLength(5);
-  });
-
-  it("filters by domain QUALITY", () => {
+  it("returns default list with soft hints only (no domain hard filter)", () => {
     const result = handler({ domain: "QUALITY" }) as {
       candidates: string[];
       truncated: boolean;
       total: number;
+      note?: string;
     };
-    expect(result.total).toBe(3);
+    expect(result.total).toBe(5);
+    expect(result.candidates).toHaveLength(5);
+    expect(result.truncated).toBe(false);
+    expect(result.note).toContain("domainHint=QUALITY");
+    expect(result.note).toContain("soft_hints_only_no_hard_filter");
   });
 
-  it("filters by domain RD", () => {
-    const result = handler({ domain: "RD" }) as {
-      candidates: string[];
-      truncated: boolean;
-      total: number;
-    };
-    expect(result.total).toBe(2);
+  it("includes skills and department hints in note without reducing total", () => {
+    const result = handler({
+      skills: ["8D"],
+      department: "软件部",
+      role: "Technician",
+    }) as { total: number; note?: string };
+    expect(result.total).toBe(5);
+    expect(result.note).toContain("skillsHint=8D");
+    expect(result.note).toContain("departmentHint=软件部");
+    expect(result.note).toContain("roleHint=Technician");
   });
 
-  it("filters by skills (any-of)", () => {
-    const result = handler({ skills: ["8D"] }) as {
-      candidates: string[];
-      total: number;
-    };
-    // emp_qa_001 and emp_qa_003 have 8D
-    expect(result.total).toBe(2);
-  });
-
-  it("filters by skills combined with domain", () => {
-    const result = handler({ domain: "QUALITY", skills: ["8D"] }) as {
-      candidates: string[];
-      total: number;
-    };
-    expect(result.total).toBe(2);
-  });
-
-  it("filters by exact department", () => {
-    const result = handler({ department: "软件部" }) as {
-      candidates: string[];
-      total: number;
-    };
-    expect(result.total).toBe(1);
-    expect(result.candidates[0]).toContain("emp_rd_002");
-  });
-
-  it("filters by role", () => {
-    const result = handler({ role: "Technician" }) as {
-      candidates: string[];
-      total: number;
-    };
-    expect(result.total).toBe(1);
-  });
-
-  it("sets truncated flag when over limit", () => {
+  it("sets truncated when over default cap", () => {
     const manyProfiles: EmployeeProfileRecord[] = [];
-    for (let i = 0; i < 35; i++) {
-      manyProfiles.push(
-        makeProfile({ userId: `emp_${i}`, department: "质量部", role: "Engineer" }),
-      );
+    for (let i = 0; i < 120; i++) {
+      manyProfiles.push(makeProfile({ userId: `emp_pad_${String(i).padStart(3, "0")}`, department: "质量部", role: "Engineer" }));
     }
-    const bigRepo = { list: () => manyProfiles };
-    const bigHandler = buildSearchEmployeesHandler(bigRepo);
-    const result = bigHandler({ domain: "QUALITY" }) as {
+    const bigHandler = buildSearchEmployeesHandler(repoWithGet(manyProfiles));
+    const result = bigHandler({}) as {
       candidates: string[];
       truncated: boolean;
       total: number;
     };
-    expect(result.total).toBe(35);
+    expect(result.total).toBe(120);
     expect(result.truncated).toBe(true);
-    expect(result.candidates).toHaveLength(30);
-  });
-
-  it("returns empty candidates when no match", () => {
-    const result = handler({ role: "NonexistentRole" }) as {
-      candidates: string[];
-      total: number;
-    };
-    expect(result.total).toBe(0);
-    expect(result.candidates).toHaveLength(0);
+    expect(result.candidates.length).toBeLessThanOrEqual(100);
   });
 });

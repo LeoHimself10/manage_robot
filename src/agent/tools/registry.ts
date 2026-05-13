@@ -1,5 +1,10 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
-import { SEARCH_EMPLOYEES_TOOL, buildSearchEmployeesHandler } from "../assignment/tools/search-employees";
+import {
+  SEARCH_EMPLOYEES_TOOL,
+  GET_EMPLOYEE_DETAILS_TOOL,
+  buildSearchEmployeesHandler,
+  buildGetEmployeeDetailsHandler,
+} from "../assignment/tools/search-employees";
 import type { EmployeeProfileRecord } from "../../integrations/repos/employee-profile-repo";
 import { SEARCH_WEB_TOOL, buildSearchWebHandler } from "./search-web";
 import { SAVE_DRAFT_TOOL, buildSaveDraftHandler } from "./save-draft";
@@ -83,7 +88,10 @@ export interface ToolRegistryEntry {
 }
 
 export interface ToolRegistryDeps {
-  employeeRepo: { list(): EmployeeProfileRecord[] };
+  employeeRepo: {
+    list(): EmployeeProfileRecord[];
+    get?(userId: string): EmployeeProfileRecord | undefined;
+  };
   onDraftSaved?: (draft: Record<string, unknown>) => void;
   toolProfile?: ToolProfile;
   trustedActorUserId?: string;
@@ -111,10 +119,20 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   const notifyEmployeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
   const notifier = createWorkbenchPublishNotifier();
 
+  const employeeRepoResolved = {
+    list: () => deps.employeeRepo.list(),
+    get: (userId: string) =>
+      deps.employeeRepo.get?.(userId) ?? deps.employeeRepo.list().find((p) => p.userId === userId),
+  };
+
   const all: Record<string, ToolRegistryEntry> = {
     search_employees: {
       definition: SEARCH_EMPLOYEES_TOOL,
-      handler: buildSearchEmployeesHandler(deps.employeeRepo),
+      handler: buildSearchEmployeesHandler(employeeRepoResolved, { actorUserId: trustedActor }),
+    },
+    get_employee_details: {
+      definition: GET_EMPLOYEE_DETAILS_TOOL,
+      handler: buildGetEmployeeDetailsHandler(employeeRepoResolved),
     },
     search_similar_plans: {
       definition: SEARCH_SIMILAR_PLANS_TOOL,
@@ -255,6 +273,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   const profileTools: Record<ToolProfile, string[]> = {
     planner: [
       "search_employees",
+      "get_employee_details",
       "search_similar_plans",
       "search_web",
       "get_current_time",
@@ -268,6 +287,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "get_task_detail",
       "reassign_task",
       "search_employees",
+      "get_employee_details",
       "search_similar_plans",
       "search_web",
       "get_current_time",
@@ -285,6 +305,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "list_managers",
       "set_manager_permission",
       "search_employees",
+      "get_employee_details",
       "search_similar_plans",
       "search_web",
       "get_current_time",

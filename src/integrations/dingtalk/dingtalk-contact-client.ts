@@ -1,3 +1,5 @@
+import { logStructured } from "../../infra/logger";
+
 interface AccessTokenResp {
   accessToken?: string;
   access_token?: string;
@@ -44,6 +46,15 @@ interface DepartmentListResp {
   }>;
 }
 
+interface DepartmentGetResp {
+  errcode?: number;
+  errmsg?: string;
+  result?: {
+    dept_id?: number;
+    name?: string;
+  };
+}
+
 export interface DingTalkContactRecord {
   userId: string;
   unionId?: string;
@@ -87,6 +98,28 @@ function maskEmail(v?: string): string | undefined {
 
 export interface DingTalkContactClient {
   listAllEmployees(): Promise<DingTalkContactRecord[]>;
+}
+
+const UNKNOWN_DEPT = "未知部门";
+
+function resolveDepartmentNames(
+  departmentIds: string[],
+  deptIdToName: Map<number, string>,
+): string[] {
+  const uniqueSorted = Array.from(new Set(departmentIds.map((id) => String(id).trim()).filter(Boolean))).sort(
+    (a, b) => {
+      const na = Number(a);
+      const nb = Number(b);
+      if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
+      return a.localeCompare(b);
+    },
+  );
+  return uniqueSorted.map((id) => {
+    const num = Number(id);
+    const raw = Number.isFinite(num) ? deptIdToName.get(num) : undefined;
+    const name = typeof raw === "string" ? raw.trim() : "";
+    return name.length > 0 ? name : UNKNOWN_DEPT;
+  });
 }
 
 export function createDingTalkContactClient(fetchImpl: typeof fetch = fetch): DingTalkContactClient {
@@ -151,6 +184,28 @@ export function createDingTalkContactClient(fetchImpl: typeof fetch = fetch): Di
     };
   }
 
+  async function getDepartment(deptId: number): Promise<{ deptId: number; name?: string } | undefined> {
+    const token = await getAccessToken(false);
+    const res = await fetchImpl(
+      `https://oapi.dingtalk.com/topapi/v2/department/get?access_token=${encodeURIComponent(token)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dept_id: deptId }),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as DepartmentGetResp;
+    if (!res.ok || (typeof body.errcode === "number" && body.errcode !== 0)) {
+      return undefined;
+    }
+    const id = Number(body.result?.dept_id ?? deptId);
+    if (!Number.isFinite(id) || id <= 0) return undefined;
+    return {
+      deptId: id,
+      name: typeof body.result?.name === "string" ? body.result.name : undefined,
+    };
+  }
+
   async function listSubDepartments(
     deptId: number,
   ): Promise<Array<{ deptId: number; name?: string; parentId?: number }>> {
@@ -176,19 +231,29 @@ export function createDingTalkContactClient(fetchImpl: typeof fetch = fetch): Di
       .filter((item) => Number.isFinite(item.deptId) && item.deptId > 0);
   }
 
-  async function collectDepartmentIds(rootDeptId: number): Promise<number[]> {
+  async function collectDepartmentTree(rootDeptId: number): Promise<{
+    deptIds: number[];
+    deptIdToName: Map<number, string>;
+  }> {
+    const idToName = new Map<number, string>();
+    const rootMeta = await getDepartment(rootDeptId);
+    if (rootMeta?.name?.trim()) idToName.set(rootDeptId, rootMeta.name.trim());
+
     const discovered = new Set<number>([rootDeptId]);
     const queue: number[] = [rootDeptId];
     while (queue.length > 0 && discovered.size < 5000) {
       const current = queue.shift() as number;
       const subs = await listSubDepartments(current);
       for (const sub of subs) {
-        if (discovered.has(sub.deptId)) continue;
-        discovered.add(sub.deptId);
-        queue.push(sub.deptId);
+        const name = typeof sub.name === "string" && sub.name.trim() ? sub.name.trim() : UNKNOWN_DEPT;
+        idToName.set(sub.deptId, name);
+        if (!discovered.has(sub.deptId)) {
+          discovered.add(sub.deptId);
+          queue.push(sub.deptId);
+        }
       }
     }
-    return Array.from(discovered);
+    return { deptIds: Array.from(discovered), deptIdToName: idToName };
   }
 
   return {
@@ -199,7 +264,7 @@ export function createDingTalkContactClient(fetchImpl: typeof fetch = fetch): Di
         throw new Error(`Invalid DINGTALK_CONTACT_ROOT_DEPT_ID: ${rootDeptIdRaw}`);
       }
       const outByUserId = new Map<string, DingTalkContactRecord>();
-      const deptIds = await collectDepartmentIds(rootDeptId);
+      const { deptIds, deptIdToName } = await collectDepartmentTree(rootDeptId);
       for (const deptId of deptIds) {
         let cursor = 0;
         const pageSize = 100;
@@ -213,13 +278,13 @@ export function createDingTalkContactClient(fetchImpl: typeof fetch = fetch): Di
             const deptIdStrings = Array.isArray(deptValues)
               ? deptValues.map((id) => String(id))
               : [String(deptId)];
+            const deptNames = resolveDepartmentNames(deptIdStrings, deptIdToName);
             const next: DingTalkContactRecord = {
               userId,
               unionId: typeof row?.unionid === "string" ? row.unionid : undefined,
               name: String(row?.name ?? userId),
               departmentIds: deptIdStrings,
-              // DingTalk user list does not always include department names; keep ids here.
-              departmentNames: [],
+              departmentNames: deptNames,
               position:
                 typeof row?.title === "string" && row.title.trim()
                   ? row.title
@@ -240,10 +305,12 @@ export function createDingTalkContactClient(fetchImpl: typeof fetch = fetch): Di
               outByUserId.set(userId, next);
             } else {
               const mergedDeptIds = Array.from(new Set([...existing.departmentIds, ...next.departmentIds]));
+              const mergedNames = resolveDepartmentNames(mergedDeptIds, deptIdToName);
               outByUserId.set(userId, {
                 ...existing,
                 ...next,
                 departmentIds: mergedDeptIds,
+                departmentNames: mergedNames,
               });
             }
           }
@@ -251,7 +318,23 @@ export function createDingTalkContactClient(fetchImpl: typeof fetch = fetch): Di
           cursor += pageSize;
         }
       }
-      return Array.from(outByUserId.values());
+      const contacts = Array.from(outByUserId.values());
+      let contactsWithMissingDeptName = 0;
+      for (const c of contacts) {
+        if (
+          c.departmentNames.length === 0 ||
+          c.departmentNames.every((n) => n === UNKNOWN_DEPT || !String(n).trim())
+        ) {
+          contactsWithMissingDeptName += 1;
+        }
+      }
+      logStructured({
+        event: "dingtalk_contact_list_complete",
+        deptMapSize: deptIdToName.size,
+        contactsWithMissingDeptName,
+        totalContacts: contacts.length,
+      });
+      return contacts;
     },
   };
 }

@@ -21,7 +21,7 @@
 - **主链路**：钉钉消息 → **`runOrchestrator`（ReAct loop + tool calling）**→ 结构化草案补表 + 可选指派推荐 + Plan 快照。`createTaskPlanningDemo` 保留给 CLI/demo/eval 回归链路。
 - **模型**：DashScope OpenAI 兼容接口；仓库默认策略见 `model-policy.ts`。线上可通过 **`QWEN_MODEL`** 切换（例如 **`qwen3.6-flash`** 降低延迟，需自行验证工具调用与草案质量）。钉钉链路默认 **`DINGTALK_QWEN_THINKING=0`**（关闭 thinking 以降低首包时延）；全局 `QWEN_THINKING` 仍可按环境关闭。
 - **提示词**：钉钉 / ReAct 主链路使用 `orchestrator-agent-v5.7`（`buildQwenPlannerSystemPrompt`，含 planner / manager / employee profile）；`generateStructuredPlan` 单次 JSON 链路（`demo` CLI、`demo:eval`、调试脚本）使用独立的 `legacy-demo-planner-v1`（`buildLegacyDemoPlannerSystemPrompt`），描述完整 classification / tasks[*].id / capaAdvisory(QUALITY) / gateSelfCheck schema，与 orchestrator 解耦。
-- **工具**（`src/agent/tools/`）：按 profile 暴露。ReAct 主链路已改为**最终 JSON 直接输出 `draft`**（不再依赖 `save_draft` 工具回合）。`planner` 默认 `search_employees` / `search_similar_plans` / 条件开放 `search_web` / `get_current_time` / `update_known_facts` / `list_known_facts`（共 6 个）；`manager` 在此基础上提供发布与管理工具（共 11 个）；`admin` 再追加管理视角工具（共 15 个）；`employee` 提供 `list_my_tasks` / `submit_employee_response` / `submit_progress_update` / `update_employee_profile` 等员工侧工具。`search_web` 受 `SEARCH_WEB_ENABLED` 与请求语义双重约束。
+- **工具**（`src/agent/tools/`）：按 profile 暴露。ReAct 主链路已改为**最终 JSON 直接输出 `draft`**（不再依赖 `save_draft` 工具回合）。`planner` 默认 `search_employees` / `get_employee_details` / `search_similar_plans` / 条件开放 `search_web` / `get_current_time` / `update_known_facts` / `list_known_facts`（共 7 个）；`manager` 在此基础上提供发布与管理工具（共 12 个）；`admin` 再追加管理视角工具（共 16 个）；`employee` 提供 `list_my_tasks` / `submit_employee_response` / `submit_progress_update` / `update_employee_profile` 等员工侧工具。`search_web` 受 `SEARCH_WEB_ENABLED` 与请求语义双重约束。
 - **钉钉角色路由**：`DINGTALK_ROLE_ROUTING_ENABLED=1` 时，钉钉入口按身份动态路由 `manager/employee/planner` profile；默认关闭时保持固定 `planner`（兼容旧行为）。
 - **短期记忆**：`knownFacts[]`（session-store），模型通过 `update_known_facts` / `list_known_facts` 自主维护。
 - **长期记忆**：`plan-index.ts`（embedding + cosine 文件遍历），`search_similar_plans` 工具触发。
@@ -42,8 +42,8 @@
 ### 调用链
 
 1. **先生成草案**：`runOrchestrator` 先返回 `message + draft`。
-2. **同请求内追加推荐**：当 `ASSIGNMENT_PHASE_ENABLED=1` 且有 `draft` 时，`dingtalk-bot` 内 `await runAssignmentRecommendation(...)`，成功则把“分配建议”表直接拼到同一条回复 Markdown 中。
-3. **`runAssignmentRecommendation`**：第二次 LLM 调用（规划之后的独立调用），采用 **单轮 function calling**（`search_employees` 工具）。模型根据草案内容与人员库信息，推荐合适的人员分配。
+2. **同请求内追加分配预览**：当 `ASSIGNMENT_PHASE_ENABLED=1` 且有 `draft` 时，`dingtalk-bot` 从 orchestrator 返回的 `assignment` JSON 做轻量校验（`extractLightAssignment`），成功则把「分配建议」段落拼入同一条 Markdown。
+3. **`runAssignmentRecommendation`**（测试与可选独立调用）：第二次 LLM 调用，**function calling** 暴露 `search_employees` + **`get_employee_details`**；`search_employees` 默认宽名单 + 本部门优先提示，`get_employee_details` 用于写 rationale 前拉全量画像。主链路钉钉侧当前多从 orchestrator 的 `assignment` JSON 取轻量分配表（见 `dingtalk-bot` / `light-assignment`）。
 4. **结构自纠正**：Schema 校验失败时进行 **1 轮重试**（将校验错误反馈给模型要求修正）。若仍失败，放弃本轮推荐。
 5. **签名 Web 工作台**：生成 **HMAC-SHA256** 签名的工作台 URL（**30 分钟 TTL**，**manager 角色**），发起人可点击链接查看并调整推荐。
 6. **Mock 钉钉交互卡片**：在 `DINGTALK_ASSIGNMENT_MOCK=1` 下，使用本地 mock 的钉钉交互卡片进行预览，无需真实钉钉卡片回调。
@@ -61,6 +61,10 @@
 | `ASSIGNMENT_WEB_PUBLIC_BASE_URL` | 否 | 工作台公网地址（ECS 公网 host） |
 | `ASSIGNMENT_WEB_SECRET` | 否 | HMAC-SHA256 签名密钥 |
 | `DINGTALK_ASSIGNMENT_MOCK` | 否 | `1` 启用 mock 钉钉交互卡片 |
+| `PROFILE_CASE_WORKER_ENABLED` | 否 | `1`（默认）子任务 **DONE** 后异步写 `cases_json` + `CASE_FROM_WORKBENCH_DONE` 事件；`0` 关闭 |
+| `PROFILE_CASE_WORKER_MODEL` | 否 | 覆盖抽取用模型（默认与 `QWEN_MODEL` 一致） |
+| `PROFILE_CASE_WORKER_SKILL_LOG` | 否 | `1` 时仅打结构化 `profile_case_worker_skill_hint` 日志（旁路技能词启发，不落库） |
+| `WORKBENCH_MANAGER_PROFILE_VERIFY_ENABLED` | 否 | `1` 预留开启主管核验 API（仍为 501 stub）；默认关闭见 `docs/workbench-manager-profile-verify-deferred.md` |
 
 ## Agent Harness 基线
 
@@ -71,7 +75,7 @@
 - **护栏**：PII 脱敏（`content-filter.ts`）、会话限速（`session-store.ts`）；`save_draft` 以“保存优先、结构归一化优先”为主，尽量减少硬门禁阻断模型。
 - **审计**：每次 orchestrator 完成写 `orchestrator_done` 事件（含 traceId/toolCallsTotal/hasDraft/messageChars）。`appendDemoRunAudit` 主要用于 `createTaskPlanningDemo` demo/eval 链路。
 - **会话**：`knownFacts[]` 模型自主维护，TTL 30min。`conversationState` 用于 digest 拼接。
-- **指派**：`ASSIGNMENT_PHASE_ENABLED=1` 时，当前在同一请求内同步运行 `runAssignmentRecommendation` 并拼接分配建议。
+- **指派**：`ASSIGNMENT_PHASE_ENABLED=1` 时，在同一请求内由 orchestrator 产出 `assignment` JSON，经 `extractLightAssignment` 校验后拼入分配建议段落（`runAssignmentRecommendation` 仍保留给测试/独立调用，含 `search_employees` + `get_employee_details`）。
 
 ### 编排方式
 - 单次 `callWithTools`，模型自主决定调多少轮工具（默认 max 6 iterations）。

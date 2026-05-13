@@ -76,8 +76,8 @@ V1 聚焦：
 ### 4.5 Assignment Recommender（人岗推荐）— v0.2 已实现
 
 **已落地**（`src/agent/assignment/`）：
-- **独立 LLM 调用**：`runAssignmentRecommendation` 在草案生成后触发；当前 `dingtalk-bot` 主链路在同请求内等待该结果并拼接“分配建议”。
-- **单轮 function calling**：QwenCompatibleClient 新增 `callWithTools` 方法，暴露 `search_employees(domain?, skills?, department?, role?)` 工具；LLM 调一次工具获取候选人压缩画像后再生成 `AssignmentDraft`。
+- **现网钉钉主路径**：orchestrator 在 ReAct loop 中自主调用 `search_employees` + `get_employee_details`，把分配结果作为 `assignment` JSON 输出；`dingtalk-bot` 经 `extractLightAssignment` 校验后拼入回复（无第二次 LLM 调用）。
+- **`runAssignmentRecommendation`**（备用 / 测试）：function calling 暴露 `search_employees` + `get_employee_details`；`search_employees` 默认宽名单 + 本部门优先提示（不再硬过滤 domain/skills/department/role），`get_employee_details` 在写 rationale 前拉完整 cases/background。Prompt 版本 `assignment-recommender-agent-v0.3.0`。
 - **1 轮 self-correction**：schema validate 失败时把错误描述回传 LLM 修正。
 - **10 名假员工档案**（`fixtures/employees-seed.json`），覆盖质量/研发/供应商/项目管理角色，含 cases（taskType → outcome）、skills、availability。
 - **签名 Web 工作台**：HMAC-SHA256 签名的 URL（30min TTL，manager 角色），GET 骨架页面；`handleAssignmentHttp` 与 `/health` 同端口共存。

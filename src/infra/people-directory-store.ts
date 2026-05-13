@@ -50,7 +50,12 @@ export interface EmployeeCapabilityProfileRow {
 export interface EmployeeDirectorySnapshot {
   userId: string;
   displayName: string;
+  /** Primary display name (first department) */
   department: string;
+  /** All synced department IDs (for server-side filtering) */
+  departmentIds?: string[];
+  /** All synced department names (aligned with departmentIds when possible) */
+  departmentNames?: string[];
   role: string;
   level?: string;
   managerUserId?: string;
@@ -63,6 +68,7 @@ export interface EmployeeDirectorySnapshot {
     cases: EmployeeCapabilityProfileRow["cases"];
     tools: string[];
     availability: EmployeeCapabilityProfileRow["availability"];
+    background?: string;
   };
   taskHistory: {
     totalAssigned: number;
@@ -108,6 +114,23 @@ function parseObject<T extends object>(value: unknown, fallback: T): T {
 function asString(value: unknown): string | undefined {
   const normalized = String(value ?? "").trim();
   return normalized || undefined;
+}
+
+/** Merge case lists by `outcome` (trimmed); later entries win. */
+export function mergeCasesByOutcome(
+  existing: EmployeeCapabilityProfileRow["cases"],
+  incoming: EmployeeCapabilityProfileRow["cases"],
+): EmployeeCapabilityProfileRow["cases"] {
+  const map = new Map<string, EmployeeCapabilityProfileRow["cases"][number]>();
+  for (const c of existing) {
+    const k = String(c.outcome ?? "").trim();
+    if (k) map.set(k, c);
+  }
+  for (const c of incoming) {
+    const k = String(c.outcome ?? "").trim();
+    if (k) map.set(k, c);
+  }
+  return Array.from(map.values());
 }
 
 export function createPeopleDirectoryStore(dbPath = resolveWorkbenchSqlitePath()) {
@@ -290,6 +313,8 @@ export function createPeopleDirectoryStore(dbPath = resolveWorkbenchSqlitePath()
       userId: contact?.userId ?? profile?.userId ?? "",
       displayName: contact?.name ?? profile?.userId ?? "",
       department: contact?.departmentNames?.[0] ?? "未分配部门",
+      departmentIds: contact?.departmentIds?.length ? [...contact.departmentIds] : undefined,
+      departmentNames: contact?.departmentNames?.length ? [...contact.departmentNames] : undefined,
       role: contact?.position ?? "Employee",
       level: undefined,
       managerUserId: undefined,
@@ -302,6 +327,7 @@ export function createPeopleDirectoryStore(dbPath = resolveWorkbenchSqlitePath()
         cases: profile?.cases ?? [],
         tools: profile?.tools ?? [],
         availability: profile?.availability ?? {},
+        background: profile?.background,
       },
       taskHistory: {
         totalAssigned: 0,
@@ -416,6 +442,94 @@ export function createPeopleDirectoryStore(dbPath = resolveWorkbenchSqlitePath()
         input.managerVerifiedBy ?? null,
         updatedAt,
       );
+    },
+
+    /**
+     * Employee self-service PATCH merge: omitted JSON fields keep DB values;
+     * `cases: []` does not wipe agent-populated cases; non-empty `cases` merges by outcome.
+     * `manager_verified_*` are never cleared by this path (employee cannot unset).
+     */
+    mergeSelfServiceProfile(userId: string, body: Record<string, unknown>): void {
+      const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
+      const existing = this.getProfile(userId);
+      const base: EmployeeCapabilityProfileRow = existing ?? {
+        userId,
+        skillTags: [],
+        strengths: [],
+        boundaries: [],
+        cases: [],
+        tools: [],
+        availability: {},
+        updatedAt: nowIso(),
+      };
+
+      const toStringArray = (value: unknown): string[] =>
+        Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+
+      const skillTags = has("skillTags") ? toStringArray(body.skillTags) : base.skillTags;
+      const strengths = has("strengths") ? toStringArray(body.strengths) : base.strengths;
+      const boundaries = has("boundaries") ? toStringArray(body.boundaries) : base.boundaries;
+      const tools = has("tools") ? toStringArray(body.tools) : base.tools;
+
+      let availability = base.availability;
+      if (has("availability") && body.availability && typeof body.availability === "object") {
+        const ar = body.availability as Record<string, unknown>;
+        availability = {
+          capacityHint:
+            ar.capacityHint !== undefined
+              ? String(ar.capacityHint ?? "").trim() || undefined
+              : base.availability.capacityHint,
+          emergencyOk:
+            typeof ar.emergencyOk === "boolean" ? ar.emergencyOk : base.availability.emergencyOk,
+          rejectedTaskTypes:
+            ar.rejectedTaskTypes !== undefined
+              ? toStringArray(ar.rejectedTaskTypes)
+              : base.availability.rejectedTaskTypes,
+        };
+        if (!availability.capacityHint) delete availability.capacityHint;
+        if (availability.emergencyOk === undefined) delete availability.emergencyOk;
+        if (!availability.rejectedTaskTypes?.length) delete availability.rejectedTaskTypes;
+      }
+
+      let cases = base.cases;
+      if (has("cases") && Array.isArray(body.cases)) {
+        const incoming: EmployeeCapabilityProfileRow["cases"] = [];
+        for (const item of body.cases as unknown[]) {
+          const row = item as Record<string, unknown>;
+          const taskType = String(row.taskType ?? "").trim();
+          const outcome = String(row.outcome ?? "").trim();
+          if (!taskType || !outcome) continue;
+          incoming.push({
+            taskType,
+            contribution: String(row.contribution ?? "").trim() || undefined,
+            deliverable: String(row.deliverable ?? "").trim() || undefined,
+            outcome,
+          });
+        }
+        if (incoming.length > 0) {
+          cases = mergeCasesByOutcome(base.cases, incoming);
+        }
+      }
+
+      let background = base.background;
+      if (has("background")) {
+        background = typeof body.background === "string" ? body.background : base.background;
+      }
+
+      this.upsertProfile({
+        userId,
+        skillTags,
+        strengths,
+        boundaries,
+        cases,
+        tools,
+        availability,
+        background,
+        source: "employee_self_service",
+        selfUpdatedAt: new Date().toISOString(),
+        managerVerifiedAt: base.managerVerifiedAt,
+        managerVerifiedBy: base.managerVerifiedBy,
+      });
     },
 
     getProfile(userId: string): EmployeeCapabilityProfileRow | undefined {

@@ -4,6 +4,10 @@ export interface EmployeeProfileRecord {
   userId: string;
   displayName: string;
   department: string;
+  /** DingTalk department IDs (when contact synced) */
+  departmentIds?: string[];
+  /** Parallel names to departmentIds */
+  departmentNames?: string[];
   role: string;
   level?: string;
   managerUserId?: string;
@@ -24,6 +28,8 @@ export interface EmployeeProfileRecord {
       emergencyOk?: boolean;
       rejectedTaskTypes?: string[];
     };
+    /** Employee-authored narrative (when present in DB) */
+    background?: string;
   };
   taskHistory?: {
     totalAssigned: number;
@@ -42,6 +48,8 @@ export function createEmployeeProfileRepo(_profileDir?: string) {
       userId: snapshot.userId,
       displayName: snapshot.displayName || snapshot.userId,
       department: snapshot.department || "未分配部门",
+      departmentIds: snapshot.departmentIds,
+      departmentNames: snapshot.departmentNames,
       role: snapshot.role || "Employee",
       level: snapshot.level,
       managerUserId: snapshot.managerUserId,
@@ -58,6 +66,7 @@ export function createEmployeeProfileRepo(_profileDir?: string) {
         })),
         tools: snapshot.selfProfile.tools ?? [],
         availability: snapshot.selfProfile.availability ?? {},
+        background: snapshot.selfProfile.background,
       },
       taskHistory: snapshot.taskHistory,
     };

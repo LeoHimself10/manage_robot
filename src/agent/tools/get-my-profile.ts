@@ -34,6 +34,7 @@ export function buildGetMyProfileHandler(
         cases: [],
         tools: [],
         availability: {},
+        background: "",
       },
       updatedAt: peopleStore.getProfile(actorUserId)?.updatedAt ?? null,
     };

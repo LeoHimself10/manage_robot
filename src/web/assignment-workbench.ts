@@ -19,6 +19,7 @@ import {
 } from "../infra/workbench-formal-task-store";
 import { loadQwenPlannerConfigFromEnv } from "../agent/demo/qwen-planner";
 import { runOrchestrator } from "../agent/orchestrator";
+import { scheduleProfileCaseWorkerAfterDone } from "../agent/profile/profile-case-worker";
 import type { KnownFactsStore } from "../agent/tools/update-known-facts";
 import {
   DingTalkAuthError,
@@ -1512,66 +1513,20 @@ export function handleAssignmentHttp(
         const session = requireSession(req, res, "employee");
         if (!session) return;
         const body = await readJsonBody(req);
-        const toStringArray = (value: unknown): string[] =>
-          Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
-        const skillTags = toStringArray(body.skillTags);
-        const strengths = toStringArray(body.strengths);
-        const boundaries = toStringArray(body.boundaries);
-        const tools = toStringArray(body.tools);
-        const casesInput = Array.isArray(body.cases) ? body.cases : [];
-        const cases: Array<{
-          taskType: string;
-          contribution?: string;
-          deliverable?: string;
-          outcome: string;
-        }> = [];
-        for (const item of casesInput) {
-          const row = item as Record<string, unknown>;
-          const taskType = String(row.taskType ?? "").trim();
-          const outcome = String(row.outcome ?? "").trim();
-          if (!taskType || !outcome) continue;
-          cases.push({
-            taskType,
-            contribution: String(row.contribution ?? "").trim() || undefined,
-            deliverable: String(row.deliverable ?? "").trim() || undefined,
-            outcome,
-          });
-        }
-        const availabilityRaw =
-          body.availability && typeof body.availability === "object"
-            ? (body.availability as Record<string, unknown>)
-            : {};
-        const rejectedTaskTypes = toStringArray(availabilityRaw.rejectedTaskTypes);
-        const availability = {
-          capacityHint: String(availabilityRaw.capacityHint ?? "").trim() || undefined,
-          emergencyOk:
-            typeof availabilityRaw.emergencyOk === "boolean"
-              ? availabilityRaw.emergencyOk
-              : undefined,
-          rejectedTaskTypes,
-        };
         withPeopleDirectoryStore((store) => {
-          store.upsertProfile({
-            userId: session.userId,
-            skillTags,
-            strengths,
-            boundaries,
-            cases,
-            tools,
-            availability,
-            source: "employee_self_service",
-            selfUpdatedAt: new Date().toISOString(),
-          });
+          store.mergeSelfServiceProfile(session.userId, body as Record<string, unknown>);
+          const after = store.getProfile(session.userId);
           store.appendProfileEvent({
             userId: session.userId,
             eventType: "employee_profile_updated",
             actorUserId: session.userId,
             payload: {
-              skillTagsCount: skillTags.length,
-              strengthsCount: strengths.length,
-              boundariesCount: boundaries.length,
-              toolsCount: tools.length,
-              casesCount: cases.length,
+              skillTagsCount: after?.skillTags.length ?? 0,
+              strengthsCount: after?.strengths.length ?? 0,
+              boundariesCount: after?.boundaries.length ?? 0,
+              toolsCount: after?.tools.length ?? 0,
+              casesCount: after?.cases.length ?? 0,
+              backgroundChars: after?.background?.length ?? 0,
             },
           });
         });
@@ -1754,6 +1709,31 @@ export function handleAssignmentHttp(
 
   if (
     req.method === "POST"
+    && url.pathname === "/api/workbench/manager/profile-verify"
+  ) {
+    void (async () => {
+      const session = requireSession(req, res, "manager");
+      if (!session) return;
+      if (process.env.WORKBENCH_MANAGER_PROFILE_VERIFY_ENABLED !== "1") {
+        writeJson(res, 501, {
+          ok: false,
+          deferred: true,
+          error:
+            "Manager profile verification is deferred. See docs/workbench-manager-profile-verify-deferred.md",
+        });
+        return;
+      }
+      writeJson(res, 501, {
+        ok: false,
+        error: "not_implemented",
+        message: "WORKBENCH_MANAGER_PROFILE_VERIFY_ENABLED is set but server stub is not yet implemented.",
+      });
+    })();
+    return true;
+  }
+
+  if (
+    req.method === "POST"
     && (url.pathname === "/api/workbench/employee/progress"
       || url.pathname === "/api/workbench/employee/subtasks/progress")
   ) {
@@ -1822,6 +1802,12 @@ export function handleAssignmentHttp(
           progressStatus,
           updatedAt: now,
         });
+        if (progressStatus === "DONE") {
+          scheduleProfileCaseWorkerAfterDone({
+            subtaskId: targetSubtaskId,
+            assigneeUserId: session.userId,
+          });
+        }
       } catch (err) {
         writeJson(res, 400, {
           ok: false,
