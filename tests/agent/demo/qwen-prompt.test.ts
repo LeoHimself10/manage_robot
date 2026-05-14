@@ -7,7 +7,7 @@ import {
 describe("buildQwenPlannerSystemPrompt", () => {
   it("v4.1: first-round-question, second-round-draft prompt", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.8");
+    expect(sys).toContain("orchestrator-agent-v5.9");
     expect(sys).toContain("search_web");
     expect(sys).toContain("deliverables");
     expect(sys).toContain("待确认");
@@ -24,9 +24,10 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("start_new_task");
     expect(sys).toContain("switch_back_task");
     expect(sys).toContain("update_draft_task");
-    // v5.8 + 主管上传花名册纪律段（candidate-pool 工具族）后基线约 4500 字符。
+    expect(sys).toContain("不设固定上限");
+    // v5.9 + 拆解粒度段 + 花名册纪律后基线约 4600+ 字符。
     // 阈值是反 bloat 的安全兜底，不强求绝对值。
-    expect(sys.length).toBeLessThanOrEqual(4600);
+    expect(sys.length).toBeLessThanOrEqual(4750);
     expect(sys).toContain("read_uploaded_roster_text");
     expect(sys).toContain("set_candidate_pool");
   });

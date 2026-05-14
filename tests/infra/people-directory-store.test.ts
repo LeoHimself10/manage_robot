@@ -71,4 +71,34 @@ describe("people-directory-store", () => {
     expect(store.listEmployeeSnapshots({ includeInactive: true })).toHaveLength(1);
     store.close();
   });
+
+  it("searchContacts matches department name elements, not unrelated JSON substrings", () => {
+    const store = createStore();
+    store.upsertContact({
+      userId: "fiber-1",
+      name: "产线同事",
+      departmentIds: ["d1"],
+      departmentNames: ["光纤生产线"],
+      position: "操作员",
+      active: true,
+      isAdmin: false,
+      isBoss: false,
+      isSenior: false,
+    });
+    store.upsertContact({
+      userId: "qa-1",
+      name: "质量同事",
+      departmentIds: ["d2"],
+      departmentNames: ["质量部"],
+      position: "工程师",
+      active: true,
+      isAdmin: false,
+      isBoss: false,
+      isSenior: false,
+    });
+    const hits = store.searchContacts("质量部", 50).map((c) => c.userId);
+    expect(hits).toContain("qa-1");
+    expect(hits).not.toContain("fiber-1");
+    store.close();
+  });
 });

@@ -24,10 +24,10 @@ A="$(curl -sS -b "$TMP/adm" "$BASE/workbench/admin")"
 echo "$A" | grep -Fq "saveManagerBtn').addEventListener" \
   || { echo "fail: admin saveManagerBtn missing"; exit 1; }
 
-E="$(curl -sS -b "$TMP/emp" "$BASE/workbench/employee/current")"
+E="$(curl -sS -L -b "$TMP/emp" "$BASE/workbench/employee?view=current")"
 if echo "$E" | grep -q 'href="/workbench/employee/current?tab=progress"'; then echo "fail: employee nav still links tab=progress"; exit 1; fi
 if echo "$E" | grep -q 'href="/workbench/employee/current?tab=profile"'; then echo "fail: employee nav still links tab=profile"; exit 1; fi
-echo "$E" | grep -q 'id="empTabProgress"' || { echo "fail: employee empTabProgress missing"; exit 1; }
+echo "$E" | grep -q 'id="panelCur"' || { echo "fail: employee panelCur missing"; exit 1; }
 
 curl -sS -b "$TMP/mgr" "$BASE/api/workbench/manager/tasks" | grep -q '"ok":true' || { echo "fail: manager tasks API"; exit 1; }
 curl -sS -b "$TMP/mgr" "$BASE/api/workbench/manager/tasks" | grep -q '"tasks"' || { echo "fail: manager tasks field"; exit 1; }

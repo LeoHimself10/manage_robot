@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+import { presentWorkbenchTaskEvent } from "../../src/infra/workbench-event-present";
+
+describe("workbench-event-present", () => {
+  it("formats SUBTASK_ACCEPTED", () => {
+    const e = presentWorkbenchTaskEvent({
+      event_type: "SUBTASK_ACCEPTED",
+      occurred_at: "2026-01-01T00:00:00.000Z",
+      actor_user_id: "u1",
+      note: "ok",
+      payload_json: "{}",
+    });
+    expect(e.title).toContain("接受");
+    expect(e.severity).toBe("info");
+  });
+
+  it("puts raw error into detail for EMPLOYEE_NOTIFY_FAILED", () => {
+    const raw = '400 {"err":"x"}';
+    const e = presentWorkbenchTaskEvent({
+      event_type: "EMPLOYEE_NOTIFY_FAILED",
+      occurred_at: "2026-01-01T00:00:00.000Z",
+      actor_user_id: "sys",
+      note: raw,
+      payload_json: null,
+    });
+    expect(e.detail).toBe(raw);
+    expect(e.summary).not.toContain("400 {");
+  });
+
+  it("covers unknown event types", () => {
+    const e = presentWorkbenchTaskEvent({
+      event_type: "CUSTOM_X",
+      occurred_at: "2026-01-01T00:00:00.000Z",
+      actor_user_id: "u1",
+      note: "hello",
+      payload_json: null,
+    });
+    expect(e.title).toBeTruthy();
+    expect(e.summary).toContain("hello");
+  });
+});

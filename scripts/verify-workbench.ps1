@@ -25,10 +25,10 @@ try {
   $admHtml = curl.exe -sS -b (Join-Path $tmp "cookie-adm.txt") "$Base/workbench/admin"
   if ($admHtml -notmatch "getElementById\('saveManagerBtn'\)\.addEventListener") { throw "admin saveManagerBtn missing" }
 
-  $empHtml = curl.exe -sS -b (Join-Path $tmp "cookie-emp.txt") "$Base/workbench/employee/current"
+  $empHtml = curl.exe -sS -L -b (Join-Path $tmp "cookie-emp.txt") "$Base/workbench/employee?view=current"
   if ($empHtml -match 'href="/workbench/employee/current\?tab=progress"') { throw "employee nav still has progress deep-link" }
   if ($empHtml -match 'href="/workbench/employee/current\?tab=profile"') { throw "employee nav still has profile deep-link" }
-  if ($empHtml -notmatch 'id="empTabProgress"') { throw "employee inner tab empTabProgress missing" }
+  if ($empHtml -notmatch 'id="panelCur"') { throw "employee unified panel panelCur missing" }
 
   foreach ($call in @(
       @{ url = "$Base/api/workbench/manager/tasks"; cookie = "cookie-mgr.txt" },

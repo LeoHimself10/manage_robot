@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.8";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.9";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -28,6 +28,7 @@ function buildPlannerPromptBody(): string[] {
     "**userId 不入主消息**：自然语言段落（message Markdown）中**禁止出现 userId 字符串**（数字串如 641728622、或带前缀如 emp_/u_/user_ 的都不行），只能写「姓名（部门）」。userId 仅作为 search_employees / prepare_publish_task / update_draft_task 等工具的入参使用。",
     "ID 解析纪律：用户用人名/任务标题/关键词描述对象时，禁止反问用户索要 ID。必须先调查询工具把名字/关键词解析成具体 ID 再调动作工具——人名→search_employees（可选 name）/需要完整画像时→get_employee_details，主管自己的任务→list_managed_tasks，管理员看全量→admin_list_all_tasks，员工看本人任务→list_my_tasks，单任务详情→get_task_detail。只有查询结果为 0 或匹配到多条无法消歧时，才回问用户确认；仅在敏感动作 set_manager_permission 上必须拿到用户明确给出的 userId+enabled 才能执行。",
     "对话策略：若本轮语义是寒暄或新话题，应先确认新需求；仅在用户明确“继续上一条/按上个草案修改”时延续旧话题。",
+    "拆解粒度：draft.tasks 条数随案情复杂度伸缩，不设固定上限；简单单线可少量任务包，跨角色、多阶段、强依赖或验证链长时应细拆到每条可独立承接与验收，复杂案允许几十条；禁止为凑数重复堆砌，禁止为过短清单把多个独立动作硬合并成一条空泛大包。",
     "输出规则：关键信息不足时只给简短分析 + 追问；信息充分时给单张任务表；分配依据不足时明确“分配待确认”。",
     "task 字段要求：title、objective、deliverables、completionCriteria、timeNode.dueAt、feedbackFrequency 必须完整（日期不明写“待确认”）。",
     "工具速查：search_web / search_employees / get_employee_details / search_similar_plans / start_new_task / switch_back_task / update_draft_task；主管：list_managed_tasks / get_task_detail / reassign_task / prepare_publish_task / publish_task / read_uploaded_roster_text / set_candidate_pool / clear_candidate_pool / list_candidate_pool；员工：list_my_tasks / get_task_detail / get_my_profile / submit_employee_response / submit_progress_update；管理员：admin_list_all_tasks / get_metrics / list_managers / set_manager_permission。",

@@ -1,20 +1,13 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 
-function escapeHtml(v: string): string {
-  return v
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-export function renderEmployeeNewTasksPage(): string {
+/** Single-page employee workbench: `?view=new|current|history|profile` */
+export function renderEmployeeWorkbenchPage(): string {
   return `<!DOCTYPE html>
 <html lang="zh">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>新任务 · 员工工作台</title>
+<title>员工工作台</title>
 <style>${WORKBENCH_APP_BASE_CSS}</style>
 </head>
 <body>
@@ -22,279 +15,43 @@ export function renderEmployeeNewTasksPage(): string {
   <header class="topbar">
     <div>
       <div class="brand">员工工作台</div>
-      <h1 class="page-title">新分配的任务</h1>
-      <p class="page-desc">主管发布后的正式子任务。请在接受前核对标题与说明；拒绝或申请修改必须填写理由。</p>
+      <h1 class="page-title" id="empPageTitle">工作台</h1>
+      <p class="page-desc" id="empPageDesc">在下方切换视图。</p>
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="员工导航">
-        <a class="active" href="/workbench/employee/new">新任务</a>
-        <a href="/workbench/employee/current">当前任务</a>
+        <a id="navNew" href="/workbench/employee?view=new">新任务</a>
+        <a id="navCur" href="/workbench/employee?view=current">进行中</a>
+        <a id="navHist" href="/workbench/employee?view=history">已完成</a>
+        <a id="navProf" href="/workbench/employee?view=profile">能力画像</a>
       </nav>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
   </header>
 
-  <section class="kpis">
-    <div class="kpi"><div class="lbl">待处理数量</div><div class="val" id="kpiNew">—</div></div>
-    <div class="kpi"><div class="lbl">待确认</div><div class="val" id="kpiPending">—</div></div>
-    <div class="kpi"><div class="lbl">提示</div><div class="val" style="font-size:15px;font-weight:600;line-height:1.35;margin-top:8px;color:#64748b;">优先处理阻塞风险</div></div>
+  <section class="kpis" id="empKpis" style="display:none;">
+    <div class="kpi"><div class="lbl" id="kpiL1">—</div><div class="val" id="kpiV1">—</div></div>
+    <div class="kpi"><div class="lbl" id="kpiL2">—</div><div class="val" id="kpiV2">—</div></div>
+    <div class="kpi"><div class="lbl" id="kpiL3">—</div><div class="val" id="kpiV3" style="font-size:15px;font-weight:600;line-height:1.35;margin-top:8px;color:#64748b;">—</div></div>
   </section>
 
-  <div id="cardsMount"><div class="empty-state">加载中…</div></div>
-  <div class="feedback muted" id="listFeedback"></div>
-
-  <div class="card" id="actionPanel" style="display:none;">
-    <h3 id="actionTitle">补充说明</h3>
-    <div class="form-stack">
-      <label>说明（必填）
-        <textarea id="actionNote" placeholder="请填写拒绝理由、补充信息或修改诉求"></textarea>
-      </label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button type="button" class="btn btn-primary" id="confirmActionBtn">提交</button>
-        <button type="button" class="btn btn-secondary" id="cancelActionBtn">取消</button>
-      </div>
-      <div class="feedback muted" id="actionFeedback"></div>
-    </div>
+  <div id="panelNew" hidden>
+    <div id="cardsNew"><div class="empty-state">加载中…</div></div>
+    <div class="feedback muted" id="fbNew"></div>
   </div>
-</div>
-<script>
-(function () {
-  function newIdempotencyKey() {
-    try {
-      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-        return crypto.randomUUID();
-      }
-    } catch (e) {}
-    return 'idem-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
-  }
-  function escapeHtml(s) {
-    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-  function setFb(id, msg, kind) {
-    var el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = msg || '';
-    el.className = 'feedback ' + (kind || 'muted');
-  }
 
-  var pending = null;
+  <div id="panelCur" hidden>
+    <div id="cardsCur"><div class="empty-state">加载中…</div></div>
+    <div class="feedback muted" id="fbCur"></div>
+  </div>
 
-  async function loadNew() {
-    setFb('listFeedback', '加载中…', 'muted');
-    try {
-      var res = await fetch('/api/workbench/employee/tasks/new', { cache: 'no-store' });
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      var tasks = data.tasks || [];
-      var pend = tasks.filter(function (t) { return t.status === 'CHANGES_REQUESTED'; }).length;
-      document.getElementById('kpiNew').textContent = String(tasks.length);
-      document.getElementById('kpiPending').textContent = String(pend);
+  <div id="panelHist" hidden>
+    <div id="cardsHist"><div class="empty-state">加载中…</div></div>
+    <div class="feedback muted" id="fbHist"></div>
+  </div>
 
-      var mount = document.getElementById('cardsMount');
-      if (!tasks.length) {
-        mount.innerHTML = '<div class="empty-state">暂无新任务。请到「当前任务」查看进行中的工作。</div>';
-        setFb('listFeedback', '', 'muted');
-        return;
-      }
-
-      mount.innerHTML = '<div class="task-cards">' + tasks.map(function (t) {
-        var st = t.status === 'CHANGES_REQUESTED' ? '<span class="badge pending">待确认</span>' : '<span class="badge assigned">待处理</span>';
-        var mgr = (t.managerDisplayName || '').trim();
-        var mgrLine = mgr ? (' · 主管 ' + escapeHtml(mgr)) : '';
-        return '<article class="task-card" data-plan-id="' + escapeHtml(t.planId) + '" data-subtask-id="' + escapeHtml(t.subtaskId || '') + '">'
-          + '<div class="head"><div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' + st + '</div>'
-          + '<p class="title">' + escapeHtml(t.title || t.taskNo || '子任务') + '</p>'
-          + '<p class="meta">业务编号 <code>' + escapeHtml(t.taskNo || '—') + '</code>' + mgrLine + '</p></div></div>'
-          + '<div class="actions">'
-          + '<button type="button" class="btn btn-primary" data-act="accept">接受</button>'
-          + '<button type="button" class="btn btn-danger" data-act="reject">拒绝</button>'
-          + '<button type="button" class="btn btn-secondary" data-act="customize">补充信息</button>'
-          + '<button type="button" class="btn btn-secondary" data-act="request_changes">申请修改</button>'
-          + '</div></article>';
-      }).join('') + '</div>';
-
-      mount.querySelectorAll('.task-card').forEach(function (card) {
-        card.querySelectorAll('button[data-act]').forEach(function (btn) {
-          btn.addEventListener('click', function () {
-            var planId = card.getAttribute('data-plan-id') || '';
-            var subtaskId = card.getAttribute('data-subtask-id') || '';
-            var act = btn.getAttribute('data-act') || '';
-            if (act === 'accept') {
-              void submitDirect(planId, subtaskId, 'accept', '', { redirect: 'current' }).catch(function (e) {
-                setFb('listFeedback', String(e && e.message ? e.message : e), 'err');
-              });
-              return;
-            }
-            openPanel(planId, subtaskId, act);
-          });
-        });
-      });
-      setFb('listFeedback', '已更新', 'ok');
-    } catch (e) {
-      document.getElementById('cardsMount').innerHTML = '<div class="empty-state">加载失败</div>';
-      setFb('listFeedback', String(e && e.message ? e.message : e), 'err');
-    }
-  }
-
-  function openPanel(planId, subtaskId, action) {
-    pending = { planId: planId, subtaskId: subtaskId, action: action };
-    document.getElementById('actionNote').value = '';
-    document.getElementById('actionPanel').style.display = 'block';
-    var titles = {
-      reject: '拒绝任务（需填写理由）',
-      customize: '补充信息',
-      request_changes: '申请修改（需填写诉求）'
-    };
-    document.getElementById('actionTitle').textContent = titles[action] || '说明';
-    setFb('actionFeedback', '', 'muted');
-    document.getElementById('actionNote').focus();
-  }
-
-  function closePanel() {
-    pending = null;
-    document.getElementById('actionPanel').style.display = 'none';
-  }
-
-  async function submitDirect(planId, subtaskId, action, note, opts) {
-    var res = await fetch('/api/workbench/employee/subtasks/action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      cache: 'no-store',
-      body: JSON.stringify({
-        planId: planId,
-        subtaskId: subtaskId,
-        action: action,
-        note: note,
-        idempotencyKey: newIdempotencyKey()
-      })
-    });
-    var data = await res.json().catch(function () { return {}; });
-    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-    if (opts && opts.redirect === 'current') {
-      window.location.replace('/workbench/employee/current?_=' + Date.now());
-      return;
-    }
-    await loadNew();
-  }
-
-  document.getElementById('confirmActionBtn').addEventListener('click', async function () {
-    if (!pending) return;
-    var note = (document.getElementById('actionNote').value || '').trim();
-    if (!note) {
-      setFb('actionFeedback', '请填写说明', 'err');
-      return;
-    }
-    setFb('actionFeedback', '提交中…', 'muted');
-    try {
-      await submitDirect(pending.planId, pending.subtaskId, pending.action, note);
-      closePanel();
-      await loadNew();
-    } catch (e) {
-      setFb('actionFeedback', String(e && e.message ? e.message : e), 'err');
-    }
-  });
-
-  document.getElementById('cancelActionBtn').addEventListener('click', closePanel);
-
-  document.getElementById('logoutBtn').addEventListener('click', async function () {
-    await fetch('/api/workbench/logout', { method: 'POST', cache: 'no-store' });
-    window.location.href = '/workbench';
-  });
-
-  function bustNavigate(href) {
-    try {
-      var u = new URL(href, window.location.origin);
-      if (String(u.searchParams.get('_') || '').trim() === '') {
-        u.searchParams.set('_', String(Date.now()));
-      }
-      window.location.replace(u.pathname + u.search + u.hash);
-    } catch (e) {
-      var sep = href.indexOf('?') >= 0 ? '&' : '?';
-      window.location.replace(href + sep + '_=' + Date.now());
-    }
-  }
-  document.querySelectorAll('.nav-pills a[href^="/workbench/employee"]').forEach(function (a) {
-    a.addEventListener('click', function (ev) {
-      var href = a.getAttribute('href') || '';
-      if (href.indexOf('/workbench/employee') !== 0) return;
-      ev.preventDefault();
-      bustNavigate(href);
-    });
-  });
-
-  void loadNew();
-})();
-</script>
-</body>
-</html>`;
-}
-
-export function renderEmployeeCurrentTasksPage(): string {
-  return `<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>当前任务 · 员工工作台</title>
-<style>${WORKBENCH_APP_BASE_CSS}</style>
-</head>
-<body>
-<div class="app-shell">
-  <header class="topbar">
-    <div>
-      <div class="brand">员工工作台</div>
-      <h1 class="page-title">当前任务</h1>
-      <p class="page-desc">这里展示你在<strong>正式任务库</strong>中的在执行子任务。提交进度后主管可查看最新动态。</p>
-    </div>
-    <div class="top-actions">
-      <nav class="nav-pills" aria-label="员工导航">
-        <a href="/workbench/employee/new">新任务</a>
-        <a class="active" href="/workbench/employee/current">当前任务</a>
-      </nav>
-      <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
-    </div>
-  </header>
-
-  <div class="card">
-    <div class="tabs" role="tablist" aria-label="当前任务操作">
-      <button type="button" class="tabs-btn" role="tab" aria-selected="true" aria-controls="empPanelTasks" id="empTabTasks" data-tab-target="empPanelTasks">进行中的任务</button>
-      <button type="button" class="tabs-btn" role="tab" aria-selected="false" aria-controls="empPanelProgress" id="empTabProgress" data-tab-target="empPanelProgress">提交进度</button>
-      <button type="button" class="tabs-btn" role="tab" aria-selected="false" aria-controls="empPanelProfile" id="empTabProfile" data-tab-target="empPanelProfile">能力画像</button>
-    </div>
-
-    <section class="tab-panel panel-stack" id="empPanelTasks" role="tabpanel" aria-labelledby="empTabTasks">
-      <section class="kpis">
-        <div class="kpi"><div class="lbl">进行中</div><div class="val" id="kpiDoing">—</div></div>
-        <div class="kpi"><div class="lbl">阻塞</div><div class="val" id="kpiBlocked">—</div></div>
-        <div class="kpi"><div class="lbl">已接受待开工</div><div class="val" id="kpiAccepted">—</div></div>
-      </section>
-      <div id="cardsMount"><div class="empty-state">加载中…</div></div>
-      <div class="feedback muted" id="listFeedback"></div>
-    </section>
-
-    <section class="tab-panel" id="empPanelProgress" role="tabpanel" aria-labelledby="empTabProgress" hidden>
-      <h2>提交进度</h2>
-      <p class="page-desc" style="margin:0 0 14px;">请选择任务、更新状态并填写说明（必填）。</p>
-      <div class="form-stack">
-        <label>任务
-          <select id="progPlanId"><option value="">请先加载当前任务</option></select>
-        </label>
-        <label>进度状态
-          <select id="progStatus">
-            <option value="IN_PROGRESS">执行中</option>
-            <option value="BLOCKED">阻塞</option>
-            <option value="DONE">已完成</option>
-          </select>
-        </label>
-        <label>说明
-          <textarea id="progNote" placeholder="本阶段进展、风险与下一步计划"></textarea>
-        </label>
-        <button type="button" class="btn btn-primary" id="progBtn">提交进度</button>
-        <div class="feedback muted" id="progFeedback"></div>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="empPanelProfile" role="tabpanel" aria-labelledby="empTabProfile" hidden>
+  <div id="panelProf" hidden>
+    <div class="card">
       <h2>更新我的能力画像</h2>
       <p class="page-desc" style="margin:0 0 14px;">仅更新本地能力画像，不会改钉钉通讯录身份信息。多个标签用中文逗号或英文逗号分隔。</p>
       <div class="form-stack">
@@ -313,16 +70,45 @@ export function renderEmployeeCurrentTasksPage(): string {
         <label>职业背景与协作偏好（自填）
           <textarea id="pfBackground" rows="5" placeholder="例如 从业经历、擅长领域补充、希望如何协作等"></textarea>
         </label>
-        <label>系统沉淀案例（只读，来自已完成任务）
-          <div id="pfCasesReadonly" class="muted" style="white-space:pre-wrap;border:1px solid #ddd;border-radius:6px;padding:10px;min-height:48px;background:#fafafa;">暂无</div>
-        </label>
-        <label>容量提示
-          <input id="pfCapacityHint" type="text" placeholder="例如 正常 / 忙碌 / 满载" />
-        </label>
         <button type="button" class="btn btn-secondary" id="saveProfileBtn">保存能力画像</button>
         <div class="feedback muted" id="profileFeedback"></div>
       </div>
-    </section>
+    </div>
+  </div>
+
+  <div class="card" id="actionPanel" style="display:none;">
+    <h3 id="actionTitle">补充说明</h3>
+    <div class="form-stack">
+      <label>说明（必填）
+        <textarea id="actionNote" placeholder="请填写拒绝理由、补充信息或修改诉求"></textarea>
+      </label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary" id="confirmActionBtn">提交</button>
+        <button type="button" class="btn btn-secondary" id="cancelActionBtn">取消</button>
+      </div>
+      <div class="feedback muted" id="actionFeedback"></div>
+    </div>
+  </div>
+
+  <div class="card" id="progressPanel" style="display:none;">
+    <h3>填写进度</h3>
+    <div class="form-stack">
+      <label>进度状态
+        <select id="progStatus">
+          <option value="IN_PROGRESS">执行中</option>
+          <option value="BLOCKED">阻塞</option>
+          <option value="DONE">已完成</option>
+        </select>
+      </label>
+      <label>说明（必填）
+        <textarea id="progNote" placeholder="本阶段进展、风险与下一步计划"></textarea>
+      </label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary" id="progSubmitBtn">提交</button>
+        <button type="button" class="btn btn-secondary" id="progCancelBtn">取消</button>
+      </div>
+      <div class="feedback muted" id="progPanelFb"></div>
+    </div>
   </div>
 </div>
 <script>
@@ -335,7 +121,7 @@ export function renderEmployeeCurrentTasksPage(): string {
     } catch (e) {}
     return 'idem-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
   }
-  function escapeHtml(s) {
+  function esc(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
   function setFb(id, msg, kind) {
@@ -344,111 +130,282 @@ export function renderEmployeeCurrentTasksPage(): string {
     el.textContent = msg || '';
     el.className = 'feedback ' + (kind || 'muted');
   }
-  function setActiveTab(targetId) {
-    document.querySelectorAll('.tabs-btn[data-tab-target]').forEach(function (btn) {
-      var active = btn.getAttribute('data-tab-target') === targetId;
-      btn.setAttribute('aria-selected', active ? 'true' : 'false');
-    });
-    document.querySelectorAll('.tab-panel[id^="empPanel"]').forEach(function (panel) {
-      panel.hidden = panel.id !== targetId;
-    });
-  }
-  function tabToPathAndPanel(tabId) {
-    if (tabId === 'empPanelProgress') return { panel: tabId, qs: '?tab=progress' };
-    if (tabId === 'empPanelProfile') return { panel: tabId, qs: '?tab=profile' };
-    return { panel: 'empPanelTasks', qs: '' };
-  }
-  function replaceCurrentUrl(qs) {
+  function getView() {
     try {
-      history.replaceState({}, '', '/workbench/employee/current' + qs);
-    } catch (e2) {}
+      var v = (new URLSearchParams(location.search).get('view') || 'new').toLowerCase();
+      if (v === 'current' || v === 'history' || v === 'profile') return v;
+      return 'new';
+    } catch (e) { return 'new'; }
+  }
+  function navTo(view) {
+    var u = '/workbench/employee?view=' + encodeURIComponent(view);
+    try { history.replaceState({}, '', u); } catch (e2) { location.href = u; }
+    showView(view);
+  }
+  function showView(view) {
+    document.querySelectorAll('.nav-pills a').forEach(function (a) { a.classList.remove('active'); });
+    var map = { new: 'navNew', current: 'navCur', history: 'navHist', profile: 'navProf' };
+    var nid = map[view] || 'navNew';
+    var na = document.getElementById(nid);
+    if (na) na.classList.add('active');
+    document.getElementById('panelNew').hidden = view !== 'new';
+    document.getElementById('panelCur').hidden = view !== 'current';
+    document.getElementById('panelHist').hidden = view !== 'history';
+    document.getElementById('panelProf').hidden = view !== 'profile';
+    var kpis = document.getElementById('empKpis');
+    if (kpis) kpis.style.display = (view === 'new' || view === 'current') ? 'grid' : 'none';
+    var titles = {
+      new: ['新分配的任务', '主管发布后的正式子任务。请在接受前核对标题与说明；拒绝或申请修改必须填写理由。'],
+      current: ['进行中的任务', '执行中或阻塞的子任务。可在卡片上直接填写进度。'],
+      history: ['已完成', '历史已完成的子任务。'],
+      profile: ['能力画像', '补充你的技能与协作偏好，便于主管分配合适任务。']
+    };
+    var pair = titles[view] || titles.new;
+    document.getElementById('empPageTitle').textContent = pair[0];
+    document.getElementById('empPageDesc').textContent = pair[1];
+    if (view === 'new') void loadNew();
+    if (view === 'current') void loadCurrent();
+    if (view === 'history') void loadHistory();
+    if (view === 'profile') void loadProfile();
   }
 
-  document.querySelectorAll('.tabs-btn[data-tab-target]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var targetId = btn.getAttribute('data-tab-target') || 'empPanelTasks';
-      var mapping = tabToPathAndPanel(targetId);
-      setActiveTab(mapping.panel);
-      replaceCurrentUrl(mapping.qs);
-      if (mapping.panel === 'empPanelTasks') void loadCurrent();
-      else if (mapping.panel === 'empPanelProfile') void loadProfile();
-    });
-  });
+  function badgeClass(st) {
+    if (st === 'BLOCKED') return 'blocked';
+    if (st === 'DONE') return 'done';
+    if (st === 'ASSIGNED') return 'assigned';
+    if (st === 'CHANGES_REQUESTED') return 'pending';
+    if (st === 'REJECTED') return 'rejected';
+    return 'progress';
+  }
+  function formatDue(t) {
+    if (!t.dueAt) return '<p class="meta">截止：未设置</p>';
+    var bar = '';
+    if (t.dueProgress != null && t.status !== 'DONE') {
+      var pct = Math.min(100, Math.round(Number(t.dueProgress) * 100));
+      var st = esc(t.dueBarState || 'normal');
+      bar = '<div class="due-bar" data-state="'+st+'"><div class="due-bar-fill" style="width:'+pct+'%"></div></div>';
+    } else if (t.status === 'DONE') {
+      bar = '<div class="due-bar" data-state="done"><div class="due-bar-fill" style="width:100%"></div></div>';
+    }
+    return '<p class="meta">截止：'+esc(String(t.dueAt).slice(0,10))+'</p>'+bar+'<p class="due-meta muted">'+esc(t.dueLabel||'')+'</p>';
+  }
+  function taskCardHtml(t, actionsHtml) {
+    var st = t.status === 'CHANGES_REQUESTED' ? '<span class="badge pending">待确认</span>' : '<span class="badge '+badgeClass(t.status)+'">'+esc(t.statusLabel||t.status)+'</span>';
+    var mgr = (t.managerDisplayName || '').trim();
+    var mgrLine = mgr ? (' · 主管 ' + esc(mgr)) : '';
+    var actions = actionsHtml || '';
+    return '<article class="task-card" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'">'
+      + '<div class="head"><div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+st+'</div>'
+      + '<p class="title">'+esc(t.title||t.taskNo||'子任务')+'</p>'
+      + '<p class="meta">业务编号 <code>'+esc(t.taskNo||'—')+'</code>'+mgrLine+'</p>'
+      + formatDue(t)
+      + '</div></div>'+actions+'</article>';
+  }
 
-  function initialTabFromQuery() {
+  async function loadNew() {
+    setFb('fbNew', '加载中…', 'muted');
     try {
-      var params = new URLSearchParams(window.location.search || '');
-      var t = (params.get('tab') || '').toLowerCase();
-      if (t === 'progress') return 'empPanelProgress';
-      if (t === 'profile') return 'empPanelProfile';
-    } catch (e) {}
-    return 'empPanelTasks';
-  }
-  setActiveTab(initialTabFromQuery());
-
-  function splitTokens(raw) {
-    return String(raw || '')
-      .split(/[，,\\n]/g)
-      .map(function (item) { return item.trim(); })
-      .filter(function (item) { return item.length > 0; });
+      var res = await fetch('/api/workbench/employee/tasks/new', { cache: 'no-store' });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      var tasks = data.tasks || [];
+      var pend = tasks.filter(function (t) { return t.status === 'CHANGES_REQUESTED'; }).length;
+      document.getElementById('kpiL1').textContent = '待处理数量';
+      document.getElementById('kpiV1').textContent = String(tasks.length);
+      document.getElementById('kpiL2').textContent = '待确认';
+      document.getElementById('kpiV2').textContent = String(pend);
+      document.getElementById('kpiL3').textContent = '提示';
+      document.getElementById('kpiV3').textContent = '优先处理阻塞风险';
+      var mount = document.getElementById('cardsNew');
+      if (!tasks.length) {
+        mount.innerHTML = '<div class="empty-state">暂无新任务。可到「进行中」查看执行中的工作。</div>';
+        setFb('fbNew', '', 'muted');
+        return;
+      }
+      mount.innerHTML = '<div class="task-cards">' + tasks.map(function (t) {
+        var act = '<div class="actions">'
+          +'<button type="button" class="btn btn-primary" data-act="accept">接受</button>'
+          +'<button type="button" class="btn btn-danger" data-act="reject">拒绝</button>'
+          +'<button type="button" class="btn btn-secondary" data-act="customize">补充信息</button>'
+          +'<button type="button" class="btn btn-secondary" data-act="request_changes">申请修改</button>'
+          +'</div>';
+        return taskCardHtml(t, act);
+      }).join('') + '</div>';
+      mount.querySelectorAll('.task-card').forEach(function (card) {
+        card.querySelectorAll('button[data-act]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var planId = card.getAttribute('data-plan-id') || '';
+            var subtaskId = card.getAttribute('data-subtask-id') || '';
+            var act = btn.getAttribute('data-act') || '';
+            if (act === 'accept') {
+              void submitDirect(planId, subtaskId, 'accept', '', { goView: 'current' }).catch(function (e) {
+                setFb('fbNew', String(e && e.message ? e.message : e), 'err');
+              });
+              return;
+            }
+            openPanel(planId, subtaskId, act);
+          });
+        });
+      });
+      setFb('fbNew', '已更新', 'ok');
+    } catch (e) {
+      document.getElementById('cardsNew').innerHTML = '<div class="empty-state">加载失败</div>';
+      setFb('fbNew', String(e && e.message ? e.message : e), 'err');
+    }
   }
 
   async function loadCurrent() {
-    setFb('listFeedback', '加载中…', 'muted');
+    setFb('fbCur', '加载中…', 'muted');
     try {
       var res = await fetch('/api/workbench/employee/tasks/current', { cache: 'no-store' });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var tasks = data.tasks || [];
       var blocked = tasks.filter(function (t) { return t.status === 'BLOCKED'; }).length;
-      var accepted = tasks.filter(function (t) { return t.status === 'ACCEPTED'; }).length;
       var doing = tasks.filter(function (t) { return t.status === 'IN_PROGRESS'; }).length;
-      document.getElementById('kpiBlocked').textContent = String(blocked);
-      document.getElementById('kpiAccepted').textContent = String(accepted);
-      document.getElementById('kpiDoing').textContent = String(doing);
-
-      var mount = document.getElementById('cardsMount');
-      var sel = document.getElementById('progPlanId');
+      document.getElementById('kpiL1').textContent = '执行中';
+      document.getElementById('kpiV1').textContent = String(doing);
+      document.getElementById('kpiL2').textContent = '阻塞';
+      document.getElementById('kpiV2').textContent = String(blocked);
+      document.getElementById('kpiL3').textContent = '提示';
+      document.getElementById('kpiV3').textContent = '及时更新进度便于主管掌握风险';
+      var mount = document.getElementById('cardsCur');
       if (!tasks.length) {
-        mount.innerHTML = '<div class="empty-state">暂无当前任务。请先到「新任务」承接分配。</div>';
-        sel.innerHTML = '<option value="">暂无任务</option>';
-        setFb('listFeedback', '', 'muted');
+        mount.innerHTML = '<div class="empty-state">暂无进行中的任务。请先到「新任务」承接分配。</div>';
+        setFb('fbCur', '', 'muted');
         return;
       }
-
       mount.innerHTML = '<div class="task-cards">' + tasks.map(function (t) {
-        var bc = t.status === 'BLOCKED' ? 'blocked' : (t.status === 'ACCEPTED' ? 'assigned' : 'progress');
-        var mgr = (t.managerDisplayName || '').trim();
-        var mgrLine = mgr ? (' · 主管 ' + escapeHtml(mgr)) : '';
-        return '<article class="task-card task-card-clickable" data-subtask-id="' + escapeHtml(t.subtaskId || '') + '">'
-          + '<span class="badge ' + bc + '">' + escapeHtml(t.statusLabel || t.status) + '</span>'
-          + '<p class="title">' + escapeHtml(t.title || t.taskNo || '子任务') + '</p>'
-          + '<p class="meta">业务编号 <code>' + escapeHtml(t.taskNo || '—') + '</code>' + mgrLine
-          + (t.progressNote ? '<br>最近进度：' + escapeHtml(t.progressNote) : '')
-          + '</p></article>';
+        var act = '<div class="actions" style="justify-content:space-between;">'
+          +'<span></span><button type="button" class="btn btn-secondary" data-prog="1">填写进度</button></div>';
+        return taskCardHtml(t, act);
       }).join('') + '</div>';
-      mount.querySelectorAll('.task-card[data-subtask-id]').forEach(function (card) {
-        card.addEventListener('click', function () {
-          var subtaskId = card.getAttribute('data-subtask-id') || '';
-          if (!subtaskId) return;
-          document.getElementById('progPlanId').value = subtaskId;
-          setActiveTab('empPanelProgress');
-          replaceCurrentUrl('?tab=progress');
-          setFb('progFeedback', '已带入任务，可直接填写进度说明。', 'muted');
-          document.getElementById('progNote').focus();
+      mount.querySelectorAll('.task-card').forEach(function (card) {
+        var btn = card.querySelector('button[data-prog]');
+        if (btn) btn.addEventListener('click', function () {
+          openProgress(card.getAttribute('data-subtask-id') || '');
         });
       });
-
-      sel.innerHTML = '<option value="">请选择任务</option>' + tasks.map(function (t) {
-        return '<option value="' + escapeHtml(t.subtaskId || '') + '">' + escapeHtml(t.taskNo || '') + ' · ' + escapeHtml(t.title || '子任务') + ' · ' + escapeHtml(t.statusLabel || t.status) + '</option>';
-      }).join('');
-      setFb('listFeedback', '已更新', 'ok');
+      setFb('fbCur', '已更新', 'ok');
     } catch (e) {
-      document.getElementById('cardsMount').innerHTML = '<div class="empty-state">加载失败</div>';
-      setFb('listFeedback', String(e && e.message ? e.message : e), 'err');
+      document.getElementById('cardsCur').innerHTML = '<div class="empty-state">加载失败</div>';
+      setFb('fbCur', String(e && e.message ? e.message : e), 'err');
     }
   }
 
+  async function loadHistory() {
+    setFb('fbHist', '加载中…', 'muted');
+    try {
+      var res = await fetch('/api/workbench/employee/tasks/history', { cache: 'no-store' });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      var tasks = data.tasks || [];
+      var mount = document.getElementById('cardsHist');
+      if (!tasks.length) {
+        mount.innerHTML = '<div class="empty-state">暂无已完成记录。</div>';
+        setFb('fbHist', '', 'muted');
+        return;
+      }
+      mount.innerHTML = '<div class="task-cards">' + tasks.map(function (t) {
+        return taskCardHtml(t, '');
+      }).join('') + '</div>';
+      setFb('fbHist', '已更新', 'ok');
+    } catch (e) {
+      document.getElementById('cardsHist').innerHTML = '<div class="empty-state">加载失败</div>';
+      setFb('fbHist', String(e && e.message ? e.message : e), 'err');
+    }
+  }
+
+  var pending = null;
+  var progressSubtaskId = '';
+  function openPanel(planId, subtaskId, action) {
+    pending = { planId: planId, subtaskId: subtaskId, action: action };
+    document.getElementById('actionNote').value = '';
+    document.getElementById('actionPanel').style.display = 'block';
+    var titles = { reject: '拒绝任务（需填写理由）', customize: '补充信息', request_changes: '申请修改（需填写诉求）' };
+    document.getElementById('actionTitle').textContent = titles[action] || '说明';
+    setFb('actionFeedback', '', 'muted');
+    document.getElementById('actionNote').focus();
+  }
+  function closePanel() {
+    pending = null;
+    document.getElementById('actionPanel').style.display = 'none';
+  }
+  function openProgress(subtaskId) {
+    progressSubtaskId = subtaskId;
+    document.getElementById('progNote').value = '';
+    document.getElementById('progStatus').value = 'IN_PROGRESS';
+    document.getElementById('progressPanel').style.display = 'block';
+    setFb('progPanelFb', '', 'muted');
+    document.getElementById('progNote').focus();
+  }
+  function closeProgress() {
+    progressSubtaskId = '';
+    document.getElementById('progressPanel').style.display = 'none';
+  }
+
+  async function submitDirect(planId, subtaskId, action, note, opts) {
+    var res = await fetch('/api/workbench/employee/subtasks/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({ planId: planId, subtaskId: subtaskId, action: action, note: note, idempotencyKey: newIdempotencyKey() })
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    if (opts && opts.goView === 'current') {
+      location.href = '/workbench/employee?view=current&_=' + Date.now();
+      return;
+    }
+    await loadNew();
+  }
+
+  document.getElementById('confirmActionBtn').addEventListener('click', async function () {
+    if (!pending) return;
+    var note = (document.getElementById('actionNote').value || '').trim();
+    if (!note) { setFb('actionFeedback', '请填写说明', 'err'); return; }
+    setFb('actionFeedback', '提交中…', 'muted');
+    try {
+      await submitDirect(pending.planId, pending.subtaskId, pending.action, note);
+      closePanel();
+      await loadNew();
+    } catch (e) {
+      setFb('actionFeedback', String(e && e.message ? e.message : e), 'err');
+    }
+  });
+  document.getElementById('cancelActionBtn').addEventListener('click', closePanel);
+
+  document.getElementById('progSubmitBtn').addEventListener('click', async function () {
+    if (!progressSubtaskId) { setFb('progPanelFb', '缺少子任务', 'err'); return; }
+    var progressStatus = (document.getElementById('progStatus').value || '').trim();
+    var note = (document.getElementById('progNote').value || '').trim();
+    if (!note) { setFb('progPanelFb', '请填写说明', 'err'); return; }
+    var btn = document.getElementById('progSubmitBtn');
+    btn.disabled = true;
+    setFb('progPanelFb', '提交中…', 'muted');
+    try {
+      var res = await fetch('/api/workbench/employee/subtasks/progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ subtaskId: progressSubtaskId, progressStatus: progressStatus, note: note, idempotencyKey: newIdempotencyKey() })
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      closeProgress();
+      await loadCurrent();
+      setFb('progPanelFb', '', 'muted');
+    } catch (e) {
+      setFb('progPanelFb', String(e && e.message ? e.message : e), 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  document.getElementById('progCancelBtn').addEventListener('click', closeProgress);
+
+  function splitTokens(raw) {
+    return String(raw || '').split(/[，,\\n]/g).map(function (item) { return item.trim(); }).filter(Boolean);
+  }
   async function loadProfile() {
     try {
       var res = await fetch('/api/workbench/employee/profile', { cache: 'no-store' });
@@ -459,58 +416,11 @@ export function renderEmployeeCurrentTasksPage(): string {
       document.getElementById('pfStrengths').value = (profile.strengths || []).join(', ');
       document.getElementById('pfBoundaries').value = (profile.boundaries || []).join(', ');
       document.getElementById('pfTools').value = (profile.tools || []).join(', ');
-      document.getElementById('pfCapacityHint').value = (profile.availability && profile.availability.capacityHint) || '';
       document.getElementById('pfBackground').value = profile.background || '';
-      var cases = profile.cases || [];
-      var casesEl = document.getElementById('pfCasesReadonly');
-      if (!cases.length) {
-        casesEl.textContent = '暂无';
-      } else {
-        casesEl.textContent = cases.map(function (c) {
-          var line = '[' + (c.taskType || '') + '] ' + (c.outcome || '');
-          if (c.deliverable) line += '\\n  交付物: ' + c.deliverable;
-          if (c.contribution) line += '\\n  贡献: ' + c.contribution;
-          return line;
-        }).join('\\n\\n');
-      }
     } catch (e) {
       setFb('profileFeedback', String(e && e.message ? e.message : e), 'err');
     }
   }
-
-  document.getElementById('progBtn').addEventListener('click', async function () {
-    var subtaskId = (document.getElementById('progPlanId').value || '').trim();
-    var progressStatus = (document.getElementById('progStatus').value || '').trim();
-    var note = (document.getElementById('progNote').value || '').trim();
-    if (!subtaskId) { setFb('progFeedback', '请选择任务', 'err'); return; }
-    if (!note) { setFb('progFeedback', '请填写说明', 'err'); return; }
-    var btn = document.getElementById('progBtn');
-    btn.disabled = true;
-    setFb('progFeedback', '提交中…', 'muted');
-    try {
-      var res = await fetch('/api/workbench/employee/subtasks/progress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({
-          subtaskId: subtaskId,
-          progressStatus: progressStatus,
-          note: note,
-          idempotencyKey: newIdempotencyKey()
-        })
-      });
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      document.getElementById('progNote').value = '';
-      setFb('progFeedback', '进度已提交', 'ok');
-      await loadCurrent();
-    } catch (e) {
-      setFb('progFeedback', String(e && e.message ? e.message : e), 'err');
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
   document.getElementById('saveProfileBtn').addEventListener('click', async function () {
     var btn = document.getElementById('saveProfileBtn');
     btn.disabled = true;
@@ -521,10 +431,7 @@ export function renderEmployeeCurrentTasksPage(): string {
         strengths: splitTokens(document.getElementById('pfStrengths').value),
         boundaries: splitTokens(document.getElementById('pfBoundaries').value),
         tools: splitTokens(document.getElementById('pfTools').value),
-        background: (document.getElementById('pfBackground').value || ''),
-        availability: {
-          capacityHint: (document.getElementById('pfCapacityHint').value || '').trim() || undefined
-        }
+        background: (document.getElementById('pfBackground').value || '')
       };
       var res = await fetch('/api/workbench/employee/profile', {
         method: 'POST',
@@ -547,8 +454,18 @@ export function renderEmployeeCurrentTasksPage(): string {
     window.location.href = '/workbench';
   });
 
-  void loadCurrent();
-  void loadProfile();
+  document.querySelectorAll('.nav-pills a[href*="view="]').forEach(function (a) {
+    a.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      try {
+        var u = new URL(a.getAttribute('href'), window.location.origin);
+        navTo(u.searchParams.get('view') || 'new');
+      } catch (e) { location.href = a.getAttribute('href'); }
+    });
+  });
+
+  window.addEventListener('popstate', function () { showView(getView()); });
+  showView(getView());
 })();
 </script>
 </body>

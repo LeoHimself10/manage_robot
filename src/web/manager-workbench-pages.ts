@@ -108,17 +108,17 @@ export function renderManagerTasksPage(params: {
         <label>任务
           <select id="reassignPlanId"><option value="">请选择任务</option></select>
         </label>
-        <label>查找新负责人
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-            <input id="reassignAssigneeSearch" type="search" autocomplete="off" placeholder="输入姓名关键词" style="flex:1;min-width:160px;" />
-            <button type="button" class="btn btn-secondary" id="reassignSearchBtn">查找同事</button>
+        <label>新负责人（输入姓名或部门，弹出候选）
+          <div class="combo" style="position:relative;">
+            <input id="reassignAssigneeInput" type="search" autocomplete="off" placeholder="至少输入 2 个字符" style="width:100%;" />
+            <input id="reassignAssigneeUserId" type="hidden" value="" />
+            <ul id="reassignAssigneeOptions" class="combo-options" hidden></ul>
           </div>
         </label>
-        <label>选择负责人
-          <select id="reassignAssigneePick" size="6" style="width:100%;font-size:14px;"><option value="">请先查找并选择一位同事</option></select>
-        </label>
         <label>仅改派单个子任务（可选）
-          <input id="reassignSubtaskId" type="text" autocomplete="off" placeholder="留空表示整单未完成子任务全部改派" />
+          <select id="reassignSubtaskPick" aria-disabled="true">
+            <option value="">整单未完成子任务全部改派</option>
+          </select>
         </label>
         <label>说明
           <textarea id="reassignNote" placeholder="简要说明改派原因"></textarea>
@@ -162,7 +162,7 @@ export function renderManagerTasksPage(params: {
   function priorityRank(status) {
     if (status === 'BLOCKED') return 0;
     if (status === 'ASSIGNED' || status === 'CHANGES_REQUESTED') return 1;
-    if (status === 'ACCEPTED' || status === 'IN_PROGRESS') return 2;
+    if (status === 'IN_PROGRESS') return 2;
     return 3;
   }
   function badgeClass(status) {
@@ -176,6 +176,86 @@ export function renderManagerTasksPage(params: {
   }
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  async function loadSubtasksForReassign() {
+    var sel = document.getElementById('reassignPlanId');
+    var st = document.getElementById('reassignSubtaskPick');
+    if (!sel || !st) return;
+    var opt = sel.selectedOptions && sel.selectedOptions[0];
+    var taskNo = opt ? String(opt.getAttribute('data-task-no') || '').trim() : '';
+    st.innerHTML = '<option value="">整单未完成子任务全部改派</option>';
+    if (!taskNo) {
+      st.setAttribute('aria-disabled', 'true');
+      return;
+    }
+    st.removeAttribute('aria-disabled');
+    try {
+      var res = await fetch('/api/workbench/tasks/detail?taskNo=' + encodeURIComponent(taskNo));
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) return;
+      var subs = data.subtasks || [];
+      subs.forEach(function (s, idx) {
+        var o = document.createElement('option');
+        o.value = String(s.subtaskId || '');
+        o.textContent = (idx + 1) + '. ' + String(s.title || '') + ' · ' + String(s.statusLabel || s.status || '');
+        st.appendChild(o);
+      });
+    } catch (e) {}
+  }
+
+  var assigneeSearchTimer = null;
+  function closeAssigneeCombo() {
+    var ul = document.getElementById('reassignAssigneeOptions');
+    if (ul) { ul.hidden = true; ul.innerHTML = ''; }
+  }
+  async function runAssigneeSearch() {
+    var input = document.getElementById('reassignAssigneeInput');
+    var ul = document.getElementById('reassignAssigneeOptions');
+    var hid = document.getElementById('reassignAssigneeUserId');
+    if (!input || !ul) return;
+    var kw = String(input.value || '').trim().toLowerCase();
+    if (kw.length < 2) {
+      closeAssigneeCombo();
+      return;
+    }
+    setFb('reassignFeedback', '查找中…', 'muted');
+    try {
+      var res = await fetch('/api/workbench/manager/contacts?keyword=' + encodeURIComponent(kw));
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      var contacts = data.contacts || [];
+      if (!contacts.length) {
+        ul.innerHTML = '';
+        ul.hidden = true;
+        setFb('reassignFeedback', '无匹配结果', 'muted');
+        return;
+      }
+      ul.innerHTML = contacts.map(function (c) {
+        var dept = escapeHtml(c.departmentSummary || c.departmentName || '');
+        var tag = c.matchedField === 'department' ? '<span class="combo-tag">按部门匹配</span>' : '';
+        return '<li role="option" tabindex="-1" data-user-id="' + escapeHtml(c.userId) + '">'
+          + '<span>' + escapeHtml(c.name || c.userId) + ' · ' + dept + '</span>' + tag + '</li>';
+      }).join('');
+      ul.querySelectorAll('li[role="option"]').forEach(function (li) { li.removeAttribute('aria-selected'); });
+      ul.hidden = false;
+      setFb('reassignFeedback', '点击选择负责人', 'ok');
+      ul.querySelectorAll('li[role="option"]').forEach(function (li) {
+        li.addEventListener('mousedown', function (ev) {
+          ev.preventDefault();
+          var uid = li.getAttribute('data-user-id') || '';
+          if (hid) hid.value = uid;
+          input.value = li.textContent.replace(/按部门匹配/g, '').trim();
+          closeAssigneeCombo();
+        });
+      });
+    } catch (e) {
+      setFb('reassignFeedback', String(e && e.message ? e.message : e), 'err');
+    }
+  }
+  function scheduleAssigneeSearch() {
+    if (assigneeSearchTimer) clearTimeout(assigneeSearchTimer);
+    assigneeSearchTimer = setTimeout(function () { void runAssigneeSearch(); }, 250);
   }
 
   function syncPublishHiddenFromControls() {
@@ -248,7 +328,7 @@ export function renderManagerTasksPage(params: {
         return t.status === 'ASSIGNED' || t.status === 'CHANGES_REQUESTED';
       }).length;
       var active = tasks.filter(function (t) {
-        return t.status === 'IN_PROGRESS' || t.status === 'BLOCKED' || t.status === 'ACCEPTED';
+        return t.status === 'IN_PROGRESS' || t.status === 'BLOCKED';
       }).length;
       setText('kpiTotal', String(tasks.length));
       setText('kpiPending', String(pending));
@@ -281,9 +361,14 @@ export function renderManagerTasksPage(params: {
 
       sel.innerHTML = '<option value="">请选择任务</option>' + tasks.map(function (t) {
         var optLabel = escapeHtml(t.taskNo || '任务') + ' · ' + escapeHtml(t.title || '') + ' · ' + escapeHtml(t.statusLabel || t.status);
-        return '<option value="' + escapeHtml(t.planId) + '">' + optLabel + '</option>';
+        return '<option value="' + escapeHtml(t.planId) + '" data-task-no="' + escapeHtml(t.taskNo || '') + '">' + optLabel + '</option>';
       }).join('');
 
+      if (!sel.dataset.boundReassignTask) {
+        sel.dataset.boundReassignTask = '1';
+        sel.addEventListener('change', function () { void loadSubtasksForReassign(); });
+      }
+      void loadSubtasksForReassign();
       var focus = ${JSON.stringify(params.planId ?? "")};
       if (focus) sel.value = focus;
 
@@ -294,38 +379,59 @@ export function renderManagerTasksPage(params: {
     }
   }
 
-  document.getElementById('reassignSearchBtn').addEventListener('click', async function () {
-    var kw = (document.getElementById('reassignAssigneeSearch').value || '').trim();
-    var pick = document.getElementById('reassignAssigneePick');
-    if (!kw) {
-      setFb('reassignFeedback', '请输入姓名关键词', 'err');
-      return;
-    }
-    setFb('reassignFeedback', '查找中…', 'muted');
-    try {
-      var res = await fetch('/api/workbench/manager/contacts?keyword=' + encodeURIComponent(kw));
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      var contacts = data.contacts || [];
-      if (!contacts.length) {
-        pick.innerHTML = '<option value="">未找到同事，换个关键词试试</option>';
-        setFb('reassignFeedback', '无匹配结果', 'muted');
+  var reassignInput = document.getElementById('reassignAssigneeInput');
+  if (reassignInput && !reassignInput.dataset.boundCombo) {
+    reassignInput.dataset.boundCombo = '1';
+    reassignInput.addEventListener('input', function () { scheduleAssigneeSearch(); });
+    reassignInput.addEventListener('blur', function () {
+      setTimeout(function () { closeAssigneeCombo(); }, 200);
+    });
+    reassignInput.addEventListener('keydown', function (ev) {
+      var ul = document.getElementById('reassignAssigneeOptions');
+      var hid = document.getElementById('reassignAssigneeUserId');
+      var input = reassignInput;
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        closeAssigneeCombo();
         return;
       }
-      pick.innerHTML = '<option value="">请选择一位同事</option>' + contacts.map(function (c) {
-        return '<option value="' + escapeHtml(c.userId) + '">' + escapeHtml(c.name || c.userId) + ' · ' + escapeHtml(c.departmentName || '') + '</option>';
-      }).join('');
-      setFb('reassignFeedback', '请在下拉框中选择负责人', 'ok');
-    } catch (e) {
-      setFb('reassignFeedback', String(e && e.message ? e.message : e), 'err');
-    }
-  });
+      if (!ul || ul.hidden) return;
+      var items = Array.prototype.slice.call(ul.querySelectorAll('li[role="option"]'));
+      if (!items.length) return;
+      var cur = items.findIndex(function (li) { return li.getAttribute('aria-selected') === 'true'; });
+      if (cur < 0) cur = 0;
+      if (ev.key === 'ArrowDown') {
+        ev.preventDefault();
+        cur = (cur + 1) % items.length;
+        items.forEach(function (li, i) { li.setAttribute('aria-selected', i === cur ? 'true' : 'false'); });
+        items[cur].scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        cur = (cur - 1 + items.length) % items.length;
+        items.forEach(function (li, i) { li.setAttribute('aria-selected', i === cur ? 'true' : 'false'); });
+        items[cur].scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (ev.key === 'Enter') {
+        var pick = items.find(function (li) { return li.getAttribute('aria-selected') === 'true'; }) || items[0];
+        if (!pick) return;
+        ev.preventDefault();
+        var uid = pick.getAttribute('data-user-id') || '';
+        if (hid) hid.value = uid;
+        input.value = pick.textContent.replace(/按部门匹配/g, '').trim();
+        closeAssigneeCombo();
+      }
+    });
+  }
 
   document.getElementById('reassignBtn').addEventListener('click', async function () {
     var planId = (document.getElementById('reassignPlanId').value || '').trim();
-    var assigneeUserId = (document.getElementById('reassignAssigneePick').value || '').trim();
+    var assigneeUserId = (document.getElementById('reassignAssigneeUserId').value || '').trim();
     var note = (document.getElementById('reassignNote').value || '').trim();
-    var subtaskId = (document.getElementById('reassignSubtaskId').value || '').trim();
+    var subPick = document.getElementById('reassignSubtaskPick');
+    var subtaskId = subPick ? String(subPick.value || '').trim() : '';
     if (!planId) { setFb('reassignFeedback', '请选择任务', 'err'); return; }
     if (!assigneeUserId) { setFb('reassignFeedback', '请先查找并选择新负责人', 'err'); return; }
     var btn = document.getElementById('reassignBtn');
@@ -342,10 +448,11 @@ export function renderManagerTasksPage(params: {
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       setFb('reassignFeedback', '改派已保存', 'ok');
-      document.getElementById('reassignAssigneeSearch').value = '';
-      document.getElementById('reassignAssigneePick').innerHTML = '<option value="">请先查找并选择一位同事</option>';
+      document.getElementById('reassignAssigneeInput').value = '';
+      document.getElementById('reassignAssigneeUserId').value = '';
+      closeAssigneeCombo();
       document.getElementById('reassignNote').value = '';
-      document.getElementById('reassignSubtaskId').value = '';
+      if (subPick) subPick.value = '';
       await loadTasks();
     } catch (e) {
       setFb('reassignFeedback', String(e && e.message ? e.message : e), 'err');

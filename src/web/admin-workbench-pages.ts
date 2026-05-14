@@ -42,7 +42,6 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
             <option value="">全部</option>
             <option value="ASSIGNED">待处理</option>
             <option value="CHANGES_REQUESTED">待修改</option>
-            <option value="ACCEPTED">已接受</option>
             <option value="IN_PROGRESS">进行中</option>
             <option value="BLOCKED">阻塞</option>
             <option value="DONE">已完成</option>

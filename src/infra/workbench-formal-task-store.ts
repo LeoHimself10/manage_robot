@@ -8,7 +8,6 @@ import { resolveWorkbenchSqlitePath } from "./workbench-db-path";
 export type WorkbenchTaskStatus =
   | "ASSIGNED"
   | "CHANGES_REQUESTED"
-  | "ACCEPTED"
   | "IN_PROGRESS"
   | "BLOCKED"
   | "DONE"
@@ -54,7 +53,8 @@ function normalizeStatus(raw: string): WorkbenchTaskStatus {
   if (raw === "BLOCKED") return "BLOCKED";
   if (raw === "DONE") return "DONE";
   if (raw === "IN_PROGRESS") return "IN_PROGRESS";
-  if (raw === "ACCEPTED") return "ACCEPTED";
+  /** Legacy DB / payloads: treat as in execution */
+  if (raw === "ACCEPTED") return "IN_PROGRESS";
   if (raw === "CHANGES_REQUESTED") return "CHANGES_REQUESTED";
   if (raw === "REJECTED") return "REJECTED";
   return "ASSIGNED";
@@ -64,7 +64,6 @@ function aggregateTaskStatus(statuses: WorkbenchTaskStatus[]): WorkbenchTaskStat
   if (statuses.some((s) => s === "BLOCKED")) return "BLOCKED";
   if (statuses.length > 0 && statuses.every((s) => s === "DONE")) return "DONE";
   if (statuses.some((s) => s === "IN_PROGRESS")) return "IN_PROGRESS";
-  if (statuses.some((s) => s === "ACCEPTED")) return "ACCEPTED";
   if (statuses.some((s) => s === "CHANGES_REQUESTED")) return "CHANGES_REQUESTED";
   if (statuses.some((s) => s === "REJECTED")) return "REJECTED";
   return "ASSIGNED";
@@ -212,6 +211,14 @@ export function createWorkbenchFormalTaskStore() {
   }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_task_no ON tasks(task_no)");
 
+  const migratedAt = nowIso();
+  db.prepare(
+    "UPDATE subtasks SET status = 'IN_PROGRESS', updated_at = ? WHERE status = 'ACCEPTED'",
+  ).run(migratedAt);
+  db.prepare("UPDATE tasks SET status = 'IN_PROGRESS', updated_at = ? WHERE status = 'ACCEPTED'").run(
+    migratedAt,
+  );
+
   const qTaskByPlan = db.prepare("SELECT * FROM tasks WHERE plan_id = ?");
   const qTaskById = db.prepare("SELECT * FROM tasks WHERE task_id = ?");
   const qTaskByNo = db.prepare("SELECT * FROM tasks WHERE task_no = ?");
@@ -254,7 +261,7 @@ export function createWorkbenchFormalTaskStore() {
   const qMetrics = db.prepare(`
     SELECT
       (SELECT COUNT(*) FROM tasks) AS totalTasks,
-      (SELECT COUNT(*) FROM tasks WHERE status IN ('CHANGES_REQUESTED','ACCEPTED','IN_PROGRESS','BLOCKED')) AS activeTasks,
+      (SELECT COUNT(*) FROM tasks WHERE status IN ('CHANGES_REQUESTED','IN_PROGRESS','BLOCKED')) AS activeTasks,
       (SELECT COUNT(*) FROM subtasks WHERE status = 'BLOCKED') AS blockedSubtasks,
       (SELECT COUNT(*) FROM subtasks WHERE status = 'ASSIGNED') AS pendingSubtasks,
       (SELECT COUNT(*) FROM subtasks WHERE status = 'DONE') AS doneSubtasks
@@ -584,7 +591,7 @@ export function createWorkbenchFormalTaskStore() {
       let nextStatus: WorkbenchTaskStatus;
       let eventType = "EMPLOYEE_ACTION";
       if (input.action === "accept") {
-        nextStatus = "ACCEPTED";
+        nextStatus = "IN_PROGRESS";
         eventType = "SUBTASK_ACCEPTED";
       } else if (input.action === "reject") {
         nextStatus = "REJECTED";

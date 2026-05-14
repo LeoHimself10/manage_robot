@@ -4,14 +4,13 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { renderManagerTasksPage, renderManagerChatPage } from "../src/web/manager-workbench-pages.ts";
 import { renderAdminWorkbenchPage } from "../src/web/admin-workbench-pages.ts";
-import { renderEmployeeNewTasksPage, renderEmployeeCurrentTasksPage } from "../src/web/employee-workbench-pages.ts";
+import { renderEmployeeWorkbenchPage } from "../src/web/employee-workbench-pages.ts";
 
 const cases = [
   ["manager-tasks", renderManagerTasksPage({ userLabel: "测试" })],
   ["manager-chat", renderManagerChatPage({ userLabel: "测试" })],
   ["admin", renderAdminWorkbenchPage({ userLabel: "测试" })],
-  ["employee-new", renderEmployeeNewTasksPage()],
-  ["employee-current", renderEmployeeCurrentTasksPage()],
+  ["employee-unified", renderEmployeeWorkbenchPage()],
 ];
 
 const dir = mkdtempSync(join(tmpdir(), "lint-inline-"));

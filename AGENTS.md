@@ -20,14 +20,14 @@
 
 - **主链路**：钉钉消息 → **`runOrchestrator`（ReAct loop + tool calling）**→ 结构化草案补表 + 可选指派推荐 + Plan 快照。`createTaskPlanningDemo` 保留给 CLI/demo/eval 回归链路。
 - **模型**：DashScope OpenAI 兼容接口；仓库默认策略见 `model-policy.ts`。线上可通过 **`QWEN_MODEL`** 切换（例如 **`qwen3.6-flash`** 降低延迟，需自行验证工具调用与草案质量）。钉钉链路默认 **`DINGTALK_QWEN_THINKING=0`**（关闭 thinking 以降低首包时延）；全局 `QWEN_THINKING` 仍可按环境关闭。
-- **提示词**：钉钉 / ReAct 主链路使用 `orchestrator-agent-v5.8`（`buildQwenPlannerSystemPrompt`，含 planner / manager / employee profile）；`generateStructuredPlan` 单次 JSON 链路（`demo` CLI、`demo:eval`、调试脚本）使用独立的 `legacy-demo-planner-v1`（`buildLegacyDemoPlannerSystemPrompt`），描述完整 classification / tasks[*].id / capaAdvisory(QUALITY) / gateSelfCheck schema，与 orchestrator 解耦。
+- **提示词**：钉钉 / ReAct 主链路使用 `orchestrator-agent-v5.9`（`buildQwenPlannerSystemPrompt`，含 planner / manager / employee profile）；`generateStructuredPlan` 单次 JSON 链路（`demo` CLI、`demo:eval`、调试脚本）使用独立的 `legacy-demo-planner-v1`（`buildLegacyDemoPlannerSystemPrompt`），描述完整 classification / tasks[*].id / capaAdvisory(QUALITY) / gateSelfCheck schema，与 orchestrator 解耦。
 - **工具**（`src/agent/tools/`）：按 profile 暴露。ReAct 主链路已改为**最终 JSON 直接输出 `draft`**（不再依赖 `save_draft` 工具回合）；为了兜底「模型只产 Markdown 表格不产结构化 draft」的退化情况，`prepare_publish_task` 在校验通过时**会把规整后的 draft + assignment 直接写入 `currentSession.latestDraft` / `latestAssignment`**，下一轮的 `publish_task` 才能读到结构化数据。`planner` 默认 `search_employees` / `get_employee_details` / `search_similar_plans` / 条件开放 `search_web` / `get_current_time` / `update_known_facts` / `list_known_facts`（共 7 个）；`manager` 在此基础上提供发布与管理工具（共 12 个）；`admin` 再追加管理视角工具（共 16 个）；`employee` 提供 `list_my_tasks` / `submit_employee_response` / `submit_progress_update` / `update_employee_profile` 等员工侧工具。`search_web` 受 `SEARCH_WEB_ENABLED` 与请求语义双重约束。`search_employees` 默认返回 cap 收紧到 **25**（`SEARCH_EMPLOYEES_MAX_CANDIDATES`），并对**单次 orchestrator 内调用次数**设硬上限 **3**（`SEARCH_EMPLOYEES_PER_ORCHESTRATOR_QUOTA`），超过即返回 `ok:false / search_employees_quota_exhausted` 让模型直接转述，防止"反复换参数搜不到 → ReAct 死循环 / token budget 爆栈"。`publish_task` 遇到 empty draft / missing assignee 不再 throw，改为 `ok:false / no_draft_in_session | missing_assignee` 软返回。
 - **钉钉角色路由**：`DINGTALK_ROLE_ROUTING_ENABLED=1` 时，钉钉入口按身份动态路由 `manager/employee/planner` profile；默认关闭时保持固定 `planner`（兼容旧行为）。
 - **短期记忆**：`knownFacts[]`（session-store），模型通过 `update_known_facts` / `list_known_facts` 自主维护。
 - **长期记忆**：`plan-index.ts`（embedding + cosine 文件遍历），`search_similar_plans` 工具触发。
 - **兜底**：自然语言回复自动包装为 `{ message, stopReason: "end_turn" }`；空消息有最终 fallback。
 - **不做**：OA 自动流程、承接三态、电子签名、执行中变更、节点反馈与验收闭环。
-- **运行时数据源约束**：工作台正式任务仅以 SQLite 为权威源；`tasks.json` 不参与运行时查询与回灌迁移。员工画像与通讯录快照也已落在 SQLite 数据层（`people-directory-store`、`dingtalk_contacts`）。
+- **运行时数据源约束**：工作台正式任务仅以 SQLite 为权威源；`tasks.json` 不参与运行时查询与回灌迁移。员工画像与通讯录快照也已落在 SQLite 数据层（`people-directory-store`、`dingtalk_contacts`）。**工作台子任务状态**：员工「接受」后子任务直接为 **`IN_PROGRESS`**（不再落库 **`ACCEPTED`**）；启动时会把历史 **`ACCEPTED`** 行迁移为 **`IN_PROGRESS`**，审计事件名 **`SUBTASK_ACCEPTED`** 仍保留。
 - **钉钉集成**：已支持发布后员工卡片 + 待办通知（`WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`）与通讯录同步（`DINGTALK_CONTACT_SYNC_ENABLED=1`），通知失败不回滚发布，但在 `warnings` 与任务事件中留痕。
 
 ## 承接指派阶段（v0.2 MVP）
@@ -95,7 +95,7 @@
 - `coerce`/归一化层只能做类型与兼容别名处理（trim、string array、旧字段名映射等），不得把缺失核心字段补成看似可派发的默认文案。
 - Demo 阶段优先保证“模型可写、系统可存”，尽量减少由代码硬门禁导致的阻断。
 - 完整闭环阶段派发门禁默认硬阻止；如开启豁免，必须记录豁免原因与操作者。
-- 完整闭环阶段不允许“沉默承接”：超时提醒后必须升级。
+- 完整闭环阶段不允许“沉默承接”：超时提醒后必须升级；工作台侧员工「接受」后子任务直接为 **IN_PROGRESS**（不落库 **ACCEPTED**），避免中间态被误读为已静默承接。
 - 正式 QMS/CAPA 记录不由本系统自动关闭，本系统仅维护协作层状态。
 
 ## 测试与可观测

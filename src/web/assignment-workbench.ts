@@ -17,6 +17,8 @@ import {
   createWorkbenchFormalTaskStore,
   type WorkbenchTaskStatus,
 } from "../infra/workbench-formal-task-store";
+import { presentDueBarState, presentDueLabel, presentDueProgress } from "../infra/due-present";
+import { presentWorkbenchTaskEvent } from "../infra/workbench-event-present";
 import {
   inferConversationTitleFromSession,
   truncateConversationPreview,
@@ -57,10 +59,7 @@ import {
   renderManagerChatPage,
   renderManagerTasksPage,
 } from "./manager-workbench-pages";
-import {
-  renderEmployeeCurrentTasksPage,
-  renderEmployeeNewTasksPage,
-} from "./employee-workbench-pages";
+import { renderEmployeeWorkbenchPage } from "./employee-workbench-pages";
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { logStructured } from "../infra/logger";
 
@@ -73,6 +72,7 @@ const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
 ]);
 
 const EMPLOYEE_WORKBENCH_PAGE_PATHS = new Set([
+  "/workbench/employee",
   "/workbench/employee/new",
   "/workbench/employee/current",
   "/workbench/employee/task",
@@ -84,7 +84,6 @@ const LEGACY_WORKBENCH_REDIRECTS: Record<string, string> = {
   "/workbench/manager": "/workbench/manager/tasks",
   "/workbench/in-progress": "/workbench/manager/tasks",
   "/workbench/conversation": "/workbench/manager/chat",
-  "/workbench/employee": "/workbench/employee/new",
 };
 
 function legacyRedirectRequiresManager(fromPath: string): boolean {
@@ -506,10 +505,8 @@ function buildOverviewPayload(view: WorkbenchView, userId?: string) {
     filteredTasks = normalizedUserId
       ? getFormalTaskStore()
           .listEmployeeSubtasks(normalizedUserId)
-          .filter((t) => t.status === "ACCEPTED" || t.status === "IN_PROGRESS" || t.status === "BLOCKED")
-      : allTasks.filter(
-          (t) => t.status === "ACCEPTED" || t.status === "IN_PROGRESS" || t.status === "BLOCKED",
-        );
+          .filter((t) => t.status === "IN_PROGRESS" || t.status === "BLOCKED")
+      : allTasks.filter((t) => t.status === "IN_PROGRESS" || t.status === "BLOCKED");
   } else if (view === "conversation") {
     filteredSessions = [...sessions].sort(
       (a, b) => b.conversationTurns - a.conversationTurns,
@@ -569,14 +566,74 @@ function isExplicitSearchRequest(input: string): boolean {
   return /联网|搜索|查最新|外部资料|行业资料|外部案例|web search|search web|latest/i.test(text);
 }
 
-function taskStatusLabel(status: WorkbenchTaskStatus): string {
-  if (status === "ASSIGNED") return "待处理";
-  if (status === "CHANGES_REQUESTED") return "待修改";
-  if (status === "ACCEPTED") return "已接受";
-  if (status === "IN_PROGRESS") return "进行中";
-  if (status === "BLOCKED") return "阻塞中";
-  if (status === "DONE") return "已完成";
+function taskStatusLabel(status: string): string {
+  const s = String(status ?? "");
+  if (s === "ASSIGNED") return "待处理";
+  if (s === "CHANGES_REQUESTED") return "待修改";
+  if (s === "ACCEPTED") return "进行中";
+  if (s === "IN_PROGRESS") return "进行中";
+  if (s === "BLOCKED") return "阻塞中";
+  if (s === "DONE") return "已完成";
   return "已拒绝";
+}
+
+/** Test-only export for status label mapping (legacy ACCEPTED → 进行中). */
+export const __taskStatusLabelForTest = taskStatusLabel;
+
+type FormalTaskDetail = NonNullable<ReturnType<ReturnType<typeof createWorkbenchFormalTaskStore>["getTaskDetail"]>>;
+
+function enrichWorkbenchTaskDetail(detail: FormalTaskDetail): {
+  task: FormalTaskDetail["task"] & { statusLabel: string };
+  subtasks: Array<
+    FormalTaskDetail["subtasks"][number] & {
+      orderIndex: number;
+      assigneeDisplayName: string;
+      statusLabel: string;
+    }
+  >;
+  events: ReturnType<typeof presentWorkbenchTaskEvent>[];
+} {
+  const nameCache = new Map<string, string>();
+  const resolveName = (userId: string): string => {
+    if (!userId) return "";
+    const cached = nameCache.get(userId);
+    if (cached !== undefined) return cached;
+    const n = withPeopleDirectoryStore((st) => st.getContact(userId)?.name?.trim()) ?? "";
+    nameCache.set(userId, n);
+    return n;
+  };
+  const task = {
+    ...detail.task,
+    statusLabel: taskStatusLabel(detail.task.status),
+  };
+  const subtasks = detail.subtasks.map((s, idx) => ({
+    ...s,
+    orderIndex: idx + 1,
+    assigneeDisplayName: resolveName(s.assigneeUserId) || s.assigneeUserId,
+    statusLabel: taskStatusLabel(s.status),
+  }));
+  const events = (detail.events as Array<Record<string, unknown>>).map((row) =>
+    presentWorkbenchTaskEvent(row, { resolveActorName: resolveName }),
+  );
+  return { task, subtasks, events };
+}
+
+function mapEmployeeSubtaskForApi(
+  t: ReturnType<ReturnType<typeof createWorkbenchFormalTaskStore>["listEmployeeSubtasks"]>[number],
+) {
+  const now = new Date();
+  const mgr =
+    withPeopleDirectoryStore((st) => st.getContact(t.managerUserId)?.name?.trim()) ?? "";
+  const dueProgress =
+    t.status === "DONE" ? 1 : presentDueProgress(t.createdAt, t.dueAt, now);
+  return {
+    ...t,
+    statusLabel: taskStatusLabel(t.status),
+    managerDisplayName: mgr || "",
+    dueLabel: presentDueLabel(t.dueAt, now),
+    dueProgress,
+    dueBarState: presentDueBarState(t.dueAt, now, t.status),
+  };
 }
 
 function enrichManagerTasksForApi(managerUserId: string) {
@@ -627,7 +684,7 @@ function patchLatestAssignmentAssignee(
 function defaultPathForRole(role: WorkbenchRole): string {
   if (role === "admin") return "/workbench/admin";
   if (role === "manager") return "/workbench/manager/tasks";
-  return "/workbench/employee/new";
+  return "/workbench/employee?view=new";
 }
 
 function rememberActionKey(action: string, key: string): boolean {
@@ -779,7 +836,19 @@ function renderTaskDetailPage(params: {
 </div>
 <script>
 (function(){
+  var ROLE = ${JSON.stringify(params.roleLabel)};
   function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function fmtTime(iso){
+    try { var d = new Date(iso); if (!isFinite(d.getTime())) return esc(iso); return esc(d.toLocaleString()); } catch(e){ return esc(iso); }
+  }
+  function subBadgeClass(st){
+    if (st === 'BLOCKED') return 'blocked';
+    if (st === 'DONE') return 'done';
+    if (st === 'ASSIGNED') return 'assigned';
+    if (st === 'CHANGES_REQUESTED') return 'pending';
+    if (st === 'REJECTED') return 'rejected';
+    return 'progress';
+  }
   async function load(){
     var taskNo = new URLSearchParams(location.search).get('taskNo') || '';
     if(!taskNo){ document.getElementById('taskMount').textContent='缺少 taskNo 参数'; return; }
@@ -787,23 +856,45 @@ function renderTaskDetailPage(params: {
     var data = await res.json().catch(function(){ return {}; });
     if(!res.ok || !data.ok){ document.getElementById('taskMount').textContent = data.error || ('HTTP '+res.status); return; }
     var t=data.task||{};
+    var stLabel = esc(t.statusLabel || t.status || '—');
+    var planOpen = ROLE === 'admin' ? ' open' : '';
     document.getElementById('taskMount').innerHTML =
-      '<div><b>'+esc(t.title||'—')+'</b></div>'
-      +'<div class="muted">taskNo <code>'+esc(t.taskNo||taskNo)+'</code> · 状态 '+esc(t.status||'—')+'</div>'
-      +'<div class="muted">planId <code>'+esc(t.planId||'—')+'</code></div>';
+      '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">'
+      +'<h2 style="margin:0;font-size:20px;flex:1 1 200px;">'+esc(t.title||'—')+'</h2>'
+      +'<span class="badge '+subBadgeClass(t.status)+'">'+stLabel+'</span></div>'
+      +'<p class="muted" style="margin:8px 0 0;">业务编号 <code>'+esc(t.taskNo||taskNo)+'</code></p>'
+      +'<details'+planOpen+' style="margin-top:10px;"><summary>内部编号（排障）</summary>'
+      +'<p class="muted" style="margin:6px 0 0;">planId <code>'+esc(t.planId||'—')+'</code></p></details>';
     var subs = data.subtasks || [];
     if(!subs.length){ document.getElementById('subtasksMount').textContent='暂无子任务'; }
     else{
       document.getElementById('subtasksMount').innerHTML =
-      '<div class="table-wrap"><table class="data"><thead><tr><th>子任务</th><th>负责人</th><th>状态</th><th>进度</th></tr></thead><tbody>'
-      +subs.map(function(s){ return '<tr><td>'+esc(s.title||'—')+'</td><td>'+esc(s.assigneeUserId||'—')+'</td><td>'+esc(s.status||'—')+'</td><td>'+esc(s.progressNote||'—')+'</td></tr>'; }).join('')
+      '<div class="table-wrap"><table class="data"><thead><tr><th>#</th><th>子任务</th><th>负责人</th><th>状态</th><th style="width:30%">进度</th><th>更新时间</th></tr></thead><tbody>'
+      +subs.map(function(s){
+        var bc = subBadgeClass(s.status);
+        var who = esc(s.assigneeDisplayName || s.assigneeUserId || '—');
+        var st = esc(s.statusLabel || s.status || '—');
+        var pn = esc(s.progressNote || '—');
+        return '<tr><td>'+esc(String(s.orderIndex||''))+'</td><td>'+esc(s.title||'—')+'</td><td>'+who+'</td>'
+          +'<td><span class="badge '+bc+'">'+st+'</span></td>'
+          +'<td><div class="progress-cell" title="'+pn+'">'+pn+'</div></td>'
+          +'<td>'+fmtTime(s.updatedAt)+'</td></tr>';
+      }).join('')
       +'</tbody></table></div>';
     }
     var events = data.events || [];
     if(!events.length){ document.getElementById('eventsMount').textContent='暂无事件';}
     else{
-      document.getElementById('eventsMount').innerHTML = '<ul>'+events.slice(0,30).map(function(e){
-        return '<li><code>'+esc(e.event_type||'')+'</code> '+esc(e.occurred_at||'')+' '+esc(e.note||'')+'</li>';
+      document.getElementById('eventsMount').innerHTML = '<ul class="event-list">'+events.slice(0,40).map(function(e){
+        var sev = esc(e.severity||'info');
+        var when = fmtTime(e.occurredAt || e.occurred_at || '');
+        var title = esc(e.title || e.type || '');
+        var sum = esc(e.summary || '');
+        var det = e.detail ? '<details><summary>查看原始信息</summary><pre>'+esc(e.detail)+'</pre></details>' : '';
+        return '<li class="event '+sev+'"><div class="event-row">'
+          +'<span class="event-time">'+when+'</span>'
+          +'<span class="event-title">'+title+'</span>'
+          +'<span class="event-summary">'+sum+'</span></div>'+det+'</li>';
       }).join('')+'</ul>';
     }
   }
@@ -1201,12 +1292,18 @@ export function handleAssignmentHttp(
     const contacts = withPeopleDirectoryStore((store) =>
       keyword ? store.searchContacts(keyword, 40) : store.listContacts().slice(0, 40),
     );
-    const rows = contacts.slice(0, 40).map((contact) => ({
-      userId: contact.userId,
-      name: contact.name,
-      departmentName: contact.departmentNames[0] ?? "未分配部门",
-      active: contact.active,
-    }));
+    const rows = contacts.slice(0, 40).map((contact) => {
+      const deptSummary = [...new Set(contact.departmentNames.filter(Boolean))].slice(0, 3).join(" / ");
+      return {
+        userId: contact.userId,
+        name: contact.name,
+        departmentName: contact.departmentNames[0] ?? "未分配部门",
+        departmentSummary: deptSummary || (contact.departmentNames[0] ?? "未分配部门"),
+        departmentNames: contact.departmentNames,
+        matchedField: contact.matchedField ?? (keyword ? "other" : "name"),
+        active: contact.active,
+      };
+    });
     writeJson(res, 200, { ok: true, contacts: rows });
     return true;
   }
@@ -1427,7 +1524,7 @@ export function handleAssignmentHttp(
       writeJson(res, 404, { ok: false, error: "Task not found" });
       return true;
     }
-    writeJson(res, 200, { ok: true, ...detail });
+    writeJson(res, 200, { ok: true, ...enrichWorkbenchTaskDetail(detail) });
     return true;
   }
 
@@ -1454,16 +1551,17 @@ export function handleAssignmentHttp(
         writeJson(res, 403, { ok: false, error: "Task does not belong to current employee" });
         return true;
       }
-      const scopedSubtasks = detail.subtasks.filter((subtask) => subtask.assigneeUserId === session.userId);
+      const enriched = enrichWorkbenchTaskDetail(detail);
+      const scopedSubtasks = enriched.subtasks.filter((subtask) => subtask.assigneeUserId === session.userId);
       writeJson(res, 200, {
         ok: true,
-        task: detail.task,
+        task: enriched.task,
         subtasks: scopedSubtasks,
-        events: detail.events,
+        events: enriched.events,
       });
       return true;
     }
-    writeJson(res, 200, { ok: true, ...detail });
+    writeJson(res, 200, { ok: true, ...enrichWorkbenchTaskDetail(detail) });
     return true;
   }
 
@@ -1565,16 +1663,7 @@ export function handleAssignmentHttp(
       200,
       {
         ok: true,
-        tasks: tasks.map((t) => {
-          const mgr = withPeopleDirectoryStore((st) =>
-            st.getContact(t.managerUserId)?.name?.trim(),
-          );
-          return {
-            ...t,
-            statusLabel: taskStatusLabel(t.status),
-            managerDisplayName: mgr || "",
-          };
-        }),
+        tasks: tasks.map((t) => mapEmployeeSubtaskForApi(t)),
       },
       { ...NO_STORE_HEADERS },
     );
@@ -1586,22 +1675,31 @@ export function handleAssignmentHttp(
     if (!session) return true;
     const tasks = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
-      .filter((t) => t.status === "ACCEPTED" || t.status === "IN_PROGRESS" || t.status === "BLOCKED");
+      .filter((t) => t.status === "IN_PROGRESS" || t.status === "BLOCKED");
     writeJson(
       res,
       200,
       {
         ok: true,
-        tasks: tasks.map((t) => {
-          const mgr = withPeopleDirectoryStore((st) =>
-            st.getContact(t.managerUserId)?.name?.trim(),
-          );
-          return {
-            ...t,
-            statusLabel: taskStatusLabel(t.status),
-            managerDisplayName: mgr || "",
-          };
-        }),
+        tasks: tasks.map((t) => mapEmployeeSubtaskForApi(t)),
+      },
+      { ...NO_STORE_HEADERS },
+    );
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/employee/tasks/history") {
+    const session = requireSession(req, res, "employee");
+    if (!session) return true;
+    const tasks = getFormalTaskStore()
+      .listEmployeeSubtasks(session.userId)
+      .filter((t) => t.status === "DONE");
+    writeJson(
+      res,
+      200,
+      {
+        ok: true,
+        tasks: tasks.map((t) => mapEmployeeSubtaskForApi(t)),
       },
       { ...NO_STORE_HEADERS },
     );
@@ -2386,10 +2484,6 @@ export function handleAssignmentHttp(
         redirect(res, defaultPathForRole(session.role));
         return true;
       }
-      if (url.pathname === "/workbench/employee" && session.role !== "employee") {
-        redirect(res, defaultPathForRole(session.role));
-        return true;
-      }
       redirect(res, legacyTarget);
       return true;
     }
@@ -2444,15 +2538,27 @@ export function handleAssignmentHttp(
         redirect(res, defaultPathForRole(session.role));
         return true;
       }
+      if (url.pathname === "/workbench/employee/new") {
+        redirect(res, "/workbench/employee?view=new");
+        return true;
+      }
+      if (url.pathname === "/workbench/employee/current") {
+        const tab = (url.searchParams.get("tab") || "").toLowerCase();
+        const v = tab === "profile" ? "profile" : "current";
+        redirect(res, `/workbench/employee?view=${encodeURIComponent(v)}`);
+        return true;
+      }
+      if (url.pathname === "/workbench/employee" && !url.searchParams.get("view")) {
+        redirect(res, "/workbench/employee?view=new");
+        return true;
+      }
       const html =
-        url.pathname === "/workbench/employee/new"
-          ? renderEmployeeNewTasksPage()
-          : url.pathname === "/workbench/employee/current"
-            ? renderEmployeeCurrentTasksPage()
-            : renderTaskDetailPage({
-              roleLabel: "employee",
-              backPath: "/workbench/employee/current",
-            });
+        url.pathname === "/workbench/employee/task"
+          ? renderTaskDetailPage({
+            roleLabel: "employee",
+            backPath: "/workbench/employee?view=current",
+          })
+          : renderEmployeeWorkbenchPage();
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(html);

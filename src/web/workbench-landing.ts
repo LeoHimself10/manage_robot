@@ -26,8 +26,9 @@ export function renderWorkbenchRootLandingHtml(): string {
     <li><code>/workbench/manager/tasks</code> — 主管 · 历史任务与改派</li>
     <li><code>/workbench/manager/chat</code> — 主管 · 智能规划助手</li>
     <li><code>/workbench/admin</code> — 管理员 · 全公司任务与权限配置</li>
-    <li><code>/workbench/employee/new</code> — 员工 · 新任务承接</li>
-    <li><code>/workbench/employee/current</code> — 员工 · 当前任务进度</li>
+    <li><code>/workbench/employee?view=new</code> — 员工 · 新任务承接</li>
+    <li><code>/workbench/employee?view=current</code> — 员工 · 进行中</li>
+    <li><code>/workbench/employee?view=history</code> — 员工 · 已完成</li>
     <li class="muted"><code>/workbench/manager</code>、<code>/workbench/conversation</code> 等旧书签会自动跳转到上述页面。</li>
     <li><code>/assignment/workbench</code> — 兼容入口（携带 token 时写入会话并跳转）</li>
   </ul>

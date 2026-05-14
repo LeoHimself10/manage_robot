@@ -7,6 +7,8 @@ export interface DingTalkContactRow {
   userId: string;
   unionId?: string;
   name: string;
+  /** Present when row comes from `searchContacts` (match quality / UI badge). */
+  matchedField?: "name" | "department" | "other";
   departmentIds: string[];
   departmentNames: string[];
   position?: string;
@@ -249,9 +251,26 @@ export function createPeopleDirectoryStore(dbPath = resolveWorkbenchSqlitePath()
     "SELECT * FROM dingtalk_contacts ORDER BY active DESC, name ASC, user_id ASC",
   );
   const searchContactsStmt = db.prepare(`
-    SELECT * FROM dingtalk_contacts
-    WHERE (? = '' OR lower(user_id) LIKE '%' || ? || '%' OR lower(name) LIKE '%' || ? || '%' OR lower(department_names_json) LIKE '%' || ? || '%')
-    ORDER BY active DESC, name ASC
+    SELECT *,
+      CASE
+        WHEN lower(name) LIKE '%' || ? || '%' THEN 'name'
+        WHEN EXISTS (
+          SELECT 1 FROM json_each(department_names_json)
+          WHERE typeof(value) = 'text' AND lower(value) LIKE '%' || ? || '%'
+        ) THEN 'department'
+        ELSE 'other'
+      END AS matched_field
+    FROM dingtalk_contacts
+    WHERE (
+      ? = ''
+      OR lower(name) LIKE '%' || ? || '%'
+      OR EXISTS (
+        SELECT 1 FROM json_each(department_names_json)
+        WHERE typeof(value) = 'text' AND lower(value) LIKE '%' || ? || '%'
+      )
+    )
+    ORDER BY (CASE WHEN lower(name) LIKE '%' || ? || '%' THEN 0 ELSE 1 END),
+             active DESC, name ASC
     LIMIT ?
   `);
   const findProfileStmt = db.prepare("SELECT * FROM employee_profiles WHERE user_id = ?");
@@ -267,10 +286,14 @@ export function createPeopleDirectoryStore(dbPath = resolveWorkbenchSqlitePath()
   `);
 
   function mapContactRow(raw: Record<string, unknown>): DingTalkContactRow {
+    const mf = String(raw.matched_field ?? "").trim();
+    const matchedField: DingTalkContactRow["matchedField"] =
+      mf === "name" || mf === "department" || mf === "other" ? mf : undefined;
     return {
       userId: String(raw.user_id ?? ""),
       unionId: asString(raw.union_id),
       name: String(raw.name ?? ""),
+      matchedField,
       departmentIds: parseArray<string>(raw.department_ids_json),
       departmentNames: parseArray<string>(raw.department_names_json),
       position: asString(raw.position),
@@ -416,13 +439,18 @@ export function createPeopleDirectoryStore(dbPath = resolveWorkbenchSqlitePath()
 
     searchContacts(keyword: string, limit = 50): DingTalkContactRow[] {
       const normalized = keyword.trim().toLowerCase();
-      return (searchContactsStmt.all(
-        normalized,
-        normalized,
-        normalized,
-        normalized,
-        Math.max(1, Math.trunc(limit)),
-      ) as Array<Record<string, unknown>>).map(mapContactRow);
+      const lim = Math.max(1, Math.trunc(limit));
+      return (
+        searchContactsStmt.all(
+          normalized,
+          normalized,
+          normalized,
+          normalized,
+          normalized,
+          normalized,
+          lim,
+        ) as Array<Record<string, unknown>>
+      ).map(mapContactRow);
     },
 
     upsertProfile(input: Omit<EmployeeCapabilityProfileRow, "updatedAt"> & { updatedAt?: string }): void {

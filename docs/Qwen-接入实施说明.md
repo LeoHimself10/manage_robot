@@ -49,7 +49,7 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 
 1. **钉钉主链路**：`src/dingtalk-bot.ts` 调 `runOrchestrator`，由 `QwenCompatibleClient.callWithTools` 驱动 ReAct（tool_calls 循环）生成最终 `message + draft`。
 2. **工具循环**：`callWithTools` 默认最多 6 轮；每轮都可继续使用工具，直到模型不再返回 `tool_calls`（不会在“最后一轮”被代码强制关工具）。
-3. **prompt 版本**：当前 `QWEN_PLANNER_PROMPT_VERSION` 为 `orchestrator-agent-v5.8`（见 `src/agent/demo/qwen-prompt.ts`）；`runOrchestrator` 使用 `buildQwenPlannerSystemPrompt`，`generateStructuredPlan`（demo/eval）使用 `buildLegacyDemoPlannerSystemPrompt`，二者解耦。
+3. **prompt 版本**：当前 `QWEN_PLANNER_PROMPT_VERSION` 为 `orchestrator-agent-v5.9`（见 `src/agent/demo/qwen-prompt.ts`）；`runOrchestrator` 使用 `buildQwenPlannerSystemPrompt`，`generateStructuredPlan`（demo/eval）使用 `buildLegacyDemoPlannerSystemPrompt`，二者解耦。
 4. **`save_draft` 行为**：当前偏“保存优先”，主要做 `coerceLlmPlanPayload` 归一化，不再依赖强门禁去阻断模型保存。
 5. **会话记忆**：`knownFacts` 通过 `list_known_facts` / `update_known_facts` 在同会话内持续累积，`conversationHistory` 参与后续轮次上下文。
 6. **输出补齐**：钉钉端拿到 `draft` 后会补充结构化字段表（含 `feedbackFrequency`），避免模型自由 Markdown 漏字段。

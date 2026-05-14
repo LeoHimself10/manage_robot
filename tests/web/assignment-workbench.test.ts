@@ -7,9 +7,11 @@ import {
   __resetWorkbenchStoresForTest,
   __setDingTalkAuthClientForTest,
   __setWorkbenchPublishNotifierForTest,
+  __taskStatusLabelForTest,
   handleAssignmentHttp,
 } from "../../src/web/assignment-workbench";
 import { createPeopleDirectoryStore } from "../../src/infra/people-directory-store";
+import { createWorkbenchFormalTaskStore } from "../../src/infra/workbench-formal-task-store";
 import { signAssignmentEntry } from "../../src/security/web-entry-token";
 import { DingTalkAuthError, type DingTalkAuthClient } from "../../src/integrations/dingtalk/dingtalk-auth";
 import type { WorkbenchPublishNotifier } from "../../src/integrations/dingtalk/workbench-notify";
@@ -532,7 +534,7 @@ describe("assignment-workbench HTTP handler", () => {
     await flushAsync();
     const c = captured();
     expect(c.statusCode).toBe(200);
-    expect(c.body).toContain('"status":"ACCEPTED"');
+    expect(c.body).toContain('"status":"IN_PROGRESS"');
   });
 
   it("legacy /workbench/conversation redirects manager to chat", async () => {
@@ -580,7 +582,86 @@ describe("assignment-workbench HTTP handler", () => {
     handleAssignmentHttp(req, res);
     const c = captured();
     expect(c.statusCode).toBe(302);
-    expect(String(c.headers.Location ?? "")).toBe("/workbench/employee/new");
+    expect(String(c.headers.Location ?? "")).toBe("/workbench/employee?view=new");
+  });
+
+  it("maps legacy employee paths to ?view= with 302", async () => {
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "emp-2", role: "employee" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const cases: Array<{ url: string; expectLoc: string }> = [
+      { url: "/workbench/employee/new", expectLoc: "/workbench/employee?view=new" },
+      { url: "/workbench/employee/current", expectLoc: "/workbench/employee?view=current" },
+      { url: "/workbench/employee/current?tab=progress", expectLoc: "/workbench/employee?view=current" },
+      { url: "/workbench/employee/current?tab=profile", expectLoc: "/workbench/employee?view=profile" },
+    ];
+    for (const { url, expectLoc } of cases) {
+      const req = stubReq({ url, method: "GET", headers: { cookie } });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      const c = captured();
+      expect(c.statusCode, url).toBe(302);
+      expect(String(c.headers.Location ?? ""), url).toBe(expectLoc);
+    }
+  });
+
+  it("labels legacy ACCEPTED status as 进行中 for API consumers", () => {
+    expect(__taskStatusLabelForTest("ACCEPTED")).toBe("进行中");
+  });
+
+  it("GET tasks/detail surfaces EMPLOYEE_NOTIFY_FAILED with summary and detail", async () => {
+    await seedPublishedTask({
+      planId: "plan-notify-fail",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-nf",
+    });
+    const store = createWorkbenchFormalTaskStore();
+    const taskRow = store.listManagerTasks("manager-1").find((t) => t.planId === "plan-notify-fail");
+    if (!taskRow) throw new Error("expected published task");
+    store.appendTaskEvent({
+      taskId: taskRow.taskId,
+      eventType: "EMPLOYEE_NOTIFY_FAILED",
+      actorUserId: "manager-1",
+      note: "钉钉待办创建失败（测试）",
+    });
+
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const req = stubReq({
+      url: `/api/workbench/tasks/detail?taskNo=${encodeURIComponent(taskRow.taskNo)}`,
+      method: "GET",
+      headers: { cookie },
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    const body = JSON.parse(c.body) as {
+      ok: boolean;
+      events?: Array<{ type?: string; summary?: string; detail?: string }>;
+    };
+    expect(body.ok).toBe(true);
+    const ev = body.events?.find((e) => e.type === "EMPLOYEE_NOTIFY_FAILED");
+    expect(ev?.summary).toContain("失败");
+    expect(ev?.detail).toContain("钉钉");
   });
 
   it("POST /api/workbench/conversation/start returns a new planId for manager", async () => {
@@ -694,7 +775,7 @@ describe("assignment-workbench HTTP handler", () => {
     handleAssignmentHttp(okReq, okRes.res);
     await flushAsync();
     expect(okRes.captured().statusCode).toBe(200);
-    expect(okRes.captured().body).toContain('"status":"ACCEPTED"');
+    expect(okRes.captured().body).toContain('"status":"IN_PROGRESS"');
   });
 
   it("employee subtasks/progress requires idempotencyKey when WORKBENCH_ENFORCE_ACTION_GUARDS=1", async () => {
@@ -1031,7 +1112,7 @@ describe("assignment-workbench HTTP handler", () => {
     handleAssignmentHttp(employeeAcceptReq, employeeAcceptRes.res);
     await flushAsync();
     expect(employeeAcceptRes.captured().statusCode).toBe(200);
-    expect(employeeAcceptRes.captured().body).toContain('"status":"ACCEPTED"');
+    expect(employeeAcceptRes.captured().body).toContain('"status":"IN_PROGRESS"');
 
     seedContact("emp-3");
     const managerLoginReq = stubReq({
