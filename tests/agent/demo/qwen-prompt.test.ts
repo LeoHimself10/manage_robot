@@ -18,7 +18,13 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).not.toContain("responseIntent");
     expect(sys).not.toContain("CLARIFY");
     expect(sys).toContain("主管显式指派纪律");
-    expect(sys.length).toBeLessThanOrEqual(3300);
+    expect(sys).toContain("主题切换纪律");
+    expect(sys).toContain("publish 前 readback");
+    expect(sys).toContain("userId 不入主消息");
+    expect(sys).toContain("start_new_task");
+    expect(sys).toContain("switch_back_task");
+    expect(sys).toContain("update_draft_task");
+    expect(sys.length).toBeLessThanOrEqual(4200);
   });
 });
 

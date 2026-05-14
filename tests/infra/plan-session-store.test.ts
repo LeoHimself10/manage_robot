@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createPlanSessionStore,
   hashChatKey,
+  restoreTaskScope,
+  startNewTaskScope,
   type PlanSession,
 } from "../../src/infra/plan-session-store";
 
@@ -103,6 +105,87 @@ describe("plan-session-store", () => {
     const stable = store.loadByChatKey("stable-key");
     expect(stable?.knownFacts).toContain("fact-legacy");
     expect(stable?.conversationId).toBe("cid-1");
+  });
+
+  it("loadOrCreate assigns a default taskScope and mirrors top-level state on save", () => {
+    sessionDir = join(tmpdir(), `sessions-${Date.now()}-scope`);
+    eventsPath = join(tmpdir(), `session-events-${Date.now()}-scope.jsonl`);
+    process.env.PLAN_SESSION_DIR = sessionDir;
+    process.env.PLAN_SESSION_EVENTS_PATH = eventsPath;
+
+    const store = createPlanSessionStore();
+    const created = store.loadOrCreate("scope-key");
+
+    expect(created.currentTaskScopeId).toMatch(/^scope:/);
+    expect(created.taskScopes?.[created.currentTaskScopeId!]).toBeDefined();
+
+    store.save({
+      ...created,
+      latestDraft: { title: "Draft A", tasks: [{ id: "t1", title: "x" }] },
+      knownFacts: ["fact-A"],
+    });
+
+    const restored = store.loadByChatKey("scope-key")!;
+    const mirror = restored.taskScopes![restored.currentTaskScopeId!];
+    expect((mirror.latestDraft as any)?.title).toBe("Draft A");
+    expect(mirror.knownFacts).toEqual(["fact-A"]);
+  });
+
+  it("migrates legacy session (no currentTaskScopeId) into a default scope", () => {
+    sessionDir = join(tmpdir(), `sessions-${Date.now()}-legacy`);
+    eventsPath = join(tmpdir(), `session-events-${Date.now()}-legacy.jsonl`);
+    process.env.PLAN_SESSION_DIR = sessionDir;
+    process.env.PLAN_SESSION_EVENTS_PATH = eventsPath;
+
+    const store = createPlanSessionStore();
+    const created = store.loadOrCreate("legacy-scope-key");
+    // simulate legacy file: strip new fields and write back
+    const legacyShape: any = { ...created };
+    delete legacyShape.currentTaskScopeId;
+    delete legacyShape.taskScopes;
+    legacyShape.latestDraft = { title: "Legacy Draft" };
+    legacyShape.knownFacts = ["legacy-fact"];
+    require("node:fs").writeFileSync(
+      join(sessionDir, `${created.chatKeyHash}.json`),
+      JSON.stringify(legacyShape),
+      "utf8",
+    );
+
+    const reloaded = store.loadByChatKey("legacy-scope-key")!;
+    expect(reloaded.currentTaskScopeId).toMatch(/^scope:/);
+    expect(reloaded.taskScopes?.[reloaded.currentTaskScopeId!]).toBeDefined();
+    expect(
+      (reloaded.taskScopes![reloaded.currentTaskScopeId!].latestDraft as any)?.title,
+    ).toBe("Legacy Draft");
+  });
+
+  it("startNewTaskScope + restoreTaskScope persist round-trip through save/load", () => {
+    sessionDir = join(tmpdir(), `sessions-${Date.now()}-roundtrip`);
+    eventsPath = join(tmpdir(), `session-events-${Date.now()}-roundtrip.jsonl`);
+    process.env.PLAN_SESSION_DIR = sessionDir;
+    process.env.PLAN_SESSION_EVENTS_PATH = eventsPath;
+
+    const store = createPlanSessionStore();
+    const session = store.loadOrCreate("rt");
+
+    session.latestDraft = { title: "Topic A" };
+    session.knownFacts = ["fact-A"];
+    startNewTaskScope(session, { scopeLabel: "Topic B" });
+    session.latestDraft = { title: "Topic B Draft" };
+    session.knownFacts = ["fact-B"];
+    store.save(session);
+
+    const reloaded = store.loadByChatKey("rt")!;
+    expect((reloaded.latestDraft as any)?.title).toBe("Topic B Draft");
+
+    const restore = restoreTaskScope(reloaded, { scopeLabelKeyword: "默认任务" });
+    expect(restore.ok).toBe(true);
+    expect((reloaded.latestDraft as any)?.title).toBe("Topic A");
+    expect(reloaded.knownFacts).toEqual(["fact-A"]);
+    store.save(reloaded);
+
+    const reloaded2 = store.loadByChatKey("rt")!;
+    expect((reloaded2.latestDraft as any)?.title).toBe("Topic A");
   });
 
   it("appends session events into jsonl", () => {

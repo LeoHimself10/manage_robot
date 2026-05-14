@@ -68,6 +68,9 @@ import {
   buildKnownFactsHandlers,
   type KnownFactsStore,
 } from "./update-known-facts";
+import { START_NEW_TASK_TOOL, buildStartNewTaskHandler } from "./start-new-task";
+import { SWITCH_BACK_TASK_TOOL, buildSwitchBackTaskHandler } from "./switch-back-task";
+import { UPDATE_DRAFT_TASK_TOOL, buildUpdateDraftTaskHandler } from "./update-draft-task";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 import {
@@ -145,6 +148,21 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     prepare_publish_task: {
       definition: PREPARE_PUBLISH_TASK_TOOL,
       handler: buildPreparePublishTaskHandler({
+        currentSession: deps.currentSession,
+        getContact: (userId) => peopleStore.getContact(userId),
+      }),
+    },
+    start_new_task: {
+      definition: START_NEW_TASK_TOOL,
+      handler: buildStartNewTaskHandler({ currentSession: deps.currentSession }),
+    },
+    switch_back_task: {
+      definition: SWITCH_BACK_TASK_TOOL,
+      handler: buildSwitchBackTaskHandler({ currentSession: deps.currentSession }),
+    },
+    update_draft_task: {
+      definition: UPDATE_DRAFT_TASK_TOOL,
+      handler: buildUpdateDraftTaskHandler({
         currentSession: deps.currentSession,
         getContact: (userId) => peopleStore.getContact(userId),
       }),
@@ -282,6 +300,9 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "get_current_time",
       "update_known_facts",
       "list_known_facts",
+      "start_new_task",
+      "switch_back_task",
+      "update_draft_task",
     ],
     manager: [
       "prepare_publish_task",
@@ -296,6 +317,9 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "get_current_time",
       "update_known_facts",
       "list_known_facts",
+      "start_new_task",
+      "switch_back_task",
+      "update_draft_task",
     ],
     admin: [
       "prepare_publish_task",
@@ -314,6 +338,9 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "get_current_time",
       "update_known_facts",
       "list_known_facts",
+      "start_new_task",
+      "switch_back_task",
+      "update_draft_task",
     ],
     employee: [
       "list_my_tasks",
