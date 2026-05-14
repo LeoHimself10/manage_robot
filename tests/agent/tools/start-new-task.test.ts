@@ -16,6 +16,7 @@ function makeSession(overrides: Partial<PlanSession> = {}): PlanSession {
       "scope:original": {
         scopeId: "scope:original",
         scopeLabel: "OCT 主机问题",
+        planId: "plan-1",
         createdAt: now,
         updatedAt: now,
       },
@@ -54,15 +55,19 @@ describe("start_new_task tool", () => {
     expect(result.ok).toBe(true);
     expect(result.fromScopeId).toBe("scope:original");
     expect(result.fromScopeLabel).toBe("OCT 主机问题");
+    expect(result.fromPlanId).toBe("plan-1");
+    expect(result.toPlanId).toBe(session.planId);
     expect(result.toScopeId).toMatch(/^scope:/);
     expect(result.toScopeLabel).toBe("无纺布来料不合格");
 
     expect(session.currentTaskScopeId).toBe(result.toScopeId);
+    expect(result.toPlanId).not.toBe("plan-1");
     expect(session.latestDraft).toBeUndefined();
     expect(session.latestAssignment).toBeUndefined();
     expect(session.knownFacts).toEqual([]);
 
     const archived = session.taskScopes?.["scope:original"];
+    expect(archived?.planId).toBe("plan-1");
     expect(archived?.latestDraft).toMatchObject({ title: "OCT 主机 U 盘" });
     expect(archived?.knownFacts).toEqual(["上下文 OCT 设备型号 K5"]);
 

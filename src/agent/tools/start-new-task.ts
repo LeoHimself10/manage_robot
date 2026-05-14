@@ -56,11 +56,13 @@ export function buildStartNewTaskHandler(
       ok: true,
       fromScopeId: result.fromScopeId,
       fromScopeLabel: result.fromScopeLabel,
+      fromPlanId: result.fromPlanId,
       toScopeId: result.toScopeId,
       toScopeLabel: result.toScopeLabel,
+      toPlanId: result.toPlanId,
       hint:
         `已归档原任务${result.fromScopeLabel ? `「${result.fromScopeLabel}」` : ""}，` +
-        `切换到新任务「${result.toScopeLabel}」。当前 scope 草案为空，请按用户最新输入重新生成。`,
+        `切换到新任务「${result.toScopeLabel}」。规划 id 已从 \`${result.fromPlanId}\` 更新为 \`${result.toPlanId}\`。当前 scope 草案为空，请按用户最新输入重新生成。`,
     };
   };
 }

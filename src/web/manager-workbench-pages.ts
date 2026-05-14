@@ -115,9 +115,9 @@ export function renderManagerTasksPage(params: {
             <ul id="reassignAssigneeOptions" class="combo-options" hidden></ul>
           </div>
         </label>
-        <label>仅改派单个子任务（可选）
-          <select id="reassignSubtaskPick" aria-disabled="true">
-            <option value="">整单未完成子任务全部改派</option>
+        <label>改派范围（可选）
+          <select id="reassignSubtaskPick" class="reassign-subtask-pick" aria-disabled="true">
+            <option value="">全部子任务（未完成）</option>
           </select>
         </label>
         <label>说明
@@ -184,7 +184,7 @@ export function renderManagerTasksPage(params: {
     if (!sel || !st) return;
     var opt = sel.selectedOptions && sel.selectedOptions[0];
     var taskNo = opt ? String(opt.getAttribute('data-task-no') || '').trim() : '';
-    st.innerHTML = '<option value="">整单未完成子任务全部改派</option>';
+    st.innerHTML = '<option value="">全部子任务（未完成）</option>';
     if (!taskNo) {
       st.setAttribute('aria-disabled', 'true');
       return;
@@ -194,11 +194,18 @@ export function renderManagerTasksPage(params: {
       var res = await fetch('/api/workbench/tasks/detail?taskNo=' + encodeURIComponent(taskNo));
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) return;
-      var subs = data.subtasks || [];
+      var subs = (data.subtasks || []).filter(function (s) {
+        return String(s.status || '').toUpperCase() !== 'DONE';
+      });
       subs.forEach(function (s, idx) {
         var o = document.createElement('option');
         o.value = String(s.subtaskId || '');
-        o.textContent = (idx + 1) + '. ' + String(s.title || '') + ' · ' + String(s.statusLabel || s.status || '');
+        var title = String(s.title || '').trim() || '（无标题）';
+        var stLabel = String(s.statusLabel || s.status || '未知').trim();
+        var who = String(s.assigneeDisplayName || s.assigneeUserId || '').trim() || '未指定';
+        var line = (idx + 1) + '. ' + title + ' · 【' + stLabel + '】 当前负责人：' + who;
+        o.textContent = line;
+        o.title = line;
         st.appendChild(o);
       });
     } catch (e) {}

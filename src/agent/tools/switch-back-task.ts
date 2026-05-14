@@ -76,9 +76,11 @@ export function buildSwitchBackTaskHandler(
       fromScopeId: result.fromScopeId,
       toScopeId: result.toScopeId,
       toScopeLabel: result.toScopeLabel,
+      toPlanId: result.toPlanId,
       hasDraft: result.hasDraft,
       hint:
-        `已切回任务「${result.toScopeLabel}」。${result.hasDraft ? "原草案已恢复到当前会话，可基于它继续讨论或发布。" : "该 scope 之前没有保存过草案，需要重新拆解。"}`,
+        `已切回任务「${result.toScopeLabel}」，当前规划 id 为 \`${result.toPlanId}\`。` +
+        `${result.hasDraft ? "原草案已恢复到当前会话，可基于它继续讨论或发布。" : "该 scope 之前没有保存过草案，需要重新拆解。"}`,
     };
   };
 }

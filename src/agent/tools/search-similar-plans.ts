@@ -1,6 +1,11 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 import { generateQueryEmbedding, searchWithEmbedding } from "../../infra/plan-index";
 
+/** `SEARCH_SIMILAR_PLANS_ENABLED=0` 关闭工具与（钉钉侧）embedding 写入；默认开启。 */
+export function readSearchSimilarPlansEnabled(): boolean {
+  return String(process.env.SEARCH_SIMILAR_PLANS_ENABLED ?? "1").trim() !== "0";
+}
+
 export const SEARCH_SIMILAR_PLANS_TOOL: ToolDefinition = {
   type: "function",
   function: {

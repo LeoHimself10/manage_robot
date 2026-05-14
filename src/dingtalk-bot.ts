@@ -32,7 +32,14 @@ import { parseRosterFile } from "./agent/assignment/roster-parser";
 import { fetchDingTalkFile } from "./integrations/dingtalk/dingtalk-file-download";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
-import { createPlanSessionStore, hashChatKey, type PlanSession } from "./infra/plan-session-store";
+import {
+  createPlanSessionStore,
+  hashChatKey,
+  markPublishedAndRotatePlanSession,
+  readDingtalkPlanIdRotateEnabled,
+  type PlanSession,
+} from "./infra/plan-session-store";
+import { readSearchSimilarPlansEnabled } from "./agent/tools/search-similar-plans";
 import { logStructured } from "./infra/logger";
 import { createDingTalkContactSyncService } from "./infra/dingtalk-contact-sync";
 import {
@@ -663,12 +670,13 @@ async function main(): Promise<void> {
         });
         const orchestratorMs = Date.now() - orchestratorStartedAt;
 
+        const snapshotPlanId = session.planId;
         const currentDraft = orchResult.draft ?? session.latestDraft;
 
         // 长期记忆：有草案时自动存快照+embedding
         if (currentDraft && !isAnonymousSender) {
-          savePlanSnapshot(session.planId, {
-            planId: session.planId,
+          savePlanSnapshot(snapshotPlanId, {
+            planId: snapshotPlanId,
             traceId: orchResult.traceId,
             status: "DRAFT_READY",
             draft: currentDraft,
@@ -681,13 +689,15 @@ async function main(): Promise<void> {
             messagePreview: orchResult.messages[0]?.slice(0, 500),
           });
           // 生成 embedding 用于未来相似任务检索
-          const summary = `领域:${(currentDraft as any)?.classification?.domain ?? "未知"} 子类型:${(currentDraft as any)?.classification?.subtype ?? "未知"}`;
-          generateQueryEmbedding(summary).then((emb) => {
-            if (emb) {
-              savePlanEmbedding(orchResult.traceId, summary, emb);
-              savePlanEmbedding(session.planId, summary, emb);
-            }
-          }).catch(() => {});
+          if (readSearchSimilarPlansEnabled()) {
+            const summary = `领域:${(currentDraft as any)?.classification?.domain ?? "未知"} 子类型:${(currentDraft as any)?.classification?.subtype ?? "未知"}`;
+            generateQueryEmbedding(summary).then((emb) => {
+              if (emb) {
+                savePlanEmbedding(orchResult.traceId, summary, emb);
+                savePlanEmbedding(snapshotPlanId, summary, emb);
+              }
+            }).catch(() => {});
+          }
         }
 
         // 模型自己决定输出格式，代码只做兜底
@@ -772,7 +782,56 @@ async function main(): Promise<void> {
         }
         const assignmentMs = Date.now() - assignmentStartedAt;
 
+        let planRotatedAfterPublish = false;
+        let rotatePlanHintTail = "";
+        const pr = publishResult as Record<string, unknown> | undefined;
+        if (
+          readDingtalkPlanIdRotateEnabled() &&
+          !isAnonymousSender &&
+          pr &&
+          String(pr.ok ?? "") === "true" &&
+          String(pr.alreadyPublished ?? "") !== "true" &&
+          pr.dedupedByLru !== true &&
+          String(pr.reason ?? "") !== "unknown_assignees"
+        ) {
+          const taskRow = pr.task as { taskNo?: string } | undefined;
+          const taskNo = String(taskRow?.taskNo ?? "").trim();
+          const rotRes = markPublishedAndRotatePlanSession(session, {
+            taskNo,
+            scopeLabel: "（发布后新规划）",
+            reason: "auto_rotate_after_publish",
+          });
+          if (!("skipped" in rotRes)) {
+            planRotatedAfterPublish = true;
+            rotatePlanHintTail =
+              `\n\n---\n**已开启新规划**：当前规划 id 已更新为 \`${rotRes.toPlanId}\`，下一条消息将作为新任务处理。\n` +
+              `若要继续修改刚才已发布的规划（原 id \`${rotRes.fromPlanId}\`${taskNo ? `，任务编号 **${taskNo}**` : ""}），请说明要回到该上下文并调用 \`switch_back_task\`（例如「切回上一条任务」）。`;
+            planSessionStore.appendEvent({
+              planId: rotRes.toPlanId,
+              chatKeyHash: session.chatKeyHash,
+              eventType: "planid_rotated_after_publish",
+              payload: {
+                fromPlanId: rotRes.fromPlanId,
+                toPlanId: rotRes.toPlanId,
+                taskNo: taskNo || undefined,
+                traceId: orchResult.traceId,
+              },
+            });
+            logStructured({
+              event: "planid_rotated_after_publish",
+              messageId,
+              fromPlanId: rotRes.fromPlanId,
+              toPlanId: rotRes.toPlanId,
+              taskNo: taskNo || undefined,
+              traceId: orchResult.traceId,
+            });
+          }
+        }
+
         outboundMarkdown = appendPublishSummaryMarkdown(outboundMarkdown, publishResult);
+        if (planRotatedAfterPublish) {
+          outboundMarkdown += rotatePlanHintTail;
+        }
         const finalOutboundForHistory = outboundMarkdown + assignmentSection;
         const sendReplyStartedAt = Date.now();
         dingtalkResponse = await sendMarkdownReply({
@@ -823,15 +882,16 @@ async function main(): Promise<void> {
             lastTraceId: orchResult.traceId,
             knownFacts: mutableKnownFacts,
             conversationHistory: nextConversationHistory,
-            latestDraft: currentDraft,
-            latestAssignment,
+            latestDraft: planRotatedAfterPublish ? undefined : currentDraft,
+            latestAssignment: planRotatedAfterPublish ? undefined : latestAssignment,
             revisionEvents: nextRevisionEvents,
           });
         }
 
         if (!isAnonymousSender) {
+          const memoryPlanId = planRotatedAfterPublish ? snapshotPlanId : session.planId;
           appendMemoryEvents({
-            planId: session.planId,
+            planId: memoryPlanId,
             userMessage: background,
             assistantMessage: finalOutboundForHistory,
             latestDraft: currentDraft,
@@ -845,7 +905,7 @@ async function main(): Promise<void> {
           }).catch((err) => {
             logStructured({
               event: "memory_worker_failed",
-              planId: session.planId,
+              planId: memoryPlanId,
               traceId: orchResult.traceId,
               reason: err instanceof Error ? err.message : String(err),
             });

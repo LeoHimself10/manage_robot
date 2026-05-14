@@ -237,6 +237,8 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DINGTALK_CONTACT_EVENT_TOKEN` | 否 | 通讯录事件回调鉴权 token；配置后需在请求头 `x-contact-event-token` 传入 |
 | `DINGTALK_ROLE_ROUTING_ENABLED` | 否 | `1` 时按身份动态路由到 `manager/employee/planner` profile；默认 `0` 固定 planner（兼容旧行为） |
 | `SEARCH_WEB_ENABLED` | 否 | `0` 全局关闭 `search_web` 工具；默认 `1`（仍受“用户明确要求搜索”语义门控） |
+| `SEARCH_SIMILAR_PLANS_ENABLED` | 否 | `0` 关闭 `search_similar_plans` 工具，并跳过钉钉侧有草案时的异步 embedding 写入；默认 `1` |
+| `DINGTALK_PLANID_ROTATE_ENABLED` | 否 | `0` 关闭「`publish_task` 成功后自动轮转 `planId`」；默认 `1`（同钉钉会话可连发多条正式任务） |
 | `SEARCH_WEB_MODEL` | 否 | 搜索补充调用模型（默认 `qwen-turbo`） |
 | `SEARCH_WEB_TIMEOUT_MS` | 否 | 搜索调用超时（毫秒，默认 `8000`） |
 | `SEARCH_WEB_STRATEGY` | 否 | `turbo`/`quality`/`adaptive`；默认 `turbo` |

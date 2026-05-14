@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createPlanSessionStore,
   hashChatKey,
+  markPublishedAndRotatePlanSession,
   restoreTaskScope,
   startNewTaskScope,
   type PlanSession,
@@ -129,6 +130,7 @@ describe("plan-session-store", () => {
     const mirror = restored.taskScopes![restored.currentTaskScopeId!];
     expect((mirror.latestDraft as any)?.title).toBe("Draft A");
     expect(mirror.knownFacts).toEqual(["fact-A"]);
+    expect(mirror.planId).toBe(restored.planId);
   });
 
   it("migrates legacy session (no currentTaskScopeId) into a default scope", () => {
@@ -167,10 +169,12 @@ describe("plan-session-store", () => {
 
     const store = createPlanSessionStore();
     const session = store.loadOrCreate("rt");
+    const initialPlanId = session.planId;
 
     session.latestDraft = { title: "Topic A" };
     session.knownFacts = ["fact-A"];
     startNewTaskScope(session, { scopeLabel: "Topic B" });
+    expect(session.planId).not.toBe(initialPlanId);
     session.latestDraft = { title: "Topic B Draft" };
     session.knownFacts = ["fact-B"];
     store.save(session);
@@ -180,8 +184,10 @@ describe("plan-session-store", () => {
 
     const restore = restoreTaskScope(reloaded, { scopeLabelKeyword: "默认任务" });
     expect(restore.ok).toBe(true);
+    expect(restore.toPlanId).toBe(initialPlanId);
     expect((reloaded.latestDraft as any)?.title).toBe("Topic A");
     expect(reloaded.knownFacts).toEqual(["fact-A"]);
+    expect(reloaded.planId).toBe(initialPlanId);
     store.save(reloaded);
 
     const reloaded2 = store.loadByChatKey("rt")!;
@@ -220,5 +226,39 @@ describe("plan-session-store", () => {
     expect(second.planId).toBe(session.planId);
     expect(second.eventType).toBe("ASSIGNMENT_UPDATED");
     expect(second.payload.assignmentCount).toBe(2);
+  });
+
+  it("markPublishedAndRotatePlanSession records taskNo and rotates planId", () => {
+    const now = new Date().toISOString();
+    const session: PlanSession = {
+      chatKeyHash: "h",
+      planId: "p-old",
+      createdAt: now,
+      updatedAt: now,
+      knownFacts: [],
+      conversationHistory: [],
+      currentTaskScopeId: "scope:a",
+      taskScopes: {
+        "scope:a": {
+          scopeId: "scope:a",
+          scopeLabel: "L",
+          planId: "p-old",
+          createdAt: now,
+          updatedAt: now,
+          latestDraft: { title: "D" },
+        },
+      },
+    };
+    const r = markPublishedAndRotatePlanSession(session, { taskNo: "T-001" });
+    expect("skipped" in r).toBe(false);
+    const ok = r as { fromPlanId: string; toPlanId: string; toScopeId: string };
+    expect(ok.fromPlanId).toBe("p-old");
+    expect(ok.toPlanId).toBe(session.planId);
+    expect(ok.toPlanId).not.toBe("p-old");
+    const archived = session.taskScopes?.["scope:a"];
+    expect(archived?.publishedTaskNo).toBe("T-001");
+    expect(archived?.planId).toBe("p-old");
+    expect(session.currentTaskScopeId).toBe(ok.toScopeId);
+    expect(session.latestDraft).toBeUndefined();
   });
 });

@@ -20,11 +20,15 @@ export interface PlanSessionEvent {
 export interface TaskScope {
   scopeId: string;
   scopeLabel: string;
+  /** 该 scope 对应的规划 id；与顶层 `session.planId` 在激活时保持一致。 */
+  planId: string;
   createdAt: string;
   updatedAt: string;
   latestDraft?: Record<string, unknown>;
   latestAssignment?: Record<string, unknown>;
   knownFacts?: string[];
+  /** 若本 scope 已成功发布正式任务，记录业务编号便于回查。 */
+  publishedTaskNo?: string;
 }
 
 export interface ScopeAuditEntry {
@@ -103,8 +107,29 @@ export function hashChatKey(chatKey: string): string {
   return createHash("sha256").update(chatKey).digest("hex");
 }
 
+/** 钉钉单聊内发布成功后是否自动轮转 `planId`（默认开启）。设为 `0` 关闭。 */
+export function readDingtalkPlanIdRotateEnabled(): boolean {
+  return String(process.env.DINGTALK_PLANID_ROTATE_ENABLED ?? "1").trim() !== "0";
+}
+
 function generateScopeId(): string {
   return `scope:${randomUUID().slice(0, 8)}`;
+}
+
+/**
+ * 旧会话文件里 taskScopes 可能没有 planId；补全并与顶层对齐。
+ */
+export function migrateTaskScopePlanIds(session: PlanSession): void {
+  if (!session.taskScopes) return;
+  for (const s of Object.values(session.taskScopes)) {
+    if (!String(s.planId ?? "").trim()) {
+      s.planId = session.planId;
+    }
+  }
+  const curId = session.currentTaskScopeId;
+  if (curId && session.taskScopes[curId]?.planId) {
+    session.planId = session.taskScopes[curId].planId;
+  }
 }
 
 /**
@@ -121,8 +146,10 @@ export function mirrorActiveScope(session: PlanSession): PlanSession {
   session.taskScopes[scopeId] = {
     scopeId,
     scopeLabel: existing?.scopeLabel ?? "默认任务",
+    planId: session.planId,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
+    publishedTaskNo: existing?.publishedTaskNo,
     latestDraft: session.latestDraft,
     latestAssignment: session.latestAssignment,
     knownFacts: [...(session.knownFacts ?? [])],
@@ -137,18 +164,28 @@ export function mirrorActiveScope(session: PlanSession): PlanSession {
 export function startNewTaskScope(
   session: PlanSession,
   input: { scopeLabel: string; reason?: string },
-): { fromScopeId?: string; fromScopeLabel?: string; toScopeId: string; toScopeLabel: string } {
+): {
+  fromScopeId?: string;
+  fromScopeLabel?: string;
+  fromPlanId: string;
+  toScopeId: string;
+  toScopeLabel: string;
+  toPlanId: string;
+} {
+  const fromPlanId = session.planId;
   const fromScopeId = session.currentTaskScopeId;
   const fromScopeLabel = fromScopeId ? session.taskScopes?.[fromScopeId]?.scopeLabel : undefined;
   if (fromScopeId) mirrorActiveScope(session);
 
   const now = new Date().toISOString();
   const toScopeId = generateScopeId();
+  const toPlanId = randomUUID();
   const toScopeLabel = input.scopeLabel.trim() || "新任务";
   if (!session.taskScopes) session.taskScopes = {};
   session.taskScopes[toScopeId] = {
     scopeId: toScopeId,
     scopeLabel: toScopeLabel,
+    planId: toPlanId,
     createdAt: now,
     updatedAt: now,
     latestDraft: undefined,
@@ -156,6 +193,7 @@ export function startNewTaskScope(
     knownFacts: [],
   };
   session.currentTaskScopeId = toScopeId;
+  session.planId = toPlanId;
   session.latestDraft = undefined;
   session.latestAssignment = undefined;
   session.knownFacts = [];
@@ -167,7 +205,44 @@ export function startNewTaskScope(
     scopeLabel: toScopeLabel,
     reason: input.reason,
   });
-  return { fromScopeId, fromScopeLabel, toScopeId, toScopeLabel };
+  return { fromScopeId, fromScopeLabel, fromPlanId, toScopeId, toScopeLabel, toPlanId };
+}
+
+/**
+ * 发布成功后：给当前 scope 打上 `publishedTaskNo`，归档并新开 scope + 新 `planId`。
+ */
+export function markPublishedAndRotatePlanSession(
+  session: PlanSession,
+  input: { taskNo: string; scopeLabel?: string; reason?: string },
+):
+  | { fromPlanId: string; toPlanId: string; fromScopeId?: string; toScopeId: string }
+  | { skipped: true; reason: string } {
+  if (!session.currentTaskScopeId) {
+    ensureDefaultScope(session);
+  }
+  if (!session.currentTaskScopeId) {
+    return { skipped: true, reason: "no_current_scope" };
+  }
+  if (!session.taskScopes) session.taskScopes = {};
+  const curId = session.currentTaskScopeId;
+  const scope = session.taskScopes[curId];
+  if (scope) {
+    const tn = input.taskNo.trim();
+    if (tn) scope.publishedTaskNo = tn;
+    if (!String(scope.planId ?? "").trim()) {
+      scope.planId = session.planId;
+    }
+  }
+  const rot = startNewTaskScope(session, {
+    scopeLabel: input.scopeLabel ?? "（发布后新规划）",
+    reason: input.reason ?? "auto_rotate_after_publish",
+  });
+  return {
+    fromPlanId: rot.fromPlanId,
+    toPlanId: session.planId,
+    fromScopeId: rot.fromScopeId,
+    toScopeId: rot.toScopeId,
+  };
 }
 
 /**
@@ -178,7 +253,14 @@ export function restoreTaskScope(
   session: PlanSession,
   input: { scopeId?: string; scopeLabelKeyword?: string; reason?: string },
 ):
-  | { ok: true; fromScopeId?: string; toScopeId: string; toScopeLabel: string; hasDraft: boolean }
+  | {
+      ok: true;
+      fromScopeId?: string;
+      toScopeId: string;
+      toScopeLabel: string;
+      toPlanId: string;
+      hasDraft: boolean;
+    }
   | { ok: false; reason: "scope_not_found" | "no_archived_scopes" | "missing_query"; candidates: Array<{ scopeId: string; scopeLabel: string; hasDraft: boolean }> } {
   const archives = session.taskScopes ?? {};
   const allScopes = Object.values(archives);
@@ -219,6 +301,8 @@ export function restoreTaskScope(
   if (fromScopeId) mirrorActiveScope(session);
 
   session.currentTaskScopeId = target.scopeId;
+  const toPlanId = String(target.planId ?? "").trim() || session.planId;
+  session.planId = toPlanId;
   session.latestDraft = target.latestDraft;
   session.latestAssignment = target.latestAssignment;
   session.knownFacts = [...(target.knownFacts ?? [])];
@@ -237,6 +321,7 @@ export function restoreTaskScope(
     fromScopeId,
     toScopeId: target.scopeId,
     toScopeLabel: target.scopeLabel,
+    toPlanId,
     hasDraft: Boolean(target.latestDraft),
   };
 }
@@ -263,6 +348,7 @@ function ensureDefaultScope(session: PlanSession): void {
   session.taskScopes[scopeId] = {
     scopeId,
     scopeLabel: "默认任务",
+    planId: session.planId,
     createdAt: session.createdAt || now,
     updatedAt: now,
     latestDraft: session.latestDraft,
@@ -307,6 +393,7 @@ export function createPlanSessionStore() {
         updatedAt: new Date().toISOString(),
       };
       ensureDefaultScope(next);
+      migrateTaskScopePlanIds(next);
       mirrorActiveScope(next);
       writeSession(next);
     },
@@ -341,6 +428,7 @@ function loadByChatKeyHash(chatKeyHash: string): PlanSession | undefined {
         : [],
     };
     ensureDefaultScope(session);
+    migrateTaskScopePlanIds(session);
     return session;
   } catch {
     return undefined;

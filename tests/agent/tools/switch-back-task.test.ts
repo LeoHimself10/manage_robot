@@ -22,6 +22,7 @@ function makeSession(): PlanSession {
       "scope:initial": {
         scopeId: "scope:initial",
         scopeLabel: "OCT 主机 U 盘",
+        planId: "plan-1",
         createdAt: now,
         updatedAt: now,
         latestDraft: initialDraft,
@@ -68,6 +69,7 @@ describe("switch_back_task tool", () => {
 
     expect(result.ok).toBe(true);
     expect(result.toScopeLabel).toBe("OCT 主机 U 盘");
+    expect(result.toPlanId).toBe("plan-1");
     expect(result.hasDraft).toBe(true);
     expect(session.currentTaskScopeId).toBe("scope:initial");
     expect((session.latestDraft as any)?.title).toBe("OCT 主机 U 盘排查");

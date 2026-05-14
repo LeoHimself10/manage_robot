@@ -90,6 +90,24 @@ describe("tool registry profiles", () => {
     expect(res).toEqual({ ok: false, error: "trusted_actor_required" });
   });
 
+  it("search_similar_plans is gated by SEARCH_SIMILAR_PLANS_ENABLED", () => {
+    vi.stubEnv("SEARCH_SIMILAR_PLANS_ENABLED", "0");
+    const disabled = buildToolRegistry({
+      employeeRepo: { list: () => [] },
+      toolProfile: "planner",
+      allowSearchWeb: false,
+    });
+    expect(disabled.search_similar_plans).toBeUndefined();
+
+    vi.stubEnv("SEARCH_SIMILAR_PLANS_ENABLED", "1");
+    const enabled = buildToolRegistry({
+      employeeRepo: { list: () => [] },
+      toolProfile: "planner",
+      allowSearchWeb: false,
+    });
+    expect(enabled.search_similar_plans).toBeDefined();
+  });
+
   it("admin profile includes admin tools while manager profile does not", () => {
     const adminRegistry = buildToolRegistry({
       employeeRepo: { list: () => [] },

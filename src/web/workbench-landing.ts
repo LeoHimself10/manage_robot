@@ -10,10 +10,17 @@ export function renderWorkbenchRootLandingHtml(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>任务规划工作台</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.55; color: #222; }
-    code { background: #f4f4f4; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.92em; }
-    ul { padding-left: 1.25rem; }
+    body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 0 auto; padding: 1rem 1rem 2rem; line-height: 1.55; color: #222; }
+    code { background: #f4f4f4; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.92em; word-break: break-all; }
+    ul { padding-left: 1.1rem; margin: 0.5rem 0 0; }
+    li { margin: 0.35rem 0; word-break: break-word; }
+    h1 { font-size: 1.35rem; margin: 0 0 0.75rem; line-height: 1.25; }
+    h2 { font-size: 1.05rem; margin: 1.25rem 0 0.5rem; }
     .muted { color: #555; font-size: 0.95rem; }
+    @media (max-width: 480px) {
+      body { padding: 0.75rem 0.75rem 1.5rem; }
+      h1 { font-size: 1.2rem; }
+    }
   </style>
 </head>
 <body>

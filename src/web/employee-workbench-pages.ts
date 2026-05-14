@@ -143,6 +143,8 @@ export function renderEmployeeWorkbenchPage(): string {
     showView(view);
   }
   function showView(view) {
+    closeProgress();
+    closePanel();
     document.querySelectorAll('.nav-pills a').forEach(function (a) { a.classList.remove('active'); });
     var map = { new: 'navNew', current: 'navCur', history: 'navHist', profile: 'navProf' };
     var nid = map[view] || 'navNew';

@@ -444,4 +444,57 @@ html.sheet-open body {
   font-size: 14px;
 }
 .banner-plan code { font-size: 13px; }
+.reassign-subtask-pick {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.reassign-subtask-pick option {
+  white-space: normal;
+  padding: 6px 0;
+}
+@media (max-width: 640px) {
+  .app-shell { padding: 12px 12px 32px; }
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .top-actions {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .nav-pills {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+  }
+  .nav-pills a {
+    flex: 1 1 0;
+    min-width: 0;
+    text-align: center;
+    font-size: 13px;
+    padding: 8px 10px;
+  }
+  .page-title { font-size: 20px; }
+  .page-desc { font-size: 13px; max-width: none; }
+  .banner-plan {
+    font-size: 13px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .banner-plan code { word-break: break-all; font-size: 12px; }
+  .card { padding: 14px 14px; }
+  .tabs { gap: 6px; }
+  .tabs-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    text-align: center;
+    font-size: 12px;
+    padding: 8px 8px;
+  }
+  table.data { font-size: 12px; }
+  table.data th, table.data td { padding: 8px 8px; }
+  .reassign-subtask-pick { font-size: 14px; }
+}
 `;

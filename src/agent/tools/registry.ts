@@ -8,7 +8,11 @@ import {
 import type { EmployeeProfileRecord } from "../../integrations/repos/employee-profile-repo";
 import { SEARCH_WEB_TOOL, buildSearchWebHandler } from "./search-web";
 import { SAVE_DRAFT_TOOL, buildSaveDraftHandler } from "./save-draft";
-import { SEARCH_SIMILAR_PLANS_TOOL, buildSearchSimilarPlansHandler } from "./search-similar-plans";
+import {
+  SEARCH_SIMILAR_PLANS_TOOL,
+  buildSearchSimilarPlansHandler,
+  readSearchSimilarPlansEnabled,
+} from "./search-similar-plans";
 import {
   PREPARE_PUBLISH_TASK_TOOL,
   buildPreparePublishTaskHandler,
@@ -131,6 +135,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   const trustedActor = deps.trustedActorUserId?.trim();
   const allowSearchWeb = deps.allowSearchWeb ?? false;
   const searchWebEnabled = String(process.env.SEARCH_WEB_ENABLED ?? "1").trim() !== "0";
+  const searchSimilarPlansEnabled = readSearchSimilarPlansEnabled();
   const knownFactsHandlers = deps.knownFactsStore ? buildKnownFactsHandlers(deps.knownFactsStore) : undefined;
   const publishRecentStore = deps.publishRecentStore ?? createRecentPublishStore();
   const notifyEmployeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
@@ -194,10 +199,6 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     list_candidate_pool: {
       definition: LIST_CANDIDATE_POOL_TOOL,
       handler: buildListCandidatePoolHandler(candidatePoolDeps),
-    },
-    search_similar_plans: {
-      definition: SEARCH_SIMILAR_PLANS_TOOL,
-      handler: buildSearchSimilarPlansHandler(),
     },
     save_draft: {
       definition: SAVE_DRAFT_TOOL,
@@ -316,6 +317,13 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     all.search_web = {
       definition: SEARCH_WEB_TOOL,
       handler: buildSearchWebHandler(),
+    };
+  }
+
+  if (searchSimilarPlansEnabled) {
+    all.search_similar_plans = {
+      definition: SEARCH_SIMILAR_PLANS_TOOL,
+      handler: buildSearchSimilarPlansHandler(),
     };
   }
 
