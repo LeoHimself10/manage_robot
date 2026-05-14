@@ -144,7 +144,10 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     },
     prepare_publish_task: {
       definition: PREPARE_PUBLISH_TASK_TOOL,
-      handler: buildPreparePublishTaskHandler({ currentSession: deps.currentSession }),
+      handler: buildPreparePublishTaskHandler({
+        currentSession: deps.currentSession,
+        getContact: (userId) => peopleStore.getContact(userId),
+      }),
     },
     submit_employee_response: {
       definition: SUBMIT_EMPLOYEE_RESPONSE_TOOL,

@@ -128,4 +128,58 @@ describe("prepare_publish_task tool", () => {
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("missing_plan_id");
   });
+
+  it("rejects unknown_assignees when getContact is provided and a userId is fabricated", () => {
+    const session = makeSession();
+    const knownContacts = new Map<string, { active: boolean; unionId?: string }>([
+      ["641728622", { active: true, unionId: "uni-yang" }],
+    ]);
+    const handler = buildPreparePublishTaskHandler({
+      currentSession: session,
+      getContact: (userId) => knownContacts.get(userId),
+    });
+    const result = handler({
+      planId: "plan-1",
+      title: "测试发布",
+      subtasks: [
+        { taskId: "task_1", title: "任务A", assigneeUserId: "641728622" },
+        { taskId: "task_2", title: "任务B", assigneeUserId: "u_yanghexin" },
+      ],
+    }) as any;
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("unknown_assignees");
+    expect(result.unknown).toEqual([
+      { taskId: "task_2", assigneeUserId: "u_yanghexin" },
+    ]);
+    expect(String(result.hint)).toContain("禁止编造 userId");
+    // CRITICAL: session must NOT be polluted when validation fails
+    expect(session.latestDraft).toBeUndefined();
+    expect(session.latestAssignment).toBeUndefined();
+  });
+
+  it("treats inactive contact as unknown (e.g. departed employee)", () => {
+    const handler = buildPreparePublishTaskHandler({
+      getContact: (userId) =>
+        userId === "641728622" ? { active: false } : undefined,
+    });
+    const result = handler({
+      planId: "plan-1",
+      title: "测试发布",
+      subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "641728622" }],
+    }) as any;
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("unknown_assignees");
+  });
+
+  it("skips contact validation when getContact dep is not provided (back-compat for tests/demo)", () => {
+    const session = makeSession();
+    const handler = buildPreparePublishTaskHandler({ currentSession: session });
+    const result = handler({
+      planId: "plan-1",
+      title: "测试",
+      subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "emp-xyz" }],
+    }) as any;
+    expect(result.ok).toBe(true);
+    expect(session.latestDraft).toBeDefined();
+  });
 });

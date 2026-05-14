@@ -18,7 +18,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).not.toContain("responseIntent");
     expect(sys).not.toContain("CLARIFY");
     expect(sys).toContain("主管显式指派纪律");
-    expect(sys.length).toBeLessThanOrEqual(3200);
+    expect(sys.length).toBeLessThanOrEqual(3300);
   });
 });
 

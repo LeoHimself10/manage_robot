@@ -176,12 +176,42 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
       groupedAssignees.set(subtask.assigneeUserId, current);
     });
     const unionIdByUser = new Map<string, string | undefined>();
+    const unknownAssignees: string[] = [];
     for (const assigneeUserId of groupedAssignees.keys()) {
       const contact = deps.getContact(assigneeUserId);
       if (!contact || !contact.active) {
-        throw new Error(`assignee is missing or inactive in contacts: ${assigneeUserId}`);
+        unknownAssignees.push(assigneeUserId);
+        continue;
       }
       unionIdByUser.set(assigneeUserId, contact.unionId);
+    }
+    if (unknownAssignees.length > 0) {
+      // 防御层：即使 prepare_publish_task 未校验通过、或被绕过，正式任务表此刻已落库，
+      // 但通讯录里查不到这些 userId 意味着所有通知通道都会静默失败。
+      // 把失败状态明确写入 task_events + warnings，并以 ok:false 返回，
+      // 让模型如实告知用户「负责人不存在」，而不是错以为发布成功。
+      const reason = `assignees_not_in_contacts: ${unknownAssignees.join(", ")}`;
+      deps.appendTaskEvent({
+        taskId: published.task.taskId,
+        eventType: "EMPLOYEE_NOTIFY_SKIPPED",
+        actorUserId: trustedActor,
+        note: reason,
+        payload: {
+          taskNo: published.task.taskNo,
+          unknownAssignees,
+        },
+      });
+      const result = {
+        ok: false,
+        reason: "unknown_assignees",
+        unknownAssignees,
+        taskNo: published.task.taskNo,
+        planId,
+        hint:
+          `正式任务表已创建（taskNo=${published.task.taskNo}），但以下 assigneeUserId 不在钉钉通讯录中：${unknownAssignees.join("、")}。通知通道全部跳过。请提示主管：① 已写库的这条任务事实上无人收到通知，② 需要先用 search_employees 拿到真实 userId，③ 然后调用 reassign_task 把任务改派到真实人员，或决定是否把这条任务作废。**不要谎称任务已成功发布**。`,
+      };
+      deps.onPublishResult?.(result);
+      return result;
     }
     const warnings: string[] = [];
     const notifyResult = await deps.notifier.notifyPublishedTask({

@@ -224,4 +224,48 @@ describe("publish_task handler", () => {
     );
     expect(onPublishResult).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
   });
+
+  it("returns ok:false unknown_assignees (instead of throwing) when contact lookup fails", async () => {
+    const notifySpy = vi.fn(async () => ({
+      enabled: true,
+      success: [],
+      failed: [],
+    }));
+    const appendTaskEvent = vi.fn();
+    const onPublishResult = vi.fn();
+    const handler = buildPublishTaskHandler({
+      trustedActorUserId: "manager-1",
+      currentSessionPlanId: "plan-1",
+      currentSession: baseSession(),
+      initiatorDepartment: "质量部",
+      publishFromSession: () => ({
+        task: { taskId: "task:plan-1", taskNo: "W20260513002", title: "测试任务" },
+        subtasks: [{ assigneeUserId: "u_yanghexin", title: "子任务1" }],
+        alreadyPublished: false,
+      }),
+      appendTaskEvent,
+      // contact lookup returns undefined → unknown assignee
+      getContact: () => undefined,
+      notifier: { notifyPublishedTask: notifySpy },
+      recentPublished: createRecentPublishStore(),
+      onPublishResult,
+    });
+    const res = (await handler({ planId: "plan-1" })) as Record<string, unknown>;
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("unknown_assignees");
+    expect(res.unknownAssignees).toEqual(["u_yanghexin"]);
+    expect(String(res.hint)).toContain("不在钉钉通讯录中");
+    // notifier must NOT be called
+    expect(notifySpy).not.toHaveBeenCalled();
+    // an EMPLOYEE_NOTIFY_SKIPPED event must be written so we have a paper trail
+    const skippedEvents = appendTaskEvent.mock.calls
+      .map((call) => call[0])
+      .filter((e: any) => e.eventType === "EMPLOYEE_NOTIFY_SKIPPED");
+    expect(skippedEvents).toHaveLength(1);
+    expect(skippedEvents[0].note).toContain("u_yanghexin");
+    // onPublishResult still fires so caller can audit, but with ok:false
+    expect(onPublishResult).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, reason: "unknown_assignees" }),
+    );
+  });
 });

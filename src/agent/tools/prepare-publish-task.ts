@@ -40,6 +40,13 @@ export interface BuildPreparePublishTaskHandlerDeps {
    * 兼容缺省（用于单测 / demo 链路）。
    */
   currentSession?: PlanSession;
+  /**
+   * 通讯录查询。用于在 stage 之前校验每个 assigneeUserId 都是真实在职钉钉账号，
+   * 防止模型把姓名 → 假 userId（如 "u_yanghexin"）写进 session，进而污染正式任务表
+   * 且通知通道全部静默失败。返回 undefined 或 active=false 即视为该 userId 非法。
+   * 兼容缺省：未注入时跳过该校验（仅 demo / 单测）。
+   */
+  getContact?: (userId: string) => { active?: boolean; unionId?: string } | undefined;
 }
 
 export function buildPreparePublishTaskHandler(
@@ -101,6 +108,29 @@ export function buildPreparePublishTaskHandler(
         reason: "missing_subtasks",
         hint: "所有 subtask 至少要包含 taskId、title、assigneeUserId 三项；请补齐后再调用。",
       };
+    }
+
+    // 校验所有 assigneeUserId 必须是通讯录里真实存在且 active 的钉钉账号。
+    // 关键防线：阻止模型把"姓名 -> 假 userId"（如 u_yanghexin）写进 session 进而污染正式任务表。
+    if (deps.getContact) {
+      const unknown: Array<{ taskId: string; assigneeUserId: string }> = [];
+      for (const s of subtasks) {
+        const contact = deps.getContact(s.assigneeUserId);
+        if (!contact || contact.active === false) {
+          unknown.push({ taskId: s.taskId, assigneeUserId: s.assigneeUserId });
+        }
+      }
+      if (unknown.length > 0) {
+        return {
+          ok: false,
+          reason: "unknown_assignees",
+          unknown,
+          hint:
+            `以下 assigneeUserId 不在钉钉通讯录中（可能为假 ID 或已离职）：${unknown
+              .map((u) => `${u.taskId}->${u.assigneeUserId}`)
+              .join("；")}。**禁止编造 userId**：请先调用 search_employees（用真实姓名做 name 关键词）拿到通讯录里的真实 userId，再重新调用本工具。`,
+        };
+      }
     }
 
     const managerNote = String(args.managerNote ?? "").trim() || undefined;
