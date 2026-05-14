@@ -144,7 +144,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     },
     prepare_publish_task: {
       definition: PREPARE_PUBLISH_TASK_TOOL,
-      handler: buildPreparePublishTaskHandler(),
+      handler: buildPreparePublishTaskHandler({ currentSession: deps.currentSession }),
     },
     submit_employee_response: {
       definition: SUBMIT_EMPLOYEE_RESPONSE_TOOL,

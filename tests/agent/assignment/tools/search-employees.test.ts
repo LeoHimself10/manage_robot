@@ -163,7 +163,7 @@ describe("buildSearchEmployeesHandler", () => {
     expect(result.note).toContain("roleHint=Technician");
   });
 
-  it("sets truncated when over default cap", () => {
+  it("sets truncated when over default cap (default = 25)", () => {
     const manyProfiles: EmployeeProfileRecord[] = [];
     for (let i = 0; i < 120; i++) {
       manyProfiles.push(makeProfile({ userId: `emp_pad_${String(i).padStart(3, "0")}`, department: "质量部", role: "Engineer" }));
@@ -176,6 +176,37 @@ describe("buildSearchEmployeesHandler", () => {
     };
     expect(result.total).toBe(120);
     expect(result.truncated).toBe(true);
-    expect(result.candidates.length).toBeLessThanOrEqual(100);
+    expect(result.candidates.length).toBeLessThanOrEqual(25);
+  });
+
+  it("returns search_employees_quota_exhausted after 3 calls on the same handler", () => {
+    const localHandler = buildSearchEmployeesHandler(repoWithGet(PROFILES));
+    const r1 = localHandler({}) as Record<string, unknown>;
+    const r2 = localHandler({}) as Record<string, unknown>;
+    const r3 = localHandler({}) as Record<string, unknown>;
+    const r4 = localHandler({}) as Record<string, unknown>;
+    expect(r1.ok).toBeUndefined();
+    expect(r2.ok).toBeUndefined();
+    expect(r3.ok).toBeUndefined();
+    expect(r4.ok).toBe(false);
+    expect(r4.reason).toBe("search_employees_quota_exhausted");
+    expect(r4.callCount).toBe(4);
+    expect(r4.quota).toBe(3);
+    expect(String(r4.hint)).toContain("已达上限");
+  });
+
+  it("uses each handler instance with independent counter", () => {
+    const h1 = buildSearchEmployeesHandler(repoWithGet(PROFILES));
+    const h2 = buildSearchEmployeesHandler(repoWithGet(PROFILES));
+    h1({});
+    h1({});
+    h1({});
+    h1({});
+    const exhausted = h1({}) as Record<string, unknown>;
+    expect(exhausted.ok).toBe(false);
+    expect(exhausted.reason).toBe("search_employees_quota_exhausted");
+    const fresh = h2({}) as Record<string, unknown>;
+    expect(fresh.ok).toBeUndefined();
+    expect(fresh.total).toBe(5);
   });
 });

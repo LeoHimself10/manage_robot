@@ -134,14 +134,39 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
     const session = deps.currentSession;
     if (!session) throw new Error("session_not_found");
 
-    const published = deps.publishFromSession({
-      planId,
-      session,
-      managerUserId: trustedActor,
-      initiatorDepartment: deps.initiatorDepartment,
-      actorUserId: trustedActor,
-      actorName: deps.actorName,
-    });
+    let published: ReturnType<PublishFromSessionFn>;
+    try {
+      published = deps.publishFromSession({
+        planId,
+        session,
+        managerUserId: trustedActor,
+        initiatorDepartment: deps.initiatorDepartment,
+        actorUserId: trustedActor,
+        actorName: deps.actorName,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("latestDraft.tasks is empty")) {
+        return {
+          ok: false,
+          reason: "no_draft_in_session",
+          hint:
+            "当前会话尚未暂存可发布的结构化草案。请先调用 prepare_publish_task 把 planId/title/subtasks(含 assigneeUserId) 完整传入并让主管确认，再调用 publish_task。**不要假装任务已发布**。",
+        };
+      }
+      if (message.startsWith("Missing assignee for subtask")) {
+        const taskIdMatch = message.match(/Missing assignee for subtask\s+(\S+)/);
+        const missingTaskId = taskIdMatch ? taskIdMatch[1] : "(unknown)";
+        return {
+          ok: false,
+          reason: "missing_assignee",
+          missingTaskId,
+          hint:
+            `子任务 ${missingTaskId} 仍缺少负责人。请重新调用 prepare_publish_task 把所有 subtasks 的 assigneeUserId 补齐，让主管再次确认后再发布。`,
+        };
+      }
+      throw error;
+    }
     deps.recentPublished.mark(planId);
 
     const groupedAssignees = new Map<string, string[]>();
@@ -188,6 +213,7 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
           payload: {
             userId: item.userId,
             cardMessageId: item.cardMessageId,
+            robotMessageKey: item.robotMessageKey,
             todoId: item.todoId,
             taskNo: published.task.taskNo,
           },

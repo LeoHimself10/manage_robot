@@ -128,6 +128,54 @@ describe("publish_task handler", () => {
     expect(notifySpy).not.toHaveBeenCalled();
   });
 
+  it("returns ok:false with no_draft_in_session hint when publishFromSession throws empty draft", async () => {
+    const session = baseSession();
+    session.latestDraft = undefined;
+    session.latestAssignment = undefined;
+    const notifySpy = vi.fn();
+    const handler = buildPublishTaskHandler({
+      trustedActorUserId: "manager-1",
+      currentSessionPlanId: "plan-1",
+      currentSession: session,
+      initiatorDepartment: "质量部",
+      publishFromSession: () => {
+        throw new Error("latestDraft.tasks is empty, cannot publish");
+      },
+      appendTaskEvent: () => {},
+      getContact: () => ({ active: true }),
+      notifier: { notifyPublishedTask: notifySpy },
+      recentPublished: createRecentPublishStore(),
+    });
+    const res = (await handler({ planId: "plan-1" })) as Record<string, unknown>;
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("no_draft_in_session");
+    expect(String(res.hint)).toContain("prepare_publish_task");
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  it("returns ok:false with missing_assignee hint when publishFromSession throws missing assignee", async () => {
+    const notifySpy = vi.fn();
+    const handler = buildPublishTaskHandler({
+      trustedActorUserId: "manager-1",
+      currentSessionPlanId: "plan-1",
+      currentSession: baseSession(),
+      initiatorDepartment: "质量部",
+      publishFromSession: () => {
+        throw new Error("Missing assignee for subtask task_2");
+      },
+      appendTaskEvent: () => {},
+      getContact: () => ({ active: true }),
+      notifier: { notifyPublishedTask: notifySpy },
+      recentPublished: createRecentPublishStore(),
+    });
+    const res = (await handler({ planId: "plan-1" })) as Record<string, unknown>;
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("missing_assignee");
+    expect(res.missingTaskId).toBe("task_2");
+    expect(String(res.hint)).toContain("task_2");
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
   it("publishes successfully and reports warnings", async () => {
     const notifySpy = vi.fn(async () => ({
       enabled: true,

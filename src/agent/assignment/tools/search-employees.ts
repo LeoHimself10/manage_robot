@@ -23,12 +23,17 @@ export interface SearchEmployeesHandlerContext {
   actorUserId?: string;
 }
 
-const MAX_LOCAL_FIRST = 30;
-const MIN_CROSS_DEPT_SLOTS = 20;
+const MAX_LOCAL_FIRST = 15;
+const MIN_CROSS_DEPT_SLOTS = 10;
 
 function maxCandidatesCap(): number {
-  const raw = Number(String(process.env.SEARCH_EMPLOYEES_MAX_CANDIDATES ?? "100").trim());
-  return Number.isFinite(raw) && raw > 0 ? Math.min(500, Math.floor(raw)) : 100;
+  const raw = Number(String(process.env.SEARCH_EMPLOYEES_MAX_CANDIDATES ?? "25").trim());
+  return Number.isFinite(raw) && raw > 0 ? Math.min(500, Math.floor(raw)) : 25;
+}
+
+function searchEmployeesPerOrchestratorQuota(): number {
+  const raw = Number(String(process.env.SEARCH_EMPLOYEES_PER_ORCHESTRATOR_QUOTA ?? "3").trim());
+  return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 3;
 }
 
 function truncateText(s: string, max: number): string {
@@ -233,7 +238,29 @@ export function buildSearchEmployeesHandler(
   },
   ctx: SearchEmployeesHandlerContext = {},
 ): ToolHandler {
-  return (args: Record<string, unknown>): SearchEmployeesResult => {
+  // 每个 handler 实例（=每次 orchestrator 调用）维护独立计数。
+  // 模型连续反复换参数搜索时，第 N 次起强制截断，避免 max iterations / token budget 爆栈。
+  let callCount = 0;
+  const quota = searchEmployeesPerOrchestratorQuota();
+
+  return (args: Record<string, unknown>): SearchEmployeesResult | {
+    ok: false;
+    reason: "search_employees_quota_exhausted";
+    callCount: number;
+    quota: number;
+    hint: string;
+  } => {
+    callCount += 1;
+    if (callCount > quota) {
+      return {
+        ok: false,
+        reason: "search_employees_quota_exhausted",
+        callCount,
+        quota,
+        hint:
+          `本轮 search_employees 调用已达上限（${quota} 次）。请在 message 中把当前已经掌握的候选 userId+姓名+部门+岗位列出来，请用户下一句明确选择，**不要再调用本工具**。`,
+      };
+    }
     const typed = args as unknown as SearchEmployeesArgs;
     const name = String(typed.name ?? "").trim();
 
