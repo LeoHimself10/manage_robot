@@ -9,6 +9,11 @@ export interface ReassignTaskInput {
   assigneeUserId: string;
   note?: string;
   actorName?: string;
+  /**
+   * 可选：仅改派单个子任务（subtaskId 形如 "task:{planId}:task_4"，也接受短码 "task_4"）。
+   * 不传时回落到整 plan 改派（所有未完成子任务）。
+   */
+  subtaskId?: string;
 }
 
 export interface ReassignTaskDeps {
@@ -43,6 +48,7 @@ export function executeReassignWithSideEffects(
     managerUserId: input.managerUserId,
     assigneeUserId: input.assigneeUserId,
     note: input.note,
+    subtaskId: input.subtaskId,
   });
 
   const targetSession = deps.findLatestSessionByPlanId(input.planId);
@@ -51,6 +57,7 @@ export function executeReassignWithSideEffects(
     return { task, revisionEventWritten: false };
   }
 
+  const scopeIsSingleSubtask = Boolean(input.subtaskId?.trim());
   const eventRecord: Record<string, unknown> = {
     occurredAt,
     eventType: "MANAGER_REASSIGN_SAVED",
@@ -59,13 +66,21 @@ export function executeReassignWithSideEffects(
     actorName: input.actorName,
     assigneeUserId: input.assigneeUserId,
     note: input.note?.trim() || "",
+    ...(scopeIsSingleSubtask
+      ? { subtaskId: input.subtaskId?.trim(), scope: "subtask" as const }
+      : { scope: "plan" as const }),
   };
+  // 单子任务改派只动一行，整 plan 的 latestAssignment 第一项替换是误导，故保持原值；
+  // 整 plan 改派时按原逻辑同步把 latestAssignment 主要负责人替换为新人。
+  const nextLatestAssignment = scopeIsSingleSubtask
+    ? targetSession.latestAssignment
+    : deps.patchLatestAssignmentAssignee(
+        targetSession.latestAssignment,
+        input.assigneeUserId,
+      );
   deps.planSessionStore.save({
     ...targetSession,
-    latestAssignment: deps.patchLatestAssignmentAssignee(
-      targetSession.latestAssignment,
-      input.assigneeUserId,
-    ),
+    latestAssignment: nextLatestAssignment,
     revisionEvents: [...(targetSession.revisionEvents ?? []), eventRecord].slice(-60),
   });
   deps.planSessionStore.appendEvent({
@@ -77,6 +92,9 @@ export function executeReassignWithSideEffects(
       actorName: input.actorName,
       assigneeUserId: input.assigneeUserId,
       note: input.note?.trim() || "",
+      ...(scopeIsSingleSubtask
+        ? { subtaskId: input.subtaskId?.trim(), scope: "subtask" }
+        : { scope: "plan" }),
     },
   });
   return { task, revisionEventWritten: true };

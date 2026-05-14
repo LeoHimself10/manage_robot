@@ -58,13 +58,18 @@ export const REASSIGN_TASK_TOOL: ToolDefinition = {
   function: {
     name: "reassign_task",
     description:
-      "主管改派任务负责人（按 planId 改派全部未完成子任务），并同步写入会话修订事件。若用户用人名/任务标题描述对象，请先调 list_managed_tasks 解析 planId、调 search_employees 解析 assigneeUserId，再调本工具，不要反问用户索要 ID。",
+      "主管改派任务负责人。**作用范围由 subtaskId 决定**：传 subtaskId 仅改派该单个子任务；不传 subtaskId 则改派该 plan 下所有未完成子任务。请严格按用户意图选择——用户只说『把 task_4 改派给 X』时必须传 subtaskId，**不要**默认整 plan 改派。若用户用人名/任务标题描述对象，请先调 list_managed_tasks 解析 planId、调 get_task_detail 拿到 subtaskId、调 search_employees 解析 assigneeUserId，再调本工具，不要反问用户索要 ID。subtaskId 可传完整形（task:{planId}:task_4）也可传短码（task_4）。",
     parameters: {
       type: "object",
       properties: {
         actorUserId: { type: "string" },
         planId: { type: "string" },
         assigneeUserId: { type: "string" },
+        subtaskId: {
+          type: "string",
+          description:
+            "可选。传则仅改派该子任务；不传则整 plan 改派全部未完成子任务。接受完整形 task:{planId}:task_4 或短码 task_4。",
+        },
         note: { type: "string" },
         actorName: { type: "string" },
       },
@@ -89,6 +94,8 @@ export function buildReassignTaskHandler(
     const assigneeUserId = String(args.assigneeUserId ?? "").trim();
     const note = String(args.note ?? "").trim();
     const actorName = String(args.actorName ?? "").trim();
+    const subtaskIdRaw = String(args.subtaskId ?? "").trim();
+    const subtaskId = subtaskIdRaw || undefined;
     if (!actorUserId || !planId || !assigneeUserId) {
       throw new Error("actorUserId, planId, assigneeUserId are required");
     }
@@ -99,6 +106,7 @@ export function buildReassignTaskHandler(
         assigneeUserId,
         note,
         actorName: actorName || undefined,
+        subtaskId,
       },
       {
         taskStore,
@@ -111,6 +119,8 @@ export function buildReassignTaskHandler(
       ok: true,
       task: result.task,
       assigneeUserId,
+      subtaskId: subtaskId ?? null,
+      scope: subtaskId ? "subtask" : "plan",
       revisionEventWritten: result.revisionEventWritten,
     };
   };

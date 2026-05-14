@@ -610,6 +610,13 @@ export function createWorkbenchFormalTaskStore() {
       managerUserId: string;
       assigneeUserId: string;
       note?: string;
+      /**
+       * 可选：仅改派指定子任务。
+       * - 不传 → 整 plan 改派（所有未完成子任务，向后兼容旧行为）
+       * - 传短码（如 "task_4"） → 自动拼成 "task:{planId}:task_4"
+       * - 传完整形（"task:{planId}:task_4"） → 原样使用
+       */
+      subtaskId?: string;
     }): WorkbenchTaskRow {
       const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("Task not found for planId");
@@ -617,20 +624,56 @@ export function createWorkbenchFormalTaskStore() {
       if (task.managerUserId !== input.managerUserId) {
         throw new Error("Task does not belong to current manager");
       }
+
+      const rawSubtaskId = input.subtaskId?.trim();
+      const normalizedSubtaskId = rawSubtaskId
+        ? rawSubtaskId.startsWith("task:")
+          ? rawSubtaskId
+          : `task:${input.planId}:${rawSubtaskId}`
+        : undefined;
+      if (normalizedSubtaskId) {
+        const probe = db
+          .prepare(
+            "SELECT subtask_id, status FROM subtasks WHERE task_id = ? AND subtask_id = ?",
+          )
+          .get(task.taskId, normalizedSubtaskId) as
+          | { subtask_id: string; status: string }
+          | undefined;
+        if (!probe) {
+          throw new Error(
+            `subtask not found: ${normalizedSubtaskId} (under plan ${input.planId})`,
+          );
+        }
+        if (probe.status === "DONE") {
+          throw new Error(
+            `subtask already DONE; cannot reassign: ${normalizedSubtaskId}`,
+          );
+        }
+      }
+
       const now = nowIso();
       runInTransaction(() => {
-        db.prepare(
-          "UPDATE subtasks SET assignee_user_id = ?, status = 'ASSIGNED', updated_at = ? WHERE task_id = ? AND status <> 'DONE'",
-        ).run(input.assigneeUserId, now, task.taskId);
+        if (normalizedSubtaskId) {
+          db.prepare(
+            "UPDATE subtasks SET assignee_user_id = ?, status = 'ASSIGNED', updated_at = ? WHERE task_id = ? AND subtask_id = ? AND status <> 'DONE'",
+          ).run(input.assigneeUserId, now, task.taskId, normalizedSubtaskId);
+        } else {
+          db.prepare(
+            "UPDATE subtasks SET assignee_user_id = ?, status = 'ASSIGNED', updated_at = ? WHERE task_id = ? AND status <> 'DONE'",
+          ).run(input.assigneeUserId, now, task.taskId);
+        }
         db.prepare(
           "INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id, note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)",
         ).run(
           task.taskId,
-          null,
+          normalizedSubtaskId ?? null,
           "MANAGER_REASSIGN",
           input.managerUserId,
           input.note?.trim() || null,
-          stringify({ assigneeUserId: input.assigneeUserId }),
+          stringify({
+            assigneeUserId: input.assigneeUserId,
+            ...(normalizedSubtaskId ? { subtaskId: normalizedSubtaskId } : {}),
+          }),
           now,
         );
         updateTaskStatus(task.taskId);
