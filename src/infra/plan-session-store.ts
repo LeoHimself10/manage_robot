@@ -73,7 +73,7 @@ export interface PlanSession {
   sessionWebhookLastSeen?: string;
   lastTraceId?: string;
   knownFacts: string[];
-  conversationHistory: Array<{ role: string; content: string }>;
+  conversationHistory: Array<{ role: string; content: string; at?: string }>;
   latestDraft?: Record<string, unknown>;
   latestAssignment?: Record<string, unknown>;
   revisionEvents?: Array<Record<string, unknown>>;

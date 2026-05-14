@@ -34,29 +34,29 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
     <section class="card">
       <h2>任务筛选</h2>
       <div class="form-stack">
-        <label>taskNo
+        <label>业务编号
           <input id="taskNoFilter" placeholder="例如 TASK-20260512-0001" />
         </label>
         <label>状态
           <select id="statusFilter">
             <option value="">全部</option>
-            <option value="ASSIGNED">ASSIGNED</option>
-            <option value="CHANGES_REQUESTED">CHANGES_REQUESTED</option>
-            <option value="ACCEPTED">ACCEPTED</option>
-            <option value="IN_PROGRESS">IN_PROGRESS</option>
-            <option value="BLOCKED">BLOCKED</option>
-            <option value="DONE">DONE</option>
-            <option value="REJECTED">REJECTED</option>
+            <option value="ASSIGNED">待处理</option>
+            <option value="CHANGES_REQUESTED">待修改</option>
+            <option value="ACCEPTED">已接受</option>
+            <option value="IN_PROGRESS">进行中</option>
+            <option value="BLOCKED">阻塞</option>
+            <option value="DONE">已完成</option>
+            <option value="REJECTED">已拒绝</option>
           </select>
         </label>
         <label>发起部门
           <input id="deptFilter" placeholder="例如 研发部" />
         </label>
-        <label>负责人 userId
-          <input id="assigneeFilter" placeholder="例如 emp_001" />
+        <label>负责人（姓名或账号关键词）
+          <input id="assigneeFilter" placeholder="输入姓名的一部分" />
         </label>
-        <label>关键词
-          <input id="keywordFilter" placeholder="标题/planId 关键词" />
+        <label>标题关键词
+          <input id="keywordFilter" placeholder="任务标题中的关键词" />
         </label>
         <div>
           <button class="btn btn-primary" id="queryBtn" type="button">查询任务</button>
@@ -70,16 +70,13 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
       <h2>主管权限维护</h2>
       <div class="form-stack">
         <label>搜索员工
-          <input id="employeeKeyword" placeholder="姓名/userId/部门关键词" />
+          <input id="employeeKeyword" placeholder="姓名、部门关键词" />
         </label>
         <div>
           <button class="btn btn-secondary" id="searchEmployeeBtn" type="button">查询员工</button>
         </div>
-        <label>候选员工
+        <label>选择员工
           <select id="employeeSelect"><option value="">请选择员工</option></select>
-        </label>
-        <label>员工 userId
-          <input id="managerTarget" placeholder="例如 emp_001" />
         </label>
         <label>操作
           <select id="managerEnabled">
@@ -151,15 +148,18 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
       }
       var rows = tasks.map(function (t) {
         var detail = '<a href="/workbench/admin/task?taskNo=' + encodeURIComponent(t.taskNo || '') + '">详情</a>';
+        var mgr = (t.managerDisplayName || '').trim();
+        var mgrCell = mgr ? esc(mgr) : esc('—');
         return '<tr>'
-          + '<td><code>' + esc(t.taskNo || '—') + '</code><br><span class="muted">planId: ' + esc(t.planId || '—') + '</span></td>'
+          + '<td><code>' + esc(t.taskNo || '—') + '</code></td>'
           + '<td>' + esc(t.title) + '</td>'
+          + '<td>' + mgrCell + '</td>'
           + '<td>' + esc(t.initiatorDepartment || '未配置部门') + '</td>'
-          + '<td>' + esc(t.status) + '</td>'
+          + '<td>' + esc(t.statusLabel || t.status) + '</td>'
           + '<td>' + esc(t.updatedAt || '') + '<br>' + detail + '</td>'
           + '</tr>';
       }).join('');
-      document.getElementById('taskTableMount').innerHTML = '<div class="table-wrap"><table class="data"><thead><tr><th>taskNo</th><th>标题</th><th>发起部门</th><th>状态</th><th>更新时间</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      document.getElementById('taskTableMount').innerHTML = '<div class="table-wrap"><table class="data"><thead><tr><th>业务编号</th><th>标题</th><th>主管</th><th>发起部门</th><th>状态</th><th>更新时间</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
       setFb('taskFeedback', '已更新', 'ok');
     } catch (e) {
       setFb('taskFeedback', String(e && e.message ? e.message : e), 'err');
@@ -176,9 +176,13 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
         document.getElementById('managerListMount').innerHTML = '暂无动态主管';
         return;
       }
-      document.getElementById('managerListMount').innerHTML = '<div class="table-wrap"><table class="data"><thead><tr><th>动态主管 userId</th></tr></thead><tbody>' + ids.map(function (id) {
-        return '<tr><td><code>' + esc(id) + '</code></td></tr>';
-      }).join('') + '</tbody></table></div>';
+      var rows = ids.map(function (row) {
+        var id = typeof row === 'string' ? row : (row && row.userId ? row.userId : '');
+        var name = typeof row === 'object' && row && row.name ? row.name : '';
+        var nameCell = name ? esc(name) : esc('—');
+        return '<tr><td>' + nameCell + (id ? '<br><span class="muted">' + esc(id) + '</span>' : '') + '</td></tr>';
+      }).join('');
+      document.getElementById('managerListMount').innerHTML = '<div class="table-wrap"><table class="data"><thead><tr><th>动态主管</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
     } catch (e) {
       setFb('managerFeedback', String(e && e.message ? e.message : e), 'err');
     }
@@ -197,7 +201,7 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
         return;
       }
       sel.innerHTML = '<option value="">请选择员工</option>' + list.map(function (e) {
-        return '<option value="' + esc(e.userId) + '">' + esc(e.name || e.userId) + ' · ' + esc(e.departmentName || '-') + ' · ' + esc(e.userId) + (e.isManager ? '（已是主管）' : '') + '</option>';
+        return '<option value="' + esc(e.userId) + '">' + esc(e.name || e.userId) + ' · ' + esc(e.departmentName || '-') + (e.isManager ? '（已是主管）' : '') + '</option>';
       }).join('');
     } catch (e) {
       setFb('managerFeedback', String(e && e.message ? e.message : e), 'err');
@@ -210,16 +214,10 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
   document.getElementById('searchEmployeeBtn').addEventListener('click', function () {
     void searchEmployees();
   });
-  document.getElementById('employeeSelect').addEventListener('change', function () {
-    var v = (document.getElementById('employeeSelect').value || '').trim();
-    if (!v) return;
-    document.getElementById('managerTarget').value = v;
-  });
-  document.getElementById('saveManagerBtn').addEventListener('click', async function () {
-    var userId = (document.getElementById('managerTarget').value || '').trim();
+    var userId = (document.getElementById('employeeSelect').value || '').trim();
     var enabled = document.getElementById('managerEnabled').value === '1';
     if (!userId) {
-      setFb('managerFeedback', '请填写员工 userId', 'err');
+      setFb('managerFeedback', '请先从列表中选择一位员工', 'err');
       return;
     }
     setFb('managerFeedback', '保存中…', 'muted');
@@ -232,7 +230,7 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       setFb('managerFeedback', '保存成功', 'ok');
-      document.getElementById('managerTarget').value = '';
+      document.getElementById('employeeSelect').value = '';
       await loadManagers();
     } catch (e) {
       setFb('managerFeedback', String(e && e.message ? e.message : e), 'err');

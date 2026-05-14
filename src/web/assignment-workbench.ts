@@ -1382,6 +1382,7 @@ export function handleAssignmentHttp(
         ...t,
         managerDisplayName:
           withPeopleDirectoryStore((s) => s.getContact(t.managerUserId)?.name?.trim()) ?? "",
+        statusLabel: taskStatusLabel(t.status),
       }));
     writeJson(res, 200, { ok: true, tasks });
     return true;

@@ -485,7 +485,7 @@ export function renderEmployeeCurrentTasksPage(): string {
       });
 
       sel.innerHTML = '<option value="">请选择任务</option>' + tasks.map(function (t) {
-        return '<option value="' + escapeHtml(t.subtaskId || '') + '">' + escapeHtml(t.taskNo || t.planId) + ' · ' + escapeHtml(t.statusLabel || t.status) + '</option>';
+        return '<option value="' + escapeHtml(t.subtaskId || '') + '">' + escapeHtml(t.taskNo || '') + ' · ' + escapeHtml(t.title || '子任务') + ' · ' + escapeHtml(t.statusLabel || t.status) + '</option>';
       }).join('');
       setFb('listFeedback', '已更新', 'ok');
     } catch (e) {
