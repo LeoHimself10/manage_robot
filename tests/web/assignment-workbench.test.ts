@@ -538,6 +538,154 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).toContain("note is required");
   });
 
+  it("employee subtasks/action requires idempotencyKey when WORKBENCH_ENFORCE_ACTION_GUARDS=1", async () => {
+    await seedPublishedTask({
+      planId: "plan-guard-action",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-2",
+    });
+    vi.stubEnv("WORKBENCH_ENFORCE_ACTION_GUARDS", "1");
+
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "emp-2", role: "employee" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const badReq = stubReq({
+      url: "/api/workbench/employee/subtasks/action",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ planId: "plan-guard-action", action: "accept", note: "" }),
+    });
+    const badRes = stubRes();
+    handleAssignmentHttp(badReq, badRes.res);
+    await flushAsync();
+    expect(badRes.captured().statusCode).toBe(400);
+    expect(badRes.captured().body).toContain("idempotencyKey");
+
+    const okReq = stubReq({
+      url: "/api/workbench/employee/subtasks/action",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        planId: "plan-guard-action",
+        action: "accept",
+        note: "",
+        idempotencyKey: "idem-accept-guard-1",
+      }),
+    });
+    const okRes = stubRes();
+    handleAssignmentHttp(okReq, okRes.res);
+    await flushAsync();
+    expect(okRes.captured().statusCode).toBe(200);
+    expect(okRes.captured().body).toContain('"status":"ACCEPTED"');
+  });
+
+  it("employee subtasks/progress requires idempotencyKey when WORKBENCH_ENFORCE_ACTION_GUARDS=1", async () => {
+    await seedPublishedTask({
+      planId: "plan-guard-progress",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-2",
+    });
+    vi.stubEnv("WORKBENCH_ENFORCE_ACTION_GUARDS", "1");
+
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "emp-2", role: "employee" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const acceptReq = stubReq({
+      url: "/api/workbench/employee/subtasks/action",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        planId: "plan-guard-progress",
+        action: "accept",
+        note: "",
+        idempotencyKey: "idem-accept-guard-progress",
+      }),
+    });
+    const acceptRes = stubRes();
+    handleAssignmentHttp(acceptReq, acceptRes.res);
+    await flushAsync();
+    expect(acceptRes.captured().statusCode).toBe(200);
+
+    const badReq = stubReq({
+      url: "/api/workbench/employee/subtasks/progress",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        planId: "plan-guard-progress",
+        progressStatus: "IN_PROGRESS",
+        note: "开始执行",
+      }),
+    });
+    const badRes = stubRes();
+    handleAssignmentHttp(badReq, badRes.res);
+    await flushAsync();
+    expect(badRes.captured().statusCode).toBe(400);
+    expect(badRes.captured().body).toContain("idempotencyKey");
+
+    const okReq = stubReq({
+      url: "/api/workbench/employee/subtasks/progress",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        planId: "plan-guard-progress",
+        progressStatus: "IN_PROGRESS",
+        note: "开始执行",
+        idempotencyKey: "idem-progress-guard-1",
+      }),
+    });
+    const okRes = stubRes();
+    handleAssignmentHttp(okReq, okRes.res);
+    await flushAsync();
+    expect(okRes.captured().statusCode).toBe(200);
+    expect(okRes.captured().body).toContain('"ok":true');
+  });
+
+  it("employee tasks/new is empty when logged-in user is not assignee", async () => {
+    await seedPublishedTask({
+      planId: "plan-wrong-emp",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-2",
+    });
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "emp-3", role: "employee" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+    const req = stubReq({
+      url: "/api/workbench/employee/tasks/new",
+      method: "GET",
+      headers: { cookie },
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    expect(captured().statusCode).toBe(200);
+    const body = JSON.parse(captured().body) as { ok: boolean; tasks: unknown[] };
+    expect(body.ok).toBe(true);
+    expect(Array.isArray(body.tasks)).toBe(true);
+    expect(body.tasks.length).toBe(0);
+  });
+
   it("employee request_changes persists CHANGES_REQUESTED", async () => {
     await seedPublishedTask({
       planId: "plan-change",

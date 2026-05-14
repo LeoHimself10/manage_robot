@@ -22,12 +22,12 @@ function makeSession(over: Partial<PlanSession> = {}): PlanSession {
 
 function contactStub(over: Partial<DingTalkContactRow> & { userId: string }): DingTalkContactRow {
   return {
-    userId: over.userId,
     name: "Default",
     active: true,
     departmentIds: [],
     departmentNames: [],
     ...over,
+    userId: over.userId,
   } as DingTalkContactRow;
 }
 

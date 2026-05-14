@@ -61,6 +61,14 @@ export function renderEmployeeNewTasksPage(): string {
 </div>
 <script>
 (function () {
+  function newIdempotencyKey() {
+    try {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+      }
+    } catch (e) {}
+    return 'idem-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
+  }
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
@@ -70,20 +78,6 @@ export function renderEmployeeNewTasksPage(): string {
     el.textContent = msg || '';
     el.className = 'feedback ' + (kind || 'muted');
   }
-  function setActiveTab(targetId) {
-    document.querySelectorAll('.tabs-btn[data-tab-target]').forEach(function (btn) {
-      var active = btn.getAttribute('data-tab-target') === targetId;
-      btn.setAttribute('aria-selected', active ? 'true' : 'false');
-    });
-    document.querySelectorAll('.tab-panel[id^="empPanel"]').forEach(function (panel) {
-      panel.hidden = panel.id !== targetId;
-    });
-  }
-  document.querySelectorAll('.tabs-btn[data-tab-target]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      setActiveTab(btn.getAttribute('data-tab-target') || 'empPanelTasks');
-    });
-  });
 
   var pending = null;
 
@@ -126,7 +120,9 @@ export function renderEmployeeNewTasksPage(): string {
             var subtaskId = card.getAttribute('data-subtask-id') || '';
             var act = btn.getAttribute('data-act') || '';
             if (act === 'accept') {
-              void submitDirect(planId, subtaskId, 'accept', '', { redirect: 'current' });
+              void submitDirect(planId, subtaskId, 'accept', '', { redirect: 'current' }).catch(function (e) {
+                setFb('listFeedback', String(e && e.message ? e.message : e), 'err');
+              });
               return;
             }
             openPanel(planId, subtaskId, act);
@@ -160,22 +156,24 @@ export function renderEmployeeNewTasksPage(): string {
   }
 
   async function submitDirect(planId, subtaskId, action, note, opts) {
-    try {
-      var res = await fetch('/api/workbench/employee/subtasks/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planId: planId, subtaskId: subtaskId, action: action, note: note })
-      });
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      if (opts && opts.redirect === 'current') {
-        window.location.href = '/workbench/employee/current';
-        return;
-      }
-      await loadNew();
-    } catch (e) {
-      alert(String(e && e.message ? e.message : e));
+    var res = await fetch('/api/workbench/employee/subtasks/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        planId: planId,
+        subtaskId: subtaskId,
+        action: action,
+        note: note,
+        idempotencyKey: newIdempotencyKey()
+      })
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    if (opts && opts.redirect === 'current') {
+      window.location.href = '/workbench/employee/current';
+      return;
     }
+    await loadNew();
   }
 
   document.getElementById('confirmActionBtn').addEventListener('click', async function () {
@@ -189,6 +187,7 @@ export function renderEmployeeNewTasksPage(): string {
     try {
       await submitDirect(pending.planId, pending.subtaskId, pending.action, note);
       closePanel();
+      await loadNew();
     } catch (e) {
       setFb('actionFeedback', String(e && e.message ? e.message : e), 'err');
     }
@@ -308,6 +307,14 @@ export function renderEmployeeCurrentTasksPage(): string {
 </div>
 <script>
 (function () {
+  function newIdempotencyKey() {
+    try {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+      }
+    } catch (e) {}
+    return 'idem-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
+  }
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
@@ -452,7 +459,12 @@ export function renderEmployeeCurrentTasksPage(): string {
       var res = await fetch('/api/workbench/employee/subtasks/progress', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subtaskId: subtaskId, progressStatus: progressStatus, note: note })
+        body: JSON.stringify({
+          subtaskId: subtaskId,
+          progressStatus: progressStatus,
+          note: note,
+          idempotencyKey: newIdempotencyKey()
+        })
       });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));

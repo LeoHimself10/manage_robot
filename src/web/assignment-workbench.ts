@@ -614,6 +614,7 @@ function rememberActionKey(action: string, key: string): boolean {
 }
 
 function shouldEnforceActionGuards(): boolean {
+  /** When true, manager publish / reassign and employee action & progress require `idempotencyKey` (see employee-workbench-pages.ts). */
   const raw = String(process.env.WORKBENCH_ENFORCE_ACTION_GUARDS ?? "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
 }
