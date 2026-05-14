@@ -26,7 +26,8 @@ try {
   if ($admHtml -notmatch "getElementById\('saveManagerBtn'\)\.addEventListener") { throw "admin saveManagerBtn missing" }
 
   $empHtml = curl.exe -sS -b (Join-Path $tmp "cookie-emp.txt") "$Base/workbench/employee/current"
-  if (([regex]::Matches($empHtml, ">提交进度<")).Count -gt 1) { throw "employee 顶部 nav 还存在重复 提交进度" }
+  if ($empHtml -match 'href="/workbench/employee/current\?tab=progress"') { throw "employee nav still has progress deep-link" }
+  if ($empHtml -match 'href="/workbench/employee/current\?tab=profile"') { throw "employee nav still has profile deep-link" }
   if ($empHtml -notmatch 'id="empTabProgress"') { throw "employee inner tab empTabProgress missing" }
 
   foreach ($call in @(
