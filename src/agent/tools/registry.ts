@@ -71,6 +71,16 @@ import {
 import { START_NEW_TASK_TOOL, buildStartNewTaskHandler } from "./start-new-task";
 import { SWITCH_BACK_TASK_TOOL, buildSwitchBackTaskHandler } from "./switch-back-task";
 import { UPDATE_DRAFT_TASK_TOOL, buildUpdateDraftTaskHandler } from "./update-draft-task";
+import {
+  READ_UPLOADED_ROSTER_TEXT_TOOL,
+  SET_CANDIDATE_POOL_TOOL,
+  CLEAR_CANDIDATE_POOL_TOOL,
+  LIST_CANDIDATE_POOL_TOOL,
+  buildReadUploadedRosterTextHandler,
+  buildSetCandidatePoolHandler,
+  buildClearCandidatePoolHandler,
+  buildListCandidatePoolHandler,
+} from "./candidate-pool";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 import {
@@ -106,6 +116,10 @@ export interface ToolRegistryDeps {
   actorName?: string;
   actorRole?: "admin" | "manager" | "employee";
   onPublishTaskResult?: (result: Record<string, unknown>) => void;
+  /**
+   * candidate-pool 工具修改 currentSession 后回调，便于上层即时落盘 / 审计。
+   */
+  onSessionMutated?: (session: PlanSession) => void;
 }
 
 export type ToolProfile = "planner" | "employee" | "manager" | "admin" | "full";
@@ -128,14 +142,58 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       deps.employeeRepo.get?.(userId) ?? deps.employeeRepo.list().find((p) => p.userId === userId),
   };
 
+  /**
+   * 候选池实时取值：buildToolRegistry 在每次 orchestrator 调用开头执行一次，
+   * deps.currentSession.candidatePool 可能在同一轮 orchestrator 内被
+   * set_candidate_pool / clear_candidate_pool 工具改写，所以这里用闭包按需读取。
+   */
+  const candidatePoolReader = (): Array<{
+    userId: string;
+    displayName: string;
+    fileNotes?: string;
+  }> => {
+    const pool = deps.currentSession?.candidatePool;
+    if (!pool || pool.entries.length === 0) return [];
+    return pool.entries.map((e) => ({
+      userId: e.userId,
+      displayName: e.displayName,
+      fileNotes: e.fileNotes,
+    }));
+  };
+
+  const candidatePoolDeps = {
+    currentSession: deps.currentSession,
+    onSessionMutated: deps.onSessionMutated,
+    getContact: (userId: string) => peopleStore.getContact(userId),
+  };
+
   const all: Record<string, ToolRegistryEntry> = {
     search_employees: {
       definition: SEARCH_EMPLOYEES_TOOL,
-      handler: buildSearchEmployeesHandler(employeeRepoResolved, { actorUserId: trustedActor }),
+      handler: buildSearchEmployeesHandler(employeeRepoResolved, {
+        actorUserId: trustedActor,
+        candidatePool: candidatePoolReader,
+      }),
     },
     get_employee_details: {
       definition: GET_EMPLOYEE_DETAILS_TOOL,
       handler: buildGetEmployeeDetailsHandler(employeeRepoResolved),
+    },
+    read_uploaded_roster_text: {
+      definition: READ_UPLOADED_ROSTER_TEXT_TOOL,
+      handler: buildReadUploadedRosterTextHandler(candidatePoolDeps),
+    },
+    set_candidate_pool: {
+      definition: SET_CANDIDATE_POOL_TOOL,
+      handler: buildSetCandidatePoolHandler(candidatePoolDeps),
+    },
+    clear_candidate_pool: {
+      definition: CLEAR_CANDIDATE_POOL_TOOL,
+      handler: buildClearCandidatePoolHandler(candidatePoolDeps),
+    },
+    list_candidate_pool: {
+      definition: LIST_CANDIDATE_POOL_TOOL,
+      handler: buildListCandidatePoolHandler(candidatePoolDeps),
     },
     search_similar_plans: {
       definition: SEARCH_SIMILAR_PLANS_TOOL,
@@ -320,6 +378,10 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "start_new_task",
       "switch_back_task",
       "update_draft_task",
+      "read_uploaded_roster_text",
+      "set_candidate_pool",
+      "clear_candidate_pool",
+      "list_candidate_pool",
     ],
     admin: [
       "prepare_publish_task",
@@ -341,6 +403,10 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "start_new_task",
       "switch_back_task",
       "update_draft_task",
+      "read_uploaded_roster_text",
+      "set_candidate_pool",
+      "clear_candidate_pool",
+      "list_candidate_pool",
     ],
     employee: [
       "list_my_tasks",

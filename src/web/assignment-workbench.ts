@@ -44,6 +44,8 @@ import { listDynamicWorkbenchManagers, setDynamicWorkbenchManager } from "../sec
 import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
 import { resolveWorkbenchRole, type WorkbenchRole } from "../security/workbench-role-resolver";
 import { verifyAssignmentEntry } from "../security/web-entry-token";
+import { parseRosterFile } from "../agent/assignment/roster-parser";
+import { readMultipartSingleFile } from "./multipart-single-file";
 import { renderAdminWorkbenchPage } from "./admin-workbench-pages";
 import {
   renderManagerChatPage,
@@ -1921,6 +1923,109 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/upload-roster") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        let multipart;
+        try {
+          multipart = await readMultipartSingleFile(req, { maxFileBytes: 2 * 1024 * 1024 });
+        } catch (err) {
+          writeJson(res, 400, {
+            ok: false,
+            error: err instanceof Error ? err.message : "multipart parse failed",
+          });
+          return;
+        }
+        if (!multipart.file) {
+          writeJson(res, 400, { ok: false, error: "缺少上传文件字段（form 字段名：file）" });
+          return;
+        }
+        const planIdInput = String(multipart.fields.planId ?? "").trim();
+        const planId = planIdInput || findLatestSessionForManager(session.userId)?.planId;
+        if (!planId) {
+          writeJson(res, 400, {
+            ok: false,
+            error: "找不到目标会话；请在表单字段中提供 planId 或先在工作台开启新会话。",
+          });
+          return;
+        }
+        const target = ensureSessionForPlanId({ planId, userId: session.userId });
+        if (target.senderStaffId && target.senderStaffId !== session.userId) {
+          writeJson(res, 403, { ok: false, error: "Plan does not belong to current manager" });
+          return;
+        }
+        const parsed = await parseRosterFile({
+          filename: multipart.file.filename,
+          mimeType: multipart.file.mimeType,
+          buffer: multipart.file.buffer,
+          maxBytes: 2 * 1024 * 1024,
+        });
+        if (!parsed.ok) {
+          logStructured({
+            event: "workbench_roster_upload_rejected",
+            planId,
+            userId: session.userId,
+            filename: multipart.file.filename,
+            reason: parsed.reason,
+            bytes: parsed.bytes,
+          });
+          writeJson(res, 400, {
+            ok: false,
+            error: parsed.message,
+            reason: parsed.reason,
+          });
+          return;
+        }
+        planSessionStore.save({
+          ...target,
+          senderStaffId: target.senderStaffId || session.userId,
+          pendingRosterText: parsed.text,
+          pendingRosterSource: parsed.sourceLabel,
+        });
+        planSessionStore.appendEvent({
+          planId,
+          chatKeyHash: target.chatKeyHash,
+          eventType: "manager_roster_uploaded",
+          payload: {
+            filename: multipart.file.filename,
+            kind: parsed.kind,
+            chars: parsed.chars,
+            bytes: parsed.bytes,
+            actorUserId: session.userId,
+            actorName: session.dingUser?.name ?? undefined,
+          },
+        });
+        logStructured({
+          event: "workbench_roster_uploaded",
+          planId,
+          userId: session.userId,
+          filename: multipart.file.filename,
+          kind: parsed.kind,
+          chars: parsed.chars,
+          bytes: parsed.bytes,
+        });
+        writeJson(res, 200, {
+          ok: true,
+          planId,
+          filename: multipart.file.filename,
+          kind: parsed.kind,
+          chars: parsed.chars,
+          bytes: parsed.bytes,
+          sourceLabel: parsed.sourceLabel,
+          hint: "Agent 将在你下一条消息中读取这份名单并核对。请在对话框里告知你想分配的任务诉求。",
+        });
+      } catch (err) {
+        writeJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : "roster upload failed",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/workbench/conversation/start") {
     void (async () => {
       const session = requireSession(req, res, "manager");
@@ -1991,6 +2096,22 @@ export function handleAssignmentHttp(
             mutableKnownFacts = merged;
           },
         };
+        const pendingRosterCtx = target.pendingRosterText
+          ? {
+              sourceLabel: target.pendingRosterSource ?? "uploaded:roster",
+              chars: target.pendingRosterText.length,
+            }
+          : undefined;
+        const candidatePoolCtx = target.candidatePool
+          ? {
+              source: target.candidatePool.source,
+              entries: target.candidatePool.entries.map((e) => ({
+                userId: e.userId,
+                displayName: e.displayName,
+              })),
+              unresolvedCount: target.candidatePool.unresolved?.length,
+            }
+          : undefined;
         const orch = await runOrchestrator(message, {
           clientConfig: {
             ...qwenConfig,
@@ -2011,6 +2132,10 @@ export function handleAssignmentHttp(
           actorName: session.dingUser?.name,
           actorRole: "manager",
           allowSearchWeb: isExplicitSearchRequest(message),
+          // 工具回调原地修改了 target.candidatePool / pendingRoster*，把这些变更显式带回到落盘 payload
+          onSessionMutated: () => {
+            // 此处暂不重复落盘（下方 planSessionStore.save 会持久化最终状态），仅占位钩子。
+          },
           sessionContext: {
             conversationHistory: target.conversationHistory,
             planId: target.planId,
@@ -2019,6 +2144,8 @@ export function handleAssignmentHttp(
             memorySummary: memoryContext.summary || buildSessionMemorySummary(target),
             memoryFacts: [...memoryContext.facts, ...mutableKnownFacts].slice(0, 8),
             currentTimeIso: new Date().toISOString(),
+            pendingRoster: pendingRosterCtx,
+            candidatePool: candidatePoolCtx,
           },
         });
         const assistantMessage = orch.messages.join("\n\n").trim() || "已处理。";

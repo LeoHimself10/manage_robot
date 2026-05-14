@@ -35,6 +35,64 @@ describe("light assignment", () => {
     }
   });
 
+  it("drops entries whose userId is not in candidatePoolUserIds (hard pool)", () => {
+    const result = extractLightAssignment({
+      rawAssignment: {
+        assignments: [
+          {
+            taskId: "task_1",
+            primary: { userId: "emp_qa_001", displayName: "张三", rationale: "x" },
+            confidence: "HIGH",
+          },
+          {
+            taskId: "task_2",
+            primary: { userId: "emp_qa_002", displayName: "李四", rationale: "y" },
+            confidence: "MEDIUM",
+          },
+        ],
+      },
+      planId: "plan_1",
+      traceId: "trace_1",
+      modelName: "qwen3.6-plus",
+      taskIds: ["task_1", "task_2"],
+      employees: [
+        { userId: "emp_qa_001", displayName: "张三" },
+        { userId: "emp_qa_002", displayName: "李四" },
+      ],
+      // 候选池只圈了张三 → 李四这条必须被丢弃
+      candidatePoolUserIds: ["emp_qa_001"],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.draft.assignments).toHaveLength(1);
+      expect(result.draft.assignments[0]?.primary.userId).toBe("emp_qa_001");
+    }
+  });
+
+  it("fails with pool-specific reason when nothing in pool matches", () => {
+    const result = extractLightAssignment({
+      rawAssignment: {
+        assignments: [
+          {
+            taskId: "task_1",
+            primary: { userId: "emp_qa_001", displayName: "张三", rationale: "x" },
+            confidence: "HIGH",
+          },
+        ],
+      },
+      planId: "plan_1",
+      traceId: "trace_1",
+      modelName: "qwen3.6-plus",
+      taskIds: ["task_1"],
+      employees: [{ userId: "emp_qa_001", displayName: "张三" }],
+      candidatePoolUserIds: ["emp_other_999"],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("no assignment entry matched candidate pool");
+    }
+  });
+
   it("drops invalid entries and fails when nothing remains", () => {
     const result = extractLightAssignment({
       rawAssignment: {

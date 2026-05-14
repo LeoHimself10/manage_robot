@@ -28,6 +28,8 @@ import {
   resolveDingtalkAgentRouting,
 } from "./agent/role-routing";
 import { extractLightAssignment, renderLightAssignmentSection } from "./agent/assignment/light-assignment";
+import { parseRosterFile } from "./agent/assignment/roster-parser";
+import { fetchDingTalkFile } from "./integrations/dingtalk/dingtalk-file-download";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
 import { createPlanSessionStore, hashChatKey, type PlanSession } from "./infra/plan-session-store";
@@ -454,6 +456,119 @@ async function main(): Promise<void> {
           senderStaffId,
           employeeRepo,
         });
+
+        // === DingTalk 文件消息：仅主管/管理员的 file 消息走花名册流程 ===
+        const msgtypeRaw = String((payload as { msgtype?: unknown }).msgtype ?? "").trim();
+        if (msgtypeRaw === "file" && !isAnonymousSender) {
+          const fileContent = (payload as { content?: Record<string, unknown> }).content ?? {};
+          const downloadCode = String(fileContent.downloadCode ?? "").trim();
+          const filename = String(fileContent.fileName ?? fileContent.filename ?? "upload.bin").trim();
+          if (!downloadCode) {
+            dingtalkResponse = await sendMarkdownReply({
+              client, sessionWebhook, messageId, senderStaffId,
+              title: "文件接收失败",
+              markdownText: "**未取到 downloadCode**，无法下载该文件。请重试或改用工作台上传。",
+            });
+            return;
+          }
+          if (routing.resolvedRole !== "manager" && routing.resolvedRole !== "admin") {
+            dingtalkResponse = await sendMarkdownReply({
+              client, sessionWebhook, messageId, senderStaffId,
+              title: "未启用",
+              markdownText: "上传花名册仅对**主管 / 管理员**开放。如需调整任务进度请直接发送文字。",
+            });
+            return;
+          }
+          const robotCode =
+            String(
+              (payload as { chatbotUserId?: unknown }).chatbotUserId ??
+                (payload as { robotCode?: unknown }).robotCode ??
+                "",
+            ).trim() || (clientId ?? "");
+          let downloaded;
+          try {
+            const accessToken = String(await client.getAccessToken());
+            downloaded = await fetchDingTalkFile({
+              downloadCode,
+              robotCode,
+              accessToken,
+              maxBytes: 4 * 1024 * 1024,
+            });
+          } catch (err) {
+            const reason = err instanceof Error ? err.message : String(err);
+            logStructured({
+              event: "dingtalk_roster_download_failed",
+              messageId,
+              planId: session.planId,
+              filename,
+              reason,
+            });
+            dingtalkResponse = await sendMarkdownReply({
+              client, sessionWebhook, messageId, senderStaffId,
+              title: "文件下载失败",
+              markdownText: `**下载失败**：${reason}\n\n可改用工作台上传：/workbench/manager/chat`,
+            });
+            return;
+          }
+          const parsed = await parseRosterFile({
+            filename: downloaded.filename || filename,
+            mimeType: downloaded.mimeType,
+            buffer: downloaded.buffer,
+            maxBytes: 2 * 1024 * 1024,
+          });
+          if (!parsed.ok) {
+            logStructured({
+              event: "dingtalk_roster_parse_rejected",
+              messageId,
+              planId: session.planId,
+              filename: downloaded.filename || filename,
+              reason: parsed.reason,
+              bytes: parsed.bytes,
+            });
+            dingtalkResponse = await sendMarkdownReply({
+              client, sessionWebhook, messageId, senderStaffId,
+              title: "花名册无法解析",
+              markdownText: `**解析失败**：${parsed.message}`,
+            });
+            return;
+          }
+          session = {
+            ...session,
+            pendingRosterText: parsed.text,
+            pendingRosterSource: parsed.sourceLabel,
+          };
+          planSessionStore.save(session);
+          planSessionStore.appendEvent({
+            planId: session.planId,
+            chatKeyHash: session.chatKeyHash,
+            eventType: "dingtalk_roster_uploaded",
+            payload: {
+              filename: downloaded.filename || filename,
+              kind: parsed.kind,
+              chars: parsed.chars,
+              bytes: parsed.bytes,
+              actorUserId: senderStaffId,
+            },
+          });
+          logStructured({
+            event: "dingtalk_roster_uploaded",
+            messageId,
+            planId: session.planId,
+            filename: downloaded.filename || filename,
+            kind: parsed.kind,
+            chars: parsed.chars,
+            bytes: parsed.bytes,
+          });
+          dingtalkResponse = await sendMarkdownReply({
+            client, sessionWebhook, messageId, senderStaffId,
+            title: "已收到花名册",
+            markdownText:
+              `**已收到名单**：\`${downloaded.filename || filename}\`（${parsed.kind}，${parsed.chars} 字符）。\n\n` +
+              `请在下一条消息告诉我**要分配什么任务**。我会按这份名单核对并把指派范围限定在表里出现的人。`,
+          });
+          return;
+        }
+
         const selectedProfile = routing.selectedProfile;
         const previousProfile = session.lastAgentProfile;
         if (previousProfile && previousProfile !== selectedProfile) {
@@ -528,6 +643,22 @@ async function main(): Promise<void> {
             memorySummary: memoryContext.summary || buildMemorySummary(session),
             memoryFacts: [...memoryContext.facts, ...mutableKnownFacts].slice(0, 8),
             currentTimeIso: new Date().toISOString(),
+            pendingRoster: session.pendingRosterText
+              ? {
+                  sourceLabel: session.pendingRosterSource ?? "uploaded:roster",
+                  chars: session.pendingRosterText.length,
+                }
+              : undefined,
+            candidatePool: session.candidatePool
+              ? {
+                  source: session.candidatePool.source,
+                  entries: session.candidatePool.entries.map((e) => ({
+                    userId: e.userId,
+                    displayName: e.displayName,
+                  })),
+                  unresolvedCount: session.candidatePool.unresolved?.length,
+                }
+              : undefined,
           },
         });
         const orchestratorMs = Date.now() - orchestratorStartedAt;
@@ -597,6 +728,7 @@ async function main(): Promise<void> {
               userId: e.userId,
               displayName: e.displayName,
             })),
+            candidatePoolUserIds: session.candidatePool?.entries.map((e) => e.userId),
           });
           if (assignmentResult.ok) {
             latestAssignment = assignmentResult.draft as unknown as Record<string, unknown>;

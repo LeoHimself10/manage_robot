@@ -16,11 +16,20 @@ export interface SearchEmployeesResult {
   truncated: boolean;
   total: number;
   note?: string;
+  /** 当本次结果由"主管上传花名册产生的候选池"硬约束过滤时为 true。 */
+  poolConstrained?: boolean;
 }
 
 export interface SearchEmployeesHandlerContext {
   /** Current actor (e.g. DingTalk sender) for local-department boost */
   actorUserId?: string;
+  /**
+   * 主管已上传花名册并由 agent 落库的候选池。提供时：
+   *  - 无 name 参数的列举 → 只返回池内成员
+   *  - name 参数 → 仅在池内做 displayName / userId 模糊匹配
+   * （目的：硬约束本 plan 只能在主管圈定的人里挑。）
+   */
+  candidatePool?: () => Array<{ userId: string; displayName: string; fileNotes?: string }>;
 }
 
 const MAX_LOCAL_FIRST = 15;
@@ -264,26 +273,65 @@ export function buildSearchEmployeesHandler(
     const typed = args as unknown as SearchEmployeesArgs;
     const name = String(typed.name ?? "").trim();
 
+    const poolEntries = ctx.candidatePool?.() ?? [];
+    const poolActive = poolEntries.length > 0;
+    const poolUserIds = new Set(poolEntries.map((p) => p.userId));
+
     if (name.length > 0) {
       const store = createPeopleDirectoryStore();
       try {
-        const contacts = store.searchContacts(name, 5);
-        if (contacts.length === 0) {
+        const contacts = store.searchContacts(name, 10);
+        const filtered = poolActive
+          ? contacts.filter((c) => poolUserIds.has(c.userId))
+          : contacts;
+        if (filtered.length === 0) {
           return {
             candidates: [],
             truncated: false,
             total: 0,
-            note: `未找到匹配「${name}」的通讯录用户，请确认姓名或换关键词`,
+            poolConstrained: poolActive || undefined,
+            note: poolActive
+              ? `候选池内未找到匹配「${name}」的成员；候选池来源：上传花名册。如需扩大范围请先 clear_candidate_pool。`
+              : `未找到匹配「${name}」的通讯录用户，请确认姓名或换关键词`,
           };
         }
-        const candidates = contacts.map((c) => {
+        const limited = filtered.slice(0, 5);
+        const candidates = limited.map((c) => {
           const rec = (repo.get?.(c.userId) ?? repo.list().find((p) => p.userId === c.userId)) ?? recordFromContactOnly(c);
-          return compressProfileFull(rec);
+          const baseBlock = compressProfileFull(rec);
+          if (poolActive) {
+            const note = poolEntries.find((e) => e.userId === c.userId)?.fileNotes;
+            return note ? `${baseBlock}\nfileNotes: ${note}` : `${baseBlock}\nfileNotes: (无)`;
+          }
+          return baseBlock;
         });
-        return { candidates, truncated: false, total: contacts.length, note: "name_lookup_sql" };
+        return {
+          candidates,
+          truncated: false,
+          total: filtered.length,
+          poolConstrained: poolActive || undefined,
+          note: poolActive ? "name_lookup_in_candidate_pool" : "name_lookup_sql",
+        };
       } finally {
         store.close();
       }
+    }
+
+    if (poolActive) {
+      const candidates = poolEntries.map((entry) => {
+        const rec = repo.get?.(entry.userId) ?? repo.list().find((p) => p.userId === entry.userId);
+        const block = rec
+          ? compressProfileBrief(rec, false)
+          : `id=${entry.userId} | name=${entry.displayName}\n(画像缺失，仅来自候选池)`;
+        return entry.fileNotes ? `${block}\nfileNotes: ${entry.fileNotes}` : block;
+      });
+      return {
+        candidates,
+        truncated: false,
+        total: poolEntries.length,
+        poolConstrained: true,
+        note: "candidate_pool_active | full_directory_disabled_for_this_plan",
+      };
     }
 
     const cap = maxCandidatesCap();

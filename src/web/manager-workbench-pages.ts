@@ -375,6 +375,11 @@ export function renderManagerChatPage(params: {
           <label>发送给 Agent
             <textarea id="msgInput" placeholder="补充背景、调整诉求或追问草案…"></textarea>
           </label>
+          <div class="roster-upload-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;">
+            <label class="btn btn-secondary" for="rosterFileInput" style="margin:0;cursor:pointer;">上传花名册</label>
+            <input id="rosterFileInput" type="file" accept=".md,.markdown,.txt,.docx,.pdf" style="display:none;" />
+            <span class="muted" id="rosterStatus">支持 .md / .txt / .docx / .pdf，单文件 ≤ 2 MB；上传后下一条消息 Agent 会读取并核对</span>
+          </div>
           <div class="chat-composer-actions">
             <span class="muted" id="currentPlanHint">请先选择线程后再发送</span>
             <button type="button" class="btn btn-primary" id="sendBtn">发送</button>
@@ -573,6 +578,45 @@ export function renderManagerChatPage(params: {
       btn.disabled = false;
     }
   });
+
+  var rosterInput = document.getElementById('rosterFileInput');
+  var rosterStatusEl = document.getElementById('rosterStatus');
+  if (rosterInput) {
+    rosterInput.addEventListener('change', async function () {
+      var file = rosterInput.files && rosterInput.files[0];
+      if (!file) return;
+      var planId = String(activePlanId || '').trim();
+      if (!planId) {
+        rosterStatusEl.textContent = '请先选择会话线程，再上传花名册';
+        rosterStatusEl.style.color = '#dc2626';
+        rosterInput.value = '';
+        return;
+      }
+      rosterStatusEl.textContent = '上传中…';
+      rosterStatusEl.style.color = '';
+      try {
+        var fd = new FormData();
+        fd.append('planId', planId);
+        fd.append('file', file, file.name);
+        var res = await fetch('/api/workbench/manager/upload-roster', {
+          method: 'POST',
+          body: fd,
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        rosterStatusEl.textContent =
+          '已上传 ' + escapeHtml(data.filename || file.name) +
+          '（' + (data.kind || '') + '，' + (data.chars || 0) + ' 字符）。' +
+          '请在下方告诉 Agent 你想分配什么任务。';
+        rosterStatusEl.style.color = '#0f766e';
+      } catch (err) {
+        rosterStatusEl.textContent = '上传失败：' + (err && err.message ? err.message : err);
+        rosterStatusEl.style.color = '#dc2626';
+      } finally {
+        rosterInput.value = '';
+      }
+    });
+  }
 
   document.getElementById('newThreadBtn').addEventListener('click', async function () {
     var btn = document.getElementById('newThreadBtn');

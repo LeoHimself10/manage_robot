@@ -36,6 +36,31 @@ export interface ScopeAuditEntry {
   reason?: string;
 }
 
+/**
+ * 主管上传花名册（md/pdf/docx）后由 agent 解析+核对得到的"硬约束候选池"。
+ * 一旦设置，本 plan 的所有 search_employees / 指派校验都只能命中池内 userId。
+ * unresolved 用于交互式核对（"未匹配到 X，是不是 Y？"）。
+ */
+export interface CandidatePoolEntry {
+  userId: string;
+  displayName: string;
+  /** 文件中针对该员工的备注 / 角色 / 期望职责，原文片段。可空。 */
+  fileNotes?: string;
+}
+
+export interface CandidatePoolUnresolved {
+  rawName: string;
+  hint?: string;
+}
+
+export interface CandidatePool {
+  /** 池来源标签（例如 "uploaded:roster.md"）；纯展示与审计用。 */
+  source: string;
+  entries: CandidatePoolEntry[];
+  unresolved?: CandidatePoolUnresolved[];
+  updatedAt: string;
+}
+
 export interface PlanSession {
   chatKeyHash: string;
   planId: string;
@@ -58,6 +83,12 @@ export interface PlanSession {
   taskScopes?: Record<string, TaskScope>;
   /** 主题切换审计轨迹。 */
   scopeAuditTrail?: ScopeAuditEntry[];
+  /** 主管上传名单 → 解析+核对后的硬约束候选池。 */
+  candidatePool?: CandidatePool;
+  /** 主管刚上传、尚未被 agent 处理的 roster 原文（md/pdf/docx 提取出的纯文本）。 */
+  pendingRosterText?: string;
+  /** pendingRosterText 的来源标签（如 "uploaded:roster.md" / "dingtalk_file:abc.pdf"）。 */
+  pendingRosterSource?: string;
 }
 
 export function resolvePlanSessionDir(): string {

@@ -33,6 +33,11 @@ export interface OrchestratorConfig {
   actorName?: string;
   actorRole?: "admin" | "manager" | "employee";
   onPublishTaskResult?: (result: Record<string, unknown>) => void;
+  /**
+   * candidate-pool / read_uploaded_roster_text 工具修改 currentSession 后调用，
+   * 让上层（dingtalk-bot / workbench API）即时落盘，避免 orchestrator 中途 crash 后丢失。
+   */
+  onSessionMutated?: (session: PlanSession) => void;
   sessionContext?: {
     conversationHistory?: Array<{ role: string; content: string }>;
     planId?: string;
@@ -41,6 +46,17 @@ export interface OrchestratorConfig {
     memorySummary?: string;
     memoryFacts?: string[];
     currentTimeIso?: string;
+    /**
+     * 主管刚上传了花名册但本会话尚未消费时，本字段非空（来源标签 + 字符数）。
+     * 不直接灌全文进 prompt，避免每轮重复送大段；模型应调 read_uploaded_roster_text 拿原文。
+     */
+    pendingRoster?: { sourceLabel: string; chars: number };
+    /** 已生效的候选池 brief，供模型自查"我现在能挑哪些人"。 */
+    candidatePool?: {
+      source: string;
+      entries: Array<{ userId: string; displayName: string }>;
+      unresolvedCount?: number;
+    };
   };
   traceId?: string;
 }
@@ -85,6 +101,7 @@ export async function runOrchestrator(
     onDraftSaved: (draft: Record<string, unknown>) => {
       savedDraft = stabilizeDraftTaskIds(draft, previousDraft);
     },
+    onSessionMutated: config.onSessionMutated,
   });
 
   const tools = Object.values(toolRegistry).map((e) => e.definition);
@@ -119,6 +136,16 @@ export async function runOrchestrator(
   if (config.sessionContext?.latestAssignment) {
     memoryParts.push(
       `latestAssignmentSummary: ${safeJson(summarizeAssignmentForPrompt(config.sessionContext.latestAssignment))}`,
+    );
+  }
+  if (config.sessionContext?.pendingRoster) {
+    memoryParts.push(
+      `pendingRoster: ${safeJson(config.sessionContext.pendingRoster)} | ACTION_REQUIRED: 调用 read_uploaded_roster_text 拿原文 → 抽取姓名 → 用 search_employees(name=...) 逐一匹配 → 用 set_candidate_pool 提交，未匹配项写进 unresolved 并在 message 反问主管。`,
+    );
+  }
+  if (config.sessionContext?.candidatePool) {
+    memoryParts.push(
+      `candidatePool: ${safeJson(config.sessionContext.candidatePool)} | 本 plan 的指派只能在 entries[*].userId 中选；search_employees 已自动收窄到池内。`,
     );
   }
   if (memoryParts.length > 0) {

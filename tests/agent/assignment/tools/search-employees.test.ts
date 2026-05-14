@@ -195,6 +195,44 @@ describe("buildSearchEmployeesHandler", () => {
     expect(String(r4.hint)).toContain("已达上限");
   });
 
+  it("returns only candidate pool members when pool is active and no name", () => {
+    const handler = buildSearchEmployeesHandler(repo, {
+      candidatePool: () => [
+        { userId: "emp_qa_001", displayName: "Test User", fileNotes: "QA 主力" },
+        { userId: "emp_rd_001", displayName: "Test User" },
+      ],
+    });
+    const result = handler({}) as {
+      candidates: string[];
+      total: number;
+      poolConstrained?: boolean;
+      note?: string;
+    };
+    expect(result.poolConstrained).toBe(true);
+    expect(result.total).toBe(2);
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates[0]).toContain("emp_qa_001");
+    expect(result.candidates[0]).toContain("fileNotes: QA 主力");
+    // 不在池里的 emp_qa_002 / emp_rd_002 / emp_qa_003 都不应出现
+    const joined = result.candidates.join("\n");
+    expect(joined).not.toContain("emp_qa_002");
+    expect(joined).not.toContain("emp_rd_002");
+    expect(joined).not.toContain("emp_qa_003");
+    expect(result.note).toContain("candidate_pool_active");
+  });
+
+  it("ignores candidate pool when empty (falls back to full directory)", () => {
+    const handler = buildSearchEmployeesHandler(repo, {
+      candidatePool: () => [],
+    });
+    const result = handler({}) as {
+      total: number;
+      poolConstrained?: boolean;
+    };
+    expect(result.poolConstrained).toBeUndefined();
+    expect(result.total).toBe(5);
+  });
+
   it("uses each handler instance with independent counter", () => {
     const h1 = buildSearchEmployeesHandler(repoWithGet(PROFILES));
     const h2 = buildSearchEmployeesHandler(repoWithGet(PROFILES));

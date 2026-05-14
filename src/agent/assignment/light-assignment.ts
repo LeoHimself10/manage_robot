@@ -30,6 +30,12 @@ export interface LightAssignmentInput {
   modelName: string;
   taskIds: string[];
   employees: Array<{ userId: string; displayName: string }>;
+  /**
+   * 主管上传花名册产生的候选池。提供时会与 employees 取交集做白名单：
+   * 即只接受同时存在于「候选池」且「通讯录」中的 userId。落库后 publish_task / 通知
+   * 仍走通讯录拿真实 unionId，不会被池里残留的离线 ID 污染。
+   */
+  candidatePoolUserIds?: string[];
 }
 
 export function extractLightAssignment(
@@ -47,6 +53,9 @@ export function extractLightAssignment(
   const employeeMap = new Map(
     input.employees.map((e) => [e.userId.trim(), e.displayName.trim() || e.userId.trim()]),
   );
+  const poolIds = input.candidatePoolUserIds && input.candidatePoolUserIds.length > 0
+    ? new Set(input.candidatePoolUserIds.map((id) => id.trim()).filter(Boolean))
+    : undefined;
 
   const assignments: LightAssignmentItem[] = [];
   for (const item of rawAssignments) {
@@ -58,6 +67,7 @@ export function extractLightAssignment(
 
     const userId = asNonEmptyString(primaryRaw.userId);
     if (!userId || !employeeMap.has(userId)) continue;
+    if (poolIds && !poolIds.has(userId)) continue; // 硬约束：必须在候选池内
 
     const displayName = asNonEmptyString(primaryRaw.displayName) ?? employeeMap.get(userId)!;
     const rationale = asNonEmptyString(primaryRaw.rationale) ?? "模型未提供明确理由";
@@ -70,7 +80,12 @@ export function extractLightAssignment(
   }
 
   if (assignments.length === 0) {
-    return { ok: false, reason: "no valid assignment entries after lightweight validation" };
+    return {
+      ok: false,
+      reason: poolIds
+        ? "no assignment entry matched candidate pool"
+        : "no valid assignment entries after lightweight validation",
+    };
   }
 
   return {
