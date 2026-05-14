@@ -29,6 +29,8 @@ export function renderEmployeeNewTasksPage(): string {
       <nav class="nav-pills" aria-label="员工导航">
         <a class="active" href="/workbench/employee/new">新任务</a>
         <a href="/workbench/employee/current">当前任务</a>
+        <a href="/workbench/employee/current?tab=progress">提交进度</a>
+        <a href="/workbench/employee/current?tab=profile">能力画像</a>
       </nav>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
@@ -124,7 +126,7 @@ export function renderEmployeeNewTasksPage(): string {
             var subtaskId = card.getAttribute('data-subtask-id') || '';
             var act = btn.getAttribute('data-act') || '';
             if (act === 'accept') {
-              void submitDirect(planId, subtaskId, 'accept', '');
+              void submitDirect(planId, subtaskId, 'accept', '', { redirect: 'current' });
               return;
             }
             openPanel(planId, subtaskId, act);
@@ -157,7 +159,7 @@ export function renderEmployeeNewTasksPage(): string {
     document.getElementById('actionPanel').style.display = 'none';
   }
 
-  async function submitDirect(planId, subtaskId, action, note) {
+  async function submitDirect(planId, subtaskId, action, note, opts) {
     try {
       var res = await fetch('/api/workbench/employee/subtasks/action', {
         method: 'POST',
@@ -166,6 +168,10 @@ export function renderEmployeeNewTasksPage(): string {
       });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      if (opts && opts.redirect === 'current') {
+        window.location.href = '/workbench/employee/current';
+        return;
+      }
       await loadNew();
     } catch (e) {
       alert(String(e && e.message ? e.message : e));
@@ -222,7 +228,9 @@ export function renderEmployeeCurrentTasksPage(): string {
     <div class="top-actions">
       <nav class="nav-pills" aria-label="员工导航">
         <a href="/workbench/employee/new">新任务</a>
-        <a class="active" href="/workbench/employee/current">当前任务</a>
+        <a href="/workbench/employee/current" data-nav-tab="empPanelTasks">当前任务</a>
+        <a href="/workbench/employee/current?tab=progress" data-nav-tab="empPanelProgress">提交进度</a>
+        <a href="/workbench/employee/current?tab=profile" data-nav-tab="empPanelProfile">能力画像</a>
       </nav>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
@@ -317,12 +325,30 @@ export function renderEmployeeCurrentTasksPage(): string {
     document.querySelectorAll('.tab-panel[id^="empPanel"]').forEach(function (panel) {
       panel.hidden = panel.id !== targetId;
     });
+    document.querySelectorAll('.nav-pills a[data-nav-tab]').forEach(function (link) {
+      if (link.getAttribute('data-nav-tab') === targetId) {
+        link.classList.add('active');
+      } else {
+        link.classList.remove('active');
+      }
+    });
   }
   document.querySelectorAll('.tabs-btn[data-tab-target]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       setActiveTab(btn.getAttribute('data-tab-target') || 'empPanelTasks');
     });
   });
+
+  function initialTabFromQuery() {
+    try {
+      var params = new URLSearchParams(window.location.search || '');
+      var t = (params.get('tab') || '').toLowerCase();
+      if (t === 'progress') return 'empPanelProgress';
+      if (t === 'profile') return 'empPanelProfile';
+    } catch (e) {}
+    return 'empPanelTasks';
+  }
+  setActiveTab(initialTabFromQuery());
 
   function splitTokens(raw) {
     return String(raw || '')
