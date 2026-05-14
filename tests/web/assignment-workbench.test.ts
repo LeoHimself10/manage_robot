@@ -421,6 +421,32 @@ describe("assignment-workbench HTTP handler", () => {
     expect(String(c.headers["Cache-Control"] ?? "")).toContain("no-store");
   });
 
+  it("test login entry session keeps chosen employee role for manager-whitelisted userId", async () => {
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "employee" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+    const req = stubReq({
+      url: "/api/workbench/employee/tasks/current",
+      method: "GET",
+      headers: { cookie },
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    const body = JSON.parse(c.body) as { ok?: boolean; tasks?: unknown[] };
+    expect(body.ok).toBe(true);
+    expect(Array.isArray(body.tasks)).toBe(true);
+  });
+
   it("publish returns generated taskNo", async () => {
     seedContact("manager-1", "管理部", "Manager");
     seedContact("emp-2");

@@ -7,7 +7,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "npm run build:workbench-login && vitest run",
+    "test": "npm run build:workbench-login && npm run lint:inline-pages && vitest run",
+    "lint:inline-pages": "node --import tsx scripts/lint-inline-pages.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "demo": "tsx src/demo.ts",

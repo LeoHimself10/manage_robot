@@ -276,6 +276,9 @@ function resolveEffectiveSession(
 ): WorkbenchSession | undefined {
   const session = getSessionFromRequest(req);
   if (!session) return undefined;
+  if (isWorkbenchTestEntrySession(session)) {
+    return session;
+  }
   const runtimeRole = resolveRoleForUser(session.userId);
   if (runtimeRole === session.role) return session;
   const refreshed: WorkbenchSession = { ...session, role: runtimeRole };
@@ -651,6 +654,10 @@ function isWorkbenchTestLoginEnabled(): boolean {
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
+function isWorkbenchTestEntrySession(session: WorkbenchSession): boolean {
+  return isWorkbenchTestLoginEnabled() && session.loginSource === "entry";
+}
+
 function renderWorkbenchEntryLoginHtml(): string {
   const corpId = getDingTalkCorpId() ?? "";
   const testLoginEnabled = isWorkbenchTestLoginEnabled();
@@ -854,6 +861,22 @@ function requireSession(
   if (!session) {
     writeAuthError(res, 401, "Session required");
     return undefined;
+  }
+  if (isWorkbenchTestEntrySession(session)) {
+    if (expectedRole && session.role !== expectedRole) {
+      logStructured({
+        event: "workbench_role_forbidden",
+        path: req.url ?? "",
+        expectedRole,
+        runtimeRole: session.role,
+        sessionRole: session.role,
+        userId: session.userId,
+        loginSource: session.loginSource,
+      });
+      writeAuthError(res, 403, "Role forbidden");
+      return undefined;
+    }
+    return session;
   }
   const runtimeRole = resolveRoleForUser(session.userId);
   const cookieStale = runtimeRole !== session.role;

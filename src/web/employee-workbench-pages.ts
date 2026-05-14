@@ -29,8 +29,6 @@ export function renderEmployeeNewTasksPage(): string {
       <nav class="nav-pills" aria-label="员工导航">
         <a class="active" href="/workbench/employee/new">新任务</a>
         <a href="/workbench/employee/current">当前任务</a>
-        <a href="/workbench/employee/current?tab=progress">提交进度</a>
-        <a href="/workbench/employee/current?tab=profile">能力画像</a>
       </nav>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
@@ -251,9 +249,7 @@ export function renderEmployeeCurrentTasksPage(): string {
     <div class="top-actions">
       <nav class="nav-pills" aria-label="员工导航">
         <a href="/workbench/employee/new">新任务</a>
-        <a href="/workbench/employee/current" data-nav-tab="empPanelTasks">当前任务</a>
-        <a href="/workbench/employee/current?tab=progress" data-nav-tab="empPanelProgress">提交进度</a>
-        <a href="/workbench/employee/current?tab=profile" data-nav-tab="empPanelProfile">能力画像</a>
+        <a class="active" href="/workbench/employee/current">当前任务</a>
       </nav>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
@@ -356,13 +352,6 @@ export function renderEmployeeCurrentTasksPage(): string {
     document.querySelectorAll('.tab-panel[id^="empPanel"]').forEach(function (panel) {
       panel.hidden = panel.id !== targetId;
     });
-    document.querySelectorAll('.nav-pills a[data-nav-tab]').forEach(function (link) {
-      if (link.getAttribute('data-nav-tab') === targetId) {
-        link.classList.add('active');
-      } else {
-        link.classList.remove('active');
-      }
-    });
   }
   function tabToPathAndPanel(tabId) {
     if (tabId === 'empPanelProgress') return { panel: tabId, qs: '?tab=progress' };
@@ -374,45 +363,11 @@ export function renderEmployeeCurrentTasksPage(): string {
       history.replaceState({}, '', '/workbench/employee/current' + qs);
     } catch (e2) {}
   }
-  function bustNavigate(href) {
-    try {
-      var u = new URL(href, window.location.origin);
-      if (String(u.searchParams.get('_') || '').trim() === '') {
-        u.searchParams.set('_', String(Date.now()));
-      }
-      window.location.replace(u.pathname + u.search + u.hash);
-    } catch (e) {
-      var sep = href.indexOf('?') >= 0 ? '&' : '?';
-      window.location.replace(href + sep + '_=' + Date.now());
-    }
-  }
 
   document.querySelectorAll('.tabs-btn[data-tab-target]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var targetId = btn.getAttribute('data-tab-target') || 'empPanelTasks';
       var mapping = tabToPathAndPanel(targetId);
-      setActiveTab(mapping.panel);
-      replaceCurrentUrl(mapping.qs);
-      if (mapping.panel === 'empPanelTasks') void loadCurrent();
-      else if (mapping.panel === 'empPanelProfile') void loadProfile();
-    });
-  });
-
-  document.querySelectorAll('.nav-pills a[href^="/workbench/employee"]').forEach(function (a) {
-    a.addEventListener('click', function (ev) {
-      var href = a.getAttribute('href') || '';
-      if (href.indexOf('/workbench/employee/new') === 0) {
-        if (window.location.pathname.indexOf('/workbench/employee/new') >= 0) return;
-        ev.preventDefault();
-        bustNavigate(href);
-        return;
-      }
-      if (href.indexOf('/workbench/employee/current') !== 0) return;
-      ev.preventDefault();
-      var tabId = 'empPanelTasks';
-      if (href.indexOf('tab=progress') >= 0) tabId = 'empPanelProgress';
-      else if (href.indexOf('tab=profile') >= 0) tabId = 'empPanelProfile';
-      var mapping = tabToPathAndPanel(tabId);
       setActiveTab(mapping.panel);
       replaceCurrentUrl(mapping.qs);
       if (mapping.panel === 'empPanelTasks') void loadCurrent();
@@ -513,10 +468,10 @@ export function renderEmployeeCurrentTasksPage(): string {
       } else {
         casesEl.textContent = cases.map(function (c) {
           var line = '[' + (c.taskType || '') + '] ' + (c.outcome || '');
-          if (c.deliverable) line += '\n  交付物: ' + c.deliverable;
-          if (c.contribution) line += '\n  贡献: ' + c.contribution;
+          if (c.deliverable) line += '\\n  交付物: ' + c.deliverable;
+          if (c.contribution) line += '\\n  贡献: ' + c.contribution;
           return line;
-        }).join('\n\n');
+        }).join('\\n\\n');
       }
     } catch (e) {
       setFb('profileFeedback', String(e && e.message ? e.message : e), 'err');

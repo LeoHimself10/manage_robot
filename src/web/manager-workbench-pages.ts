@@ -50,7 +50,6 @@ export function renderManagerTasksPage(params: {
         <a class="active" href="/workbench/manager/tasks">历史任务</a>
         <a href="/workbench/manager/chat">智能规划助手</a>
       </nav>
-      <a class="btn btn-secondary" href="/api/workbench/me" target="_blank" rel="noopener">当前身份</a>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
   </header>
@@ -228,6 +227,8 @@ export function renderManagerTasksPage(params: {
     var threads = data.threads || [];
     return threads.length ? String(threads[0].planId || '').trim() : '';
   }
+
+  async function loadTasks() {
     setFb('tableFeedback', '加载中…', 'muted');
     try {
       var res = await fetch('/api/workbench/manager/tasks');

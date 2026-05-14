@@ -214,6 +214,7 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
   document.getElementById('searchEmployeeBtn').addEventListener('click', function () {
     void searchEmployees();
   });
+  document.getElementById('saveManagerBtn').addEventListener('click', async function () {
     var userId = (document.getElementById('employeeSelect').value || '').trim();
     var enabled = document.getElementById('managerEnabled').value === '1';
     if (!userId) {
