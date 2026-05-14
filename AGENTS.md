@@ -61,9 +61,6 @@
 | `ASSIGNMENT_WEB_PUBLIC_BASE_URL` | 否 | 工作台公网地址（ECS 公网 host） |
 | `ASSIGNMENT_WEB_SECRET` | 否 | HMAC-SHA256 签名密钥 |
 | `DINGTALK_ASSIGNMENT_MOCK` | 否 | `1` 启用 mock 钉钉交互卡片 |
-| `PROFILE_CASE_WORKER_ENABLED` | 否 | `1`（默认）子任务 **DONE** 后异步写 `cases_json` + `CASE_FROM_WORKBENCH_DONE` 事件；`0` 关闭 |
-| `PROFILE_CASE_WORKER_MODEL` | 否 | 覆盖抽取用模型（默认与 `QWEN_MODEL` 一致） |
-| `PROFILE_CASE_WORKER_SKILL_LOG` | 否 | `1` 时仅打结构化 `profile_case_worker_skill_hint` 日志（旁路技能词启发，不落库） |
 | `WORKBENCH_MANAGER_PROFILE_VERIFY_ENABLED` | 否 | `1` 预留开启主管核验 API（仍为 501 stub）；默认关闭见 `docs/workbench-manager-profile-verify-deferred.md` |
 
 ## Agent Harness 基线

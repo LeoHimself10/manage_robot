@@ -19,7 +19,6 @@ import {
 } from "../infra/workbench-formal-task-store";
 import { loadQwenPlannerConfigFromEnv } from "../agent/demo/qwen-planner";
 import { runOrchestrator } from "../agent/orchestrator";
-import { scheduleProfileCaseWorkerAfterDone } from "../agent/profile/profile-case-worker";
 import type { KnownFactsStore } from "../agent/tools/update-known-facts";
 import {
   DingTalkAuthError,
@@ -1802,12 +1801,6 @@ export function handleAssignmentHttp(
           progressStatus,
           updatedAt: now,
         });
-        if (progressStatus === "DONE") {
-          scheduleProfileCaseWorkerAfterDone({
-            subtaskId: targetSubtaskId,
-            assigneeUserId: session.userId,
-          });
-        }
       } catch (err) {
         writeJson(res, 400, {
           ok: false,

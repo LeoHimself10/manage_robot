@@ -74,15 +74,6 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 - **自纠正重试**：Schema 校验失败时 **1 轮重试**；若仍失败放弃本轮推荐。
 - 主链路当前不调用该函数；如需恢复独立异步推送，需显式接回 `dingtalk-bot` 并处理与 light-assignment 的优先级。
 
-## 4.1 子任务 DONE 后的画像 worker
-
-启用条件：`PROFILE_CASE_WORKER_ENABLED=1`（默认开启）。
-
-- 触发点：员工通过钉钉工具 `submit_progress_update` 或工作台 `/api/workbench/employee/subtasks/progress` 将子任务置为 **`DONE`**。
-- 行为：异步 `runProfileCaseWorkerOnce` 抽取一条 case → `mergeCasesByOutcome` 合并写回 `employee_profiles.cases_json`（幂等 outcome key=`workbench_subtask:<subtaskId>`），同时 `appendProfileEvent("CASE_FROM_WORKBENCH_DONE")`。
-- LLM 调用：短上下文（≤512 tokens），无 `QWEN_API_KEY` 时退化为规则兜底；失败仅写 `profile_case_worker_*` 结构化日志，不阻塞员工动作。无钉钉通知。
-- 相关变量：`PROFILE_CASE_WORKER_MODEL`（覆盖模型）、`PROFILE_CASE_WORKER_SKILL_LOG=1`（旁路技能词启发日志，不落库）。
-
 ## 5. 风险控制（规划）
 
 - Token 与超时：模型策略统一裁剪。

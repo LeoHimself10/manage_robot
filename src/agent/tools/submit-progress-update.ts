@@ -1,6 +1,5 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
-import { scheduleProfileCaseWorkerAfterDone } from "../profile/profile-case-worker";
 
 export const SUBMIT_PROGRESS_UPDATE_TOOL: ToolDefinition = {
   type: "function",
@@ -49,9 +48,6 @@ export function buildSubmitProgressUpdateHandler(
       note,
       progressStatus: normalized,
     });
-    if (normalized === "DONE") {
-      scheduleProfileCaseWorkerAfterDone({ subtaskId, assigneeUserId: actorUserId });
-    }
     return {
       ok: true,
       progressStatus: updated.subtask.status,
