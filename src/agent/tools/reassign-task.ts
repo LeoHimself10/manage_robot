@@ -5,6 +5,9 @@ import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-tas
 import type { PlanSession } from "../../infra/plan-session-store";
 import { createPlanSessionStore, resolvePlanSessionDir } from "../../infra/plan-session-store";
 import { executeReassignWithSideEffects } from "../workbench/reassign-with-side-effects";
+import { voidFireReassignAssigneeNotify } from "../workbench/reassign-notify-side-effect";
+import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
+import type { DingTalkContactRow } from "../../infra/people-directory-store";
 
 function findLatestSessionByPlanId(planId: string): (PlanSession & { chatKeyHash: string }) | undefined {
   try {
@@ -84,6 +87,8 @@ export function buildReassignTaskHandler(
     planSessionStore?: ReturnType<typeof createPlanSessionStore>;
     findSessionByPlanId?: (planId: string) => (PlanSession & { chatKeyHash: string }) | undefined;
     patchAssignment?: (latest: Record<string, unknown> | undefined, assigneeUserId: string) => Record<string, unknown>;
+    notifier?: WorkbenchPublishNotifier;
+    getContact?: (userId: string) => DingTalkContactRow | undefined;
   } = {},
 ): ToolHandler {
   const taskStore = deps.taskStore ?? createWorkbenchFormalTaskStore();
@@ -115,6 +120,19 @@ export function buildReassignTaskHandler(
         patchLatestAssignmentAssignee: deps.patchAssignment ?? patchLatestAssignmentAssignee,
       },
     );
+    if (deps.notifier && deps.getContact) {
+      voidFireReassignAssigneeNotify({
+        notifier: deps.notifier,
+        getContact: deps.getContact,
+        appendTaskEvent: taskStore.appendTaskEvent,
+        taskStore,
+        taskId: result.task.taskId,
+        planId,
+        managerUserId: actorUserId,
+        assigneeUserId,
+        subtaskIdRaw: subtaskIdRaw || undefined,
+      });
+    }
     return {
       ok: true,
       task: result.task,

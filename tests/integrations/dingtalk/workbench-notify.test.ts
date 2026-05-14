@@ -264,4 +264,30 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0].reason).toContain("send card failed");
   });
+
+  it("notifyReassignedAssignee sends card and todo with reassign-specific sourceId", async () => {
+    const { fetch: fetchImpl, calls } = buildFetchMock([
+      () => jsonRes({ accessToken: "tok-r" }),
+      () => jsonRes({ errcode: 0, task_id: "card-r" }),
+      () => jsonRes({ processQueryKey: "robot-r" }),
+      () => jsonRes({ id: "todo-r" }),
+    ]);
+    const notifier = createWorkbenchPublishNotifier(fetchImpl);
+    await notifier.notifyReassignedAssignee({
+      taskNo: "TK-002",
+      taskTitle: "标题",
+      managerUserId: "mgr-1",
+      assigneeUserId: "emp-9",
+      unionId: "uni-9",
+      subtaskId: "task:p1:task_2",
+      subtaskTitle: "子A",
+      scope: "subtask",
+    });
+    const corp = calls.find((c) => c.url.includes("corpconversation/asyncsend_v2"));
+    expect(JSON.stringify(corp?.body)).toContain("改派");
+    const todoCall = calls.find((c) => c.url.includes("/v1.0/todo/"));
+    expect((todoCall?.body as { sourceId: string }).sourceId).toBe(
+      "workbench:reassign:TK-002:task-p1-task_2",
+    );
+  });
 });

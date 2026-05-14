@@ -337,6 +337,90 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).toContain('"assigneeUserId":"emp-2"');
   });
 
+  it("manager reassign invokes notifyReassignedAssignee", async () => {
+    const notifyReassignedAssignee = vi.fn(async () => ({
+      enabled: false,
+      skippedReason: "test",
+      success: [],
+      failed: [],
+    }));
+    __setWorkbenchPublishNotifierForTest({
+      notifyPublishedTask: vi.fn(async () => ({
+        enabled: false,
+        success: [],
+        failed: [],
+      })),
+      notifyReassignedAssignee,
+    });
+    await seedPublishedTask({
+      planId: "plan-reassign-notify",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-1",
+    });
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+    const req = stubReq({
+      url: "/api/workbench/manager/reassign",
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie,
+      },
+      body: JSON.stringify({
+        planId: "plan-reassign-notify",
+        assigneeUserId: "emp-2",
+        note: "notify test",
+      }),
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    expect(captured().statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(notifyReassignedAssignee).toHaveBeenCalledTimes(1);
+    const arg = notifyReassignedAssignee.mock.calls[0][0];
+    expect(arg.assigneeUserId).toBe("emp-2");
+    expect(arg.scope).toBe("plan");
+    expect(arg.managerUserId).toBe("manager-1");
+    expect(String(arg.taskNo || "")).toMatch(/^TASK-/);
+  });
+
+  it("employee tasks/new GET sets Cache-Control no-store", async () => {
+    await seedPublishedTask({
+      planId: "plan-cc-head",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-cc",
+    });
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "emp-cc", role: "employee" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+    const req = stubReq({
+      url: "/api/workbench/employee/tasks/new",
+      method: "GET",
+      headers: { cookie },
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(String(c.headers["Cache-Control"] ?? "")).toContain("no-store");
+  });
+
   it("publish returns generated taskNo", async () => {
     seedContact("manager-1", "管理部", "Manager");
     seedContact("emp-2");
@@ -767,6 +851,11 @@ describe("assignment-workbench HTTP handler", () => {
         enabled: true,
         success: [{ userId: "emp-2", cardMessageId: "card-1", todoId: "todo-1" }],
         failed: [{ userId: "emp-3", reason: "dingtalk error" }],
+      })),
+      notifyReassignedAssignee: vi.fn(async () => ({
+        enabled: false,
+        success: [],
+        failed: [],
       })),
     };
     __setWorkbenchPublishNotifierForTest(notifier);

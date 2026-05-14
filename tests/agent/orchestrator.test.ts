@@ -9,6 +9,12 @@ vi.mock("../../src/integrations/dingtalk/workbench-notify", () => ({
       success: [],
       failed: [],
     })),
+    notifyReassignedAssignee: vi.fn(async () => ({
+      enabled: false,
+      skippedReason: "off",
+      success: [],
+      failed: [],
+    })),
   }),
 }));
 vi.mock("../../src/integrations/repos/employee-profile-repo", () => ({

@@ -40,6 +40,11 @@ describe("publish_task handler", () => {
           success: [],
           failed: [],
         })),
+        notifyReassignedAssignee: vi.fn(async () => ({
+          enabled: false,
+          success: [],
+          failed: [],
+        })),
       },
       recentPublished: createRecentPublishStore(),
     });
@@ -64,6 +69,11 @@ describe("publish_task handler", () => {
         notifyPublishedTask: vi.fn(async () => ({
           enabled: false,
           skippedReason: "off",
+          success: [],
+          failed: [],
+        })),
+        notifyReassignedAssignee: vi.fn(async () => ({
+          enabled: false,
           success: [],
           failed: [],
         })),
@@ -93,6 +103,11 @@ describe("publish_task handler", () => {
           success: [],
           failed: [],
         })),
+        notifyReassignedAssignee: vi.fn(async () => ({
+          enabled: false,
+          success: [],
+          failed: [],
+        })),
       },
       recentPublished: createRecentPublishStore(),
     });
@@ -117,7 +132,7 @@ describe("publish_task handler", () => {
       },
       appendTaskEvent: () => {},
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })) },
       recentPublished: recent,
     });
     await expect(handler({ planId: "plan-1" })).resolves.toMatchObject({
@@ -143,7 +158,7 @@ describe("publish_task handler", () => {
       },
       appendTaskEvent: () => {},
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })) },
       recentPublished: createRecentPublishStore(),
     });
     const res = (await handler({ planId: "plan-1" })) as Record<string, unknown>;
@@ -165,7 +180,7 @@ describe("publish_task handler", () => {
       },
       appendTaskEvent: () => {},
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })) },
       recentPublished: createRecentPublishStore(),
     });
     const res = (await handler({ planId: "plan-1" })) as Record<string, unknown>;
@@ -201,7 +216,7 @@ describe("publish_task handler", () => {
       }),
       appendTaskEvent,
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })) },
       recentPublished: createRecentPublishStore(),
       onAudit,
       onPublishResult,
@@ -246,7 +261,7 @@ describe("publish_task handler", () => {
       appendTaskEvent,
       // contact lookup returns undefined → unknown assignee
       getContact: () => undefined,
-      notifier: { notifyPublishedTask: notifySpy },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })) },
       recentPublished: createRecentPublishStore(),
       onPublishResult,
     });

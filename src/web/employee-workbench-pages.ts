@@ -23,7 +23,7 @@ export function renderEmployeeNewTasksPage(): string {
     <div>
       <div class="brand">员工工作台</div>
       <h1 class="page-title">新分配的任务</h1>
-      <p class="page-desc">主管发布后的正式子任务（来自 SQLite 正式任务库）。请在接受前核对标题与说明；拒绝或申请修改必须填写理由。</p>
+      <p class="page-desc">主管发布后的正式子任务。请在接受前核对标题与说明；拒绝或申请修改必须填写理由。</p>
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="员工导航">
@@ -84,7 +84,7 @@ export function renderEmployeeNewTasksPage(): string {
   async function loadNew() {
     setFb('listFeedback', '加载中…', 'muted');
     try {
-      var res = await fetch('/api/workbench/employee/tasks/new');
+      var res = await fetch('/api/workbench/employee/tasks/new', { cache: 'no-store' });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var tasks = data.tasks || [];
@@ -101,10 +101,12 @@ export function renderEmployeeNewTasksPage(): string {
 
       mount.innerHTML = '<div class="task-cards">' + tasks.map(function (t) {
         var st = t.status === 'CHANGES_REQUESTED' ? '<span class="badge pending">待确认</span>' : '<span class="badge assigned">待处理</span>';
+        var mgr = (t.managerDisplayName || '').trim();
+        var mgrLine = mgr ? (' · 主管 ' + escapeHtml(mgr)) : '';
         return '<article class="task-card" data-plan-id="' + escapeHtml(t.planId) + '" data-subtask-id="' + escapeHtml(t.subtaskId || '') + '">'
           + '<div class="head"><div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' + st + '</div>'
-          + '<p class="title">' + escapeHtml(t.title || t.taskNo || t.planId) + '</p>'
-          + '<p class="meta">任务编号 <code>' + escapeHtml(t.taskNo || '—') + '</code> · 子任务 <code>' + escapeHtml(t.subtaskId || '—') + '</code></p></div></div>'
+          + '<p class="title">' + escapeHtml(t.title || t.taskNo || '子任务') + '</p>'
+          + '<p class="meta">业务编号 <code>' + escapeHtml(t.taskNo || '—') + '</code>' + mgrLine + '</p></div></div>'
           + '<div class="actions">'
           + '<button type="button" class="btn btn-primary" data-act="accept">接受</button>'
           + '<button type="button" class="btn btn-danger" data-act="reject">拒绝</button>'
@@ -159,6 +161,7 @@ export function renderEmployeeNewTasksPage(): string {
     var res = await fetch('/api/workbench/employee/subtasks/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
       body: JSON.stringify({
         planId: planId,
         subtaskId: subtaskId,
@@ -170,7 +173,7 @@ export function renderEmployeeNewTasksPage(): string {
     var data = await res.json().catch(function () { return {}; });
     if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
     if (opts && opts.redirect === 'current') {
-      window.location.href = '/workbench/employee/current';
+      window.location.replace('/workbench/employee/current?_=' + Date.now());
       return;
     }
     await loadNew();
@@ -196,8 +199,29 @@ export function renderEmployeeNewTasksPage(): string {
   document.getElementById('cancelActionBtn').addEventListener('click', closePanel);
 
   document.getElementById('logoutBtn').addEventListener('click', async function () {
-    await fetch('/api/workbench/logout', { method: 'POST' });
+    await fetch('/api/workbench/logout', { method: 'POST', cache: 'no-store' });
     window.location.href = '/workbench';
+  });
+
+  function bustNavigate(href) {
+    try {
+      var u = new URL(href, window.location.origin);
+      if (String(u.searchParams.get('_') || '').trim() === '') {
+        u.searchParams.set('_', String(Date.now()));
+      }
+      window.location.replace(u.pathname + u.search + u.hash);
+    } catch (e) {
+      var sep = href.indexOf('?') >= 0 ? '&' : '?';
+      window.location.replace(href + sep + '_=' + Date.now());
+    }
+  }
+  document.querySelectorAll('.nav-pills a[href^="/workbench/employee"]').forEach(function (a) {
+    a.addEventListener('click', function (ev) {
+      var href = a.getAttribute('href') || '';
+      if (href.indexOf('/workbench/employee') !== 0) return;
+      ev.preventDefault();
+      bustNavigate(href);
+    });
   });
 
   void loadNew();
@@ -222,7 +246,7 @@ export function renderEmployeeCurrentTasksPage(): string {
     <div>
       <div class="brand">员工工作台</div>
       <h1 class="page-title">当前任务</h1>
-      <p class="page-desc">这里展示您在 SQLite 正式任务库中的在执行子任务，不会重复生成任务。提交进度后主管可查看最新动态。</p>
+      <p class="page-desc">这里展示你在<strong>正式任务库</strong>中的在执行子任务。提交进度后主管可查看最新动态。</p>
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="员工导航">
@@ -340,9 +364,59 @@ export function renderEmployeeCurrentTasksPage(): string {
       }
     });
   }
+  function tabToPathAndPanel(tabId) {
+    if (tabId === 'empPanelProgress') return { panel: tabId, qs: '?tab=progress' };
+    if (tabId === 'empPanelProfile') return { panel: tabId, qs: '?tab=profile' };
+    return { panel: 'empPanelTasks', qs: '' };
+  }
+  function replaceCurrentUrl(qs) {
+    try {
+      history.replaceState({}, '', '/workbench/employee/current' + qs);
+    } catch (e2) {}
+  }
+  function bustNavigate(href) {
+    try {
+      var u = new URL(href, window.location.origin);
+      if (String(u.searchParams.get('_') || '').trim() === '') {
+        u.searchParams.set('_', String(Date.now()));
+      }
+      window.location.replace(u.pathname + u.search + u.hash);
+    } catch (e) {
+      var sep = href.indexOf('?') >= 0 ? '&' : '?';
+      window.location.replace(href + sep + '_=' + Date.now());
+    }
+  }
+
   document.querySelectorAll('.tabs-btn[data-tab-target]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      setActiveTab(btn.getAttribute('data-tab-target') || 'empPanelTasks');
+      var targetId = btn.getAttribute('data-tab-target') || 'empPanelTasks';
+      var mapping = tabToPathAndPanel(targetId);
+      setActiveTab(mapping.panel);
+      replaceCurrentUrl(mapping.qs);
+      if (mapping.panel === 'empPanelTasks') void loadCurrent();
+      else if (mapping.panel === 'empPanelProfile') void loadProfile();
+    });
+  });
+
+  document.querySelectorAll('.nav-pills a[href^="/workbench/employee"]').forEach(function (a) {
+    a.addEventListener('click', function (ev) {
+      var href = a.getAttribute('href') || '';
+      if (href.indexOf('/workbench/employee/new') === 0) {
+        if (window.location.pathname.indexOf('/workbench/employee/new') >= 0) return;
+        ev.preventDefault();
+        bustNavigate(href);
+        return;
+      }
+      if (href.indexOf('/workbench/employee/current') !== 0) return;
+      ev.preventDefault();
+      var tabId = 'empPanelTasks';
+      if (href.indexOf('tab=progress') >= 0) tabId = 'empPanelProgress';
+      else if (href.indexOf('tab=profile') >= 0) tabId = 'empPanelProfile';
+      var mapping = tabToPathAndPanel(tabId);
+      setActiveTab(mapping.panel);
+      replaceCurrentUrl(mapping.qs);
+      if (mapping.panel === 'empPanelTasks') void loadCurrent();
+      else if (mapping.panel === 'empPanelProfile') void loadProfile();
     });
   });
 
@@ -367,7 +441,7 @@ export function renderEmployeeCurrentTasksPage(): string {
   async function loadCurrent() {
     setFb('listFeedback', '加载中…', 'muted');
     try {
-      var res = await fetch('/api/workbench/employee/tasks/current');
+      var res = await fetch('/api/workbench/employee/tasks/current', { cache: 'no-store' });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var tasks = data.tasks || [];
@@ -389,10 +463,12 @@ export function renderEmployeeCurrentTasksPage(): string {
 
       mount.innerHTML = '<div class="task-cards">' + tasks.map(function (t) {
         var bc = t.status === 'BLOCKED' ? 'blocked' : (t.status === 'ACCEPTED' ? 'assigned' : 'progress');
+        var mgr = (t.managerDisplayName || '').trim();
+        var mgrLine = mgr ? (' · 主管 ' + escapeHtml(mgr)) : '';
         return '<article class="task-card task-card-clickable" data-subtask-id="' + escapeHtml(t.subtaskId || '') + '">'
           + '<span class="badge ' + bc + '">' + escapeHtml(t.statusLabel || t.status) + '</span>'
-          + '<p class="title">' + escapeHtml(t.title || t.taskNo || t.planId) + '</p>'
-          + '<p class="meta">任务编号 <code>' + escapeHtml(t.taskNo || '—') + '</code> · 子任务 <code>' + escapeHtml(t.subtaskId || '—') + '</code>'
+          + '<p class="title">' + escapeHtml(t.title || t.taskNo || '子任务') + '</p>'
+          + '<p class="meta">业务编号 <code>' + escapeHtml(t.taskNo || '—') + '</code>' + mgrLine
           + (t.progressNote ? '<br>最近进度：' + escapeHtml(t.progressNote) : '')
           + '</p></article>';
       }).join('') + '</div>';
@@ -402,6 +478,7 @@ export function renderEmployeeCurrentTasksPage(): string {
           if (!subtaskId) return;
           document.getElementById('progPlanId').value = subtaskId;
           setActiveTab('empPanelProgress');
+          replaceCurrentUrl('?tab=progress');
           setFb('progFeedback', '已带入任务，可直接填写进度说明。', 'muted');
           document.getElementById('progNote').focus();
         });
@@ -419,7 +496,7 @@ export function renderEmployeeCurrentTasksPage(): string {
 
   async function loadProfile() {
     try {
-      var res = await fetch('/api/workbench/employee/profile');
+      var res = await fetch('/api/workbench/employee/profile', { cache: 'no-store' });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var profile = data.profile || {};
@@ -459,6 +536,7 @@ export function renderEmployeeCurrentTasksPage(): string {
       var res = await fetch('/api/workbench/employee/subtasks/progress', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({
           subtaskId: subtaskId,
           progressStatus: progressStatus,
@@ -496,6 +574,7 @@ export function renderEmployeeCurrentTasksPage(): string {
       var res = await fetch('/api/workbench/employee/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify(payload)
       });
       var data = await res.json().catch(function () { return {}; });
@@ -509,7 +588,7 @@ export function renderEmployeeCurrentTasksPage(): string {
   });
 
   document.getElementById('logoutBtn').addEventListener('click', async function () {
-    await fetch('/api/workbench/logout', { method: 'POST' });
+    await fetch('/api/workbench/logout', { method: 'POST', cache: 'no-store' });
     window.location.href = '/workbench';
   });
 

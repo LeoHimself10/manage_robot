@@ -36,8 +36,22 @@ export interface WorkbenchNotifyResult {
   failed: Array<{ userId: string; reason: string }>;
 }
 
+/** 子任务（或整单）改派成功后，通知新负责人（与发布通道一致：卡片 + 机器人 + 可选待办）。 */
+export interface WorkbenchReassignNotifyInput {
+  taskNo: string;
+  taskTitle: string;
+  managerUserId: string;
+  assigneeUserId: string;
+  unionId?: string;
+  /** 单子任务改派时有值；整单改派为 undefined */
+  subtaskId?: string;
+  subtaskTitle?: string;
+  scope: "subtask" | "plan";
+}
+
 export interface WorkbenchPublishNotifier {
   notifyPublishedTask(input: WorkbenchPublishTaskNotifyInput): Promise<WorkbenchNotifyResult>;
+  notifyReassignedAssignee(input: WorkbenchReassignNotifyInput): Promise<WorkbenchNotifyResult>;
 }
 
 function env(name: string): string {
@@ -164,6 +178,15 @@ async function sendRobotChatMessage(params: {
   return String(data.processQueryKey ?? data.requestId ?? "");
 }
 
+function resolveNotifyBaseUrl(): string {
+  return (
+    env("WORKBENCH_NOTIFY_DETAIL_URL_BASE") ||
+    (env("ASSIGNMENT_WEB_PUBLIC_BASE_URL")
+      ? `${env("ASSIGNMENT_WEB_PUBLIC_BASE_URL")}/workbench/employee/task`
+      : "")
+  );
+}
+
 async function createTodo(params: {
   fetchImpl: typeof fetch;
   accessToken: string;
@@ -212,11 +235,7 @@ export function createWorkbenchPublishNotifier(
         };
       }
       const agentId = env("DINGTALK_AGENT_ID") || env("WORKBENCH_DINGTALK_NOTIFY_AGENT_ID");
-      const baseUrl =
-        env("WORKBENCH_NOTIFY_DETAIL_URL_BASE") ||
-        (env("ASSIGNMENT_WEB_PUBLIC_BASE_URL")
-          ? `${env("ASSIGNMENT_WEB_PUBLIC_BASE_URL")}/workbench/employee/task`
-          : "");
+      const baseUrl = resolveNotifyBaseUrl();
       if (!agentId || !baseUrl) {
         return {
           enabled: false,
@@ -316,6 +335,129 @@ export function createWorkbenchPublishNotifier(
         if (anyChannelOk) {
           success.push(userOutcome);
         }
+      }
+      return { enabled: true, success, failed };
+    },
+
+    async notifyReassignedAssignee(
+      input: WorkbenchReassignNotifyInput,
+    ): Promise<WorkbenchNotifyResult> {
+      if (!isNotifyEnabled()) {
+        return {
+          enabled: false,
+          skippedReason: "WORKBENCH_DINGTALK_NOTIFY_ENABLED is off",
+          success: [],
+          failed: [],
+        };
+      }
+      const agentId = env("DINGTALK_AGENT_ID") || env("WORKBENCH_DINGTALK_NOTIFY_AGENT_ID");
+      const baseUrl = resolveNotifyBaseUrl();
+      if (!agentId || !baseUrl) {
+        return {
+          enabled: false,
+          skippedReason: "missing DINGTALK_AGENT_ID or WORKBENCH_NOTIFY_DETAIL_URL_BASE",
+          success: [],
+          failed: [],
+        };
+      }
+      const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}`;
+      const stTitle =
+        input.scope === "subtask"
+          ? (input.subtaskTitle?.trim() || "子任务")
+          : "整单未完成子任务";
+      const subject =
+        input.scope === "subtask"
+          ? `[改派] ${input.taskNo} · ${stTitle}`
+          : `[改派] ${input.taskNo} · 整单`;
+      const markdown =
+        input.scope === "subtask"
+          ? `### ${subject}\n- **任务**：${input.taskTitle}\n- **子任务**：${stTitle}\n- **说明**：主管已将上述子任务改派给您，请在员工工作台「新任务」中接受。\n- **主管**：${input.managerUserId}`
+          : `### ${subject}\n- **任务**：${input.taskTitle}\n- **说明**：主管已将本任务下**未完成子任务**全部改派给您，请在员工工作台「新任务」中逐项接受。\n- **主管**：${input.managerUserId}`;
+
+      const robotMsgEnabled = isRobotMsgEnabled();
+      const robotCode = resolveRobotCode();
+      const token = await getAccessToken(fetchImpl);
+      const success: WorkbenchNotifyResult["success"] = [];
+      const failed: WorkbenchNotifyResult["failed"] = [];
+      const uid = input.assigneeUserId;
+      const userOutcome: WorkbenchNotifyResult["success"][number] = { userId: uid };
+      let anyChannelOk = false;
+
+      try {
+        const cardMessageId = await sendCard({
+          fetchImpl,
+          accessToken: token,
+          agentId,
+          userId: uid,
+          title: subject,
+          markdown,
+          detailUrl,
+        });
+        userOutcome.cardMessageId = cardMessageId;
+        anyChannelOk = true;
+      } catch (err) {
+        failed.push({
+          userId: uid,
+          reason: `send card failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+
+      if (robotMsgEnabled) {
+        if (!robotCode) {
+          failed.push({
+            userId: uid,
+            reason: "skip robot chat message: DINGTALK_ROBOT_CODE missing",
+          });
+        } else {
+          try {
+            const robotMessageKey = await sendRobotChatMessage({
+              fetchImpl,
+              accessToken: token,
+              robotCode,
+              userId: uid,
+              title: subject,
+              markdown,
+              detailUrl,
+            });
+            userOutcome.robotMessageKey = robotMessageKey;
+            anyChannelOk = true;
+          } catch (err) {
+            failed.push({
+              userId: uid,
+              reason: `robot chat message failed: ${err instanceof Error ? err.message : String(err)}`,
+            });
+          }
+        }
+      }
+
+      const todoKeyPart = (input.subtaskId ?? "plan").replace(/:/g, "-");
+      if (!input.unionId) {
+        failed.push({
+          userId: uid,
+          reason: "skip create todo: unionId missing (need contact sync or unionId resolver)",
+        });
+      } else {
+        try {
+          const todoId = await createTodo({
+            fetchImpl,
+            accessToken: token,
+            unionId: input.unionId,
+            sourceId: `workbench:reassign:${input.taskNo}:${todoKeyPart}`,
+            subject,
+            detailUrl,
+          });
+          userOutcome.todoId = todoId;
+          anyChannelOk = true;
+        } catch (err) {
+          failed.push({
+            userId: uid,
+            reason: `create todo failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+      }
+
+      if (anyChannelOk) {
+        success.push(userOutcome);
       }
       return { enabled: true, success, failed };
     },

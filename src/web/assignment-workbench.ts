@@ -17,6 +17,11 @@ import {
   createWorkbenchFormalTaskStore,
   type WorkbenchTaskStatus,
 } from "../infra/workbench-formal-task-store";
+import {
+  inferConversationTitleFromSession,
+  truncateConversationPreview,
+} from "../infra/conversation-present";
+import { formatWorkbenchAssistantHtml } from "./workbench-markdown-lite";
 import { loadQwenPlannerConfigFromEnv } from "../agent/demo/qwen-planner";
 import { runOrchestrator } from "../agent/orchestrator";
 import type { KnownFactsStore } from "../agent/tools/update-known-facts";
@@ -36,6 +41,7 @@ import { createDingTalkContactSyncService } from "../infra/dingtalk-contact-sync
 import { createPeopleDirectoryStore } from "../infra/people-directory-store";
 import { buildPreparePublishTaskHandler } from "../agent/tools/prepare-publish-task";
 import { executeReassignWithSideEffects } from "../agent/workbench/reassign-with-side-effects";
+import { voidFireReassignAssigneeNotify } from "../agent/workbench/reassign-notify-side-effect";
 import {
   appendMemoryEvents,
   loadMemoryContextForPlan,
@@ -570,6 +576,27 @@ function taskStatusLabel(status: WorkbenchTaskStatus): string {
   return "已拒绝";
 }
 
+function enrichManagerTasksForApi(managerUserId: string) {
+  const store = getFormalTaskStore();
+  return store.listManagerTasks(managerUserId).map((t) => {
+    const detail = store.getTaskDetail(t.taskNo);
+    const names = new Set<string>();
+    if (detail) {
+      for (const s of detail.subtasks) {
+        const picked = withPeopleDirectoryStore((st) =>
+          st.getContact(s.assigneeUserId)?.name?.trim(),
+        );
+        if (picked) names.add(picked);
+      }
+    }
+    return {
+      ...t,
+      statusLabel: taskStatusLabel(t.status),
+      assigneeSummary: names.size ? [...names].join("、") : "—",
+    };
+  });
+}
+
 /** Keep session.latestAssignment.assignments[0].primary.userId aligned after manager reassign. */
 function patchLatestAssignmentAssignee(
   latest: Record<string, unknown> | undefined,
@@ -780,12 +807,30 @@ function renderTaskDetailPage(params: {
 </html>`;
 }
 
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, must-revalidate",
+  Pragma: "no-cache",
+} as const;
+
+const WORKBENCH_HTML_NO_STORE: Record<string, string> = {
+  "Content-Type": "text/html; charset=utf-8",
+  "Cache-Control": "no-store, must-revalidate",
+  Pragma: "no-cache",
+};
+
+const JSON_UTF8 = "application/json; charset=utf-8";
+
 function writeJson(
   res: ServerResponse,
   status: number,
   payload: Record<string, unknown>,
+  extraHeaders?: Record<string, string>,
 ): void {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  const headers: Record<string, string | number | string[]> = {
+    "Content-Type": JSON_UTF8,
+    ...(extraHeaders ?? {}),
+  };
+  res.writeHead(status, headers);
   res.end(JSON.stringify(payload));
 }
 
@@ -1121,11 +1166,25 @@ export function handleAssignmentHttp(
   if (isGetOrHead && url.pathname === "/api/workbench/manager/tasks") {
     const session = requireSession(req, res, "manager");
     if (!session) return true;
-    const tasks = getFormalTaskStore().listManagerTasks(session.userId).map((t) => ({
-      ...t,
-      statusLabel: taskStatusLabel(t.status),
-    }));
+    const tasks = enrichManagerTasksForApi(session.userId);
     writeJson(res, 200, { ok: true, tasks });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/manager/contacts") {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    const keyword = String(url.searchParams.get("keyword") ?? "").trim().toLowerCase();
+    const contacts = withPeopleDirectoryStore((store) =>
+      keyword ? store.searchContacts(keyword, 40) : store.listContacts().slice(0, 40),
+    );
+    const rows = contacts.slice(0, 40).map((contact) => ({
+      userId: contact.userId,
+      name: contact.name,
+      departmentName: contact.departmentNames[0] ?? "未分配部门",
+      active: contact.active,
+    }));
+    writeJson(res, 200, { ok: true, contacts: rows });
     return true;
   }
 
@@ -1311,13 +1370,19 @@ export function handleAssignmentHttp(
     const assignee = String(url.searchParams.get("assignee") ?? "").trim();
     const taskNo = String(url.searchParams.get("taskNo") ?? "").trim();
     const keyword = String(url.searchParams.get("keyword") ?? "").trim();
-    const tasks = getFormalTaskStore().listAdminTasks({
-      status,
-      department,
-      assignee,
-      taskNo,
-      keyword,
-    });
+    const tasks = getFormalTaskStore()
+      .listAdminTasks({
+        status,
+        department,
+        assignee,
+        taskNo,
+        keyword,
+      })
+      .map((t) => ({
+        ...t,
+        managerDisplayName:
+          withPeopleDirectoryStore((s) => s.getContact(t.managerUserId)?.name?.trim()) ?? "",
+      }));
     writeJson(res, 200, { ok: true, tasks });
     return true;
   }
@@ -1411,7 +1476,10 @@ export function handleAssignmentHttp(
     if (!session) return true;
     writeJson(res, 200, {
       ok: true,
-      dynamicManagers: listDynamicWorkbenchManagers(),
+      dynamicManagers: listDynamicWorkbenchManagers().map((id) => ({
+        userId: id,
+        name: withPeopleDirectoryStore((s) => s.getContact(id)?.name?.trim() ?? ""),
+      })),
       effectiveManagers: [...listWorkbenchManagerIds()].sort(),
     });
     return true;
@@ -1468,10 +1536,24 @@ export function handleAssignmentHttp(
     const tasks = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
       .filter((t) => t.status === "ASSIGNED" || t.status === "CHANGES_REQUESTED");
-    writeJson(res, 200, {
-      ok: true,
-      tasks: tasks.map((t) => ({ ...t, statusLabel: taskStatusLabel(t.status) })),
-    });
+    writeJson(
+      res,
+      200,
+      {
+        ok: true,
+        tasks: tasks.map((t) => {
+          const mgr = withPeopleDirectoryStore((st) =>
+            st.getContact(t.managerUserId)?.name?.trim(),
+          );
+          return {
+            ...t,
+            statusLabel: taskStatusLabel(t.status),
+            managerDisplayName: mgr || "",
+          };
+        }),
+      },
+      { ...NO_STORE_HEADERS },
+    );
     return true;
   }
 
@@ -1481,10 +1563,24 @@ export function handleAssignmentHttp(
     const tasks = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
       .filter((t) => t.status === "ACCEPTED" || t.status === "IN_PROGRESS" || t.status === "BLOCKED");
-    writeJson(res, 200, {
-      ok: true,
-      tasks: tasks.map((t) => ({ ...t, statusLabel: taskStatusLabel(t.status) })),
-    });
+    writeJson(
+      res,
+      200,
+      {
+        ok: true,
+        tasks: tasks.map((t) => {
+          const mgr = withPeopleDirectoryStore((st) =>
+            st.getContact(t.managerUserId)?.name?.trim(),
+          );
+          return {
+            ...t,
+            statusLabel: taskStatusLabel(t.status),
+            managerDisplayName: mgr || "",
+          };
+        }),
+      },
+      { ...NO_STORE_HEADERS },
+    );
     return true;
   }
 
@@ -1494,18 +1590,23 @@ export function handleAssignmentHttp(
     const snapshot = withPeopleDirectoryStore((store) =>
       store.getEmployeeSnapshot(session.userId),
     );
-    writeJson(res, 200, {
-      ok: true,
-      profile: snapshot?.selfProfile ?? {
-        skillTags: [],
-        strengths: [],
-        boundaries: [],
-        cases: [],
-        tools: [],
-        availability: {},
+    writeJson(
+      res,
+      200,
+      {
+        ok: true,
+        profile: snapshot?.selfProfile ?? {
+          skillTags: [],
+          strengths: [],
+          boundaries: [],
+          cases: [],
+          tools: [],
+          availability: {},
+        },
+        updatedAt: withPeopleDirectoryStore((store) => store.getProfile(session.userId)?.updatedAt ?? null),
       },
-      updatedAt: withPeopleDirectoryStore((store) => store.getProfile(session.userId)?.updatedAt ?? null),
-    });
+      { ...NO_STORE_HEADERS },
+    );
     return true;
   }
 
@@ -1568,6 +1669,7 @@ export function handleAssignmentHttp(
         const planId = String(body.planId ?? "").trim();
         const assigneeUserId = String(body.assigneeUserId ?? "").trim();
         const note = String(body.note ?? "").trim();
+        const subtaskIdRaw = String(body.subtaskId ?? "").trim();
         if (!planId) {
           writeJson(res, 400, { ok: false, error: "planId is required" });
           return;
@@ -1583,6 +1685,7 @@ export function handleAssignmentHttp(
             assigneeUserId,
             note,
             actorName: session.dingUser?.name,
+            subtaskId: subtaskIdRaw || undefined,
           },
           {
             taskStore: getFormalTaskStore(),
@@ -1591,6 +1694,19 @@ export function handleAssignmentHttp(
             patchLatestAssignmentAssignee,
           },
         );
+
+        const store = getFormalTaskStore();
+        voidFireReassignAssigneeNotify({
+          notifier: workbenchPublishNotifier,
+          getContact: (userId) => withPeopleDirectoryStore((s) => s.getContact(userId)),
+          appendTaskEvent: store.appendTaskEvent,
+          taskStore: store,
+          taskId: updated.taskId,
+          planId,
+          managerUserId: session.userId,
+          assigneeUserId,
+          subtaskIdRaw: subtaskIdRaw || undefined,
+        });
 
         writeJson(res, 200, {
           ok: true,
@@ -1700,7 +1816,7 @@ export function handleAssignmentHttp(
   if (isGetOrHead && url.pathname === "/workbench") {
     const session = resolveEffectiveSession(req, res);
     if (!session) {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(renderWorkbenchEntryLoginHtml());
       return true;
@@ -1892,11 +2008,18 @@ export function handleAssignmentHttp(
         }
       }
     }
-    const threads = [...grouped.values()].sort((a, b) => {
-      const ta = Date.parse(a.updatedAt ?? "") || 0;
-      const tb = Date.parse(b.updatedAt ?? "") || 0;
-      return tb - ta;
-    });
+    const threads = [...grouped.values()]
+      .sort((a, b) => {
+        const ta = Date.parse(a.updatedAt ?? "") || 0;
+        const tb = Date.parse(b.updatedAt ?? "") || 0;
+        return tb - ta;
+      })
+      .map((row) => {
+        const full = findLatestSessionByPlanId(row.planId);
+        const title = full ? inferConversationTitleFromSession(full) : row.planId;
+        const preview = truncateConversationPreview(row.lastMessage ?? "", 72);
+        return { ...row, title, preview };
+      });
     writeJson(res, 200, { ok: true, threads });
     return true;
   }
@@ -1914,10 +2037,19 @@ export function handleAssignmentHttp(
       writeJson(res, 404, { ok: false, error: "No session found for planId" });
       return true;
     }
+    const messages = (target.conversationHistory ?? []).map((m) => {
+      const role = String(m.role || "system");
+      const content = String(m.content ?? "");
+      const at = typeof m.at === "string" ? m.at : undefined;
+      if (role === "assistant") {
+        return { role, content, at, html: formatWorkbenchAssistantHtml(content) };
+      }
+      return { role, content, at };
+    });
     writeJson(res, 200, {
       ok: true,
       planId,
-      messages: target.conversationHistory ?? [],
+      messages,
       knownFacts: target.knownFacts ?? [],
       updatedAt: target.updatedAt,
     });
@@ -2150,10 +2282,11 @@ export function handleAssignmentHttp(
           },
         });
         const assistantMessage = orch.messages.join("\n\n").trim() || "已处理。";
+        const nowIso = new Date().toISOString();
         const nextConversationHistory = [
           ...(target.conversationHistory ?? []),
-          { role: "user", content: message },
-          { role: "assistant", content: assistantMessage },
+          { role: "user", content: message, at: nowIso },
+          { role: "assistant", content: assistantMessage, at: nowIso },
         ].slice(-20);
         planSessionStore.save({
           ...target,
@@ -2244,16 +2377,21 @@ export function handleAssignmentHttp(
       }
       const planId = url.searchParams.get("planId")?.trim() || undefined;
       const userLabel = session.dingUser?.name ?? session.userId;
+      let planTitle: string | undefined;
+      if (planId) {
+        const s = findLatestSessionByPlanId(planId);
+        if (s) planTitle = inferConversationTitleFromSession(s);
+      }
       const html =
         url.pathname === "/workbench/manager/tasks"
-          ? renderManagerTasksPage({ planId, userLabel })
+          ? renderManagerTasksPage({ planId, planTitle, userLabel })
           : url.pathname === "/workbench/manager/chat"
-            ? renderManagerChatPage({ planId, userLabel })
+            ? renderManagerChatPage({ planId, planTitle, userLabel })
             : renderTaskDetailPage({
               roleLabel: "manager",
               backPath: "/workbench/manager/tasks",
             });
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(html);
       return true;
@@ -2271,7 +2409,7 @@ export function handleAssignmentHttp(
           backPath: "/workbench/admin",
         })
         : renderAdminWorkbenchPage({ userLabel });
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(html);
       return true;
@@ -2291,7 +2429,7 @@ export function handleAssignmentHttp(
               roleLabel: "employee",
               backPath: "/workbench/employee/current",
             });
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(html);
       return true;

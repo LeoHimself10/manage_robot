@@ -251,7 +251,11 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     },
     reassign_task: {
       definition: REASSIGN_TASK_TOOL,
-      handler: buildReassignTaskHandler({ taskStore }),
+      handler: buildReassignTaskHandler({
+        taskStore,
+        notifier,
+        getContact: (userId) => peopleStore.getContact(userId),
+      }),
     },
     get_my_profile: {
       definition: GET_MY_PROFILE_TOOL,

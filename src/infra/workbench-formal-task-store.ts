@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { inferConversationTitleFromSession } from "./conversation-present";
 import type { PlanSession } from "./plan-session-store";
 import { resolveWorkbenchSqlitePath } from "./workbench-db-path";
 
@@ -84,10 +85,7 @@ function stringify(v: unknown): string {
 }
 
 function inferTitleFromSession(session: PlanSession): string {
-  const first = session.conversationHistory?.find((m) => m.role === "user")?.content ?? "";
-  const trimmed = first.trim();
-  if (!trimmed) return `任务 ${session.planId.slice(0, 8)}`;
-  return trimmed.length > 48 ? `${trimmed.slice(0, 48)}...` : trimmed;
+  return inferConversationTitleFromSession(session);
 }
 
 function extractDraftTasks(latestDraft: unknown): Array<Record<string, unknown>> {
@@ -184,6 +182,26 @@ export function createWorkbenchFormalTaskStore() {
       occurred_at TEXT NOT NULL,
       payload_json TEXT
     );
+    CREATE TABLE IF NOT EXISTS dingtalk_contacts (
+      user_id TEXT PRIMARY KEY,
+      union_id TEXT,
+      name TEXT NOT NULL,
+      department_ids_json TEXT NOT NULL DEFAULT '[]',
+      department_names_json TEXT NOT NULL DEFAULT '[]',
+      position TEXT,
+      job_number TEXT,
+      mobile_masked TEXT,
+      email_masked TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      is_admin INTEGER NOT NULL DEFAULT 0,
+      is_boss INTEGER NOT NULL DEFAULT 0,
+      is_senior INTEGER NOT NULL DEFAULT 0,
+      raw_json TEXT,
+      last_synced_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_dingtalk_contacts_active ON dingtalk_contacts(active);
+    CREATE INDEX IF NOT EXISTS idx_dingtalk_contacts_name ON dingtalk_contacts(name);
   `);
   const taskColumns = new Set(
     (db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>)
@@ -221,7 +239,13 @@ export function createWorkbenchFormalTaskStore() {
       AND (? = '' OR t.task_no = ?)
       AND (? = '' OR t.title LIKE '%' || ? || '%' OR t.plan_id LIKE '%' || ? || '%')
       AND (? = '' OR EXISTS (
-        SELECT 1 FROM subtasks s WHERE s.task_id = t.task_id AND s.assignee_user_id = ?
+        SELECT 1 FROM subtasks s
+        LEFT JOIN dingtalk_contacts c ON c.user_id = s.assignee_user_id
+        WHERE s.task_id = t.task_id
+        AND (
+          s.assignee_user_id = ?
+          OR (IFNULL(c.name, '') <> '' AND lower(c.name) LIKE '%' || lower(?) || '%')
+        )
       ))
     ORDER BY t.updated_at DESC
   `);
@@ -498,6 +522,7 @@ export function createWorkbenchFormalTaskStore() {
         keyword,
         keyword,
         keyword,
+        assignee,
         assignee,
         assignee,
       ) as Array<Record<string, unknown>>).map((row) => ({
