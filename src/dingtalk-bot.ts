@@ -796,6 +796,10 @@ async function main(): Promise<void> {
 
         const snapshotPlanId = session.planId;
         const currentDraft = orchResult.draft ?? session.latestDraft;
+        // 仅在本轮模型真生成了新草案时，才渲染结构化任务表与「任务补充信息」。
+        // 否则会把上一个任务（已归档/未归档但未在本轮重述）的 description / 子任务
+        // 直接拼回 markdown，造成跨任务串台（即用户看到的「污染」）。
+        const freshDraft = orchResult.draft;
 
         // 长期记忆：有草案时自动存快照+embedding
         if (currentDraft && !isAnonymousSender) {
@@ -827,8 +831,8 @@ async function main(): Promise<void> {
         // 模型自己决定输出格式，代码只做兜底
         let outboundMarkdown = orchResult.messages.join("\n\n");
         // 默认不再自动补结构化任务表，避免和模型正文重复；可通过 DINGTALK_APPEND_STRUCTURED_TABLE=1 手动开启。
-        if (currentDraft) {
-          const tasks = (currentDraft as any)?.tasks;
+        if (freshDraft) {
+          const tasks = (freshDraft as any)?.tasks;
           if (
             appendStructuredTaskTable &&
             Array.isArray(tasks) &&
@@ -841,8 +845,8 @@ async function main(): Promise<void> {
             outboundMarkdown += "\n\n### 任务列表（结构化字段）\n| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |\n|---|---|---|---|---|---|---|\n" + rows.join("\n");
           }
         }
-        if (currentDraft) {
-          const supplement = renderDraftSupplementSection(currentDraft);
+        if (freshDraft) {
+          const supplement = renderDraftSupplementSection(freshDraft);
           if (supplement) {
             outboundMarkdown += `\n\n${supplement}`;
           }
