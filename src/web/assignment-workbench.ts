@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,7 +42,6 @@ import {
 import { createEmployeeProfileRepo } from "../integrations/repos/employee-profile-repo";
 import { createDingTalkContactSyncService } from "../infra/dingtalk-contact-sync";
 import { createPeopleDirectoryStore } from "../infra/people-directory-store";
-import { buildPreparePublishTaskHandler } from "../agent/tools/prepare-publish-task";
 import { executeReassignWithSideEffects } from "../agent/workbench/reassign-with-side-effects";
 import { voidFireReassignAssigneeNotify } from "../agent/workbench/reassign-notify-side-effect";
 import {
@@ -146,18 +145,12 @@ function resolveWorkbenchDdLoginBundlePath(): string {
   return join(assignmentWorkbenchDir, "..", "..", "dist", "workbench-dd-login.js");
 }
 
-function resolveWorkbenchMarkdownLiteBundlePath(): string {
-  return join(assignmentWorkbenchDir, "..", "..", "dist", "workbench-markdown-lite.js");
-}
-
 const planSessionStore = createPlanSessionStore();
 const employeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
 const qwenConfig = loadQwenPlannerConfigFromEnv();
 let formalTaskStore: ReturnType<typeof createWorkbenchFormalTaskStore> | undefined;
 let dingtalkAuthClient: DingTalkAuthClient = createDingTalkAuthClient();
 let workbenchPublishNotifier: WorkbenchPublishNotifier = createWorkbenchPublishNotifier();
-const preparePublishTaskHandler = buildPreparePublishTaskHandler();
-
 function withPeopleDirectoryStore<T>(fn: (store: ReturnType<typeof createPeopleDirectoryStore>) => T): T {
   const store = createPeopleDirectoryStore();
   try {
@@ -1116,28 +1109,6 @@ export function handleAssignmentHttp(
     return true;
   }
 
-  if (isGetOrHead && url.pathname === "/static/workbench-markdown-lite.js") {
-    const bundlePath = resolveWorkbenchMarkdownLiteBundlePath();
-    if (!existsSync(bundlePath)) {
-      res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end(
-        "// Workbench markdown bundle missing on server. Run: npm run build:workbench-login\n",
-      );
-      return true;
-    }
-    const body = readFileSync(bundlePath);
-    res.writeHead(200, {
-      "Content-Type": "application/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=3600",
-    });
-    if (req.method === "HEAD") {
-      res.end();
-    } else {
-      res.end(body);
-    }
-    return true;
-  }
-
   if (req.method === "GET" && url.pathname === "/api/workbench/auth/jsapi-config") {
     void (async () => {
       try {
@@ -1391,186 +1362,6 @@ export function handleAssignmentHttp(
       };
     });
     writeJson(res, 200, { ok: true, contacts: rows });
-    return true;
-  }
-
-  if (req.method === "POST" && url.pathname === "/api/workbench/manager/publish") {
-    void (async () => {
-      try {
-        const session = requireSession(req, res, "manager");
-        if (!session) return;
-        const body = await readJsonBody(req);
-        if (shouldEnforceActionGuards()) {
-          const confirmed = body.confirm === true;
-          if (!confirmed) {
-            writeJson(res, 400, {
-              ok: false,
-              error: "confirm=true is required before publish",
-            });
-            return;
-          }
-          const idempotencyKey = String(body.idempotencyKey ?? "").trim();
-          if (!idempotencyKey) {
-            writeJson(res, 400, {
-              ok: false,
-              error: "idempotencyKey is required",
-            });
-            return;
-          }
-          if (!rememberActionKey("manager_publish", idempotencyKey)) {
-            writeJson(res, 200, { ok: true, duplicated: true, alreadyHandled: true });
-            return;
-          }
-        }
-        const planId = String(body.planId ?? "").trim()
-          || String(body.currentPlanId ?? "").trim();
-        const resolvedPlanId = planId || findLatestSessionForManager(session.userId)?.planId || "";
-        if (!resolvedPlanId) {
-          writeJson(res, 400, { ok: false, error: "No active plan found to publish" });
-          return;
-        }
-        const target = findLatestSessionByPlanId(resolvedPlanId);
-        if (!target) {
-          writeJson(res, 404, { ok: false, error: "No session found for planId" });
-          return;
-        }
-        if (target.senderStaffId && target.senderStaffId !== session.userId) {
-          writeJson(res, 403, {
-            ok: false,
-            error: "Plan does not belong to current manager",
-          });
-          return;
-        }
-        const initiatorUserId = String(target.senderStaffId ?? session.userId).trim();
-        const initiatorDepartment =
-          employeeRepo.get(initiatorUserId)?.department?.trim() || "未配置部门";
-        const assignments = Array.isArray((target.latestAssignment as { assignments?: unknown[] } | undefined)?.assignments)
-          ? ((target.latestAssignment as { assignments: Array<Record<string, unknown>> }).assignments)
-          : [];
-        const unionIdByUser = new Map<string, string | undefined>();
-        for (const row of assignments) {
-          const primary = row?.primary as Record<string, unknown> | undefined;
-          const assignee = String(primary?.userId ?? "").trim();
-          if (!assignee) continue;
-          const contact = withPeopleDirectoryStore((store) => store.getContact(assignee));
-          if (!contact || !contact.active) {
-            writeJson(res, 400, {
-              ok: false,
-              error: `assignee is missing or inactive in contacts: ${assignee}`,
-            });
-            return;
-          }
-          unionIdByUser.set(assignee, contact.unionId);
-        }
-        const published = getFormalTaskStore().publishFromSession({
-          planId: resolvedPlanId,
-          session: target,
-          managerUserId: session.userId,
-          initiatorDepartment,
-          actorUserId: session.userId,
-          actorName: session.dingUser?.name,
-        });
-        const warnings: string[] = [];
-        const groupedAssignees = new Map<string, Array<{ title: string; extra?: WorkbenchSubtaskExtra }>>();
-        published.subtasks.forEach((subtask) => {
-          const current = groupedAssignees.get(subtask.assigneeUserId) ?? [];
-          current.push({ title: subtask.title, extra: subtask.extra });
-          groupedAssignees.set(subtask.assigneeUserId, current);
-        });
-        const subtaskTitleBySourceKey: Record<string, string> = {};
-        for (const sub of published.subtasks) {
-          if (sub.sourceTaskKey) subtaskTitleBySourceKey[sub.sourceTaskKey] = sub.title;
-        }
-        const notifyResult = await workbenchPublishNotifier.notifyPublishedTask({
-          taskNo: published.task.taskNo,
-          title: published.task.title,
-          managerUserId: session.userId,
-          taskDescription: published.task.description,
-          subtaskTitleBySourceKey,
-          assignees: [...groupedAssignees.entries()].map(([userId, subtasks]) => ({
-            userId,
-            unionId: unionIdByUser.get(userId),
-            subtasks,
-          })),
-        });
-        const store = getFormalTaskStore();
-        if (!notifyResult.enabled) {
-          warnings.push(notifyResult.skippedReason || "employee notification skipped");
-          store.appendTaskEvent({
-            taskId: published.task.taskId,
-            eventType: "EMPLOYEE_NOTIFY_SKIPPED",
-            actorUserId: session.userId,
-            note: notifyResult.skippedReason || "notification disabled",
-            payload: {
-              taskNo: published.task.taskNo,
-            },
-          });
-        } else {
-          notifyResult.success.forEach((item) => {
-            store.appendTaskEvent({
-              taskId: published.task.taskId,
-              eventType: "EMPLOYEE_NOTIFIED",
-              actorUserId: session.userId,
-              note: `notified ${item.userId}`,
-              payload: {
-                userId: item.userId,
-                cardMessageId: item.cardMessageId,
-                todoId: item.todoId,
-                taskNo: published.task.taskNo,
-              },
-            });
-          });
-          notifyResult.failed.forEach((item) => {
-            warnings.push(`通知失败: ${item.userId}`);
-            store.appendTaskEvent({
-              taskId: published.task.taskId,
-              eventType: "EMPLOYEE_NOTIFY_FAILED",
-              actorUserId: session.userId,
-              note: item.reason,
-              payload: {
-                userId: item.userId,
-                taskNo: published.task.taskNo,
-              },
-            });
-          });
-        }
-        writeJson(res, 200, {
-          ok: true,
-          alreadyPublished: published.alreadyPublished,
-          task: published.task,
-          subtasks: published.subtasks,
-          warnings,
-        });
-      } catch (err) {
-        writeJson(res, 400, {
-          ok: false,
-          error: err instanceof Error ? err.message : "publish failed",
-        });
-      }
-    })();
-    return true;
-  }
-
-  if (req.method === "POST" && url.pathname === "/api/workbench/manager/publish/prepare") {
-    void (async () => {
-      try {
-        const session = requireSession(req, res, "manager");
-        if (!session) return;
-        const body = await readJsonBody(req);
-        const prepared = preparePublishTaskHandler(body) as Record<string, unknown>;
-        writeJson(res, 200, {
-          ok: true,
-          prepared,
-          requiresManagerConfirm: true,
-          managerUserId: session.userId,
-        });
-      } catch (err) {
-        writeJson(res, 400, {
-          ok: false,
-          error: err instanceof Error ? err.message : "prepare publish failed",
-        });
-      }
-    })();
     return true;
   }
 
@@ -2401,37 +2192,6 @@ export function handleAssignmentHttp(
     return true;
   }
 
-  if (req.method === "POST" && url.pathname === "/api/workbench/conversation/start") {
-    void (async () => {
-      const session = requireSession(req, res, "manager");
-      if (!session) return;
-      const planId = randomUUID();
-      const chatKey = `workbench:${session.userId}:${planId}`;
-      const now = new Date().toISOString();
-      const created: PlanSession & { chatKeyHash: string } = {
-        chatKeyHash: hashChatKey(chatKey),
-        planId,
-        createdAt: now,
-        updatedAt: now,
-        senderStaffId: session.userId,
-        knownFacts: [],
-        conversationHistory: [],
-      };
-      planSessionStore.save(created);
-      planSessionStore.appendEvent({
-        planId,
-        chatKeyHash: created.chatKeyHash,
-        eventType: "workbench_conversation_started",
-        payload: {
-          actorUserId: session.userId,
-          actorName: session.dingUser?.name ?? undefined,
-        },
-      });
-      writeJson(res, 200, { ok: true, planId });
-    })();
-    return true;
-  }
-
   if (req.method === "POST" && url.pathname === "/api/workbench/conversation/send") {
     void (async () => {
       const session = requireSession(req, res, "manager");
@@ -2613,7 +2373,10 @@ export function handleAssignmentHttp(
         redirect(res, defaultPathForRole(session.role));
         return true;
       }
-      const planId = url.searchParams.get("planId")?.trim() || undefined;
+      let planId = url.searchParams.get("planId")?.trim() || undefined;
+      if (url.pathname === "/workbench/manager/chat" && !planId) {
+        planId = findLatestSessionForManager(session.userId)?.planId;
+      }
       const userLabel = session.dingUser?.name ?? session.userId;
       let planTitle: string | undefined;
       if (planId) {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -12,6 +12,7 @@ import {
 } from "../../src/web/assignment-workbench";
 import { createPeopleDirectoryStore } from "../../src/infra/people-directory-store";
 import { createWorkbenchFormalTaskStore } from "../../src/infra/workbench-formal-task-store";
+import type { PlanSession } from "../../src/infra/plan-session-store";
 import { signAssignmentEntry } from "../../src/security/web-entry-token";
 import { DingTalkAuthError, type DingTalkAuthClient } from "../../src/integrations/dingtalk/dingtalk-auth";
 import type { WorkbenchPublishNotifier } from "../../src/integrations/dingtalk/workbench-notify";
@@ -174,26 +175,16 @@ describe("assignment-workbench HTTP handler", () => {
       ),
       "utf8",
     );
-    const loginReq = stubReq({
-      url: "/api/workbench/login",
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userId: params.managerUserId, role: "manager" }),
+    const sessionPath = join(sessionDir, `${chatKeyHash}.json`);
+    const sessionRaw = JSON.parse(readFileSync(sessionPath, "utf8")) as PlanSession & { chatKeyHash: string };
+    const store = createWorkbenchFormalTaskStore();
+    store.publishFromSession({
+      planId: params.planId,
+      session: sessionRaw,
+      managerUserId: params.managerUserId,
+      initiatorDepartment: "管理部",
+      actorUserId: params.managerUserId,
     });
-    const loginRes = stubRes();
-    handleAssignmentHttp(loginReq, loginRes.res);
-    await flushAsync();
-    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
-    const publishReq = stubReq({
-      url: "/api/workbench/manager/publish",
-      method: "POST",
-      headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ planId: params.planId }),
-    });
-    const publishRes = stubRes();
-    handleAssignmentHttp(publishReq, publishRes.res);
-    await flushAsync();
-    expect(publishRes.captured().statusCode).toBe(200);
   }
 
   function seedContact(userId: string, departmentName = "执行部", position = "Engineer"): void {
@@ -235,18 +226,6 @@ describe("assignment-workbench HTTP handler", () => {
     const bodyStr = typeof c.body === "string" ? c.body : Buffer.from(c.body as Uint8Array).toString("utf8");
     expect(bodyStr.length).toBeGreaterThan(500);
     expect(bodyStr).toContain("__wbTryDingTalkLogin");
-  });
-
-  it("GET /static/workbench-markdown-lite.js serves markdown formatter bundle", () => {
-    const req = stubReq({ url: "/static/workbench-markdown-lite.js", method: "GET" });
-    const { res, captured } = stubRes();
-    expect(handleAssignmentHttp(req, res)).toBe(true);
-    const c = captured();
-    expect(c.statusCode).toBe(200);
-    expect(String(c.headers["Content-Type"] ?? "")).toContain("javascript");
-    const bodyStr = typeof c.body === "string" ? c.body : Buffer.from(c.body as Uint8Array).toString("utf8");
-    expect(bodyStr.length).toBeGreaterThan(200);
-    expect(bodyStr).toContain("formatWorkbenchAssistantHtml");
   });
 
   it("GET /workbench login page loads dingtalk-jsapi bundle", () => {
@@ -502,59 +481,6 @@ describe("assignment-workbench HTTP handler", () => {
     expect(Array.isArray(body.tasks)).toBe(true);
   });
 
-  it("publish returns generated taskNo", async () => {
-    seedContact("manager-1", "管理部", "Manager");
-    seedContact("emp-2");
-    const chatKeyHash = "seed-plan-taskno";
-    const now = new Date().toISOString();
-    writeFileSync(
-      join(sessionDir, `${chatKeyHash}.json`),
-      JSON.stringify(
-        {
-          chatKeyHash,
-          planId: "plan-taskno",
-          createdAt: now,
-          updatedAt: now,
-          senderStaffId: "manager-1",
-          knownFacts: [],
-          conversationHistory: [{ role: "user", content: "测试发布" }],
-          latestDraft: {
-            title: "编号测试任务",
-            tasks: [{ id: "task-1", title: "测试子任务" }],
-          },
-          latestAssignment: {
-            assignments: [{ taskId: "task-1", primary: { userId: "emp-2" } }],
-          },
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-    const loginReq = stubReq({
-      url: "/api/workbench/login",
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
-    });
-    const loginRes = stubRes();
-    handleAssignmentHttp(loginReq, loginRes.res);
-    await flushAsync();
-    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
-    const req = stubReq({
-      url: "/api/workbench/manager/publish",
-      method: "POST",
-      headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ planId: "plan-taskno" }),
-    });
-    const { res, captured } = stubRes();
-    handleAssignmentHttp(req, res);
-    await flushAsync();
-    const c = captured();
-    expect(c.statusCode).toBe(200);
-    expect(c.body).toMatch(/"taskNo":"TASK-\d{8}-\d{4}"/);
-  });
-
   it("employee can accept task via action API", async () => {
     await seedPublishedTask({
       planId: "plan-2",
@@ -804,7 +730,45 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).toContain('class="task-desc"');
   });
 
-  it("POST /api/workbench/conversation/start returns a new planId for manager", async () => {
+  it("GET /workbench/manager/chat without planId injects latest manager plan session", async () => {
+    const oldPlan = "11111111-1111-1111-1111-111111111111";
+    const newPlan = "22222222-2222-2222-2222-222222222222";
+    const t0 = "2020-01-01T00:00:00.000Z";
+    const t1 = "2026-05-15T12:00:00.000Z";
+    writeFileSync(
+      join(sessionDir, "old-plan.json"),
+      JSON.stringify(
+        {
+          chatKeyHash: "old-plan",
+          planId: oldPlan,
+          createdAt: t0,
+          updatedAt: t0,
+          senderStaffId: "manager-1",
+          knownFacts: [],
+          conversationHistory: [],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    writeFileSync(
+      join(sessionDir, "new-plan.json"),
+      JSON.stringify(
+        {
+          chatKeyHash: "new-plan",
+          planId: newPlan,
+          createdAt: t1,
+          updatedAt: t1,
+          senderStaffId: "manager-1",
+          knownFacts: [],
+          conversationHistory: [],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
     const loginReq = stubReq({
       url: "/api/workbench/login",
       method: "POST",
@@ -815,23 +779,18 @@ describe("assignment-workbench HTTP handler", () => {
     handleAssignmentHttp(loginReq, loginRes.res);
     await flushAsync();
     const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
-
     const req = stubReq({
-      url: "/api/workbench/conversation/start",
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        cookie,
-      },
-      body: "{}",
+      url: "/workbench/manager/chat",
+      method: "GET",
+      headers: { cookie },
     });
     const { res, captured } = stubRes();
     handleAssignmentHttp(req, res);
     await flushAsync();
     const c = captured();
     expect(c.statusCode).toBe(200);
-    expect(c.body).toMatch(/"planId":"[0-9a-f-]{36}"/i);
-    expect(c.body).toContain('"ok":true');
+    expect(c.body).toContain(`var activePlanId = ${JSON.stringify(newPlan)}`);
+    expect(c.body).not.toContain(`var activePlanId = ${JSON.stringify(oldPlan)}`);
   });
 
   it("employee reject without note returns 400", async () => {
@@ -1058,104 +1017,6 @@ describe("assignment-workbench HTTP handler", () => {
     handleAssignmentHttp(req, res);
     await flushAsync();
     expect(captured().statusCode).toBe(403);
-  });
-
-  it("publish returns warnings when notifier is skipped", async () => {
-    await seedPublishedTask({
-      planId: "plan-skip-notify",
-      managerUserId: "manager-1",
-      assigneeUserId: "emp-2",
-    });
-    const loginReq = stubReq({
-      url: "/api/workbench/login",
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
-    });
-    const loginRes = stubRes();
-    handleAssignmentHttp(loginReq, loginRes.res);
-    await flushAsync();
-    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
-    const req = stubReq({
-      url: "/api/workbench/manager/publish",
-      method: "POST",
-      headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ planId: "plan-skip-notify" }),
-    });
-    const { res, captured } = stubRes();
-    handleAssignmentHttp(req, res);
-    await flushAsync();
-    expect(captured().statusCode).toBe(200);
-    expect(captured().body).toContain('"warnings"');
-  });
-
-  it("publish includes warnings on partial notify failure", async () => {
-    seedContact("manager-1", "管理部", "Manager");
-    seedContact("emp-2");
-    seedContact("emp-3");
-    const notifier: WorkbenchPublishNotifier = {
-      notifyPublishedTask: vi.fn(async () => ({
-        enabled: true,
-        success: [{ userId: "emp-2", cardMessageId: "card-1", todoId: "todo-1" }],
-        failed: [{ userId: "emp-3", reason: "dingtalk error" }],
-      })),
-      notifyReassignedAssignee: vi.fn(async () => ({
-        enabled: false,
-        success: [],
-        failed: [],
-      })),
-    };
-    __setWorkbenchPublishNotifierForTest(notifier);
-    const chatKeyHash = "seed-plan-notify-fail";
-    const now = new Date().toISOString();
-    writeFileSync(
-      join(sessionDir, `${chatKeyHash}.json`),
-      JSON.stringify(
-        {
-          chatKeyHash,
-          planId: "plan-notify-fail",
-          createdAt: now,
-          updatedAt: now,
-          senderStaffId: "manager-1",
-          knownFacts: [],
-          conversationHistory: [{ role: "user", content: "测试发布" }],
-          latestDraft: {
-            title: "通知测试任务",
-            tasks: [{ id: "task-1", title: "子任务1" }, { id: "task-2", title: "子任务2" }],
-          },
-          latestAssignment: {
-            assignments: [
-              { taskId: "task-1", primary: { userId: "emp-2" } },
-              { taskId: "task-2", primary: { userId: "emp-3" } },
-            ],
-          },
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-    const loginReq = stubReq({
-      url: "/api/workbench/login",
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
-    });
-    const loginRes = stubRes();
-    handleAssignmentHttp(loginReq, loginRes.res);
-    await flushAsync();
-    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
-    const req = stubReq({
-      url: "/api/workbench/manager/publish",
-      method: "POST",
-      headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ planId: "plan-notify-fail" }),
-    });
-    const { res, captured } = stubRes();
-    handleAssignmentHttp(req, res);
-    await flushAsync();
-    expect(captured().statusCode).toBe(200);
-    expect(captured().body).toContain("通知失败");
   });
 
   it("admin employee search reads contacts snapshot", async () => {

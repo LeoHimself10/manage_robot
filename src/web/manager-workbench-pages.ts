@@ -22,11 +22,6 @@ export function renderManagerTasksPage(params: {
   planTitle?: string;
   userLabel?: string;
 }): string {
-  const planTitleEsc = escapeHtml(params.planTitle ?? "");
-  const planIdEsc = escapeHtml(params.planId ?? "");
-  const ctx = params.planId
-    ? `<div class="banner-plan">当前规划会话：<strong>${planTitleEsc || "（未命名）"}</strong><br><span class="muted" style="font-size:13px;">内部编号（排障用）</span> <code>${planIdEsc}</code> · 发布成功后会显示<strong>业务编号</strong></div>`
-    : "";
   const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
 
   return `<!DOCTYPE html>
@@ -54,12 +49,9 @@ export function renderManagerTasksPage(params: {
     </div>
   </header>
 
-  ${ctx}
-
   <div class="card">
     <div class="tabs" role="tablist" aria-label="任务操作">
       <button type="button" class="tabs-btn" role="tab" aria-selected="true" aria-controls="mgrPanelList" id="mgrTabList" data-tab-target="mgrPanelList">任务列表</button>
-      <button type="button" class="tabs-btn" role="tab" aria-selected="false" aria-controls="mgrPanelPublish" id="mgrTabPublish" data-tab-target="mgrPanelPublish">发布正式任务</button>
       <button type="button" class="tabs-btn" role="tab" aria-selected="false" aria-controls="mgrPanelReassign" id="mgrTabReassign" data-tab-target="mgrPanelReassign">调整分配</button>
     </div>
 
@@ -75,29 +67,6 @@ export function renderManagerTasksPage(params: {
           <div class="empty-state">加载中…</div>
         </div>
         <div class="feedback muted" id="tableFeedback"></div>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="mgrPanelPublish" role="tabpanel" aria-labelledby="mgrTabPublish" hidden>
-      <h2>发布正式任务</h2>
-      <p class="page-desc" style="margin:0 0 14px;">主管确认后写入<strong>正式任务库</strong>。请选择要发布的规划会话；不选则默认使用你<strong>最近更新</strong>的那条会话。</p>
-      <div class="form-stack">
-        <label>要发布的规划会话
-          <select id="publishSessionSelect"><option value="">最近更新的规划会话（推荐）</option></select>
-        </label>
-        <input type="hidden" id="publishPlanId" value="" />
-        <details style="margin-top:4px;">
-          <summary style="cursor:pointer;color:var(--muted);font-size:13px;">高级：手动输入内部编号（仅排障）</summary>
-          <label style="margin-top:10px;display:block;">内部编号
-            <input id="publishPlanIdOverride" type="text" autocomplete="off" placeholder="一般不需要填写" />
-          </label>
-        </details>
-        <div class="inline-actions">
-          <button type="button" class="btn btn-secondary" id="preparePublishBtn">生成发布预览</button>
-          <button type="button" class="btn btn-primary" id="publishBtn">确认发布</button>
-        </div>
-        <pre id="publishPreview" class="muted" style="white-space:pre-wrap;margin:0;padding:8px;border:1px dashed #cbd5e1;border-radius:8px;display:none;"></pre>
-        <div class="feedback muted" id="publishFeedback"></div>
       </div>
     </section>
 
@@ -156,7 +125,6 @@ export function renderManagerTasksPage(params: {
     btn.addEventListener('click', function () {
       var tid = btn.getAttribute('data-tab-target') || 'mgrPanelList';
       setActiveTab(tid);
-      if (tid === 'mgrPanelPublish') void loadPublishSessions();
     });
   });
   function priorityRank(status) {
@@ -265,56 +233,6 @@ export function renderManagerTasksPage(params: {
     assigneeSearchTimer = setTimeout(function () { void runAssigneeSearch(); }, 250);
   }
 
-  function syncPublishHiddenFromControls() {
-    var sel = document.getElementById('publishSessionSelect');
-    var ov = document.getElementById('publishPlanIdOverride');
-    var hidden = document.getElementById('publishPlanId');
-    if (!hidden) return;
-    var manual = (ov && ov.value || '').trim();
-    var picked = (sel && sel.value || '').trim();
-    hidden.value = manual || picked || '';
-  }
-
-  async function loadPublishSessions() {
-    var sel = document.getElementById('publishSessionSelect');
-    if (!sel) return;
-    try {
-      var res = await fetch('/api/workbench/conversation/threads');
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      var threads = data.threads || [];
-      var opts = '<option value="">最近更新的规划会话（推荐）</option>';
-      opts += threads.map(function (t) {
-        var label = (t.title || t.planId || '').trim();
-        return '<option value="' + escapeHtml(t.planId) + '">' + escapeHtml(label) + '</option>';
-      }).join('');
-      sel.innerHTML = opts;
-      if (!sel.dataset.boundPublish) {
-        sel.dataset.boundPublish = '1';
-        sel.addEventListener('change', syncPublishHiddenFromControls);
-      }
-      var ov = document.getElementById('publishPlanIdOverride');
-      if (ov && !ov._bound) {
-        ov._bound = true;
-        ov.addEventListener('input', syncPublishHiddenFromControls);
-      }
-      syncPublishHiddenFromControls();
-    } catch (e) {
-      sel.innerHTML = '<option value="">（会话列表加载失败）</option>';
-    }
-  }
-
-  async function resolvePublishPlanIdForPrepare() {
-    syncPublishHiddenFromControls();
-    var v = (document.getElementById('publishPlanId').value || '').trim();
-    if (v) return v;
-    var res = await fetch('/api/workbench/conversation/threads');
-    var data = await res.json().catch(function () { return {}; });
-    if (!res.ok || !data.ok) return '';
-    var threads = data.threads || [];
-    return threads.length ? String(threads[0].planId || '').trim() : '';
-  }
-
   async function loadTasks() {
     setFb('tableFeedback', '加载中…', 'muted');
     try {
@@ -344,7 +262,7 @@ export function renderManagerTasksPage(params: {
       var mount = document.getElementById('taskTableMount');
       var sel = document.getElementById('reassignPlanId');
       if (!tasks.length) {
-        mount.innerHTML = '<div class="empty-state">暂无任务。可到「智能规划助手」发起新规划。</div>';
+        mount.innerHTML = '<div class="empty-state">暂无任务。请到钉钉与机器人发起规划并发布。</div>';
         sel.innerHTML = '<option value="">暂无任务</option>';
         setFb('tableFeedback', '', 'muted');
         return;
@@ -468,69 +386,11 @@ export function renderManagerTasksPage(params: {
     }
   });
 
-  document.getElementById('publishBtn').addEventListener('click', async function () {
-    syncPublishHiddenFromControls();
-    var planId = (document.getElementById('publishPlanId').value || '').trim();
-    var btn = document.getElementById('publishBtn');
-    btn.disabled = true;
-    setFb('publishFeedback', '发布中…', 'muted');
-    try {
-      var res = await fetch('/api/workbench/manager/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(planId ? { planId: planId } : {})
-      });
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      var taskNo = data.task && data.task.taskNo ? String(data.task.taskNo) : '';
-      setFb('publishFeedback', (data.alreadyPublished ? '该计划已发布。' : '发布成功。') + (taskNo ? (' 业务编号：' + taskNo) : ''), 'ok');
-      await loadTasks();
-    } catch (e) {
-      setFb('publishFeedback', String(e && e.message ? e.message : e), 'err');
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-  document.getElementById('preparePublishBtn').addEventListener('click', async function () {
-    setFb('publishFeedback', '准备中…', 'muted');
-    try {
-      var planId = await resolvePublishPlanIdForPrepare();
-      if (!planId) {
-        setFb('publishFeedback', '暂无可发布的规划会话，请先到「智能规划助手」创建会话。', 'err');
-        return;
-      }
-      document.getElementById('publishPlanId').value = planId;
-      var detailRes = await fetch('/api/workbench/tasks/detail?taskNo=' + encodeURIComponent(planId));
-      if (!detailRes.ok) {
-        // ignore detail miss, still allow a minimal prepare request
-      }
-      var prepareRes = await fetch('/api/workbench/manager/publish/prepare', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          planId: planId,
-          title: '待主管确认发布',
-          subtasks: [{ taskId: 'pending', title: '由发布接口自动生成', assigneeUserId: 'pending' }]
-        })
-      });
-      var data = await prepareRes.json().catch(function () { return {}; });
-      if (!prepareRes.ok || !data.ok) throw new Error(data.error || ('HTTP ' + prepareRes.status));
-      var preview = document.getElementById('publishPreview');
-      preview.style.display = 'block';
-      preview.textContent = JSON.stringify(data.prepared || {}, null, 2);
-      setFb('publishFeedback', '发布预览已生成，确认内容后可点击「确认发布」。', 'ok');
-    } catch (e) {
-      setFb('publishFeedback', String(e && e.message ? e.message : e), 'err');
-    }
-  });
-
   document.getElementById('logoutBtn').addEventListener('click', async function () {
     await fetch('/api/workbench/logout', { method: 'POST' });
     window.location.href = '/workbench';
   });
 
-  void loadPublishSessions();
   void loadTasks();
 })();
 </script>
@@ -543,13 +403,6 @@ export function renderManagerChatPage(params: {
   planTitle?: string;
   userLabel?: string;
 }): string {
-  const planTitleEsc = escapeHtml(params.planTitle ?? "");
-  const planIdEsc = escapeHtml(params.planId ?? "");
-  const ctx = params.planId
-    ? `<div class="banner-plan">当前会话：<strong>${planTitleEsc || "（未命名）"}</strong><br><span class="muted" style="font-size:13px;">内部编号（排障用）</span> <code>${planIdEsc}</code></div>`
-    : "";
-  const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
-
   return `<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -571,41 +424,24 @@ export function renderManagerChatPage(params: {
         <a href="/workbench/manager/tasks">历史任务</a>
         <a class="active" href="/workbench/manager/chat">智能规划助手</a>
       </nav>
-      <button type="button" class="btn btn-secondary" id="newThreadBtn">开启新会话</button>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
   </header>
 
-  ${ctx}
-
   <div class="chat-main">
-    <aside class="chat-thread-pane">
-      <h3 class="chat-pane-title">规划会话</h3>
-      <ul class="thread-list" id="threadList"><li class="muted" style="cursor:default;border-style:dashed;">加载中…</li></ul>
-    </aside>
-
     <section class="chat-message-pane">
-      <div class="thread-toolbar">
-        <button type="button" class="btn btn-secondary" id="openThreadSheetBtn">选择会话</button>
-      </div>
-      <div style="padding:12px 12px 8px;">
-        <div class="page-desc" style="margin:0;">操作者：<strong>${who}</strong> · 当前会话：<strong id="currentPlanLabel">未选择</strong></div>
-      </div>
       <div class="chat-stream" aria-live="polite">
-        <ul class="msg-list" id="msgList"><li class="muted" style="border-style:dashed;">请选择左侧一条会话</li></ul>
+        <ul class="msg-list" id="msgList"><li class="muted" style="border-style:dashed;">加载中…</li></ul>
       </div>
       <div class="chat-composer">
         <div class="form-stack">
-          <label>发送给规划助手
-            <textarea id="msgInput" placeholder="补充背景、调整诉求或追问草案…"></textarea>
-          </label>
+          <textarea id="msgInput" placeholder="补充背景、调整诉求或追问草案…"></textarea>
           <div class="roster-upload-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;">
             <label class="btn btn-secondary" for="rosterFileInput" style="margin:0;cursor:pointer;">上传花名册</label>
             <input id="rosterFileInput" type="file" accept=".md,.markdown,.txt,.docx,.pdf" style="display:none;" />
-            <span class="muted" id="rosterStatus">支持 .md / .txt / .docx / .pdf，单文件 ≤ 2 MB；上传后下一条消息助手会读取并核对</span>
+            <span class="muted" id="rosterStatus"></span>
           </div>
           <div class="chat-composer-actions">
-            <div class="muted" id="currentPlanHint">请先选择会话后再发送</div>
             <button type="button" class="btn btn-primary" id="sendBtn">发送</button>
           </div>
           <div class="feedback muted" id="sendFeedback"></div>
@@ -615,28 +451,9 @@ export function renderManagerChatPage(params: {
   </div>
 </div>
 
-<div class="chat-mobile-sheet" id="threadSheet" hidden>
-  <div class="chat-mobile-sheet-inner">
-    <div class="inline-actions" style="justify-content:space-between;">
-      <strong>选择规划会话</strong>
-      <button type="button" class="btn btn-ghost" id="closeThreadSheetBtn">关闭</button>
-    </div>
-    <ul class="thread-list" id="threadListMobile"><li class="muted" style="cursor:default;border-style:dashed;">加载中…</li></ul>
-  </div>
-</div>
-
-<script src="/static/workbench-markdown-lite.js"></script>
 <script>
 (function () {
   var activePlanId = ${JSON.stringify(params.planId ?? "")};
-  var threadMetaByPlan = {};
-  var openThreadSheetBtn = document.getElementById('openThreadSheetBtn');
-  var closeThreadSheetBtn = document.getElementById('closeThreadSheetBtn');
-  var threadSheet = document.getElementById('threadSheet');
-  var msgInput = document.getElementById('msgInput');
-  var escapeSheetHandler = function (evt) {
-    if (evt.key === 'Escape') hideThreadSheet();
-  };
 
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -646,69 +463,6 @@ export function renderManagerChatPage(params: {
     if (!el) return;
     el.textContent = msg || '';
     el.className = 'feedback ' + (kind || 'muted');
-  }
-  function renderThreadItems(threads) {
-    threadMetaByPlan = {};
-    if (!threads.length) {
-      return '<li style="cursor:default;border-style:dashed;color:#64748b;">暂无会话，点击右上角开启新会话。</li>';
-    }
-    threads.forEach(function (t) {
-      threadMetaByPlan[t.planId] = { title: t.title || '', preview: t.preview || '' };
-    });
-    return threads.map(function (t) {
-      var title = (t.title || t.planId || '').trim();
-      var prev = (t.preview || '').trim();
-      var sub = prev ? escapeHtml(prev) : ('更新 ' + escapeHtml(t.updatedAt || '—') + ' · ' + (t.turns || 0) + ' 轮');
-      return '<li data-plan-id="' + escapeHtml(t.planId) + '" tabindex="0" role="button">'
-        + '<strong>' + escapeHtml(title) + '</strong><br>'
-        + '<span style="font-size:12px;color:#64748b;">' + sub + '</span>'
-        + '</li>';
-    }).join('');
-  }
-  function highlightThread(planId) {
-    document.querySelectorAll('.thread-list li[data-plan-id]').forEach(function (li) {
-      li.classList.toggle('active', li.getAttribute('data-plan-id') === planId);
-    });
-    var label = document.getElementById('currentPlanLabel');
-    var hint = document.getElementById('currentPlanHint');
-    var meta = threadMetaByPlan[planId];
-    if (label) label.textContent = (meta && meta.title) ? meta.title : (planId ? '（未命名会话）' : '未选择');
-    if (hint) {
-      if (meta && meta.preview) {
-        var prev = String(meta.preview || '').trim();
-        var cap = 1200;
-        if (prev.length > cap) prev = prev.slice(0, cap) + '…';
-        var fmt = typeof globalThis !== 'undefined' && globalThis.formatWorkbenchAssistantHtml;
-        if (typeof fmt === 'function') {
-          hint.className = 'current-plan-hint current-plan-hint--preview';
-          hint.innerHTML = '<span class="current-plan-hint-label">最近一条</span>'
-            + '<div class="msg-body msg-body--assistant current-plan-hint-md">' + fmt(prev) + '</div>';
-        } else {
-          hint.className = 'muted';
-          hint.textContent = '最近一条：' + prev;
-        }
-      } else {
-        hint.className = 'muted';
-        hint.textContent = planId ? '将向当前会话发送' : '请先选择会话后再发送';
-      }
-    }
-  }
-  function bindThreadClicks() {
-    document.querySelectorAll('.thread-list li[data-plan-id]').forEach(function (li) {
-      li.addEventListener('click', function () {
-        var pid = li.getAttribute('data-plan-id') || '';
-        activePlanId = pid;
-        highlightThread(pid);
-        hideThreadSheet();
-        void loadMessages(pid);
-      });
-      li.addEventListener('keydown', function (evt) {
-        if (evt.key === 'Enter' || evt.key === ' ') {
-          evt.preventDefault();
-          li.click();
-        }
-      });
-    });
   }
   function roleClass(role) {
     var normalized = String(role || '').toLowerCase();
@@ -723,6 +477,7 @@ export function renderManagerChatPage(params: {
     if (!stream) return;
     stream.scrollTop = stream.scrollHeight;
   }
+  var msgInput = document.getElementById('msgInput');
   function focusComposer() {
     if (!msgInput) return;
     requestAnimationFrame(function () {
@@ -732,48 +487,6 @@ export function renderManagerChatPage(params: {
         composer.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
     });
-  }
-  function showThreadSheet() {
-    if (!threadSheet) return;
-    threadSheet.hidden = false;
-    document.documentElement.classList.add('sheet-open');
-    document.body.classList.add('sheet-open');
-    document.addEventListener('keydown', escapeSheetHandler);
-    if (closeThreadSheetBtn) closeThreadSheetBtn.focus();
-  }
-  function hideThreadSheet() {
-    if (!threadSheet) return;
-    threadSheet.hidden = true;
-    document.documentElement.classList.remove('sheet-open');
-    document.body.classList.remove('sheet-open');
-    document.removeEventListener('keydown', escapeSheetHandler);
-    if (openThreadSheetBtn) openThreadSheetBtn.focus();
-  }
-
-  async function loadThreads() {
-    try {
-      var res = await fetch('/api/workbench/conversation/threads');
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      var threads = data.threads || [];
-      document.getElementById('threadList').innerHTML = renderThreadItems(threads);
-      document.getElementById('threadListMobile').innerHTML = renderThreadItems(threads);
-      bindThreadClicks();
-      if (!threads.length) {
-        activePlanId = '';
-        highlightThread('');
-        document.getElementById('msgList').innerHTML = '<li class="muted" style="border-style:dashed;">暂无消息，请先创建会话。</li>';
-        return;
-      }
-
-      var hasFocus = threads.some(function (t) { return t.planId === activePlanId; });
-      if (!hasFocus) activePlanId = threads[0].planId;
-      highlightThread(activePlanId);
-      await loadMessages(activePlanId);
-    } catch (e) {
-      document.getElementById('threadList').innerHTML = '<li style="cursor:default;color:#dc2626;">加载失败</li>';
-      document.getElementById('threadListMobile').innerHTML = '<li style="cursor:default;color:#dc2626;">加载失败</li>';
-    }
   }
 
   function roleLabel(role) {
@@ -794,7 +507,7 @@ export function renderManagerChatPage(params: {
   async function loadMessages(planId) {
     var box = document.getElementById('msgList');
     if (!planId) {
-      box.innerHTML = '<li class="muted" style="border-style:dashed;">请选择左侧一条会话</li>';
+      box.innerHTML = '<li class="muted" style="border-style:dashed;">暂无规划会话。请到钉钉与机器人发起一条规划，发布后再回来查看。</li>';
       return;
     }
     box.innerHTML = '<li class="muted" style="border-style:dashed;">加载中…</li>';
@@ -828,34 +541,35 @@ export function renderManagerChatPage(params: {
     }
   }
 
-  document.getElementById('sendBtn').addEventListener('click', async function () {
-    var planId = String(activePlanId || '').trim();
-    var message = (document.getElementById('msgInput').value || '').trim();
-    if (!planId) { setFb('sendFeedback', '请先选择会话', 'err'); return; }
-    if (!message) { setFb('sendFeedback', '请输入消息内容', 'err'); return; }
-    var btn = document.getElementById('sendBtn');
-    btn.disabled = true;
-    setFb('sendFeedback', '发送中…', 'muted');
-    try {
-      var res = await fetch('/api/workbench/conversation/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planId: planId, message: message })
-      });
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      document.getElementById('msgInput').value = '';
-      setFb('sendFeedback', '已发送', 'ok');
-      await loadMessages(planId);
-      await loadThreads();
-      scrollMessageStreamToBottom();
-      focusComposer();
-    } catch (e) {
-      setFb('sendFeedback', String(e && e.message ? e.message : e), 'err');
-    } finally {
-      btn.disabled = false;
-    }
-  });
+  var sendBtn = document.getElementById('sendBtn');
+  if (sendBtn) {
+    sendBtn.addEventListener('click', async function () {
+      var planId = String(activePlanId || '').trim();
+      var message = (document.getElementById('msgInput').value || '').trim();
+      if (!planId) { setFb('sendFeedback', '暂无规划会话，请先在钉钉发起。', 'err'); return; }
+      if (!message) { setFb('sendFeedback', '请输入消息内容', 'err'); return; }
+      sendBtn.disabled = true;
+      setFb('sendFeedback', '发送中…', 'muted');
+      try {
+        var res = await fetch('/api/workbench/conversation/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ planId: planId, message: message })
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        document.getElementById('msgInput').value = '';
+        setFb('sendFeedback', '已发送', 'ok');
+        await loadMessages(planId);
+        scrollMessageStreamToBottom();
+        focusComposer();
+      } catch (e) {
+        setFb('sendFeedback', String(e && e.message ? e.message : e), 'err');
+      } finally {
+        sendBtn.disabled = false;
+      }
+    });
+  }
 
   var rosterInput = document.getElementById('rosterFileInput');
   var rosterStatusEl = document.getElementById('rosterStatus');
@@ -865,7 +579,7 @@ export function renderManagerChatPage(params: {
       if (!file) return;
       var planId = String(activePlanId || '').trim();
       if (!planId) {
-        rosterStatusEl.textContent = '请先选择规划会话，再上传花名册';
+        rosterStatusEl.textContent = '请先在钉钉发起规划后再上传花名册';
         rosterStatusEl.style.color = '#dc2626';
         rosterInput.value = '';
         return;
@@ -896,34 +610,18 @@ export function renderManagerChatPage(params: {
     });
   }
 
-  document.getElementById('newThreadBtn').addEventListener('click', async function () {
-    var btn = document.getElementById('newThreadBtn');
-    btn.disabled = true;
-    setFb('sendFeedback', '创建会话…', 'muted');
-    try {
-      var res = await fetch('/api/workbench/conversation/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      var pid = data.planId || '';
-      window.location.href = '/workbench/manager/chat?planId=' + encodeURIComponent(pid);
-    } catch (e) {
-      setFb('sendFeedback', String(e && e.message ? e.message : e), 'err');
-      btn.disabled = false;
-    }
-  });
-
-  openThreadSheetBtn.addEventListener('click', showThreadSheet);
-  closeThreadSheetBtn.addEventListener('click', hideThreadSheet);
-  threadSheet.addEventListener('click', function (evt) {
-    if (evt.target === evt.currentTarget) hideThreadSheet();
-  });
-
   document.getElementById('logoutBtn').addEventListener('click', async function () {
     await fetch('/api/workbench/logout', { method: 'POST' });
     window.location.href = '/workbench';
   });
 
-  void loadThreads();
+  if (activePlanId) {
+    void loadMessages(activePlanId);
+  } else {
+    document.getElementById('msgList').innerHTML =
+      '<li class="muted" style="border-style:dashed;">暂无规划会话。请到钉钉与机器人发起一条规划，发布后再回来查看。</li>';
+    if (sendBtn) sendBtn.disabled = true;
+  }
 })();
 </script>
 </body>

@@ -295,7 +295,7 @@ npm run dingtalk-bot
 - **函数计算 FC**：若改为 HTTP 回调型机器人，可使用 FC HTTP 触发器；当前代码路径为 **Stream**，迁移需改用开放平台 HTTP 加解密回调。
 - **高可用**：多实例部署需注意钉钉 Stream 连接模型与机器人会话幂等；试点阶段建议 **单实例**。
 - **集中式审计 / 网关限流**：进程内已实现 Demo JSONL、Harness 可选 FileSink 及会话限速；若要跨实例报表或网关级配额，可再接入集中日志或 API 网关。
-- **发布后员工通知**：若启用 `WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`，`POST /api/workbench/manager/publish` 会在写入 SQLite 后尝试发送钉钉卡片并创建待办。通知失败不会回滚发布，会在响应 `warnings` 与 `task_events` 中留痕（`EMPLOYEE_NOTIFY_FAILED`）。
+- **发布后员工通知**：若启用 `WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`，钉钉端 `publish_task` 工具在写入 SQLite 后尝试发送钉钉卡片并创建待办。通知失败不会回滚发布，会在响应 `warnings` 与 `task_events` 中留痕（`EMPLOYEE_NOTIFY_FAILED`）。
 
 ## 六、上线前清库（纯 SQLite 模式）
 
