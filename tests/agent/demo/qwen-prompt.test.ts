@@ -7,7 +7,7 @@ import {
 describe("buildQwenPlannerSystemPrompt", () => {
   it("v4.1: first-round-question, second-round-draft prompt", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.11");
+    expect(sys).toContain("orchestrator-agent-v5.12");
     expect(sys).toContain("search_web");
     expect(sys).toContain("deliverables");
     expect(sys).toContain("待确认");
@@ -29,8 +29,9 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("dependencyTaskIds");
     expect(sys).toContain("checkpoints");
     expect(sys).toContain("draft 顶层必须含 `description`");
-    // v5.11：含 description / 员工详情工具指引后基线变长；阈值仅防 bloat。
-    expect(sys.length).toBeLessThanOrEqual(5800);
+    expect(sys).toContain("严禁反问用户");
+    // v5.12：含 description / 员工详情工具指引 / pendingRoster+latestDraft 纪律；阈值仅防 bloat。
+    expect(sys.length).toBeLessThanOrEqual(6200);
     expect(sys).toContain("read_uploaded_roster_text");
     expect(sys).toContain("set_candidate_pool");
   });

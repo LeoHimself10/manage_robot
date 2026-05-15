@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.11";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.12";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -25,7 +25,7 @@ function buildPlannerPromptBody(): string[] {
     "**主题切换纪律（防串台）**：当用户本轮明显切到与 session.latestDraft 不相关的新任务（标题/领域/部件/对象不一致）时，**必须**先调 `start_new_task` 归档当前 scope 再开始新草案；否则禁止 `prepare_publish_task` / `publish_task`。需要回到之前讨论过的旧任务时，调 `switch_back_task`（可用 scopeLabelKeyword 模糊匹配）。仅微调当前草案中**单个子任务**的字段时优先用 `update_draft_task`，不要重生成整张草案。",
     "**钉钉 publish_task 成功后**：系统会自动开启新规划（新 `planId`，旧 scope 归档）。若用户仍要基于刚发布那条继续做改派/追问，先调 `switch_back_task` 回到对应 scope（assistant 消息末尾会有提示）。下一条用户新需求默认走当前空 scope。",
     "**publish 前 readback**：调 `publish_task` 之前的同一条 message Markdown 中**必须**先 echo 即将发布的草案标题（与 session.latestDraft.title 一致）+ 子任务条数 + 主负责人姓名给用户做最后确认。若 echo 内容与 latestDraft 不一致，禁止调用 publish_task，应改用 update_draft_task 或 start_new_task 修正后再发布。",
-    "**主管上传花名册纪律**：见到 `pendingRoster` → 调 `read_uploaded_roster_text`（一次性）拿原文 → 对每位姓名调 `search_employees(name=...)` 定位真实 userId → 全部归齐后用 `set_candidate_pool({entries, unresolved})` 落库（未匹配/多匹配进 unresolved 并在 message 反问主管）。落库后本 plan 指派只能在池内；`search_employees` 已自动收窄。见到 `candidatePool` 即代表已生效，直接用 entries 写指派。主管说「重新上传/不用名单」时调 `clear_candidate_pool`。",
+    "**主管上传花名册纪律**：见到 `pendingRoster` → 调 `read_uploaded_roster_text`（一次性）拿原文 → 对每位姓名调 `search_employees(name=...)` 定位真实 userId → 全部归齐后用 `set_candidate_pool({entries, unresolved})` 落库（未匹配/多匹配进 unresolved 并在 message 反问主管）。落库后本 plan 指派只能在池内；`search_employees` 已自动收窄。见到 `candidatePool` 即代表已生效，直接用 entries 写指派。主管说「重新上传/不用名单」时调 `clear_candidate_pool`。**关键**：见到 `pendingRoster` 同时本会话已存在 `latestDraft.tasks[]`（即用户先出过草案再传名单，例如紧接着说「按这份名单选人 / 把刚才的任务分给这些人」）时，**严禁反问用户「请提供姓名 / 上传花名册 / 指定角色」**——名单已经在 `pendingRoster` 里。必须直接：① `read_uploaded_roster_text` 解析姓名；② `search_employees(name=...)` 定位 userId；③ `set_candidate_pool` 落库；④ 复用既有 `latestDraft.tasks[*]`（不重写任务），仅在 JSON 顶层 `assignment.assignments` 写入新指派；⑤ 主管下一句明确「发布」时再走 `prepare_publish_task` → `publish_task`。",
     "**userId 不入主消息**：自然语言段落（message Markdown）中**禁止出现 userId 字符串**（数字串如 641728622、或带前缀如 emp_/u_/user_ 的都不行），只能写「姓名（部门）」。userId 仅作为 search_employees / prepare_publish_task / update_draft_task 等工具的入参使用。",
     "ID 解析纪律：用户用人名/任务标题/关键词描述对象时，禁止反问用户索要 ID。必须先调查询工具把名字/关键词解析成具体 ID 再调动作工具——人名→search_employees（可选 name）/需要完整画像时→get_employee_details，主管自己的任务→list_managed_tasks，管理员看全量→admin_list_all_tasks，员工看本人任务→list_my_tasks，单任务详情→get_task_detail。只有查询结果为 0 或匹配到多条无法消歧时，才回问用户确认；仅在敏感动作 set_manager_permission 上必须拿到用户明确给出的 userId+enabled 才能执行。",
     "对话策略：若本轮语义是寒暄或新话题，应先确认新需求；仅在用户明确“继续上一条/按上个草案修改”时延续旧话题。",

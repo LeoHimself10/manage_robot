@@ -71,6 +71,65 @@ function hasTaskTableInMessage(markdown: string): boolean {
   );
 }
 
+/**
+ * 把 draft.description / 每个 task 的 dependencyTaskIds / timeNode.checkpoints / risksAndOpenQuestions
+ * 渲染成一段「任务补充信息」追加到模型 markdown 之后。
+ *
+ * 这是「确定性渲染」：哪怕模型的 markdown 表只写了 6 列旧字段，只要 draft JSON 里
+ * 有这些字段，下面就一定能看到，避免「字段进了 draft 但用户看不见」的体感问题。
+ *
+ * 字段都缺时返回空串，外层会自动跳过（不污染普通追问/纯文本回复）。
+ */
+function renderDraftSupplementSection(draft: unknown): string {
+  if (!draft || typeof draft !== "object") return "";
+  const root = draft as Record<string, unknown>;
+  const description = String(root.description ?? "").trim();
+  const tasks = Array.isArray(root.tasks) ? (root.tasks as Array<Record<string, unknown>>) : [];
+  const taskTitleById = new Map<string, string>();
+  for (const t of tasks) {
+    const id = String(t?.id ?? "").trim();
+    const title = String(t?.title ?? "").trim();
+    if (id) taskTitleById.set(id, title || id);
+  }
+  const lines: string[] = [];
+  if (description) {
+    lines.push(`**任务背景**：${description.length > 500 ? description.slice(0, 500) + "…" : description}`);
+  }
+  const supplementBlocks: string[] = [];
+  tasks.forEach((t, idx) => {
+    const title = String(t?.title ?? "").trim() || `任务 ${idx + 1}`;
+    const deps = Array.isArray(t?.dependencyTaskIds) ? (t.dependencyTaskIds as unknown[]) : [];
+    const timeNode = (t?.timeNode ?? {}) as Record<string, unknown>;
+    const checkpoints = Array.isArray(timeNode.checkpoints) ? (timeNode.checkpoints as unknown[]) : [];
+    const risks = Array.isArray(t?.risksAndOpenQuestions) ? (t.risksAndOpenQuestions as unknown[]) : [];
+    if (deps.length === 0 && checkpoints.length === 0 && risks.length === 0) return;
+    const block: string[] = [`**${idx + 1}. ${title}**`];
+    if (deps.length) {
+      const rendered = deps
+        .map((d) => {
+          const id = String(d ?? "").trim();
+          const tt = taskTitleById.get(id);
+          return tt ? `${id}（${tt}）` : id;
+        })
+        .filter(Boolean)
+        .join("；");
+      if (rendered) block.push(`- 前置依赖：${rendered}`);
+    }
+    if (checkpoints.length) {
+      block.push(`- 检查点：${checkpoints.map((c) => String(c ?? "").trim()).filter(Boolean).join("；")}`);
+    }
+    if (risks.length) {
+      block.push(`- 风险与待澄清：${risks.map((r) => String(r ?? "").trim()).filter(Boolean).join("；")}`);
+    }
+    supplementBlocks.push(block.join("\n"));
+  });
+  if (lines.length === 0 && supplementBlocks.length === 0) return "";
+  const sections = ["### 任务补充信息"];
+  if (lines.length) sections.push(lines.join("\n"));
+  if (supplementBlocks.length) sections.push(supplementBlocks.join("\n\n"));
+  return sections.join("\n\n");
+}
+
 function isExplicitSearchRequest(input: string): boolean {
   const text = input.trim().toLowerCase();
   if (!text) return false;
@@ -614,12 +673,29 @@ async function main(): Promise<void> {
             chars: parsed.chars,
             bytes: parsed.bytes,
           });
+          const hasDraftAlready =
+            !!session.latestDraft &&
+            Array.isArray((session.latestDraft as { tasks?: unknown }).tasks) &&
+            ((session.latestDraft as { tasks: unknown[] }).tasks?.length ?? 0) > 0;
+          const rosterAckText = hasDraftAlready
+            ? `**已收到名单**：\`${downloaded.filename || filename}\`（${parsed.kind}，${parsed.chars} 字符）。\n\n` +
+              `检测到本会话**已有任务草案**。如希望按这份名单重选人选，请直接说**“按这份名单选人”**或**“用刚上传的名单匹配指派”**；如要新开任务，直接描述新任务即可（同一份名单仍会自动用于指派）。`
+            : `**已收到名单**：\`${downloaded.filename || filename}\`（${parsed.kind}，${parsed.chars} 字符）。\n\n` +
+              `请在下一条消息**描述要分配的任务**，我会按这份名单核对并把指派范围限定在表里出现的人；若你之后改主意，可直接说**“不用这份名单”**重置。`;
+          // 把这条系统回复持久化进 conversationHistory，避免下一轮 orchestrator
+          // 看不到「刚才传了名单」的上下文导致模型反过来再反问主管要姓名 / 上传名册。
+          const userPlaceholder = `[uploaded_file] ${downloaded.filename || filename}（${parsed.kind}，${parsed.chars} 字符）`;
+          const nextHistoryAfterUpload = [
+            ...session.conversationHistory,
+            { role: "user" as const, content: userPlaceholder },
+            { role: "assistant" as const, content: rosterAckText },
+          ].slice(-10);
+          session = { ...session, conversationHistory: nextHistoryAfterUpload };
+          planSessionStore.save(session);
           dingtalkResponse = await sendMarkdownReply({
             client, sessionWebhook, messageId, senderStaffId,
             title: "已收到花名册",
-            markdownText:
-              `**已收到名单**：\`${downloaded.filename || filename}\`（${parsed.kind}，${parsed.chars} 字符）。\n\n` +
-              `请在下一条消息告诉我**要分配什么任务**。我会按这份名单核对并把指派范围限定在表里出现的人。`,
+            markdownText: rosterAckText,
           });
           return;
         }
@@ -763,6 +839,12 @@ async function main(): Promise<void> {
               `| ${i + 1} | ${t.title ?? ""} | ${t.objective ?? ""} | ${(t.deliverables ?? []).join("；") || "-"} | ${(t.completionCriteria ?? []).join("；") || "-"} | ${t.timeNode?.dueAt ?? "待确认"} | ${t.feedbackFrequency ?? "待确认"} |`
             );
             outboundMarkdown += "\n\n### 任务列表（结构化字段）\n| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |\n|---|---|---|---|---|---|---|\n" + rows.join("\n");
+          }
+        }
+        if (currentDraft) {
+          const supplement = renderDraftSupplementSection(currentDraft);
+          if (supplement) {
+            outboundMarkdown += `\n\n${supplement}`;
           }
         }
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";

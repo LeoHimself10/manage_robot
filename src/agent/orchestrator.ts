@@ -158,7 +158,11 @@ export async function runOrchestrator(
   const history = normalizeConversationHistoryForModel(
     config.sessionContext?.conversationHistory ?? [],
   );
-  for (const h of history.slice(-4)) {
+  const historyWindowRaw = Number(process.env.AGENT_HISTORY_TURNS ?? "10");
+  const historyWindow = Number.isFinite(historyWindowRaw) && historyWindowRaw > 0
+    ? Math.floor(historyWindowRaw)
+    : 10;
+  for (const h of history.slice(-historyWindow)) {
     allMessages.push(h);
   }
   allMessages.push({ role: "user", content: userMessage });
