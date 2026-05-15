@@ -19,6 +19,15 @@ const DOWNLOAD_API = "https://api.dingtalk.com/v1.0/robot/messageFiles/download"
 const DEFAULT_FETCH_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_BYTES = 4 * 1024 * 1024;
 
+/** Extra fields for `dingtalk_roster_download_failed` / client diagnostics (no secrets). */
+export type DingTalkResolveErrorMeta = {
+  httpStatus: number;
+  apiErrcode?: string | number;
+  apiErrmsg?: string;
+  /** Response body snippet (trimmed, capped) or "(empty body)". */
+  rawSnippet: string;
+};
+
 export class DingTalkFileDownloadError extends Error {
   constructor(
     message: string,
@@ -30,6 +39,7 @@ export class DingTalkFileDownloadError extends Error {
       | "FETCH_FAILED"
       | "FILE_TOO_LARGE",
     public readonly statusCode = 502,
+    public readonly resolveMeta?: DingTalkResolveErrorMeta,
   ) {
     super(message);
     this.name = "DingTalkFileDownloadError";
@@ -147,17 +157,36 @@ async function resolveDownloadUrl(
   } finally {
     clearTimeout(timer);
   }
-  let body: { downloadUrl?: string; errcode?: number; errmsg?: string } = {};
+  const rawText = await res.text().catch(() => "");
+  let body: { downloadUrl?: string; errcode?: number; errmsg?: string; code?: string; message?: string } = {};
   try {
-    body = (await res.json()) as typeof body;
+    if (rawText.trim()) body = JSON.parse(rawText) as typeof body;
   } catch {
-    // ignore parse error; we'll surface status below
+    // 非 JSON 时仍用 rawText 片段帮助排障
   }
+  const apiMsg = String(body.errmsg ?? body.message ?? "").trim();
+  const apiCode = body.errcode ?? body.code;
+  const rawSnippetFull = rawText.length > 200 ? `${rawText.slice(0, 200)}…` : rawText;
+  const rawSnippetDisplay = rawSnippetFull.trim() ? rawSnippetFull : "(empty body)";
+  const bits: string[] = [];
+  if (apiCode !== undefined && apiCode !== null && String(apiCode) !== "") {
+    bits.push(`code=${apiCode}`);
+  }
+  if (apiMsg) bits.push(`errmsg=${apiMsg}`);
+  bits.push(`raw=${rawSnippetDisplay}`);
+  const detail = ` (${bits.join(" | ")})`;
+  const resolveMeta: DingTalkResolveErrorMeta = {
+    httpStatus: res.status,
+    apiErrcode: apiCode,
+    apiErrmsg: apiMsg || undefined,
+    rawSnippet: rawSnippetDisplay,
+  };
   if (!res.ok || !body.downloadUrl) {
-    const detail = body.errmsg ? ` (errcode=${body.errcode ?? "?"} ${body.errmsg})` : "";
     throw new DingTalkFileDownloadError(
       `resolve url HTTP ${res.status}${detail}`,
       "RESOLVE_URL_FAILED",
+      502,
+      resolveMeta,
     );
   }
   return body.downloadUrl;

@@ -29,7 +29,7 @@ import {
 } from "./agent/role-routing";
 import { extractLightAssignment, renderLightAssignmentSection } from "./agent/assignment/light-assignment";
 import { parseRosterFile } from "./agent/assignment/roster-parser";
-import { fetchDingTalkFile } from "./integrations/dingtalk/dingtalk-file-download";
+import { DingTalkFileDownloadError, fetchDingTalkFile } from "./integrations/dingtalk/dingtalk-file-download";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
 import {
@@ -467,6 +467,22 @@ async function main(): Promise<void> {
         // === DingTalk 文件消息：仅主管/管理员的 file 消息走花名册流程 ===
         const msgtypeRaw = String((payload as { msgtype?: unknown }).msgtype ?? "").trim();
         if (msgtypeRaw === "file" && !isAnonymousSender) {
+          // 开放平台约定：conversationType=2 为群聊。群聊 @ 机器人时官方不支持收文件，换链接口也常直接 400。
+          const convType = String(conversationType ?? "").trim();
+          if (convType === "2") {
+            dingtalkResponse = await sendMarkdownReply({
+              client, sessionWebhook, messageId, senderStaffId,
+              title: "当前会话被判定为群聊，无法收文件",
+              markdownText:
+                "钉钉规定：**在群聊里 @ 机器人时，不支持接收文件**（语音、视频同理）。\n\n"
+                + "说明：系统从回调里读到 `conversationType=2`（群聊）。若你认为自己是在**与机器人的单聊**，"
+                + "可能是客户端会话类型与回调不一致，请把该情况反馈给运维（需对照 Stream 原始回调）。\n\n"
+                + "可选操作：\n"
+                + "1. **打开与机器人的单聊**（工作台里找到该应用机器人 → 发消息），再发送名单文件；\n"
+                + "2. 使用 **工作台上传**：`/workbench/manager/chat` →「上传花名册」。",
+            });
+            return;
+          }
           const fileContent = (payload as { content?: Record<string, unknown> }).content ?? {};
           const downloadCode = String(fileContent.downloadCode ?? "").trim();
           const filename = String(fileContent.fileName ?? fileContent.filename ?? "upload.bin").trim();
@@ -486,12 +502,25 @@ async function main(): Promise<void> {
             });
             return;
           }
-          const robotCode =
-            String(
-              (payload as { chatbotUserId?: unknown }).chatbotUserId ??
-                (payload as { robotCode?: unknown }).robotCode ??
-                "",
-            ).trim() || (clientId ?? "");
+          // 下载接口要求的是开放平台「机器人 robotCode」（多为 ding 开头），不是 OAuth Client ID。
+          const robotCode = resolveDingTalkRobotCodeForFileDownload(payload);
+          if (!robotCode) {
+            logStructured({
+              event: "dingtalk_roster_robot_code_missing",
+              messageId,
+              planId: session.planId,
+            });
+            dingtalkResponse = await sendMarkdownReply({
+              client, sessionWebhook, messageId, senderStaffId,
+              title: "无法下载文件",
+              markdownText:
+                "**未配置机器人 robotCode**，无法向钉钉换取下载链接。\n\n"
+                + "请在服务器环境变量配置 **`DINGTALK_ROBOT_CODE`**：钉钉开放平台 → 本应用 → **机器人** → 名词表里的 **robotCode**（示例为 `ding…` 形态，**不要**把 OAuth 的 Client ID 当成 robotCode）。\n\n"
+                + "官方说明：**人与机器人的会话**里机器人可以收文件；换链接口仍要求 robotCode 与当前 Stream 机器人、accessToken 对应的应用一致。\n"
+                + "也可先用工作台上传：`/workbench/manager/chat`。",
+            });
+            return;
+          }
           let downloaded;
           try {
             const accessToken = String(await client.getAccessToken());
@@ -503,17 +532,36 @@ async function main(): Promise<void> {
             });
           } catch (err) {
             const reason = err instanceof Error ? err.message : String(err);
+            const resolveMeta = err instanceof DingTalkFileDownloadError ? err.resolveMeta : undefined;
+            const robotCodePrefix =
+              robotCode.length > 12 ? `${robotCode.slice(0, 12)}…` : robotCode;
             logStructured({
               event: "dingtalk_roster_download_failed",
               messageId,
               planId: session.planId,
               filename,
               reason,
+              conversationType: convType || undefined,
+              robotCodePrefix,
+              apiErrcode: resolveMeta?.apiErrcode,
+              apiErrmsg: resolveMeta?.apiErrmsg,
+              rawSnippet: resolveMeta?.rawSnippet?.slice(0, 200),
             });
+            const robotCodeHint =
+              /40078/i.test(reason) || /robotcode/i.test(reason)
+                ? "\n\n**提示**：若错误涉及 **robotCode**（例如 `40078` / `invalidParameter.robotCode`），请核对 **`DINGTALK_ROBOT_CODE`** 与 **`DINGTALK_CLIENT_ID`/`SECRET` 换取的 accessToken** 是否指向**同一钉钉开放平台应用**（换链接口与 Stream 机器人必须使用同一套应用凭证）。\n"
+                : "";
             dingtalkResponse = await sendMarkdownReply({
               client, sessionWebhook, messageId, senderStaffId,
               title: "文件下载失败",
-              markdownText: `**下载失败**：${reason}\n\n可改用工作台上传：/workbench/manager/chat`,
+              markdownText:
+                `**下载失败**：${reason}\n\n`
+                + robotCodeHint
+                + "钉钉文档：**人与机器人的会话**里机器人可以接收文件；出现 **HTTP 400** 时优先排查下面几项（与是否群聊无必然关系）：\n"
+                + "1. **`DINGTALK_ROBOT_CODE`** 是否为本应用在「机器人名词表」里的 **robotCode**（多为 `ding` 开头），且与当前收消息的机器人是同一个；\n"
+                + "2. **accessToken** 是否来自同一套 `DINGTALK_CLIENT_ID` / `SECRET` 对应的应用（换链与 Stream 必须同一应用）；\n"
+                + "3. 若接口返回 `invalidParameter.robotCode.auth` 等，多为 **robotCode 与 downloadCode 所属企业/机器人不一致**。\n\n"
+                + "仍失败可改用工作台：`/workbench/manager/chat` →「上传花名册」。",
             });
             return;
           }
@@ -957,6 +1005,27 @@ if (process.env.NODE_ENV !== "test") {
     console.error(e);
     process.exitCode = 1;
   });
+}
+
+/**
+ * 文件下载接口要求的是开放平台「机器人 robotCode」（多为 `ding` 开头），
+ * 不是 OAuth 的 Client ID。若环境变量误填纯数字，易被当成 AppKey/ClientId 而触发 HTTP 400。
+ */
+function resolveDingTalkRobotCodeForFileDownload(payload: Record<string, unknown>): string | undefined {
+  const fileContent = (payload as { content?: Record<string, unknown> }).content ?? {};
+  const fromPayload = String(
+    fileContent.robotCode ??
+      payload.robotCode ??
+      payload.chatbotUserId ??
+      (payload as { chatBotUserId?: unknown }).chatBotUserId ??
+      "",
+  ).trim();
+  const fromEnv = process.env.DINGTALK_ROBOT_CODE?.trim();
+  const envLooksLikeNumericClientId = Boolean(fromEnv && /^\d+$/.test(fromEnv));
+  if (fromEnv && !envLooksLikeNumericClientId) return fromEnv;
+  if (fromPayload) return fromPayload;
+  if (fromEnv && envLooksLikeNumericClientId) return undefined;
+  return undefined;
 }
 
 function buildMemorySummary(session: PlanSession): string {

@@ -1,6 +1,7 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 import type { PlanSession } from "../../infra/plan-session-store";
 import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
+import type { WorkbenchSubtaskExtra } from "../../infra/workbench-formal-task-store";
 
 type PublishFromSessionFn = (input: {
   planId: string;
@@ -11,7 +12,12 @@ type PublishFromSessionFn = (input: {
   actorName?: string;
 }) => {
   task: { taskId: string; taskNo: string; title: string };
-  subtasks: Array<{ assigneeUserId: string; title: string }>;
+  subtasks: Array<{
+    assigneeUserId: string;
+    title: string;
+    sourceTaskKey: string;
+    extra?: WorkbenchSubtaskExtra;
+  }>;
   alreadyPublished: boolean;
 };
 
@@ -169,12 +175,16 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
     }
     deps.recentPublished.mark(planId);
 
-    const groupedAssignees = new Map<string, string[]>();
+    const groupedAssignees = new Map<string, Array<{ title: string; extra?: WorkbenchSubtaskExtra }>>();
     published.subtasks.forEach((subtask) => {
       const current = groupedAssignees.get(subtask.assigneeUserId) ?? [];
-      current.push(subtask.title);
+      current.push({ title: subtask.title, extra: subtask.extra });
       groupedAssignees.set(subtask.assigneeUserId, current);
     });
+    const subtaskTitleBySourceKey: Record<string, string> = {};
+    for (const sub of published.subtasks) {
+      if (sub.sourceTaskKey) subtaskTitleBySourceKey[sub.sourceTaskKey] = sub.title;
+    }
     const unionIdByUser = new Map<string, string | undefined>();
     const unknownAssignees: string[] = [];
     for (const assigneeUserId of groupedAssignees.keys()) {
@@ -218,10 +228,11 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
       taskNo: published.task.taskNo,
       title: published.task.title,
       managerUserId: trustedActor,
-      assignees: [...groupedAssignees.entries()].map(([userId, subtaskTitles]) => ({
+      subtaskTitleBySourceKey,
+      assignees: [...groupedAssignees.entries()].map(([userId, subtasks]) => ({
         userId,
         unionId: unionIdByUser.get(userId),
-        subtaskTitles,
+        subtasks,
       })),
     });
     if (!notifyResult.enabled) {

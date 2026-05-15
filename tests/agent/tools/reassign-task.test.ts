@@ -126,7 +126,7 @@ describe("reassign_task tool", () => {
     const handler = buildReassignTaskHandler({
       ...deps,
       notifier: { notifyPublishedTask: vi.fn(), notifyReassignedAssignee } as any,
-      getContact: () => ({ unionId: "u-1" }),
+      getContact: () => ({ unionId: "u-1" }) as any,
     });
     handler({
       actorUserId: "mgr-1",
@@ -135,7 +135,7 @@ describe("reassign_task tool", () => {
       subtaskId: "task_4",
     });
     await new Promise((r) => setTimeout(r, 30));
-    expect(notifyReassignedAssignee).toHaveBeenCalled();
-    expect(notifyReassignedAssignee.mock.calls[0][0].scope).toBe("subtask");
+    expect(notifyReassignedAssignee.mock.calls.length).toBeGreaterThan(0);
+    expect((notifyReassignedAssignee.mock.calls[0] as any)[0].scope).toBe("subtask");
   });
 });

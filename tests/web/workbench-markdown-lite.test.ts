@@ -6,6 +6,47 @@ describe("formatWorkbenchAssistantHtml", () => {
     const html = formatWorkbenchAssistantHtml("Hello <script>x</script>\n\nSecond");
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;");
-    expect(html).toContain("</p><p");
+    expect(html).toMatch(/msg-md-p/);
+    expect(html).toContain("Second");
+  });
+
+  it("renders headings, bold, lists, and horizontal rules", () => {
+    const html = formatWorkbenchAssistantHtml("### Title\n\n**bold** line\n\n- one\n- two\n\n---\n\nend");
+    expect(html).toContain("msg-md-h3");
+    expect(html).toContain("<strong");
+    expect(html).toContain("msg-md-ul");
+    expect(html).toContain("msg-md-hr");
+    expect(html).toContain("end");
+  });
+
+  it("renders fenced code, tables, and safe links", () => {
+    const md = [
+      "```",
+      "code <x>",
+      "```",
+      "",
+      "| A | B |",
+      "| --- | --- |",
+      "| 1 | 2 |",
+      "",
+      "[ok](https://example.com/path)",
+    ].join("\n");
+    const html = formatWorkbenchAssistantHtml(md);
+    expect(html).toContain("msg-md-pre");
+    expect(html).toContain("&lt;x&gt;");
+    expect(html).toContain("msg-md-table");
+    expect(html).toContain('href="https://example.com/path"');
+  });
+
+  it("does not emit anchor for javascript: URLs", () => {
+    const html = formatWorkbenchAssistantHtml("[bad](javascript:alert(1))");
+    expect(html).not.toContain("href=");
+    expect(html).toContain("javascript:alert(1)");
+  });
+
+  it("escapes script-like content instead of executing (XSS regression)", () => {
+    const html = formatWorkbenchAssistantHtml('<script>alert(1)</script>');
+    expect(html).not.toMatch(/<script/i);
+    expect(html).toContain("&lt;script&gt;");
   });
 });

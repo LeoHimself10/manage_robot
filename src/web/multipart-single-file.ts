@@ -35,6 +35,27 @@ export interface MultipartSingleFileOptions {
 
 const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 
+/**
+ * Busboy 默认 `defParamCharset: latin1`，会把 UTF-8 文件名误解成 mojibake。
+ * 在已启用 `defParamCharset: utf8` 后，仍对少数客户端用 latin1 传 UTF-8 字节的情况做兜底反转。
+ */
+export function fixMultipartFilenameEncoding(name: string): string {
+  const trimmed = String(name ?? "").trim();
+  if (!trimmed) return trimmed;
+  // 典型 UTF-8 被按 latin1 读入后会出现大量 U+0080–U+00FF 区段字符，且通常不含正常中文 BMP。
+  const hasHighByteChars = /[\u0080-\u00ff]{2,}/.test(trimmed);
+  const hasCjk = /[\u4e00-\u9fff]/.test(trimmed);
+  if (!hasHighByteChars || hasCjk) return trimmed;
+  try {
+    const fixed = Buffer.from(trimmed, "latin1").toString("utf8");
+    if (!fixed || fixed === trimmed) return trimmed;
+    if (/[\u4e00-\u9fff]/.test(fixed)) return fixed.trim() || trimmed;
+    return trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
 export function readMultipartSingleFile(
   req: IncomingMessage,
   options: MultipartSingleFileOptions = {},
@@ -54,6 +75,7 @@ export function readMultipartSingleFile(
     try {
       bb = Busboy({
         headers: req.headers,
+        defParamCharset: "utf8",
         limits: {
           fileSize: maxFileBytes,
           files: 5,
@@ -101,7 +123,8 @@ export function readMultipartSingleFile(
       }
       firstFile = {
         fieldName: String(fieldName),
-        filename: String(info?.filename ?? "").trim() || "upload.bin",
+        filename:
+          fixMultipartFilenameEncoding(String(info?.filename ?? "").trim()) || "upload.bin",
         mimeType: String(info?.mimeType ?? "").trim() || "application/octet-stream",
         buffer: Buffer.alloc(0),
         truncated: false,

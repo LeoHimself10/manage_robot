@@ -209,8 +209,8 @@ describe("publish_task handler", () => {
       publishFromSession: () => ({
         task: { taskId: "task:plan-1", taskNo: "W20260513001", title: "测试任务" },
         subtasks: [
-          { assigneeUserId: "emp-1", title: "子任务1" },
-          { assigneeUserId: "emp-2", title: "子任务2" },
+          { assigneeUserId: "emp-1", title: "子任务1", sourceTaskKey: "task_1" },
+          { assigneeUserId: "emp-2", title: "子任务2", sourceTaskKey: "task_2" },
         ],
         alreadyPublished: false,
       }),
@@ -255,7 +255,7 @@ describe("publish_task handler", () => {
       initiatorDepartment: "质量部",
       publishFromSession: () => ({
         task: { taskId: "task:plan-1", taskNo: "W20260513002", title: "测试任务" },
-        subtasks: [{ assigneeUserId: "u_yanghexin", title: "子任务1" }],
+        subtasks: [{ assigneeUserId: "u_yanghexin", title: "子任务1", sourceTaskKey: "task_1" }],
         alreadyPublished: false,
       }),
       appendTaskEvent,

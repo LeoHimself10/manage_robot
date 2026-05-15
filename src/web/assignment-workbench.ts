@@ -15,6 +15,7 @@ import {
 } from "../infra/plan-session-store";
 import {
   createWorkbenchFormalTaskStore,
+  type WorkbenchSubtaskExtra,
   type WorkbenchTaskStatus,
 } from "../infra/workbench-formal-task-store";
 import { presentDueBarState, presentDueLabel, presentDueProgress } from "../infra/due-present";
@@ -1385,20 +1386,25 @@ export function handleAssignmentHttp(
           actorName: session.dingUser?.name,
         });
         const warnings: string[] = [];
-        const groupedAssignees = new Map<string, string[]>();
+        const groupedAssignees = new Map<string, Array<{ title: string; extra?: WorkbenchSubtaskExtra }>>();
         published.subtasks.forEach((subtask) => {
           const current = groupedAssignees.get(subtask.assigneeUserId) ?? [];
-          current.push(subtask.title);
+          current.push({ title: subtask.title, extra: subtask.extra });
           groupedAssignees.set(subtask.assigneeUserId, current);
         });
+        const subtaskTitleBySourceKey: Record<string, string> = {};
+        for (const sub of published.subtasks) {
+          if (sub.sourceTaskKey) subtaskTitleBySourceKey[sub.sourceTaskKey] = sub.title;
+        }
         const notifyResult = await workbenchPublishNotifier.notifyPublishedTask({
           taskNo: published.task.taskNo,
           title: published.task.title,
           managerUserId: session.userId,
-          assignees: [...groupedAssignees.entries()].map(([userId, subtaskTitles]) => ({
+          subtaskTitleBySourceKey,
+          assignees: [...groupedAssignees.entries()].map(([userId, subtasks]) => ({
             userId,
             unionId: unionIdByUser.get(userId),
-            subtaskTitles,
+            subtasks,
           })),
         });
         const store = getFormalTaskStore();

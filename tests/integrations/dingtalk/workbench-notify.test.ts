@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildPublishTaskNotifyMarkdown,
   createWorkbenchPublishNotifier,
   type WorkbenchPublishTaskNotifyInput,
 } from "../../../src/integrations/dingtalk/workbench-notify";
@@ -121,6 +122,8 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(robotBody.msgKey).toBe("sampleActionCard");
     const robotMsgParam = JSON.parse(robotBody.msgParam) as Record<string, string>;
     expect(robotMsgParam.title).toContain("TK-001");
+    expect(robotMsgParam.text).toContain("分配给您");
+    expect(robotMsgParam.text).toContain("排查日志");
     expect(robotMsgParam.singleURL).toContain("taskNo=TK-001");
     expect(robotCall?.init?.headers).toMatchObject({
       "x-acs-dingtalk-access-token": "tok-1",
@@ -289,5 +292,55 @@ describe("createWorkbenchPublishNotifier", () => {
     expect((todoCall?.body as { sourceId: string }).sourceId).toBe(
       "workbench:reassign:TK-002:task-p1-task_2",
     );
+  });
+});
+
+describe("buildPublishTaskNotifyMarkdown", () => {
+  it("renders dependency, checkpoints, and risks", () => {
+    const md = buildPublishTaskNotifyMarkdown({
+      taskNo: "N-1",
+      title: "主任务",
+      managerUserId: "mgr",
+      assignee: {
+        userId: "u1",
+        subtasks: [
+          {
+            title: "子B",
+            extra: { dependsOn: ["task_1"], checkpoints: ["c1"], risks: ["r1"] },
+          },
+        ],
+      },
+      subtaskTitleBySourceKey: { task_1: "子A" },
+    });
+    expect(md).toContain("前置依赖");
+    expect(md).toContain("task_1（子A）");
+    expect(md).toContain("检查点");
+    expect(md).toContain("c1");
+    expect(md).toContain("风险");
+    expect(md).toContain("r1");
+  });
+
+  it("omits empty extra sections", () => {
+    const md = buildPublishTaskNotifyMarkdown({
+      taskNo: "N-2",
+      title: "T",
+      managerUserId: "mgr",
+      assignee: { userId: "u1", subtasks: [{ title: "仅标题" }] },
+      subtaskTitleBySourceKey: {},
+    });
+    expect(md).toContain("#### 子任务：仅标题");
+    expect(md).not.toContain("前置依赖");
+  });
+
+  it("supports subtaskTitles fallback", () => {
+    const md = buildPublishTaskNotifyMarkdown({
+      taskNo: "N-3",
+      title: "T",
+      managerUserId: "mgr",
+      assignee: { userId: "u1", subtaskTitles: ["A", "B"] },
+      subtaskTitleBySourceKey: {},
+    });
+    expect(md).toContain("分配给您：**2** 条子任务");
+    expect(md).toContain("#### 子任务：A");
   });
 });

@@ -387,8 +387,11 @@ describe("assignment-workbench HTTP handler", () => {
     await flushAsync();
     expect(captured().statusCode).toBe(200);
     await new Promise((r) => setTimeout(r, 40));
-    expect(notifyReassignedAssignee).toHaveBeenCalledTimes(1);
-    const arg = notifyReassignedAssignee.mock.calls[0][0];
+    expect(notifyReassignedAssignee.mock.calls.length).toBe(1);
+    const call0 = notifyReassignedAssignee.mock.calls[0] as unknown as [
+      { assigneeUserId: string; scope: string; managerUserId: string; taskNo?: string },
+    ];
+    const arg = call0[0];
     expect(arg.assigneeUserId).toBe("emp-2");
     expect(arg.scope).toBe("plan");
     expect(arg.managerUserId).toBe("manager-1");

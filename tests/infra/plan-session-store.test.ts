@@ -184,7 +184,9 @@ describe("plan-session-store", () => {
 
     const restore = restoreTaskScope(reloaded, { scopeLabelKeyword: "默认任务" });
     expect(restore.ok).toBe(true);
-    expect(restore.toPlanId).toBe(initialPlanId);
+    if (restore.ok) {
+      expect(restore.toPlanId).toBe(initialPlanId);
+    }
     expect((reloaded.latestDraft as any)?.title).toBe("Topic A");
     expect(reloaded.knownFacts).toEqual(["fact-A"]);
     expect(reloaded.planId).toBe(initialPlanId);

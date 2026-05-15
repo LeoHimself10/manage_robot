@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { inferConversationTitleFromSession } from "./conversation-present";
 import type { PlanSession } from "./plan-session-store";
 import { resolveWorkbenchSqlitePath } from "./workbench-db-path";
+import { logStructured } from "./logger";
 
 export type WorkbenchTaskStatus =
   | "ASSIGNED"
@@ -28,10 +29,20 @@ export interface WorkbenchTaskRow {
   updatedAt: string;
 }
 
+/** 发布时写入 `subtasks.extra_json`，供详情与钉钉通知展示（v1 契约）。 */
+export type WorkbenchSubtaskExtra = {
+  v: 1;
+  dependsOn?: string[];
+  checkpoints?: string[];
+  risks?: string[];
+};
+
 export interface WorkbenchSubtaskRow {
   subtaskId: string;
   taskId: string;
   planId: string;
+  /** 对应草案 `tasks[].id`，与 assignment.taskId 对齐 */
+  sourceTaskKey: string;
   title: string;
   objective?: string;
   deliverables?: string;
@@ -43,6 +54,72 @@ export interface WorkbenchSubtaskRow {
   progressNote?: string;
   createdAt: string;
   updatedAt: string;
+  extra?: WorkbenchSubtaskExtra;
+}
+
+const EXTRA_LIST_MAX_ITEMS = 10;
+const EXTRA_ITEM_MAX_CHARS = 200;
+
+function clipExtraItem(s: string): string {
+  const t = s.trim();
+  return t.length > EXTRA_ITEM_MAX_CHARS ? t.slice(0, EXTRA_ITEM_MAX_CHARS) : t;
+}
+
+function normalizeExtraStringList(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  for (const item of input) {
+    if (out.length >= EXTRA_LIST_MAX_ITEMS) break;
+    const s = clipExtraItem(String(item ?? ""));
+    if (s) out.push(s);
+  }
+  return out;
+}
+
+/** 发布时从草案单条 task 序列化 `extra_json`；三键皆空则返回 null。 */
+export function serializeSubtaskExtraFromDraftTask(draftTask: Record<string, unknown>): string | null {
+  const depsRaw = draftTask.dependencyTaskIds ?? draftTask.dependencies;
+  const dependsOn = normalizeExtraStringList(depsRaw);
+  const timeNode = draftTask.timeNode as Record<string, unknown> | undefined;
+  const checkpoints = normalizeExtraStringList(timeNode?.checkpoints);
+  const risks = normalizeExtraStringList(draftTask.risksAndOpenQuestions);
+  if (dependsOn.length === 0 && checkpoints.length === 0 && risks.length === 0) return null;
+  const obj: Record<string, unknown> = { v: 1 };
+  if (dependsOn.length) obj.dependsOn = dependsOn;
+  if (checkpoints.length) obj.checkpoints = checkpoints;
+  if (risks.length) obj.risks = risks;
+  return JSON.stringify(obj);
+}
+
+function parseSubtaskExtraJson(raw: unknown): WorkbenchSubtaskExtra | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  const s = String(raw).trim();
+  if (!s) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(s);
+  } catch {
+    logStructured({ event: "workbench_subtask_extra_json_parse_failed", snippet: s.slice(0, 120) });
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const o = parsed as Record<string, unknown>;
+  const dependsOn = normalizeExtraStringList(o.dependsOn ?? o.dependencyTaskIds);
+  const checkpoints = normalizeExtraStringList(o.checkpoints);
+  const risks = normalizeExtraStringList(o.risks);
+  if (dependsOn.length === 0 && checkpoints.length === 0 && risks.length === 0) return undefined;
+  const out: WorkbenchSubtaskExtra = { v: 1 };
+  if (dependsOn.length) out.dependsOn = dependsOn;
+  if (checkpoints.length) out.checkpoints = checkpoints;
+  if (risks.length) out.risks = risks;
+  return out;
+}
+
+function ensureExtraJsonColumn(db: DatabaseSync): void {
+  const rows = db.prepare("PRAGMA table_info(subtasks)").all() as Array<{ name?: string }>;
+  if (!rows.some((r) => String(r.name ?? "") === "extra_json")) {
+    db.exec("ALTER TABLE subtasks ADD COLUMN extra_json TEXT");
+  }
 }
 
 function nowIso(): string {
@@ -155,6 +232,7 @@ export function createWorkbenchFormalTaskStore() {
       progress_note TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      extra_json TEXT,
       UNIQUE(task_id, source_task_key)
     );
     CREATE INDEX IF NOT EXISTS idx_subtasks_task_id ON subtasks(task_id);
@@ -210,6 +288,8 @@ export function createWorkbenchFormalTaskStore() {
     db.exec("ALTER TABLE tasks ADD COLUMN task_no TEXT");
   }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_task_no ON tasks(task_no)");
+
+  ensureExtraJsonColumn(db);
 
   const migratedAt = nowIso();
   db.prepare(
@@ -293,6 +373,7 @@ export function createWorkbenchFormalTaskStore() {
       subtaskId: String(row.subtask_id ?? ""),
       taskId: String(row.task_id ?? ""),
       planId: String(row.plan_id ?? ""),
+      sourceTaskKey: String(row.source_task_key ?? ""),
       title: String(row.title ?? ""),
       objective: asString(row.objective),
       deliverables: asString(row.deliverables),
@@ -304,6 +385,7 @@ export function createWorkbenchFormalTaskStore() {
       progressNote: asString(row.progress_note),
       createdAt: String(row.created_at ?? ""),
       updatedAt: String(row.updated_at ?? ""),
+      extra: parseSubtaskExtraJson(row.extra_json),
     };
   }
 
@@ -404,6 +486,7 @@ export function createWorkbenchFormalTaskStore() {
           dueAt: resolveDraftTaskDueAt(draftTask),
           feedbackFrequency: asString(draftTask.feedbackFrequency),
           assigneeUserId,
+          extraJson: serializeSubtaskExtraFromDraftTask(draftTask),
         };
       });
       const taskId = `task:${planId}`;
@@ -430,8 +513,8 @@ export function createWorkbenchFormalTaskStore() {
           publishedAt,
         );
         const insertSubtask = db.prepare(
-          `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at, extra_json)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         );
         pendingSubtasks.forEach((subtask) => {
           const subtaskId = `${taskId}:${subtask.sourceKey}`;
@@ -450,6 +533,7 @@ export function createWorkbenchFormalTaskStore() {
             null,
             publishedAt,
             publishedAt,
+            subtask.extraJson,
           );
         });
         db.prepare(

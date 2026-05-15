@@ -5,10 +5,21 @@ interface AccessTokenResp {
   errmsg?: string;
 }
 
+export type PublishNotifySubtask = {
+  title: string;
+  extra?: {
+    dependsOn?: string[];
+    checkpoints?: string[];
+    risks?: string[];
+  };
+};
+
 export interface WorkbenchPublishTaskNotifyInput {
   taskNo: string;
   title: string;
   managerUserId: string;
+  /** 将 dependsOn 中的 task_x 解析为可读标题；缺则仅展示 id */
+  subtaskTitleBySourceKey?: Record<string, string>;
   assignees: Array<{
     userId: string;
     /**
@@ -17,7 +28,10 @@ export interface WorkbenchPublishTaskNotifyInput {
      * 并把"missing unionId"作为 failed 一条记录返回，调用方应将其写入 warnings/EMPLOYEE_NOTIFY_FAILED。
      */
     unionId?: string;
-    subtaskTitles: string[];
+    /** 推荐使用：含 title 与可选 extra（依赖/检查点/风险） */
+    subtasks?: PublishNotifySubtask[];
+    /** @deprecated 请改用 subtasks；仍兼容旧调用方 */
+    subtaskTitles?: string[];
   }>;
 }
 
@@ -187,6 +201,80 @@ function resolveNotifyBaseUrl(): string {
   );
 }
 
+function resolveAssigneeSubtasks(
+  assignee: WorkbenchPublishTaskNotifyInput["assignees"][number],
+): PublishNotifySubtask[] {
+  if (assignee.subtasks && assignee.subtasks.length > 0) return assignee.subtasks;
+  return (assignee.subtaskTitles ?? []).map((title) => ({ title }));
+}
+
+const NOTIFY_MD_SOFT_LIMIT = 4500;
+const NOTIFY_ITEM_MAX = 3;
+const NOTIFY_ITEM_CHARS = 80;
+
+function clipNotifyText(s: string, maxChars: number): string {
+  const t = s.trim().replace(/\s+/g, " ");
+  if (t.length <= maxChars) return t;
+  return `${t.slice(0, maxChars)}…`;
+}
+
+function formatPlainListLine(label: string, items: string[] | undefined): string | undefined {
+  if (!items?.length) return undefined;
+  const parts = items.slice(0, NOTIFY_ITEM_MAX).map((x) => clipNotifyText(String(x), NOTIFY_ITEM_CHARS));
+  return `- **${label}**：${parts.join("；")}`;
+}
+
+function formatListLine(label: string, items: string[] | undefined, titleById: Record<string, string>): string | undefined {
+  if (!items?.length) return undefined;
+  const parts = items.slice(0, NOTIFY_ITEM_MAX).map((id) => {
+    const tid = id.trim();
+    const tit = titleById[tid];
+    const idPart = clipNotifyText(tid, NOTIFY_ITEM_CHARS);
+    if (tit) return `${idPart}（${clipNotifyText(tit, NOTIFY_ITEM_CHARS)}）`;
+    return idPart;
+  });
+  return `- **${label}**：${parts.join("；")}`;
+}
+
+function enforceNotifyMarkdownLimit(markdown: string): string {
+  if (markdown.length <= NOTIFY_MD_SOFT_LIMIT) return markdown;
+  let out = markdown.replace(/\n- \*\*风险\*\*：[^\n]+/g, "");
+  if (out.length <= NOTIFY_MD_SOFT_LIMIT) return out;
+  out = out.replace(/\n- \*\*检查点\*\*：[^\n]+/g, "");
+  if (out.length <= NOTIFY_MD_SOFT_LIMIT) return out;
+  return `${out.slice(0, NOTIFY_MD_SOFT_LIMIT - 30)}\n\n…（内容过长已省略）`;
+}
+
+/** 供单测与发布通道复用：生成「任务已发布」员工可见 Markdown */
+export function buildPublishTaskNotifyMarkdown(params: {
+  taskNo: string;
+  title: string;
+  managerUserId: string;
+  assignee: WorkbenchPublishTaskNotifyInput["assignees"][number];
+  subtaskTitleBySourceKey: Record<string, string>;
+}): string {
+  const subject = `[${params.taskNo}] ${params.title}`;
+  const subtasks = resolveAssigneeSubtasks(params.assignee);
+  const titleMap = params.subtaskTitleBySourceKey;
+  const lines: string[] = [
+    `### ${subject}`,
+    `- 负责人：${params.assignee.userId}`,
+    `- 分配给您：**${subtasks.length}** 条子任务`,
+    `- 发布人：${params.managerUserId}`,
+  ];
+  for (const st of subtasks) {
+    lines.push("", `#### 子任务：${st.title}`);
+    const ex = st.extra;
+    const dep = formatListLine("前置依赖", ex?.dependsOn, titleMap);
+    if (dep) lines.push(dep);
+    const cp = formatPlainListLine("检查点", ex?.checkpoints);
+    if (cp) lines.push(cp);
+    const rk = formatPlainListLine("风险", ex?.risks);
+    if (rk) lines.push(rk);
+  }
+  return enforceNotifyMarkdownLimit(lines.join("\n"));
+}
+
 async function createTodo(params: {
   fetchImpl: typeof fetch;
   accessToken: string;
@@ -252,7 +340,14 @@ export function createWorkbenchPublishNotifier(
       for (const assignee of input.assignees) {
         const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}`;
         const subject = `[${input.taskNo}] ${input.title}`;
-        const markdown = `### ${subject}\n- 负责人：${assignee.userId}\n- 子任务数：${assignee.subtaskTitles.length}\n- 发布人：${input.managerUserId}`;
+        const titleMap = input.subtaskTitleBySourceKey ?? {};
+        const markdown = buildPublishTaskNotifyMarkdown({
+          taskNo: input.taskNo,
+          title: input.title,
+          managerUserId: input.managerUserId,
+          assignee,
+          subtaskTitleBySourceKey: titleMap,
+        });
 
         const userOutcome: WorkbenchNotifyResult["success"][number] = { userId: assignee.userId };
         let anyChannelOk = false;

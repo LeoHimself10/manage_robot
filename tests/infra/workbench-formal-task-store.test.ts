@@ -59,6 +59,209 @@ describe("workbench-formal-task-store mapping", () => {
     expect(published.subtasks).toHaveLength(1);
     expect(published.subtasks[0].subtaskId).toContain("draft-task-a");
     expect(published.subtasks[0].dueAt).toBe("2026-06-01");
+    expect(published.subtasks[0].sourceTaskKey).toBe("draft-task-a");
+  });
+
+  it("persists extra_json from draft and maps back to extra", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-extra",
+      planId: "plan-extra-1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "带依赖",
+        tasks: [
+          {
+            id: "task_1",
+            title: "前置",
+            dependencyTaskIds: [],
+            timeNode: { dueAt: "2026-06-01", checkpoints: [] },
+            risksAndOpenQuestions: [],
+          },
+          {
+            id: "task_2",
+            title: "后续",
+            dependencyTaskIds: ["task_1"],
+            timeNode: { dueAt: "2026-06-02", checkpoints: ["M1 评审"] },
+            risksAndOpenQuestions: ["样品可能延迟"],
+          },
+        ],
+      },
+      latestAssignment: {
+        assignments: [
+          { taskId: "task_1", primary: { userId: "emp-a" } },
+          { taskId: "task_2", primary: { userId: "emp-b" } },
+        ],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-extra-1",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质量部",
+      actorUserId: "manager-1",
+    });
+    const t2 = published.subtasks.find((s) => s.sourceTaskKey === "task_2");
+    expect(t2?.extra).toMatchObject({
+      v: 1,
+      dependsOn: ["task_1"],
+      checkpoints: ["M1 评审"],
+      risks: ["样品可能延迟"],
+    });
+    const t1 = published.subtasks.find((s) => s.sourceTaskKey === "task_1");
+    expect(t1?.extra).toBeUndefined();
+    const detail = store.getTaskDetail("plan-extra-1");
+    expect(detail?.subtasks.find((s) => s.sourceTaskKey === "task_2")?.extra).toEqual(t2?.extra);
+  });
+
+  it("tolerates invalid extra_json when loading subtasks", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-badjson",
+      planId: "plan-badjson",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: { title: "X", tasks: [{ id: "t1", title: "子1" }] },
+      latestAssignment: { assignments: [{ taskId: "t1", primary: { userId: "emp-bj" } }] },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-badjson",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质量部",
+      actorUserId: "manager-1",
+    });
+    const subId = published.subtasks[0]?.subtaskId;
+    if (!subId) throw new Error("expected subtask");
+    const sqlitePath = process.env.WORKBENCH_SQLITE_PATH;
+    if (!sqlitePath) throw new Error("WORKBENCH_SQLITE_PATH missing");
+    const raw = new DatabaseSync(sqlitePath);
+    raw.prepare("UPDATE subtasks SET extra_json = ? WHERE subtask_id = ?").run("{not-json", subId);
+    raw.close();
+    const reopened = createWorkbenchFormalTaskStore();
+    const detail = reopened.getTaskDetail("plan-badjson");
+    expect(detail?.subtasks[0]?.extra).toBeUndefined();
+  });
+
+  it("adds extra_json via ALTER on legacy db missing column", () => {
+    const temp = mkdtempSync(join(tmpdir(), "formal-store-legacy-"));
+    const legacyPath = join(temp, "legacy.sqlite");
+    const raw = new DatabaseSync(legacyPath);
+    raw.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE tasks (
+        task_id TEXT PRIMARY KEY,
+        task_no TEXT UNIQUE,
+        plan_id TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        initiator_user_id TEXT NOT NULL,
+        initiator_department TEXT NOT NULL,
+        manager_user_id TEXT NOT NULL,
+        source_trace_id TEXT,
+        published_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE subtasks (
+        subtask_id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        source_task_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        objective TEXT,
+        deliverables TEXT,
+        completion_criteria TEXT,
+        due_at TEXT,
+        feedback_frequency TEXT,
+        assignee_user_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        progress_note TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(task_id, source_task_key)
+      );
+      CREATE TABLE IF NOT EXISTS task_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        subtask_id TEXT,
+        event_type TEXT NOT NULL,
+        actor_user_id TEXT NOT NULL,
+        note TEXT,
+        payload_json TEXT,
+        occurred_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS permission_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor_user_id TEXT NOT NULL,
+        target_user_id TEXT NOT NULL,
+        before_value INTEGER NOT NULL,
+        after_value INTEGER NOT NULL,
+        occurred_at TEXT NOT NULL,
+        payload_json TEXT
+      );
+      CREATE TABLE IF NOT EXISTS dingtalk_contacts (
+        user_id TEXT PRIMARY KEY,
+        union_id TEXT,
+        name TEXT NOT NULL,
+        department_ids_json TEXT NOT NULL DEFAULT '[]',
+        department_names_json TEXT NOT NULL DEFAULT '[]',
+        position TEXT,
+        job_number TEXT,
+        mobile_masked TEXT,
+        email_masked TEXT,
+        active INTEGER NOT NULL DEFAULT 1,
+        is_admin INTEGER NOT NULL DEFAULT 0,
+        is_boss INTEGER NOT NULL DEFAULT 0,
+        is_senior INTEGER NOT NULL DEFAULT 0,
+        raw_json TEXT,
+        last_synced_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+    `);
+    raw.close();
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", legacyPath);
+    const store = createWorkbenchFormalTaskStore();
+    const cols = new DatabaseSync(legacyPath)
+      .prepare("PRAGMA table_info(subtasks)")
+      .all() as Array<{ name: string }>;
+    expect(cols.some((c) => c.name === "extra_json")).toBe(true);
+    const session: PlanSession = {
+      chatKeyHash: "h-leg",
+      planId: "plan-leg-1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "L",
+        tasks: [
+          {
+            id: "t1",
+            title: "子",
+            dependencyTaskIds: ["task_x"],
+            timeNode: { checkpoints: ["c1"] },
+            risksAndOpenQuestions: ["r1"],
+          },
+        ],
+      },
+      latestAssignment: { assignments: [{ taskId: "t1", primary: { userId: "emp-leg" } }] },
+    };
+    const pub = store.publishFromSession({
+      planId: "plan-leg-1",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质量部",
+      actorUserId: "manager-1",
+    });
+    expect(pub.subtasks[0]?.extra?.dependsOn).toEqual(["task_x"]);
   });
 
   it("accept action sets subtask to IN_PROGRESS and keeps SUBTASK_ACCEPTED event", () => {
