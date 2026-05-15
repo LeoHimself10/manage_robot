@@ -70,7 +70,7 @@ V1 聚焦：
 
 ### 4.4 Planner（输入质检 + 模型生成草案）
 
-- **当前 Demo 实现**：钉钉主链路使用 `src/agent/orchestrator.ts`（ReAct + tool calling），`src/agent/demo/pipeline.ts` 保留给 CLI demo/eval。提示词版本见 `src/agent/demo/qwen-prompt.ts`（当前 `orchestrator-agent-v5.16`），关键词分类 / 模板骨架 WBS / 语义默认补全已移除。主链路草案输出已采用**最终 JSON 直出 `draft`**，不再依赖 `save_draft` 工具回合。
+- **当前 Demo 实现**：钉钉主链路使用 `src/agent/orchestrator.ts`（ReAct + tool calling），`src/agent/demo/pipeline.ts` 保留给 CLI demo/eval。提示词版本见 `src/agent/demo/qwen-prompt.ts`（当前 `orchestrator-agent-v5.16.1`），关键词分类 / 模板骨架 WBS / 语义默认补全已移除。主链路草案输出已采用**最终 JSON 直出 `draft`**，不再依赖 `save_draft` 工具回合。
 - **完整 Harness 愿景**：编排层仍可聚合「输入质检 → Model Gateway → 门禁 → 人工审阅」；Planner 与提示词模板版本长期对齐 PRD。
 
 ### 4.5 Assignment Recommender（人岗推荐）— v0.2 已实现
