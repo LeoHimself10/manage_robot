@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildManagerEmployeeActionMarkdown,
   buildPublishTaskNotifyMarkdown,
   createWorkbenchPublishNotifier,
+  resolveManagerTaskDetailUrl,
   type WorkbenchPublishTaskNotifyInput,
 } from "../../../src/integrations/dingtalk/workbench-notify";
 
@@ -124,6 +126,8 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(robotMsgParam.title).toContain("TK-001");
     expect(robotMsgParam.text).toContain("分配给您");
     expect(robotMsgParam.text).toContain("排查日志");
+    expect(robotMsgParam.text).toContain("- **负责人**：emp-1");
+    expect(robotMsgParam.text).toContain("- **发布人**：mgr-1");
     expect(robotMsgParam.singleURL).toContain("taskNo=TK-001");
     expect(robotCall?.init?.headers).toMatchObject({
       "x-acs-dingtalk-access-token": "tok-1",
@@ -280,6 +284,7 @@ describe("createWorkbenchPublishNotifier", () => {
       taskNo: "TK-002",
       taskTitle: "标题",
       managerUserId: "mgr-1",
+      managerDisplayName: "王主管",
       assigneeUserId: "emp-9",
       unionId: "uni-9",
       subtaskId: "task:p1:task_2",
@@ -288,10 +293,63 @@ describe("createWorkbenchPublishNotifier", () => {
     });
     const corp = calls.find((c) => c.url.includes("corpconversation/asyncsend_v2"));
     expect(JSON.stringify(corp?.body)).toContain("改派");
+    expect(JSON.stringify(corp?.body)).toContain("王主管");
+    expect(JSON.stringify(corp?.body)).not.toContain("mgr-1");
     const todoCall = calls.find((c) => c.url.includes("/v1.0/todo/"));
     expect((todoCall?.body as { sourceId: string }).sourceId).toBe(
       "workbench:reassign:TK-002:task-p1-task_2",
     );
+  });
+
+  it("notifyManagerOfEmployeeAction sends robot 1:1 only (no corp card)", async () => {
+    process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL = "https://wb.example.com";
+    const { fetch: fetchImpl, calls } = buildFetchMock([
+      () => jsonRes({ accessToken: "tok-mn" }),
+      () => jsonRes({ processQueryKey: "pq-manager" }),
+    ]);
+    const notifier = createWorkbenchPublishNotifier(fetchImpl);
+    const result = await notifier.notifyManagerOfEmployeeAction({
+      managerUserId: "mgr-99",
+      employeeUserId: "emp-1",
+      employeeDisplayName: "张三",
+      taskNo: "TK-777",
+      taskTitle: "整单标题",
+      subtaskId: "st-1",
+      subtaskTitle: "子任务标题",
+      kind: "rejected",
+      note: "太累了",
+    });
+    expect(result.enabled).toBe(true);
+    expect(result.success).toHaveLength(1);
+    expect(calls.some((c) => c.url.includes("corpconversation/asyncsend_v2"))).toBe(false);
+    const robot = calls.find((c) => c.url.includes("/robot/oToMessages/batchSend"));
+    expect(robot).toBeDefined();
+    const msgParam = JSON.parse(String((robot?.body as { msgParam: string }).msgParam ?? "{}")) as {
+      text: string;
+      singleURL: string;
+    };
+    expect(msgParam.text).toContain("拒绝子任务");
+    expect(msgParam.text).toContain("TK-777");
+    expect(msgParam.singleURL).toContain("/workbench/manager/task?taskNo=TK-777");
+  });
+
+  it("notifyManagerOfEmployeeAction skips when WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED=0", async () => {
+    process.env.WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED = "0";
+    const spyFetch = vi.fn();
+    const notifier = createWorkbenchPublishNotifier(spyFetch);
+    const result = await notifier.notifyManagerOfEmployeeAction({
+      managerUserId: "mgr-1",
+      employeeUserId: "e",
+      employeeDisplayName: "E",
+      taskNo: "T1",
+      taskTitle: "Ti",
+      subtaskId: "s",
+      subtaskTitle: "St",
+      kind: "done",
+    });
+    expect(result.enabled).toBe(false);
+    expect(result.skippedReason).toContain("MANAGER");
+    expect(spyFetch).not.toHaveBeenCalled();
   });
 });
 
@@ -307,6 +365,7 @@ describe("buildPublishTaskNotifyMarkdown", () => {
     });
     expect(md).toContain("- **任务背景**：");
     expect(md).toContain("这是任务整体背景说明");
+    expect(md).toContain("本会话继续用文字提问");
   });
 
   it("omits taskDescription block when empty", () => {
@@ -319,6 +378,7 @@ describe("buildPublishTaskNotifyMarkdown", () => {
       subtaskTitleBySourceKey: {},
     });
     expect(md).not.toContain("任务背景");
+    expect(md).not.toContain("本会话继续用文字提问");
   });
 
   it("preserves task background line when trimming long markdown", () => {
@@ -385,5 +445,52 @@ describe("buildPublishTaskNotifyMarkdown", () => {
     });
     expect(md).toContain("分配给您：**2** 条子任务");
     expect(md).toContain("#### 子任务：A");
+  });
+
+  it("uses display names for manager and assignee when provided", () => {
+    const md = buildPublishTaskNotifyMarkdown({
+      taskNo: "N-4",
+      title: "T",
+      managerUserId: "641001",
+      managerDisplayName: "张三",
+      assignee: { userId: "641002", displayName: "李四", subtasks: [{ title: "子" }] },
+      subtaskTitleBySourceKey: {},
+    });
+    expect(md).toContain("- **负责人**：李四");
+    expect(md).toContain("- **发布人**：张三");
+    expect(md).not.toContain("641001");
+    expect(md).not.toContain("641002");
+  });
+});
+
+describe("resolveManagerTaskDetailUrl / buildManagerEmployeeActionMarkdown", () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it("resolveManagerTaskDetailUrl builds manager task link", () => {
+    process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL = "https://host/";
+    expect(resolveManagerTaskDetailUrl("TK-1")).toBe("https://host/workbench/manager/task?taskNo=TK-1");
+  });
+
+  it("buildManagerEmployeeActionMarkdown includes action and optional link", () => {
+    const md = buildManagerEmployeeActionMarkdown({
+      employeeDisplayName: "李四",
+      employeeUserId: "u-2",
+      kind: "blocked",
+      taskNo: "N-9",
+      taskTitle: "主",
+      subtaskTitle: "子",
+      note: "缺料",
+      workbenchTaskUrl: "https://x/w/workbench/manager/task?taskNo=N-9",
+    });
+    expect(md).toContain("标记阻塞");
+    expect(md).toContain("打开工作台查看");
+    expect(md).toContain("缺料");
   });
 });

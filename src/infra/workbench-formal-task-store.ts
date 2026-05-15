@@ -166,12 +166,12 @@ function normalizeStatus(raw: string): WorkbenchTaskStatus {
   return "ASSIGNED";
 }
 
-function aggregateTaskStatus(statuses: WorkbenchTaskStatus[]): WorkbenchTaskStatus {
+export function aggregateTaskStatus(statuses: WorkbenchTaskStatus[]): WorkbenchTaskStatus {
   if (statuses.some((s) => s === "BLOCKED")) return "BLOCKED";
   if (statuses.length > 0 && statuses.every((s) => s === "DONE")) return "DONE";
   if (statuses.some((s) => s === "IN_PROGRESS")) return "IN_PROGRESS";
-  if (statuses.some((s) => s === "CHANGES_REQUESTED")) return "CHANGES_REQUESTED";
   if (statuses.some((s) => s === "REJECTED")) return "REJECTED";
+  if (statuses.some((s) => s === "CHANGES_REQUESTED")) return "CHANGES_REQUESTED";
   return "ASSIGNED";
 }
 

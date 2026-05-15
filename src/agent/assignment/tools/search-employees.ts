@@ -267,7 +267,7 @@ export function buildSearchEmployeesHandler(
         callCount,
         quota,
         hint:
-          `本轮 search_employees 调用已达上限（${quota} 次）。请在 message 中把当前已经掌握的候选 userId+姓名+部门+岗位列出来，请用户下一句明确选择，**不要再调用本工具**。`,
+          `通讯录「按条件找人」在本轮对话里已用到上限（${quota} 次），请不要再发起同类查找。请根据已列出的候选人，用**姓名（部门）**请用户明确指定要指派谁；若信息仍不足，请用户补充**具体全名**或缩小范围，不要向用户提及技术词或内部编号。`,
       };
     }
     const typed = args as unknown as SearchEmployeesArgs;

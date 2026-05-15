@@ -382,6 +382,11 @@ describe("assignment-workbench HTTP handler", () => {
         failed: [],
       })),
       notifyReassignedAssignee,
+      notifyManagerOfEmployeeAction: vi.fn(async () => ({
+        enabled: false,
+        success: [],
+        failed: [],
+      })),
     });
     await seedPublishedTask({
       planId: "plan-reassign-notify",
@@ -695,6 +700,81 @@ describe("assignment-workbench HTTP handler", () => {
     });
   });
 
+  it("GET tasks/detail for employee filters events to TASK_PUBLISHED and own subtasks only", async () => {
+    await seedPublishedTask({
+      planId: "plan-emp-event-filter",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-2",
+      secondAssignee: { userId: "emp-3", title: "同事子任务" },
+      taskDescription: "背景",
+    });
+    const store = createWorkbenchFormalTaskStore();
+    const taskRow = store.listEmployeeSubtasks("emp-2").find((t) => t.planId === "plan-emp-event-filter");
+    if (!taskRow?.taskNo) throw new Error("expected task row");
+    const detail = store.getTaskDetail(taskRow.taskNo);
+    if (!detail) throw new Error("expected detail");
+    const peerSub = detail.subtasks.find((s) => s.assigneeUserId === "emp-3");
+    const mineSub = detail.subtasks.find((s) => s.assigneeUserId === "emp-2");
+    if (!peerSub || !mineSub) throw new Error("expected subtasks");
+
+    store.appendTaskEvent({
+      taskId: detail.task.taskId,
+      eventType: "MANAGER_REASSIGN",
+      actorUserId: "manager-1",
+      note: "整单改派记录",
+    });
+    store.appendTaskEvent({
+      taskId: detail.task.taskId,
+      eventType: "EMPLOYEE_NOTIFIED",
+      actorUserId: "manager-1",
+      note: "通知 emp-3",
+      payload: { userId: "emp-3" },
+    });
+    store.appendTaskEvent({
+      taskId: detail.task.taskId,
+      subtaskId: peerSub.subtaskId,
+      eventType: "SUBTASK_ACCEPTED",
+      actorUserId: "emp-3",
+      note: "同事接受",
+    });
+    store.appendTaskEvent({
+      taskId: detail.task.taskId,
+      subtaskId: mineSub.subtaskId,
+      eventType: "SUBTASK_PROGRESS",
+      actorUserId: "emp-2",
+      note: "我的进度",
+    });
+
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "emp-2", role: "employee" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const req = stubReq({
+      url: `/api/workbench/tasks/detail?taskNo=${encodeURIComponent(taskRow.taskNo)}`,
+      method: "GET",
+      headers: { cookie },
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    const body = JSON.parse(c.body) as { events?: Array<{ type?: string }> };
+    const types = body.events?.map((e) => e.type) ?? [];
+    expect(types).toContain("TASK_PUBLISHED");
+    expect(types).toContain("SUBTASK_PROGRESS");
+    expect(types).not.toContain("MANAGER_REASSIGN");
+    expect(types).not.toContain("EMPLOYEE_NOTIFIED");
+    expect(types).not.toContain("SUBTASK_ACCEPTED");
+  });
+
   it("GET /workbench/employee/task HTML includes task background section", async () => {
     await seedPublishedTask({
       planId: "plan-emp-html",
@@ -728,6 +808,8 @@ describe("assignment-workbench HTTP handler", () => {
     const c = captured();
     expect(c.statusCode).toBe(200);
     expect(c.body).toContain('class="task-desc"');
+    expect(c.body).toContain("新任务");
+    expect(c.body).toContain("进行中");
   });
 
   it("GET /workbench/manager/chat without planId injects latest manager plan session", async () => {
@@ -826,6 +908,76 @@ describe("assignment-workbench HTTP handler", () => {
     const c = captured();
     expect(c.statusCode).toBe(400);
     expect(c.body).toContain("note is required");
+  });
+
+  it("employee reject invokes notifyManagerOfEmployeeAction, writes EMPLOYEE_RESPONSE_SUMMARY, appears in /tasks/current", async () => {
+    const notifyManagerOfEmployeeAction = vi.fn(async () => ({
+      enabled: true,
+      success: [{ userId: "manager-1", robotMessageKey: "rk-reject-test" }],
+      failed: [],
+    }));
+    __setWorkbenchPublishNotifierForTest({
+      notifyPublishedTask: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyManagerOfEmployeeAction,
+    });
+    await seedPublishedTask({
+      planId: "plan-rej-notify",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-2",
+    });
+    const store = createWorkbenchFormalTaskStore();
+    const row = store.listEmployeeSubtasks("emp-2").find((r) => r.planId === "plan-rej-notify");
+    expect(row?.subtaskId).toBeTruthy();
+    const subtaskId = String(row?.subtaskId);
+    const taskNo = String(row?.taskNo);
+
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "emp-2", role: "employee" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const actionReq = stubReq({
+      url: "/api/workbench/employee/subtasks/action",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        planId: "plan-rej-notify",
+        subtaskId,
+        action: "reject",
+        note: "资源不足",
+        idempotencyKey: "idem-rej-notify-1",
+      }),
+    });
+    const actionRes = stubRes();
+    handleAssignmentHttp(actionReq, actionRes.res);
+    await flushAsync();
+    expect(actionRes.captured().statusCode).toBe(200);
+    expect(notifyManagerOfEmployeeAction).toHaveBeenCalledTimes(1);
+    const arg0 = notifyManagerOfEmployeeAction.mock.calls[0]?.[0] as { kind?: string; managerUserId?: string };
+    expect(arg0.kind).toBe("rejected");
+    expect(arg0.managerUserId).toBe("manager-1");
+
+    const events = store.getTaskDetail(taskNo)?.events ?? [];
+    expect(events.some((e) => String(e.event_type ?? "") === "EMPLOYEE_RESPONSE_SUMMARY")).toBe(true);
+
+    const curReq = stubReq({
+      url: "/api/workbench/employee/tasks/current",
+      method: "GET",
+      headers: { cookie },
+    });
+    const curRes = stubRes();
+    handleAssignmentHttp(curReq, curRes.res);
+    await flushAsync();
+    const cur = JSON.parse(curRes.captured().body) as { ok: boolean; tasks: Array<{ subtaskId: string }> };
+    expect(cur.ok).toBe(true);
+    expect(cur.tasks.some((t) => t.subtaskId === subtaskId)).toBe(true);
   });
 
   it("employee subtasks/action requires idempotencyKey when WORKBENCH_ENFORCE_ACTION_GUARDS=1", async () => {

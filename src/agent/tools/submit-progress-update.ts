@@ -1,5 +1,7 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
+import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
+import { notifyManagerOfEmployeeActionAfterUpdate } from "../../integrations/dingtalk/manager-notify-on-employee-action";
 
 export const SUBMIT_PROGRESS_UPDATE_TOOL: ToolDefinition = {
   type: "function",
@@ -24,10 +26,14 @@ export const SUBMIT_PROGRESS_UPDATE_TOOL: ToolDefinition = {
 };
 
 export function buildSubmitProgressUpdateHandler(
-  deps: { taskStore?: ReturnType<typeof createWorkbenchFormalTaskStore> } = {},
+  deps: {
+    taskStore?: ReturnType<typeof createWorkbenchFormalTaskStore>;
+    notifier?: WorkbenchPublishNotifier;
+    getDisplayName?: (userId: string) => string | undefined;
+  } = {},
 ): ToolHandler {
   const taskStore = deps.taskStore ?? createWorkbenchFormalTaskStore();
-  return (args: Record<string, unknown>) => {
+  return async (args: Record<string, unknown>) => {
     const subtaskId = String(args.subtaskId ?? "").trim();
     const actorUserId = String(args.actorUserId ?? "").trim();
     const progressStatus = String(args.progressStatus ?? "").trim();
@@ -48,6 +54,17 @@ export function buildSubmitProgressUpdateHandler(
       note,
       progressStatus: normalized,
     });
+    if (normalized === "BLOCKED" || normalized === "DONE") {
+      await notifyManagerOfEmployeeActionAfterUpdate({
+        taskStore,
+        notifier: deps.notifier,
+        subtaskId: updated.subtask.subtaskId,
+        actorUserId,
+        kind: normalized === "BLOCKED" ? "blocked" : "done",
+        note,
+        getDisplayName: deps.getDisplayName,
+      });
+    }
     return {
       ok: true,
       progressStatus: updated.subtask.status,

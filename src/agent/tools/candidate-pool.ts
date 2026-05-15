@@ -187,7 +187,7 @@ export function buildSetCandidatePoolHandler(deps: CandidatePoolToolDeps): ToolH
         ok: false,
         reason: "all_entries_rejected",
         rejected,
-        hint: "全部条目都不在通讯录或被标记为 inactive；请重新核对姓名后再调用，或先 search_employees(name=…)。",
+        hint: "全部条目都不在通讯录或被标记为 inactive；请重新核对姓名后再提交，或先用「按姓名查找通讯录」定位到真实人员后再落池。",
       };
     }
 

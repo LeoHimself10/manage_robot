@@ -15,6 +15,12 @@ vi.mock("../../../src/integrations/dingtalk/workbench-notify", () => ({
       success: [],
       failed: [],
     })),
+    notifyManagerOfEmployeeAction: vi.fn(async () => ({
+      enabled: false,
+      skippedReason: "off",
+      success: [],
+      failed: [],
+    })),
   }),
 }));
 

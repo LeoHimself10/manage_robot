@@ -495,6 +495,28 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
 .subtask-detail-dl dt { color: var(--muted); font-weight: 600; }
 .subtask-detail-dl dd { margin: 0; word-break: break-word; }
 .task-card-desc { margin-top: 8px; line-height: 1.45; }
+.task-card .task-detail-readonly-link {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.task-card .task-detail-readonly-link:hover {
+  color: var(--text);
+}
+.task-card.is-rejected {
+  opacity: 0.92;
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+.task-card.is-rejected .title { text-decoration: line-through; color: var(--muted); }
+.subtask-detail-card.is-rejected-sub {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.subtask-rejected-hint { color: #991b1b; }
+.emp-rejected-wait { color: #64748b; }
 .banner-plan {
   background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
   border: 1px solid #bfdbfe;

@@ -18,12 +18,16 @@ export interface WorkbenchPublishTaskNotifyInput {
   taskNo: string;
   title: string;
   managerUserId: string;
+  /** 通讯录姓名；缺省则通知中「发布人」回退为 managerUserId */
+  managerDisplayName?: string;
   /** 任务整体背景（面向员工）；空则不在卡片中展示 */
   taskDescription?: string;
   /** 将 dependsOn 中的 task_x 解析为可读标题；缺则仅展示 id */
   subtaskTitleBySourceKey?: Record<string, string>;
   assignees: Array<{
     userId: string;
+    /** 通讯录姓名；缺省则「负责人」行回退为 userId */
+    displayName?: string;
     /**
      * 钉钉 unionId。
      * 创建钉钉原生待办（v1.0/todo/users/{unionId}/tasks）必填；缺失时降级为只发工作消息卡片，
@@ -57,6 +61,8 @@ export interface WorkbenchReassignNotifyInput {
   taskNo: string;
   taskTitle: string;
   managerUserId: string;
+  /** 通讯录姓名；缺省则「主管」行回退为 managerUserId */
+  managerDisplayName?: string;
   assigneeUserId: string;
   unionId?: string;
   /** 单子任务改派时有值；整单改派为 undefined */
@@ -65,9 +71,34 @@ export interface WorkbenchReassignNotifyInput {
   scope: "subtask" | "plan";
 }
 
+/** 员工动作触发的主管 1:1 通知类型（不含普通 IN_PROGRESS 进度，避免噪音）。 */
+export type ManagerEmployeeNotifyKind =
+  | "rejected"
+  | "changes_requested"
+  | "blocked"
+  | "done";
+
+export interface WorkbenchManagerEmployeeActionNotifyInput {
+  managerUserId: string;
+  employeeUserId: string;
+  employeeDisplayName: string;
+  taskNo: string;
+  taskTitle: string;
+  subtaskId: string;
+  subtaskTitle: string;
+  kind: ManagerEmployeeNotifyKind;
+  note?: string;
+  /** 主管工作台任务详情链接；缺省时 notifier 内尝试用 ASSIGNMENT_WEB_PUBLIC_BASE_URL 拼接 */
+  workbenchTaskUrl?: string;
+  traceId?: string;
+}
+
 export interface WorkbenchPublishNotifier {
   notifyPublishedTask(input: WorkbenchPublishTaskNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyReassignedAssignee(input: WorkbenchReassignNotifyInput): Promise<WorkbenchNotifyResult>;
+  notifyManagerOfEmployeeAction(
+    input: WorkbenchManagerEmployeeActionNotifyInput,
+  ): Promise<WorkbenchNotifyResult>;
 }
 
 function env(name: string): string {
@@ -82,6 +113,11 @@ function envFlag(name: string, defaultValue: boolean): boolean {
 
 function isNotifyEnabled(): boolean {
   return envFlag("WORKBENCH_DINGTALK_NOTIFY_ENABLED", false);
+}
+
+/** 员工 → 主管反向通知；默认开启，可单独关闭灰度。 */
+function isManagerNotifyEnabled(): boolean {
+  return envFlag("WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED", true);
 }
 
 function isRobotMsgEnabled(): boolean {
@@ -203,6 +239,59 @@ function resolveNotifyBaseUrl(): string {
   );
 }
 
+/** 主管任务详情页公网 URL（用于员工动作反向通知中的链接）。 */
+export function resolveManagerTaskDetailUrl(taskNo: string): string | undefined {
+  const base = env("WORKBENCH_NOTIFY_MANAGER_DETAIL_URL_BASE") || env("ASSIGNMENT_WEB_PUBLIC_BASE_URL");
+  if (!base) return undefined;
+  const u = base.replace(/\/+$/, "");
+  return `${u}/workbench/manager/task?taskNo=${encodeURIComponent(taskNo)}`;
+}
+
+const MANAGER_NOTIFY_NOTE_MAX = 240;
+
+function managerNotifyActionLabel(kind: ManagerEmployeeNotifyKind): string {
+  switch (kind) {
+    case "rejected":
+      return "拒绝子任务";
+    case "changes_requested":
+      return "请求调整 / 补充说明";
+    case "blocked":
+      return "标记阻塞";
+    case "done":
+      return "标记完成";
+    default:
+      return "更新状态";
+  }
+}
+
+/** 供单测复用：员工动作 → 主管可见 Markdown */
+export function buildManagerEmployeeActionMarkdown(input: {
+  employeeDisplayName: string;
+  employeeUserId: string;
+  kind: ManagerEmployeeNotifyKind;
+  taskNo: string;
+  taskTitle: string;
+  subtaskTitle: string;
+  note?: string;
+  workbenchTaskUrl?: string;
+}): string {
+  const actionLabel = managerNotifyActionLabel(input.kind);
+  const noteRaw = String(input.note ?? "").trim();
+  const noteLine = noteRaw
+    ? clipNotifyText(noteRaw, MANAGER_NOTIFY_NOTE_MAX)
+    : "无";
+  const link = String(input.workbenchTaskUrl ?? "").trim();
+  const linkMd = link ? `\n\n[打开工作台查看 →](${link})` : "\n\n（未配置 ASSIGNMENT_WEB_PUBLIC_BASE_URL，无直达链接）";
+  return (
+    `**员工动作通知**：${input.employeeDisplayName}（${input.employeeUserId}）已**${actionLabel}**\n\n`
+    + `- **任务**：${input.taskNo}  ${clipNotifyText(input.taskTitle, 120)}\n`
+    + `- **子任务**：${clipNotifyText(input.subtaskTitle, 160)}\n`
+    + `- **动作**：${actionLabel}\n`
+    + `- **备注**：${noteLine}`
+    + linkMd
+  );
+}
+
 function resolveAssigneeSubtasks(
   assignee: WorkbenchPublishTaskNotifyInput["assignees"][number],
 ): PublishNotifySubtask[] {
@@ -239,6 +328,12 @@ function formatListLine(label: string, items: string[] | undefined, titleById: R
   return `- **${label}**：${parts.join("；")}`;
 }
 
+/** 钉钉通知展示：优先通讯录姓名，缺省回退 userId。 */
+function workbenchNotifyPersonLabel(userId: string, displayName?: string): string {
+  const name = String(displayName ?? "").trim();
+  return name || userId;
+}
+
 function enforceNotifyMarkdownLimit(markdown: string): string {
   if (markdown.length <= NOTIFY_MD_SOFT_LIMIT) return markdown;
   let out = markdown.replace(/\n- \*\*风险\*\*：[^\n]+/g, "");
@@ -266,6 +361,7 @@ export function buildPublishTaskNotifyMarkdown(params: {
   taskNo: string;
   title: string;
   managerUserId: string;
+  managerDisplayName?: string;
   assignee: WorkbenchPublishTaskNotifyInput["assignees"][number];
   subtaskTitleBySourceKey: Record<string, string>;
   taskDescription?: string;
@@ -273,15 +369,19 @@ export function buildPublishTaskNotifyMarkdown(params: {
   const subject = `[${params.taskNo}] ${params.title}`;
   const subtasks = resolveAssigneeSubtasks(params.assignee);
   const titleMap = params.subtaskTitleBySourceKey;
+  const assigneeLabel = workbenchNotifyPersonLabel(params.assignee.userId, params.assignee.displayName);
+  const managerLabel = workbenchNotifyPersonLabel(params.managerUserId, params.managerDisplayName);
   const lines: string[] = [
     `### ${subject}`,
-    `- 负责人：${params.assignee.userId}`,
+    `- **负责人**：${assigneeLabel}`,
     `- 分配给您：**${subtasks.length}** 条子任务`,
-    `- 发布人：${params.managerUserId}`,
+    `- **发布人**：${managerLabel}`,
   ];
   const bg = String(params.taskDescription ?? "").trim();
   if (bg) {
     lines.push(`- **任务背景**：${clipNotifyText(bg, NOTIFY_TASK_DESCRIPTION_MAX)}`);
+    lines.push("");
+    lines.push("> 如需了解背景细节，可在本会话继续用文字提问。");
   }
   for (const st of subtasks) {
     lines.push("", `#### 子任务：${st.title}`);
@@ -366,6 +466,7 @@ export function createWorkbenchPublishNotifier(
           taskNo: input.taskNo,
           title: input.title,
           managerUserId: input.managerUserId,
+          managerDisplayName: input.managerDisplayName,
           assignee,
           subtaskTitleBySourceKey: titleMap,
           taskDescription: input.taskDescription,
@@ -486,10 +587,11 @@ export function createWorkbenchPublishNotifier(
         input.scope === "subtask"
           ? `[改派] ${input.taskNo} · ${stTitle}`
           : `[改派] ${input.taskNo} · 整单`;
+      const mgrLabel = workbenchNotifyPersonLabel(input.managerUserId, input.managerDisplayName);
       const markdown =
         input.scope === "subtask"
-          ? `### ${subject}\n- **任务**：${input.taskTitle}\n- **子任务**：${stTitle}\n- **说明**：主管已将上述子任务改派给您，请在员工工作台「新任务」中接受。\n- **主管**：${input.managerUserId}`
-          : `### ${subject}\n- **任务**：${input.taskTitle}\n- **说明**：主管已将本任务下**未完成子任务**全部改派给您，请在员工工作台「新任务」中逐项接受。\n- **主管**：${input.managerUserId}`;
+          ? `### ${subject}\n- **任务**：${input.taskTitle}\n- **子任务**：${stTitle}\n- **说明**：主管已将上述子任务改派给您，请在员工工作台「新任务」中接受。\n- **主管**：${mgrLabel}`
+          : `### ${subject}\n- **任务**：${input.taskTitle}\n- **说明**：主管已将本任务下**未完成子任务**全部改派给您，请在员工工作台「新任务」中逐项接受。\n- **主管**：${mgrLabel}`;
 
       const robotMsgEnabled = isRobotMsgEnabled();
       const robotCode = resolveRobotCode();
@@ -575,6 +677,100 @@ export function createWorkbenchPublishNotifier(
 
       if (anyChannelOk) {
         success.push(userOutcome);
+      }
+      return { enabled: true, success, failed };
+    },
+
+    async notifyManagerOfEmployeeAction(
+      input: WorkbenchManagerEmployeeActionNotifyInput,
+    ): Promise<WorkbenchNotifyResult> {
+      if (!isNotifyEnabled()) {
+        return {
+          enabled: false,
+          skippedReason: "WORKBENCH_DINGTALK_NOTIFY_ENABLED is off",
+          success: [],
+          failed: [],
+        };
+      }
+      if (!isManagerNotifyEnabled()) {
+        return {
+          enabled: false,
+          skippedReason: "WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED is off",
+          success: [],
+          failed: [],
+        };
+      }
+      const mgr = String(input.managerUserId ?? "").trim();
+      if (!mgr) {
+        return {
+          enabled: false,
+          skippedReason: "managerUserId missing",
+          success: [],
+          failed: [],
+        };
+      }
+      const robotMsgEnabled = isRobotMsgEnabled();
+      const robotCode = resolveRobotCode();
+      const success: WorkbenchNotifyResult["success"] = [];
+      const failed: WorkbenchNotifyResult["failed"] = [];
+      if (!robotMsgEnabled) {
+        failed.push({
+          userId: mgr,
+          reason: "WORKBENCH_DINGTALK_ROBOT_MSG_ENABLED is off (manager notify is robot-only)",
+        });
+        return { enabled: true, success, failed };
+      }
+      if (!robotCode) {
+        failed.push({
+          userId: mgr,
+          reason: "skip robot chat message: DINGTALK_ROBOT_CODE missing",
+        });
+        return { enabled: true, success, failed };
+      }
+      let token: string;
+      try {
+        token = await getAccessToken(fetchImpl);
+      } catch (err) {
+        failed.push({
+          userId: mgr,
+          reason: `getAccessToken failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        return { enabled: true, success, failed };
+      }
+      const workbenchTaskUrl =
+        String(input.workbenchTaskUrl ?? "").trim() || resolveManagerTaskDetailUrl(input.taskNo) || "";
+      const markdown = buildManagerEmployeeActionMarkdown({
+        employeeDisplayName: input.employeeDisplayName,
+        employeeUserId: input.employeeUserId,
+        kind: input.kind,
+        taskNo: input.taskNo,
+        taskTitle: input.taskTitle,
+        subtaskTitle: input.subtaskTitle,
+        note: input.note,
+        workbenchTaskUrl: workbenchTaskUrl || undefined,
+      });
+      const subject = `员工动作 · ${input.taskNo}`;
+      const rawBase = env("ASSIGNMENT_WEB_PUBLIC_BASE_URL");
+      const base = rawBase.replace(/\/+$/, "");
+      const detailUrl =
+        workbenchTaskUrl
+        || (rawBase ? `${base}/workbench/manager/tasks` : "https://www.dingtalk.com");
+      try {
+        const robotMessageKey = await sendRobotChatMessage({
+          fetchImpl,
+          accessToken: token,
+          robotCode,
+          userId: mgr,
+          title: subject,
+          markdown,
+          detailUrl,
+        });
+        success.push({ userId: mgr, robotMessageKey });
+      } catch (err) {
+        failed.push({
+          userId: mgr,
+          reason: `robot chat message failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
       }
       return { enabled: true, success, failed };
     },

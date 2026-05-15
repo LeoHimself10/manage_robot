@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import {
+  aggregateTaskStatus,
   createWorkbenchFormalTaskStore,
   TASK_DESCRIPTION_MAX_DB,
 } from "../../src/infra/workbench-formal-task-store";
@@ -512,5 +513,15 @@ describe("workbench-formal-task-store mapping", () => {
       .prepare("PRAGMA table_info(tasks)")
       .all() as Array<{ name: string }>;
     expect(cols.some((c) => c.name === "description")).toBe(true);
+  });
+});
+
+describe("aggregateTaskStatus", () => {
+  it("prefers REJECTED over CHANGES_REQUESTED", () => {
+    expect(aggregateTaskStatus(["CHANGES_REQUESTED", "REJECTED"])).toBe("REJECTED");
+  });
+
+  it("still prioritizes IN_PROGRESS over REJECTED", () => {
+    expect(aggregateTaskStatus(["IN_PROGRESS", "REJECTED"])).toBe("IN_PROGRESS");
   });
 });

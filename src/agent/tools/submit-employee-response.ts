@@ -1,5 +1,7 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
+import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
+import { notifyManagerOfEmployeeActionAfterUpdate } from "../../integrations/dingtalk/manager-notify-on-employee-action";
 
 export const SUBMIT_EMPLOYEE_RESPONSE_TOOL: ToolDefinition = {
   type: "function",
@@ -25,10 +27,14 @@ export const SUBMIT_EMPLOYEE_RESPONSE_TOOL: ToolDefinition = {
 };
 
 export function buildSubmitEmployeeResponseHandler(
-  deps: { taskStore?: ReturnType<typeof createWorkbenchFormalTaskStore> } = {},
+  deps: {
+    taskStore?: ReturnType<typeof createWorkbenchFormalTaskStore>;
+    notifier?: WorkbenchPublishNotifier;
+    getDisplayName?: (userId: string) => string | undefined;
+  } = {},
 ): ToolHandler {
   const taskStore = deps.taskStore ?? createWorkbenchFormalTaskStore();
-  return (args: Record<string, unknown>) => {
+  return async (args: Record<string, unknown>) => {
     const subtaskId = String(args.subtaskId ?? "").trim();
     const actorUserId = String(args.actorUserId ?? "").trim();
     const action = String(args.action ?? "").trim();
@@ -48,16 +54,40 @@ export function buildSubmitEmployeeResponseHandler(
       action: action === "customize" ? "request_changes" : (action as "accept" | "reject" | "request_changes"),
       note,
     });
-    if ((action === "reject" || action === "request_changes" || action === "customize") && managerSummary) {
-      taskStore.appendTaskEvent({
-        taskId: updated.task.taskId,
+    if (action === "reject" || action === "request_changes" || action === "customize") {
+      const summaryText = (managerSummary || note).trim();
+      if (summaryText) {
+        taskStore.appendTaskEvent({
+          taskId: updated.task.taskId,
+          subtaskId: updated.subtask.subtaskId,
+          eventType: "EMPLOYEE_RESPONSE_SUMMARY",
+          actorUserId,
+          note: summaryText,
+          payload: {
+            action,
+          },
+        });
+      }
+    }
+    if (action === "reject") {
+      await notifyManagerOfEmployeeActionAfterUpdate({
+        taskStore,
+        notifier: deps.notifier,
         subtaskId: updated.subtask.subtaskId,
-        eventType: "EMPLOYEE_RESPONSE_SUMMARY",
         actorUserId,
-        note: managerSummary,
-        payload: {
-          action,
-        },
+        kind: "rejected",
+        note,
+        getDisplayName: deps.getDisplayName,
+      });
+    } else if (action === "request_changes" || action === "customize") {
+      await notifyManagerOfEmployeeActionAfterUpdate({
+        taskStore,
+        notifier: deps.notifier,
+        subtaskId: updated.subtask.subtaskId,
+        actorUserId,
+        kind: "changes_requested",
+        note,
+        getDisplayName: deps.getDisplayName,
       });
     }
     return {

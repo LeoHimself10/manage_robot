@@ -934,8 +934,10 @@ async function main(): Promise<void> {
           if (!("skipped" in rotRes)) {
             planRotatedAfterPublish = true;
             rotatePlanHintTail =
-              `\n\n---\n**已开启新规划**：当前规划 id 已更新为 \`${rotRes.toPlanId}\`，下一条消息将作为新任务处理。\n` +
-              `若要继续修改刚才已发布的规划（原 id \`${rotRes.fromPlanId}\`${taskNo ? `，任务编号 **${taskNo}**` : ""}），请说明要回到该上下文并调用 \`switch_back_task\`（例如「切回上一条任务」）。`;
+              `\n\n---\n**已切换到新任务上下文**：接下来您发的内容会按**新任务**继续编排。\n` +
+              (taskNo ?
+                `刚才那条已发布的任务业务编号为 **${taskNo}**。若还要继续改那条任务的拆解或分配，请直接回复一句：**切回上一条任务**（或说明要接着改刚才那条）。\n`
+              : `若还要继续改刚才那条任务的拆解或分配，请直接回复一句：**切回上一条任务**。\n`);
             planSessionStore.appendEvent({
               planId: rotRes.toPlanId,
               chatKeyHash: session.chatKeyHash,

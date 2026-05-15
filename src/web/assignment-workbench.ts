@@ -39,6 +39,7 @@ import {
   createWorkbenchPublishNotifier,
   type WorkbenchPublishNotifier,
 } from "../integrations/dingtalk/workbench-notify";
+import { notifyManagerOfEmployeeActionAfterUpdate } from "../integrations/dingtalk/manager-notify-on-employee-action";
 import { createEmployeeProfileRepo } from "../integrations/repos/employee-profile-repo";
 import { createDingTalkContactSyncService } from "../infra/dingtalk-contact-sync";
 import { createPeopleDirectoryStore } from "../infra/people-directory-store";
@@ -820,6 +821,11 @@ function renderTaskDetailPage(params: {
     <div class="brand">工作台</div>
     <h1 class="page-title" style="font-size:22px;">任务详情</h1>
     <p class="page-desc" style="margin-top:4px;">当前角色：${params.roleLabel}</p>
+    ${
+      params.roleLabel === "employee"
+        ? '<p class="page-desc muted" style="margin-top:8px;font-size:13px;">接受、拒绝、进度等操作请在「新任务 / 进行中」列表卡片上完成；本页仅供查看背景与分工。</p>'
+        : ""
+    }
     <div style="margin-top:10px;"><a href="${params.backPath}">返回</a></div>
   </div>
   <div class="card" id="taskMount">加载中…</div>
@@ -892,7 +898,8 @@ function renderTaskDetailPage(params: {
       if (mine.length) {
         parts.push('<h4 class="subs-section-h">我的子任务</h4>');
         mine.forEach(function (s) {
-          parts.push('<div class="subtask-detail-card"><h4 style="margin:0 0 8px;font-size:16px;">'+esc(s.title||'—')+'</h4><dl class="subtask-detail-dl">');
+          var cardCls = 'subtask-detail-card' + (String(s.status||'') === 'REJECTED' ? ' is-rejected-sub' : '');
+          parts.push('<div class="'+cardCls+'"><h4 style="margin:0 0 8px;font-size:16px;">'+esc(s.title||'—')+'</h4><dl class="subtask-detail-dl">');
           if (s.objective) parts.push('<dt>目标</dt><dd>'+esc(s.objective)+'</dd>');
           if (s.deliverables) parts.push('<dt>交付物</dt><dd>'+esc(s.deliverables)+'</dd>');
           if (s.completionCriteria) parts.push('<dt>完成标准</dt><dd>'+esc(s.completionCriteria)+'</dd>');
@@ -907,7 +914,11 @@ function renderTaskDetailPage(params: {
           if (s.extra && s.extra.risks && s.extra.risks.length) {
             parts.push('<dt>风险与待澄清</dt><dd>'+esc(s.extra.risks.join('；'))+'</dd>');
           }
-          parts.push('</dl></div>');
+          parts.push('</dl>');
+          if (String(s.status||'') === 'REJECTED') {
+            parts.push('<p class="muted subtask-rejected-hint" style="margin:10px 0 0;font-size:13px;">您已拒绝该子任务；主管已收到通知，请等待主管改派或确认。</p>');
+          }
+          parts.push('</div>');
         });
       }
       if (sibs.length) {
@@ -1439,13 +1450,16 @@ export function handleAssignmentHttp(
           .filter((s) => s.assigneeUserId === session.userId)
           .map((s) => s.subtaskId),
       );
+      /** 员工详情时间线：仅本人子任务事件 + 一条任务级「已发布」摘要，避免暴露改派/他人通知等任务级日志。 */
+      const EMPLOYEE_TASK_LEVEL_EVENT_WHITELIST = new Set(["TASK_PUBLISHED"]);
       const detailForEmployee = {
         ...detail,
         events: detail.events.filter((row) => {
           const r = row as Record<string, unknown>;
           const sid = String(r.subtask_id ?? "").trim();
-          if (!sid) return true;
-          return mySubtaskIds.has(sid);
+          const eventType = String(r.event_type ?? "").trim();
+          if (sid) return mySubtaskIds.has(sid);
+          return EMPLOYEE_TASK_LEVEL_EVENT_WHITELIST.has(eventType);
         }),
       };
       const enriched = enrichWorkbenchTaskDetail(detailForEmployee);
@@ -1586,7 +1600,7 @@ export function handleAssignmentHttp(
     if (!session) return true;
     const tasks = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
-      .filter((t) => t.status === "IN_PROGRESS" || t.status === "BLOCKED");
+      .filter((t) => t.status === "IN_PROGRESS" || t.status === "BLOCKED" || t.status === "REJECTED");
     writeJson(
       res,
       200,
@@ -1828,6 +1842,35 @@ export function handleAssignmentHttp(
               : "request_changes",
           note,
         });
+        const store = getFormalTaskStore();
+        if (action === "reject" || action === "request_changes" || action === "customize") {
+          store.appendTaskEvent({
+            taskId: updated.task.taskId,
+            subtaskId: updated.subtask.subtaskId,
+            eventType: "EMPLOYEE_RESPONSE_SUMMARY",
+            actorUserId: session.userId,
+            note,
+            payload: { action, source: "employee_web" },
+          });
+        }
+        const notifyKind =
+          action === "reject"
+            ? ("rejected" as const)
+            : action === "accept"
+              ? undefined
+              : ("changes_requested" as const);
+        if (notifyKind) {
+          await notifyManagerOfEmployeeActionAfterUpdate({
+            taskStore: store,
+            notifier: workbenchPublishNotifier,
+            subtaskId: updated.subtask.subtaskId,
+            actorUserId: session.userId,
+            kind: notifyKind,
+            note,
+            getDisplayName: (uid) =>
+              withPeopleDirectoryStore((s) => s.getContact(uid)?.name?.trim()),
+          });
+        }
         writeJson(res, 200, {
           ok: true,
           planId: updated.task.planId,
@@ -1945,6 +1988,26 @@ export function handleAssignmentHttp(
                 ? "BLOCKED"
                 : "IN_PROGRESS",
         });
+
+        const store = getFormalTaskStore();
+        const normalized =
+          progressStatus === "DONE"
+            ? "DONE"
+            : progressStatus === "BLOCKED"
+              ? "BLOCKED"
+              : "IN_PROGRESS";
+        if (normalized === "BLOCKED" || normalized === "DONE") {
+          await notifyManagerOfEmployeeActionAfterUpdate({
+            taskStore: store,
+            notifier: workbenchPublishNotifier,
+            subtaskId: updated.subtask.subtaskId,
+            actorUserId: session.userId,
+            kind: normalized === "BLOCKED" ? "blocked" : "done",
+            note,
+            getDisplayName: (uid) =>
+              withPeopleDirectoryStore((s) => s.getContact(uid)?.name?.trim()),
+          });
+        }
 
         writeJson(res, 200, {
           ok: true,

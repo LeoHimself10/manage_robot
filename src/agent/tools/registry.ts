@@ -228,11 +228,19 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     },
     submit_employee_response: {
       definition: SUBMIT_EMPLOYEE_RESPONSE_TOOL,
-      handler: buildSubmitEmployeeResponseHandler({ taskStore }),
+      handler: buildSubmitEmployeeResponseHandler({
+        taskStore,
+        notifier,
+        getDisplayName: (userId) => peopleStore.getContact(userId)?.name?.trim(),
+      }),
     },
     submit_progress_update: {
       definition: SUBMIT_PROGRESS_UPDATE_TOOL,
-      handler: buildSubmitProgressUpdateHandler({ taskStore }),
+      handler: buildSubmitProgressUpdateHandler({
+        taskStore,
+        notifier,
+        getDisplayName: (userId) => peopleStore.getContact(userId)?.name?.trim(),
+      }),
     },
     update_employee_profile: {
       definition: UPDATE_EMPLOYEE_PROFILE_TOOL,

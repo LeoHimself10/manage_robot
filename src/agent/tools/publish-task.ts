@@ -29,7 +29,9 @@ type AppendTaskEventFn = (input: {
   payload?: Record<string, unknown>;
 }) => void;
 
-type GetContactFn = (userId: string) => { active?: boolean; unionId?: string } | undefined;
+type GetContactFn = (userId: string) =>
+  | { active?: boolean; unionId?: string; name?: string }
+  | undefined;
 
 export interface PublishTaskRecentStore {
   get(planId: string): number | undefined;
@@ -223,15 +225,19 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
       deps.onPublishResult?.(result);
       return result;
     }
+    const managerContact = deps.getContact(trustedActor);
+    const managerDisplayName = managerContact?.name?.trim() || undefined;
     const warnings: string[] = [];
     const notifyResult = await deps.notifier.notifyPublishedTask({
       taskNo: published.task.taskNo,
       title: published.task.title,
       managerUserId: trustedActor,
+      managerDisplayName,
       taskDescription: published.task.description,
       subtaskTitleBySourceKey,
       assignees: [...groupedAssignees.entries()].map(([userId, subtasks]) => ({
         userId,
+        displayName: deps.getContact(userId)?.name?.trim() || undefined,
         unionId: unionIdByUser.get(userId),
         subtasks,
       })),

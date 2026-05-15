@@ -192,7 +192,7 @@ describe("buildSearchEmployeesHandler", () => {
     expect(r4.reason).toBe("search_employees_quota_exhausted");
     expect(r4.callCount).toBe(4);
     expect(r4.quota).toBe(3);
-    expect(String(r4.hint)).toContain("已达上限");
+    expect(String(r4.hint)).toContain("用到上限");
   });
 
   it("returns only candidate pool members when pool is active and no name", () => {

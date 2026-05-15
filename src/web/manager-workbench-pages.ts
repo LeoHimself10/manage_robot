@@ -58,7 +58,7 @@ export function renderManagerTasksPage(params: {
     <section class="tab-panel panel-stack" id="mgrPanelList" role="tabpanel" aria-labelledby="mgrTabList">
       <section class="kpis" aria-live="polite">
         <div class="kpi"><div class="lbl">任务总数</div><div class="val" id="kpiTotal">—</div></div>
-        <div class="kpi"><div class="lbl">待处理 / 待确认</div><div class="val" id="kpiPending">—</div></div>
+        <div class="kpi"><div class="lbl">待处理 / 待改派</div><div class="val" id="kpiPending">—</div></div>
         <div class="kpi"><div class="lbl">进行中 / 阻塞</div><div class="val" id="kpiActive">—</div></div>
       </section>
       <div>
@@ -129,9 +129,10 @@ export function renderManagerTasksPage(params: {
   });
   function priorityRank(status) {
     if (status === 'BLOCKED') return 0;
-    if (status === 'ASSIGNED' || status === 'CHANGES_REQUESTED') return 1;
-    if (status === 'IN_PROGRESS') return 2;
-    return 3;
+    if (status === 'REJECTED') return 1;
+    if (status === 'ASSIGNED' || status === 'CHANGES_REQUESTED') return 2;
+    if (status === 'IN_PROGRESS') return 3;
+    return 4;
   }
   function badgeClass(status) {
     if (status === 'BLOCKED') return 'blocked';
@@ -250,7 +251,7 @@ export function renderManagerTasksPage(params: {
       });
 
       var pending = tasks.filter(function (t) {
-        return t.status === 'ASSIGNED' || t.status === 'CHANGES_REQUESTED';
+        return t.status === 'ASSIGNED' || t.status === 'CHANGES_REQUESTED' || t.status === 'REJECTED';
       }).length;
       var active = tasks.filter(function (t) {
         return t.status === 'IN_PROGRESS' || t.status === 'BLOCKED';

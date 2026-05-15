@@ -196,16 +196,25 @@ export function renderEmployeeWorkbenchPage(): string {
     }
     return '<p class="meta">截止：'+esc(String(t.dueAt).slice(0,10))+'</p>'+bar+'<p class="due-meta muted">'+esc(t.dueLabel||'')+'</p>';
   }
-  function taskCardHtml(t, actionsHtml) {
-    var st = t.status === 'CHANGES_REQUESTED' ? '<span class="badge pending">待确认</span>' : '<span class="badge '+badgeClass(t.status)+'">'+esc(t.statusLabel||t.status)+'</span>';
+  function taskCardHtml(t, actionsHtml, extraCardClass) {
+    var cardCls = 'task-card' + (extraCardClass ? (' ' + extraCardClass) : '');
+    var stRaw = String(t.status||'');
+    var st = '';
+    if (stRaw === 'REJECTED') {
+      st = '<span class="badge rejected">已拒绝 · 已通知主管</span>';
+    } else if (t.status === 'CHANGES_REQUESTED') {
+      st = '<span class="badge pending">待确认</span>';
+    } else {
+      st = '<span class="badge '+badgeClass(t.status)+'">'+esc(t.statusLabel||t.status)+'</span>';
+    }
     var mgr = (t.managerDisplayName || '').trim();
     var mgrLine = mgr ? (' · 主管 ' + esc(mgr)) : '';
     var td = String(t.taskDescription || '').trim();
-    var descLine = td ? ('<p class="meta task-card-desc">'+esc(clipStr(td, 80))+'</p>') : '';
+    var descLine = td ? ('<p class="meta task-card-desc">'+esc(clipStr(td, 140))+'</p>') : '';
     var tn = String(t.taskNo || '').trim();
-    var detailLink = tn ? ('<p class="meta"><a href="/workbench/employee/task?taskNo='+encodeURIComponent(tn)+'">打开任务全景</a></p>') : '';
+    var detailLink = tn ? ('<p class="meta"><a class="task-detail-readonly-link" href="/workbench/employee/task?taskNo='+encodeURIComponent(tn)+'">查看背景与分工（只读）</a></p>') : '';
     var actions = actionsHtml || '';
-    return '<article class="task-card" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'">'
+    return '<article class="'+cardCls+'" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'">'
       + '<div class="head"><div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+st+'</div>'
       + '<p class="title">'+esc(t.title||t.taskNo||'子任务')+'</p>'
       + '<p class="meta">业务编号 <code>'+esc(t.taskNo||'—')+'</code>'+mgrLine+'</p>'
@@ -275,10 +284,11 @@ export function renderEmployeeWorkbenchPage(): string {
       var tasks = data.tasks || [];
       var blocked = tasks.filter(function (t) { return t.status === 'BLOCKED'; }).length;
       var doing = tasks.filter(function (t) { return t.status === 'IN_PROGRESS'; }).length;
+      var rejected = tasks.filter(function (t) { return t.status === 'REJECTED'; }).length;
       document.getElementById('kpiL1').textContent = '执行中';
       document.getElementById('kpiV1').textContent = String(doing);
-      document.getElementById('kpiL2').textContent = '阻塞';
-      document.getElementById('kpiV2').textContent = String(blocked);
+      document.getElementById('kpiL2').textContent = '阻塞 / 已拒绝';
+      document.getElementById('kpiV2').textContent = String(blocked) + ' / ' + String(rejected);
       document.getElementById('kpiL3').textContent = '提示';
       document.getElementById('kpiV3').textContent = '及时更新进度便于主管掌握风险';
       var mount = document.getElementById('cardsCur');
@@ -288,9 +298,14 @@ export function renderEmployeeWorkbenchPage(): string {
         return;
       }
       mount.innerHTML = '<div class="task-cards">' + tasks.map(function (t) {
-        var act = '<div class="actions" style="justify-content:space-between;">'
-          +'<span></span><button type="button" class="btn btn-secondary" data-prog="1">填写进度</button></div>';
-        return taskCardHtml(t, act);
+        var act = '';
+        if (t.status === 'REJECTED') {
+          act = '<p class="muted emp-rejected-wait" style="margin:10px 0 0;font-size:13px;">已通知主管，请等待改派或确认。</p>';
+        } else {
+          act = '<div class="actions" style="justify-content:space-between;">'
+            +'<span></span><button type="button" class="btn btn-secondary" data-prog="1">填写进度</button></div>';
+        }
+        return taskCardHtml(t, act, t.status === 'REJECTED' ? 'is-rejected' : '');
       }).join('') + '</div>';
       mount.querySelectorAll('.task-card').forEach(function (card) {
         var btn = card.querySelector('button[data-prog]');
@@ -378,9 +393,10 @@ export function renderEmployeeWorkbenchPage(): string {
     if (!note) { setFb('actionFeedback', '请填写说明', 'err'); return; }
     setFb('actionFeedback', '提交中…', 'muted');
     try {
-      await submitDirect(pending.planId, pending.subtaskId, pending.action, note);
+      var go = (pending.action === 'reject') ? { goView: 'current' } : undefined;
+      await submitDirect(pending.planId, pending.subtaskId, pending.action, note, go);
       closePanel();
-      await loadNew();
+      if (!go) await loadNew();
     } catch (e) {
       setFb('actionFeedback', String(e && e.message ? e.message : e), 'err');
     }
