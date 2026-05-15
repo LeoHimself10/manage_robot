@@ -228,6 +228,7 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
       taskNo: published.task.taskNo,
       title: published.task.title,
       managerUserId: trustedActor,
+      taskDescription: published.task.description,
       subtaskTitleBySourceKey,
       assignees: [...groupedAssignees.entries()].map(([userId, subtasks]) => ({
         userId,

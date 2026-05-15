@@ -124,6 +124,11 @@ export function renderEmployeeWorkbenchPage(): string {
   function esc(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+  function clipStr(s, n) {
+    s = String(s || '').trim();
+    if (!s) return '';
+    return s.length <= n ? s : (s.slice(0, n) + '…');
+  }
   function setFb(id, msg, kind) {
     var el = document.getElementById(id);
     if (!el) return;
@@ -195,11 +200,16 @@ export function renderEmployeeWorkbenchPage(): string {
     var st = t.status === 'CHANGES_REQUESTED' ? '<span class="badge pending">待确认</span>' : '<span class="badge '+badgeClass(t.status)+'">'+esc(t.statusLabel||t.status)+'</span>';
     var mgr = (t.managerDisplayName || '').trim();
     var mgrLine = mgr ? (' · 主管 ' + esc(mgr)) : '';
+    var td = String(t.taskDescription || '').trim();
+    var descLine = td ? ('<p class="meta task-card-desc">'+esc(clipStr(td, 80))+'</p>') : '';
+    var tn = String(t.taskNo || '').trim();
+    var detailLink = tn ? ('<p class="meta"><a href="/workbench/employee/task?taskNo='+encodeURIComponent(tn)+'">打开任务全景</a></p>') : '';
     var actions = actionsHtml || '';
     return '<article class="task-card" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'">'
       + '<div class="head"><div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+st+'</div>'
       + '<p class="title">'+esc(t.title||t.taskNo||'子任务')+'</p>'
       + '<p class="meta">业务编号 <code>'+esc(t.taskNo||'—')+'</code>'+mgrLine+'</p>'
+      + descLine + detailLink
       + formatDue(t)
       + '</div></div>'+actions+'</article>';
   }

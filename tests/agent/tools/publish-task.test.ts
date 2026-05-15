@@ -13,6 +13,7 @@ function baseSession(): PlanSession {
     conversationHistory: [],
     latestDraft: {
       title: "测试任务",
+      description: "测试任务整体背景",
       tasks: [{ id: "task-1", title: "子任务1" }],
     },
     latestAssignment: {
@@ -207,7 +208,12 @@ describe("publish_task handler", () => {
       actorName: "主管A",
       initiatorDepartment: "质量部",
       publishFromSession: () => ({
-        task: { taskId: "task:plan-1", taskNo: "W20260513001", title: "测试任务" },
+        task: {
+          taskId: "task:plan-1",
+          taskNo: "W20260513001",
+          title: "测试任务",
+          description: "通知用背景",
+        },
         subtasks: [
           { assigneeUserId: "emp-1", title: "子任务1", sourceTaskKey: "task_1" },
           { assigneeUserId: "emp-2", title: "子任务2", sourceTaskKey: "task_2" },
@@ -230,6 +236,10 @@ describe("publish_task handler", () => {
     });
     expect(String((res as any).warnings?.[0] ?? "")).toContain("通知失败");
     expect(notifySpy).toHaveBeenCalledTimes(1);
+    expect(notifySpy.mock.calls[0]?.[0]).toMatchObject({
+      taskNo: "W20260513001",
+      taskDescription: "通知用背景",
+    });
     expect(appendTaskEvent).toHaveBeenCalled();
     expect(onAudit).toHaveBeenCalledWith(
       expect.objectContaining({

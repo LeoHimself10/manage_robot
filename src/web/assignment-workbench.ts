@@ -854,6 +854,21 @@ function renderTaskDetailPage(params: {
     if (st === 'REJECTED') return 'rejected';
     return 'progress';
   }
+  function clipStr(s, n) {
+    s = String(s || '').trim();
+    if (!s) return '';
+    return s.length <= n ? s : (s.slice(0, n) + '…');
+  }
+  function depTitles(subs, depIds) {
+    if (!depIds || !depIds.length) return '—';
+    return depIds.map(function (id) {
+      var sid = String(id);
+      for (var i = 0; i < subs.length; i++) {
+        if (String(subs[i].sourceTaskKey || '') === sid) return subs[i].title || sid;
+      }
+      return sid;
+    }).join('；');
+  }
   async function load(){
     var taskNo = new URLSearchParams(location.search).get('taskNo') || '';
     if(!taskNo){ document.getElementById('taskMount').textContent='缺少 taskNo 参数'; return; }
@@ -863,16 +878,60 @@ function renderTaskDetailPage(params: {
     var t=data.task||{};
     var stLabel = esc(t.statusLabel || t.status || '—');
     var planOpen = ROLE === 'admin' ? ' open' : '';
+    var desc = String(t.description || '').trim();
+    var descBlock = desc
+      ? '<section class="task-desc"><h3 style="margin:12px 0 6px;font-size:15px;">任务背景</h3><div class="task-desc-body">'+esc(desc)+'</div></section>'
+      : '<section class="task-desc muted"><p style="margin:10px 0 0;font-size:14px;">主管未填写任务整体背景。</p></section>';
     document.getElementById('taskMount').innerHTML =
       '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">'
       +'<h2 style="margin:0;font-size:20px;flex:1 1 200px;">'+esc(t.title||'—')+'</h2>'
       +'<span class="badge '+subBadgeClass(t.status)+'">'+stLabel+'</span></div>'
       +'<p class="muted" style="margin:8px 0 0;">业务编号 <code>'+esc(t.taskNo||taskNo)+'</code></p>'
+      + descBlock
       +'<details'+planOpen+' style="margin-top:10px;"><summary>内部编号（排障）</summary>'
       +'<p class="muted" style="margin:6px 0 0;">planId <code>'+esc(t.planId||'—')+'</code></p></details>';
     var subs = data.subtasks || [];
     if(!subs.length){ document.getElementById('subtasksMount').textContent='暂无子任务'; }
-    else{
+    else if (ROLE === 'employee') {
+      var mine = subs.filter(function (s) { return s.mine; });
+      var sibs = subs.filter(function (s) { return !s.mine; });
+      var parts = [];
+      if (mine.length) {
+        parts.push('<h4 class="subs-section-h">我的子任务</h4>');
+        mine.forEach(function (s) {
+          parts.push('<div class="subtask-detail-card"><h4 style="margin:0 0 8px;font-size:16px;">'+esc(s.title||'—')+'</h4><dl class="subtask-detail-dl">');
+          if (s.objective) parts.push('<dt>目标</dt><dd>'+esc(s.objective)+'</dd>');
+          if (s.deliverables) parts.push('<dt>交付物</dt><dd>'+esc(s.deliverables)+'</dd>');
+          if (s.completionCriteria) parts.push('<dt>完成标准</dt><dd>'+esc(s.completionCriteria)+'</dd>');
+          if (s.dueAt) parts.push('<dt>截止</dt><dd>'+esc(String(s.dueAt).slice(0,10))+'</dd>');
+          if (s.feedbackFrequency) parts.push('<dt>反馈频率</dt><dd>'+esc(s.feedbackFrequency)+'</dd>');
+          if (s.extra && s.extra.dependsOn && s.extra.dependsOn.length) {
+            parts.push('<dt>前置依赖</dt><dd>'+esc(depTitles(subs, s.extra.dependsOn))+'</dd>');
+          }
+          if (s.extra && s.extra.checkpoints && s.extra.checkpoints.length) {
+            parts.push('<dt>检查点</dt><dd>'+esc(s.extra.checkpoints.join('；'))+'</dd>');
+          }
+          if (s.extra && s.extra.risks && s.extra.risks.length) {
+            parts.push('<dt>风险与待澄清</dt><dd>'+esc(s.extra.risks.join('；'))+'</dd>');
+          }
+          parts.push('</dl></div>');
+        });
+      }
+      if (sibs.length) {
+        parts.push('<h4 class="subs-section-h" style="margin-top:18px;">团队分工</h4>');
+        parts.push('<div class="table-wrap"><table class="data"><thead><tr><th>#</th><th>子任务</th><th>负责人</th><th>状态</th></tr></thead><tbody>');
+        sibs.forEach(function (s) {
+          var bc = subBadgeClass(s.status);
+          var who = esc(s.assigneeDisplayName || s.assigneeUserId || '—');
+          var st = esc(s.statusLabel || s.status || '—');
+          parts.push('<tr><td>'+esc(String(s.orderIndex||''))+'</td><td>'+esc(s.title||'—')+'</td><td>'+who+'</td>'
+            +'<td><span class="badge '+bc+'">'+st+'</span></td></tr>');
+        });
+        parts.push('</tbody></table></div>');
+      }
+      if (!parts.length) document.getElementById('subtasksMount').textContent='暂无子任务';
+      else document.getElementById('subtasksMount').innerHTML = parts.join('');
+    } else {
       document.getElementById('subtasksMount').innerHTML =
       '<div class="table-wrap"><table class="data"><thead><tr><th>#</th><th>子任务</th><th>负责人</th><th>状态</th><th style="width:30%">进度</th><th>更新时间</th></tr></thead><tbody>'
       +subs.map(function(s){
@@ -1426,6 +1485,7 @@ export function handleAssignmentHttp(
           taskNo: published.task.taskNo,
           title: published.task.title,
           managerUserId: session.userId,
+          taskDescription: published.task.description,
           subtaskTitleBySourceKey,
           assignees: [...groupedAssignees.entries()].map(([userId, subtasks]) => ({
             userId,
@@ -1583,12 +1643,40 @@ export function handleAssignmentHttp(
         writeJson(res, 403, { ok: false, error: "Task does not belong to current employee" });
         return true;
       }
-      const enriched = enrichWorkbenchTaskDetail(detail);
-      const scopedSubtasks = enriched.subtasks.filter((subtask) => subtask.assigneeUserId === session.userId);
+      const mySubtaskIds = new Set(
+        detail.subtasks
+          .filter((s) => s.assigneeUserId === session.userId)
+          .map((s) => s.subtaskId),
+      );
+      const detailForEmployee = {
+        ...detail,
+        events: detail.events.filter((row) => {
+          const r = row as Record<string, unknown>;
+          const sid = String(r.subtask_id ?? "").trim();
+          if (!sid) return true;
+          return mySubtaskIds.has(sid);
+        }),
+      };
+      const enriched = enrichWorkbenchTaskDetail(detailForEmployee);
+      const subtasksWithMine = enriched.subtasks.map((s) => {
+        const mine = s.assigneeUserId === session.userId;
+        if (mine) return { ...s, mine: true };
+        return {
+          subtaskId: s.subtaskId,
+          sourceTaskKey: s.sourceTaskKey,
+          title: s.title,
+          assigneeUserId: s.assigneeUserId,
+          assigneeDisplayName: s.assigneeDisplayName,
+          status: s.status,
+          statusLabel: s.statusLabel,
+          orderIndex: s.orderIndex,
+          mine: false,
+        };
+      });
       writeJson(res, 200, {
         ok: true,
         task: enriched.task,
-        subtasks: scopedSubtasks,
+        subtasks: subtasksWithMine,
         events: enriched.events,
       });
       return true;

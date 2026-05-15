@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildPreparePublishTaskHandler } from "../../../src/agent/tools/prepare-publish-task";
-import type { PlanSession } from "../../../src/infra/plan-session-store";
+import { TASK_DESCRIPTION_MAX_DB } from "../../../src/infra/workbench-formal-task-store";
 
 function makeSession(overrides: Partial<PlanSession> = {}): PlanSession {
   return {
@@ -20,6 +20,7 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "测试发布",
+      description: "任务整体背景说明",
       subtasks: [
         { taskId: "task_1", title: "任务1", assigneeUserId: "" },
         { taskId: "task_2", title: "任务2", assigneeUserId: "emp-2" },
@@ -38,6 +39,7 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "测试发布",
+      description: "背景",
       subtasks: [
         { taskId: "task_1", title: "任务1", assigneeUserId: "emp-1" },
       ],
@@ -56,6 +58,7 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "U盘兼容性故障排查与修复",
+      description: "面向员工的任务背景：排查 U 盘兼容性问题并修复。",
       subtasks: [
         {
           taskId: "task_1",
@@ -72,6 +75,7 @@ describe("prepare_publish_task tool", () => {
     const draft = session.latestDraft as Record<string, unknown> | undefined;
     expect(draft).toBeDefined();
     expect(draft?.title).toBe("U盘兼容性故障排查与修复");
+    expect(draft?.description).toBe("面向员工的任务背景：排查 U 盘兼容性问题并修复。");
     const tasks = (draft?.tasks ?? []) as Array<Record<string, unknown>>;
     expect(tasks).toHaveLength(1);
     expect(tasks[0]).toMatchObject({
@@ -97,6 +101,7 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-wrong",
       title: "测试",
+      description: "背景",
       subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "emp-1" }],
     }) as any;
     expect(result.ok).toBe(false);
@@ -111,6 +116,7 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "测试",
+      description: "背景",
       subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "" }],
     }) as any;
     expect(result.ok).toBe(false);
@@ -141,6 +147,7 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "测试发布",
+      description: "背景",
       subtasks: [
         { taskId: "task_1", title: "任务A", assigneeUserId: "641728622" },
         { taskId: "task_2", title: "任务B", assigneeUserId: "u_yanghexin" },
@@ -165,21 +172,32 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "测试发布",
+      description: "背景",
       subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "641728622" }],
     }) as any;
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("unknown_assignees");
   });
 
-  it("skips contact validation when getContact dep is not provided (back-compat for tests/demo)", () => {
-    const session = makeSession();
-    const handler = buildPreparePublishTaskHandler({ currentSession: session });
+  it("returns missing_description when description empty", () => {
+    const handler = buildPreparePublishTaskHandler();
     const result = handler({
       planId: "plan-1",
       title: "测试",
-      subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "emp-xyz" }],
+      description: "   ",
+      subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "emp-1" }],
     }) as any;
-    expect(result.ok).toBe(true);
-    expect(session.latestDraft).toBeDefined();
+    expect(result).toMatchObject({ ok: false, reason: "missing_description" });
+  });
+
+  it("returns description_too_long when description exceeds cap", () => {
+    const handler = buildPreparePublishTaskHandler();
+    const result = handler({
+      planId: "plan-1",
+      title: "测试",
+      description: "x".repeat(TASK_DESCRIPTION_MAX_DB + 1),
+      subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "emp-1" }],
+    }) as any;
+    expect(result).toMatchObject({ ok: false, reason: "description_too_long" });
   });
 });

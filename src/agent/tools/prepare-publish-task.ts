@@ -1,5 +1,6 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 import type { PlanSession } from "../../infra/plan-session-store";
+import { TASK_DESCRIPTION_MAX_DB } from "../../infra/workbench-formal-task-store";
 
 export const PREPARE_PUBLISH_TASK_TOOL: ToolDefinition = {
   type: "function",
@@ -27,8 +28,13 @@ export const PREPARE_PUBLISH_TASK_TOOL: ToolDefinition = {
           },
         },
         managerNote: { type: "string" },
+        description: {
+          type: "string",
+          description:
+            "面向员工的任务整体背景：目标、来由、验收口径、不做什么；会写入正式任务表并下发通知/工作台。",
+        },
       },
-      required: ["planId", "title", "subtasks"],
+      required: ["planId", "title", "description", "subtasks"],
     },
   },
 };
@@ -55,6 +61,7 @@ export function buildPreparePublishTaskHandler(
   return (args: Record<string, unknown>) => {
     const planId = String(args.planId ?? "").trim();
     const title = String(args.title ?? "").trim();
+    const description = String(args.description ?? "").trim();
     const rawSubtasks = Array.isArray(args.subtasks) ? args.subtasks : [];
     const normalizedSubtasks = rawSubtasks.map((item) => {
       const row = item as Record<string, unknown>;
@@ -82,6 +89,21 @@ export function buildPreparePublishTaskHandler(
         ok: false,
         reason: "missing_title",
         hint: "调用前必须传入 title（计划标题）。",
+      };
+    }
+    if (!description) {
+      return {
+        ok: false,
+        reason: "missing_description",
+        hint:
+          "调用前必须传入非空 description：以面向员工的视角写清任务整体目标、来由、验收口径与不做什么；该字段会随正式任务、钉钉通知与员工工作台展示。",
+      };
+    }
+    if (description.length > TASK_DESCRIPTION_MAX_DB) {
+      return {
+        ok: false,
+        reason: "description_too_long",
+        hint: `description 不得超过 ${TASK_DESCRIPTION_MAX_DB} 字符，请精简后重试。`,
       };
     }
     if (rawSubtasks.length === 0) {
@@ -147,6 +169,7 @@ export function buildPreparePublishTaskHandler(
       }
       const stagedDraft: Record<string, unknown> = {
         title,
+        description,
         tasks: subtasks.map((s) => ({
           id: s.taskId,
           title: s.title,
@@ -173,6 +196,7 @@ export function buildPreparePublishTaskHandler(
       ok: true,
       planId,
       title,
+      description,
       subtasks,
       managerNote,
       preparedAt,

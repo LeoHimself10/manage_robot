@@ -18,6 +18,8 @@ export interface WorkbenchPublishTaskNotifyInput {
   taskNo: string;
   title: string;
   managerUserId: string;
+  /** 任务整体背景（面向员工）；空则不在卡片中展示 */
+  taskDescription?: string;
   /** 将 dependsOn 中的 task_x 解析为可读标题；缺则仅展示 id */
   subtaskTitleBySourceKey?: Record<string, string>;
   assignees: Array<{
@@ -211,6 +213,7 @@ function resolveAssigneeSubtasks(
 const NOTIFY_MD_SOFT_LIMIT = 4500;
 const NOTIFY_ITEM_MAX = 3;
 const NOTIFY_ITEM_CHARS = 80;
+const NOTIFY_TASK_DESCRIPTION_MAX = 280;
 
 function clipNotifyText(s: string, maxChars: number): string {
   const t = s.trim().replace(/\s+/g, " ");
@@ -242,6 +245,19 @@ function enforceNotifyMarkdownLimit(markdown: string): string {
   if (out.length <= NOTIFY_MD_SOFT_LIMIT) return out;
   out = out.replace(/\n- \*\*检查点\*\*：[^\n]+/g, "");
   if (out.length <= NOTIFY_MD_SOFT_LIMIT) return out;
+  const bgIdx = out.indexOf("- **任务背景**：");
+  if (bgIdx >= 0) {
+    let endBg = out.indexOf("\n", bgIdx + 1);
+    if (endBg === -1) endBg = out.length;
+    else endBg += 1;
+    const head = out.slice(0, endBg);
+    if (head.length < NOTIFY_MD_SOFT_LIMIT) {
+      const tailBudget = NOTIFY_MD_SOFT_LIMIT - endBg - 45;
+      if (tailBudget > 0) {
+        return `${head}${out.slice(endBg, endBg + tailBudget)}\n\n…（后续子任务详情已省略）`;
+      }
+    }
+  }
   return `${out.slice(0, NOTIFY_MD_SOFT_LIMIT - 30)}\n\n…（内容过长已省略）`;
 }
 
@@ -252,6 +268,7 @@ export function buildPublishTaskNotifyMarkdown(params: {
   managerUserId: string;
   assignee: WorkbenchPublishTaskNotifyInput["assignees"][number];
   subtaskTitleBySourceKey: Record<string, string>;
+  taskDescription?: string;
 }): string {
   const subject = `[${params.taskNo}] ${params.title}`;
   const subtasks = resolveAssigneeSubtasks(params.assignee);
@@ -262,6 +279,10 @@ export function buildPublishTaskNotifyMarkdown(params: {
     `- 分配给您：**${subtasks.length}** 条子任务`,
     `- 发布人：${params.managerUserId}`,
   ];
+  const bg = String(params.taskDescription ?? "").trim();
+  if (bg) {
+    lines.push(`- **任务背景**：${clipNotifyText(bg, NOTIFY_TASK_DESCRIPTION_MAX)}`);
+  }
   for (const st of subtasks) {
     lines.push("", `#### 子任务：${st.title}`);
     const ex = st.extra;
@@ -347,6 +368,7 @@ export function createWorkbenchPublishNotifier(
           managerUserId: input.managerUserId,
           assignee,
           subtaskTitleBySourceKey: titleMap,
+          taskDescription: input.taskDescription,
         });
 
         const userOutcome: WorkbenchNotifyResult["success"][number] = { userId: assignee.userId };

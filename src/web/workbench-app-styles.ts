@@ -578,6 +578,27 @@ html.sheet-open body {
 .task-card .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .task-card-clickable { cursor: pointer; }
 .task-card-clickable:hover { border-color: #bfdbfe; background: #f8fbff; }
+.task-desc {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+}
+.task-desc.muted { background: var(--surface); color: var(--muted); }
+.task-desc-body { font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+.subs-section-h { margin: 0 0 10px; font-size: 15px; font-weight: 650; color: var(--text); }
+.subtask-detail-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: var(--surface);
+}
+.subtask-detail-dl { margin: 0; display: grid; grid-template-columns: 100px 1fr; gap: 6px 12px; font-size: 13px; }
+.subtask-detail-dl dt { color: var(--muted); font-weight: 600; }
+.subtask-detail-dl dd { margin: 0; word-break: break-word; }
+.task-card-desc { margin-top: 8px; line-height: 1.45; }
 .banner-plan {
   background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
   border: 1px solid #bfdbfe;

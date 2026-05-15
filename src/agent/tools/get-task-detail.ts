@@ -1,12 +1,14 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
+import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
+import type { WorkbenchSubtaskRow } from "../../infra/workbench-formal-task-store";
 
 export const GET_TASK_DETAIL_TOOL: ToolDefinition = {
   type: "function",
   function: {
     name: "get_task_detail",
     description:
-      "查看任务详情（task + subtasks + events）。manager 仅可看本人管理任务；employee 仅可看分配给自己的子任务；admin 不受限。钉钉免登链路由系统注入当前操作者身份，arguments 中 actorUserId/actorRole 可省略。若用户只描述任务标题/关键词而未提供 ID，请先调 list_managed_tasks（manager）或 list_my_tasks（employee）或 admin_list_all_tasks（admin）找到 taskNo/planId 再调本工具，不要反问用户索要 ID。",
+      "查看任务详情（task + subtasks + events）。manager 仅可看本人管理任务；employee 可看本人子任务并可选择附带兄弟分工摘要；admin 不受限。钉钉免登链路由系统注入当前操作者身份，arguments 中 actorUserId/actorRole 可省略。若用户只描述任务标题/关键词而未提供 ID，请先调 list_managed_tasks（manager）或 list_my_tasks（employee）或 admin_list_all_tasks（admin）找到 taskNo/planId 再调本工具，不要反问用户索要 ID。",
     parameters: {
       type: "object",
       properties: {
@@ -18,11 +20,31 @@ export const GET_TASK_DETAIL_TOOL: ToolDefinition = {
         taskNo: { type: "string" },
         taskId: { type: "string" },
         planId: { type: "string" },
+        includeSiblings: {
+          type: "boolean",
+          description:
+            "仅 employee 有效：是否返回他人子任务摘要（title/负责人/状态）。默认 true；false 时仅返回本人子任务。",
+        },
       },
       required: [],
     },
   },
 };
+
+function subtaskIdFromEventRow(row: Record<string, unknown>): string {
+  return String(row.subtask_id ?? row.subtaskId ?? "").trim();
+}
+
+function mapSiblingForEmployee(sub: WorkbenchSubtaskRow, resolveName: (uid: string) => string) {
+  return {
+    subtaskId: sub.subtaskId,
+    sourceTaskKey: sub.sourceTaskKey,
+    title: sub.title,
+    assigneeUserId: sub.assigneeUserId,
+    assigneeDisplayName: resolveName(sub.assigneeUserId) || sub.assigneeUserId,
+    status: sub.status,
+  };
+}
 
 export function buildGetTaskDetailHandler(
   deps: {
@@ -31,6 +53,10 @@ export function buildGetTaskDetailHandler(
   } = {},
 ): ToolHandler {
   const taskStore = deps.taskStore ?? createWorkbenchFormalTaskStore();
+  const people = createPeopleDirectoryStore();
+  const resolveName = (userId: string): string =>
+    people.getContact(userId)?.name?.trim() ?? "";
+
   return (args: Record<string, unknown>) => {
     const actorUserId = String(args.actorUserId ?? "").trim();
     const role = String(deps.actorRole ?? args.actorRole ?? "").trim();
@@ -45,6 +71,7 @@ export function buildGetTaskDetailHandler(
       String(args.taskId ?? "").trim() ||
       String(args.planId ?? "").trim();
     if (!key) throw new Error("taskNo or taskId or planId is required");
+    const includeSiblings = args.includeSiblings !== false;
     const detail = taskStore.getTaskDetail(key);
     if (!detail) throw new Error("Task not found");
     if (actorRole === "manager" && detail.task.managerUserId !== actorUserId) {
@@ -55,12 +82,30 @@ export function buildGetTaskDetailHandler(
       if (!own) {
         throw new Error("Task does not belong to current employee");
       }
+      const mySubtaskIds = new Set(
+        detail.subtasks.filter((s) => s.assigneeUserId === actorUserId).map((s) => s.subtaskId),
+      );
+      const filteredEvents = detail.events.filter((row) => {
+        const r = row as Record<string, unknown>;
+        const sid = subtaskIdFromEventRow(r);
+        if (!sid) return true;
+        return mySubtaskIds.has(sid);
+      });
+      const mySubtasks = detail.subtasks.filter((subtask) => subtask.assigneeUserId === actorUserId);
+      const siblings = includeSiblings
+        ? detail.subtasks
+            .filter((subtask) => subtask.assigneeUserId !== actorUserId)
+            .map((s) => mapSiblingForEmployee(s, resolveName))
+        : [];
       return {
         ok: true,
         actorRole,
         task: detail.task,
-        subtasks: detail.subtasks.filter((subtask) => subtask.assigneeUserId === actorUserId),
-        events: detail.events,
+        subtasks: mySubtasks,
+        mySubtasks,
+        siblings,
+        events: filteredEvents,
+        includeSiblings,
       };
     }
     return {

@@ -102,11 +102,53 @@ describe("assignment-workbench HTTP handler", () => {
     planId: string;
     managerUserId: string;
     assigneeUserId: string;
+    /** 第二条子任务由其他员工承接，用于员工详情 API 分工断言 */
+    secondAssignee?: { userId: string; title?: string };
+    taskDescription?: string;
   }): Promise<void> {
     seedContact(params.managerUserId, "管理部", "Manager");
     seedContact(params.assigneeUserId, "执行部", "Engineer");
+    if (params.secondAssignee) {
+      seedContact(params.secondAssignee.userId, "执行部", "Peer");
+    }
     const chatKeyHash = `seed-${params.planId}`;
     const now = new Date().toISOString();
+    const desc =
+      params.taskDescription ??
+      "默认任务整体背景（测试种子数据），满足发布链路可读性。";
+    const tasks =
+      params.secondAssignee ?
+        [
+          { id: "task-1", title: "测试子任务", deliverables: "本人交付物（测试）" },
+          {
+            id: "task-2",
+            title: params.secondAssignee.title ?? "同事子任务",
+            deliverables: "同事交付物（不应泄露给员工 API）",
+            objective: "同事目标",
+          },
+        ]
+      : [{ id: "task-1", title: "测试子任务" }];
+    const assignments =
+      params.secondAssignee ?
+        [
+          {
+            taskId: "task-1",
+            primary: { userId: params.assigneeUserId, displayName: params.assigneeUserId },
+          },
+          {
+            taskId: "task-2",
+            primary: {
+              userId: params.secondAssignee.userId,
+              displayName: params.secondAssignee.userId,
+            },
+          },
+        ]
+      : [
+          {
+            taskId: "task-1",
+            primary: { userId: params.assigneeUserId, displayName: params.assigneeUserId },
+          },
+        ];
     writeFileSync(
       join(sessionDir, `${chatKeyHash}.json`),
       JSON.stringify(
@@ -120,15 +162,11 @@ describe("assignment-workbench HTTP handler", () => {
           conversationHistory: [{ role: "user", content: "测试发布" }],
           latestDraft: {
             title: "测试任务",
-            tasks: [{ id: "task-1", title: "测试子任务" }],
+            description: desc,
+            tasks,
           },
           latestAssignment: {
-            assignments: [
-              {
-                taskId: "task-1",
-                primary: { userId: params.assigneeUserId, displayName: params.assigneeUserId },
-              },
-            ],
+            assignments,
           },
         },
         null,
@@ -677,6 +715,93 @@ describe("assignment-workbench HTTP handler", () => {
     const ev = body.events?.find((e) => e.type === "EMPLOYEE_NOTIFY_FAILED");
     expect(ev?.summary).toContain("失败");
     expect(ev?.detail).toContain("钉钉");
+  });
+
+  it("GET tasks/detail for employee returns peer subtasks with whitelist fields only", async () => {
+    await seedPublishedTask({
+      planId: "plan-emp-siblings",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-2",
+      secondAssignee: { userId: "emp-3", title: "同事子任务" },
+      taskDescription: "整条任务背景用于员工详情",
+    });
+    const store = createWorkbenchFormalTaskStore();
+    const taskRow = store.listEmployeeSubtasks("emp-2").find((t) => t.planId === "plan-emp-siblings");
+    if (!taskRow?.taskNo) throw new Error("expected task row");
+
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "emp-2", role: "employee" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const req = stubReq({
+      url: `/api/workbench/tasks/detail?taskNo=${encodeURIComponent(taskRow.taskNo)}`,
+      method: "GET",
+      headers: { cookie },
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    const body = JSON.parse(c.body) as {
+      ok: boolean;
+      task?: { description?: string };
+      subtasks?: Array<Record<string, unknown>>;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.task?.description).toContain("整条任务背景");
+    expect(body.subtasks).toHaveLength(2);
+    const mine = body.subtasks?.find((s) => s.mine === true);
+    const peer = body.subtasks?.find((s) => s.mine === false);
+    expect(mine?.deliverables).toBeDefined();
+    expect(peer?.deliverables).toBeUndefined();
+    expect(peer?.objective).toBeUndefined();
+    expect(peer).toMatchObject({
+      title: "同事子任务",
+      assigneeUserId: "emp-3",
+    });
+  });
+
+  it("GET /workbench/employee/task HTML includes task background section", async () => {
+    await seedPublishedTask({
+      planId: "plan-emp-html",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-2",
+      taskDescription: "HTML 段任务背景",
+    });
+    const store = createWorkbenchFormalTaskStore();
+    const taskRow = store.listEmployeeSubtasks("emp-2").find((t) => t.planId === "plan-emp-html");
+    if (!taskRow?.taskNo) throw new Error("expected task row");
+
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "emp-2", role: "employee" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const req = stubReq({
+      url: `/workbench/employee/task?taskNo=${encodeURIComponent(taskRow.taskNo)}`,
+      method: "GET",
+      headers: { cookie },
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(c.body).toContain('class="task-desc"');
   });
 
   it("POST /api/workbench/conversation/start returns a new planId for manager", async () => {

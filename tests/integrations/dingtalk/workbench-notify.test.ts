@@ -296,6 +296,49 @@ describe("createWorkbenchPublishNotifier", () => {
 });
 
 describe("buildPublishTaskNotifyMarkdown", () => {
+  it("renders taskDescription block when provided", () => {
+    const md = buildPublishTaskNotifyMarkdown({
+      taskNo: "N-bg",
+      title: "主任务",
+      managerUserId: "mgr",
+      taskDescription: "这是任务整体背景说明",
+      assignee: { userId: "u1", subtasks: [{ title: "子A" }] },
+      subtaskTitleBySourceKey: {},
+    });
+    expect(md).toContain("- **任务背景**：");
+    expect(md).toContain("这是任务整体背景说明");
+  });
+
+  it("omits taskDescription block when empty", () => {
+    const md = buildPublishTaskNotifyMarkdown({
+      taskNo: "N-nobg",
+      title: "主任务",
+      managerUserId: "mgr",
+      taskDescription: "   ",
+      assignee: { userId: "u1", subtasks: [{ title: "子A" }] },
+      subtaskTitleBySourceKey: {},
+    });
+    expect(md).not.toContain("任务背景");
+  });
+
+  it("preserves task background line when trimming long markdown", () => {
+    const subtasks = Array.from({ length: 80 }, (_, i) => ({
+      title: `子-${i}-` + "x".repeat(80),
+      extra: { risks: ["r".repeat(120)] },
+    }));
+    const md = buildPublishTaskNotifyMarkdown({
+      taskNo: "N-long",
+      title: "主任务",
+      managerUserId: "mgr",
+      taskDescription: "KEEP_BG_TOKEN_UNIQUE",
+      assignee: { userId: "u1", subtasks },
+      subtaskTitleBySourceKey: {},
+    });
+    expect(md.length).toBeGreaterThan(1000);
+    expect(md).toContain("KEEP_BG_TOKEN_UNIQUE");
+    expect(md).toContain("- **任务背景**：");
+  });
+
   it("renders dependency, checkpoints, and risks", () => {
     const md = buildPublishTaskNotifyMarkdown({
       taskNo: "N-1",

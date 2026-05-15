@@ -14,11 +14,16 @@ export type WorkbenchTaskStatus =
   | "DONE"
   | "REJECTED";
 
+/** 发布时写入 `tasks.description`（面向员工的任务整体背景），最大长度见 `TASK_DESCRIPTION_MAX_DB`。 */
+export const TASK_DESCRIPTION_MAX_DB = 2000;
+
 export interface WorkbenchTaskRow {
   taskId: string;
   taskNo: string;
   planId: string;
   title: string;
+  /** 任务整体背景（来自 draft.description 或 draft.summary） */
+  description?: string;
   status: WorkbenchTaskStatus;
   initiatorUserId: string;
   initiatorDepartment: string;
@@ -122,6 +127,30 @@ function ensureExtraJsonColumn(db: DatabaseSync): void {
   }
 }
 
+function ensureTaskDescriptionColumn(db: DatabaseSync): void {
+  const rows = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>;
+  if (!rows.some((r) => String(r.name ?? "") === "description")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN description TEXT");
+  }
+}
+
+function clipTaskDescriptionForDb(raw: string): string | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  return t.length > TASK_DESCRIPTION_MAX_DB ? t.slice(0, TASK_DESCRIPTION_MAX_DB) : t;
+}
+
+/** 从 `latestDraft` 取任务级背景：优先 `description`，否则 `summary`。 */
+export function extractTaskDescriptionFromLatestDraft(latestDraft: unknown): string | undefined {
+  const draft = asRecord(latestDraft);
+  if (!draft) return undefined;
+  const fromDesc = asString(draft.description);
+  if (fromDesc) return clipTaskDescriptionForDb(fromDesc);
+  const fromSummary = asString(draft.summary);
+  if (fromSummary) return clipTaskDescriptionForDb(fromSummary);
+  return undefined;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -200,6 +229,7 @@ export function createWorkbenchFormalTaskStore() {
   const dbPath = resolveDbPath();
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
+  db.exec("PRAGMA busy_timeout = 8000");
 
   db.exec(`
     PRAGMA journal_mode = WAL;
@@ -208,6 +238,7 @@ export function createWorkbenchFormalTaskStore() {
       task_no TEXT UNIQUE,
       plan_id TEXT NOT NULL UNIQUE,
       title TEXT NOT NULL,
+      description TEXT,
       status TEXT NOT NULL,
       initiator_user_id TEXT NOT NULL,
       initiator_department TEXT NOT NULL,
@@ -290,6 +321,7 @@ export function createWorkbenchFormalTaskStore() {
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_task_no ON tasks(task_no)");
 
   ensureExtraJsonColumn(db);
+  ensureTaskDescriptionColumn(db);
 
   const migratedAt = nowIso();
   db.prepare(
@@ -313,7 +345,7 @@ export function createWorkbenchFormalTaskStore() {
     ORDER BY t.updated_at DESC
   `);
   const qEmployeeSubtasks = db.prepare(
-    "SELECT s.*, t.task_no, t.plan_id, t.title AS task_title, t.manager_user_id, t.initiator_department FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.assignee_user_id = ? ORDER BY s.updated_at DESC",
+    "SELECT s.*, t.task_no, t.plan_id, t.title AS task_title, t.description AS task_description, t.manager_user_id, t.initiator_department FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.assignee_user_id = ? ORDER BY s.updated_at DESC",
   );
   const qAdminTasks = db.prepare(`
     SELECT
@@ -357,6 +389,7 @@ export function createWorkbenchFormalTaskStore() {
       taskNo: asString(row.task_no) || String(row.task_id ?? ""),
       planId: String(row.plan_id ?? ""),
       title: String(row.title ?? ""),
+      description: asString(row.description),
       status: normalizeStatus(String(row.status ?? "ASSIGNED")),
       initiatorUserId: String(row.initiator_user_id ?? ""),
       initiatorDepartment: String(row.initiator_department ?? ""),
@@ -494,15 +527,17 @@ export function createWorkbenchFormalTaskStore() {
       const taskNo = buildTaskNoForDate();
       const taskTitle = asString((input.session.latestDraft as Record<string, unknown> | undefined)?.title)
         || inferTitleFromSession(input.session);
+      const taskDescription = extractTaskDescriptionFromLatestDraft(input.session.latestDraft);
       runInTransaction(() => {
         db.prepare(
-          `INSERT INTO tasks(task_id, task_no, plan_id, title, status, initiator_user_id, initiator_department, manager_user_id, source_trace_id, published_at, created_at, updated_at)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO tasks(task_id, task_no, plan_id, title, description, status, initiator_user_id, initiator_department, manager_user_id, source_trace_id, published_at, created_at, updated_at)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         ).run(
           taskId,
           taskNo,
           planId,
           taskTitle,
+          taskDescription ?? null,
           "ASSIGNED",
           asString(input.session.senderStaffId) || input.managerUserId,
           input.initiatorDepartment || "未配置部门",
@@ -575,6 +610,7 @@ export function createWorkbenchFormalTaskStore() {
       WorkbenchSubtaskRow & {
         taskNo: string;
         taskTitle: string;
+        taskDescription?: string;
         managerUserId: string;
         initiatorDepartment: string;
       }
@@ -583,6 +619,7 @@ export function createWorkbenchFormalTaskStore() {
         ...mapSubtaskRow(row),
         taskNo: asString(row.task_no) || String(row.task_id ?? ""),
         taskTitle: String(row.task_title ?? ""),
+        taskDescription: asString(row.task_description),
         managerUserId: String(row.manager_user_id ?? ""),
         initiatorDepartment: String(row.initiator_department ?? ""),
       }));

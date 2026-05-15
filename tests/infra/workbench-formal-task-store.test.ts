@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import {
   createWorkbenchFormalTaskStore,
+  TASK_DESCRIPTION_MAX_DB,
 } from "../../src/infra/workbench-formal-task-store";
 import type { PlanSession } from "../../src/infra/plan-session-store";
 
@@ -342,5 +343,174 @@ describe("workbench-formal-task-store mapping", () => {
     };
     expect(row.c).toBe(0);
     verify.close();
+  });
+
+  it("persists task description from latestDraft and maps in getTaskDetail", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-desc",
+      planId: "plan-desc-1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "带背景",
+        description: "产线异常排查整体背景",
+        tasks: [{ id: "t1", title: "子1" }],
+      },
+      latestAssignment: { assignments: [{ taskId: "t1", primary: { userId: "emp-d1" } }] },
+    };
+    store.publishFromSession({
+      planId: "plan-desc-1",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质量部",
+      actorUserId: "manager-1",
+    });
+    const detail = store.getTaskDetail("plan-desc-1");
+    expect(detail?.task.description).toBe("产线异常排查整体背景");
+  });
+
+  it("maps task description from draft.summary when description absent", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-sum",
+      planId: "plan-sum-1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "仅摘要",
+        summary: "旧版 summary 作背景",
+        tasks: [{ id: "t1", title: "子1" }],
+      },
+      latestAssignment: { assignments: [{ taskId: "t1", primary: { userId: "emp-s1" } }] },
+    };
+    store.publishFromSession({
+      planId: "plan-sum-1",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质量部",
+      actorUserId: "manager-1",
+    });
+    expect(store.getTaskDetail("plan-sum-1")?.task.description).toBe("旧版 summary 作背景");
+  });
+
+  it("truncates task description over TASK_DESCRIPTION_MAX_DB", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const longDesc = "D".repeat(TASK_DESCRIPTION_MAX_DB + 80);
+    const session: PlanSession = {
+      chatKeyHash: "hash-long",
+      planId: "plan-long-1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "长背景",
+        description: longDesc,
+        tasks: [{ id: "t1", title: "子1" }],
+      },
+      latestAssignment: { assignments: [{ taskId: "t1", primary: { userId: "emp-l1" } }] },
+    };
+    store.publishFromSession({
+      planId: "plan-long-1",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质量部",
+      actorUserId: "manager-1",
+    });
+    const d = store.getTaskDetail("plan-long-1")?.task.description ?? "";
+    expect(d.length).toBe(TASK_DESCRIPTION_MAX_DB);
+  });
+
+  it("adds tasks.description via ALTER on legacy db missing column", () => {
+    const temp = mkdtempSync(join(tmpdir(), "formal-store-legacy-desc-"));
+    const legacyPath = join(temp, "legacy-no-desc.sqlite");
+    const raw = new DatabaseSync(legacyPath);
+    raw.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE tasks (
+        task_id TEXT PRIMARY KEY,
+        task_no TEXT UNIQUE,
+        plan_id TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        initiator_user_id TEXT NOT NULL,
+        initiator_department TEXT NOT NULL,
+        manager_user_id TEXT NOT NULL,
+        source_trace_id TEXT,
+        published_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE subtasks (
+        subtask_id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        source_task_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        objective TEXT,
+        deliverables TEXT,
+        completion_criteria TEXT,
+        due_at TEXT,
+        feedback_frequency TEXT,
+        assignee_user_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        progress_note TEXT,
+        extra_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(task_id, source_task_key)
+      );
+      CREATE TABLE IF NOT EXISTS task_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        subtask_id TEXT,
+        event_type TEXT NOT NULL,
+        actor_user_id TEXT NOT NULL,
+        note TEXT,
+        payload_json TEXT,
+        occurred_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS permission_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor_user_id TEXT NOT NULL,
+        target_user_id TEXT NOT NULL,
+        before_value INTEGER NOT NULL,
+        after_value INTEGER NOT NULL,
+        occurred_at TEXT NOT NULL,
+        payload_json TEXT
+      );
+      CREATE TABLE IF NOT EXISTS dingtalk_contacts (
+        user_id TEXT PRIMARY KEY,
+        union_id TEXT,
+        name TEXT NOT NULL,
+        department_ids_json TEXT NOT NULL DEFAULT '[]',
+        department_names_json TEXT NOT NULL DEFAULT '[]',
+        position TEXT,
+        job_number TEXT,
+        mobile_masked TEXT,
+        email_masked TEXT,
+        active INTEGER NOT NULL DEFAULT 1,
+        is_admin INTEGER NOT NULL DEFAULT 0,
+        is_boss INTEGER NOT NULL DEFAULT 0,
+        is_senior INTEGER NOT NULL DEFAULT 0,
+        raw_json TEXT,
+        last_synced_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+    `);
+    raw.close();
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", legacyPath);
+    createWorkbenchFormalTaskStore();
+    const cols = new DatabaseSync(legacyPath)
+      .prepare("PRAGMA table_info(tasks)")
+      .all() as Array<{ name: string }>;
+    expect(cols.some((c) => c.name === "description")).toBe(true);
   });
 });
