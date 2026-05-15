@@ -5,9 +5,9 @@ import {
 } from "../../../src/agent/demo/qwen-prompt";
 
 describe("buildQwenPlannerSystemPrompt", () => {
-  it("v4.1: first-round-question, second-round-draft prompt", () => {
+  it("v5.16: publish/draft/candidate-pool discipline prompt", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.15");
+    expect(sys).toContain("orchestrator-agent-v5.16");
     expect(sys).toContain("search_web");
     expect(sys).toContain("deliverables");
     expect(sys).toContain("待确认");
@@ -33,8 +33,17 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("inputMaterials");
     expect(sys).toContain("update_draft_task 纪律");
     expect(sys).toContain("整表替换");
-    // v5.15：extra v2 草案字段 + update_draft_task 数组/scope 纪律。
-    expect(sys.length).toBeLessThanOrEqual(7200);
+    // v5.16：纯 prompt 加强（发布话术 / 首轮截止 / 确认词 / 候选池 / draft 后果）。
+    expect(sys).toContain("禁止说已发布");
+    expect(sys).toContain("首轮必问截止");
+    expect(sys).toContain("期望完成时间/截止日期");
+    expect(sys).toContain("确认发布");
+    expect(sys).toContain("否定/暂停词");
+    expect(sys).toContain("等等");
+    expect(sys).toContain("候选池内");
+    expect(sys).toContain("禁止报「未找到」");
+    expect(sys).toContain("JSON 顶层 draft");
+    expect(sys.length).toBeLessThanOrEqual(8000);
     expect(sys).toContain("read_uploaded_roster_text");
     expect(sys).toContain("set_candidate_pool");
   });
@@ -43,7 +52,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
 describe("buildQwenPlannerSystemPrompt employee profile", () => {
   it("requires get_task_detail for overall task background questions", () => {
     const sys = buildQwenPlannerSystemPrompt("employee");
-    expect(sys).toContain("orchestrator-agent-v5.15-employee");
+    expect(sys).toContain("orchestrator-agent-v5.16-employee");
     expect(sys).toContain("任务整体背景纪律");
     expect(sys).toContain("get_task_detail");
   });
