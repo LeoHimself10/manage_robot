@@ -146,6 +146,10 @@ function resolveWorkbenchDdLoginBundlePath(): string {
   return join(assignmentWorkbenchDir, "..", "..", "dist", "workbench-dd-login.js");
 }
 
+function resolveWorkbenchMarkdownLiteBundlePath(): string {
+  return join(assignmentWorkbenchDir, "..", "..", "dist", "workbench-markdown-lite.js");
+}
+
 const planSessionStore = createPlanSessionStore();
 const employeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
 const qwenConfig = loadQwenPlannerConfigFromEnv();
@@ -1037,6 +1041,28 @@ export function handleAssignmentHttp(
       res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
       res.end(
         "// Workbench login bundle missing on server. Run: npm run build:workbench-login\n",
+      );
+      return true;
+    }
+    const body = readFileSync(bundlePath);
+    res.writeHead(200, {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    });
+    if (req.method === "HEAD") {
+      res.end();
+    } else {
+      res.end(body);
+    }
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/static/workbench-markdown-lite.js") {
+    const bundlePath = resolveWorkbenchMarkdownLiteBundlePath();
+    if (!existsSync(bundlePath)) {
+      res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end(
+        "// Workbench markdown bundle missing on server. Run: npm run build:workbench-login\n",
       );
       return true;
     }

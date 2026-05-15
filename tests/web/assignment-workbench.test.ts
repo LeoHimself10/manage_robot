@@ -199,6 +199,18 @@ describe("assignment-workbench HTTP handler", () => {
     expect(bodyStr).toContain("__wbTryDingTalkLogin");
   });
 
+  it("GET /static/workbench-markdown-lite.js serves markdown formatter bundle", () => {
+    const req = stubReq({ url: "/static/workbench-markdown-lite.js", method: "GET" });
+    const { res, captured } = stubRes();
+    expect(handleAssignmentHttp(req, res)).toBe(true);
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(String(c.headers["Content-Type"] ?? "")).toContain("javascript");
+    const bodyStr = typeof c.body === "string" ? c.body : Buffer.from(c.body as Uint8Array).toString("utf8");
+    expect(bodyStr.length).toBeGreaterThan(200);
+    expect(bodyStr).toContain("formatWorkbenchAssistantHtml");
+  });
+
   it("GET /workbench login page loads dingtalk-jsapi bundle", () => {
     const req = stubReq({ url: "/workbench", method: "GET" });
     const { res, captured } = stubRes();

@@ -493,8 +493,33 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  align-items: center;
+  align-items: flex-start;
   flex-wrap: wrap;
+}
+#currentPlanHint {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.current-plan-hint--preview {
+  color: var(--text);
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: #fafbfc;
+}
+.current-plan-hint-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.current-plan-hint-md {
+  font-size: 13px;
 }
 .chat-mobile-sheet[hidden] { display: none; }
 html.sheet-open,

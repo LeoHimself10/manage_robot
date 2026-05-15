@@ -18,7 +18,7 @@
     "eval:agent": "tsx scripts/run-agent-eval.ts",
     "dingtalk-bot": "tsx src/dingtalk-bot.ts",
     "seed:employees": "tsx scripts/seed-employee-profiles.ts",
-    "build:workbench-login": "esbuild src/web/workbench-dd-login-entry.ts --bundle --platform=browser --format=iife --legal-comments=none --outfile=dist/workbench-dd-login.js"
+    "build:workbench-login": "esbuild src/web/workbench-dd-login-entry.ts --bundle --platform=browser --format=iife --legal-comments=none --outfile=dist/workbench-dd-login.js && esbuild src/web/workbench-markdown-lite-iife-entry.ts --bundle --platform=browser --format=iife --legal-comments=none --outfile=dist/workbench-markdown-lite.js"
   },
   "devDependencies": {
     "@types/busboy": "^1.5.4",

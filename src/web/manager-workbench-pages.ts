@@ -605,7 +605,7 @@ export function renderManagerChatPage(params: {
             <span class="muted" id="rosterStatus">支持 .md / .txt / .docx / .pdf，单文件 ≤ 2 MB；上传后下一条消息助手会读取并核对</span>
           </div>
           <div class="chat-composer-actions">
-            <span class="muted" id="currentPlanHint">请先选择会话后再发送</span>
+            <div class="muted" id="currentPlanHint">请先选择会话后再发送</div>
             <button type="button" class="btn btn-primary" id="sendBtn">发送</button>
           </div>
           <div class="feedback muted" id="sendFeedback"></div>
@@ -625,6 +625,7 @@ export function renderManagerChatPage(params: {
   </div>
 </div>
 
+<script src="/static/workbench-markdown-lite.js"></script>
 <script>
 (function () {
   var activePlanId = ${JSON.stringify(params.planId ?? "")};
@@ -672,7 +673,25 @@ export function renderManagerChatPage(params: {
     var hint = document.getElementById('currentPlanHint');
     var meta = threadMetaByPlan[planId];
     if (label) label.textContent = (meta && meta.title) ? meta.title : (planId ? '（未命名会话）' : '未选择');
-    if (hint) hint.textContent = meta && meta.preview ? ('最近一条：' + meta.preview) : (planId ? '将向当前会话发送' : '请先选择会话后再发送');
+    if (hint) {
+      if (meta && meta.preview) {
+        var prev = String(meta.preview || '').trim();
+        var cap = 1200;
+        if (prev.length > cap) prev = prev.slice(0, cap) + '…';
+        var fmt = typeof globalThis !== 'undefined' && globalThis.formatWorkbenchAssistantHtml;
+        if (typeof fmt === 'function') {
+          hint.className = 'current-plan-hint current-plan-hint--preview';
+          hint.innerHTML = '<span class="current-plan-hint-label">最近一条</span>'
+            + '<div class="msg-body msg-body--assistant current-plan-hint-md">' + fmt(prev) + '</div>';
+        } else {
+          hint.className = 'muted';
+          hint.textContent = '最近一条：' + prev;
+        }
+      } else {
+        hint.className = 'muted';
+        hint.textContent = planId ? '将向当前会话发送' : '请先选择会话后再发送';
+      }
+    }
   }
   function bindThreadClicks() {
     document.querySelectorAll('.thread-list li[data-plan-id]').forEach(function (li) {
