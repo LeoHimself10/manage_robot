@@ -8,9 +8,14 @@ interface AccessTokenResp {
 export type PublishNotifySubtask = {
   title: string;
   extra?: {
+    v?: 1 | 2;
     dependsOn?: string[];
     checkpoints?: string[];
     risks?: string[];
+    inputMaterials?: string[];
+    actions?: string[];
+    collaborators?: string[];
+    scope?: { inScope?: string[]; outOfScope?: string[] };
   };
 };
 
@@ -386,6 +391,20 @@ export function buildPublishTaskNotifyMarkdown(params: {
   for (const st of subtasks) {
     lines.push("", `#### 子任务：${st.title}`);
     const ex = st.extra;
+    const im = formatPlainListLine("输入材料", ex?.inputMaterials);
+    if (im) lines.push(im);
+    const act = formatPlainListLine("执行动作", ex?.actions);
+    if (act) lines.push(act);
+    const col = formatPlainListLine("协作人", ex?.collaborators);
+    if (col) lines.push(col);
+    if (ex?.scope?.inScope?.length) {
+      const sc = formatPlainListLine("范围内", ex.scope.inScope);
+      if (sc) lines.push(sc);
+    }
+    if (ex?.scope?.outOfScope?.length) {
+      const so = formatPlainListLine("范围外", ex.scope.outOfScope);
+      if (so) lines.push(so);
+    }
     const dep = formatListLine("前置依赖", ex?.dependsOn, titleMap);
     if (dep) lines.push(dep);
     const cp = formatPlainListLine("检查点", ex?.checkpoints);

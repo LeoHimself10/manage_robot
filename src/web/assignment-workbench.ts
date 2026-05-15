@@ -803,7 +803,7 @@ window.__WB_CONFIGURED_CORP_ID = ${JSON.stringify(corpId)};
 </html>`;
 }
 
-function renderTaskDetailPage(params: {
+export function renderTaskDetailPage(params: {
   roleLabel: "admin" | "manager" | "employee";
   backPath: string;
 }): string {
@@ -868,6 +868,40 @@ function renderTaskDetailPage(params: {
       return sid;
     }).join('；');
   }
+  /** 子任务详情 dl 行（主管/管理员与员工「我的子任务」共用；数据来自 extra_json 解析后的 s.extra） */
+  function subtaskDetailDtDds(s, subs) {
+    var parts = [];
+    if (s.objective) parts.push('<dt>目标</dt><dd>'+esc(s.objective)+'</dd>');
+    if (s.deliverables) parts.push('<dt>交付物</dt><dd>'+esc(s.deliverables)+'</dd>');
+    if (s.completionCriteria) parts.push('<dt>完成标准</dt><dd>'+esc(s.completionCriteria)+'</dd>');
+    if (s.dueAt) parts.push('<dt>截止</dt><dd>'+esc(String(s.dueAt).slice(0,10))+'</dd>');
+    if (s.feedbackFrequency) parts.push('<dt>反馈频率</dt><dd>'+esc(s.feedbackFrequency)+'</dd>');
+    var ex = s.extra || {};
+    if (ex.inputMaterials && ex.inputMaterials.length) {
+      parts.push('<dt>输入材料</dt><dd>'+esc(ex.inputMaterials.join('；'))+'</dd>');
+    }
+    if (ex.actions && ex.actions.length) {
+      parts.push('<dt>执行动作</dt><dd>'+esc(ex.actions.join('；'))+'</dd>');
+    }
+    if (ex.collaborators && ex.collaborators.length) {
+      parts.push('<dt>协作人</dt><dd>'+esc(ex.collaborators.join('；'))+'</dd>');
+    }
+    if (ex.scope && (ex.scope.inScope && ex.scope.inScope.length || ex.scope.outOfScope && ex.scope.outOfScope.length)) {
+      var sc = ex.scope;
+      if (sc.inScope && sc.inScope.length) parts.push('<dt>范围内</dt><dd>'+esc(sc.inScope.join('；'))+'</dd>');
+      if (sc.outOfScope && sc.outOfScope.length) parts.push('<dt>范围外</dt><dd>'+esc(sc.outOfScope.join('；'))+'</dd>');
+    }
+    if (ex.dependsOn && ex.dependsOn.length) {
+      parts.push('<dt>前置依赖</dt><dd>'+esc(depTitles(subs, ex.dependsOn))+'</dd>');
+    }
+    if (ex.checkpoints && ex.checkpoints.length) {
+      parts.push('<dt>检查点</dt><dd>'+esc(ex.checkpoints.join('；'))+'</dd>');
+    }
+    if (ex.risks && ex.risks.length) {
+      parts.push('<dt>风险与待澄清</dt><dd>'+esc(ex.risks.join('；'))+'</dd>');
+    }
+    return parts.join('');
+  }
   async function load(){
     var taskNo = new URLSearchParams(location.search).get('taskNo') || '';
     if(!taskNo){ document.getElementById('taskMount').textContent='缺少 taskNo 参数'; return; }
@@ -900,20 +934,7 @@ function renderTaskDetailPage(params: {
         mine.forEach(function (s) {
           var cardCls = 'subtask-detail-card' + (String(s.status||'') === 'REJECTED' ? ' is-rejected-sub' : '');
           parts.push('<div class="'+cardCls+'"><h4 style="margin:0 0 8px;font-size:16px;">'+esc(s.title||'—')+'</h4><dl class="subtask-detail-dl">');
-          if (s.objective) parts.push('<dt>目标</dt><dd>'+esc(s.objective)+'</dd>');
-          if (s.deliverables) parts.push('<dt>交付物</dt><dd>'+esc(s.deliverables)+'</dd>');
-          if (s.completionCriteria) parts.push('<dt>完成标准</dt><dd>'+esc(s.completionCriteria)+'</dd>');
-          if (s.dueAt) parts.push('<dt>截止</dt><dd>'+esc(String(s.dueAt).slice(0,10))+'</dd>');
-          if (s.feedbackFrequency) parts.push('<dt>反馈频率</dt><dd>'+esc(s.feedbackFrequency)+'</dd>');
-          if (s.extra && s.extra.dependsOn && s.extra.dependsOn.length) {
-            parts.push('<dt>前置依赖</dt><dd>'+esc(depTitles(subs, s.extra.dependsOn))+'</dd>');
-          }
-          if (s.extra && s.extra.checkpoints && s.extra.checkpoints.length) {
-            parts.push('<dt>检查点</dt><dd>'+esc(s.extra.checkpoints.join('；'))+'</dd>');
-          }
-          if (s.extra && s.extra.risks && s.extra.risks.length) {
-            parts.push('<dt>风险与待澄清</dt><dd>'+esc(s.extra.risks.join('；'))+'</dd>');
-          }
+          parts.push(subtaskDetailDtDds(s, subs));
           parts.push('</dl>');
           if (String(s.status||'') === 'REJECTED') {
             parts.push('<p class="muted subtask-rejected-hint" style="margin:10px 0 0;font-size:13px;">您已拒绝该子任务；主管已收到通知，请等待主管改派或确认。</p>');
@@ -936,7 +957,7 @@ function renderTaskDetailPage(params: {
       if (!parts.length) document.getElementById('subtasksMount').textContent='暂无子任务';
       else document.getElementById('subtasksMount').innerHTML = parts.join('');
     } else {
-      document.getElementById('subtasksMount').innerHTML =
+      var tableHtml =
       '<div class="table-wrap"><table class="data"><thead><tr><th>#</th><th>子任务</th><th>负责人</th><th>状态</th><th style="width:30%">进度</th><th>更新时间</th></tr></thead><tbody>'
       +subs.map(function(s){
         var bc = subBadgeClass(s.status);
@@ -949,6 +970,18 @@ function renderTaskDetailPage(params: {
           +'<td>'+fmtTime(s.updatedAt)+'</td></tr>';
       }).join('')
       +'</tbody></table></div>';
+      var cardsHtml = '<h4 class="subs-section-h" style="margin-top:18px;">子任务详情</h4>'
+        + subs.map(function (s) {
+          var bc = subBadgeClass(s.status);
+          var who = esc(s.assigneeDisplayName || s.assigneeUserId || '—');
+          var st = esc(s.statusLabel || s.status || '—');
+          return '<div class="subtask-detail-card"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">'
+            +'<h4 style="margin:0;font-size:16px;flex:1 1 200px;">'+esc(s.title||'—')+'</h4>'
+            +'<span class="badge '+bc+'">'+st+'</span>'
+            +'<span class="muted" style="font-size:13px;">负责人 '+who+'</span></div>'
+            +'<dl class="subtask-detail-dl">'+subtaskDetailDtDds(s, subs)+'</dl></div>';
+        }).join('');
+      document.getElementById('subtasksMount').innerHTML = tableHtml + cardsHtml;
     }
     var events = data.events || [];
     if(!events.length){ document.getElementById('eventsMount').textContent='暂无事件';}

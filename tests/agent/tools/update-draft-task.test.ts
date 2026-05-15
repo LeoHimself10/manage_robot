@@ -131,4 +131,69 @@ describe("update_draft_task tool", () => {
     expect(assignments[0].taskId).toBe("task_1");
     expect(assignments[0].primary.userId).toBe("641000001");
   });
+
+  it("updates dependencyTaskIds checkpoints and risks (replace arrays)", () => {
+    const session = makeSessionWithDraft();
+    const handler = buildUpdateDraftTaskHandler({ currentSession: session });
+    const r = handler({
+      subtaskId: "task_1",
+      patch: {
+        dependencyTaskIds: ["task_2"],
+        checkpoints: ["M0"],
+        risks: ["缺样"],
+      },
+    }) as any;
+    expect(r.ok).toBe(true);
+    expect(r.updatedFields).toEqual(expect.arrayContaining(["dependencyTaskIds", "checkpoints", "risksAndOpenQuestions"]));
+    const t = (session.latestDraft as any).tasks[0];
+    expect(t.dependencyTaskIds).toEqual(["task_2"]);
+    expect(t.timeNode.checkpoints).toEqual(["M0"]);
+    expect(t.risksAndOpenQuestions).toEqual(["缺样"]);
+  });
+
+  it("updates inputMaterials actions collaborators", () => {
+    const session = makeSessionWithDraft();
+    const handler = buildUpdateDraftTaskHandler({ currentSession: session });
+    const r = handler({
+      subtaskId: "task_1",
+      patch: {
+        inputMaterials: ["图纸"],
+        actions: ["分析"],
+        collaborators: ["李四"],
+      },
+    }) as any;
+    expect(r.ok).toBe(true);
+    const t = (session.latestDraft as any).tasks[0];
+    expect(t.inputMaterials).toEqual(["图纸"]);
+    expect(t.actions).toEqual(["分析"]);
+    expect(t.collaborators).toEqual(["李四"]);
+  });
+
+  it("merges scope partially when only outOfScope provided", () => {
+    const session = makeSessionWithDraft();
+    (session.latestDraft as any).tasks[0].scope = { inScope: ["A"], outOfScope: ["旧"] };
+    const handler = buildUpdateDraftTaskHandler({ currentSession: session });
+    const r = handler({
+      subtaskId: "task_1",
+      patch: { scope: { outOfScope: ["不做包装"] } },
+    }) as any;
+    expect(r.ok).toBe(true);
+    const t = (session.latestDraft as any).tasks[0];
+    expect(t.scope.inScope).toEqual(["A"]);
+    expect(t.scope.outOfScope).toEqual(["不做包装"]);
+  });
+
+  it("replaces scope inScope when provided", () => {
+    const session = makeSessionWithDraft();
+    (session.latestDraft as any).tasks[0].scope = { inScope: ["A"], outOfScope: ["B"] };
+    const handler = buildUpdateDraftTaskHandler({ currentSession: session });
+    const r = handler({
+      subtaskId: "task_1",
+      patch: { scope: { inScope: ["X"] } },
+    }) as any;
+    expect(r.ok).toBe(true);
+    const t = (session.latestDraft as any).tasks[0];
+    expect(t.scope.inScope).toEqual(["X"]);
+    expect(t.scope.outOfScope).toEqual(["B"]);
+  });
 });

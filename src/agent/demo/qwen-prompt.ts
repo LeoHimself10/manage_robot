@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.14";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.15";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -31,7 +31,8 @@ function buildPlannerPromptBody(): string[] {
     "对话策略：若本轮语义是寒暄或新话题，应先确认新需求；仅在用户明确“继续上一条/按上个草案修改”时延续旧话题。",
     "拆解粒度：draft.tasks 条数随案情复杂度伸缩，不设固定上限；简单单线可少量任务包，跨角色、多阶段、强依赖或验证链长时应细拆到每条可独立承接与验收，复杂案允许几十条；禁止为凑数重复堆砌，禁止为过短清单把多个独立动作硬合并成一条空泛大包。",
     "输出规则：关键信息不足时只给简短分析 + 追问；信息充分时给单张任务表；分配依据不足时明确“分配待确认”。tasks 很多时 message 内 Markdown 表可用摘要列（id/title/due/depends），勿在表内全量重复 deliverables 长文；**完整可解析结构以 JSON 顶层 draft 为准**，表与 draft 不得矛盾。",
-    "task 字段要求：title、objective、deliverables、completionCriteria、timeNode.dueAt、feedbackFrequency 必须完整（日期不明写“待确认”）。**dependencyTaskIds**：存在先后约束时必须引用已有 task_x id，禁止循环依赖；无前置依赖则 [] 表示可并行。**timeNode.checkpoints**：长周期/多阶段包鼓励填关键检查点（string[]），与 dueAt 配合。**completionCriteria**：须为可核对条件，禁止仅写「完成分析」类空话。**risksAndOpenQuestions**：写对负责人有指导意义、措辞中性的风险/开放项；**禁止**人身评价或内部敏感判断（该字段可能随正式任务下发给员工）。",
+    "task 字段要求：title、objective、deliverables、completionCriteria、timeNode.dueAt、feedbackFrequency 必须完整（日期不明写“待确认”）。**dependencyTaskIds**：存在先后约束时必须引用已有 task_x id，禁止循环依赖；无前置依赖则 [] 表示可并行。**timeNode.checkpoints**：长周期/多阶段包鼓励填关键检查点（string[]），与 dueAt 配合。**completionCriteria**：须为可核对条件，禁止仅写「完成分析」类空话。**risksAndOpenQuestions**：写对负责人有指导意义、措辞中性的风险/开放项；**禁止**人身评价或内部敏感判断（该字段可能随正式任务下发给员工）。**inputMaterials**（开工前须具备的材料/样品/权限）、**actions**（阶段或步骤级执行动作）、**collaborators**（协作/评审角色）：均为 string[]，**强烈建议**输出（无则 []）。**scope**（范围边界）：研发类任务**强烈建议**输出 `{ inScope: string[], outOfScope: string[] }`，明确做什么与不做什么。",
+    "**update_draft_task 纪律**：用于单条子任务局部修改。数组类 patch（dependencyTaskIds、checkpoints、risks、inputMaterials、actions、collaborators）为**整表替换**：提交前须基于当前 `latestDraft.tasks[]` 自行合并成完整数组再调用，禁止只传「新增的一条」导致其余项被清空。**scope** 例外：可只传 `{ inScope }` 或只传 `{ outOfScope }` 一侧，未传的侧保留会话内原值。",
     "工具速查：search_web / search_employees / get_employee_details / search_similar_plans / start_new_task / switch_back_task / update_draft_task；主管：list_managed_tasks / get_task_detail / reassign_task / prepare_publish_task / publish_task / read_uploaded_roster_text / set_candidate_pool / clear_candidate_pool / list_candidate_pool；员工：list_my_tasks / get_task_detail / get_my_profile / submit_employee_response / submit_progress_update；管理员：admin_list_all_tasks / get_metrics / list_managers / set_manager_permission。",
     "返回 JSON 约定：必须返回 message；信息充分时必须在 JSON 顶层 draft 字段返回完整草案（schema 同 save_draft 入参）；可选返回 assignment：",
     '{"assignment":{"assignments":[{"taskId":"task_1","primary":{"userId":"emp_xxx","displayName":"张三","rationale":"匹配理由"},"confidence":"HIGH"}]}}',

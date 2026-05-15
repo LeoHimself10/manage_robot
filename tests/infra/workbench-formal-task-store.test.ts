@@ -120,6 +120,53 @@ describe("workbench-formal-task-store mapping", () => {
     expect(detail?.subtasks.find((s) => s.sourceTaskKey === "task_2")?.extra).toEqual(t2?.extra);
   });
 
+  it("persists extra_json v2 when inputMaterials or scope present", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-v2",
+      planId: "plan-v2-1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "研发验证",
+        tasks: [
+          {
+            id: "task_1",
+            title: "子任务",
+            dependencyTaskIds: [],
+            timeNode: { dueAt: "2026-06-01", checkpoints: [] },
+            risksAndOpenQuestions: [],
+            inputMaterials: ["需求文档"],
+            actions: ["跑用例"],
+            collaborators: ["测试"],
+            scope: { inScope: ["功能 A"], outOfScope: ["不做性能"] },
+          },
+        ],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "task_1", primary: { userId: "emp-v2" } }],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-v2-1",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "研发部",
+      actorUserId: "manager-1",
+    });
+    const s1 = published.subtasks.find((x) => x.sourceTaskKey === "task_1");
+    expect(s1?.extra).toMatchObject({
+      v: 2,
+      inputMaterials: ["需求文档"],
+      actions: ["跑用例"],
+      collaborators: ["测试"],
+      scope: { inScope: ["功能 A"], outOfScope: ["不做性能"] },
+    });
+  });
+
   it("tolerates invalid extra_json when loading subtasks", () => {
     const store = createWorkbenchFormalTaskStore();
     const session: PlanSession = {

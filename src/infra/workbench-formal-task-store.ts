@@ -34,12 +34,21 @@ export interface WorkbenchTaskRow {
   updatedAt: string;
 }
 
-/** 发布时写入 `subtasks.extra_json`，供详情与钉钉通知展示（v1 契约）。 */
+/** 发布时写入 `subtasks.extra_json`（v1：依赖/检查点/风险；v2 追加输入材料/动作/协作人/范围）。 */
+export type WorkbenchSubtaskExtraScope = {
+  inScope: string[];
+  outOfScope: string[];
+};
+
 export type WorkbenchSubtaskExtra = {
-  v: 1;
+  v: 1 | 2;
   dependsOn?: string[];
   checkpoints?: string[];
   risks?: string[];
+  inputMaterials?: string[];
+  actions?: string[];
+  collaborators?: string[];
+  scope?: WorkbenchSubtaskExtraScope;
 };
 
 export interface WorkbenchSubtaskRow {
@@ -81,18 +90,44 @@ function normalizeExtraStringList(input: unknown): string[] {
   return out;
 }
 
-/** 发布时从草案单条 task 序列化 `extra_json`；三键皆空则返回 null。 */
+function parseScopeFromDraft(scopeRaw: unknown): WorkbenchSubtaskExtraScope | undefined {
+  if (!scopeRaw || typeof scopeRaw !== "object" || Array.isArray(scopeRaw)) return undefined;
+  const rec = scopeRaw as Record<string, unknown>;
+  const inScope = normalizeExtraStringList(rec.inScope);
+  const outOfScope = normalizeExtraStringList(rec.outOfScope);
+  if (!inScope.length && !outOfScope.length) return undefined;
+  return { inScope, outOfScope };
+}
+
+/** 发布时从草案单条 task 序列化 `extra_json`；全部为空则返回 null。 */
 export function serializeSubtaskExtraFromDraftTask(draftTask: Record<string, unknown>): string | null {
   const depsRaw = draftTask.dependencyTaskIds ?? draftTask.dependencies;
   const dependsOn = normalizeExtraStringList(depsRaw);
   const timeNode = draftTask.timeNode as Record<string, unknown> | undefined;
   const checkpoints = normalizeExtraStringList(timeNode?.checkpoints);
   const risks = normalizeExtraStringList(draftTask.risksAndOpenQuestions);
-  if (dependsOn.length === 0 && checkpoints.length === 0 && risks.length === 0) return null;
-  const obj: Record<string, unknown> = { v: 1 };
+  const inputMaterials = normalizeExtraStringList(draftTask.inputMaterials);
+  const actions = normalizeExtraStringList(draftTask.actions);
+  const collaborators = normalizeExtraStringList(draftTask.collaborators);
+  const scope = parseScopeFromDraft(draftTask.scope);
+
+  const hasV1 = dependsOn.length > 0 || checkpoints.length > 0 || risks.length > 0;
+  const hasV2 =
+    inputMaterials.length > 0
+    || actions.length > 0
+    || collaborators.length > 0
+    || scope !== undefined;
+  if (!hasV1 && !hasV2) return null;
+
+  const version: 1 | 2 = hasV2 ? 2 : 1;
+  const obj: Record<string, unknown> = { v: version };
   if (dependsOn.length) obj.dependsOn = dependsOn;
   if (checkpoints.length) obj.checkpoints = checkpoints;
   if (risks.length) obj.risks = risks;
+  if (inputMaterials.length) obj.inputMaterials = inputMaterials;
+  if (actions.length) obj.actions = actions;
+  if (collaborators.length) obj.collaborators = collaborators;
+  if (scope) obj.scope = scope;
   return JSON.stringify(obj);
 }
 
@@ -112,11 +147,41 @@ function parseSubtaskExtraJson(raw: unknown): WorkbenchSubtaskExtra | undefined 
   const dependsOn = normalizeExtraStringList(o.dependsOn ?? o.dependencyTaskIds);
   const checkpoints = normalizeExtraStringList(o.checkpoints);
   const risks = normalizeExtraStringList(o.risks);
-  if (dependsOn.length === 0 && checkpoints.length === 0 && risks.length === 0) return undefined;
-  const out: WorkbenchSubtaskExtra = { v: 1 };
+  const inputMaterials = normalizeExtraStringList(o.inputMaterials);
+  const actions = normalizeExtraStringList(o.actions);
+  const collaborators = normalizeExtraStringList(o.collaborators);
+  const scope = parseScopeFromDraft(o.scope);
+
+  if (
+    !dependsOn.length
+    && !checkpoints.length
+    && !risks.length
+    && !inputMaterials.length
+    && !actions.length
+    && !collaborators.length
+    && !scope
+  ) {
+    return undefined;
+  }
+
+  const versionRaw = o.v;
+  const version: 1 | 2 =
+    versionRaw === 2
+    || inputMaterials.length
+    || actions.length
+    || collaborators.length
+    || scope !== undefined
+      ? 2
+      : 1;
+
+  const out: WorkbenchSubtaskExtra = { v: version };
   if (dependsOn.length) out.dependsOn = dependsOn;
   if (checkpoints.length) out.checkpoints = checkpoints;
   if (risks.length) out.risks = risks;
+  if (inputMaterials.length) out.inputMaterials = inputMaterials;
+  if (actions.length) out.actions = actions;
+  if (collaborators.length) out.collaborators = collaborators;
+  if (scope) out.scope = scope;
   return out;
 }
 

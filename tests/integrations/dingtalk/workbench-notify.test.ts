@@ -423,6 +423,43 @@ describe("buildPublishTaskNotifyMarkdown", () => {
     expect(md).toContain("r1");
   });
 
+  it("renders v2 extra fields inputMaterials actions collaborators scope", () => {
+    const md = buildPublishTaskNotifyMarkdown({
+      taskNo: "N-v2",
+      title: "主任务",
+      managerUserId: "mgr",
+      assignee: {
+        userId: "u1",
+        subtasks: [
+          {
+            title: "子V2",
+            extra: {
+              v: 2,
+              inputMaterials: ["图纸 v2"],
+              actions: ["复测"],
+              collaborators: ["质量"],
+              scope: { inScope: ["A"], outOfScope: ["不做包装"] },
+              dependsOn: ["task_1"],
+              checkpoints: ["c1"],
+              risks: ["r1"],
+            },
+          },
+        ],
+      },
+      subtaskTitleBySourceKey: { task_1: "前置子" },
+    });
+    expect(md).toContain("输入材料");
+    expect(md).toContain("图纸 v2");
+    expect(md).toContain("执行动作");
+    expect(md).toContain("复测");
+    expect(md).toContain("协作人");
+    expect(md).toContain("质量");
+    expect(md).toContain("范围内");
+    expect(md).toContain("A");
+    expect(md).toContain("范围外");
+    expect(md).toContain("不做包装");
+  });
+
   it("omits empty extra sections", () => {
     const md = buildPublishTaskNotifyMarkdown({
       taskNo: "N-2",
