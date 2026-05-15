@@ -197,6 +197,11 @@ export function startNewTaskScope(
   session.latestDraft = undefined;
   session.latestAssignment = undefined;
   session.knownFacts = [];
+  // 候选池与 pendingRoster 都按 plan 维度生效（"本 plan 指派只能在池内"），
+  // 开新 scope = 开新 plan，必须一并清，否则下一条新任务会被旧名单"粘"上。
+  session.candidatePool = undefined;
+  session.pendingRosterText = undefined;
+  session.pendingRosterSource = undefined;
   appendScopeAudit(session, {
     at: now,
     eventType: "SCOPE_CREATED",
@@ -306,6 +311,12 @@ export function restoreTaskScope(
   session.latestDraft = target.latestDraft;
   session.latestAssignment = target.latestAssignment;
   session.knownFacts = [...(target.knownFacts ?? [])];
+  // candidatePool / pendingRoster 当前只在顶层、按 plan 维度生效，scope 归档没存。
+  // 切回旧 scope 时必须清掉，否则上一份名单会泄漏到回切后的 plan 里。
+  // 用户若需要继续用旧名单，可以重新上传或主管手动重选。
+  session.candidatePool = undefined;
+  session.pendingRosterText = undefined;
+  session.pendingRosterSource = undefined;
 
   const now = new Date().toISOString();
   appendScopeAudit(session, {

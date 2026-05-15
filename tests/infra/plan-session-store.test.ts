@@ -251,12 +251,26 @@ describe("plan-session-store", () => {
         },
       },
     };
+    // Pre-populate per-plan state that must NOT leak across publish-and-rotate.
+    session.candidatePool = {
+      source: "uploaded:roster",
+      uploadedAt: now,
+      entries: [{ name: "张三", userId: "111" }],
+      unresolved: [],
+    } as never;
+    session.pendingRosterText = "stale roster";
+    session.pendingRosterSource = "uploaded:roster.md";
     const r = markPublishedAndRotatePlanSession(session, { taskNo: "T-001" });
     expect("skipped" in r).toBe(false);
     const ok = r as { fromPlanId: string; toPlanId: string; toScopeId: string };
     expect(ok.fromPlanId).toBe("p-old");
     expect(ok.toPlanId).toBe(session.planId);
     expect(ok.toPlanId).not.toBe("p-old");
+    // Must clear per-plan candidate pool & pending roster, otherwise the next
+    // brand-new task would still inherit the previous roster (very confusing UX).
+    expect(session.candidatePool).toBeUndefined();
+    expect(session.pendingRosterText).toBeUndefined();
+    expect(session.pendingRosterSource).toBeUndefined();
     const archived = session.taskScopes?.["scope:a"];
     expect(archived?.publishedTaskNo).toBe("T-001");
     expect(archived?.planId).toBe("p-old");
