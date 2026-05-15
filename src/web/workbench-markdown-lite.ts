@@ -55,36 +55,36 @@ function formatNonCodeSegment(text: string): string {
   // Links [label](url) — left-to-right, non-nested
   let out = "";
   let i = 0;
-  while (i < t.length) {
-    const open = t.indexOf("[", i);
+  while (i < text.length) {
+    const open = text.indexOf("[", i);
     if (open === -1) {
-      out += applyBoldItalic(t.slice(i));
+      out += applyBoldItalic(text.slice(i));
       break;
     }
-    out += applyBoldItalic(t.slice(i, open));
-    const closeBracket = t.indexOf("]", open + 1);
+    out += applyBoldItalic(text.slice(i, open));
+    const closeBracket = text.indexOf("]", open + 1);
     if (closeBracket === -1) {
-      out += applyBoldItalic(t.slice(open));
+      out += applyBoldItalic(text.slice(open));
       break;
     }
-    if (t[closeBracket + 1] !== "(") {
-      out += applyBoldItalic(t.slice(open, open + 1));
+    if (text[closeBracket + 1] !== "(") {
+      out += applyBoldItalic(text.slice(open, open + 1));
       i = open + 1;
       continue;
     }
-    const closeParen = t.indexOf(")", closeBracket + 2);
+    const closeParen = text.indexOf(")", closeBracket + 2);
     if (closeParen === -1) {
-      out += applyBoldItalic(t.slice(open));
+      out += applyBoldItalic(text.slice(open));
       break;
     }
-    const label = t.slice(open + 1, closeBracket);
-    const urlRaw = t.slice(closeBracket + 2, closeParen);
+    const label = text.slice(open + 1, closeBracket);
+    const urlRaw = text.slice(closeBracket + 2, closeParen);
     const safe = sanitizeHref(urlRaw);
     if (safe) {
       out += `<a class="msg-md-a" href="${escapeAttr(safe)}" rel="noopener noreferrer">${applyBoldItalic(label)}</a>`;
       i = closeParen + 1;
     } else {
-      out += applyBoldItalic(t.slice(open, closeParen + 1));
+      out += applyBoldItalic(text.slice(open, closeParen + 1));
       i = closeParen + 1;
     }
   }
