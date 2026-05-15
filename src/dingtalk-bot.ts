@@ -969,6 +969,11 @@ async function main(): Promise<void> {
           outboundMarkdown += rotatePlanHintTail;
         }
         const finalOutboundForHistory = outboundMarkdown + assignmentSection;
+        // history 中只保留模型原话（不含本轮 bot 渲染的「任务补充信息」/ 结构化任务表 / 分配建议段），
+        // 否则下一轮模型读 conversationHistory 会把上一轮的 latestDraft.description 等内容
+        // 一字不漏地「复读」到新回复里造成跨任务串台（即用户看到的污染）。
+        const pureAssistantMessageForHistory = orchResult.messages.join("\n\n").trim() ||
+          "（已收到）";
         const sendReplyStartedAt = Date.now();
         dingtalkResponse = await sendMarkdownReply({
           client,
@@ -1005,7 +1010,7 @@ async function main(): Promise<void> {
         const nextConversationHistory = [
           ...session.conversationHistory,
           { role: "user" as const, content: background },
-          { role: "assistant" as const, content: finalOutboundForHistory },
+          { role: "assistant" as const, content: pureAssistantMessageForHistory },
         ].slice(-10);
         if (!isAnonymousSender) {
           planSessionStore.save({
@@ -1029,7 +1034,7 @@ async function main(): Promise<void> {
           appendMemoryEvents({
             planId: memoryPlanId,
             userMessage: background,
-            assistantMessage: finalOutboundForHistory,
+            assistantMessage: pureAssistantMessageForHistory,
             latestDraft: currentDraft,
             latestAssignment,
             traceId: orchResult.traceId,
