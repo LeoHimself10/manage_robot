@@ -244,12 +244,26 @@ function resolveNotifyBaseUrl(): string {
   );
 }
 
+export type ResolveManagerTaskDetailUrlOpts = {
+  subtaskId?: string;
+  focus?: string;
+};
+
 /** 主管任务详情页公网 URL（用于员工动作反向通知中的链接）。 */
-export function resolveManagerTaskDetailUrl(taskNo: string): string | undefined {
+export function resolveManagerTaskDetailUrl(
+  taskNo: string,
+  opts?: ResolveManagerTaskDetailUrlOpts,
+): string | undefined {
   const base = env("WORKBENCH_NOTIFY_MANAGER_DETAIL_URL_BASE") || env("ASSIGNMENT_WEB_PUBLIC_BASE_URL");
   if (!base) return undefined;
   const u = base.replace(/\/+$/, "");
-  return `${u}/workbench/manager/task?taskNo=${encodeURIComponent(taskNo)}`;
+  const url = new URL(`${u}/workbench/manager/task`);
+  url.searchParams.set("taskNo", taskNo);
+  const sid = String(opts?.subtaskId ?? "").trim();
+  if (sid) url.searchParams.set("subtaskId", sid);
+  const focus = String(opts?.focus ?? "").trim();
+  if (focus) url.searchParams.set("focus", focus);
+  return url.toString();
 }
 
 const MANAGER_NOTIFY_NOTE_MAX = 240;
@@ -757,7 +771,12 @@ export function createWorkbenchPublishNotifier(
         return { enabled: true, success, failed };
       }
       const workbenchTaskUrl =
-        String(input.workbenchTaskUrl ?? "").trim() || resolveManagerTaskDetailUrl(input.taskNo) || "";
+        String(input.workbenchTaskUrl ?? "").trim()
+        || resolveManagerTaskDetailUrl(input.taskNo, {
+          subtaskId: input.subtaskId,
+          focus: "reassign",
+        })
+        || "";
       const markdown = buildManagerEmployeeActionMarkdown({
         employeeDisplayName: input.employeeDisplayName,
         employeeUserId: input.employeeUserId,

@@ -79,6 +79,17 @@ export function renderEmployeeWorkbenchPage(): string {
   <div class="card" id="actionPanel" style="display:none;">
     <h3 id="actionTitle">补充说明</h3>
     <div class="form-stack">
+      <div id="assistKindRow" class="form-stack" style="display:none;">
+        <span class="muted" style="font-size:13px;">请选择协助类型</span>
+        <label style="display:flex;gap:8px;align-items:flex-start;">
+          <input type="radio" name="assistKind" value="customize" checked />
+          <span>仅补充说明（不改变承接结论）</span>
+        </label>
+        <label style="display:flex;gap:8px;align-items:flex-start;">
+          <input type="radio" name="assistKind" value="request_changes" />
+          <span>申请调整范围、截止或分工</span>
+        </label>
+      </div>
       <label>说明（必填）
         <textarea id="actionNote" placeholder="请填写拒绝理由、补充信息或修改诉求"></textarea>
       </label>
@@ -162,7 +173,7 @@ export function renderEmployeeWorkbenchPage(): string {
     var kpis = document.getElementById('empKpis');
     if (kpis) kpis.style.display = (view === 'new' || view === 'current') ? 'grid' : 'none';
     var titles = {
-      new: ['新分配的任务', '主管发布后的正式子任务。请在接受前核对标题与说明；拒绝或申请修改必须填写理由。'],
+      new: ['新分配的任务', '主管发布后的正式子任务。请在接受前核对标题与说明；拒绝或需要主管协助时请填写说明。'],
       current: ['进行中的任务', '执行中或阻塞的子任务。可在卡片上直接填写进度。'],
       history: ['已完成', '历史已完成的子任务。'],
       profile: ['能力画像', '补充你的技能与协作偏好，便于主管分配合适任务。']
@@ -247,8 +258,7 @@ export function renderEmployeeWorkbenchPage(): string {
         var act = '<div class="actions">'
           +'<button type="button" class="btn btn-primary" data-act="accept">接受</button>'
           +'<button type="button" class="btn btn-danger" data-act="reject">拒绝</button>'
-          +'<button type="button" class="btn btn-secondary" data-act="customize">补充信息</button>'
-          +'<button type="button" class="btn btn-secondary" data-act="request_changes">申请修改</button>'
+          +'<button type="button" class="btn btn-secondary" data-act="assist">需要主管协助</button>'
           +'</div>';
         return taskCardHtml(t, act);
       }).join('') + '</div>';
@@ -349,8 +359,17 @@ export function renderEmployeeWorkbenchPage(): string {
     pending = { planId: planId, subtaskId: subtaskId, action: action };
     document.getElementById('actionNote').value = '';
     document.getElementById('actionPanel').style.display = 'block';
-    var titles = { reject: '拒绝任务（需填写理由）', customize: '补充信息', request_changes: '申请修改（需填写诉求）' };
-    document.getElementById('actionTitle').textContent = titles[action] || '说明';
+    var assistRow = document.getElementById('assistKindRow');
+    if (action === 'assist') {
+      if (assistRow) assistRow.style.display = 'grid';
+      document.getElementById('actionTitle').textContent = '需要主管协助';
+      var r0 = document.querySelector('input[name="assistKind"][value="customize"]');
+      if (r0) r0.checked = true;
+    } else {
+      if (assistRow) assistRow.style.display = 'none';
+      var titles = { reject: '拒绝任务（需填写理由）' };
+      document.getElementById('actionTitle').textContent = titles[action] || '说明';
+    }
     setFb('actionFeedback', '', 'muted');
     document.getElementById('actionNote').focus();
   }
@@ -391,10 +410,15 @@ export function renderEmployeeWorkbenchPage(): string {
     if (!pending) return;
     var note = (document.getElementById('actionNote').value || '').trim();
     if (!note) { setFb('actionFeedback', '请填写说明', 'err'); return; }
+    var action = pending.action;
+    if (action === 'assist') {
+      var sel = document.querySelector('input[name="assistKind"]:checked');
+      action = sel ? sel.value : 'customize';
+    }
     setFb('actionFeedback', '提交中…', 'muted');
     try {
-      var go = (pending.action === 'reject') ? { goView: 'current' } : undefined;
-      await submitDirect(pending.planId, pending.subtaskId, pending.action, note, go);
+      var go = (action === 'reject') ? { goView: 'current' } : undefined;
+      await submitDirect(pending.planId, pending.subtaskId, action, note, go);
       closePanel();
       if (!go) await loadNew();
     } catch (e) {

@@ -30,7 +30,10 @@ export async function notifyManagerOfEmployeeActionAfterUpdate(input: {
 
   const employeeDisplayName =
     input.getDisplayName?.(input.actorUserId)?.trim() || input.actorUserId;
-  const taskUrl = resolveManagerTaskDetailUrl(pair.task.taskNo);
+  const taskUrl = resolveManagerTaskDetailUrl(pair.task.taskNo, {
+    subtaskId: pair.subtask.subtaskId,
+    focus: "reassign",
+  });
 
   let result: Awaited<ReturnType<WorkbenchPublishNotifier["notifyManagerOfEmployeeAction"]>>;
   try {

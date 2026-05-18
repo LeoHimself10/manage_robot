@@ -38,4 +38,21 @@ describe("workbench-event-present", () => {
     expect(e.title).toBeTruthy();
     expect(e.summary).toContain("hello");
   });
+
+  it("MANAGER_REASSIGN omits raw JSON detail unless showManagerReassignPayload", () => {
+    const row = {
+      event_type: "MANAGER_REASSIGN",
+      occurred_at: "2026-01-01T00:00:00.000Z",
+      actor_user_id: "m1",
+      note: "改派说明",
+      payload_json: JSON.stringify({ assigneeUserId: "u2", subtaskId: "task:p:t1" }),
+    };
+    const noPayload = presentWorkbenchTaskEvent(row, { resolveActorName: () => "王主管" });
+    expect(noPayload.detail).toBeUndefined();
+    const withPayload = presentWorkbenchTaskEvent(row, {
+      resolveActorName: () => "王主管",
+      showManagerReassignPayload: true,
+    });
+    expect(withPayload.detail).toContain("assigneeUserId");
+  });
 });

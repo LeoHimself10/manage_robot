@@ -17,6 +17,11 @@ function badgeClass(status: string): string {
   return "assigned";
 }
 
+function workbenchEnforceActionGuards(): boolean {
+  const raw = String(process.env.WORKBENCH_ENFORCE_ACTION_GUARDS ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 export function renderManagerTasksPage(params: {
   planId?: string;
   planTitle?: string;
@@ -92,6 +97,9 @@ export function renderManagerTasksPage(params: {
         <label>说明
           <textarea id="reassignNote" placeholder="简要说明改派原因"></textarea>
         </label>
+        <label id="mgrReassignConfirmWrap" style="display:none;align-items:center;gap:8px;">
+          <input type="checkbox" id="mgrReassignConfirm" /> 确认执行改派
+        </label>
         <div>
           <button type="button" class="btn btn-primary" id="reassignBtn">保存改派</button>
         </div>
@@ -102,6 +110,11 @@ export function renderManagerTasksPage(params: {
 </div>
 <script>
 (function () {
+  var WB_ENFORCE_ACTION_GUARDS = ${workbenchEnforceActionGuards() ? "true" : "false"};
+  if (WB_ENFORCE_ACTION_GUARDS) {
+    var mgrWrap = document.getElementById('mgrReassignConfirmWrap');
+    if (mgrWrap) mgrWrap.style.display = 'flex';
+  }
   function setText(id, t) {
     var el = document.getElementById(id);
     if (el) el.textContent = t;
@@ -366,6 +379,18 @@ export function renderManagerTasksPage(params: {
     try {
       var payload = { planId: planId, assigneeUserId: assigneeUserId, note: note };
       if (subtaskId) payload.subtaskId = subtaskId;
+      if (WB_ENFORCE_ACTION_GUARDS) {
+        var c = document.getElementById('mgrReassignConfirm');
+        if (!c || !c.checked) { setFb('reassignFeedback', '请勾选确认执行改派', 'err'); return; }
+        payload.confirm = true;
+        try {
+          payload.idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : ('reassign-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+        } catch (e0) {
+          payload.idempotencyKey = 'reassign-' + Date.now();
+        }
+      }
       var res = await fetch('/api/workbench/manager/reassign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -374,6 +399,10 @@ export function renderManagerTasksPage(params: {
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       setFb('reassignFeedback', '改派已保存', 'ok');
+      if (WB_ENFORCE_ACTION_GUARDS) {
+        var cDone = document.getElementById('mgrReassignConfirm');
+        if (cDone) cDone.checked = false;
+      }
       document.getElementById('reassignAssigneeInput').value = '';
       document.getElementById('reassignAssigneeUserId').value = '';
       closeAssigneeCombo();
