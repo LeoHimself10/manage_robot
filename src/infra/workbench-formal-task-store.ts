@@ -846,22 +846,14 @@ export function createWorkbenchFormalTaskStore() {
       if (String(subtask.manager_user_id ?? "").trim() !== input.managerUserId.trim()) {
         throw new Error("Task does not belong to current manager");
       }
-      const recent = qSubtaskEvents.all(input.subtaskId) as Array<{ event_type?: unknown }>;
+      const recentDesc = qSubtaskEvents.all(input.subtaskId) as Array<{ event_type?: unknown }>;
+      /** Chronological (oldest→newest): open after SUBTASK_CHANGES_REQUESTED until decline or terminal employee signal. */
       let hasOpenChangesRequest = false;
-      for (const row of recent) {
+      for (const row of recentDesc.slice().reverse()) {
         const et = String(row.event_type ?? "");
-        if (et === "SUBTASK_CHANGES_REQUESTED") {
-          hasOpenChangesRequest = true;
-          break;
-        }
-        if (
-          et === "MANAGER_DECLINE_CHANGES"
-          || et === "SUBTASK_ACCEPTED"
-          || et === "SUBTASK_PROGRESS"
-          || et === "MANAGER_REASSIGN"
-        ) {
-          break;
-        }
+        if (et === "SUBTASK_CHANGES_REQUESTED") hasOpenChangesRequest = true;
+        else if (et === "MANAGER_DECLINE_CHANGES") hasOpenChangesRequest = false;
+        else if (et === "SUBTASK_ACCEPTED" || et === "SUBTASK_REJECTED") hasOpenChangesRequest = false;
       }
       if (!hasOpenChangesRequest) {
         throw new Error("No pending change request for this subtask");

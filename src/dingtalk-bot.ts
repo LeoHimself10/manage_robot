@@ -66,6 +66,7 @@ function hasTaskTableInMessage(markdown: string): boolean {
   const normalized = markdown.toLowerCase();
   return (
     normalized.includes("### 任务列表（结构化字段）") ||
+    normalized.includes("### 任务草案（结构化字段）") ||
     normalized.includes("| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |") ||
     normalized.includes("| 序号 | 任务名称 |")
   );
@@ -80,7 +81,12 @@ function hasTaskTableInMessage(markdown: string): boolean {
  *
  * 字段都缺时返回空串，外层会自动跳过（不污染普通追问/纯文本回复）。
  */
-function renderDraftSupplementSection(draft: unknown): string {
+function listField(values: unknown): string {
+  if (!Array.isArray(values)) return "";
+  return values.map((v) => String(v ?? "").trim()).filter(Boolean).join("；");
+}
+
+export function renderDraftSupplementSection(draft: unknown): string {
   if (!draft || typeof draft !== "object") return "";
   const root = draft as Record<string, unknown>;
   const description = String(root.description ?? "").trim();
@@ -92,18 +98,47 @@ function renderDraftSupplementSection(draft: unknown): string {
     if (id) taskTitleById.set(id, title || id);
   }
   const lines: string[] = [];
+  const tableRows: string[] = [];
   if (description) {
     lines.push(`**任务背景**：${description.length > 500 ? description.slice(0, 500) + "…" : description}`);
   }
   const supplementBlocks: string[] = [];
   tasks.forEach((t, idx) => {
     const title = String(t?.title ?? "").trim() || `任务 ${idx + 1}`;
+    const objective = String(t?.objective ?? "").trim();
+    const deliverables = listField(t?.deliverables);
+    const completionCriteria = listField(t?.completionCriteria);
     const deps = Array.isArray(t?.dependencyTaskIds) ? (t.dependencyTaskIds as unknown[]) : [];
     const timeNode = (t?.timeNode ?? {}) as Record<string, unknown>;
     const checkpoints = Array.isArray(timeNode.checkpoints) ? (timeNode.checkpoints as unknown[]) : [];
     const risks = Array.isArray(t?.risksAndOpenQuestions) ? (t.risksAndOpenQuestions as unknown[]) : [];
-    if (deps.length === 0 && checkpoints.length === 0 && risks.length === 0) return;
+    const dueAt = String(timeNode?.dueAt ?? t?.dueAt ?? "").trim() || "待确认";
+    const feedbackFrequency = String(t?.feedbackFrequency ?? "").trim() || "待确认";
+    tableRows.push(
+      `| ${idx + 1} | ${title} | ${objective || "-"} | ${deliverables || "-"} | ${completionCriteria || "-"} | ${dueAt} | ${feedbackFrequency} |`,
+    );
+    const inputMaterials = listField(t?.inputMaterials);
+    const actions = listField(t?.actions);
+    const collaborators = listField(t?.collaborators);
+    const scope = (t?.scope ?? {}) as Record<string, unknown>;
+    const inScope = listField(scope?.inScope);
+    const outOfScope = listField(scope?.outOfScope);
+    const hasAnyDetail =
+      deps.length > 0
+      || checkpoints.length > 0
+      || risks.length > 0
+      || Boolean(inputMaterials)
+      || Boolean(actions)
+      || Boolean(collaborators)
+      || Boolean(inScope)
+      || Boolean(outOfScope);
+    if (!hasAnyDetail) return;
     const block: string[] = [`**${idx + 1}. ${title}**`];
+    if (inputMaterials) block.push(`- 输入材料：${inputMaterials}`);
+    if (actions) block.push(`- 执行动作：${actions}`);
+    if (collaborators) block.push(`- 协作人：${collaborators}`);
+    if (inScope) block.push(`- 范围内：${inScope}`);
+    if (outOfScope) block.push(`- 范围外：${outOfScope}`);
     if (deps.length) {
       const rendered = deps
         .map((d) => {
@@ -123,8 +158,14 @@ function renderDraftSupplementSection(draft: unknown): string {
     }
     supplementBlocks.push(block.join("\n"));
   });
-  if (lines.length === 0 && supplementBlocks.length === 0) return "";
-  const sections = ["### 任务补充信息"];
+  if (lines.length === 0 && tableRows.length === 0 && supplementBlocks.length === 0) return "";
+  const sections = ["### 任务草案（结构化字段）"];
+  if (tableRows.length) {
+    sections.push(
+      "| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |\n|---|---|---|---|---|---|---|\n" + tableRows.join("\n"),
+    );
+  }
+  sections.push("### 任务补充信息");
   if (lines.length) sections.push(lines.join("\n"));
   if (supplementBlocks.length) sections.push(supplementBlocks.join("\n\n"));
   return sections.join("\n\n");
@@ -347,7 +388,7 @@ async function main(): Promise<void> {
   );
   const appendStructuredTaskTable = readEnvBool(
     "DINGTALK_APPEND_STRUCTURED_TABLE",
-    false,
+    true,
   );
 
   const debug = process.env.DINGTALK_STREAM_DEBUG === "1" || process.env.DINGTALK_STREAM_DEBUG === "true";

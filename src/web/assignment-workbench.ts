@@ -598,7 +598,9 @@ function enrichWorkbenchTaskDetail(
       statusLabel: string;
     }
   >;
-  events: ReturnType<typeof presentWorkbenchTaskEvent>[];
+  events: Array<
+    ReturnType<typeof presentWorkbenchTaskEvent> & { subtaskId: string; eventRowId: number }
+  >;
 } {
   const nameCache = new Map<string, string>();
   const resolveName = (userId: string): string => {
@@ -627,7 +629,14 @@ function enrichWorkbenchTaskDetail(
     resolveActorName: resolveName,
     ...(opts?.presentEventCtx ?? {}),
   };
-  const events = filtered.map((row) => presentWorkbenchTaskEvent(row, presentCtx));
+  const events = filtered.map((row) => {
+    const presented = presentWorkbenchTaskEvent(row, presentCtx);
+    return {
+      ...presented,
+      subtaskId: String(row.subtask_id ?? "").trim(),
+      eventRowId: Number(row.id ?? 0) || 0,
+    };
+  });
   return { task, subtasks, events };
 }
 
@@ -1314,7 +1323,7 @@ export function renderTaskDetailPage(params: {
     var sid = String(subId || '').trim();
     for (var ei = 0; ei < (eventsArr || []).length; ei++) {
       var e = eventsArr[ei];
-      var esid = String(e.subtask_id || e.subtaskId || '').trim();
+      var esid = String(e.subtaskId || e.subtask_id || '').trim();
       if (esid !== sid) continue;
       if (picked.length >= 5) break;
       picked.push(e);
@@ -1355,7 +1364,7 @@ export function renderTaskDetailPage(params: {
         ? '<p class="muted mgr-task-tools" style="margin:12px 0 0;font-size:13px;">'
           + '<a class="btn btn-secondary btn-sm" href="/workbench/manager/tasks?planId='
           + encodeURIComponent(String(t.planId || ''))
-          + '">前往改派页</a> <span class="muted">在「调整分配」中选择本任务与子任务</span></p>'
+          + '&focus=reassign">前往改派页</a> <span class="muted">在「调整分配」中自动定位本任务并加载未完成子任务</span></p>'
         : ROLE === 'admin'
           ? '<p class="muted mgr-task-tools" style="margin:12px 0 0;font-size:13px;">'
             + '<button type="button" class="btn btn-secondary btn-sm" data-admin-open-reassign>打开改派</button>'
@@ -1372,18 +1381,37 @@ export function renderTaskDetailPage(params: {
       +'<p class="muted" style="margin:6px 0 0;">planId <code>'+esc(t.planId||'—')+'</code></p></details>';
     var subs = data.subtasks || [];
     var events = data.events || [];
+    function eventTs(ev) {
+      var x = String(ev.occurredAt || ev.occurred_at || '').trim();
+      var t = Date.parse(x);
+      return isNaN(t) ? 0 : t;
+    }
     function hasOpenChangesRequestForSubtask(subId) {
       var sid = String(subId || '').trim();
       if (!sid) return false;
+      var mine = [];
       for (var i = 0; i < events.length; i++) {
         var e = events[i];
-        var esid = String(e.subtask_id || e.subtaskId || '').trim();
+        var esid = String(e.subtaskId || e.subtask_id || '').trim();
         if (esid !== sid) continue;
-        var et = String(e.type || e.eventType || '').trim();
-        if (et === 'SUBTASK_CHANGES_REQUESTED') return true;
-        if (et === 'MANAGER_DECLINE_CHANGES' || et === 'SUBTASK_ACCEPTED' || et === 'SUBTASK_PROGRESS' || et === 'MANAGER_REASSIGN') return false;
+        mine.push(e);
       }
-      return false;
+      mine.sort(function (a, b) {
+        var da = eventTs(a);
+        var db = eventTs(b);
+        if (da !== db) return da - db;
+        var ia = Number(a.eventRowId || a.id || a.eventId || 0) || 0;
+        var ib = Number(b.eventRowId || b.id || b.eventId || 0) || 0;
+        return ia - ib;
+      });
+      var open = false;
+      for (var j = 0; j < mine.length; j++) {
+        var et = String(mine[j].type || mine[j].eventType || mine[j].event_type || '').trim();
+        if (et === 'SUBTASK_CHANGES_REQUESTED') open = true;
+        else if (et === 'MANAGER_DECLINE_CHANGES') open = false;
+        else if (et === 'SUBTASK_ACCEPTED' || et === 'SUBTASK_REJECTED') open = false;
+      }
+      return open;
     }
     lastSubsForReassign = subs;
     ensureMgrRowHandlers();
@@ -1438,7 +1466,6 @@ export function renderTaskDetailPage(params: {
           if (hst === 'ASSIGNED' || hst === 'CHANGES_REQUESTED' || hst === 'REJECTED') initialFilter = 'pending';
           else if (hst === 'IN_PROGRESS' || hst === 'BLOCKED') initialFilter = 'in_progress';
           else if (hst === 'DONE') initialFilter = 'done';
-          else if (hst === 'REJECTED') initialFilter = 'rejected';
           else initialFilter = 'all';
         }
       }
@@ -1462,13 +1489,13 @@ export function renderTaskDetailPage(params: {
       };
       var head =
         '<div class="mgr-sub-filter" role="tablist" aria-label="子任务筛选">' +
-        chipHtml('pending', '待处理', countByFilter('pending'), countByFilter('pending') > 0) +
+        chipHtml('pending', '待处理（含已拒绝）', countByFilter('pending'), countByFilter('pending') > 0) +
         chipHtml('in_progress', '进行中', countByFilter('in_progress'), false) +
         chipHtml('done', '已完成', countByFilter('done'), false) +
         chipHtml('rejected', '已拒绝', countByFilter('rejected'), false) +
         chipHtml('all', '全部', subs.length, false) +
         '</div>' +
-        '<p class="muted mgr-sub-hint" style="margin:10px 0 14px;font-size:13px;">「待处理」包含待处理、待修改与已拒绝（待重新分配）；请优先查看员工说明。改派仅限制已完成不可改。</p>';
+        '<p class="muted mgr-sub-hint" style="margin:10px 0 14px;font-size:13px;">「待处理（含已拒绝）」与「仅已拒绝」可能指向同一子任务：<strong>已拒绝属于待处理池</strong>，需改派或与员工确认；「仅已拒绝」便于集中处理拒单。改派不可选已完成子任务。</p>';
       var rowParts = subs.map(function (s) {
         var rawId = String(s.subtaskId || '');
         var sid = esc(rawId);
@@ -1521,14 +1548,22 @@ export function renderTaskDetailPage(params: {
         }
         var signalBadge = employeeSignal
           ? '<span class="mgr-employee-signal">' + esc(employeeSignal) + '</span>'
-          : '';
-        var employeeInfoHtml = (note || employeeSignal)
-          ? '<div class="mgr-employee-info"><div class="mgr-employee-info-h">员工信息重点</div>'
-            + signalBadge
-            + '<p class="mgr-inline-ctx' + (note ? '' : ' muted') + '">'
-            + (note ? esc(note) : '（员工未填写补充说明，可查看本子任务事件时间线。）')
-            + '</p></div>'
-          : '';
+          : '<span class="mgr-employee-signal mgr-employee-signal--quiet">' + esc('暂无员工侧标记信号') + '</span>';
+        var noteBlock =
+          '<p class="mgr-inline-ctx' + (note ? '' : ' muted') + '">' +
+          (note ? esc(note) : esc('（员工未填写进度说明；更多上下文见「本子任务事件」或下方全量事件。）')) +
+          '</p>';
+        var rejectedPoolHint =
+          st === 'REJECTED'
+            ? '<p class="mgr-rejected-pool-hint"><strong>待处理池</strong>：已拒绝与待分配同属「待处理」，请用「改派页」或线下沟通后再调整。</p>'
+            : '';
+        var employeeInfoHtml =
+          '<div class="mgr-employee-info mgr-employee-info--top">' +
+          '<div class="mgr-employee-info-h">员工信息重点</div>' +
+          signalBadge +
+          noteBlock +
+          rejectedPoolHint +
+          '</div>';
         var ctxHtml = '';
         if (hasReq) {
           ctxHtml = note
@@ -1581,7 +1616,9 @@ export function renderTaskDetailPage(params: {
           '" data-mgr-buckets="' +
           rowBucketsForStatus(st).join(',') +
           '">' +
-          '<summary class="mgr-sub-summary">' +
+          '<summary class="mgr-sub-summary' +
+          (st === 'REJECTED' ? ' mgr-sub-summary--rejected-pool' : '') +
+          '">' +
           '<span class="mgr-sub-idx">#' +
           idx +
           '</span>' +

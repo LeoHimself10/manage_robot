@@ -730,6 +730,62 @@ describe("employee / manager subtask flows", () => {
     expect(ev.some((e) => String(e.event_type) === "MANAGER_DECLINE_CHANGES")).toBe(true);
   });
 
+  it("managerDeclineSubtaskChanges still works when employee posted progress after change request", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "h-dec2",
+      planId: "plan-dec2",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "单任务",
+        tasks: [
+          {
+            id: "t_x2",
+            title: "X2",
+            timeNode: { dueAt: "2026-06-01" },
+            dependencyTaskIds: [],
+            risksAndOpenQuestions: [],
+          },
+        ],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t_x2", primary: { userId: "emp-dec2", displayName: "D2" } }],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-dec2",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const sid = published.subtasks[0]!.subtaskId;
+    store.updateSubtaskStatus({ subtaskId: sid, actorUserId: "emp-dec2", action: "accept" });
+    store.updateSubtaskStatus({
+      subtaskId: sid,
+      actorUserId: "emp-dec2",
+      action: "request_changes",
+      note: "要改截止",
+    });
+    store.updateSubtaskStatus({
+      subtaskId: sid,
+      actorUserId: "emp-dec2",
+      action: "progress",
+      note: "同步下进度",
+      progressStatus: "IN_PROGRESS",
+    });
+    const out = store.managerDeclineSubtaskChanges({
+      subtaskId: sid,
+      managerUserId: "manager-1",
+      note: "维持原计划",
+    });
+    expect(out.subtask.status).toBe("IN_PROGRESS");
+  });
+
   it("reassignTask removes subtask from prior assignee listEmployeeSubtasks", () => {
     const store = createWorkbenchFormalTaskStore();
     const session: PlanSession = {
