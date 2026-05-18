@@ -706,6 +706,9 @@ details.sub-row-mgr[open] {
   border-color: #94a3b8;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
 }
+details.sub-row-mgr.mgr-sub-row--hidden {
+  display: none !important;
+}
 .mgr-sub-summary {
   list-style: none;
   cursor: pointer;
