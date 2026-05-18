@@ -1457,7 +1457,6 @@ export function renderTaskDetailPage(params: {
           if (f === 'pending') return st === 'ASSIGNED' || st === 'CHANGES_REQUESTED' || st === 'REJECTED';
           if (f === 'in_progress') return st === 'IN_PROGRESS' || st === 'BLOCKED';
           if (f === 'done') return st === 'DONE';
-          if (f === 'rejected') return st === 'REJECTED';
           return true;
         }).length;
       }
@@ -1472,7 +1471,10 @@ export function renderTaskDetailPage(params: {
           else initialFilter = 'all';
         }
       }
-      var reassignListHref = '/workbench/manager/tasks?planId=' + encodeURIComponent(String(t.planId || '')) + '&focus=reassign';
+      var reassignListHrefBase =
+        '/workbench/manager/tasks?planId=' +
+        encodeURIComponent(String(t.planId || '')) +
+        '&focus=reassign';
       var chipHtml = function (key, label, cnt, alertCls) {
         var pressed = initialFilter === key ? 'true' : 'false';
         var ac = alertCls ? ' mgr-sub-filter-chip--alert' : '';
@@ -1492,13 +1494,11 @@ export function renderTaskDetailPage(params: {
       };
       var head =
         '<div class="mgr-sub-filter" role="tablist" aria-label="子任务筛选">' +
-        chipHtml('pending', '待处理（含已拒绝）', countByFilter('pending'), countByFilter('pending') > 0) +
+        chipHtml('pending', '待处理', countByFilter('pending'), countByFilter('pending') > 0) +
         chipHtml('in_progress', '进行中', countByFilter('in_progress'), false) +
         chipHtml('done', '已完成', countByFilter('done'), false) +
-        chipHtml('rejected', '已拒绝', countByFilter('rejected'), false) +
         chipHtml('all', '全部', subs.length, false) +
-        '</div>' +
-        '<p class="muted mgr-sub-hint" style="margin:10px 0 14px;font-size:13px;">「待处理（含已拒绝）」与「仅已拒绝」可能指向同一子任务：<strong>已拒绝属于待处理池</strong>，需改派或与员工确认；「仅已拒绝」便于集中处理拒单。改派不可选已完成子任务。</p>';
+        '</div>';
       var rowParts = subs.map(function (s) {
         var rawId = String(s.subtaskId || '');
         var sid = esc(rawId);
@@ -1525,7 +1525,7 @@ export function renderTaskDetailPage(params: {
         if (st !== 'DONE' && ROLE === 'manager') {
           actions.push(
             '<a class="btn btn-secondary btn-sm" href="' +
-              esc(reassignListHref) +
+              esc(reassignListHrefBase + '&subtaskId=' + encodeURIComponent(rawId)) +
               '">改派页</a>',
           );
         } else if (st !== 'DONE') {
@@ -1535,8 +1535,10 @@ export function renderTaskDetailPage(params: {
               '">改派</button>',
           );
         }
-        var actionHtml =
-          actions.length > 0 ? '<div class="mgr-sub-actions">' + actions.join('') + '</div>' : '';
+        var actionButtons = actions.join('');
+        var summaryActionsRow = actionButtons
+          ? '<div class="mgr-sub-summary-actions"><div class="mgr-sub-actions">' + actionButtons + '</div></div>'
+          : '';
         var defaultSig = st === 'BLOCKED' ? 'blocked' : 'done';
         var note = String(s.progressNote || '').trim();
         var employeeSignal = '';
@@ -1622,6 +1624,7 @@ export function renderTaskDetailPage(params: {
           '<summary class="mgr-sub-summary' +
           (st === 'REJECTED' ? ' mgr-sub-summary--rejected-pool' : '') +
           '">' +
+          '<div class="mgr-sub-summary-row1">' +
           '<span class="mgr-sub-idx">#' +
           idx +
           '</span>' +
@@ -1640,8 +1643,8 @@ export function renderTaskDetailPage(params: {
           bc +
           '">' +
           stEsc +
-          '</span>' +
-          actionHtml +
+          '</span></div>' +
+          summaryActionsRow +
           '</summary>' +
           '<div class="mgr-sub-body">' +
           employeeInfoHtml +
