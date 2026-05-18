@@ -47,6 +47,26 @@ describe("draft-fallback-extract", () => {
     expect(looksLikeTaskDraftMessage("你好")).toBe(false);
   });
 
+  it("looksLikeTaskDraftMessage matches 行动草案 headings without Markdown table", () => {
+    const md = [
+      "以下是为您规划的分析与行动草案：",
+      "",
+      "子任务分配建议：",
+      "",
+      "task_1: 供应商现场制程审核",
+      "task_2: 联合技术攻关与整改验证",
+      "",
+      "需要您确认的信息：",
+      "期望完成时间：？",
+      "更多说明行。",
+      "再一行。",
+      "再一行。",
+      "再一行。",
+      "再一行。",
+    ].join("\n");
+    expect(looksLikeTaskDraftMessage(md)).toBe(true);
+  });
+
   it("extractStructuredDraftFromMessage returns coerced draft on valid JSON", async () => {
     const payload = {
       title: "T1",

@@ -24,11 +24,6 @@ import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import { runOrchestrator } from "./agent/orchestrator";
 import {
-  extractStructuredDraftFromMessage,
-  looksLikeTaskDraftMessage,
-  readDraftFallbackEnabled,
-} from "./agent/demo/draft-fallback-extract";
-import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
 } from "./agent/role-routing";
@@ -842,44 +837,11 @@ async function main(): Promise<void> {
 
         const snapshotPlanId = session.planId;
         let currentDraft = orchResult.draft ?? session.latestDraft;
-        const fallbackStartedAt = Date.now();
-        let draftFallbackOutcome: "skipped" | "triggered_ok" | "triggered_failed" = "skipped";
-        let fallbackDraft: Record<string, unknown> | undefined;
-        if (!orchResult.draft && readDraftFallbackEnabled()) {
-          const candidateText = orchResult.messages.join("\n\n");
-          if (candidateText.trim().length > 0 && looksLikeTaskDraftMessage(candidateText)) {
-            draftFallbackOutcome = "triggered_failed";
-            fallbackDraft =
-              (await extractStructuredDraftFromMessage({
-                message: candidateText,
-                modelConfig: {
-                  apiKey: dingtalkQwenConfig.apiKey,
-                  baseUrl: dingtalkQwenConfig.baseUrl,
-                  timeoutMs: dingtalkQwenConfig.timeoutMs,
-                },
-                traceId: orchResult.traceId,
-              })) ?? undefined;
-            const fbTasks = Array.isArray((fallbackDraft as { tasks?: unknown[] })?.tasks)
-              ? (fallbackDraft as { tasks: unknown[] }).tasks
-              : [];
-            if (fallbackDraft && fbTasks.length > 0) {
-              currentDraft = fallbackDraft;
-              draftFallbackOutcome = "triggered_ok";
-            }
-          }
-        }
-        logStructured({
-          event: "draft_fallback_extracted",
-          traceId: orchResult.traceId,
-          outcome: draftFallbackOutcome,
-          taskCount: Array.isArray((currentDraft as { tasks?: unknown[] })?.tasks)
-            ? (currentDraft as { tasks: unknown[] }).tasks.length
-            : 0,
-          llmMs: Date.now() - fallbackStartedAt,
-        });
+        // Markdown→draft 二次抽取已在 runOrchestrator 内统一执行（见 draft_fallback_extract 日志）。
+
         // 仅在本轮模型产出草案（含 Markdown→draft 兜底抽取）时，才渲染结构化任务表与「任务补充信息」。
         // 否则会把上一任务的 description / 子任务直接拼回 markdown，造成串台。
-        const freshDraft = orchResult.draft ?? fallbackDraft;
+        const freshDraft = orchResult.draft;
 
         // 长期记忆：有草案时自动存快照+embedding
         if (currentDraft && !isAnonymousSender) {

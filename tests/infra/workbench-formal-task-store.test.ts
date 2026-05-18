@@ -831,6 +831,52 @@ describe("employee / manager subtask flows", () => {
     expect(store.getSubtaskOpenDeclineKind(sid)).toBeNull();
   });
 
+  it("getSubtaskOpenDeclineKind treats EMPLOYEE_RESPONSE_SUMMARY with request_changes as open changes", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "h-sum",
+      planId: "plan-sum",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "单任务",
+        tasks: [
+          {
+            id: "t_s",
+            title: "S",
+            timeNode: { dueAt: "2026-06-01" },
+            dependencyTaskIds: [],
+            risksAndOpenQuestions: [],
+          },
+        ],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t_s", primary: { userId: "emp-sum", displayName: "S" } }],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-sum",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const sid = published.subtasks[0]!.subtaskId;
+    store.updateSubtaskStatus({ subtaskId: sid, actorUserId: "emp-sum", action: "accept" });
+    store.appendTaskEvent({
+      taskId: published.task.taskId,
+      subtaskId: sid,
+      eventType: "EMPLOYEE_RESPONSE_SUMMARY",
+      actorUserId: "emp-sum",
+      note: "需要信息",
+      payload: { action: "request_changes", source: "test" },
+    });
+    expect(store.getSubtaskOpenDeclineKind(sid)).toBe("changes");
+  });
+
   it("managerDeclineSubtaskChanges still works when employee posted progress after change request", () => {
     const store = createWorkbenchFormalTaskStore();
     const session: PlanSession = {

@@ -243,14 +243,36 @@ export function aggregateTaskStatus(statuses: WorkbenchTaskStatus[]): WorkbenchT
 /** 主管详情「驳回」按钮：与 `managerDeclineSubtaskChanges` 同一套开放信号判定（按单个子任务全量事件，旧→新）。 */
 export type SubtaskOpenDeclineKind = "changes" | "rejected";
 
-function replayOpenDeclineKindFromSubtaskEventTypesAsc(typesChronoAsc: readonly string[]): SubtaskOpenDeclineKind | null {
+function parseTaskEventPayloadAction(payloadJson: unknown): string | undefined {
+  if (payloadJson == null) return undefined;
+  const s = String(payloadJson).trim();
+  if (!s) return undefined;
+  try {
+    const v = JSON.parse(s) as unknown;
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      return String((v as Record<string, unknown>).action ?? "").trim() || undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function replayOpenDeclineKindFromSubtaskReplayRows(
+  rows: ReadonlyArray<{ event_type?: unknown; payload_json?: unknown }>,
+): SubtaskOpenDeclineKind | null {
   type Open = "none" | SubtaskOpenDeclineKind;
   let open: Open = "none";
-  for (const et of typesChronoAsc) {
+  for (const row of rows) {
+    const et = String(row.event_type ?? "");
+    const summaryAct = et === "EMPLOYEE_RESPONSE_SUMMARY" ? parseTaskEventPayloadAction(row.payload_json) : undefined;
     if (et === "SUBTASK_CHANGES_REQUESTED" || et === "SUBTASK_CUSTOMIZE_NOTE") {
       open = "changes";
     } else if (et === "SUBTASK_REJECTED") {
       open = "rejected";
+    } else if (et === "EMPLOYEE_RESPONSE_SUMMARY") {
+      if (summaryAct === "request_changes" || summaryAct === "customize") open = "changes";
+      else if (summaryAct === "reject") open = "rejected";
     } else if (et === "MANAGER_DECLINE_CHANGES") {
       open = "none";
     } else if (et === "MANAGER_REASSIGN") {
@@ -459,9 +481,9 @@ export function createWorkbenchFormalTaskStore() {
   `);
   const qTaskDetail = db.prepare("SELECT * FROM tasks WHERE task_id = ? OR plan_id = ? OR task_no = ? LIMIT 1");
   const qTaskEvents = db.prepare("SELECT * FROM task_events WHERE task_id = ? ORDER BY id DESC LIMIT 200");
-  /** 单个子任务事件（旧→新）；用于驳回开放态判定，避免被任务级 `LIMIT 200` 时间线截断。 */
-  const qSubtaskEventTypesAsc = db.prepare(
-    "SELECT event_type FROM task_events WHERE subtask_id = ? ORDER BY id ASC LIMIT 5000",
+  /** 单个子任务事件（旧→新，含 payload 供 EMPLOYEE_RESPONSE_SUMMARY 兜底）。 */
+  const qSubtaskReplayRowsAsc = db.prepare(
+    "SELECT event_type, payload_json FROM task_events WHERE subtask_id = ? ORDER BY id ASC LIMIT 5000",
   );
   const qMetrics = db.prepare(`
     SELECT
@@ -787,9 +809,17 @@ export function createWorkbenchFormalTaskStore() {
     getSubtaskOpenDeclineKind(subtaskId: string): SubtaskOpenDeclineKind | null {
       const sid = String(subtaskId ?? "").trim();
       if (!sid) return null;
-      const rows = qSubtaskEventTypesAsc.all(sid) as Array<{ event_type?: unknown }>;
-      const types = rows.map((r) => String(r.event_type ?? ""));
-      return replayOpenDeclineKindFromSubtaskEventTypesAsc(types);
+      const rows = qSubtaskReplayRowsAsc.all(sid) as Array<{ event_type?: unknown; payload_json?: unknown }>;
+      const fromReplay = replayOpenDeclineKindFromSubtaskReplayRows(rows);
+      if (fromReplay) return fromReplay;
+      const stRow = db.prepare("SELECT status FROM subtasks WHERE subtask_id = ?").get(sid) as
+        | { status?: unknown }
+        | undefined;
+      const raw = String(stRow?.status ?? "").trim();
+      /** 库内仍写 CHANGES_REQUESTED 的遗留行：与 normalize 后 ASSIGNED 并存时，用原始列兜底「待修改」开放态。 */
+      if (raw === "CHANGES_REQUESTED") return "changes";
+      if (raw === "REJECTED") return "rejected";
+      return null;
     },
 
     updateSubtaskStatus(input: {
@@ -876,10 +906,7 @@ export function createWorkbenchFormalTaskStore() {
       if (String(subtask.manager_user_id ?? "").trim() !== input.managerUserId.trim()) {
         throw new Error("Task does not belong to current manager");
       }
-      const types = (qSubtaskEventTypesAsc.all(input.subtaskId) as Array<{ event_type?: unknown }>).map((r) =>
-        String(r.event_type ?? ""),
-      );
-      const open = replayOpenDeclineKindFromSubtaskEventTypesAsc(types);
+      const open = this.getSubtaskOpenDeclineKind(input.subtaskId);
       if (!open) {
         throw new Error("没有待处理的调整申请或拒绝承接记录");
       }

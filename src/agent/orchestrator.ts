@@ -9,6 +9,11 @@ import { buildToolRegistry, type ToolProfile } from "./tools/registry";
 import { logStructured } from "../infra/logger";
 import type { EmployeeProfileRecord } from "../integrations/repos/employee-profile-repo";
 import { buildQwenPlannerSystemPrompt, type AgentPromptProfile } from "./demo/qwen-prompt";
+import {
+  extractStructuredDraftFromMessage,
+  looksLikeTaskDraftMessage,
+  readDraftFallbackEnabled,
+} from "./demo/draft-fallback-extract";
 import type { KnownFactsStore } from "./tools/update-known-facts";
 import type { PlanSession } from "../infra/plan-session-store";
 import type { PublishTaskRecentStore } from "./tools/publish-task";
@@ -253,6 +258,41 @@ export async function runOrchestrator(
   if (draft) {
     draft = stabilizeDraftTaskIds(draft, previousDraft);
   }
+
+  const fallbackStartedAt = Date.now();
+  let draftFallbackOutcome: "skipped" | "triggered_ok" | "triggered_failed" = "skipped";
+  if (!draft && readDraftFallbackEnabled() && msg && looksLikeTaskDraftMessage(msg)) {
+    draftFallbackOutcome = "triggered_failed";
+    const fallbackDraft =
+      (await extractStructuredDraftFromMessage({
+        message: msg,
+        modelConfig: {
+          apiKey: config.clientConfig.apiKey,
+          baseUrl: config.clientConfig.baseUrl,
+          timeoutMs: config.clientConfig.timeoutMs,
+        },
+        traceId,
+      })) ?? undefined;
+    const fbTasks = Array.isArray((fallbackDraft as { tasks?: unknown[] })?.tasks)
+      ? (fallbackDraft as { tasks: unknown[] }).tasks
+      : [];
+    if (fallbackDraft && fbTasks.length > 0) {
+      draft = stabilizeDraftTaskIds(fallbackDraft, previousDraft);
+      draftFallbackOutcome = "triggered_ok";
+    }
+  }
+  if (draftFallbackOutcome === "triggered_ok" || draftFallbackOutcome === "triggered_failed") {
+    logStructured({
+      event: "draft_fallback_extracted",
+      traceId,
+      outcome: draftFallbackOutcome,
+      taskCount: Array.isArray((draft as { tasks?: unknown[] })?.tasks)
+        ? (draft as { tasks: unknown[] }).tasks.length
+        : 0,
+      llmMs: Date.now() - fallbackStartedAt,
+    });
+  }
+
   if (assignment && draft) {
     assignment = alignAssignmentTaskIds(assignment, draft);
   }

@@ -31,7 +31,7 @@ export function looksLikeTaskDraftMessage(markdown: string): boolean {
 
   let score = 0;
   if (
-    /任务草案|子任务|任务分配|负责人|拆解|待派发/.test(s)
+    /任务草案|草案预览|行动草案|子任务|任务分配|负责人|拆解|待派发/.test(s)
   ) {
     score += 1;
   }
