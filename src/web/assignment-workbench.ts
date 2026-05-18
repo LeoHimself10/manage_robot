@@ -1280,8 +1280,9 @@ export function renderTaskDetailPage(params: {
   function rowBucketsForStatus(st) {
     var s = String(st || '');
     var keys = ['all'];
-    if (s === 'CHANGES_REQUESTED' || s === 'BLOCKED') keys.push('pending_me');
-    if (s === 'IN_PROGRESS' || s === 'ASSIGNED') keys.push('in_progress');
+    if (s === 'ASSIGNED') keys.push('pending');
+    if (s === 'CHANGES_REQUESTED') keys.push('changes_requested');
+    if (s === 'IN_PROGRESS' || s === 'BLOCKED') keys.push('in_progress');
     if (s === 'DONE') keys.push('done');
     if (s === 'REJECTED') keys.push('rejected');
     return keys;
@@ -1410,20 +1411,22 @@ export function renderTaskDetailPage(params: {
       function countByFilter(f) {
         return subs.filter(function (s) {
           var st = String(s.status || '');
-          if (f === 'pending_me') return st === 'CHANGES_REQUESTED' || st === 'BLOCKED';
-          if (f === 'in_progress') return st === 'IN_PROGRESS' || st === 'ASSIGNED';
+          if (f === 'pending') return st === 'ASSIGNED';
+          if (f === 'changes_requested') return st === 'CHANGES_REQUESTED';
+          if (f === 'in_progress') return st === 'IN_PROGRESS' || st === 'BLOCKED';
           if (f === 'done') return st === 'DONE';
           if (f === 'rejected') return st === 'REJECTED';
           return true;
         }).length;
       }
-      var initialFilter = countByFilter('pending_me') > 0 ? 'pending_me' : 'all';
+      var initialFilter = countByFilter('pending') > 0 ? 'pending' : 'all';
       if (urlSubtaskId) {
         var hitSu = subs.filter(function (x) { return String(x.subtaskId || '') === urlSubtaskId; })[0];
         if (hitSu) {
           var hst = String(hitSu.status || '');
-          if (hst === 'CHANGES_REQUESTED' || hst === 'BLOCKED') initialFilter = 'pending_me';
-          else if (hst === 'IN_PROGRESS' || hst === 'ASSIGNED') initialFilter = 'in_progress';
+          if (hst === 'ASSIGNED') initialFilter = 'pending';
+          else if (hst === 'CHANGES_REQUESTED') initialFilter = 'changes_requested';
+          else if (hst === 'IN_PROGRESS' || hst === 'BLOCKED') initialFilter = 'in_progress';
           else if (hst === 'DONE') initialFilter = 'done';
           else if (hst === 'REJECTED') initialFilter = 'rejected';
           else initialFilter = 'all';
@@ -1449,13 +1452,14 @@ export function renderTaskDetailPage(params: {
       };
       var head =
         '<div class="mgr-sub-filter" role="tablist" aria-label="子任务筛选">' +
-        chipHtml('pending_me', '待我处理', countByFilter('pending_me'), countByFilter('pending_me') > 0) +
+        chipHtml('pending', '待处理', countByFilter('pending'), countByFilter('pending') > 0) +
+        chipHtml('changes_requested', '待修改', countByFilter('changes_requested'), countByFilter('changes_requested') > 0) +
         chipHtml('in_progress', '进行中', countByFilter('in_progress'), false) +
         chipHtml('done', '已完成', countByFilter('done'), false) +
         chipHtml('rejected', '已拒绝', countByFilter('rejected'), false) +
         chipHtml('all', '全部', subs.length, false) +
         '</div>' +
-        '<p class="muted mgr-sub-hint" style="margin:10px 0 14px;font-size:13px;">在对应行展开后可查看字段与事件；<strong>驳回申请</strong>与<strong>已知悉</strong>在行内完成。</p>';
+        '<p class="muted mgr-sub-hint" style="margin:10px 0 14px;font-size:13px;">每行可展开查看详情；可在行内执行<strong>驳回申请</strong>/<strong>已知悉</strong>，<strong>改派</strong>仅限制已完成不可改。</p>';
       var rowParts = subs.map(function (s) {
         var rawId = String(s.subtaskId || '');
         var sid = esc(rawId);
@@ -1478,13 +1482,13 @@ export function renderTaskDetailPage(params: {
         if (st === 'BLOCKED' || st === 'DONE') {
           actions.push('<button type="button" class="btn btn-ghost btn-sm" data-mgr-toggle="ack">已知悉</button>');
         }
-        if (ROLE === 'manager') {
+        if (st !== 'DONE' && ROLE === 'manager') {
           actions.push(
             '<a class="btn btn-secondary btn-sm" href="' +
               esc(reassignListHref) +
               '">改派页</a>',
           );
-        } else {
+        } else if (st !== 'DONE') {
           actions.push(
             '<button type="button" class="btn btn-secondary btn-sm" data-mgr-open-reassign-sub="' +
               sid +
