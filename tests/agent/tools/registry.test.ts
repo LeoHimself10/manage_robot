@@ -29,6 +29,18 @@ describe("tool registry profiles", () => {
     vi.unstubAllEnvs();
   });
 
+  it("planner/manager/admin registries do not expose switch_back_task", () => {
+    for (const toolProfile of ["planner", "manager", "admin"] as const) {
+      const registry = buildToolRegistry({
+        employeeRepo: { list: () => [] },
+        toolProfile,
+        trustedActorUserId: "u1",
+        actorRole: toolProfile === "admin" ? "admin" : "manager",
+      });
+      expect(registry.switch_back_task).toBeUndefined();
+    }
+  });
+
   it("planner profile excludes employee mutation tools", () => {
     const registry = buildToolRegistry({
       employeeRepo: { list: () => [] },

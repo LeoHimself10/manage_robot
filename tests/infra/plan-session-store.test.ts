@@ -161,39 +161,45 @@ describe("plan-session-store", () => {
     ).toBe("Legacy Draft");
   });
 
-  it("startNewTaskScope + restoreTaskScope persist round-trip through save/load", () => {
-    sessionDir = join(tmpdir(), `sessions-${Date.now()}-roundtrip`);
-    eventsPath = join(tmpdir(), `session-events-${Date.now()}-roundtrip.jsonl`);
+  it("startNewTaskScope clears prior scope draft so it is not recoverable via restoreTaskScope", () => {
+    sessionDir = join(tmpdir(), `sessions-${Date.now()}-norestore`);
+    eventsPath = join(tmpdir(), `session-events-${Date.now()}-norestore.jsonl`);
     process.env.PLAN_SESSION_DIR = sessionDir;
     process.env.PLAN_SESSION_EVENTS_PATH = eventsPath;
 
     const store = createPlanSessionStore();
-    const session = store.loadOrCreate("rt");
+    const session = store.loadOrCreate("norestore");
     const initialPlanId = session.planId;
+    const initialScopeId = session.currentTaskScopeId!;
 
     session.latestDraft = { title: "Topic A" };
     session.knownFacts = ["fact-A"];
+    store.save(session);
+
     startNewTaskScope(session, { scopeLabel: "Topic B" });
     expect(session.planId).not.toBe(initialPlanId);
+    expect(session.taskScopes?.[initialScopeId]?.latestDraft).toBeUndefined();
+    expect(session.taskScopes?.[initialScopeId]?.knownFacts).toEqual([]);
+
     session.latestDraft = { title: "Topic B Draft" };
     session.knownFacts = ["fact-B"];
     store.save(session);
 
-    const reloaded = store.loadByChatKey("rt")!;
-    expect((reloaded.latestDraft as any)?.title).toBe("Topic B Draft");
+    const reloaded = store.loadByChatKey("norestore")!;
+    expect((reloaded.latestDraft as { title?: string })?.title).toBe("Topic B Draft");
 
     const restore = restoreTaskScope(reloaded, { scopeLabelKeyword: "默认任务" });
     expect(restore.ok).toBe(true);
     if (restore.ok) {
       expect(restore.toPlanId).toBe(initialPlanId);
+      expect(restore.hasDraft).toBe(false);
     }
-    expect((reloaded.latestDraft as any)?.title).toBe("Topic A");
-    expect(reloaded.knownFacts).toEqual(["fact-A"]);
+    expect(reloaded.latestDraft).toBeUndefined();
     expect(reloaded.planId).toBe(initialPlanId);
     store.save(reloaded);
 
-    const reloaded2 = store.loadByChatKey("rt")!;
-    expect((reloaded2.latestDraft as any)?.title).toBe("Topic A");
+    const reloaded2 = store.loadByChatKey("norestore")!;
+    expect(reloaded2.latestDraft).toBeUndefined();
   });
 
   it("startNewTaskScope resets conversationHistory to a single system_note anchor", () => {
@@ -224,7 +230,7 @@ describe("plan-session-store", () => {
     expect(session.conversationHistory).toHaveLength(1);
     expect(session.conversationHistory[0]!.role).toBe("assistant");
     expect(session.conversationHistory[0]!.content).toMatch(/^\[system_note\]/);
-    expect(session.conversationHistory[0]!.content).toContain("新主题");
+    expect(session.conversationHistory[0]!.content).toContain("已清空上一轮规划上下文");
   });
 
   it("restoreTaskScope resets conversationHistory to system_note", () => {
@@ -311,6 +317,7 @@ describe("plan-session-store", () => {
       updatedAt: now,
       knownFacts: [],
       conversationHistory: [],
+      latestDraft: { title: "D" },
       currentTaskScopeId: "scope:a",
       taskScopes: {
         "scope:a": {
@@ -346,6 +353,7 @@ describe("plan-session-store", () => {
     const archived = session.taskScopes?.["scope:a"];
     expect(archived?.publishedTaskNo).toBe("T-001");
     expect(archived?.planId).toBe("p-old");
+    expect((archived?.latestDraft as { title?: string } | undefined)?.title).toBe("D");
     expect(session.currentTaskScopeId).toBe(ok.toScopeId);
     expect(session.latestDraft).toBeUndefined();
   });

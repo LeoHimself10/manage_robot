@@ -73,7 +73,6 @@ import {
   type KnownFactsStore,
 } from "./update-known-facts";
 import { START_NEW_TASK_TOOL, buildStartNewTaskHandler } from "./start-new-task";
-import { SWITCH_BACK_TASK_TOOL, buildSwitchBackTaskHandler } from "./switch-back-task";
 import { UPDATE_DRAFT_TASK_TOOL, buildUpdateDraftTaskHandler } from "./update-draft-task";
 import {
   READ_UPLOADED_ROSTER_TEXT_TOOL,
@@ -214,10 +213,6 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     start_new_task: {
       definition: START_NEW_TASK_TOOL,
       handler: buildStartNewTaskHandler({ currentSession: deps.currentSession }),
-    },
-    switch_back_task: {
-      definition: SWITCH_BACK_TASK_TOOL,
-      handler: buildSwitchBackTaskHandler({ currentSession: deps.currentSession }),
     },
     update_draft_task: {
       definition: UPDATE_DRAFT_TASK_TOOL,
@@ -379,7 +374,6 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "update_known_facts",
       "list_known_facts",
       "start_new_task",
-      "switch_back_task",
       "update_draft_task",
     ],
     manager: [
@@ -396,7 +390,6 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "update_known_facts",
       "list_known_facts",
       "start_new_task",
-      "switch_back_task",
       "update_draft_task",
       "read_uploaded_roster_text",
       "set_candidate_pool",
@@ -421,7 +414,6 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "update_known_facts",
       "list_known_facts",
       "start_new_task",
-      "switch_back_task",
       "update_draft_task",
       "read_uploaded_roster_text",
       "set_candidate_pool",

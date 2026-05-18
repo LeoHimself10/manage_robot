@@ -9,7 +9,7 @@ export const START_NEW_TASK_TOOL: ToolDefinition = {
   function: {
     name: "start_new_task",
     description:
-      "用户明显切换到一个与当前草案/分配无关的新任务时调用。把当前会话的 latestDraft / latestAssignment / knownFacts 归档到 taskScopes，然后清空顶层进入空白的新 scope。**未确认主题已切换前不要调用**。调用后再继续 search_employees / prepare_publish_task 等工具。",
+      "用户明显切换到一个与当前草案/分配无关的新任务时调用。清空当前会话的 latestDraft / latestAssignment / knownFacts，并开启新的规划轮次（新 planId、新 scope）。**未确认主题已切换前不要调用**。未发布的旧草案不可通过聊天恢复。调用后再继续 search_employees / prepare_publish_task 等工具。",
     parameters: {
       type: "object",
       properties: {
@@ -62,7 +62,7 @@ export function buildStartNewTaskHandler(
       toPlanId: result.toPlanId,
       clearedHistoryEntries: result.clearedHistoryEntries,
       hint:
-        `已归档原任务${result.fromScopeLabel ? `「${result.fromScopeLabel}」` : ""}，` +
+        `已清空上一轮规划上下文${result.fromScopeLabel ? `（原主题「${result.fromScopeLabel}」）` : ""}，` +
         `切换到新任务「${result.toScopeLabel}」。规划 id 已从 \`${result.fromPlanId}\` 更新为 \`${result.toPlanId}\`。当前 scope 草案为空，请按用户最新输入重新生成。`,
     };
   };

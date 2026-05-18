@@ -13,9 +13,9 @@ export interface PlanSessionEvent {
 }
 
 /**
- * 单个任务作用域归档。每次主管/规划者切换主题（start_new_task）或回切（switch_back_task）时，
- * 当前顶层 latestDraft / latestAssignment / knownFacts 会被快照到这里。
- * 顶层字段仍是真理来源（"current scope"），taskScopes 是归档库。
+ * 单个任务作用域。`taskScopes` 镜像当前激活 scope 的顶层状态；`save` 时通过 `mirrorActiveScope` 同步。
+ * 用户调用 `start_new_task` 会清空当前规划并换新 `planId`，且**不会**在旧 scope 上保留可恢复的未发布草案。
+ * 发布成功后的自动轮转（`auto_rotate_after_publish`）会先镜像当前 scope，再开新 scope 供下一条规划。
  */
 export interface TaskScope {
   scopeId: string;
@@ -158,8 +158,8 @@ export function mirrorActiveScope(session: PlanSession): PlanSession {
 }
 
 /**
- * 归档当前 scope 并创建一个全新的 active scope。把顶层 latestDraft/
- * latestAssignment/knownFacts 清空。返回新 scopeId。
+ * 开始新的规划轮次：清空顶层 `latestDraft` / `latestAssignment` / `knownFacts`，生成新 `planId` 与当前 scope。
+ * `reason === "auto_rotate_after_publish"` 时先镜像当前 scope（保留发布后审计快照），再切换新 scope。
  */
 export function startNewTaskScope(
   session: PlanSession,
@@ -176,7 +176,17 @@ export function startNewTaskScope(
   const fromPlanId = session.planId;
   const fromScopeId = session.currentTaskScopeId;
   const fromScopeLabel = fromScopeId ? session.taskScopes?.[fromScopeId]?.scopeLabel : undefined;
-  if (fromScopeId) mirrorActiveScope(session);
+
+  const isPublishRotate = input.reason === "auto_rotate_after_publish";
+  if (isPublishRotate && fromScopeId) {
+    mirrorActiveScope(session);
+  } else if (fromScopeId && session.taskScopes?.[fromScopeId]) {
+    const old = session.taskScopes[fromScopeId]!;
+    delete old.latestDraft;
+    delete old.latestAssignment;
+    old.knownFacts = [];
+    old.updatedAt = new Date().toISOString();
+  }
 
   const now = new Date().toISOString();
   const toScopeId = generateScopeId();
@@ -204,16 +214,14 @@ export function startNewTaskScope(
   session.pendingRosterText = undefined;
   session.pendingRosterSource = undefined;
 
-  const archivedLabel = fromScopeLabel ? `「${fromScopeLabel}」` : "上一个任务";
   const clearedHistoryEntries = session.conversationHistory?.length ?? 0;
   session.conversationHistory = [
     {
       role: "assistant",
       at: now,
       content:
-        `[system_note] 已归档${archivedLabel}并开始新任务「${toScopeLabel}」。`
-        + "旧任务的人员名单、子任务编号（task_x）、姓名/userId 均不应被引用；"
-        + "如需回到旧任务，请明确说「切回上一条任务」。",
+        `[system_note] 已清空上一轮规划上下文并开始新任务「${toScopeLabel}」。`
+        + "旧任务的人员名单、子任务编号（task_x）、姓名/userId 均不应被引用。",
     },
   ];
 

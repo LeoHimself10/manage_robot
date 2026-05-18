@@ -40,7 +40,7 @@ describe("start_new_task tool", () => {
     expect(result.reason).toBe("session_unavailable");
   });
 
-  it("archives current draft and clears top-level fields", () => {
+  it("clears current draft and strips prior scope snapshot (no recoverable archive)", () => {
     const session = makeSession({
       conversationHistory: [
         { role: "user", content: "hi" },
@@ -54,14 +54,14 @@ describe("start_new_task tool", () => {
     const result = handler({
       scopeLabel: "无纺布来料不合格",
       reason: "用户切换主题",
-    }) as any;
+    }) as Record<string, unknown>;
 
     expect(result.ok).toBe(true);
     expect(result.fromScopeId).toBe("scope:original");
     expect(result.fromScopeLabel).toBe("OCT 主机问题");
     expect(result.fromPlanId).toBe("plan-1");
     expect(result.toPlanId).toBe(session.planId);
-    expect(result.toScopeId).toMatch(/^scope:/);
+    expect(String(result.toScopeId ?? "")).toMatch(/^scope:/);
     expect(result.toScopeLabel).toBe("无纺布来料不合格");
 
     expect(session.currentTaskScopeId).toBe(result.toScopeId);
@@ -70,10 +70,15 @@ describe("start_new_task tool", () => {
     expect(session.latestAssignment).toBeUndefined();
     expect(session.knownFacts).toEqual([]);
 
-    const archived = session.taskScopes?.["scope:original"];
-    expect(archived?.planId).toBe("plan-1");
-    expect(archived?.latestDraft).toMatchObject({ title: "OCT 主机 U 盘" });
-    expect(archived?.knownFacts).toEqual(["上下文 OCT 设备型号 K5"]);
+    const prior = session.taskScopes?.["scope:original"];
+    expect(prior?.planId).toBe("plan-1");
+    expect(prior?.latestDraft).toBeUndefined();
+    expect(prior?.latestAssignment).toBeUndefined();
+    expect(prior?.knownFacts).toEqual([]);
+
+    const hint = String(result.hint ?? "");
+    expect(hint).toContain("已清空上一轮规划上下文");
+    expect(hint).not.toMatch(/可切回|恢复|归档原任务/);
 
     const audit = session.scopeAuditTrail ?? [];
     expect(audit.some((e) => e.eventType === "SCOPE_CREATED" && e.toScopeId === result.toScopeId)).toBe(true);
