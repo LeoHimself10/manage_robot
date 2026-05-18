@@ -1280,12 +1280,12 @@ export function renderTaskDetailPage(params: {
   function applyMgrSubtaskFilter(mountEl, f) {
     if (!mountEl) return;
     var key = String(f || 'all').trim() || 'all';
-    mountEl.querySelectorAll('[data-sub-filter]').forEach(function (b) {
-      var bf = String(b.getAttribute('data-sub-filter') || '').trim();
+    mountEl.querySelectorAll('[data-mgr-bucket]').forEach(function (b) {
+      var bf = String(b.getAttribute('data-mgr-bucket') || '').trim();
       b.setAttribute('aria-pressed', bf === key ? 'true' : 'false');
     });
     mountEl.querySelectorAll('details.sub-row-mgr').forEach(function (row) {
-      var raw = String(row.getAttribute('data-filter-tags') || '');
+      var raw = String(row.getAttribute('data-mgr-buckets') || '');
       var tags = raw
         .split(/[\s,]+/)
         .map(function (t) {
@@ -1432,7 +1432,7 @@ export function renderTaskDetailPage(params: {
         return (
           '<button type="button" class="mgr-sub-filter-chip' +
           ac +
-          '" data-sub-filter="' +
+          '" data-mgr-bucket="' +
           esc(key) +
           '" aria-pressed="' +
           pressed +
@@ -1541,7 +1541,7 @@ export function renderTaskDetailPage(params: {
           sid +
           '" data-status="' +
           esc(st) +
-          '" data-filter-tags="' +
+          '" data-mgr-buckets="' +
           filterTagsCsv +
           '">' +
           '<summary class="mgr-sub-summary">' +
@@ -1584,9 +1584,9 @@ export function renderTaskDetailPage(params: {
       if (!mount.dataset.mgrFilterBound) {
         mount.dataset.mgrFilterBound = '1';
         mount.addEventListener('click', function (ev) {
-          var chip = ev.target && ev.target.closest ? ev.target.closest('[data-sub-filter]') : null;
+          var chip = ev.target && ev.target.closest ? ev.target.closest('[data-mgr-bucket]') : null;
           if (!chip || !mount.contains(chip)) return;
-          applyMgrSubtaskFilter(mount, String(chip.getAttribute('data-sub-filter') || 'all').trim() || 'all');
+          applyMgrSubtaskFilter(mount, String(chip.getAttribute('data-mgr-bucket') || 'all').trim() || 'all');
         });
       }
       applyMgrSubtaskFilter(mount, initialFilter);
