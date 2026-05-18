@@ -762,6 +762,32 @@ details.sub-row-mgr.mgr-sub-row--hidden {
   padding: 0 14px 14px;
   border-top: 1px dashed #e2e8f0;
 }
+.mgr-employee-info {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  border-radius: var(--radius-sm);
+}
+.mgr-employee-info-h {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e3a8a;
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+.mgr-employee-signal {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #92400e;
+  background: #ffedd5;
+  border: 1px solid #fdba74;
+  margin-bottom: 6px;
+}
 .mgr-sub-body-grid {
   display: grid;
   grid-template-columns: 2fr 1fr;
