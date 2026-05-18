@@ -3,6 +3,7 @@ import {
   buildManagerEmployeeActionMarkdown,
   buildPublishTaskNotifyMarkdown,
   createWorkbenchPublishNotifier,
+  resolveManagerNotifyDetailFocus,
   resolveManagerTaskDetailUrl,
   type WorkbenchPublishTaskNotifyInput,
 } from "../../../src/integrations/dingtalk/workbench-notify";
@@ -331,6 +332,33 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(msgParam.text).toContain("拒绝子任务");
     expect(msgParam.text).toContain("TK-777");
     expect(msgParam.singleURL).toContain("/workbench/manager/task?taskNo=TK-777");
+    expect(msgParam.singleURL).toContain("focus=reassign");
+  });
+
+  it("notifyManagerOfEmployeeAction uses focus=review for done (not reassign)", async () => {
+    process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL = "https://wb.example.com";
+    const { fetch: fetchImpl, calls } = buildFetchMock([
+      () => jsonRes({ accessToken: "tok-mn2" }),
+      () => jsonRes({ processQueryKey: "pq-manager-2" }),
+    ]);
+    const notifier = createWorkbenchPublishNotifier(fetchImpl);
+    await notifier.notifyManagerOfEmployeeAction({
+      managerUserId: "mgr-99",
+      employeeUserId: "emp-1",
+      employeeDisplayName: "张三",
+      taskNo: "TK-888",
+      taskTitle: "整单标题",
+      subtaskId: "st-done",
+      subtaskTitle: "子任务标题",
+      kind: "done",
+      note: "完成了",
+    });
+    const robot = calls.find((c) => c.url.includes("/robot/oToMessages/batchSend"));
+    const msgParam = JSON.parse(String((robot?.body as { msgParam: string }).msgParam ?? "{}")) as {
+      singleURL: string;
+    };
+    expect(msgParam.singleURL).toContain("focus=review");
+    expect(msgParam.singleURL).not.toContain("focus=reassign");
   });
 
   it("notifyManagerOfEmployeeAction skips when WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED=0", async () => {
@@ -526,7 +554,7 @@ describe("resolveManagerTaskDetailUrl / buildManagerEmployeeActionMarkdown", () 
     expect(u).toContain("focus=reassign");
   });
 
-  it("buildManagerEmployeeActionMarkdown includes action and optional link", () => {
+  it("buildManagerEmployeeActionMarkdown includes action and DingTalk in-app guidance (no markdown link)", () => {
     const md = buildManagerEmployeeActionMarkdown({
       employeeDisplayName: "李四",
       employeeUserId: "u-2",
@@ -538,7 +566,16 @@ describe("resolveManagerTaskDetailUrl / buildManagerEmployeeActionMarkdown", () 
       workbenchTaskUrl: "https://x/w/workbench/manager/task?taskNo=N-9",
     });
     expect(md).toContain("标记阻塞");
-    expect(md).toContain("打开工作台查看");
+    expect(md).toContain("钉钉内");
+    expect(md).not.toMatch(/\[.*\]\(https?:\/\//);
     expect(md).toContain("缺料");
+  });
+
+  it("resolveManagerNotifyDetailFocus maps kinds to detail focus", () => {
+    expect(resolveManagerNotifyDetailFocus("rejected")).toBe("reassign");
+    expect(resolveManagerNotifyDetailFocus("changes_requested")).toBe("reassign");
+    expect(resolveManagerNotifyDetailFocus("blocked")).toBe("blocked");
+    expect(resolveManagerNotifyDetailFocus("done")).toBe("review");
+    expect(resolveManagerNotifyDetailFocus("customize")).toBe("review");
   });
 });

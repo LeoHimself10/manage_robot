@@ -410,7 +410,7 @@ export function createWorkbenchFormalTaskStore() {
     ORDER BY t.updated_at DESC
   `);
   const qEmployeeSubtasks = db.prepare(
-    "SELECT s.*, t.task_no, t.plan_id, t.title AS task_title, t.description AS task_description, t.manager_user_id, t.initiator_department FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.assignee_user_id = ? ORDER BY s.updated_at DESC",
+    "SELECT s.*, t.task_no, t.plan_id, t.title AS task_title, t.description AS task_description, t.manager_user_id, t.initiator_department FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.assignee_user_id = ? ORDER BY CASE WHEN s.status = 'REJECTED' THEN 1 ELSE 0 END ASC, s.updated_at DESC",
   );
   const qAdminTasks = db.prepare(`
     SELECT
@@ -759,7 +759,7 @@ export function createWorkbenchFormalTaskStore() {
     updateSubtaskStatus(input: {
       subtaskId: string;
       actorUserId: string;
-      action: "accept" | "reject" | "request_changes" | "progress";
+      action: "accept" | "reject" | "request_changes" | "customize" | "progress";
       note?: string;
       progressStatus?: "IN_PROGRESS" | "BLOCKED" | "DONE";
     }): {
@@ -785,6 +785,9 @@ export function createWorkbenchFormalTaskStore() {
       } else if (input.action === "request_changes") {
         nextStatus = "CHANGES_REQUESTED";
         eventType = "SUBTASK_CHANGES_REQUESTED";
+      } else if (input.action === "customize") {
+        nextStatus = normalizeStatus(String(subtask.status ?? "ASSIGNED"));
+        eventType = "SUBTASK_CUSTOMIZE_NOTE";
       } else {
         nextStatus = normalizeStatus(input.progressStatus ?? "IN_PROGRESS");
         eventType = "SUBTASK_PROGRESS";
@@ -821,6 +824,90 @@ export function createWorkbenchFormalTaskStore() {
         task: mapTaskRow(taskRow),
         subtask: mapSubtaskRow(subtaskRow),
       };
+    },
+
+    managerDeclineSubtaskChanges(input: {
+      subtaskId: string;
+      managerUserId: string;
+      note?: string;
+    }): {
+      task: WorkbenchTaskRow;
+      subtask: WorkbenchSubtaskRow;
+    } {
+      const subtask = db
+        .prepare(
+          "SELECT s.*, t.plan_id, t.manager_user_id, t.task_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
+        )
+        .get(input.subtaskId) as Record<string, unknown> | undefined;
+      if (!subtask) throw new Error("Subtask not found");
+      if (String(subtask.manager_user_id ?? "").trim() !== input.managerUserId.trim()) {
+        throw new Error("Task does not belong to current manager");
+      }
+      const st = normalizeStatus(String(subtask.status ?? ""));
+      if (st !== "CHANGES_REQUESTED") {
+        throw new Error("Subtask is not in CHANGES_REQUESTED state");
+      }
+      const now = nowIso();
+      const taskId = String(subtask.task_id ?? "");
+      runInTransaction(() => {
+        db.prepare("UPDATE subtasks SET status = 'IN_PROGRESS', updated_at = ? WHERE subtask_id = ?").run(
+          now,
+          input.subtaskId,
+        );
+        db.prepare(
+          "INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id, note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)",
+        ).run(
+          taskId,
+          input.subtaskId,
+          "MANAGER_DECLINE_CHANGES",
+          input.managerUserId,
+          input.note?.trim() || null,
+          stringify({}),
+          now,
+        );
+        updateTaskStatus(taskId);
+      });
+      const taskRow = qTaskById.get(taskId) as Record<string, unknown> | undefined;
+      const subtaskRow = db
+        .prepare("SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?")
+        .get(input.subtaskId) as Record<string, unknown> | undefined;
+      if (!taskRow || !subtaskRow) {
+        throw new Error("Failed to reload updated rows");
+      }
+      return {
+        task: mapTaskRow(taskRow),
+        subtask: mapSubtaskRow(subtaskRow),
+      };
+    },
+
+    managerAcknowledgeSubtaskSignal(input: {
+      subtaskId: string;
+      managerUserId: string;
+      signal: string;
+      note?: string;
+    }): void {
+      const row = db
+        .prepare(
+          "SELECT s.subtask_id, t.task_id, t.manager_user_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
+        )
+        .get(input.subtaskId) as Record<string, unknown> | undefined;
+      if (!row) throw new Error("Subtask not found");
+      if (String(row.manager_user_id ?? "").trim() !== input.managerUserId.trim()) {
+        throw new Error("Task does not belong to current manager");
+      }
+      const taskId = String(row.task_id ?? "");
+      const now = nowIso();
+      db.prepare(
+        "INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id, note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)",
+      ).run(
+        taskId,
+        input.subtaskId,
+        "MANAGER_ACK_SUBTASK_SIGNAL",
+        input.managerUserId,
+        input.note?.trim() || null,
+        stringify({ signal: input.signal }),
+        now,
+      );
     },
 
     reassignTask(input: {

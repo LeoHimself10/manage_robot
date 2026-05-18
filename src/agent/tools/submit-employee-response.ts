@@ -51,7 +51,10 @@ export function buildSubmitEmployeeResponseHandler(
     const updated = taskStore.updateSubtaskStatus({
       subtaskId,
       actorUserId,
-      action: action === "customize" ? "request_changes" : (action as "accept" | "reject" | "request_changes"),
+      action:
+        action === "customize"
+          ? "customize"
+          : (action as "accept" | "reject" | "request_changes"),
       note,
     });
     if (action === "reject" || action === "request_changes" || action === "customize") {
@@ -79,13 +82,23 @@ export function buildSubmitEmployeeResponseHandler(
         note,
         getDisplayName: deps.getDisplayName,
       });
-    } else if (action === "request_changes" || action === "customize") {
+    } else if (action === "request_changes") {
       await notifyManagerOfEmployeeActionAfterUpdate({
         taskStore,
         notifier: deps.notifier,
         subtaskId: updated.subtask.subtaskId,
         actorUserId,
         kind: "changes_requested",
+        note,
+        getDisplayName: deps.getDisplayName,
+      });
+    } else if (action === "customize") {
+      await notifyManagerOfEmployeeActionAfterUpdate({
+        taskStore,
+        notifier: deps.notifier,
+        subtaskId: updated.subtask.subtaskId,
+        actorUserId,
+        kind: "customize",
         note,
         getDisplayName: deps.getDisplayName,
       });

@@ -563,6 +563,220 @@ describe("workbench-formal-task-store mapping", () => {
   });
 });
 
+describe("employee / manager subtask flows", () => {
+  beforeEach(() => {
+    const temp = mkdtempSync(join(tmpdir(), "formal-store-flow-"));
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", join(temp, "workbench.sqlite"));
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("listEmployeeSubtasks sorts REJECTED to the bottom", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "h-rej-sort",
+      planId: "plan-rej-sort",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "双子任务",
+        tasks: [
+          {
+            id: "t_a",
+            title: "A",
+            timeNode: { dueAt: "2026-06-01" },
+            dependencyTaskIds: [],
+            risksAndOpenQuestions: [],
+          },
+          {
+            id: "t_b",
+            title: "B",
+            timeNode: { dueAt: "2026-06-02" },
+            dependencyTaskIds: [],
+            risksAndOpenQuestions: [],
+          },
+        ],
+      },
+      latestAssignment: {
+        assignments: [
+          { taskId: "t_a", primary: { userId: "emp-sort", displayName: "E" } },
+          { taskId: "t_b", primary: { userId: "emp-sort", displayName: "E" } },
+        ],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-rej-sort",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const subA = published.subtasks.find((s) => s.sourceTaskKey === "t_a");
+    const subB = published.subtasks.find((s) => s.sourceTaskKey === "t_b");
+    expect(subA && subB).toBeTruthy();
+    store.updateSubtaskStatus({
+      subtaskId: subA!.subtaskId,
+      actorUserId: "emp-sort",
+      action: "reject",
+      note: "无法承接",
+    });
+    const list = store.listEmployeeSubtasks("emp-sort");
+    expect(list).toHaveLength(2);
+    expect(list[list.length - 1].subtaskId).toBe(subA!.subtaskId);
+    expect(list[list.length - 1].status).toBe("REJECTED");
+  });
+
+  it("updateSubtaskStatus customize keeps IN_PROGRESS and emits SUBTASK_CUSTOMIZE_NOTE", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "h-cust",
+      planId: "plan-cust",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "单任务",
+        tasks: [
+          {
+            id: "t_only",
+            title: "Only",
+            timeNode: { dueAt: "2026-06-01" },
+            dependencyTaskIds: [],
+            risksAndOpenQuestions: [],
+          },
+        ],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t_only", primary: { userId: "emp-cust", displayName: "C" } }],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-cust",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const sid = published.subtasks[0]!.subtaskId;
+    store.updateSubtaskStatus({ subtaskId: sid, actorUserId: "emp-cust", action: "accept" });
+    store.updateSubtaskStatus({
+      subtaskId: sid,
+      actorUserId: "emp-cust",
+      action: "customize",
+      note: "补充说明一条",
+    });
+    const detail = store.getTaskDetail("plan-cust");
+    expect(detail?.subtasks[0]?.status).toBe("IN_PROGRESS");
+    const types = (detail?.events ?? []).map((e) => String(e.event_type ?? ""));
+    expect(types).toContain("SUBTASK_CUSTOMIZE_NOTE");
+    expect(types.filter((t) => t === "SUBTASK_CHANGES_REQUESTED").length).toBe(0);
+  });
+
+  it("managerDeclineSubtaskChanges returns subtask to IN_PROGRESS", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "h-dec",
+      planId: "plan-dec",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "单任务",
+        tasks: [
+          {
+            id: "t_x",
+            title: "X",
+            timeNode: { dueAt: "2026-06-01" },
+            dependencyTaskIds: [],
+            risksAndOpenQuestions: [],
+          },
+        ],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t_x", primary: { userId: "emp-dec", displayName: "D" } }],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-dec",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const sid = published.subtasks[0]!.subtaskId;
+    store.updateSubtaskStatus({ subtaskId: sid, actorUserId: "emp-dec", action: "accept" });
+    store.updateSubtaskStatus({
+      subtaskId: sid,
+      actorUserId: "emp-dec",
+      action: "request_changes",
+      note: "要改截止",
+    });
+    const out = store.managerDeclineSubtaskChanges({
+      subtaskId: sid,
+      managerUserId: "manager-1",
+      note: "维持原计划",
+    });
+    expect(out.subtask.status).toBe("IN_PROGRESS");
+    const ev = store.getTaskDetail("plan-dec")?.events ?? [];
+    expect(ev.some((e) => String(e.event_type) === "MANAGER_DECLINE_CHANGES")).toBe(true);
+  });
+
+  it("reassignTask removes subtask from prior assignee listEmployeeSubtasks", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "h-reas",
+      planId: "plan-reas",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "单任务",
+        tasks: [
+          {
+            id: "t_r",
+            title: "R",
+            timeNode: { dueAt: "2026-06-01" },
+            dependencyTaskIds: [],
+            risksAndOpenQuestions: [],
+          },
+        ],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t_r", primary: { userId: "emp-old", displayName: "O" } }],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-reas",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const sid = published.subtasks[0]!.subtaskId;
+    expect(store.listEmployeeSubtasks("emp-old")).toHaveLength(1);
+    store.reassignTask({
+      planId: "plan-reas",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-new",
+      subtaskId: sid,
+    });
+    expect(store.listEmployeeSubtasks("emp-old")).toHaveLength(0);
+    expect(store.listEmployeeSubtasks("emp-new")).toHaveLength(1);
+    expect(store.listEmployeeSubtasks("emp-new")[0]!.subtaskId).toBe(sid);
+  });
+});
+
 describe("aggregateTaskStatus", () => {
   it("prefers REJECTED over CHANGES_REQUESTED", () => {
     expect(aggregateTaskStatus(["CHANGES_REQUESTED", "REJECTED"])).toBe("REJECTED");
