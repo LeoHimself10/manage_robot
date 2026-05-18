@@ -843,6 +843,46 @@ export function renderTaskDetailPage(params: {
     }
     <div style="margin-top:10px;"><a href="${params.backPath}">返回</a></div>
   </div>
+  <div class="card" id="focusContextBanner" style="display:none;" role="status"></div>
+  <div class="card" id="managerSignalCard" style="display:none;">
+    <h3 style="margin:0 0 10px;">主管处理</h3>
+    <div id="mgrDeclineWrap" style="display:none;">
+      <p class="muted" style="font-size:13px;margin:0 0 10px;">驳回「申请调整」后，子任务将回到进行中。</p>
+      <div class="form-stack">
+        <label>子任务
+          <select id="mgrDeclineSubtask"></select>
+        </label>
+        <label>驳回理由（必填）
+          <textarea id="mgrDeclineNote" rows="2"></textarea>
+        </label>
+        <label id="mgrDeclineConfirmWrap" style="display:none;align-items:center;gap:8px;">
+          <input type="checkbox" id="mgrDeclineConfirm" /> 确认执行驳回
+        </label>
+        <button type="button" class="btn btn-secondary" id="mgrDeclineBtn">驳回申请</button>
+        <div class="feedback muted" id="mgrDeclineFb"></div>
+      </div>
+    </div>
+    <div id="mgrAckWrap" style="margin-top:14px;">
+      <p class="muted" style="font-size:13px;margin:0 0 10px;">对员工「标记完成 / 阻塞」等通知仅做已知悉留痕（不改变子任务状态）。</p>
+      <div class="form-stack">
+        <label>关联子任务（可选，默认第一条）
+          <select id="mgrAckSubtask"><option value="">（默认首条子任务）</option></select>
+        </label>
+        <label>类型
+          <select id="mgrAckSignal">
+            <option value="done">员工标记完成</option>
+            <option value="blocked">员工标记阻塞</option>
+            <option value="other">其他</option>
+          </select>
+        </label>
+        <label>备注（可选）
+          <textarea id="mgrAckNote" rows="2"></textarea>
+        </label>
+        <button type="button" class="btn btn-ghost" id="mgrAckBtn">已知悉</button>
+        <div class="feedback muted" id="mgrAckFb"></div>
+      </div>
+    </div>
+  </div>
   <div class="card" id="taskMount">加载中…</div>
   <div class="card" id="reassignCard" style="display:none;">
     <h3 style="margin:0 0 8px;">改派</h3>
@@ -881,7 +921,13 @@ export function renderTaskDetailPage(params: {
   var ENFORCE_GUARDS = ${params.enforceActionGuards ? "true" : "false"};
   var lastLoadedPlanId = '';
   var detailReassignComboBound = false;
+  var mgrSignalBound = false;
   function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function cssEscAttr(v){
+    var s = String(v||'');
+    try { if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s); } catch(e0){}
+    return s.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+  }
   function fmtTime(iso){
     try { var d = new Date(iso); if (!isFinite(d.getTime())) return esc(iso); return esc(d.toLocaleString()); } catch(e){ return esc(iso); }
   }
@@ -1107,6 +1153,95 @@ export function renderTaskDetailPage(params: {
       }
     }
   }
+  function setMgrFb(id, msg, cls) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = msg || '';
+    el.className = 'feedback ' + (cls || 'muted');
+  }
+  function newMgrIdem() {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    } catch (e0) {}
+    return 'mgr-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+  }
+  function ensureManagerSignalHandlers() {
+    if (mgrSignalBound) return;
+    mgrSignalBound = true;
+    var dbtn = document.getElementById('mgrDeclineBtn');
+    if (dbtn) {
+      dbtn.addEventListener('click', async function () {
+        var planId = (lastLoadedPlanId || '').trim();
+        var sel = document.getElementById('mgrDeclineSubtask');
+        var sid = sel ? String(sel.value || '').trim() : '';
+        var noteEl = document.getElementById('mgrDeclineNote');
+        var note = noteEl ? String(noteEl.value || '').trim() : '';
+        if (!planId) { setMgrFb('mgrDeclineFb', '缺少 planId', 'err'); return; }
+        if (!sid) { setMgrFb('mgrDeclineFb', '请选择子任务', 'err'); return; }
+        if (!note) { setMgrFb('mgrDeclineFb', '请填写驳回理由', 'err'); return; }
+        if (ENFORCE_GUARDS) {
+          var cx = document.getElementById('mgrDeclineConfirm');
+          if (!cx || !cx.checked) { setMgrFb('mgrDeclineFb', '请勾选确认执行驳回', 'err'); return; }
+        }
+        var payload = { planId: planId, subtaskId: sid, note: note };
+        if (ENFORCE_GUARDS) {
+          payload.confirm = true;
+          payload.idempotencyKey = newMgrIdem();
+        }
+        dbtn.disabled = true;
+        setMgrFb('mgrDeclineFb', '提交中…', 'muted');
+        try {
+          var res = await fetch('/api/workbench/manager/decline-changes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+          setMgrFb('mgrDeclineFb', '已驳回', 'ok');
+          if (noteEl) noteEl.value = '';
+          await load();
+        } catch (er) {
+          setMgrFb('mgrDeclineFb', String(er && er.message ? er.message : er), 'err');
+        } finally {
+          dbtn.disabled = false;
+        }
+      });
+    }
+    var abtn = document.getElementById('mgrAckBtn');
+    if (abtn) {
+      abtn.addEventListener('click', async function () {
+        var planId = (lastLoadedPlanId || '').trim();
+        var sel = document.getElementById('mgrAckSubtask');
+        var sid = sel ? String(sel.value || '').trim() : '';
+        var sigEl = document.getElementById('mgrAckSignal');
+        var sig = sigEl ? String(sigEl.value || 'done').trim() : 'done';
+        var nEl = document.getElementById('mgrAckNote');
+        var note = nEl ? String(nEl.value || '').trim() : '';
+        if (!planId) { setMgrFb('mgrAckFb', '缺少 planId', 'err'); return; }
+        var payload = { planId: planId, signal: sig, note: note };
+        if (sid) payload.subtaskId = sid;
+        if (ENFORCE_GUARDS) payload.idempotencyKey = newMgrIdem();
+        abtn.disabled = true;
+        setMgrFb('mgrAckFb', '提交中…', 'muted');
+        try {
+          var res = await fetch('/api/workbench/manager/ack-signal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+          setMgrFb('mgrAckFb', '已记录', 'ok');
+          await load();
+        } catch (er2) {
+          setMgrFb('mgrAckFb', String(er2 && er2.message ? er2.message : er2), 'err');
+        } finally {
+          abtn.disabled = false;
+        }
+      });
+    }
+  }
   async function load(){
     var pageQs = new URLSearchParams(location.search);
     var taskNo = pageQs.get('taskNo') || '';
@@ -1142,7 +1277,7 @@ export function renderTaskDetailPage(params: {
         parts.push('<h4 class="subs-section-h">我的子任务</h4>');
         mine.forEach(function (s) {
           var cardCls = 'subtask-detail-card' + (String(s.status||'') === 'REJECTED' ? ' is-rejected-sub' : '');
-          parts.push('<div class="'+cardCls+'"><h4 style="margin:0 0 8px;font-size:16px;">'+esc(s.title||'—')+'</h4><dl class="subtask-detail-dl">');
+          parts.push('<div class="'+cardCls+'" data-sub-highlight="'+esc(String(s.subtaskId||''))+'"><h4 style="margin:0 0 8px;font-size:16px;">'+esc(s.title||'—')+'</h4><dl class="subtask-detail-dl">');
           parts.push(subtaskDetailDtDds(s, subs));
           parts.push('</dl>');
           if (String(s.status||'') === 'REJECTED') {
@@ -1158,7 +1293,7 @@ export function renderTaskDetailPage(params: {
           var bc = subBadgeClass(s.status);
           var who = esc(s.assigneeDisplayName || s.assigneeUserId || '—');
           var st = esc(s.statusLabel || s.status || '—');
-          parts.push('<tr><td>'+esc(String(s.orderIndex||''))+'</td><td>'+esc(s.title||'—')+'</td><td>'+who+'</td>'
+          parts.push('<tr data-sub-highlight="'+esc(String(s.subtaskId||''))+'"><td>'+esc(String(s.orderIndex||''))+'</td><td>'+esc(s.title||'—')+'</td><td>'+who+'</td>'
             +'<td><span class="badge '+bc+'">'+st+'</span></td></tr>');
         });
         parts.push('</tbody></table></div>');
@@ -1173,7 +1308,7 @@ export function renderTaskDetailPage(params: {
         var who = esc(s.assigneeDisplayName || s.assigneeUserId || '—');
         var st = esc(s.statusLabel || s.status || '—');
         var pn = esc(s.progressNote || '—');
-        return '<tr><td>'+esc(String(s.orderIndex||''))+'</td><td>'+esc(s.title||'—')+'</td><td>'+who+'</td>'
+        return '<tr data-sub-highlight="'+esc(String(s.subtaskId||''))+'"><td>'+esc(String(s.orderIndex||''))+'</td><td>'+esc(s.title||'—')+'</td><td>'+who+'</td>'
           +'<td><span class="badge '+bc+'">'+st+'</span></td>'
           +'<td><div class="progress-cell" title="'+pn+'">'+pn+'</div></td>'
           +'<td>'+fmtTime(s.updatedAt)+'</td></tr>';
@@ -1184,7 +1319,7 @@ export function renderTaskDetailPage(params: {
           var bc = subBadgeClass(s.status);
           var who = esc(s.assigneeDisplayName || s.assigneeUserId || '—');
           var st = esc(s.statusLabel || s.status || '—');
-          return '<div class="subtask-detail-card"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">'
+          return '<div class="subtask-detail-card" data-sub-highlight="'+esc(String(s.subtaskId||''))+'"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">'
             +'<h4 style="margin:0;font-size:16px;flex:1 1 200px;">'+esc(s.title||'—')+'</h4>'
             +'<span class="badge '+bc+'">'+st+'</span>'
             +'<span class="muted" style="font-size:13px;">负责人 '+who+'</span></div>'
@@ -1208,12 +1343,75 @@ export function renderTaskDetailPage(params: {
       }).join('')+'</ul>';
     }
     lastLoadedPlanId = String(t.planId || '');
+    var fcb = document.getElementById('focusContextBanner');
+    if (fcb) {
+      if (urlFocus === 'reassign') {
+        fcb.style.display = 'block';
+        fcb.innerHTML = '<p style="margin:0;font-size:14px;">你从通知进入：<strong>改派</strong>。请在下方「改派」卡片中处理。</p>';
+      } else if (urlFocus === 'blocked') {
+        fcb.style.display = 'block';
+        fcb.innerHTML = '<p style="margin:0;font-size:14px;">你从通知进入：<strong>阻塞风险</strong>。请关注下方子任务状态与进度说明。</p>';
+      } else if (urlFocus === 'review') {
+        fcb.style.display = 'block';
+        fcb.innerHTML = '<p style="margin:0;font-size:14px;">你从通知进入：<strong>知晓 / 抽检</strong>。可向下查看完成情况，并使用「已知悉」留痕。</p>';
+      } else {
+        fcb.style.display = 'none';
+        fcb.innerHTML = '';
+      }
+    }
+    var msc = document.getElementById('managerSignalCard');
+    if (msc) {
+      if (ROLE === 'manager' || ROLE === 'admin') {
+        msc.style.display = 'block';
+        var hasChanges = subs.some(function (s) { return String(s.status || '') === 'CHANGES_REQUESTED'; });
+        var dw = document.getElementById('mgrDeclineWrap');
+        if (dw) dw.style.display = hasChanges ? 'block' : 'none';
+        var dcf = document.getElementById('mgrDeclineConfirmWrap');
+        if (dcf) dcf.style.display = ENFORCE_GUARDS ? 'flex' : 'none';
+        var dsel = document.getElementById('mgrDeclineSubtask');
+        if (dsel) {
+          dsel.innerHTML = subs
+            .filter(function (s) { return String(s.status || '') === 'CHANGES_REQUESTED'; })
+            .map(function (s) {
+              return '<option value="' + esc(String(s.subtaskId || '')) + '">' + esc(s.title || s.subtaskId) + '</option>';
+            })
+            .join('');
+          if (urlSubtaskId) {
+            for (var di = 0; di < dsel.options.length; di++) {
+              if (dsel.options[di].value === urlSubtaskId) { dsel.value = urlSubtaskId; break; }
+            }
+          }
+        }
+        var ask = document.getElementById('mgrAckSubtask');
+        if (ask) {
+          ask.innerHTML =
+            '<option value="">（默认首条子任务）</option>' +
+            subs.map(function (s) {
+              return '<option value="' + esc(String(s.subtaskId || '')) + '">' + esc(s.title || s.subtaskId) + '</option>';
+            }).join('');
+          if (urlSubtaskId) {
+            for (var ai = 0; ai < ask.options.length; ai++) {
+              if (ask.options[ai].value === urlSubtaskId) { ask.value = urlSubtaskId; break; }
+            }
+          }
+        }
+        ensureManagerSignalHandlers();
+      } else {
+        msc.style.display = 'none';
+      }
+    }
     var rc = document.getElementById('reassignCard');
     if (rc && (ROLE !== 'manager' && ROLE !== 'admin')) rc.style.display = 'none';
     if ((ROLE === 'manager' || ROLE === 'admin') && urlFocus === 'reassign' && lastLoadedPlanId) {
       initDetailReassign(subs, urlSubtaskId);
     } else if (rc) {
       rc.style.display = 'none';
+    }
+    if (urlSubtaskId) {
+      setTimeout(function () {
+        var hit = document.querySelector('[data-sub-highlight="' + cssEscAttr(urlSubtaskId) + '"]');
+        if (hit) hit.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 0);
     }
   }
   void load();
@@ -2061,6 +2259,152 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/decline-changes") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res);
+        if (!session) return;
+        if (session.role !== "manager" && session.role !== "admin") {
+          writeJson(res, 403, { ok: false, error: "manager or admin role required" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        if (shouldEnforceActionGuards()) {
+          const confirmed = body.confirm === true;
+          if (!confirmed) {
+            writeJson(res, 400, { ok: false, error: "confirm=true is required" });
+            return;
+          }
+          const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+          if (!idempotencyKey) {
+            writeJson(res, 400, { ok: false, error: "idempotencyKey is required" });
+            return;
+          }
+          if (!rememberActionKey("manager_decline_changes", idempotencyKey)) {
+            writeJson(res, 200, { ok: true, duplicated: true, alreadyHandled: true });
+            return;
+          }
+        }
+        const planId = String(body.planId ?? "").trim();
+        const subtaskIdRaw = String(body.subtaskId ?? "").trim();
+        const note = String(body.note ?? "").trim();
+        if (!planId) {
+          writeJson(res, 400, { ok: false, error: "planId is required" });
+          return;
+        }
+        if (!note) {
+          writeJson(res, 400, { ok: false, error: "note is required" });
+          return;
+        }
+        const store = getFormalTaskStore();
+        const detail = store.getTaskDetail(planId);
+        if (!detail) {
+          writeJson(res, 404, { ok: false, error: "Task not found for planId" });
+          return;
+        }
+        let managerUserId = session.userId;
+        if (session.role === "manager") {
+          if (detail.task.managerUserId !== session.userId) {
+            writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
+            return;
+          }
+        } else {
+          managerUserId = detail.task.managerUserId;
+        }
+        const targetSid =
+          subtaskIdRaw
+          || detail.subtasks.find((s) => s.status === "CHANGES_REQUESTED")?.subtaskId
+          || "";
+        if (!targetSid) {
+          writeJson(res, 400, { ok: false, error: "subtaskId required or no CHANGES_REQUESTED subtask" });
+          return;
+        }
+        const updated = store.managerDeclineSubtaskChanges({
+          subtaskId: targetSid,
+          managerUserId,
+          note,
+        });
+        writeJson(res, 200, {
+          ok: true,
+          task: { ...updated.task, statusLabel: taskStatusLabel(updated.task.status) },
+          subtask: { ...updated.subtask, statusLabel: taskStatusLabel(updated.subtask.status) },
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "decline changes failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/ack-signal") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res);
+        if (!session) return;
+        if (session.role !== "manager" && session.role !== "admin") {
+          writeJson(res, 403, { ok: false, error: "manager or admin role required" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        if (shouldEnforceActionGuards()) {
+          const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+          if (!idempotencyKey) {
+            writeJson(res, 400, { ok: false, error: "idempotencyKey is required" });
+            return;
+          }
+          if (!rememberActionKey("manager_ack_signal", idempotencyKey)) {
+            writeJson(res, 200, { ok: true, duplicated: true, alreadyHandled: true });
+            return;
+          }
+        }
+        const planId = String(body.planId ?? "").trim();
+        const subtaskIdRaw = String(body.subtaskId ?? "").trim();
+        const signal = String(body.signal ?? "done").trim();
+        const note = String(body.note ?? "").trim();
+        if (!planId) {
+          writeJson(res, 400, { ok: false, error: "planId is required" });
+          return;
+        }
+        const store = getFormalTaskStore();
+        const detail = store.getTaskDetail(planId);
+        if (!detail) {
+          writeJson(res, 404, { ok: false, error: "Task not found for planId" });
+          return;
+        }
+        let managerUserId = session.userId;
+        if (session.role === "manager") {
+          if (detail.task.managerUserId !== session.userId) {
+            writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
+            return;
+          }
+        } else {
+          managerUserId = detail.task.managerUserId;
+        }
+        const targetSid = subtaskIdRaw || detail.subtasks[0]?.subtaskId || "";
+        if (!targetSid) {
+          writeJson(res, 400, { ok: false, error: "subtaskId is required" });
+          return;
+        }
+        store.managerAcknowledgeSubtaskSignal({
+          subtaskId: targetSid,
+          managerUserId,
+          signal: signal || "done",
+          note: note || undefined,
+        });
+        writeJson(res, 200, { ok: true });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "ack failed",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (
     req.method === "POST"
     && (url.pathname === "/api/workbench/employee/action"
@@ -2123,11 +2467,14 @@ export function handleAssignmentHttp(
         const updated = getFormalTaskStore().updateSubtaskStatus({
           subtaskId: targetSubtaskId,
           actorUserId: session.userId,
-          action: action === "accept"
-            ? "accept"
-            : action === "reject"
-              ? "reject"
-              : "request_changes",
+          action:
+            action === "accept"
+              ? "accept"
+              : action === "reject"
+                ? "reject"
+                : action === "customize"
+                  ? "customize"
+                  : "request_changes",
           note,
         });
         const store = getFormalTaskStore();
@@ -2146,7 +2493,9 @@ export function handleAssignmentHttp(
             ? ("rejected" as const)
             : action === "accept"
               ? undefined
-              : ("changes_requested" as const);
+              : action === "customize"
+                ? ("customize" as const)
+                : ("changes_requested" as const);
         if (notifyKind) {
           await notifyManagerOfEmployeeActionAfterUpdate({
             taskStore: store,

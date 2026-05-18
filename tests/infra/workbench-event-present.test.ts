@@ -39,6 +39,38 @@ describe("workbench-event-present", () => {
     expect(e.summary).toContain("hello");
   });
 
+  it("formats MANAGER_DECLINE_CHANGES and MANAGER_ACK_SUBTASK_SIGNAL", () => {
+    const d = presentWorkbenchTaskEvent({
+      event_type: "MANAGER_DECLINE_CHANGES",
+      occurred_at: "2026-01-01T00:00:00.000Z",
+      actor_user_id: "m1",
+      note: "范围不变",
+      payload_json: "{}",
+    });
+    expect(d.title).toContain("驳回");
+    const a = presentWorkbenchTaskEvent({
+      event_type: "MANAGER_ACK_SUBTASK_SIGNAL",
+      occurred_at: "2026-01-01T00:00:00.000Z",
+      actor_user_id: "m1",
+      note: "",
+      payload_json: JSON.stringify({ signal: "done" }),
+    });
+    expect(a.title).toContain("已知悉");
+    expect(a.summary).toContain("完成");
+  });
+
+  it("formats SUBTASK_CUSTOMIZE_NOTE", () => {
+    const e = presentWorkbenchTaskEvent({
+      event_type: "SUBTASK_CUSTOMIZE_NOTE",
+      occurred_at: "2026-01-01T00:00:00.000Z",
+      actor_user_id: "u1",
+      note: "补充材料已上传",
+      payload_json: "{}",
+    });
+    expect(e.title).toContain("补充说明");
+    expect(e.severity).toBe("info");
+  });
+
   it("MANAGER_REASSIGN omits raw JSON detail unless showManagerReassignPayload", () => {
     const row = {
       event_type: "MANAGER_REASSIGN",

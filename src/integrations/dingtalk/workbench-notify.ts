@@ -80,6 +80,7 @@ export interface WorkbenchReassignNotifyInput {
 export type ManagerEmployeeNotifyKind =
   | "rejected"
   | "changes_requested"
+  | "customize"
   | "blocked"
   | "done";
 
@@ -249,6 +250,23 @@ export type ResolveManagerTaskDetailUrlOpts = {
   focus?: string;
 };
 
+/** 员工 → 主管通知：工作台详情页 `focus` 与动作类型对齐（避免「已完成」仍打开改派区）。 */
+export function resolveManagerNotifyDetailFocus(kind: ManagerEmployeeNotifyKind): string | undefined {
+  switch (kind) {
+    case "rejected":
+    case "changes_requested":
+      return "reassign";
+    case "customize":
+      return "review";
+    case "blocked":
+      return "blocked";
+    case "done":
+      return "review";
+    default:
+      return undefined;
+  }
+}
+
 /** 主管任务详情页公网 URL（用于员工动作反向通知中的链接）。 */
 export function resolveManagerTaskDetailUrl(
   taskNo: string,
@@ -274,6 +292,8 @@ function managerNotifyActionLabel(kind: ManagerEmployeeNotifyKind): string {
       return "拒绝子任务";
     case "changes_requested":
       return "请求调整 / 补充说明";
+    case "customize":
+      return "补充说明（不改变承接状态）";
     case "blocked":
       return "标记阻塞";
     case "done":
@@ -300,7 +320,10 @@ export function buildManagerEmployeeActionMarkdown(input: {
     ? clipNotifyText(noteRaw, MANAGER_NOTIFY_NOTE_MAX)
     : "无";
   const link = String(input.workbenchTaskUrl ?? "").trim();
-  const linkMd = link ? `\n\n[打开工作台查看 →](${link})` : "\n\n（未配置 ASSIGNMENT_WEB_PUBLIC_BASE_URL，无直达链接）";
+  // 避免 Markdown 外链在系统浏览器打开导致钉钉免登失败；操作入口以 ActionCard 单按钮为准。
+  const linkMd = link
+    ? "\n\n> **请在钉钉内**点击卡片下方「打开任务详情」进入工作台（勿在外置浏览器打开链接）。"
+    : "\n\n（未配置 ASSIGNMENT_WEB_PUBLIC_BASE_URL，无直达链接）";
   return (
     `**员工动作通知**：${input.employeeDisplayName}（${input.employeeUserId}）已**${actionLabel}**\n\n`
     + `- **任务**：${input.taskNo}  ${clipNotifyText(input.taskTitle, 120)}\n`
@@ -770,11 +793,12 @@ export function createWorkbenchPublishNotifier(
         });
         return { enabled: true, success, failed };
       }
+      const focus = resolveManagerNotifyDetailFocus(input.kind);
       const workbenchTaskUrl =
         String(input.workbenchTaskUrl ?? "").trim()
         || resolveManagerTaskDetailUrl(input.taskNo, {
           subtaskId: input.subtaskId,
-          focus: "reassign",
+          ...(focus ? { focus } : {}),
         })
         || "";
       const markdown = buildManagerEmployeeActionMarkdown({

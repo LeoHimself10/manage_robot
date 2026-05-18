@@ -1,6 +1,6 @@
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import type { ManagerEmployeeNotifyKind, WorkbenchPublishNotifier } from "./workbench-notify";
-import { resolveManagerTaskDetailUrl } from "./workbench-notify";
+import { resolveManagerNotifyDetailFocus, resolveManagerTaskDetailUrl } from "./workbench-notify";
 
 export type FormalTaskStoreLike = Pick<
   ReturnType<typeof createWorkbenchFormalTaskStore>,
@@ -30,9 +30,10 @@ export async function notifyManagerOfEmployeeActionAfterUpdate(input: {
 
   const employeeDisplayName =
     input.getDisplayName?.(input.actorUserId)?.trim() || input.actorUserId;
+  const focus = resolveManagerNotifyDetailFocus(input.kind);
   const taskUrl = resolveManagerTaskDetailUrl(pair.task.taskNo, {
     subtaskId: pair.subtask.subtaskId,
-    focus: "reassign",
+    ...(focus ? { focus } : {}),
   });
 
   let result: Awaited<ReturnType<WorkbenchPublishNotifier["notifyManagerOfEmployeeAction"]>>;

@@ -97,6 +97,37 @@ export function presentWorkbenchTaskEvent(
         summary: shortNote || `${actor} 申请调整任务内容`,
         detail: note || undefined,
       };
+    case "SUBTASK_CUSTOMIZE_NOTE":
+      return {
+        occurredAt,
+        type,
+        severity: "info",
+        title: "员工补充说明",
+        summary: shortNote || `${actor} 补充了说明（不改变承接状态）`,
+        detail: note || undefined,
+      };
+    case "MANAGER_DECLINE_CHANGES":
+      return {
+        occurredAt,
+        type,
+        severity: "info",
+        title: "主管驳回调整申请",
+        summary: shortNote || `${actor} 驳回了调整诉求，子任务回到执行中`,
+        detail: note || undefined,
+      };
+    case "MANAGER_ACK_SUBTASK_SIGNAL": {
+      const sig = asString(payload?.signal);
+      const sigLabel =
+        sig === "blocked" ? "阻塞" : sig === "done" ? "完成" : sig === "other" ? "其他" : sig || "信号";
+      return {
+        occurredAt,
+        type,
+        severity: "info",
+        title: "主管已知悉",
+        summary: shortNote || `${actor} 已知晓（${sigLabel}）`,
+        detail: note || undefined,
+      };
+    }
     case "SUBTASK_REJECTED":
       return {
         occurredAt,
