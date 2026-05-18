@@ -30,6 +30,8 @@ export function presentWorkbenchTaskEvent(
   row: Record<string, unknown>,
   ctx?: {
     resolveActorName?: (userId: string) => string;
+    /** When true, include raw JSON payload in `detail` for MANAGER_REASSIGN (admin / debug). */
+    showManagerReassignPayload?: boolean;
   },
 ): PresentedWorkbenchTaskEvent {
   const type = asString(row.event_type);
@@ -111,7 +113,10 @@ export function presentWorkbenchTaskEvent(
         severity: "info",
         title: "主管改派",
         summary: note || `${actor} 调整了负责人`,
-        detail: payload ? JSON.stringify(payload, null, 0) : undefined,
+        detail:
+          ctx?.showManagerReassignPayload && payload
+            ? JSON.stringify(payload, null, 0)
+            : undefined,
       };
     case "MANAGER_REASSIGN_SAVED":
     case "manager_reassign_saved":

@@ -581,7 +581,15 @@ export const __taskStatusLabelForTest = taskStatusLabel;
 
 type FormalTaskDetail = NonNullable<ReturnType<ReturnType<typeof createWorkbenchFormalTaskStore>["getTaskDetail"]>>;
 
-function enrichWorkbenchTaskDetail(detail: FormalTaskDetail): {
+const REASSIGN_NOTIFY_EVENT_TYPES = new Set(["REASSIGN_NOTIFY_OK", "REASSIGN_NOTIFY_FAILED"]);
+
+function enrichWorkbenchTaskDetail(
+  detail: FormalTaskDetail,
+  opts?: {
+    omitReassignNotifyEvents?: boolean;
+    presentEventCtx?: { showManagerReassignPayload?: boolean };
+  },
+): {
   task: FormalTaskDetail["task"] & { statusLabel: string };
   subtasks: Array<
     FormalTaskDetail["subtasks"][number] & {
@@ -611,9 +619,15 @@ function enrichWorkbenchTaskDetail(detail: FormalTaskDetail): {
     assigneeDisplayName: resolveName(s.assigneeUserId) || s.assigneeUserId,
     statusLabel: taskStatusLabel(s.status),
   }));
-  const events = (detail.events as Array<Record<string, unknown>>).map((row) =>
-    presentWorkbenchTaskEvent(row, { resolveActorName: resolveName }),
-  );
+  const rawEvents = detail.events as Array<Record<string, unknown>>;
+  const filtered = opts?.omitReassignNotifyEvents
+    ? rawEvents.filter((row) => !REASSIGN_NOTIFY_EVENT_TYPES.has(String(row.event_type ?? "").trim()))
+    : rawEvents;
+  const presentCtx = {
+    resolveActorName: resolveName,
+    ...(opts?.presentEventCtx ?? {}),
+  };
+  const events = filtered.map((row) => presentWorkbenchTaskEvent(row, presentCtx));
   return { task, subtasks, events };
 }
 
@@ -806,6 +820,7 @@ window.__WB_CONFIGURED_CORP_ID = ${JSON.stringify(corpId)};
 export function renderTaskDetailPage(params: {
   roleLabel: "admin" | "manager" | "employee";
   backPath: string;
+  enforceActionGuards: boolean;
 }): string {
   return `<!DOCTYPE html>
 <html lang="zh">
@@ -829,6 +844,28 @@ export function renderTaskDetailPage(params: {
     <div style="margin-top:10px;"><a href="${params.backPath}">返回</a></div>
   </div>
   <div class="card" id="taskMount">加载中…</div>
+  <div class="card" id="reassignCard" style="display:none;">
+    <h3 style="margin:0 0 8px;">改派</h3>
+    <p class="muted" style="font-size:13px;margin:0 0 12px;">从通知直达时已预选子任务；搜索并选择新负责人后保存。</p>
+    <div class="form-stack">
+      <label>子任务
+        <select id="detailReassignSubtask"><option value="">整单未完成子任务（全部改派）</option></select>
+      </label>
+      <label>新负责人
+        <input id="detailReassignAssigneeInput" type="search" autocomplete="off" placeholder="至少输入 2 个字符" style="width:100%;" />
+        <input id="detailReassignAssigneeUserId" type="hidden" value="" />
+        <ul id="detailReassignAssigneeOptions" class="combo-options" hidden></ul>
+      </label>
+      <label>说明
+        <textarea id="detailReassignNote" rows="2" placeholder="简要说明改派原因（可选）"></textarea>
+      </label>
+      <label id="detailReassignConfirmWrap" style="display:none;align-items:center;gap:8px;">
+        <input type="checkbox" id="detailReassignConfirm" /> 确认执行改派
+      </label>
+      <button type="button" class="btn btn-primary" id="detailReassignBtn">保存改派</button>
+      <div class="feedback muted" id="detailReassignFeedback"></div>
+    </div>
+  </div>
   <div class="card">
     <h3 style="margin:0 0 10px;">子任务</h3>
     <div id="subtasksMount" class="muted">加载中…</div>
@@ -841,6 +878,9 @@ export function renderTaskDetailPage(params: {
 <script>
 (function(){
   var ROLE = ${JSON.stringify(params.roleLabel)};
+  var ENFORCE_GUARDS = ${params.enforceActionGuards ? "true" : "false"};
+  var lastLoadedPlanId = '';
+  var detailReassignComboBound = false;
   function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   function fmtTime(iso){
     try { var d = new Date(iso); if (!isFinite(d.getTime())) return esc(iso); return esc(d.toLocaleString()); } catch(e){ return esc(iso); }
@@ -902,10 +942,179 @@ export function renderTaskDetailPage(params: {
     }
     return parts.join('');
   }
+  function setDetailReassignFb(msg, cls) {
+    var el = document.getElementById('detailReassignFeedback');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.className = 'feedback ' + (cls || 'muted');
+  }
+  function closeDetailAssigneeCombo() {
+    var ul = document.getElementById('detailReassignAssigneeOptions');
+    if (ul) ul.hidden = true;
+  }
+  function initDetailReassign(subs, presetSubId) {
+    var card = document.getElementById('reassignCard');
+    if (!card) return;
+    card.style.display = 'block';
+    var sel = document.getElementById('detailReassignSubtask');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">整单未完成子任务（全部改派）</option>';
+    (subs || []).forEach(function (s) {
+      if (String(s.status || '') === 'DONE') return;
+      var o = document.createElement('option');
+      o.value = s.subtaskId || '';
+      o.textContent = (s.orderIndex ? ('#' + s.orderIndex + ' ') : '') + (s.title || s.subtaskId || '');
+      sel.appendChild(o);
+    });
+    if (presetSubId) {
+      var found = false;
+      for (var i = 0; i < sel.options.length; i++) {
+        if (String(sel.options[i].value) === String(presetSubId)) {
+          sel.selectedIndex = i;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        var ox = document.createElement('option');
+        ox.value = presetSubId;
+        ox.textContent = '通知子任务';
+        sel.appendChild(ox);
+        sel.value = presetSubId;
+      }
+    }
+    var inp = document.getElementById('detailReassignAssigneeInput');
+    var hid = document.getElementById('detailReassignAssigneeUserId');
+    if (inp) inp.value = '';
+    if (hid) hid.value = '';
+    var note = document.getElementById('detailReassignNote');
+    if (note) note.value = '';
+    var cw = document.getElementById('detailReassignConfirmWrap');
+    var confirmCb = document.getElementById('detailReassignConfirm');
+    if (ENFORCE_GUARDS) {
+      if (cw) cw.style.display = 'flex';
+      if (confirmCb) confirmCb.checked = false;
+    } else {
+      if (cw) cw.style.display = 'none';
+    }
+    setDetailReassignFb('', 'muted');
+    try { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e0) {}
+    if (!detailReassignComboBound) {
+      detailReassignComboBound = true;
+      var input = document.getElementById('detailReassignAssigneeInput');
+      var ul = document.getElementById('detailReassignAssigneeOptions');
+      var hid2 = document.getElementById('detailReassignAssigneeUserId');
+      var tmr = null;
+      function renderOpts(rows) {
+        if (!ul) return;
+        ul.innerHTML = '';
+        rows.forEach(function (r) {
+          var li = document.createElement('li');
+          li.setAttribute('role', 'option');
+          li.setAttribute('data-user-id', r.userId || '');
+          var dept = r.departmentSummary || r.departmentName || '';
+          li.textContent = (r.name || r.userId || '') + (dept ? ' · ' + dept : '');
+          li.addEventListener('mousedown', function (ev) {
+            ev.preventDefault();
+            if (hid2) hid2.value = r.userId || '';
+            if (input) input.value = (r.name || r.userId || '').trim();
+            closeDetailAssigneeCombo();
+            setDetailReassignFb('已选择负责人', 'ok');
+          });
+          ul.appendChild(li);
+        });
+        ul.hidden = rows.length === 0;
+      }
+      async function doSearch() {
+        var q = (input && input.value || '').trim().toLowerCase();
+        if (q.length < 2) {
+          closeDetailAssigneeCombo();
+          return;
+        }
+        setDetailReassignFb('查找中…', 'muted');
+        try {
+          var path = ROLE === 'admin'
+            ? '/api/workbench/admin/employees?keyword=' + encodeURIComponent(q)
+            : '/api/workbench/manager/contacts?keyword=' + encodeURIComponent(q);
+          var res = await fetch(path, { cache: 'no-store' });
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+          var rows = ROLE === 'admin' ? (data.employees || []) : (data.contacts || []);
+          renderOpts(rows.slice(0, 20));
+          if (!rows.length) setDetailReassignFb('无匹配结果', 'muted');
+          else setDetailReassignFb('点击选择负责人', 'ok');
+        } catch (err) {
+          setDetailReassignFb(String(err && err.message ? err.message : err), 'err');
+          closeDetailAssigneeCombo();
+        }
+      }
+      if (input) {
+        input.addEventListener('input', function () {
+          if (tmr) clearTimeout(tmr);
+          tmr = setTimeout(function () { void doSearch(); }, 280);
+        });
+        input.addEventListener('blur', function () {
+          setTimeout(function () { closeDetailAssigneeCombo(); }, 200);
+        });
+      }
+      var btn = document.getElementById('detailReassignBtn');
+      if (btn) {
+        btn.addEventListener('click', async function () {
+          var planId = (lastLoadedPlanId || '').trim();
+          var assigneeUserId = (hid2 && hid2.value || '').trim();
+          var subPick = document.getElementById('detailReassignSubtask');
+          var subtaskId = subPick ? String(subPick.value || '').trim() : '';
+          var noteTxt = (document.getElementById('detailReassignNote') && document.getElementById('detailReassignNote').value || '').trim();
+          if (!planId) { setDetailReassignFb('缺少 planId', 'err'); return; }
+          if (!assigneeUserId) { setDetailReassignFb('请先搜索并选择新负责人', 'err'); return; }
+          if (ENFORCE_GUARDS) {
+            var c = document.getElementById('detailReassignConfirm');
+            if (!c || !c.checked) { setDetailReassignFb('请勾选确认执行改派', 'err'); return; }
+          }
+          var payload = { planId: planId, assigneeUserId: assigneeUserId, note: noteTxt };
+          if (subtaskId) payload.subtaskId = subtaskId;
+          if (ENFORCE_GUARDS) {
+            payload.confirm = true;
+            try {
+              payload.idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
+                ? crypto.randomUUID()
+                : ('reassign-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+            } catch (e1) {
+              payload.idempotencyKey = 'reassign-' + Date.now();
+            }
+          }
+          btn.disabled = true;
+          setDetailReassignFb('保存中…', 'muted');
+          try {
+            var res = await fetch('/api/workbench/manager/reassign', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            var data = await res.json().catch(function () { return {}; });
+            if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+            setDetailReassignFb('改派已保存，正在刷新…', 'ok');
+            if (input) input.value = '';
+            if (hid2) hid2.value = '';
+            if (note) note.value = '';
+            await load();
+          } catch (e2) {
+            setDetailReassignFb(String(e2 && e2.message ? e2.message : e2), 'err');
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      }
+    }
+  }
   async function load(){
-    var taskNo = new URLSearchParams(location.search).get('taskNo') || '';
+    var pageQs = new URLSearchParams(location.search);
+    var taskNo = pageQs.get('taskNo') || '';
+    var urlFocus = (pageQs.get('focus') || '').trim();
+    var urlSubtaskId = (pageQs.get('subtaskId') || '').trim();
+    var debugQ = pageQs.get('debug') === '1' ? '&debug=1' : '';
     if(!taskNo){ document.getElementById('taskMount').textContent='缺少 taskNo 参数'; return; }
-    var res = await fetch('/api/workbench/tasks/detail?taskNo='+encodeURIComponent(taskNo));
+    var res = await fetch('/api/workbench/tasks/detail?taskNo='+encodeURIComponent(taskNo)+debugQ);
     var data = await res.json().catch(function(){ return {}; });
     if(!res.ok || !data.ok){ document.getElementById('taskMount').textContent = data.error || ('HTTP '+res.status); return; }
     var t=data.task||{};
@@ -997,6 +1206,14 @@ export function renderTaskDetailPage(params: {
           +'<span class="event-title">'+title+'</span>'
           +'<span class="event-summary">'+sum+'</span></div>'+det+'</li>';
       }).join('')+'</ul>';
+    }
+    lastLoadedPlanId = String(t.planId || '');
+    var rc = document.getElementById('reassignCard');
+    if (rc && (ROLE !== 'manager' && ROLE !== 'admin')) rc.style.display = 'none';
+    if ((ROLE === 'manager' || ROLE === 'admin') && urlFocus === 'reassign' && lastLoadedPlanId) {
+      initDetailReassign(subs, urlSubtaskId);
+    } else if (rc) {
+      rc.style.display = 'none';
     }
   }
   void load();
@@ -1451,7 +1668,12 @@ export function handleAssignmentHttp(
       writeJson(res, 404, { ok: false, error: "Task not found" });
       return true;
     }
-    writeJson(res, 200, { ok: true, ...enrichWorkbenchTaskDetail(detail) });
+    writeJson(res, 200, {
+      ok: true,
+      ...enrichWorkbenchTaskDetail(detail, {
+        presentEventCtx: { showManagerReassignPayload: true },
+      }),
+    });
     return true;
   }
 
@@ -1459,6 +1681,11 @@ export function handleAssignmentHttp(
     const session = requireSession(req, res);
     if (!session) return true;
     const taskNo = String(url.searchParams.get("taskNo") ?? "").trim();
+    const debugTimeline = String(url.searchParams.get("debug") ?? "").trim() === "1";
+    const omitReassignNotifyEvents =
+      !debugTimeline && (session.role === "manager" || session.role === "employee");
+    const showManagerReassignPayload =
+      session.role === "admin" || (debugTimeline && session.role === "manager");
     if (!taskNo) {
       writeJson(res, 400, { ok: false, error: "taskNo is required" });
       return true;
@@ -1495,7 +1722,10 @@ export function handleAssignmentHttp(
           return EMPLOYEE_TASK_LEVEL_EVENT_WHITELIST.has(eventType);
         }),
       };
-      const enriched = enrichWorkbenchTaskDetail(detailForEmployee);
+      const enriched = enrichWorkbenchTaskDetail(detailForEmployee, {
+        omitReassignNotifyEvents,
+        presentEventCtx: { showManagerReassignPayload },
+      });
       const subtasksWithMine = enriched.subtasks.map((s) => {
         const mine = s.assigneeUserId === session.userId;
         if (mine) return { ...s, mine: true };
@@ -1519,7 +1749,13 @@ export function handleAssignmentHttp(
       });
       return true;
     }
-    writeJson(res, 200, { ok: true, ...enrichWorkbenchTaskDetail(detail) });
+    writeJson(res, 200, {
+      ok: true,
+      ...enrichWorkbenchTaskDetail(detail, {
+        omitReassignNotifyEvents,
+        presentEventCtx: { showManagerReassignPayload },
+      }),
+    });
     return true;
   }
 
@@ -1727,8 +1963,12 @@ export function handleAssignmentHttp(
   if (req.method === "POST" && url.pathname === "/api/workbench/manager/reassign") {
     void (async () => {
       try {
-        const session = requireSession(req, res, "manager");
+        const session = requireSession(req, res);
         if (!session) return;
+        if (session.role !== "manager" && session.role !== "admin") {
+          writeJson(res, 403, { ok: false, error: "manager or admin role required" });
+          return;
+        }
         const body = await readJsonBody(req);
         if (shouldEnforceActionGuards()) {
           const confirmed = body.confirm === true;
@@ -1758,10 +1998,25 @@ export function handleAssignmentHttp(
           writeJson(res, 400, { ok: false, error: "assigneeUserId is required" });
           return;
         }
+        const store = getFormalTaskStore();
+        const detailForAuth = store.getTaskDetail(planId);
+        if (!detailForAuth) {
+          writeJson(res, 404, { ok: false, error: "Task not found for planId" });
+          return;
+        }
+        let managerUserIdForReassign = session.userId;
+        if (session.role === "manager") {
+          if (detailForAuth.task.managerUserId !== session.userId) {
+            writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
+            return;
+          }
+        } else {
+          managerUserIdForReassign = detailForAuth.task.managerUserId;
+        }
         const { task: updated } = executeReassignWithSideEffects(
           {
             planId,
-            managerUserId: session.userId,
+            managerUserId: managerUserIdForReassign,
             assigneeUserId,
             note,
             actorName: session.dingUser?.name,
@@ -1775,15 +2030,15 @@ export function handleAssignmentHttp(
           },
         );
 
-        const store = getFormalTaskStore();
+        const storeAfter = getFormalTaskStore();
         voidFireReassignAssigneeNotify({
           notifier: workbenchPublishNotifier,
           getContact: (userId) => withPeopleDirectoryStore((s) => s.getContact(userId)),
-          appendTaskEvent: store.appendTaskEvent,
-          taskStore: store,
+          appendTaskEvent: storeAfter.appendTaskEvent,
+          taskStore: storeAfter,
           taskId: updated.taskId,
           planId,
-          managerUserId: session.userId,
+          managerUserId: managerUserIdForReassign,
           assigneeUserId,
           subtaskIdRaw: subtaskIdRaw || undefined,
         });
@@ -2487,6 +2742,7 @@ export function handleAssignmentHttp(
             : renderTaskDetailPage({
               roleLabel: "manager",
               backPath: "/workbench/manager/tasks",
+              enforceActionGuards: shouldEnforceActionGuards(),
             });
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
@@ -2504,6 +2760,7 @@ export function handleAssignmentHttp(
         ? renderTaskDetailPage({
           roleLabel: "admin",
           backPath: "/workbench/admin",
+          enforceActionGuards: shouldEnforceActionGuards(),
         })
         : renderAdminWorkbenchPage({ userLabel });
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
@@ -2536,6 +2793,7 @@ export function handleAssignmentHttp(
           ? renderTaskDetailPage({
             roleLabel: "employee",
             backPath: "/workbench/employee?view=current",
+            enforceActionGuards: shouldEnforceActionGuards(),
           })
           : renderEmployeeWorkbenchPage();
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);

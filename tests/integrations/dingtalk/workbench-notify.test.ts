@@ -515,6 +515,17 @@ describe("resolveManagerTaskDetailUrl / buildManagerEmployeeActionMarkdown", () 
     expect(resolveManagerTaskDetailUrl("TK-1")).toBe("https://host/workbench/manager/task?taskNo=TK-1");
   });
 
+  it("resolveManagerTaskDetailUrl builds manager task link with deep-link params", () => {
+    process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL = "https://host/";
+    const u = resolveManagerTaskDetailUrl("TK-1", {
+      subtaskId: "task:plan-1:task_2",
+      focus: "reassign",
+    });
+    expect(u).toContain("taskNo=TK-1");
+    expect(u).toContain("subtaskId=");
+    expect(u).toContain("focus=reassign");
+  });
+
   it("buildManagerEmployeeActionMarkdown includes action and optional link", () => {
     const md = buildManagerEmployeeActionMarkdown({
       employeeDisplayName: "李四",
