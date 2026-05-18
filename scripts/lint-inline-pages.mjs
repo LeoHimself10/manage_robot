@@ -5,12 +5,21 @@ import { execFileSync } from "node:child_process";
 import { renderManagerTasksPage, renderManagerChatPage } from "../src/web/manager-workbench-pages.ts";
 import { renderAdminWorkbenchPage } from "../src/web/admin-workbench-pages.ts";
 import { renderEmployeeWorkbenchPage } from "../src/web/employee-workbench-pages.ts";
+import { renderTaskDetailPage } from "../src/web/assignment-workbench.ts";
 
 const cases = [
   ["manager-tasks", renderManagerTasksPage({ userLabel: "测试" })],
   ["manager-chat", renderManagerChatPage({ userLabel: "测试" })],
   ["admin", renderAdminWorkbenchPage({ userLabel: "测试" })],
   ["employee-unified", renderEmployeeWorkbenchPage()],
+  [
+    "manager-task-detail",
+    renderTaskDetailPage({
+      roleLabel: "manager",
+      backPath: "/workbench/manager/tasks",
+      enforceActionGuards: false,
+    }),
+  ],
 ];
 
 const dir = mkdtempSync(join(tmpdir(), "lint-inline-"));
