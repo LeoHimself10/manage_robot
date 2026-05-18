@@ -1280,7 +1280,7 @@ export function renderTaskDetailPage(params: {
   function rowBucketsForStatus(st) {
     var s = String(st || '');
     var keys = ['all'];
-    if (s === 'ASSIGNED' || s === 'CHANGES_REQUESTED') keys.push('pending');
+    if (s === 'ASSIGNED' || s === 'CHANGES_REQUESTED' || s === 'REJECTED') keys.push('pending');
     if (s === 'IN_PROGRESS' || s === 'BLOCKED') keys.push('in_progress');
     if (s === 'DONE') keys.push('done');
     if (s === 'REJECTED') keys.push('rejected');
@@ -1423,7 +1423,7 @@ export function renderTaskDetailPage(params: {
       function countByFilter(f) {
         return subs.filter(function (s) {
           var st = String(s.status || '');
-          if (f === 'pending') return st === 'ASSIGNED' || st === 'CHANGES_REQUESTED';
+          if (f === 'pending') return st === 'ASSIGNED' || st === 'CHANGES_REQUESTED' || st === 'REJECTED';
           if (f === 'in_progress') return st === 'IN_PROGRESS' || st === 'BLOCKED';
           if (f === 'done') return st === 'DONE';
           if (f === 'rejected') return st === 'REJECTED';
@@ -1435,14 +1435,14 @@ export function renderTaskDetailPage(params: {
         var hitSu = subs.filter(function (x) { return String(x.subtaskId || '') === urlSubtaskId; })[0];
         if (hitSu) {
           var hst = String(hitSu.status || '');
-          if (hst === 'ASSIGNED' || hst === 'CHANGES_REQUESTED') initialFilter = 'pending';
+          if (hst === 'ASSIGNED' || hst === 'CHANGES_REQUESTED' || hst === 'REJECTED') initialFilter = 'pending';
           else if (hst === 'IN_PROGRESS' || hst === 'BLOCKED') initialFilter = 'in_progress';
           else if (hst === 'DONE') initialFilter = 'done';
           else if (hst === 'REJECTED') initialFilter = 'rejected';
           else initialFilter = 'all';
         }
       }
-      var reassignListHref = '/workbench/manager/tasks?planId=' + encodeURIComponent(String(t.planId || ''));
+      var reassignListHref = '/workbench/manager/tasks?planId=' + encodeURIComponent(String(t.planId || '')) + '&focus=reassign';
       var chipHtml = function (key, label, cnt, alertCls) {
         var pressed = initialFilter === key ? 'true' : 'false';
         var ac = alertCls ? ' mgr-sub-filter-chip--alert' : '';
@@ -1468,7 +1468,7 @@ export function renderTaskDetailPage(params: {
         chipHtml('rejected', '已拒绝', countByFilter('rejected'), false) +
         chipHtml('all', '全部', subs.length, false) +
         '</div>' +
-        '<p class="muted mgr-sub-hint" style="margin:10px 0 14px;font-size:13px;">「待处理」包含待处理与待修改；每行可展开查看详情，并在行内执行<strong>驳回申请</strong>/<strong>已知悉</strong>。改派仅限制已完成不可改。</p>';
+        '<p class="muted mgr-sub-hint" style="margin:10px 0 14px;font-size:13px;">「待处理」包含待处理、待修改与已拒绝（待重新分配）；请优先查看员工说明。改派仅限制已完成不可改。</p>';
       var rowParts = subs.map(function (s) {
         var rawId = String(s.subtaskId || '');
         var sid = esc(rawId);
@@ -1509,6 +1509,26 @@ export function renderTaskDetailPage(params: {
           actions.length > 0 ? '<div class="mgr-sub-actions">' + actions.join('') + '</div>' : '';
         var defaultSig = st === 'BLOCKED' ? 'blocked' : 'done';
         var note = String(s.progressNote || '').trim();
+        var employeeSignal = '';
+        if (hasReq) {
+          employeeSignal = '员工申请修改';
+        } else if (st === 'REJECTED') {
+          employeeSignal = '员工拒绝承接';
+        } else if (st === 'BLOCKED') {
+          employeeSignal = '员工标记阻塞';
+        } else if (st === 'DONE') {
+          employeeSignal = '员工标记完成';
+        }
+        var signalBadge = employeeSignal
+          ? '<span class="mgr-employee-signal">' + esc(employeeSignal) + '</span>'
+          : '';
+        var employeeInfoHtml = (note || employeeSignal)
+          ? '<div class="mgr-employee-info"><div class="mgr-employee-info-h">员工信息重点</div>'
+            + signalBadge
+            + '<p class="mgr-inline-ctx' + (note ? '' : ' muted') + '">'
+            + (note ? esc(note) : '（员工未填写补充说明，可查看本子任务事件时间线。）')
+            + '</p></div>'
+          : '';
         var ctxHtml = '';
         if (hasReq) {
           ctxHtml = note
@@ -1584,6 +1604,7 @@ export function renderTaskDetailPage(params: {
           actionHtml +
           '</summary>' +
           '<div class="mgr-sub-body">' +
+          employeeInfoHtml +
           '<div class="mgr-sub-body-grid">' +
           '<dl class="subtask-detail-dl">' +
           subtaskDetailDtDds(s, subs) +
