@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>钉钉任务规划与承接确认机器人 — 项目进展汇报</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #1a2332;
+      --muted: #5c6b7f;
+      --accent: #0d6efd;
+      --accent-soft: #e8f1ff;
+      --success: #198754;
+      --warn: #b45309;
+      --border: #e2e8f0;
+      --radius: 12px;
+      --shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      font-size: 15px;
+    }
+    .wrap {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+    header {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 55%, #0d6efd 100%);
+      color: #fff;
+      border-radius: var(--radius);
+      padding: 28px 32px;
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+    }
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 1.55rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+    header .sub {
+      opacity: 0.92;
+      font-size: 0.95rem;
+      max-width: 52em;
+    }
+    header .meta {
+      margin-top: 16px;
+      font-size: 0.85rem;
+      opacity: 0.85;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 20px;
+    }
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 26px;
+      margin-bottom: 18px;
+      box-shadow: var(--shadow);
+    }
+    section h2 {
+      margin: 0 0 14px;
+      font-size: 1.12rem;
+      color: #0f172a;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    ul { margin: 0; padding-left: 1.2em; }
+    li { margin: 0.35em 0; }
+    .muted { color: var(--muted); font-size: 0.92rem; }
+    .pill {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .pill.ok { background: #d1f4e0; color: var(--success); }
+    .pill.todo { background: #ffedd5; color: var(--warn); }
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 720px) {
+      .grid2 { grid-template-columns: 1fr; }
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 6px 14px;
+      font-size: 0.9rem;
+    }
+    .kv dt { color: var(--muted); font-weight: 500; }
+    .kv dd { margin: 0; }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-top: 28px;
+    }
+    @media print {
+      body { background: #fff; }
+      header, section { box-shadow: none; break-inside: avoid; }
+      .wrap { max-width: none; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>钉钉任务规划与承接确认机器人</h1>
+      <p class="sub">
+        通过 Agent Harness（ReAct + 工具调用）将模糊需求转为可承接、可验收、可追溯的任务闭环；
+        当前阶段以 Demo/MVP 与钉钉工作台集成为主，逐步向完整承接与验收演进。
+      </p>
+      <div class="meta">
+        <span>汇报材料（单页 HTML）</span>
+        <span>信息基线：<strong>AGENTS.md（2026-05-12）</strong></span>
+        <span>生成日期：<strong>2026-05-15</strong></span>
+        <span>代码分支：<strong>main</strong> @ 2f8455d</span>
+      </div>
+    </header>
+
+    <section>
+      <h2>一、执行摘要</h2>
+      <p>
+        主链路已打通：<strong>钉钉消息 → runOrchestrator（ReAct）</strong> → 结构化草案、可选指派预览、Plan 快照；
+        工作台正式任务以 <strong>SQLite</strong> 为权威存储，支持发布后钉钉卡片与待办通知、通讯录同步及主管侧动作通知。
+        提示词版本已迭代至 <strong>orchestrator-agent-v5.16</strong>，强化发布纪律与草案同轮落盘。
+      </p>
+      <p class="muted">
+        尚未纳入主产品范围：OA 自动流程、承接三态（accept/modify/reject）、电子签名、执行中变更、节点反馈与验收闭环（见「边界与后续」）。
+      </p>
+    </section>
+
+    <div class="grid2">
+      <section>
+        <h2>二、已完成里程碑</h2>
+        <ul>
+          <li><span class="pill ok">Done</span>Demo/MVP：ReAct orchestrator + 工具 function calling</li>
+          <li><span class="pill ok">Done</span>短期记忆：<code>knownFacts</code> 模型自主维护</li>
+          <li><span class="pill ok">Done</span>长期记忆：embedding + 相似 Plan 检索（可配置关闭）</li>
+          <li><span class="pill ok">Done</span>承接指派 v0.2：人员检索 + Web 工作台骨架 + 轻量 assignment</li>
+          <li><span class="pill ok">Done</span>工作台：SQLite 正式任务库、员工侧工具、发布预检</li>
+          <li><span class="pill ok">Done</span>钉钉：JSAPI 免登、发布后通知、通讯录同步</li>
+        </ul>
+      </section>
+      <section>
+        <h2>三、近期交付亮点（Git）</h2>
+        <ul class="muted" style="font-size: 0.88rem;">
+          <li>v5.16：发布/草案纪律、message 与 draft 同轮一致性</li>
+          <li>工作台：<code>extra_json</code> v2、主管任务详情、员工体验与钉钉展示名</li>
+          <li>会话：scope 轮转时清理 candidatePool / pendingRoster</li>
+          <li>钉钉：发布后 <code>planId</code> 轮转、多任务同会话归档</li>
+          <li>工作台：主管单线程聊天、描述写入 DB、员工页统一与事件过滤</li>
+        </ul>
+      </section>
+    </div>
+
+    <section>
+      <h2>四、当前能力与架构</h2>
+      <dl class="kv">
+        <dt>编排</dt>
+        <dd><code>runOrchestrator</code>，默认最多 6 轮工具迭代；输出取最终 <code>end_turn</code> 轮消息。</dd>
+        <dt>模型</dt>
+        <dd>DashScope OpenAI 兼容接口；<code>QWEN_MODEL</code> 可切换；钉钉侧默认关闭 thinking 以降低首包时延。</dd>
+        <dt>工具画像</dt>
+        <dd>planner / manager / admin / employee 分级暴露；含检索员工、相似计划、可选联网、事实记忆、发布与管理等。</dd>
+        <dt>数据层</dt>
+        <dd>任务与子任务落库；<code>subtasks.extra_json</code> v2 支持输入材料、动作、协作人、范围等展示字段。</dd>
+        <dt>可观测</dt>
+        <dd><code>orchestrator_done</code> 审计；耗时与 traces；结构化日志可选。</dd>
+        <dt>测试</dt>
+        <dd><code>npm test</code>（Vitest），CI 友好默认关闭审计写盘等副作用。</dd>
+      </dl>
+    </section>
+
+    <section>
+      <h2>五、边界与后续（路线图摘录）</h2>
+      <ul>
+        <li><span class="pill todo">Next</span><strong>V2</strong>：承接三态、延期/无法完成申请、换人审批、节点反馈、验收闭环</li>
+        <li><span class="pill todo">Next</span><strong>V3</strong>：钉钉 OA/QMS/项目系统联动、电子签名、外部 Agent 与管理报表</li>
+        <li><span class="pill todo">Gap</span>发起人白名单已有实现与测试，<strong>钉钉主链路尚未接入</strong></li>
+        <li><span class="pill todo">Gap</span>指派 v0.2 为 MVP，完整交互与策略仍待产品化迭代</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>六、关键文档索引（仓库内）</h2>
+      <ul class="muted" style="font-size: 0.9rem;">
+        <li><code>AGENTS.md</code> — 实现边界、环境变量、工具与里程碑总览</li>
+        <li><code>docs/PRD-钉钉任务规划与承接确认机器人.md</code> — 产品需求</li>
+        <li><code>docs/agent-harness-架构与开发计划.md</code> — Harness 架构</li>
+        <li><code>docs/Qwen-接入实施说明.md</code> — 模型接入与运行</li>
+        <li><code>docs/deploy-aliyun-dingtalk.md</code> — 阿里云与钉钉 Stream 部署</li>
+      </ul>
+    </section>
+
+    <footer>
+      本页为静态汇报材料，数据来自仓库文档与提交历史；打印请使用浏览器「打印 → 另存为 PDF」。
+    </footer>
+  </div>
+</body>
+</html>

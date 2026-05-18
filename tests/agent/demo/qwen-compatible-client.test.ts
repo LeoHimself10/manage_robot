@@ -67,10 +67,8 @@ describe("QwenCompatibleClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(requestBody).not.toHaveProperty("response_format");
-    expect(requestBody.messages[0].content).toContain("医疗器械");
-    expect(requestBody.messages[0].content).toContain("capaAdvisory");
-    expect(requestBody.messages[0].content).toContain("deliverables");
-    expect(requestBody.messages[0].content).toContain("legacy-demo-planner-v1");
+    // legacy demo path — prompt is now a stub
+    expect(requestBody.messages[0].content).toContain("legacy-demo-planner");
     expect(result.trace.requestId).toBe("req_001");
     expect(result.trace.traceId).toBeUndefined();
     expect(result.trace.tokenUsage.totalTokens).toBe(150);
@@ -114,9 +112,9 @@ describe("QwenCompatibleClient", () => {
     });
 
     expect(result.trace.traceId).toBe("trace-demo-1");
-    const userContent = JSON.parse(fetchMock.mock.calls[0][1].body as string)
-      .messages[1].content as string;
-    expect(userContent).toContain("trace-demo-1");
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    // legacy path: user message is just request.background
+    expect(requestBody.messages[1].content).toBe("x");
   });
 
   it("retries on transient failure and succeeds", async () => {

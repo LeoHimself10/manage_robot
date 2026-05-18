@@ -2,10 +2,6 @@ import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 import { LlmPlanPayload, InferenceTrace, TokenUsage } from "./llm-types";
 import { logStructured } from "../../infra/logger";
-import {
-  buildLegacyDemoPlannerSystemPrompt,
-  buildQwenPlannerUserPrompt,
-} from "./qwen-prompt";
 
 export interface QwenCompatibleClientConfig {
   baseUrl: string;
@@ -232,11 +228,12 @@ export class QwenCompatibleClient {
       messages: [
         {
           role: "system",
-          content: buildLegacyDemoPlannerSystemPrompt(),
+          content:
+            "[legacy-demo-planner] This path is deprecated. Use runOrchestrator for production.",
         },
         {
           role: "user",
-          content: buildQwenPlannerUserPrompt(request),
+          content: String(request.background ?? ""),
         },
       ],
     };

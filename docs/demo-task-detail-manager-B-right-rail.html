@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>任务详情 · 布局 B（主管处理右侧栏）— 静态示意</title>
+  <style>
+    :root {
+      --bg: #f1f5f9;
+      --surface: #fff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --danger: #dc2626;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+      --rail-width: 300px;
+      --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.5; }
+    .app-shell { max-width: 1180px; margin: 0 auto; padding: 20px 18px 48px; }
+    .demo-tag {
+      display: inline-block;
+      margin-bottom: 14px;
+      padding: 6px 12px;
+      background: #ecfdf5;
+      border: 1px solid #6ee7b7;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 650;
+      color: #065f46;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+      margin-bottom: 16px;
+    }
+    .card:last-child { margin-bottom: 0; }
+    .brand { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; color: var(--muted); text-transform: uppercase; }
+    .page-title { margin: 4px 0 0; font-size: 22px; font-weight: 700; }
+    .page-desc { margin: 6px 0 0; font-size: 14px; color: var(--muted); }
+    a { color: var(--primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .focus-banner {
+      font-size: 14px;
+      padding: 12px 14px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: var(--radius-sm);
+      margin-bottom: 16px;
+    }
+    .focus-banner strong { color: #92400e; }
+
+    /* 两栏：主内容 + 右侧 sticky 操作栏 */
+    .detail-layout {
+      display: grid;
+      grid-template-columns: 1fr minmax(260px, var(--rail-width));
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 960px) {
+      .detail-layout {
+        grid-template-columns: 1fr;
+      }
+      .detail-rail {
+        position: static !important;
+        top: auto !important;
+      }
+      .detail-rail .rail-inner {
+        position: static;
+      }
+    }
+    .detail-main .card:last-child { margin-bottom: 0; }
+    .detail-rail .rail-inner {
+      position: sticky;
+      top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .rail-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 8px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 9px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: default;
+      border: 1px solid transparent;
+      font-family: inherit;
+    }
+    .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary-hover); }
+    .btn-danger { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid transparent; }
+    .form-stack { display: grid; gap: 12px; }
+    .form-stack label { display: grid; gap: 6px; font-size: 13px; font-weight: 500; color: #334155; }
+    .form-stack input, .form-stack select, .form-stack textarea {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font: inherit;
+      width: 100%;
+    }
+    .mgr-signal-card .mgr-signal-head h3 { margin: 0; font-size: 16px; font-weight: 650; }
+    .mgr-signal-sub { margin: 6px 0 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+    .mgr-callout {
+      font-size: 12px;
+      color: #334155;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      margin: 0 0 12px;
+      line-height: 1.45;
+    }
+    .mgr-section-h { font-size: 11px; font-weight: 650; color: #64748b; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .mgr-pending-readonly {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      margin: 0 0 10px;
+      font-size: 13px;
+    }
+    .mgr-p-meta { margin: 0; font-size: 12px; color: #92400e; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .mgr-p-note { margin: 8px 0 0; font-size: 12px; color: #78350f; line-height: 1.45; }
+    .mgr-req { color: #b45309; font-weight: 600; }
+    .mgr-actions { display: flex; flex-direction: column; gap: 8px; align-items: stretch; margin-top: 4px; }
+    .mgr-actions label { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; font-size: 12px; }
+    .mgr-signal-card textarea { min-height: 56px; max-height: 160px; font-size: 13px; }
+    .mgr-ack-h {
+      margin: 12px 0 0;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge.pending { color: #c2410c; background: #ffedd5; border: 1px solid #fdba74; }
+    .badge.progress { color: #1d4ed8; background: #dbeafe; border: 1px solid #93c5fd; }
+    .task-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px; }
+    .task-head h2 { margin: 0; font-size: 20px; flex: 1 1 200px; }
+    .task-desc-body { margin-top: 6px; font-size: 14px; color: #334155; line-height: 1.55; }
+    code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+    .table-wrap { overflow-x: auto; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+    table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.data th, table.data td { padding: 11px 12px; text-align: left; border-bottom: 1px solid #f1f5f9; }
+    table.data th { background: #f8fafc; color: #475569; font-weight: 600; }
+    table.data tr:last-child td { border-bottom: none; }
+    .event-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+    .event-list .event {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      background: #fafbfc;
+      border-left: 4px solid #cbd5e1;
+      font-size: 13px;
+    }
+    .event-list .event.warn { border-left-color: #f59e0b; background: #fffbeb; }
+    .event-time { color: var(--muted); font-size: 12px; margin-right: 8px; }
+    .reassign-compact h3 { margin: 0 0 6px; font-size: 14px; }
+    .reassign-compact .page-desc { font-size: 12px; margin: 0 0 8px; }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <span class="demo-tag">布局 B · 示意：首屏先见任务标题与背景；「主管处理 + 改派」固定在右侧栏（宽屏 sticky，窄屏落到内容下方）</span>
+
+    <div class="card">
+      <div class="brand">工作台</div>
+      <h1 class="page-title">任务详情</h1>
+      <p class="page-desc">当前角色：manager</p>
+      <p style="margin-top:10px;"><a href="#">← 返回任务列表</a></p>
+    </div>
+
+    <div class="card focus-banner" role="status">
+      你从通知进入：<strong>知晓 / 抽检</strong>。主栏向下查看任务与子任务；右侧可留痕或驳回申请。
+    </div>
+
+    <div class="detail-layout">
+      <div class="detail-main">
+        <div class="card">
+          <div class="task-head">
+            <h2>产线良率异常闭环与对外说明</h2>
+            <span class="badge progress">进行中</span>
+          </div>
+          <p class="page-desc">业务编号 <code>TK-2026-0512-008</code></p>
+          <section style="margin-top:12px;">
+            <h3 style="margin:0 0 6px;font-size:15px;">任务背景</h3>
+            <div class="task-desc-body">
+              客户投诉批次 B12 良率波动，需在质量部牵头下完成根因分析、纠正措施与客户沟通口径统一；对外说明须经法务与品牌审核。
+            </div>
+          </section>
+          <details style="margin-top:10px;">
+            <summary>内部编号（排障）</summary>
+            <p class="page-desc" style="margin:6px 0 0;">planId <code>plan_8f3c2a1b</code></p>
+          </details>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 10px;">子任务</h3>
+          <div class="table-wrap">
+            <table class="data">
+              <thead>
+                <tr><th>#</th><th>子任务</th><th>负责人</th><th>状态</th><th style="width:28%">进度</th><th>更新时间</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td><td>根因数据拉取与初步结论</td><td>李四</td>
+                  <td><span class="badge progress">进行中</span></td>
+                  <td>SPC 已导出，待与工艺对齐口径</td><td>2026-05-14 16:20</td>
+                </tr>
+                <tr>
+                  <td>2</td><td>纠正措施与客户沟通稿</td><td>王五</td>
+                  <td><span class="badge progress">进行中</span></td>
+                  <td>草稿 v2，等法务批注</td><td>2026-05-14 11:02</td>
+                </tr>
+                <tr>
+                  <td>3</td><td>总结与发布规范</td><td>张三</td>
+                  <td><span class="badge pending">待修改</span></td>
+                  <td>申请调整截止与补充回滚预案章节</td><td>2026-05-15 09:41</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 10px;">事件</h3>
+          <ul class="event-list">
+            <li class="event warn">
+              <span class="event-time">2026-05-15 09:41</span>
+              <strong>员工申请修改</strong> — 申请调整截止与补充回滚预案章节
+            </li>
+            <li class="event">
+              <span class="event-time">2026-05-14 16:20</span>
+              <strong>员工提交进度</strong> — SPC 已导出，待与工艺对齐口径
+            </li>
+            <li class="event">
+              <span class="event-time">2026-05-12 10:08</span>
+              <strong>任务发布</strong> — 任务已发布到工作台
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <aside class="detail-rail" aria-label="主管操作">
+        <div class="rail-inner">
+          <p class="rail-title">待办与操作</p>
+          <div class="card mgr-signal-card" style="margin-bottom:0;">
+            <div class="mgr-signal-head">
+              <h3>主管处理</h3>
+              <p class="mgr-signal-sub">驳回申请调整，或对完成/阻塞做已知悉（不改变状态）。</p>
+            </div>
+            <div>
+              <div class="mgr-callout" role="status">驳回后子任务回到<strong>进行中</strong>，负责人不变。</div>
+              <div class="form-stack">
+                <div>
+                  <div class="mgr-section-h">员工申请</div>
+                  <div class="mgr-pending-readonly">
+                    <p class="mgr-p-meta">
+                      <span class="badge pending">待修改</span>
+                      #3 · 总结与发布规范
+                    </p>
+                    <p class="mgr-p-note">希望将「对外发布说明」从本周五延到下周一，并补充一节「回滚预案」再进入发布流程。</p>
+                  </div>
+                </div>
+                <label for="r-sub">子任务</label>
+                <select id="r-sub"><option>总结与发布规范</option></select>
+                <label for="r-note">驳回理由 <span class="mgr-req">（必填）</span></label>
+                <textarea id="r-note" rows="3" placeholder="简述不采纳原因…"></textarea>
+                <div class="mgr-actions">
+                  <label><input type="checkbox" /> 确认执行驳回</label>
+                  <button type="button" class="btn btn-danger">驳回申请</button>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="mgr-ack-h">已知悉</div>
+              <p class="page-desc" style="margin:0 0 8px;font-size:12px;">仅写事件，不迁移状态。</p>
+              <div class="form-stack">
+                <select><option>员工标记完成</option></select>
+                <textarea rows="2" style="min-height:52px;" placeholder="备注（可选）"></textarea>
+                <button type="button" class="btn btn-ghost">已知悉</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card reassign-compact" style="margin-bottom:0;">
+            <h3>改派</h3>
+            <p class="page-desc">窄栏内保持精简；完整搜索与说明仍可与现网一致。</p>
+            <div class="form-stack">
+              <select><option>整单 / 单条子任务…</option></select>
+              <input type="search" placeholder="搜索负责人…" />
+              <button type="button" class="btn btn-primary" style="width:100%;">保存改派</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</body>
+</html>

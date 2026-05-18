@@ -205,10 +205,20 @@ function clipTaskDescriptionForDb(raw: string): string | undefined {
   return t.length > TASK_DESCRIPTION_MAX_DB ? t.slice(0, TASK_DESCRIPTION_MAX_DB) : t;
 }
 
-/** 从 `latestDraft` 取任务级背景：优先 `description`，否则 `summary`。 */
+/**
+ * 从 `latestDraft` 取任务级背景写入数据库。
+ * 优先级：objective+background 拼接 > description（兜底/旧数据） > summary（最旧）
+ */
 export function extractTaskDescriptionFromLatestDraft(latestDraft: unknown): string | undefined {
   const draft = asRecord(latestDraft);
   if (!draft) return undefined;
+  const objective = asString(draft.objective);
+  const background = asString(draft.background);
+  if (objective) {
+    const combined = background ? `${objective}\n\n${background}` : objective;
+    return clipTaskDescriptionForDb(combined);
+  }
+  // 兜底：旧 draft 可能只有 description 字段
   const fromDesc = asString(draft.description);
   if (fromDesc) return clipTaskDescriptionForDb(fromDesc);
   const fromSummary = asString(draft.summary);

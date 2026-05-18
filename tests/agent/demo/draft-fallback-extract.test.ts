@@ -109,7 +109,7 @@ describe("draft-fallback-extract", () => {
     expect(out?.title).toBe("T1");
     expect(Array.isArray(out?.tasks)).toBe(true);
     expect((out?.tasks as unknown[]).length).toBe(1);
-    const t0 = (out?.tasks as Array<Record<string, unknown>>)[0]!;
+    const t0 = (out?.tasks as unknown as Array<Record<string, unknown>>)[0]!;
     expect(t0.collaborators).toEqual(["王五"]);
     expect((t0.scope as { inScope: string[] }).inScope).toEqual(["s1"]);
   });

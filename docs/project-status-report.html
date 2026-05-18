@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>钉钉任务规划机器人 — 管理层进展汇报</title>
+  <style>
+    :root {
+      --bg: #eef2f9;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --brand: #1d4ed8;
+      --brand-light: #dbeafe;
+      --ok: #047857;
+      --ok-bg: #ecfdf5;
+      --partial: #b45309;
+      --partial-bg: #fffbeb;
+      --no: #64748b;
+      --no-bg: #f1f5f9;
+      --risk: #b91c1c;
+      --risk-soft: #fef2f2;
+      --shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      font-size: 15px;
+    }
+    .wrap {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 28px 18px 48px;
+    }
+
+    /* ----- Top banner ----- */
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 16px;
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 55%, #3b82f6 100%);
+      color: #fff;
+      padding: 18px 22px;
+      border-radius: var(--radius);
+      margin-bottom: 22px;
+      box-shadow: var(--shadow);
+    }
+    .topbar h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      flex: 1 1 220px;
+    }
+    .topbar-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pill {
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.35);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+
+    /* ----- KPI strip ----- */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+    @media (max-width: 640px) {
+      .kpi-row { grid-template-columns: 1fr; }
+    }
+    .kpi {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      text-align: center;
+    }
+    .kpi .num {
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: var(--brand);
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+    .kpi .lbl {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 6px;
+      line-height: 1.35;
+    }
+
+    /* ----- Sections ----- */
+    section.block {
+      background: var(--card);
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 0;
+      margin-bottom: 18px;
+      overflow: hidden;
+    }
+    .block-hd {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+      border-bottom: 1px solid var(--line);
+    }
+    .block-hd .ico {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: var(--brand-light);
+      color: var(--brand);
+    }
+    .block-hd h2 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .block-hd .sub {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .block-bd { padding: 18px 20px 20px; }
+
+    /* ----- 3 summary cards ----- */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    @media (max-width: 720px) {
+      .summary-grid { grid-template-columns: 1fr; }
+    }
+    .sum-card {
+      border-radius: 12px;
+      padding: 16px 16px 14px;
+      border: 1px solid var(--line);
+      position: relative;
+      min-height: 120px;
+    }
+    .sum-card:nth-child(1) { background: linear-gradient(145deg, #eff6ff 0%, #fff 40%); border-color: #bfdbfe; }
+    .sum-card:nth-child(2) { background: linear-gradient(145deg, #ecfdf5 0%, #fff 40%); border-color: #a7f3d0; }
+    .sum-card:nth-child(3) { background: linear-gradient(145deg, #fff7ed 0%, #fff 40%); border-color: #fed7aa; }
+    .sum-card .tag {
+      font-size: 0.68rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--brand);
+      margin-bottom: 8px;
+    }
+    .sum-card:nth-child(2) .tag { color: var(--ok); }
+    .sum-card:nth-child(3) .tag { color: var(--partial); }
+    .sum-card p {
+      margin: 0;
+      font-size: 0.92rem;
+      color: var(--text);
+    }
+
+    /* ----- Pain points: icon rows ----- */
+    .icon-rows { display: flex; flex-direction: column; gap: 12px; }
+    .irow {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      padding: 12px 14px;
+      background: #f8fafc;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+    }
+    .irow .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-top: 6px;
+      flex-shrink: 0;
+      background: var(--brand);
+      box-shadow: 0 0 0 4px var(--brand-light);
+    }
+    .irow p { margin: 0; font-size: 0.95rem; }
+
+    /* ----- Horizontal flow ----- */
+    .flow-wrap {
+      overflow-x: auto;
+      padding-bottom: 6px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .flow {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      min-width: min(100%, 760px);
+    }
+    .flow-step {
+      flex: 1;
+      min-width: 140px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 12px;
+      text-align: center;
+    }
+    .flow-step strong {
+      display: block;
+      font-size: 0.88rem;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+    .flow-step small {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .flow-step .fnum {
+      width: 28px;
+      height: 28px;
+      margin: 0 auto 10px;
+      background: var(--brand);
+      color: #fff;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .flow-arr {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #94a3b8;
+      font-size: 1.25rem;
+      font-weight: 300;
+      padding: 0 4px;
+      flex-shrink: 0;
+    }
+
+    /* ----- Goal status list ----- */
+    .goal-list { display: flex; flex-direction: column; gap: 10px; }
+    .goal {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px 14px;
+      align-items: start;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+    }
+    .goal.ok { background: var(--ok-bg); border-color: #a7f3d0; }
+    .goal.partial { background: var(--partial-bg); border-color: #fcd34d; }
+    .goal.no { background: var(--no-bg); border-color: #cbd5e1; }
+    .goal .st {
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      padding: 4px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .goal.ok .st { background: #059669; color: #fff; }
+    .goal.partial .st { background: #d97706; color: #fff; }
+    .goal.no .st { background: #64748b; color: #fff; }
+    .goal .txt { margin: 0; font-size: 0.93rem; }
+    .note-strip {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: #f1f5f9;
+      border-left: 4px solid var(--muted);
+      font-size: 0.9rem;
+      color: var(--text);
+    }
+
+    /* ----- Highlight grid ----- */
+    .hl-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 560px) { .hl-grid { grid-template-columns: 1fr; } }
+    .hl {
+      display: flex;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    .hl .chk {
+      flex-shrink: 0;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: var(--ok-bg);
+      color: var(--ok);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .hl p { margin: 0; font-size: 0.9rem; }
+
+    /* ----- Boundary box ----- */
+    .boundary {
+      display: flex;
+      gap: 14px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: var(--risk-soft);
+      border: 1px solid #fecaca;
+    }
+    .boundary .warn-ico { flex-shrink: 0; color: var(--risk); }
+    .boundary ul { margin: 0; padding-left: 1.1rem; }
+    .boundary li { margin-bottom: 6px; font-size: 0.92rem; }
+
+    /* ----- Timeline roadmap ----- */
+    .timeline {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      position: relative;
+    }
+    .timeline::before {
+      content: "";
+      position: absolute;
+      left: 15px;
+      top: 8px;
+      bottom: 8px;
+      width: 3px;
+      background: linear-gradient(180deg, var(--brand) 0%, #cbd5e1 100%);
+      border-radius: 3px;
+    }
+    .tl-item {
+      position: relative;
+      padding-left: 44px;
+      margin-bottom: 18px;
+    }
+    .tl-item:last-child { margin-bottom: 0; }
+    .tl-dot {
+      position: absolute;
+      left: 8px;
+      top: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--card);
+      border: 3px solid var(--brand);
+      box-shadow: 0 0 0 3px var(--brand-light);
+    }
+    .tl-card {
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .tl-card h3 {
+      margin: 0 0 6px;
+      font-size: 0.95rem;
+      font-weight: 800;
+      color: var(--brand);
+    }
+    .tl-card p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+
+    /* ----- Risk cards ----- */
+    .risk-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 600px) { .risk-grid { grid-template-columns: 1fr; } }
+    .rcard {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+    }
+    .rcard h4 {
+      margin: 0 0 6px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .rcard p { margin: 0; font-size: 0.82rem; color: var(--muted); line-height: 1.45; }
+
+    .decision-banner {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: linear-gradient(90deg, #1e3a8a 0%, #1d4ed8 100%);
+      color: #e0e7ff;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .decision-banner strong { color: #fff; }
+
+    footer {
+      margin-top: 20px;
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    @media print {
+      body { background: #fff; }
+      .topbar { box-shadow: none; }
+      section.block { box-shadow: none; break-inside: avoid; }
+      .flow-wrap { overflow: visible; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <h1>钉钉「任务规划与承接确认」智能机器人</h1>
+      <div class="topbar-meta">
+        <span class="pill">管理层汇报</span>
+        <span class="pill">2026-05-15</span>
+        <span class="pill">阶段 · MVP 主链路已通</span>
+      </div>
+    </header>
+
+    <div class="kpi-row">
+      <div class="kpi">
+        <div class="num">MVP</div>
+        <div class="lbl">派发前规划 + 发布后协作可见性</div>
+      </div>
+      <div class="kpi">
+        <div class="num">4 步</div>
+        <div class="lbl">从主管发起到员工反馈的端到端路径</div>
+      </div>
+      <div class="kpi">
+        <div class="num">3 类</div>
+        <div class="lbl">后续能力：体验深化 / 闭环 / 系统联动</div>
+      </div>
+    </div>
+
+    <section class="block">
+      <div class="block-hd">
+        <div class="ico" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h14"/></svg>
+        </div>
+        <div>
+          <h2>执行摘要</h2>
+          <span class="sub">一页纸先说结论</span>
+        </div>
+      </div>
+      <div class="block-bd">
+        <div class="summary-grid">
+          <div class="sum-card">
+            <div class="tag">价值</div>
+            <p>主管用自然语言描述目标，系统辅助形成<strong>可审阅、可调整、可发布</strong>的任务方案，并落到<strong>工作台</strong>供执行与留痕。</p>
+          </div>
+          <div class="sum-card">
+            <div class="tag">聚焦</div>
+            <p>当前版本优先<strong>规划质量</strong>与<strong>协作可见性</strong>，减少口头交代、口径不清、责任模糊带来的返工风险。</p>
+          </div>
+          <div class="sum-card">
+            <div class="tag">边界</div>
+            <p><strong>未承诺</strong>完整承接闭环、节点验收升级、OA/QMS 自动流转；若需纳入范围，须单独排期与资源。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="block-hd">
+        <div class="ico" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+        </div>
+        <div>
+          <h2>业务背景</h2>
+          <span class="sub">要解决的管理问题</span>
+        </div>
+      </div>
+      <div class="block-bd">
+        <div class="icon-rows">
+          <div class="irow">
+            <span class="dot" aria-hidden="true"></span>
+            <p>研发与质量活动依赖<strong>责任清晰、交付物明确、节点可追溯</strong>；实际中常见拆解粗、验收口径不清、范围模糊。</p>
+          </div>
+          <div class="irow">
+            <span class="dot" aria-hidden="true"></span>
+            <p>执行层常需多轮沟通才能对齐意图，带来<strong>延期</strong>与<strong>合规记录口径不一致</strong>的风险。</p>
+          </div>
+          <div class="irow">
+            <span class="dot" aria-hidden="true"></span>
+            <p>本项目验证：能否在正式流程之外，用智能化手段把「目标」变成「<strong>可执行、可分工、可留痕</strong>」的任务包，并与钉钉衔接。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="block-hd">
+        <div class="ico" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+        </div>
+        <div>
+          <h2>端到端路径</h2>
+          <span class="sub">用户视角 · 从左到右</span>
+        </div>
+      </div>
+      <div class="block-bd">
+        <div class="flow-wrap">
+          <div class="flow">
+            <div class="flow-step">
+              <div class="fnum">1</div>
+              <strong>对话补全</strong>
+              <small>主管在钉钉说明要做什么；系统引导补齐截止时间等关键信息。</small>
+            </div>
+            <div class="flow-arr" aria-hidden="true">→</div>
+            <div class="flow-step">
+              <div class="fnum">2</div>
+              <strong>草案审阅</strong>
+              <small>输出结构化草案（子任务、协作、风险）；主管把关后可发布。</small>
+            </div>
+            <div class="flow-arr" aria-hidden="true">→</div>
+            <div class="flow-step">
+              <div class="fnum">3</div>
+              <strong>正式发布</strong>
+              <small>任务进入工作台；可按策略向员工推送提醒与展示。</small>
+            </div>
+            <div class="flow-arr" aria-hidden="true">→</div>
+            <div class="flow-step">
+              <div class="fnum">4</div>
+              <strong>执行可见</strong>
+              <small>员工更新进展；重要动作可通知主管，形成管理可见性基础。</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="block-hd">
+        <div class="ico" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </div>
+        <div>
+          <h2>阶段目标对照</h2>
+          <span class="sub">一眼看清「已到 / 部分 / 未做」</span>
+        </div>
+      </div>
+      <div class="block-bd">
+        <div class="goal-list">
+          <div class="goal ok">
+            <span class="st">已达</span>
+            <p class="txt">模糊需求 → 可审阅的结构化草案，便于主管把关后再发布。</p>
+          </div>
+          <div class="goal ok">
+            <span class="st">已达</span>
+            <p class="txt">发布后正式任务落库；主管与员工通过工作台协同；钉钉侧通知与展示持续完善。</p>
+          </div>
+          <div class="goal partial">
+            <span class="st">部分</span>
+            <p class="txt">人员分配建议（预览级）：展示推荐人选与简要理由，<strong>最终以主管确认为准</strong>。</p>
+          </div>
+          <div class="goal no">
+            <span class="st">未做</span>
+            <p class="txt">承接三态全流程、执行中变更审批、节点验收与 OA 自动流转。</p>
+          </div>
+        </div>
+        <div class="note-strip">
+          <strong>合规说明：</strong>质量域 CAPA 相关提示仅为建议；是否启动 CAPA 由质量授权与公司 QMS 流程决定，本系统不自动关闭 QMS 记录。
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="block-hd">
+        <div class="ico" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </div>
+        <div>
+          <h2>近期交付亮点</h2>
+          <span class="sub">业务可感知的改进</span>
+        </div>
+      </div>
+      <div class="block-bd">
+        <div class="hl-grid">
+          <div class="hl">
+            <div class="chk" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <p>强化「先问清截止时间、再出方案」，减少信息不全直接成稿。</p>
+          </div>
+          <div class="hl">
+            <div class="chk" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <p>任务详情更丰富：背景、协作人、动作项、范围边界，便于一线对齐。</p>
+          </div>
+          <div class="hl">
+            <div class="chk" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <p>钉钉侧展示与历史对话优化，连续多条任务时上下文更清晰。</p>
+          </div>
+          <div class="hl">
+            <div class="chk" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <p>主管侧界面收敛为单线程，突出「对话驱动规划」主路径。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="block-hd">
+        <div class="ico" aria-hidden="true" style="background:#fef2f2;color:#b91c1c;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <div>
+          <h2>当前不做 / 须单独决策</h2>
+          <span class="sub">请管理层同步预期</span>
+        </div>
+      </div>
+      <div class="block-bd">
+        <div class="boundary">
+          <div class="warn-ico" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <ul>
+            <li>不做 OA 自动审批、电子签、执行中变更的正式流程引擎。</li>
+            <li>不做完整承接三态与节点验收闭环；当前以「草案 → 发布 → 工作台执行与通知」为主。</li>
+            <li>发起人准入等安全能力已预留，<strong>是否在钉钉入口强制启用</strong>需管理与流程对齐。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="block-hd">
+        <div class="ico" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </div>
+        <div>
+          <h2>后续阶段路线图</h2>
+          <span class="sub">时间轴 · 供规划讨论</span>
+        </div>
+      </div>
+      <div class="block-bd">
+        <ul class="timeline">
+          <li class="tl-item">
+            <span class="tl-dot" aria-hidden="true"></span>
+            <div class="tl-card">
+              <h3>近期 · 体验与可信度</h3>
+              <p>真实脱敏案例样本库；分类与拆解模板优化；发起人编辑视图；人岗推荐理由呈现更可信。</p>
+            </div>
+          </li>
+          <li class="tl-item">
+            <span class="tl-dot" aria-hidden="true"></span>
+            <div class="tl-card">
+              <h3>中期 · 闭环能力</h3>
+              <p>承接三态、延期与无法完成申请、换人审批、节点反馈与验收、超时提醒与升级。</p>
+            </div>
+          </li>
+          <li class="tl-item">
+            <span class="tl-dot" aria-hidden="true"></span>
+            <div class="tl-card">
+              <h3>远期 · 系统联动</h3>
+              <p>与 OA、QMS、项目管理系统深度联动；电子签名与管理报表扩展。</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="block-hd">
+        <div class="ico" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <div>
+          <h2>风险与依赖</h2>
+          <span class="sub">四宫格 · 便于上会讨论</span>
+        </div>
+      </div>
+      <div class="block-bd">
+        <div class="risk-grid">
+          <div class="rcard">
+            <h4>智能化效果</h4>
+            <p>质量与速度与运营策略相关；重大调整前建议配合业务样本做回归验证。</p>
+          </div>
+          <div class="rcard">
+            <h4>钉钉与云环境</h4>
+            <p>消息、通讯录、通知依赖网络与配置；需运维监控与应急预案。</p>
+          </div>
+          <div class="rcard">
+            <h4>数据与合规</h4>
+            <p>生产环境需对齐密钥、访问控制、审计留存等信息安全要求。</p>
+          </div>
+          <div class="rcard">
+            <h4>人岗数据</h4>
+            <p>真实指派可信度依赖 HR/组织侧权威能力数据对接或提供。</p>
+          </div>
+        </div>
+        <div class="decision-banner">
+          <strong>提请决策（可选）：</strong>是否启用钉钉入口发起人准入；是否排期「承接三态」最小切片；是否立项固定业务回归样本集支撑持续迭代。
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      静态汇报页 · 可直接打印为 PDF · 技术细节见仓库内产品需求与工程说明文档
+    </footer>
+  </div>
+</body>
+</html>

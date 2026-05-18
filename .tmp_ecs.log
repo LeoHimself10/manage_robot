@@ -1,0 +1,15 @@
+﻿sha256:455086b5fe316526d24e8f8345c65223edd6167d87305278485f9f6ac30b7ba5 created=2026-05-15T06:47:39.306955143Z started=2026-05-15T06:47:39.395485848Z
+---
+[entrypoint] demo seed skipped (set SEED_DEMO_EMPLOYEES=1 to enable)
+(node:31) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[dingtalk-bot] Stream 宸茶繛鎺ワ紱鍚戞満鍣ㄤ汉鍙戦€佹枃鏈嵆鍙Е鍙戜换鍔℃媶瑙ｏ紙妯″瀷璋冪敤杈冩參鏃惰鍕块噸澶嶅埛灞忥級銆?[health] listening on :8080 (/health, / 鈫?workbench landing)
+[health] listening on :8787 (/health, / 鈫?workbench landing)
+[2026-05-15T06:47:43.252Z] connect success
+{"ts":"2026-05-15T06:48:35.541Z","event":"dingtalk_contact_list_complete","deptMapSize":107,"contactsWithMissingDeptName":0,"totalContacts":364}
+{"ts":"2026-05-15T06:48:37.019Z","event":"memory_key_resolved","messageId":"21468b12_640_19d4350fcb6_7dbaa95","source":"conversation","hasConversationId":true}
+{"ts":"2026-05-15T06:48:37.022Z","event":"memory_session_loaded","messageId":"21468b12_640_19d4350fcb6_7dbaa95","planId":"27755bbe-63de-4cd4-bed4-5bd19443ac59","hit":true}
+{"ts":"2026-05-15T06:48:37.025Z","event":"dingtalk_role_routing","messageId":"21468b12_640_19d4350fcb6_7dbaa95","senderStaffIdMasked":"64***42","resolvedRole":"manager","selectedProfile":"planner","routingEnabled":true,"reason":"manager_role"}
+{"ts":"2026-05-15T06:48:38.386Z","event":"orchestrator_iteration_timing","traceId":"680091ca-a966-473a-b628-2dbb907c66e4","stream":true,"iteration":1,"llmMs":1343,"parseMs":1,"toolsMs":0,"toolCalls":0,"totalMs":1344,"tools":[],"afterHeadersMs":824,"firstBodyChunkMs":825,"firstSseDataLineMs":825,"firstAssistantTokenMs":825,"promptTokens":8511,"completionTokens":106,"totalTokens":8617}
+{"ts":"2026-05-15T06:48:38.388Z","event":"orchestrator_done","traceId":"680091ca-a966-473a-b628-2dbb907c66e4","toolCallsTotal":0,"llmMsTotal":1343,"toolsMsTotal":0,"parseMsTotal":1,"orchestratorLoopMs":1345,"loopIterations":1,"hasDraft":false,"hasAssignment":false,"hasPublishResult":false,"messageChars":168,"messagePreview":"濂界殑锛屽凡褰掓。涓婁竴涓换鍔°€傝鎻忚堪鏂颁换鍔＄殑闇€姹傦紙濡傦細浠诲姟鑳屾櫙銆佹秹鍙婇儴浠?浜у搧銆佹湡鏈涘畬鎴愭椂闂寸瓑锛夈€俓n\n### 浠诲姟琛ュ厖淇℃伅\n\n**浠诲姟鑳屾櫙**锛氶拡瀵?A100 鍨嬪彿锛堟壒娆?10001锛夊湪杩傛洸琛€绠′腑鍋跺彂鎶樻柇鐨勫璇夛紝鍚姩涓撻」鍒嗘瀽銆傞渶鍦?10 澶╁唴瀹屾垚鏍锋湰淇濆叏銆佸疄楠屽澶嶇幇銆佹潗鏂欏鏍稿強 DFMEA 椋庨櫓璇勪及锛屽苟杈撳嚭鎿嶄綔鎸囧浼樺寲鏂规锛屼互闂幆璐ㄩ噺椋庨櫓銆?}
+{"ts":"2026-05-15T06:48:39.034Z","event":"dingtalk_handler_timing","traceId":"680091ca-a966-473a-b628-2dbb907c66e4","messageId":"21468b12_640_19d4350fcb6_7dbaa95","selectedProfile":"planner","hasDraft":true,"hasAssignmentSection":false,"orchestratorMs":1363,"assignmentMs":34,"sendReplyMs":606,"totalMs":2013}

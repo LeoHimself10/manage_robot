@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildPreparePublishTaskHandler } from "../../../src/agent/tools/prepare-publish-task";
 import { TASK_DESCRIPTION_MAX_DB } from "../../../src/infra/workbench-formal-task-store";
+import type { PlanSession } from "../../../src/infra/plan-session-store";
 
 function makeSession(overrides: Partial<PlanSession> = {}): PlanSession {
   return {
@@ -20,12 +21,12 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "测试发布",
-      description: "任务整体背景说明",
+      objective: "任务整体目标",
       subtasks: [
         { taskId: "task_1", title: "任务1", assigneeUserId: "" },
         { taskId: "task_2", title: "任务2", assigneeUserId: "emp-2" },
       ],
-    }) as any;
+    }) as Record<string, unknown>;
     expect(result).toMatchObject({
       ok: false,
       reason: "missing_assignee",
@@ -39,14 +40,14 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "测试发布",
-      description: "背景",
+      objective: "排查问题",
       subtasks: [
         { taskId: "task_1", title: "任务1", assigneeUserId: "emp-1" },
       ],
-    }) as any;
+    }) as Record<string, unknown>;
     expect(result.ok).toBe(true);
     expect(result.requiresManagerConfirm).toBe(true);
-    expect(result.subtasks).toHaveLength(1);
+    expect((result.subtasks as unknown[]).length).toBe(1);
   });
 
   it("stages draft + assignment into provided session on success", () => {
@@ -58,7 +59,8 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "U盘兼容性故障排查与修复",
-      description: "面向员工的任务背景：排查 U 盘兼容性问题并修复。",
+      objective: "排查 U 盘兼容性问题并修复",
+      background: "产线出现大批量 U 盘无法识别问题",
       subtasks: [
         {
           taskId: "task_1",
@@ -68,14 +70,15 @@ describe("prepare_publish_task tool", () => {
           dueAt: "2026-05-20",
         },
       ],
-    }) as any;
+    }) as Record<string, unknown>;
 
     expect(result.ok).toBe(true);
     expect(result.staged).toBe(true);
     const draft = session.latestDraft as Record<string, unknown> | undefined;
     expect(draft).toBeDefined();
     expect(draft?.title).toBe("U盘兼容性故障排查与修复");
-    expect(draft?.description).toBe("面向员工的任务背景：排查 U 盘兼容性问题并修复。");
+    expect(draft?.objective).toBe("排查 U 盘兼容性问题并修复");
+    expect(draft?.background).toBe("产线出现大批量 U 盘无法识别问题");
     const tasks = (draft?.tasks ?? []) as Array<Record<string, unknown>>;
     expect(tasks).toHaveLength(1);
     expect(tasks[0]).toMatchObject({
@@ -99,7 +102,8 @@ describe("prepare_publish_task tool", () => {
     const session = makeSession({
       latestDraft: {
         title: "旧标题",
-        description: "旧背景",
+        objective: "旧目标",
+        background: "旧背景",
         tasks: [
           {
             id: "task_1",
@@ -117,34 +121,34 @@ describe("prepare_publish_task tool", () => {
             timeNode: { dueAt: "2026-05-18", checkpoints: ["检查点A"] },
           },
         ],
-        classification: { domain: "QUALITY", subtype: "QUALITY_OTHER_OR_UNCERTAIN" },
       },
     });
     const handler = buildPreparePublishTaskHandler({ currentSession: session });
     const result = handler({
       planId: "plan-1",
       title: "新标题",
-      description: "新背景",
+      objective: "新目标",
+      background: "新背景",
       subtasks: [
         {
           taskId: "task_1",
           title: "新任务1",
           assigneeUserId: "emp-1",
-          objective: "新目标",
+          objective: "新任务目标",
           dueAt: "2026-06-01",
         },
       ],
-    }) as any;
+    }) as Record<string, unknown>;
     expect(result.ok).toBe(true);
     const draft = session.latestDraft as Record<string, unknown>;
     expect(draft.title).toBe("新标题");
-    expect(draft.description).toBe("新背景");
-    expect(draft.classification).toMatchObject({ domain: "QUALITY" });
+    expect(draft.objective).toBe("新目标");
+    expect(draft.background).toBe("新背景");
     const task = ((draft.tasks as Array<Record<string, unknown>>)[0]);
     expect(task).toMatchObject({
       id: "task_1",
       title: "新任务1",
-      objective: "新目标",
+      objective: "新任务目标",
       deliverables: ["交付物A"],
       completionCriteria: ["标准A"],
       inputMaterials: ["输入A"],
@@ -164,9 +168,9 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-wrong",
       title: "测试",
-      description: "背景",
+      objective: "目标",
       subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "emp-1" }],
-    }) as any;
+    }) as Record<string, unknown>;
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("plan_mismatch");
     expect(session.latestDraft).toBeUndefined();
@@ -179,9 +183,9 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "测试",
-      description: "背景",
+      objective: "目标",
       subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "" }],
-    }) as any;
+    }) as Record<string, unknown>;
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("missing_assignee");
     expect(session.latestDraft).toBeUndefined();
@@ -193,9 +197,31 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       title: "测试",
       subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "emp-1" }],
-    }) as any;
+    }) as Record<string, unknown>;
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("missing_plan_id");
+  });
+
+  it("rejects missing_objective when objective is empty", () => {
+    const handler = buildPreparePublishTaskHandler();
+    const result = handler({
+      planId: "plan-1",
+      title: "测试",
+      objective: "   ",
+      subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "emp-1" }],
+    }) as Record<string, unknown>;
+    expect(result).toMatchObject({ ok: false, reason: "missing_objective" });
+  });
+
+  it("returns description_too_long when objective+background exceeds cap", () => {
+    const handler = buildPreparePublishTaskHandler();
+    const result = handler({
+      planId: "plan-1",
+      title: "测试",
+      objective: "x".repeat(TASK_DESCRIPTION_MAX_DB + 1),
+      subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "emp-1" }],
+    }) as Record<string, unknown>;
+    expect(result).toMatchObject({ ok: false, reason: "description_too_long" });
   });
 
   it("rejects unknown_assignees when getContact is provided and a userId is fabricated", () => {
@@ -210,19 +236,18 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "测试发布",
-      description: "背景",
+      objective: "测试目标",
       subtasks: [
         { taskId: "task_1", title: "任务A", assigneeUserId: "641728622" },
         { taskId: "task_2", title: "任务B", assigneeUserId: "u_yanghexin" },
       ],
-    }) as any;
+    }) as Record<string, unknown>;
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("unknown_assignees");
     expect(result.unknown).toEqual([
       { taskId: "task_2", assigneeUserId: "u_yanghexin" },
     ]);
     expect(String(result.hint)).toContain("禁止编造 userId");
-    // CRITICAL: session must NOT be polluted when validation fails
     expect(session.latestDraft).toBeUndefined();
     expect(session.latestAssignment).toBeUndefined();
   });
@@ -235,32 +260,10 @@ describe("prepare_publish_task tool", () => {
     const result = handler({
       planId: "plan-1",
       title: "测试发布",
-      description: "背景",
+      objective: "目标",
       subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "641728622" }],
-    }) as any;
+    }) as Record<string, unknown>;
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("unknown_assignees");
-  });
-
-  it("returns missing_description when description empty", () => {
-    const handler = buildPreparePublishTaskHandler();
-    const result = handler({
-      planId: "plan-1",
-      title: "测试",
-      description: "   ",
-      subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "emp-1" }],
-    }) as any;
-    expect(result).toMatchObject({ ok: false, reason: "missing_description" });
-  });
-
-  it("returns description_too_long when description exceeds cap", () => {
-    const handler = buildPreparePublishTaskHandler();
-    const result = handler({
-      planId: "plan-1",
-      title: "测试",
-      description: "x".repeat(TASK_DESCRIPTION_MAX_DB + 1),
-      subtasks: [{ taskId: "t1", title: "任务1", assigneeUserId: "emp-1" }],
-    }) as any;
-    expect(result).toMatchObject({ ok: false, reason: "description_too_long" });
   });
 });

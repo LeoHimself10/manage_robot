@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>任务详情 · 布局 C（行内操作 + 状态筛选）— 静态示意</title>
+  <style>
+    :root {
+      --bg: #f1f5f9;
+      --surface: #fff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --danger: #dc2626;
+      --warn: #d97706;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+      --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.5; }
+    .app-shell { max-width: 1080px; margin: 0 auto; padding: 20px 18px 48px; }
+    .demo-tag {
+      display: inline-block;
+      margin-bottom: 14px;
+      padding: 6px 12px;
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 650;
+      color: #92400e;
+    }
+    a { color: var(--primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+      margin-bottom: 16px;
+    }
+    .brand { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; color: var(--muted); text-transform: uppercase; }
+    .page-title { margin: 4px 0 0; font-size: 22px; font-weight: 700; }
+    .muted { color: var(--muted); font-size: 13px; }
+    code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+    .focus-banner {
+      font-size: 14px;
+      padding: 10px 14px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: var(--radius-sm);
+      margin-bottom: 16px;
+    }
+    .focus-banner strong { color: #92400e; }
+
+    /* 任务概览条 */
+    .task-summary { display: grid; gap: 10px; }
+    .task-summary-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .task-summary-head h2 { margin: 0; font-size: 20px; flex: 1 1 240px; }
+    .task-summary-head .meta { font-size: 13px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
+    .task-summary-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .stat-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      font-size: 13px;
+      color: #334155;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .chip:hover { border-color: #94a3b8; background: #fff; }
+    .chip[aria-pressed="true"] {
+      background: #eff6ff;
+      border-color: #93c5fd;
+      color: var(--primary-hover);
+      font-weight: 650;
+    }
+    .chip .count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 22px;
+      height: 22px;
+      padding: 0 6px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      color: #1e293b;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .chip[aria-pressed="true"] .count { background: var(--primary-hover); color: #fff; }
+    .chip.alert .count { background: #fde68a; color: #92400e; }
+    .chip[aria-pressed="true"].alert .count { background: var(--warn); color: #fff; }
+
+    /* 子任务行 */
+    .subs { display: grid; gap: 10px; margin-top: 6px; }
+    details.sub-row {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: #fff;
+      overflow: hidden;
+    }
+    details.sub-row[open] { border-color: #94a3b8; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08); }
+    details.sub-row > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 12px 14px;
+      display: grid;
+      grid-template-columns: 28px 1fr auto auto;
+      gap: 12px;
+      align-items: center;
+    }
+    details.sub-row > summary::-webkit-details-marker { display: none; }
+    details.sub-row > summary:hover { background: #f8fafc; }
+    .sub-idx { font-size: 12px; color: var(--muted); font-weight: 600; }
+    .sub-main { min-width: 0; }
+    .sub-title { font-size: 14px; font-weight: 650; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sub-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .sub-status { display: flex; gap: 6px; align-items: center; }
+    .sub-actions { display: flex; gap: 6px; align-items: center; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge.pending { color: #c2410c; background: #ffedd5; border: 1px solid #fdba74; }
+    .badge.progress { color: #1d4ed8; background: #dbeafe; border: 1px solid #93c5fd; }
+    .badge.done { color: #15803d; background: #dcfce7; border: 1px solid #86efac; }
+    .badge.blocked { color: #b91c1c; background: #fee2e2; border: 1px solid #fca5a5; }
+    .badge.assigned { color: #7c3aed; background: #ede9fe; border: 1px solid #c4b5fd; }
+    .badge.rejected { color: #475569; background: #f1f5f9; border: 1px solid #cbd5e1; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      font-family: inherit;
+    }
+    .btn:hover { background: #f8fafc; }
+    .btn-danger { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
+    .btn-danger:hover { background: #fee2e2; }
+    .btn-ghost { background: transparent; color: var(--muted); border-color: transparent; }
+    .btn-ghost:hover { background: #f1f5f9; }
+    .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary-hover); padding: 8px 14px; font-size: 13px; }
+    .btn-link { background: transparent; border: none; color: var(--primary); padding: 4px 0; cursor: pointer; font-size: 13px; font-weight: 600; }
+    .btn-link:hover { text-decoration: underline; }
+
+    .sub-body {
+      padding: 0 14px 14px;
+      border-top: 1px dashed #e2e8f0;
+    }
+    .sub-body-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 18px;
+      padding-top: 12px;
+    }
+    @media (max-width: 760px) { .sub-body-grid { grid-template-columns: 1fr; } }
+    .sub-fields dl {
+      margin: 0;
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      gap: 6px 12px;
+      font-size: 13px;
+    }
+    .sub-fields dt { color: var(--muted); font-weight: 500; }
+    .sub-fields dd { margin: 0; color: #334155; }
+    .sub-events {
+      border-left: 2px solid #e2e8f0;
+      padding-left: 12px;
+      font-size: 12px;
+      color: #475569;
+      display: grid;
+      gap: 8px;
+    }
+    .sub-events time { color: var(--muted); display: block; font-size: 11px; }
+
+    /* 行内操作面板（点行尾按钮触发，这里用 <details> 内联展开示意） */
+    .inline-panel {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border: 1px solid #fde68a;
+      background: #fffbeb;
+      border-radius: var(--radius-sm);
+    }
+    .inline-panel.danger { border-color: #fecaca; background: #fef2f2; }
+    .inline-panel h4 { margin: 0 0 6px; font-size: 13px; font-weight: 650; color: #92400e; }
+    .inline-panel.danger h4 { color: #b91c1c; }
+    .inline-panel .ctx {
+      font-size: 13px;
+      color: #78350f;
+      margin: 0 0 10px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .inline-panel.danger .ctx { color: #7f1d1d; }
+    .inline-panel textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font: inherit;
+      min-height: 60px;
+      resize: vertical;
+    }
+    .inline-panel-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+      margin-top: 10px;
+    }
+    .inline-panel-actions .grow { flex: 1; font-size: 12px; color: var(--muted); }
+
+    .req { color: #b45309; font-weight: 600; font-size: 12px; margin-left: 4px; }
+
+    .empty {
+      padding: 28px 16px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-sm);
+    }
+    .events-mini { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+    .events-mini li {
+      border-left: 3px solid #cbd5e1;
+      padding: 6px 10px;
+      background: #fafbfc;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .events-mini li.warn { border-left-color: #f59e0b; background: #fffbeb; }
+    .events-mini li time { color: var(--muted); font-size: 11px; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <span class="demo-tag">布局 C · 推荐：行内操作 + 状态筛选 · 删除右侧改派栏 · 默认只展开「待我处理」</span>
+
+    <div class="card">
+      <div class="brand">工作台</div>
+      <h1 class="page-title">任务详情</h1>
+      <p class="muted">当前角色：manager · <a href="#">← 返回任务列表</a></p>
+    </div>
+
+    <div class="card focus-banner" role="status">
+      你从通知进入：<strong>1 条子任务等待你处理</strong>，已经自动展开下方对应行。其他状态可用筛选切换。
+    </div>
+
+    <!-- 任务概览 + 状态筛选 -->
+    <div class="card">
+      <div class="task-summary">
+        <div class="task-summary-head">
+          <h2>产线良率异常闭环与对外说明</h2>
+          <span class="badge progress">进行中</span>
+          <div class="task-summary-actions">
+            <button class="btn-link" type="button" title="跳转到改派模块（带本任务参数）">前往改派页 →</button>
+          </div>
+        </div>
+        <p class="muted" style="margin:0;">
+          业务编号 <code>TK-2026-0512-008</code> · 主管 王主管 · 截止 2026-05-22 · 11 条子任务
+        </p>
+        <details>
+          <summary class="muted" style="cursor:pointer;font-size:13px;">任务背景（点击查看）</summary>
+          <p style="margin:8px 0 0;font-size:13px;color:#334155;line-height:1.55;">
+            客户投诉批次 B12 良率波动，需在质量部牵头下完成根因分析、纠正措施与客户沟通口径统一；对外说明须经法务与品牌审核。
+          </p>
+        </details>
+        <div class="stat-strip" role="tablist" aria-label="按状态筛选子任务">
+          <button class="chip alert" aria-pressed="true">待我处理 <span class="count">3</span></button>
+          <button class="chip" aria-pressed="false">进行中 <span class="count">5</span></button>
+          <button class="chip" aria-pressed="false">已完成 <span class="count">3</span></button>
+          <button class="chip" aria-pressed="false">已拒绝 <span class="count">0</span></button>
+          <button class="chip" aria-pressed="false">全部 <span class="count">11</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 子任务列表（当前筛选：待我处理；所以只显示 3 条） -->
+    <div class="card">
+      <h3 style="margin:0 0 6px;font-size:15px;">子任务 · 待我处理</h3>
+      <p class="muted" style="margin:0 0 10px;">每行右侧的按钮可<strong>就地处理</strong>，无需切换页面。点击一行可展开详细字段与相关事件。</p>
+
+      <div class="subs">
+
+        <!-- 行 1：CHANGES_REQUESTED · 默认展开（focus 子任务） -->
+        <details class="sub-row" open>
+          <summary>
+            <div class="sub-idx">#3</div>
+            <div class="sub-main">
+              <div class="sub-title">总结与发布规范</div>
+              <div class="sub-sub">
+                <span>负责人 张三</span>
+                <span>更新于 2026-05-15 09:41</span>
+                <span>截止 05-20</span>
+              </div>
+            </div>
+            <div class="sub-status"><span class="badge pending">待修改</span></div>
+            <div class="sub-actions">
+              <button class="btn btn-danger" type="button">驳回申请</button>
+              <button class="btn btn-ghost" type="button" title="改派给他人">改派</button>
+            </div>
+          </summary>
+          <div class="sub-body">
+            <div class="sub-body-grid">
+              <div class="sub-fields">
+                <dl>
+                  <dt>目标</dt><dd>沉淀本次良率事件的内部规范，对外发布客户说明文档。</dd>
+                  <dt>交付物</dt><dd>规范文档 v1 · 客户说明 v3 · 发布回滚预案</dd>
+                  <dt>完成标准</dt><dd>法务、品牌签字；对外文档已上传 OA 并归档。</dd>
+                  <dt>反馈频率</dt><dd>每两个工作日</dd>
+                  <dt>检查点</dt><dd>M1 法务初审；M2 客户答复</dd>
+                </dl>
+              </div>
+              <div>
+                <div class="muted" style="font-weight:650;font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;">本子任务事件</div>
+                <div class="sub-events">
+                  <div>
+                    <time>2026-05-15 09:41</time>
+                    员工申请修改：希望将「对外发布说明」从本周五延到下周一，并补充一节「回滚预案」再进入发布流程。
+                  </div>
+                  <div>
+                    <time>2026-05-13 18:02</time>
+                    员工接受子任务
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 内联面板：点「驳回申请」后就地展开（这里默认展开示意） -->
+            <div class="inline-panel danger" role="region" aria-label="驳回申请">
+              <h4>驳回申请 · 子任务将回到「进行中」（负责人不变）</h4>
+              <p class="ctx">员工说明：希望将「对外发布说明」从本周五延到下周一，并补充一节「回滚预案」再进入发布流程。</p>
+              <label style="font-size:12px;font-weight:500;color:#334155;display:block;margin-bottom:4px;">
+                驳回理由<span class="req">（必填）</span>
+              </label>
+              <textarea placeholder="简述不采纳调整的原因，便于员工执行与留档。"></textarea>
+              <div class="inline-panel-actions">
+                <span class="grow">提交后立即生效，并写入审计事件。</span>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#334155;">
+                  <input type="checkbox" /> 我已确认
+                </label>
+                <button class="btn btn-ghost" type="button">取消</button>
+                <button class="btn btn-danger" type="button">驳回申请</button>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- 行 2：CHANGES_REQUESTED · 折叠 -->
+        <details class="sub-row">
+          <summary>
+            <div class="sub-idx">#7</div>
+            <div class="sub-main">
+              <div class="sub-title">SPC 取样与基线复核</div>
+              <div class="sub-sub">
+                <span>负责人 李四</span>
+                <span>更新于 2026-05-14 17:10</span>
+                <span>截止 05-18</span>
+              </div>
+            </div>
+            <div class="sub-status"><span class="badge pending">待修改</span></div>
+            <div class="sub-actions">
+              <button class="btn btn-danger" type="button">驳回申请</button>
+              <button class="btn btn-ghost" type="button">改派</button>
+            </div>
+          </summary>
+        </details>
+
+        <!-- 行 3：BLOCKED · 折叠 -->
+        <details class="sub-row">
+          <summary>
+            <div class="sub-idx">#9</div>
+            <div class="sub-main">
+              <div class="sub-title">客户答复邮件草稿</div>
+              <div class="sub-sub">
+                <span>负责人 赵六</span>
+                <span>更新于 2026-05-13 10:30</span>
+                <span>截止 05-19</span>
+              </div>
+            </div>
+            <div class="sub-status"><span class="badge blocked">阻塞</span></div>
+            <div class="sub-actions">
+              <button class="btn" type="button">已知悉</button>
+              <button class="btn btn-ghost" type="button">改派</button>
+            </div>
+          </summary>
+        </details>
+
+      </div>
+
+      <p class="muted" style="margin:12px 0 0;font-size:12px;">
+        · 切换上方筛选可看到「进行中 / 已完成」等其他子任务（共 11 条）。<br/>
+        · <strong>改派</strong>不再单独占用一整块，每行点「改派」会带任务/子任务参数跳到现有改派页（或下个版本就地展开）。
+      </p>
+    </div>
+
+    <!-- 任务级事件（默认 5 条 + 展开） -->
+    <div class="card">
+      <h3 style="margin:0 0 10px;font-size:15px;">任务事件 · 最近 5 条</h3>
+      <ul class="events-mini">
+        <li class="warn"><time>2026-05-15 09:41</time>员工申请修改：#3 总结与发布规范</li>
+        <li class="warn"><time>2026-05-14 17:10</time>员工申请修改：#7 SPC 取样与基线复核</li>
+        <li><time>2026-05-14 16:20</time>员工提交进度：#1 SPC 已导出，待与工艺对齐口径</li>
+        <li><time>2026-05-13 10:30</time>员工标记阻塞：#9 客户答复邮件草稿</li>
+        <li><time>2026-05-12 10:08</time>任务发布</li>
+      </ul>
+      <p style="margin:10px 0 0;"><button class="btn-link" type="button">展开全部 27 条 →</button></p>
+    </div>
+  </div>
+</body>
+</html>

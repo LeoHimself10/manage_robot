@@ -73,13 +73,8 @@ function hasTaskTableInMessage(markdown: string): boolean {
 }
 
 /**
- * 把 draft.description / 每个 task 的 dependencyTaskIds / timeNode.checkpoints / risksAndOpenQuestions
+ * 把 draft.objective / draft.background / 每个 task 的详细字段
  * 渲染成一段「任务补充信息」追加到模型 markdown 之后。
- *
- * 这是「确定性渲染」：哪怕模型的 markdown 表只写了 6 列旧字段，只要 draft JSON 里
- * 有这些字段，下面就一定能看到，避免「字段进了 draft 但用户看不见」的体感问题。
- *
- * 字段都缺时返回空串，外层会自动跳过（不污染普通追问/纯文本回复）。
  */
 function listField(values: unknown): string {
   if (!Array.isArray(values)) return "";
@@ -89,7 +84,10 @@ function listField(values: unknown): string {
 export function renderDraftSupplementSection(draft: unknown): string {
   if (!draft || typeof draft !== "object") return "";
   const root = draft as Record<string, unknown>;
-  const description = String(root.description ?? "").trim();
+  // v6：优先用 objective + background；兜底用旧 description 字段（旧数据兼容）
+  const objective = String(root.objective ?? "").trim();
+  const background = String(root.background ?? "").trim();
+  const description = objective || String(root.description ?? "").trim();
   const tasks = Array.isArray(root.tasks) ? (root.tasks as Array<Record<string, unknown>>) : [];
   const taskTitleById = new Map<string, string>();
   for (const t of tasks) {
@@ -99,13 +97,19 @@ export function renderDraftSupplementSection(draft: unknown): string {
   }
   const lines: string[] = [];
   const tableRows: string[] = [];
-  if (description) {
+  if (objective) {
+    lines.push(`**任务目标**：${objective.length > 400 ? objective.slice(0, 400) + "…" : objective}`);
+  }
+  if (background) {
+    lines.push(`**触发背景**：${background.length > 300 ? background.slice(0, 300) + "…" : background}`);
+  } else if (!objective && description) {
+    // 兜底：旧 draft 只有 description
     lines.push(`**任务背景**：${description.length > 500 ? description.slice(0, 500) + "…" : description}`);
   }
   const supplementBlocks: string[] = [];
   tasks.forEach((t, idx) => {
     const title = String(t?.title ?? "").trim() || `任务 ${idx + 1}`;
-    const objective = String(t?.objective ?? "").trim();
+    const taskObjective = String(t?.objective ?? "").trim();
     const deliverables = listField(t?.deliverables);
     const completionCriteria = listField(t?.completionCriteria);
     const deps = Array.isArray(t?.dependencyTaskIds) ? (t.dependencyTaskIds as unknown[]) : [];
@@ -115,7 +119,7 @@ export function renderDraftSupplementSection(draft: unknown): string {
     const dueAt = String(timeNode?.dueAt ?? t?.dueAt ?? "").trim() || "待确认";
     const feedbackFrequency = String(t?.feedbackFrequency ?? "").trim() || "待确认";
     tableRows.push(
-      `| ${idx + 1} | ${title} | ${objective || "-"} | ${deliverables || "-"} | ${completionCriteria || "-"} | ${dueAt} | ${feedbackFrequency} |`,
+      `| ${idx + 1} | ${title} | ${taskObjective || "-"} | ${deliverables || "-"} | ${completionCriteria || "-"} | ${dueAt} | ${feedbackFrequency} |`,
     );
     const inputMaterials = listField(t?.inputMaterials);
     const actions = listField(t?.actions);

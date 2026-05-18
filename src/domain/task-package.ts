@@ -4,6 +4,11 @@ export interface TimeNode {
   dueAt: string;
 }
 
+export interface TaskScope {
+  inScope: string[];
+  outOfScope: string[];
+}
+
 export interface TaskPackage {
   id: string;
   title: string;
@@ -21,5 +26,6 @@ export interface TaskPackage {
   risksAndOpenQuestions: string[];
   traceInfo?: string[];
   dependencyTaskIds: string[];
+  /** 范围边界：做什么 / 不做什么 */
+  scope?: TaskScope;
 }
-

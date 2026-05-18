@@ -1,6 +1,5 @@
-import { coerceLlmPlanPayload } from "./llm-schema";
-import type { TaskPackage } from "../../domain/task-package";
 import { logStructured } from "../../infra/logger";
+import type { OrchestratorDraft, OrchestratorTask } from "./llm-types";
 
 export function readDraftFallbackEnabled(): boolean {
   return String(process.env.DRAFT_FALLBACK_EXTRACT_ENABLED ?? "1").trim() !== "0";
@@ -30,20 +29,10 @@ export function looksLikeTaskDraftMessage(markdown: string): boolean {
   if (shortArchiveEcho) return false;
 
   let score = 0;
-  if (
-    /任务草案|草案预览|行动草案|子任务|任务分配|负责人|拆解|待派发/.test(s)
-  ) {
-    score += 1;
-  }
-  if (/\|\s*(ID|子任务|任务|负责人|截止)/i.test(s)) {
-    score += 1;
-  }
-  if (/\btask_\d+\b/i.test(s)) {
-    score += 1;
-  }
-  if (countLines(s) > 8 && hasBoldOrColon(s)) {
-    score += 1;
-  }
+  if (/任务草案|草案预览|行动草案|子任务|任务分配|负责人|拆解|待派发/.test(s)) score += 1;
+  if (/\|\s*(ID|子任务|任务|负责人|截止)/i.test(s)) score += 1;
+  if (/\btask_\d+\b/i.test(s)) score += 1;
+  if (countLines(s) > 8 && hasBoldOrColon(s)) score += 1;
   return score >= 2;
 }
 
@@ -52,64 +41,49 @@ function stripCodeFence(raw: string): string {
   return (m?.[1] ?? raw).trim();
 }
 
-function defaultQualityPayloadForCoerce(
-  parsed: Record<string, unknown>,
-): Record<string, unknown> {
-  const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
-  return {
-    classification: {
-      domain: "QUALITY",
-      subtype: "CUSTOMER_COMPLAINT_OR_FIELD_ISSUE",
-      confidence: "MEDIUM",
-      rationale: [],
-      missingInformation: [],
-    },
-    openQuestions: [],
-    capaAdvisory: {
-      advisory: "INSUFFICIENT_INFO",
-      rationale: ["由 Markdown 草案抽取生成；CAPA 判定以主管与 QMS 为准"],
-      disclaimer:
-        "该建议仅用于任务拆解与质量沟通参考，最终是否开启 CAPA 以质量授权人员和公司 QMS 流程判定为准。",
-      promptingQuestions: [],
-    },
-    assistantMessage: "",
-    tasks,
-  };
-}
-
-function asPlainObject(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  return value as Record<string, unknown>;
-}
-
-function normalizeStringArrayLoose(input: unknown): string[] {
+function normalizeStringArray(input: unknown): string[] {
   if (typeof input === "string" && input.trim()) return [input.trim()];
   if (!Array.isArray(input)) return [];
-  return input
+  return (input as unknown[])
     .map((x) => (typeof x === "string" ? x.trim() : ""))
     .filter(Boolean);
 }
 
-function mergeTasksWithRaw(
-  coercedTasks: TaskPackage[],
-  rawTasks: unknown[],
-): Array<Record<string, unknown>> {
-  return coercedTasks.map((t, index) => {
-    const raw = asPlainObject(rawTasks[index]) ?? {};
-    const rawCollab = normalizeStringArrayLoose(raw.collaborators);
-    const scope = asPlainObject(raw.scope) ?? {};
-    const inScope = normalizeStringArrayLoose(scope.inScope);
-    const outOfScope = normalizeStringArrayLoose(scope.outOfScope);
-    const mergedScope =
-      inScope.length > 0 || outOfScope.length > 0
-        ? { inScope, outOfScope }
-        : undefined;
-    return {
-      ...(t as unknown as Record<string, unknown>),
-      collaborators: rawCollab.length > 0 ? rawCollab : t.collaborators,
-      ...(mergedScope ? { scope: mergedScope } : {}),
-    };
-  });
+function normalizeTask(raw: unknown, index: number): OrchestratorTask {
+  const r = (raw && typeof raw === "object" && !Array.isArray(raw))
+    ? raw as Record<string, unknown>
+    : {} as Record<string, unknown>;
+
+  const timeNodeRaw = (r.timeNode && typeof r.timeNode === "object" && !Array.isArray(r.timeNode))
+    ? r.timeNode as Record<string, unknown>
+    : {} as Record<string, unknown>;
+
+  const scopeRaw = (r.scope && typeof r.scope === "object" && !Array.isArray(r.scope))
+    ? r.scope as Record<string, unknown>
+    : {} as Record<string, unknown>;
+
+  return {
+    id: String(r.id ?? `task_${index + 1}`).trim() || `task_${index + 1}`,
+    title: String(r.title ?? "").trim(),
+    objective: String(r.objective ?? "").trim(),
+    deliverables: normalizeStringArray(r.deliverables),
+    completionCriteria: normalizeStringArray(r.completionCriteria),
+    timeNode: {
+      dueAt: String(timeNodeRaw.dueAt ?? r.dueAt ?? "待确认").trim() || "待确认",
+      checkpoints: normalizeStringArray(timeNodeRaw.checkpoints),
+    },
+    feedbackFrequency: String(r.feedbackFrequency ?? "待确认").trim() || "待确认",
+    dependencyTaskIds: normalizeStringArray(r.dependencyTaskIds ?? r.dependencies),
+    risksAndOpenQuestions: normalizeStringArray(r.risksAndOpenQuestions),
+    inputMaterials: normalizeStringArray(r.inputMaterials),
+    actions: normalizeStringArray(r.actions),
+    collaborators: normalizeStringArray(r.collaborators),
+    scope: {
+      inScope: normalizeStringArray(scopeRaw.inScope),
+      outOfScope: normalizeStringArray(scopeRaw.outOfScope),
+    },
+    assigneeUserId: String(r.assigneeUserId ?? "").trim() || undefined,
+  };
 }
 
 export interface ExtractStructuredDraftInput {
@@ -119,12 +93,12 @@ export interface ExtractStructuredDraftInput {
 }
 
 /**
- * 将仅含 Markdown 的任务草案 message 抽成与 save_draft / session.latestDraft 兼容的结构。
+ * 将仅含 Markdown 的任务草案 message 抽成与 session.latestDraft 兼容的 OrchestratorDraft 结构。
  * 失败返回 null（静默退化）。
  */
 export async function extractStructuredDraftFromMessage(
   input: ExtractStructuredDraftInput,
-): Promise<Record<string, unknown> | null> {
+): Promise<OrchestratorDraft | null> {
   const message = String(input.message ?? "").trim();
   if (!message) return null;
 
@@ -134,17 +108,17 @@ export async function extractStructuredDraftFromMessage(
     || "qwen3.6-flash";
   const maxTokens = Math.max(
     256,
-    Number(process.env.DRAFT_FALLBACK_MAX_TOKENS ?? "1500") || 1500,
+    Number(process.env.DRAFT_FALLBACK_MAX_TOKENS ?? "2000") || 2000,
   );
   const timeoutMs = Math.max(
     3000,
-    Number(process.env.DRAFT_FALLBACK_TIMEOUT_MS ?? "") || input.modelConfig.timeoutMs || 8000,
+    Number(process.env.DRAFT_FALLBACK_TIMEOUT_MS ?? "") || input.modelConfig.timeoutMs || 10000,
   );
 
   const system = [
     "你是 Markdown → 结构化 JSON 抽取器。仅基于用户给定的 Markdown 抽取，禁止编造任何文本未出现的字段。",
     "仅输出一个 JSON 对象（无解释、无 Markdown 围栏），顶层字段：",
-    '{ "title": string, "description": string, "tasks": [ {',
+    '{ "title": string, "objective": string, "background": string, "tasks": [ {',
     '  "id": string, "title": string, "objective": string,',
     '  "deliverables": string[], "completionCriteria": string[],',
     '  "inputMaterials": string[], "actions": string[], "collaborators": string[],',
@@ -154,6 +128,8 @@ export async function extractStructuredDraftFromMessage(
     '  "feedbackFrequency": string',
     "} ] }",
     "未识别到的数组字段给 []；字符串缺失给 \"\"；dueAt 缺失给 \"待确认\"；feedbackFrequency 缺失给 \"待确认\"。",
+    "objective：抽取整体任务目标（从标题/描述段落推断）。",
+    "background：抽取触发背景/来由（从描述段落推断，无则给 \"\"）。",
     "禁止把姓名、userId、日期、设备型号编造进缺失字段。",
   ].join("\n");
 
@@ -214,46 +190,37 @@ export async function extractStructuredDraftFromMessage(
       });
       return null;
     }
-    const wrapped = defaultQualityPayloadForCoerce(parsed);
-    const coerced = coerceLlmPlanPayload(wrapped);
-    if (!coerced.tasks.length) {
+
+    const rawTasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
+    if (rawTasks.length === 0) {
       logStructured({
         event: "draft_fallback_extract_failed",
         traceId: input.traceId ?? null,
-        reason: "empty_tasks_after_coerce",
+        reason: "empty_tasks",
         llmMs: Date.now() - started,
       });
       return null;
     }
-    const rawTasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
-    const mergedTasks = mergeTasksWithRaw(coerced.tasks, rawTasks);
-    // 补齐缺失 id（coerce 可能得到空 id）
-    for (let i = 0; i < mergedTasks.length; i += 1) {
-      const row = mergedTasks[i]!;
-      const id = String(row.id ?? "").trim();
-      if (!id) row.id = `task_${i + 1}`;
-    }
-    const title = String(parsed.title ?? "").trim()
-      || String(mergedTasks[0]?.title ?? "").trim()
-      || "任务草案";
-    const description = String(parsed.description ?? "").trim();
-    const out: Record<string, unknown> = {
+
+    const tasks: OrchestratorTask[] = rawTasks.map((t, i) => normalizeTask(t, i));
+
+    const title = String(parsed.title ?? "").trim() || String(tasks[0]?.title ?? "").trim() || "任务草案";
+    const objective = String(parsed.objective ?? "").trim();
+    const background = String(parsed.background ?? "").trim();
+
+    const out: OrchestratorDraft = {
       title,
-      description,
-      classification: coerced.classification,
-      capaAdvisory: coerced.capaAdvisory,
-      openQuestions: coerced.openQuestions,
-      gateSelfCheck: coerced.gateSelfCheck,
-      responseIntent: coerced.responseIntent,
-      assistantMessage: coerced.assistantMessage,
-      tasks: mergedTasks,
+      objective,
+      background,
+      tasks,
       extractedBy: "draft_fallback_extract",
       extractedAt: new Date().toISOString(),
     };
+
     logStructured({
       event: "draft_fallback_extract_ok",
       traceId: input.traceId ?? null,
-      taskCount: mergedTasks.length,
+      taskCount: tasks.length,
       llmMs: Date.now() - started,
     });
     return out;

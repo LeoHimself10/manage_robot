@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>主管处理卡片 · UI 对比（静态示意）</title>
+  <style>
+    :root {
+      --bg: #f1f5f9;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --danger: #dc2626;
+      --success: #059669;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+      --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 0 0 48px;
+    }
+    .app-shell { max-width: 1100px; margin: 0 auto; padding: 24px 18px; }
+    h1 { margin: 0 0 8px; font-size: 22px; font-weight: 700; }
+    .intro { color: var(--muted); font-size: 14px; max-width: 720px; margin: 0 0 20px; }
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .compare { grid-template-columns: 1fr; } }
+    .col-h {
+      font-size: 13px;
+      font-weight: 650;
+      color: #475569;
+      margin: 0 0 10px;
+      padding: 8px 12px;
+      background: #e2e8f0;
+      border-radius: 8px;
+    }
+    .col-h.after { background: #dcfce7; color: #166534; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+    }
+    .form-stack { display: grid; gap: 12px; }
+    .form-stack label { display: grid; gap: 6px; font-size: 13px; font-weight: 500; color: #334155; }
+    .form-stack input, .form-stack select, .form-stack textarea {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font: inherit;
+      width: 100%;
+    }
+    .form-stack textarea { resize: vertical; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 9px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: default;
+      border: 1px solid transparent;
+      font-family: inherit;
+    }
+    .btn-secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
+    .btn-danger { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
+    .btn-ghost { background: transparent; color: var(--muted); border-color: transparent; }
+    .feedback { min-height: 22px; font-size: 13px; margin-top: 10px; color: var(--muted); }
+    .muted { color: var(--muted); font-size: 13px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge.pending { color: #c2410c; background: #ffedd5; border: 1px solid #fdba74; }
+
+    /* —— 优化后：与 workbench-app-styles 中 .mgr-* 对齐 —— */
+    .mgr-signal-card .mgr-signal-head h3 { margin: 0; font-size: 16px; font-weight: 650; }
+    .mgr-signal-card .mgr-signal-sub {
+      margin: 6px 0 0;
+      font-size: 13px;
+      line-height: 1.45;
+      max-width: 720px;
+      color: var(--muted);
+    }
+    .mgr-callout {
+      font-size: 13px;
+      color: #334155;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      margin: 0 0 14px;
+      line-height: 1.5;
+    }
+    .mgr-section-h {
+      font-size: 12px;
+      font-weight: 650;
+      color: #64748b;
+      margin: 0 0 6px;
+    }
+    .mgr-pending-readonly {
+      font-size: 14px;
+      color: var(--text);
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      margin: 0 0 12px;
+      min-height: 48px;
+    }
+    .mgr-pending-readonly .mgr-p-meta {
+      margin: 0;
+      font-size: 13px;
+      color: #92400e;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .mgr-pending-readonly .mgr-p-note {
+      margin: 10px 0 0;
+      font-size: 13px;
+      color: #78350f;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.5;
+    }
+    .mgr-pending-readonly .mgr-p-note.muted { color: #a16207; }
+    .mgr-req { color: #b45309; font-weight: 600; }
+    .mgr-decline-stack select#mgrDeclineSubtask { font-size: 14px; }
+    .mgr-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: flex-end;
+      margin-top: 4px;
+    }
+    .mgr-actions #mgrDeclineConfirmWrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+      flex: 1 1 220px;
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 500;
+      color: #334155;
+    }
+    .mgr-signal-card .mgr-decline-stack textarea#mgrDeclineNote,
+    .mgr-signal-card .form-stack textarea#mgrAckNote {
+      min-height: 64px;
+      max-height: 200px;
+    }
+    .mgr-ack-h {
+      margin: 16px 0 0;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 650;
+      color: var(--text);
+    }
+    .pill-note {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 6px 10px;
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #92400e;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <h1>主管处理卡片 · UI 对比</h1>
+    <p class="intro">
+      静态示意页，不连后端。左侧为改版前常见结构问题（示意），右侧为当前工作台任务详情中的「主管处理」区块样式与信息层级。
+      可直接用浏览器打开本文件：<code>docs/demo-manager-signal-card.html</code>
+    </p>
+
+    <div class="compare">
+      <!-- 优化前 -->
+      <div>
+        <p class="col-h">优化前（示意：改版前常见问题）</p>
+        <div class="card">
+          <h3 style="margin:0 0 10px;font-size:15px;">主管处理</h3>
+          <p class="muted" style="margin:0 0 10px;">驳回「申请调整」后，子任务将回到进行中。</p>
+          <div class="form-stack">
+            <label>子任务
+              <select>
+                <option>总结与发布规范</option>
+              </select>
+            </label>
+            <label>驳回理由（必填）
+              <!-- 旧全局样式：textarea min-height 偏大，易显空 -->
+              <textarea rows="2" style="min-height:88px;" readonly placeholder="（示意：输入区过高）"></textarea>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" /> 确认执行驳回
+            </label>
+            <button type="button" class="btn btn-secondary">驳回申请</button>
+            <div class="feedback">（次要按钮色，与「已知悉」权重接近）</div>
+            <p class="muted" style="margin:12px 0 0;">对员工「标记完成 / 阻塞」…仅做已知悉…</p>
+            <label>备注（可选）
+              <textarea rows="2" style="min-height:88px;" readonly></textarea>
+            </label>
+            <button type="button" class="btn btn-ghost">已知悉</button>
+          </div>
+        </div>
+        <p class="pill-note">问题：缺少员工申请原文 · 后果与诉求同层 · 主操作不突出 · 输入区显空</p>
+      </div>
+
+      <!-- 优化后 -->
+      <div>
+        <p class="col-h after">优化后（当前实现）</p>
+        <div class="card mgr-signal-card">
+          <div class="mgr-signal-head">
+            <h3>主管处理</h3>
+            <p class="mgr-signal-sub">对「申请调整」作驳回，或对完成 / 阻塞类通知做已知悉留痕（不改变子任务状态）。</p>
+          </div>
+
+          <div>
+            <div class="mgr-callout" role="status">
+              驳回后，该子任务将回到<strong>进行中</strong>（负责人不变）。
+            </div>
+            <div class="form-stack mgr-decline-stack">
+              <div>
+                <div class="mgr-section-h">员工申请内容</div>
+                <div class="mgr-pending-readonly" aria-live="polite">
+                  <p class="mgr-p-meta">
+                    <span class="badge pending">待修改</span>
+                    #3 · 总结与发布规范 · 负责人 张三
+                  </p>
+                  <p class="mgr-p-note">希望将「对外发布说明」从本周五延到下周一，并补充一节「回滚预案」再进入发布流程。</p>
+                </div>
+              </div>
+              <label for="demo-decline-sub">待修改的子任务</label>
+              <select id="demo-decline-sub">
+                <option>总结与发布规范</option>
+              </select>
+              <label for="demo-decline-note">驳回理由 <span class="mgr-req">（必填）</span></label>
+              <textarea id="demo-decline-note" rows="3" maxlength="800" placeholder="简述不采纳调整的原因，便于员工执行与留档。"></textarea>
+              <div class="mgr-actions">
+                <label id="mgrDeclineConfirmWrap">
+                  <input type="checkbox" /> 确认执行驳回
+                </label>
+                <button type="button" class="btn btn-danger">驳回申请</button>
+              </div>
+              <div class="feedback muted">（提交反馈区示意）</div>
+            </div>
+          </div>
+
+          <div>
+            <div class="mgr-ack-h">已知悉（留痕）</div>
+            <p class="muted" style="margin:0 0 10px;">适用于员工标记完成、阻塞等；仅写事件，不迁移子任务状态。</p>
+            <div class="form-stack">
+              <label for="demo-ack-sub">关联子任务（可选，默认第一条）</label>
+              <select id="demo-ack-sub"><option>（默认首条子任务）</option></select>
+              <label for="demo-ack-sig">类型</label>
+              <select id="demo-ack-sig">
+                <option>员工标记完成</option>
+                <option>员工标记阻塞</option>
+              </select>
+              <label for="demo-ack-note">备注（可选）</label>
+              <textarea id="demo-ack-note" rows="2" placeholder="可选：补充你已知晓的要点"></textarea>
+              <button type="button" class="btn btn-ghost">已知悉</button>
+            </div>
+          </div>
+        </div>
+        <p class="pill-note" style="background:#ecfdf5;border-color:#6ee7b7;color:#065f46;">
+          改进：琥珀只读区展示员工说明 · 灰底说明后果 · 驳回用危险色按钮 · 驳回理由区更紧凑 · 已知悉分节
+        </p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

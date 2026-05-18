@@ -4,7 +4,6 @@ import {
   MaxToolIterationsExceededError,
   QwenCompatibleClient,
 } from "./demo/qwen-compatible-client";
-import { coerceLlmPlanPayload } from "./demo/llm-schema";
 import { buildToolRegistry, type ToolProfile } from "./tools/registry";
 import { logStructured } from "../infra/logger";
 import type { EmployeeProfileRecord } from "../integrations/repos/employee-profile-repo";
@@ -201,7 +200,7 @@ export async function runOrchestrator(
           if (parsed && typeof parsed === "object") {
             if (isPlainObject(parsed.draft)) {
               salvagedDraft = stabilizeDraftTaskIds(
-                coerceLlmPlanPayload(parsed.draft) as unknown as Record<string, unknown>,
+                parsed.draft as Record<string, unknown>,
                 previousDraft,
               );
             }
@@ -252,7 +251,7 @@ export async function runOrchestrator(
 
   const messages: string[] = msg ? [msg] : [];
   const payloadDraft = isPlainObject(payload?.draft)
-    ? (coerceLlmPlanPayload(payload?.draft) as unknown as Record<string, unknown>)
+    ? (payload.draft as Record<string, unknown>)
     : undefined;
   let draft: Record<string, unknown> | undefined = savedDraft ?? payloadDraft;
   if (draft) {
@@ -277,7 +276,10 @@ export async function runOrchestrator(
       ? (fallbackDraft as { tasks: unknown[] }).tasks
       : [];
     if (fallbackDraft && fbTasks.length > 0) {
-      draft = stabilizeDraftTaskIds(fallbackDraft, previousDraft);
+      draft = stabilizeDraftTaskIds(
+        fallbackDraft as unknown as Record<string, unknown>,
+        previousDraft,
+      );
       draftFallbackOutcome = "triggered_ok";
     }
   }
@@ -347,8 +349,7 @@ function summarizeDraftForPrompt(draft: Record<string, unknown>): Record<string,
   return {
     hasDraft: true,
     taskTitles,
-    domain: (draft as { classification?: { domain?: unknown } }).classification?.domain ?? null,
-    subtype: (draft as { classification?: { subtype?: unknown } }).classification?.subtype ?? null,
+    title: String((draft as { title?: unknown }).title ?? "").trim() || null,
   };
 }
 

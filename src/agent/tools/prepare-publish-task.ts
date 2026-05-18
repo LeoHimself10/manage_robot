@@ -28,30 +28,24 @@ export const PREPARE_PUBLISH_TASK_TOOL: ToolDefinition = {
           },
         },
         managerNote: { type: "string" },
-        description: {
+        objective: {
           type: "string",
           description:
-            "面向员工的任务整体背景：目标、来由、验收口径、不做什么；会写入正式任务表并下发通知/工作台。",
+            "任务整体目标/业务诉求：给主管和员工看的一段话，说清楚「做什么、达成什么」；会写入正式任务表并下发通知/工作台。",
+        },
+        background: {
+          type: "string",
+          description:
+            "触发背景/来由：说清楚「为什么有这个任务」；会与 objective 合并后写入正式任务表。",
         },
       },
-      required: ["planId", "title", "description", "subtasks"],
+      required: ["planId", "title", "objective", "subtasks"],
     },
   },
 };
 
 export interface BuildPreparePublishTaskHandlerDeps {
-  /**
-   * 当前会话引用。当本工具校验通过时，会把规整后的 draft + assignment 直接 mutate 到该对象上，
-   * 让后续 publish_task 即便在模型最终 JSON 中没有显式 draft 字段也能读到结构化数据。
-   * 兼容缺省（用于单测 / demo 链路）。
-   */
   currentSession?: PlanSession;
-  /**
-   * 通讯录查询。用于在 stage 之前校验每个 assigneeUserId 都是真实在职钉钉账号，
-   * 防止模型把姓名 → 假 userId（如 "u_yanghexin"）写进 session，进而污染正式任务表
-   * 且通知通道全部静默失败。返回 undefined 或 active=false 即视为该 userId 非法。
-   * 兼容缺省：未注入时跳过该校验（仅 demo / 单测）。
-   */
   getContact?: (userId: string) => { active?: boolean; unionId?: string } | undefined;
 }
 
@@ -61,7 +55,8 @@ export function buildPreparePublishTaskHandler(
   return (args: Record<string, unknown>) => {
     const planId = String(args.planId ?? "").trim();
     const title = String(args.title ?? "").trim();
-    const description = String(args.description ?? "").trim();
+    const objective = String(args.objective ?? "").trim();
+    const background = String(args.background ?? "").trim();
     const rawSubtasks = Array.isArray(args.subtasks) ? args.subtasks : [];
     const normalizedSubtasks = rawSubtasks.map((item) => {
       const row = item as Record<string, unknown>;
@@ -91,21 +86,27 @@ export function buildPreparePublishTaskHandler(
         hint: "调用前必须传入 title（计划标题）。",
       };
     }
-    if (!description) {
+    if (!objective) {
       return {
         ok: false,
-        reason: "missing_description",
+        reason: "missing_objective",
         hint:
-          "调用前必须传入非空 description：以面向员工的视角写清任务整体目标、来由、验收口径与不做什么；该字段会随正式任务、钉钉通知与员工工作台展示。",
+          "调用前必须传入非空 objective：以面向员工的视角写清任务整体目标与业务诉求；该字段会随正式任务、钉钉通知与员工工作台展示。",
       };
     }
-    if (description.length > TASK_DESCRIPTION_MAX_DB) {
+
+    // 合并 objective + background 作为 description 写入数据库，长度限制沿用
+    const derivedDescription = background
+      ? `${objective}\n\n${background}`
+      : objective;
+    if (derivedDescription.length > TASK_DESCRIPTION_MAX_DB) {
       return {
         ok: false,
         reason: "description_too_long",
-        hint: `description 不得超过 ${TASK_DESCRIPTION_MAX_DB} 字符，请精简后重试。`,
+        hint: `objective + background 合并后不得超过 ${TASK_DESCRIPTION_MAX_DB} 字符，请精简后重试。`,
       };
     }
+
     if (rawSubtasks.length === 0) {
       return {
         ok: false,
@@ -132,8 +133,6 @@ export function buildPreparePublishTaskHandler(
       };
     }
 
-    // 校验所有 assigneeUserId 必须是通讯录里真实存在且 active 的钉钉账号。
-    // 关键防线：阻止模型把"姓名 -> 假 userId"（如 u_yanghexin）写进 session 进而污染正式任务表。
     if (deps.getContact) {
       const unknown: Array<{ taskId: string; assigneeUserId: string }> = [];
       for (const s of subtasks) {
@@ -158,7 +157,6 @@ export function buildPreparePublishTaskHandler(
     const managerNote = String(args.managerNote ?? "").trim() || undefined;
     const preparedAt = new Date().toISOString();
 
-    // 把规整后的 draft + assignment 暂存到当前 session，保证 publish_task 能拿到结构化数据。
     if (deps.currentSession) {
       if (deps.currentSession.planId && deps.currentSession.planId !== planId) {
         return {
@@ -180,7 +178,10 @@ export function buildPreparePublishTaskHandler(
       const stagedDraft: Record<string, unknown> = {
         ...(existingDraft ?? {}),
         title,
-        description,
+        objective,
+        background,
+        // description 派生，供下游仍使用 description 的地方读取
+        description: derivedDescription,
         tasks: mergedTasks,
         stagedBy: "prepare_publish_task",
         stagedAt: preparedAt,
@@ -202,7 +203,8 @@ export function buildPreparePublishTaskHandler(
       ok: true,
       planId,
       title,
-      description,
+      objective,
+      background,
       subtasks,
       managerNote,
       preparedAt,
@@ -224,9 +226,7 @@ function mergeSubtaskPatch(
   const next = { ...(originalTask ?? {}) };
   next.id = patch.taskId;
   next.title = patch.title;
-  if (patch.objective !== undefined) {
-    next.objective = patch.objective;
-  }
+  if (patch.objective !== undefined) next.objective = patch.objective;
   const rawTimeNode = asPlainObject(next.timeNode) ?? {};
   if (patch.dueAt !== undefined) {
     next.timeNode = { ...rawTimeNode, dueAt: patch.dueAt };
