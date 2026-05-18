@@ -1280,8 +1280,7 @@ export function renderTaskDetailPage(params: {
   function rowBucketsForStatus(st) {
     var s = String(st || '');
     var keys = ['all'];
-    if (s === 'ASSIGNED') keys.push('pending');
-    if (s === 'CHANGES_REQUESTED') keys.push('changes_requested');
+    if (s === 'ASSIGNED' || s === 'CHANGES_REQUESTED') keys.push('pending');
     if (s === 'IN_PROGRESS' || s === 'BLOCKED') keys.push('in_progress');
     if (s === 'DONE') keys.push('done');
     if (s === 'REJECTED') keys.push('rejected');
@@ -1411,8 +1410,7 @@ export function renderTaskDetailPage(params: {
       function countByFilter(f) {
         return subs.filter(function (s) {
           var st = String(s.status || '');
-          if (f === 'pending') return st === 'ASSIGNED';
-          if (f === 'changes_requested') return st === 'CHANGES_REQUESTED';
+          if (f === 'pending') return st === 'ASSIGNED' || st === 'CHANGES_REQUESTED';
           if (f === 'in_progress') return st === 'IN_PROGRESS' || st === 'BLOCKED';
           if (f === 'done') return st === 'DONE';
           if (f === 'rejected') return st === 'REJECTED';
@@ -1424,8 +1422,7 @@ export function renderTaskDetailPage(params: {
         var hitSu = subs.filter(function (x) { return String(x.subtaskId || '') === urlSubtaskId; })[0];
         if (hitSu) {
           var hst = String(hitSu.status || '');
-          if (hst === 'ASSIGNED') initialFilter = 'pending';
-          else if (hst === 'CHANGES_REQUESTED') initialFilter = 'changes_requested';
+          if (hst === 'ASSIGNED' || hst === 'CHANGES_REQUESTED') initialFilter = 'pending';
           else if (hst === 'IN_PROGRESS' || hst === 'BLOCKED') initialFilter = 'in_progress';
           else if (hst === 'DONE') initialFilter = 'done';
           else if (hst === 'REJECTED') initialFilter = 'rejected';
@@ -1453,13 +1450,12 @@ export function renderTaskDetailPage(params: {
       var head =
         '<div class="mgr-sub-filter" role="tablist" aria-label="子任务筛选">' +
         chipHtml('pending', '待处理', countByFilter('pending'), countByFilter('pending') > 0) +
-        chipHtml('changes_requested', '待修改', countByFilter('changes_requested'), countByFilter('changes_requested') > 0) +
         chipHtml('in_progress', '进行中', countByFilter('in_progress'), false) +
         chipHtml('done', '已完成', countByFilter('done'), false) +
         chipHtml('rejected', '已拒绝', countByFilter('rejected'), false) +
         chipHtml('all', '全部', subs.length, false) +
         '</div>' +
-        '<p class="muted mgr-sub-hint" style="margin:10px 0 14px;font-size:13px;">每行可展开查看详情；可在行内执行<strong>驳回申请</strong>/<strong>已知悉</strong>，<strong>改派</strong>仅限制已完成不可改。</p>';
+        '<p class="muted mgr-sub-hint" style="margin:10px 0 14px;font-size:13px;">「待处理」包含待处理与待修改；每行可展开查看详情，并在行内执行<strong>驳回申请</strong>/<strong>已知悉</strong>。改派仅限制已完成不可改。</p>';
       var rowParts = subs.map(function (s) {
         var rawId = String(s.subtaskId || '');
         var sid = esc(rawId);
