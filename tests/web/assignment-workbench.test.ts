@@ -1128,7 +1128,7 @@ describe("assignment-workbench HTTP handler", () => {
     expect(body.tasks.length).toBe(0);
   });
 
-  it("employee request_changes persists CHANGES_REQUESTED", async () => {
+  it("employee request_changes keeps ASSIGNED and writes change event", async () => {
     await seedPublishedTask({
       planId: "plan-change",
       managerUserId: "manager-1",
@@ -1154,7 +1154,7 @@ describe("assignment-workbench HTTP handler", () => {
     handleAssignmentHttp(req, res);
     await flushAsync();
     expect(captured().statusCode).toBe(200);
-    expect(captured().body).toContain('"status":"CHANGES_REQUESTED"');
+    expect(captured().body).toContain('"status":"ASSIGNED"');
   });
 
   it("test login endpoint can be disabled", async () => {

@@ -226,7 +226,8 @@ function normalizeStatus(raw: string): WorkbenchTaskStatus {
   if (raw === "IN_PROGRESS") return "IN_PROGRESS";
   /** Legacy DB / payloads: treat as in execution */
   if (raw === "ACCEPTED") return "IN_PROGRESS";
-  if (raw === "CHANGES_REQUESTED") return "CHANGES_REQUESTED";
+  /** Product semantics: "待修改" merged into "待处理" (ASSIGNED). */
+  if (raw === "CHANGES_REQUESTED") return "ASSIGNED";
   if (raw === "REJECTED") return "REJECTED";
   return "ASSIGNED";
 }
@@ -236,7 +237,6 @@ export function aggregateTaskStatus(statuses: WorkbenchTaskStatus[]): WorkbenchT
   if (statuses.length > 0 && statuses.every((s) => s === "DONE")) return "DONE";
   if (statuses.some((s) => s === "IN_PROGRESS")) return "IN_PROGRESS";
   if (statuses.some((s) => s === "REJECTED")) return "REJECTED";
-  if (statuses.some((s) => s === "CHANGES_REQUESTED")) return "CHANGES_REQUESTED";
   return "ASSIGNED";
 }
 
@@ -435,6 +435,9 @@ export function createWorkbenchFormalTaskStore() {
   `);
   const qTaskDetail = db.prepare("SELECT * FROM tasks WHERE task_id = ? OR plan_id = ? OR task_no = ? LIMIT 1");
   const qTaskEvents = db.prepare("SELECT * FROM task_events WHERE task_id = ? ORDER BY id DESC LIMIT 200");
+  const qSubtaskEvents = db.prepare(
+    "SELECT event_type FROM task_events WHERE subtask_id = ? ORDER BY id DESC LIMIT 80",
+  );
   const qMetrics = db.prepare(`
     SELECT
       (SELECT COUNT(*) FROM tasks) AS totalTasks,
@@ -783,7 +786,7 @@ export function createWorkbenchFormalTaskStore() {
         nextStatus = "REJECTED";
         eventType = "SUBTASK_REJECTED";
       } else if (input.action === "request_changes") {
-        nextStatus = "CHANGES_REQUESTED";
+        nextStatus = "ASSIGNED";
         eventType = "SUBTASK_CHANGES_REQUESTED";
       } else if (input.action === "customize") {
         nextStatus = normalizeStatus(String(subtask.status ?? "ASSIGNED"));
@@ -843,9 +846,25 @@ export function createWorkbenchFormalTaskStore() {
       if (String(subtask.manager_user_id ?? "").trim() !== input.managerUserId.trim()) {
         throw new Error("Task does not belong to current manager");
       }
-      const st = normalizeStatus(String(subtask.status ?? ""));
-      if (st !== "CHANGES_REQUESTED") {
-        throw new Error("Subtask is not in CHANGES_REQUESTED state");
+      const recent = qSubtaskEvents.all(input.subtaskId) as Array<{ event_type?: unknown }>;
+      let hasOpenChangesRequest = false;
+      for (const row of recent) {
+        const et = String(row.event_type ?? "");
+        if (et === "SUBTASK_CHANGES_REQUESTED") {
+          hasOpenChangesRequest = true;
+          break;
+        }
+        if (
+          et === "MANAGER_DECLINE_CHANGES"
+          || et === "SUBTASK_ACCEPTED"
+          || et === "SUBTASK_PROGRESS"
+          || et === "MANAGER_REASSIGN"
+        ) {
+          break;
+        }
+      }
+      if (!hasOpenChangesRequest) {
+        throw new Error("No pending change request for this subtask");
       }
       const now = nowIso();
       const taskId = String(subtask.task_id ?? "");

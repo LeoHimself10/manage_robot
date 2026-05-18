@@ -1372,6 +1372,19 @@ export function renderTaskDetailPage(params: {
       +'<p class="muted" style="margin:6px 0 0;">planId <code>'+esc(t.planId||'—')+'</code></p></details>';
     var subs = data.subtasks || [];
     var events = data.events || [];
+    function hasOpenChangesRequestForSubtask(subId) {
+      var sid = String(subId || '').trim();
+      if (!sid) return false;
+      for (var i = 0; i < events.length; i++) {
+        var e = events[i];
+        var esid = String(e.subtask_id || e.subtaskId || '').trim();
+        if (esid !== sid) continue;
+        var et = String(e.type || e.eventType || '').trim();
+        if (et === 'SUBTASK_CHANGES_REQUESTED') return true;
+        if (et === 'MANAGER_DECLINE_CHANGES' || et === 'SUBTASK_ACCEPTED' || et === 'SUBTASK_PROGRESS' || et === 'MANAGER_REASSIGN') return false;
+      }
+      return false;
+    }
     lastSubsForReassign = subs;
     ensureMgrRowHandlers();
     if(!subs.length){ document.getElementById('subtasksMount').textContent='暂无子任务'; }
@@ -1470,7 +1483,8 @@ export function renderTaskDetailPage(params: {
         var upd = fmtTime(s.updatedAt);
         var progHint = esc(clipStr(s.progressNote || '', 72));
         var actions = [];
-        if (st === 'CHANGES_REQUESTED') {
+        var hasReq = hasOpenChangesRequestForSubtask(rawId);
+        if (hasReq) {
           actions.push(
             '<button type="button" class="btn btn-danger btn-sm" data-mgr-toggle="decline">驳回申请</button>',
           );
@@ -1496,13 +1510,13 @@ export function renderTaskDetailPage(params: {
         var defaultSig = st === 'BLOCKED' ? 'blocked' : 'done';
         var note = String(s.progressNote || '').trim();
         var ctxHtml = '';
-        if (st === 'CHANGES_REQUESTED') {
+        if (hasReq) {
           ctxHtml = note
             ? '<p class="mgr-inline-ctx">' + esc(note) + '</p>'
             : '<p class="mgr-inline-ctx muted">（员工未填写补充说明，可在下方「事件」中查看申请记录。）</p>';
         }
         var declinePanel =
-          st === 'CHANGES_REQUESTED'
+          hasReq
             ? '<div class="mgr-inline-panel mgr-inline-panel--danger" hidden data-mgr-panel="decline">' +
               '<h4 class="mgr-inline-h">驳回申请 · 子任务将回到「进行中」</h4>' +
               '<div class="mgr-callout" role="status">驳回后负责人不变。</div>' +
@@ -2275,7 +2289,7 @@ export function handleAssignmentHttp(
     if (!session) return true;
     const tasks = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
-      .filter((t) => t.status === "ASSIGNED" || t.status === "CHANGES_REQUESTED");
+      .filter((t) => t.status === "ASSIGNED");
     writeJson(
       res,
       200,
@@ -2539,10 +2553,10 @@ export function handleAssignmentHttp(
         }
         const targetSid =
           subtaskIdRaw
-          || detail.subtasks.find((s) => s.status === "CHANGES_REQUESTED")?.subtaskId
+          || detail.subtasks.find((s) => s.status === "ASSIGNED")?.subtaskId
           || "";
         if (!targetSid) {
-          writeJson(res, 400, { ok: false, error: "subtaskId required or no CHANGES_REQUESTED subtask" });
+          writeJson(res, 400, { ok: false, error: "subtaskId required or no ASSIGNED subtask" });
           return;
         }
         const updated = store.managerDeclineSubtaskChanges({
