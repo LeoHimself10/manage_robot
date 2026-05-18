@@ -838,8 +838,17 @@ details.sub-row-mgr.mgr-sub-row--hidden {
     grid-template-columns: 32px 1fr;
     grid-template-rows: auto auto;
   }
+  .mgr-sub-summary-row1 > .mgr-sub-idx {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .mgr-sub-summary-row1 > .mgr-sub-main {
+    grid-column: 2;
+    grid-row: 1;
+  }
   .mgr-sub-summary-row1 > .badge {
     grid-column: 2;
+    grid-row: 2;
     justify-self: start;
   }
   .mgr-sub-summary-actions {
