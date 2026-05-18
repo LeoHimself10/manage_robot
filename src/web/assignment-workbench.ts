@@ -15,6 +15,7 @@ import {
 } from "../infra/plan-session-store";
 import {
   createWorkbenchFormalTaskStore,
+  type SubtaskOpenDeclineKind,
   type WorkbenchSubtaskExtra,
   type WorkbenchTaskStatus,
 } from "../infra/workbench-formal-task-store";
@@ -638,6 +639,16 @@ function enrichWorkbenchTaskDetail(
     };
   });
   return { task, subtasks, events };
+}
+
+function attachSubtaskOpenDeclineHints<T extends { subtaskId: string }>(
+  subtasks: T[],
+): Array<T & { openDeclineKind: SubtaskOpenDeclineKind | null }> {
+  const store = getFormalTaskStore();
+  return subtasks.map((s) => ({
+    ...s,
+    openDeclineKind: store.getSubtaskOpenDeclineKind(s.subtaskId),
+  }));
 }
 
 function mapEmployeeSubtaskForApi(
@@ -1389,9 +1400,9 @@ export function renderTaskDetailPage(params: {
       var t = Date.parse(x);
       return isNaN(t) ? 0 : t;
     }
-    function hasOpenChangesRequestForSubtask(subId) {
+    function getOpenDeclineKindForSubtask(subId) {
       var sid = String(subId || '').trim();
-      if (!sid) return false;
+      if (!sid) return null;
       var mine = [];
       for (var i = 0; i < events.length; i++) {
         var e = events[i];
@@ -1407,14 +1418,18 @@ export function renderTaskDetailPage(params: {
         var ib = Number(b.eventRowId || b.id || b.eventId || 0) || 0;
         return ia - ib;
       });
-      var open = false;
+      var bucket = 'none';
       for (var j = 0; j < mine.length; j++) {
         var et = String(mine[j].type || mine[j].eventType || mine[j].event_type || '').trim();
-        if (et === 'SUBTASK_CHANGES_REQUESTED') open = true;
-        else if (et === 'MANAGER_DECLINE_CHANGES') open = false;
-        else if (et === 'SUBTASK_ACCEPTED' || et === 'SUBTASK_REJECTED') open = false;
+        if (et === 'SUBTASK_CHANGES_REQUESTED' || et === 'SUBTASK_CUSTOMIZE_NOTE') bucket = 'changes';
+        else if (et === 'SUBTASK_REJECTED') bucket = 'rejected';
+        else if (et === 'MANAGER_DECLINE_CHANGES') bucket = 'none';
+        else if (et === 'MANAGER_REASSIGN') bucket = 'none';
+        else if (bucket === 'changes' && et === 'SUBTASK_ACCEPTED') bucket = 'none';
+        else if (bucket === 'rejected' && et === 'SUBTASK_ACCEPTED') bucket = 'none';
       }
-      return open;
+      if (bucket === 'none') return null;
+      return bucket;
     }
     lastSubsForReassign = subs;
     ensureMgrRowHandlers();
@@ -1513,10 +1528,15 @@ export function renderTaskDetailPage(params: {
         var upd = fmtTime(s.updatedAt);
         var progHint = esc(clipStr(s.progressNote || '', 72));
         var actions = [];
-        var hasReq = hasOpenChangesRequestForSubtask(rawId);
-        if (hasReq) {
+        var dkSrv = String(s.openDeclineKind || '').trim();
+        var declineKind =
+          dkSrv === 'changes' || dkSrv === 'rejected' ? dkSrv : getOpenDeclineKindForSubtask(rawId);
+        var declineBtnLabel = declineKind === 'rejected' ? '驳回拒绝' : declineKind === 'changes' ? '驳回申请' : '';
+        if (declineKind) {
           actions.push(
-            '<button type="button" class="btn btn-danger btn-sm" data-mgr-toggle="decline">驳回申请</button>',
+            '<button type="button" class="btn btn-danger btn-sm" data-mgr-toggle="decline">' +
+              esc(declineBtnLabel) +
+              '</button>',
           );
         }
         if (st === 'BLOCKED' || st === 'DONE') {
@@ -1542,8 +1562,10 @@ export function renderTaskDetailPage(params: {
         var defaultSig = st === 'BLOCKED' ? 'blocked' : 'done';
         var note = String(s.progressNote || '').trim();
         var employeeSignal = '';
-        if (hasReq) {
+        if (declineKind === 'changes') {
           employeeSignal = '员工申请修改';
+        } else if (declineKind === 'rejected') {
+          employeeSignal = '员工拒绝承接';
         } else if (st === 'REJECTED') {
           employeeSignal = '员工拒绝承接';
         } else if (st === 'BLOCKED') {
@@ -1570,19 +1592,29 @@ export function renderTaskDetailPage(params: {
           rejectedPoolHint +
           '</div>';
         var ctxHtml = '';
-        if (hasReq) {
+        if (declineKind === 'changes') {
           ctxHtml = note
             ? '<p class="mgr-inline-ctx">' + esc(note) + '</p>'
             : '<p class="mgr-inline-ctx muted">（员工未填写补充说明，可在下方「事件」中查看申请记录。）</p>';
+        } else if (declineKind === 'rejected') {
+          ctxHtml = note
+            ? '<p class="mgr-inline-ctx">' + esc(note) + '</p>'
+            : '<p class="mgr-inline-ctx muted">（拒绝理由见下方「本子任务事件」或全量事件。）</p>';
         }
+        var declinePanelHeading =
+          declineKind === 'rejected'
+            ? '驳回拒绝承接 · 子任务将回到「进行中」'
+            : '驳回调整申请 · 子任务将回到「进行中」';
         var declinePanel =
-          hasReq
+          declineKind
             ? '<div class="mgr-inline-panel mgr-inline-panel--danger" hidden data-mgr-panel="decline">' +
-              '<h4 class="mgr-inline-h">驳回申请 · 子任务将回到「进行中」</h4>' +
+              '<h4 class="mgr-inline-h">' +
+              esc(declinePanelHeading) +
+              '</h4>' +
               '<div class="mgr-callout" role="status">驳回后负责人不变。</div>' +
               ctxHtml +
               '<label class="mgr-inline-label">驳回理由<span class="mgr-req">（必填）</span>' +
-              '<textarea data-field="note" rows="3" maxlength="800" placeholder="简述不采纳调整的原因。"></textarea></label>' +
+              '<textarea data-field="note" rows="3" maxlength="800" placeholder="简述不采纳的原因。"></textarea></label>' +
               (ENFORCE_GUARDS
                 ? '<label class="mgr-inline-confirm"><input type="checkbox" data-field="confirm" /> 确认执行驳回</label>'
                 : '') +
@@ -2170,11 +2202,14 @@ export function handleAssignmentHttp(
       writeJson(res, 404, { ok: false, error: "Task not found" });
       return true;
     }
+    const enriched = enrichWorkbenchTaskDetail(detail, {
+      presentEventCtx: { showManagerReassignPayload: true },
+    });
     writeJson(res, 200, {
       ok: true,
-      ...enrichWorkbenchTaskDetail(detail, {
-        presentEventCtx: { showManagerReassignPayload: true },
-      }),
+      task: enriched.task,
+      subtasks: attachSubtaskOpenDeclineHints(enriched.subtasks),
+      events: enriched.events,
     });
     return true;
   }
@@ -2253,10 +2288,20 @@ export function handleAssignmentHttp(
     }
     writeJson(res, 200, {
       ok: true,
-      ...enrichWorkbenchTaskDetail(detail, {
-        omitReassignNotifyEvents,
-        presentEventCtx: { showManagerReassignPayload },
-      }),
+      ...(() => {
+        const enriched = enrichWorkbenchTaskDetail(detail, {
+          omitReassignNotifyEvents,
+          presentEventCtx: { showManagerReassignPayload },
+        });
+        if (session.role === "manager" || session.role === "admin") {
+          return {
+            task: enriched.task,
+            subtasks: attachSubtaskOpenDeclineHints(enriched.subtasks),
+            events: enriched.events,
+          };
+        }
+        return enriched;
+      })(),
     });
     return true;
   }
