@@ -240,6 +240,30 @@ export function aggregateTaskStatus(statuses: WorkbenchTaskStatus[]): WorkbenchT
   return "ASSIGNED";
 }
 
+/** 主管详情「驳回」按钮：与 `managerDeclineSubtaskChanges` 同一套开放信号判定（按单个子任务全量事件，旧→新）。 */
+export type SubtaskOpenDeclineKind = "changes" | "rejected";
+
+function replayOpenDeclineKindFromSubtaskEventTypesAsc(typesChronoAsc: readonly string[]): SubtaskOpenDeclineKind | null {
+  type Open = "none" | SubtaskOpenDeclineKind;
+  let open: Open = "none";
+  for (const et of typesChronoAsc) {
+    if (et === "SUBTASK_CHANGES_REQUESTED" || et === "SUBTASK_CUSTOMIZE_NOTE") {
+      open = "changes";
+    } else if (et === "SUBTASK_REJECTED") {
+      open = "rejected";
+    } else if (et === "MANAGER_DECLINE_CHANGES") {
+      open = "none";
+    } else if (et === "MANAGER_REASSIGN") {
+      open = "none";
+    } else if (open === "changes" && et === "SUBTASK_ACCEPTED") {
+      open = "none";
+    } else if (open === "rejected" && et === "SUBTASK_ACCEPTED") {
+      open = "none";
+    }
+  }
+  return open === "none" ? null : open;
+}
+
 function asRecord(v: unknown): Record<string, unknown> | undefined {
   if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
   return v as Record<string, unknown>;
@@ -435,8 +459,9 @@ export function createWorkbenchFormalTaskStore() {
   `);
   const qTaskDetail = db.prepare("SELECT * FROM tasks WHERE task_id = ? OR plan_id = ? OR task_no = ? LIMIT 1");
   const qTaskEvents = db.prepare("SELECT * FROM task_events WHERE task_id = ? ORDER BY id DESC LIMIT 200");
-  const qSubtaskEvents = db.prepare(
-    "SELECT event_type FROM task_events WHERE subtask_id = ? ORDER BY id DESC LIMIT 80",
+  /** 单个子任务事件（旧→新）；用于驳回开放态判定，避免被任务级 `LIMIT 200` 时间线截断。 */
+  const qSubtaskEventTypesAsc = db.prepare(
+    "SELECT event_type FROM task_events WHERE subtask_id = ? ORDER BY id ASC LIMIT 5000",
   );
   const qMetrics = db.prepare(`
     SELECT
@@ -759,6 +784,14 @@ export function createWorkbenchFormalTaskStore() {
       };
     },
 
+    getSubtaskOpenDeclineKind(subtaskId: string): SubtaskOpenDeclineKind | null {
+      const sid = String(subtaskId ?? "").trim();
+      if (!sid) return null;
+      const rows = qSubtaskEventTypesAsc.all(sid) as Array<{ event_type?: unknown }>;
+      const types = rows.map((r) => String(r.event_type ?? ""));
+      return replayOpenDeclineKindFromSubtaskEventTypesAsc(types);
+    },
+
     updateSubtaskStatus(input: {
       subtaskId: string;
       actorUserId: string;
@@ -843,27 +876,11 @@ export function createWorkbenchFormalTaskStore() {
       if (String(subtask.manager_user_id ?? "").trim() !== input.managerUserId.trim()) {
         throw new Error("Task does not belong to current manager");
       }
-      const recentDesc = qSubtaskEvents.all(input.subtaskId) as Array<{ event_type?: unknown }>;
-      /** Chronological (oldest→newest): last open signal — 调整申请 / 拒绝承接 — 直至主管驳回或改派等闭环。 */
-      type OpenDecline = "none" | "changes" | "rejected";
-      let open: OpenDecline = "none";
-      for (const row of recentDesc.slice().reverse()) {
-        const et = String(row.event_type ?? "");
-        if (et === "SUBTASK_CHANGES_REQUESTED" || et === "SUBTASK_CUSTOMIZE_NOTE") {
-          open = "changes";
-        } else if (et === "SUBTASK_REJECTED") {
-          open = "rejected";
-        } else if (et === "MANAGER_DECLINE_CHANGES") {
-          open = "none";
-        } else if (et === "MANAGER_REASSIGN") {
-          open = "none";
-        } else if (open === "changes" && et === "SUBTASK_ACCEPTED") {
-          open = "none";
-        } else if (open === "rejected" && et === "SUBTASK_ACCEPTED") {
-          open = "none";
-        }
-      }
-      if (open === "none") {
+      const types = (qSubtaskEventTypesAsc.all(input.subtaskId) as Array<{ event_type?: unknown }>).map((r) =>
+        String(r.event_type ?? ""),
+      );
+      const open = replayOpenDeclineKindFromSubtaskEventTypesAsc(types);
+      if (!open) {
         throw new Error("没有待处理的调整申请或拒绝承接记录");
       }
       const declinedSignal = open === "rejected" ? "rejected" : "changes_requested";

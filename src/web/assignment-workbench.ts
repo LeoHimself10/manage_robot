@@ -15,6 +15,7 @@ import {
 } from "../infra/plan-session-store";
 import {
   createWorkbenchFormalTaskStore,
+  type SubtaskOpenDeclineKind,
   type WorkbenchSubtaskExtra,
   type WorkbenchTaskStatus,
 } from "../infra/workbench-formal-task-store";
@@ -652,6 +653,16 @@ function enrichWorkbenchTaskDetail(
     };
   });
   return { task, subtasks, events };
+}
+
+function attachSubtaskOpenDeclineHints<T extends { subtaskId: string }>(
+  subtasks: T[],
+): Array<T & { openDeclineKind: SubtaskOpenDeclineKind | null }> {
+  const store = getFormalTaskStore();
+  return subtasks.map((s) => ({
+    ...s,
+    openDeclineKind: store.getSubtaskOpenDeclineKind(s.subtaskId),
+  }));
 }
 
 function mapEmployeeSubtaskForApi(
@@ -1547,7 +1558,9 @@ export function renderTaskDetailPage(params: {
         var upd = fmtTime(s.updatedAt);
         var progHint = esc(clipStr(s.progressNote || '', 72));
         var actions = [];
-        var declineKind = getOpenDeclineKindForSubtask(rawId);
+        var dkSrv = String(s.openDeclineKind || '').trim();
+        var declineKind =
+          dkSrv === 'changes' || dkSrv === 'rejected' ? dkSrv : getOpenDeclineKindForSubtask(rawId);
         var declineBtnLabel = declineKind === 'rejected' ? '驳回拒绝' : declineKind === 'changes' ? '驳回申请' : '';
         if (declineKind) {
           actions.push(
@@ -2219,11 +2232,14 @@ export function handleAssignmentHttp(
       writeJson(res, 404, { ok: false, error: "Task not found" });
       return true;
     }
+    const enriched = enrichWorkbenchTaskDetail(detail, {
+      presentEventCtx: { showManagerReassignPayload: true },
+    });
     writeJson(res, 200, {
       ok: true,
-      ...enrichWorkbenchTaskDetail(detail, {
-        presentEventCtx: { showManagerReassignPayload: true },
-      }),
+      task: enriched.task,
+      subtasks: attachSubtaskOpenDeclineHints(enriched.subtasks),
+      events: enriched.events,
     });
     return true;
   }
@@ -2302,10 +2318,20 @@ export function handleAssignmentHttp(
     }
     writeJson(res, 200, {
       ok: true,
-      ...enrichWorkbenchTaskDetail(detail, {
-        omitReassignNotifyEvents,
-        presentEventCtx: { showManagerReassignPayload },
-      }),
+      ...(() => {
+        const enriched = enrichWorkbenchTaskDetail(detail, {
+          omitReassignNotifyEvents,
+          presentEventCtx: { showManagerReassignPayload },
+        });
+        if (session.role === "manager" || session.role === "admin") {
+          return {
+            task: enriched.task,
+            subtasks: attachSubtaskOpenDeclineHints(enriched.subtasks),
+            events: enriched.events,
+          };
+        }
+        return enriched;
+      })(),
     });
     return true;
   }

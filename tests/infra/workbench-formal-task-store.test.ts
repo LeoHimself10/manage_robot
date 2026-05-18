@@ -785,6 +785,52 @@ describe("employee / manager subtask flows", () => {
     expect(pj.declinedSignal).toBe("rejected");
   });
 
+  it("getSubtaskOpenDeclineKind reflects open change request after request_changes", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "h-odk",
+      planId: "plan-odk",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "单任务",
+        tasks: [
+          {
+            id: "t_o",
+            title: "O",
+            timeNode: { dueAt: "2026-06-01" },
+            dependencyTaskIds: [],
+            risksAndOpenQuestions: [],
+          },
+        ],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t_o", primary: { userId: "emp-odk", displayName: "O" } }],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-odk",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const sid = published.subtasks[0]!.subtaskId;
+    store.updateSubtaskStatus({ subtaskId: sid, actorUserId: "emp-odk", action: "accept" });
+    store.updateSubtaskStatus({
+      subtaskId: sid,
+      actorUserId: "emp-odk",
+      action: "request_changes",
+      note: "要调整",
+    });
+    expect(store.getSubtaskOpenDeclineKind(sid)).toBe("changes");
+    store.managerDeclineSubtaskChanges({ subtaskId: sid, managerUserId: "manager-1", note: "不行" });
+    expect(store.getSubtaskOpenDeclineKind(sid)).toBeNull();
+  });
+
   it("managerDeclineSubtaskChanges still works when employee posted progress after change request", () => {
     const store = createWorkbenchFormalTaskStore();
     const session: PlanSession = {
