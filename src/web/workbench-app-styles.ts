@@ -116,7 +116,8 @@ a:hover { text-decoration: underline; }
   width: 100%;
 }
 .form-stack textarea { min-height: 88px; resize: vertical; }
-.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+@media (max-width: 1020px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .kpis { grid-template-columns: 1fr; } }
 .kpi {
   background: var(--surface);
@@ -126,14 +127,6 @@ a:hover { text-decoration: underline; }
   box-shadow: var(--shadow);
 }
 .kpi .lbl { font-size: 12px; color: var(--muted); font-weight: 500; }
-.kpi .lbl .kpi-subhint {
-  display: inline-block;
-  margin-left: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--muted);
-  vertical-align: middle;
-}
 .kpi .val { font-size: 28px; font-weight: 700; margin-top: 4px; letter-spacing: -0.02em; }
 .table-wrap { overflow-x: auto; border-radius: var(--radius-sm); border: 1px solid var(--border); }
 table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -721,10 +714,24 @@ details.sub-row-mgr.mgr-sub-row--hidden {
   list-style: none;
   cursor: pointer;
   padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+.mgr-sub-summary-row1 {
   display: grid;
-  grid-template-columns: 36px 1fr auto auto;
+  grid-template-columns: 36px 1fr auto;
   gap: 10px 12px;
   align-items: center;
+  min-width: 0;
+}
+.mgr-sub-summary-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 46px;
 }
 .mgr-sub-summary::-webkit-details-marker {
   display: none;
@@ -827,15 +834,16 @@ details.sub-row-mgr.mgr-sub-row--hidden {
   .mgr-sub-body-grid {
     grid-template-columns: 1fr;
   }
-  .mgr-sub-summary {
+  .mgr-sub-summary-row1 {
     grid-template-columns: 32px 1fr;
     grid-template-rows: auto auto;
   }
-  .mgr-sub-summary > .badge {
+  .mgr-sub-summary-row1 > .badge {
     grid-column: 2;
+    justify-self: start;
   }
-  .mgr-sub-summary > .mgr-sub-actions {
-    grid-column: 1 / -1;
+  .mgr-sub-summary-actions {
+    padding-left: 0;
     justify-content: flex-start;
   }
 }
