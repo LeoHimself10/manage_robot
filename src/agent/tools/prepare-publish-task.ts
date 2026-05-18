@@ -167,15 +167,21 @@ export function buildPreparePublishTaskHandler(
           hint: `planId 与当前会话不匹配（会话 planId=${deps.currentSession.planId}，调用方传入=${planId}）。请使用当前会话的 planId。`,
         };
       }
+      const existingDraft = asPlainObject(deps.currentSession.latestDraft);
+      const existingTasks = Array.isArray(existingDraft?.tasks)
+        ? (existingDraft.tasks as Array<Record<string, unknown>>)
+        : [];
+      const existingTaskById = new Map<string, Record<string, unknown>>();
+      for (const task of existingTasks) {
+        const id = String((task as Record<string, unknown>)?.id ?? "").trim();
+        if (id) existingTaskById.set(id, task);
+      }
+      const mergedTasks = subtasks.map((s) => mergeSubtaskPatch(existingTaskById.get(s.taskId), s));
       const stagedDraft: Record<string, unknown> = {
+        ...(existingDraft ?? {}),
         title,
         description,
-        tasks: subtasks.map((s) => ({
-          id: s.taskId,
-          title: s.title,
-          objective: s.objective,
-          timeNode: s.dueAt ? { dueAt: s.dueAt } : undefined,
-        })),
+        tasks: mergedTasks,
         stagedBy: "prepare_publish_task",
         stagedAt: preparedAt,
       };
@@ -204,4 +210,28 @@ export function buildPreparePublishTaskHandler(
       staged: Boolean(deps.currentSession),
     };
   };
+}
+
+function asPlainObject(input: unknown): Record<string, unknown> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  return input as Record<string, unknown>;
+}
+
+function mergeSubtaskPatch(
+  originalTask: Record<string, unknown> | undefined,
+  patch: { taskId: string; title: string; objective?: string; dueAt?: string },
+): Record<string, unknown> {
+  const next = { ...(originalTask ?? {}) };
+  next.id = patch.taskId;
+  next.title = patch.title;
+  if (patch.objective !== undefined) {
+    next.objective = patch.objective;
+  }
+  const rawTimeNode = asPlainObject(next.timeNode) ?? {};
+  if (patch.dueAt !== undefined) {
+    next.timeNode = { ...rawTimeNode, dueAt: patch.dueAt };
+  } else if (Object.keys(rawTimeNode).length > 0) {
+    next.timeNode = rawTimeNode;
+  }
+  return next;
 }

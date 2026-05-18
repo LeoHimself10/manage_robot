@@ -126,6 +126,14 @@ a:hover { text-decoration: underline; }
   box-shadow: var(--shadow);
 }
 .kpi .lbl { font-size: 12px; color: var(--muted); font-weight: 500; }
+.kpi .lbl .kpi-subhint {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  vertical-align: middle;
+}
 .kpi .val { font-size: 28px; font-weight: 700; margin-top: 4px; letter-spacing: -0.02em; }
 .table-wrap { overflow-x: auto; border-radius: var(--radius-sm); border: 1px solid var(--border); }
 table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -787,6 +795,27 @@ details.sub-row-mgr.mgr-sub-row--hidden {
   background: #ffedd5;
   border: 1px solid #fdba74;
   margin-bottom: 6px;
+}
+.mgr-employee-signal--quiet {
+  color: #64748b;
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  font-weight: 500;
+}
+.mgr-rejected-pool-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #9a3412;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.mgr-sub-summary--rejected-pool {
+  border-left: 3px solid #f97316;
+  padding-left: 8px;
+  margin-left: -2px;
 }
 .mgr-sub-body-grid {
   display: grid;

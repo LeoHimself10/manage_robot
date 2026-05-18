@@ -63,7 +63,7 @@ export function renderManagerTasksPage(params: {
     <section class="tab-panel panel-stack" id="mgrPanelList" role="tabpanel" aria-labelledby="mgrTabList">
       <section class="kpis" aria-live="polite">
         <div class="kpi"><div class="lbl">任务总数</div><div class="val" id="kpiTotal">—</div></div>
-        <div class="kpi"><div class="lbl">待处理 / 待改派</div><div class="val" id="kpiPending">—</div></div>
+        <div class="kpi"><div class="lbl">待处理 / 待改派 <span class="kpi-subhint" title="含员工已拒绝、待重新分配">含已拒绝</span></div><div class="val" id="kpiPending">—</div></div>
         <div class="kpi"><div class="lbl">进行中 / 阻塞</div><div class="val" id="kpiActive">—</div></div>
       </section>
       <div>
@@ -169,14 +169,19 @@ export function renderManagerTasksPage(params: {
     st.innerHTML = '<option value="">全部子任务（未完成）</option>';
     if (!taskNo) {
       st.setAttribute('aria-disabled', 'true');
+      setFb('reassignFeedback', '', 'muted');
       return;
     }
     st.removeAttribute('aria-disabled');
     try {
       var res = await fetch('/api/workbench/tasks/detail?taskNo=' + encodeURIComponent(taskNo));
       var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) return;
-      var subs = (data.subtasks || []).filter(function (s) {
+      if (!res.ok || !data.ok) {
+        setFb('reassignFeedback', data.error ? String(data.error) : ('加载子任务失败 HTTP ' + res.status), 'err');
+        return;
+      }
+      var rawSubs = data.subtasks || [];
+      var subs = rawSubs.filter(function (s) {
         return String(s.status || '').toUpperCase() !== 'DONE';
       });
       subs.forEach(function (s, idx) {
@@ -190,7 +195,18 @@ export function renderManagerTasksPage(params: {
         o.title = line;
         st.appendChild(o);
       });
-    } catch (e) {}
+      if (!subs.length) {
+        setFb(
+          'reassignFeedback',
+          '该任务下未完成子任务列表为空（可能均已标记完成）。「改派范围」下拉仅列出未完成子任务。',
+          'muted',
+        );
+      } else {
+        setFb('reassignFeedback', '', 'muted');
+      }
+    } catch (e) {
+      setFb('reassignFeedback', String(e && e.message ? e.message : e), 'err');
+    }
   }
 
   var assigneeSearchTimer = null;
@@ -307,9 +323,25 @@ export function renderManagerTasksPage(params: {
         sel.dataset.boundReassignTask = '1';
         sel.addEventListener('change', function () { void loadSubtasksForReassign(); });
       }
+      var pageQs = '';
+      try {
+        pageQs = String(window.location.search || '');
+      } catch (e0) {
+        pageQs = '';
+      }
+      var usp = new URLSearchParams(pageQs);
+      var focusPlanId = String(usp.get('planId') || '').trim() || String(${JSON.stringify(params.planId ?? "")} || '').trim();
+      var focusTab = String(usp.get('focus') || '').trim().toLowerCase();
+      if (focusPlanId) {
+        var hasOpt = Array.prototype.some.call(sel.options, function (o) {
+          return String(o.value || '') === focusPlanId;
+        });
+        if (hasOpt) sel.value = focusPlanId;
+      }
+      if (focusTab === 'reassign') {
+        setActiveTab('mgrPanelReassign');
+      }
       void loadSubtasksForReassign();
-      var focus = ${JSON.stringify(params.planId ?? "")};
-      if (focus) sel.value = focus;
 
       setFb('tableFeedback', '已更新', 'ok');
     } catch (e) {

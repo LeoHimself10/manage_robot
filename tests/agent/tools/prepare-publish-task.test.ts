@@ -95,6 +95,69 @@ describe("prepare_publish_task tool", () => {
     });
   });
 
+  it("preserves rich task fields when staging from existing latestDraft", () => {
+    const session = makeSession({
+      latestDraft: {
+        title: "旧标题",
+        description: "旧背景",
+        tasks: [
+          {
+            id: "task_1",
+            title: "旧任务1",
+            objective: "旧目标",
+            deliverables: ["交付物A"],
+            completionCriteria: ["标准A"],
+            inputMaterials: ["输入A"],
+            actions: ["动作A"],
+            collaborators: ["协作A"],
+            scope: { inScope: ["范围内A"], outOfScope: ["范围外A"] },
+            dependencyTaskIds: ["task_0"],
+            risksAndOpenQuestions: ["风险A"],
+            feedbackFrequency: "每日",
+            timeNode: { dueAt: "2026-05-18", checkpoints: ["检查点A"] },
+          },
+        ],
+        classification: { domain: "QUALITY", subtype: "QUALITY_OTHER_OR_UNCERTAIN" },
+      },
+    });
+    const handler = buildPreparePublishTaskHandler({ currentSession: session });
+    const result = handler({
+      planId: "plan-1",
+      title: "新标题",
+      description: "新背景",
+      subtasks: [
+        {
+          taskId: "task_1",
+          title: "新任务1",
+          assigneeUserId: "emp-1",
+          objective: "新目标",
+          dueAt: "2026-06-01",
+        },
+      ],
+    }) as any;
+    expect(result.ok).toBe(true);
+    const draft = session.latestDraft as Record<string, unknown>;
+    expect(draft.title).toBe("新标题");
+    expect(draft.description).toBe("新背景");
+    expect(draft.classification).toMatchObject({ domain: "QUALITY" });
+    const task = ((draft.tasks as Array<Record<string, unknown>>)[0]);
+    expect(task).toMatchObject({
+      id: "task_1",
+      title: "新任务1",
+      objective: "新目标",
+      deliverables: ["交付物A"],
+      completionCriteria: ["标准A"],
+      inputMaterials: ["输入A"],
+      actions: ["动作A"],
+      collaborators: ["协作A"],
+      scope: { inScope: ["范围内A"], outOfScope: ["范围外A"] },
+      dependencyTaskIds: ["task_0"],
+      risksAndOpenQuestions: ["风险A"],
+      feedbackFrequency: "每日",
+      timeNode: { dueAt: "2026-06-01", checkpoints: ["检查点A"] },
+    });
+  });
+
   it("rejects plan mismatch instead of mutating session", () => {
     const session = makeSession({ planId: "plan-real" });
     const handler = buildPreparePublishTaskHandler({ currentSession: session });

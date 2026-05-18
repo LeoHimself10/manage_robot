@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { appendPublishSummaryMarkdown, shouldUseAnonymousSession } from "../src/dingtalk-bot";
+import {
+  appendPublishSummaryMarkdown,
+  renderDraftSupplementSection,
+  shouldUseAnonymousSession,
+} from "../src/dingtalk-bot";
 import { buildToolRegistry } from "../src/agent/tools/registry";
 
 describe("dingtalk bot helpers", () => {
@@ -48,5 +52,39 @@ describe("dingtalk bot helpers", () => {
     });
     await registry.update_known_facts.handler({ facts: ["新事实"] });
     expect(facts).toContain("新事实");
+  });
+
+  it("renders deterministic structured draft preview with rich fields", () => {
+    const markdown = renderDraftSupplementSection({
+      description: "任务整体背景",
+      tasks: [
+        {
+          id: "task_1",
+          title: "任务A",
+          objective: "目标A",
+          deliverables: ["交付A"],
+          completionCriteria: ["标准A"],
+          feedbackFrequency: "每日",
+          dependencyTaskIds: ["task_0"],
+          timeNode: { dueAt: "2026-06-01", checkpoints: ["里程碑1"] },
+          risksAndOpenQuestions: ["风险A"],
+          inputMaterials: ["输入A"],
+          actions: ["动作A"],
+          collaborators: ["协作A"],
+          scope: { inScope: ["范围内A"], outOfScope: ["范围外A"] },
+        },
+      ],
+    });
+    expect(markdown).toContain("### 任务草案（结构化字段）");
+    expect(markdown).toContain("| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |");
+    expect(markdown).toContain("任务背景");
+    expect(markdown).toContain("输入材料");
+    expect(markdown).toContain("执行动作");
+    expect(markdown).toContain("协作人");
+    expect(markdown).toContain("范围内");
+    expect(markdown).toContain("范围外");
+    expect(markdown).toContain("前置依赖");
+    expect(markdown).toContain("检查点");
+    expect(markdown).toContain("风险与待澄清");
   });
 });
