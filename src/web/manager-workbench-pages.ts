@@ -63,8 +63,9 @@ export function renderManagerTasksPage(params: {
     <section class="tab-panel panel-stack" id="mgrPanelList" role="tabpanel" aria-labelledby="mgrTabList">
       <section class="kpis" aria-live="polite">
         <div class="kpi"><div class="lbl">任务总数</div><div class="val" id="kpiTotal">—</div></div>
-        <div class="kpi"><div class="lbl">待处理 / 待改派 <span class="kpi-subhint" title="含员工已拒绝、待重新分配">含已拒绝</span></div><div class="val" id="kpiPending">—</div></div>
-        <div class="kpi"><div class="lbl">进行中 / 阻塞</div><div class="val" id="kpiActive">—</div></div>
+        <div class="kpi"><div class="lbl">待处理</div><div class="val" id="kpiPending">—</div></div>
+        <div class="kpi"><div class="lbl">进行中</div><div class="val" id="kpiInProgress">—</div></div>
+        <div class="kpi"><div class="lbl">已完成</div><div class="val" id="kpiDone">—</div></div>
       </section>
       <div>
         <p class="page-desc" style="margin:0 0 14px;">${who}可见的全部任务，按状态优先级排序。</p>
@@ -279,21 +280,37 @@ export function renderManagerTasksPage(params: {
         return tb - ta;
       });
 
-      var pending = tasks.filter(function (t) {
-        return t.status === 'ASSIGNED' || t.status === 'CHANGES_REQUESTED' || t.status === 'REJECTED';
-      }).length;
-      var active = tasks.filter(function (t) {
-        return t.status === 'IN_PROGRESS' || t.status === 'BLOCKED';
-      }).length;
+      function managerKpiBucket(t) {
+        var st = String(t.status || '').trim();
+        var tri = Number(t.triageOpenSubtaskCount);
+        if (!isFinite(tri) || tri < 0) tri = 0;
+        if (st === 'DONE') return 'done';
+        if (tri > 0 || st === 'ASSIGNED' || st === 'REJECTED' || st === 'CHANGES_REQUESTED') return 'pending';
+        return 'in_progress';
+      }
+      var kDone = 0;
+      var kPending = 0;
+      var kProg = 0;
+      tasks.forEach(function (t) {
+        var b = managerKpiBucket(t);
+        if (b === 'done') kDone++;
+        else if (b === 'pending') kPending++;
+        else kProg++;
+      });
       setText('kpiTotal', String(tasks.length));
-      setText('kpiPending', String(pending));
-      setText('kpiActive', String(active));
+      setText('kpiPending', String(kPending));
+      setText('kpiInProgress', String(kProg));
+      setText('kpiDone', String(kDone));
 
       var mount = document.getElementById('taskTableMount');
       var sel = document.getElementById('reassignPlanId');
       if (!tasks.length) {
         mount.innerHTML = '<div class="empty-state">暂无任务。请到钉钉与机器人发起规划并发布。</div>';
         sel.innerHTML = '<option value="">暂无任务</option>';
+        setText('kpiTotal', '0');
+        setText('kpiPending', '0');
+        setText('kpiInProgress', '0');
+        setText('kpiDone', '0');
         setFb('tableFeedback', '', 'muted');
         return;
       }
@@ -332,6 +349,7 @@ export function renderManagerTasksPage(params: {
       var usp = new URLSearchParams(pageQs);
       var focusPlanId = String(usp.get('planId') || '').trim() || String(${JSON.stringify(params.planId ?? "")} || '').trim();
       var focusTab = String(usp.get('focus') || '').trim().toLowerCase();
+      var focusSubtaskId = String(usp.get('subtaskId') || '').trim();
       if (focusPlanId) {
         var hasOpt = Array.prototype.some.call(sel.options, function (o) {
           return String(o.value || '') === focusPlanId;
@@ -341,7 +359,16 @@ export function renderManagerTasksPage(params: {
       if (focusTab === 'reassign') {
         setActiveTab('mgrPanelReassign');
       }
-      void loadSubtasksForReassign();
+      await loadSubtasksForReassign();
+      if (focusSubtaskId) {
+        var stPick = document.getElementById('reassignSubtaskPick');
+        if (stPick) {
+          var hasSubOpt = Array.prototype.some.call(stPick.options, function (o) {
+            return String(o.value || '') === focusSubtaskId;
+          });
+          if (hasSubOpt) stPick.value = focusSubtaskId;
+        }
+      }
 
       setFb('tableFeedback', '已更新', 'ok');
     } catch (e) {

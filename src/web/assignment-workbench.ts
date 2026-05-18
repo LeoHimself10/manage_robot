@@ -663,18 +663,22 @@ function enrichManagerTasksForApi(managerUserId: string) {
   return store.listManagerTasks(managerUserId).map((t) => {
     const detail = store.getTaskDetail(t.taskNo);
     const names = new Set<string>();
+    let triageOpenSubtaskCount = 0;
     if (detail) {
       for (const s of detail.subtasks) {
         const picked = withPeopleDirectoryStore((st) =>
           st.getContact(s.assigneeUserId)?.name?.trim(),
         );
         if (picked) names.add(picked);
+        const st = String(s.status ?? "").trim();
+        if (st === "ASSIGNED" || st === "REJECTED" || st === "CHANGES_REQUESTED") triageOpenSubtaskCount += 1;
       }
     }
     return {
       ...t,
       statusLabel: taskStatusLabel(t.status),
       assigneeSummary: names.size ? [...names].join("、") : "—",
+      triageOpenSubtaskCount,
     };
   });
 }
@@ -1292,7 +1296,6 @@ export function renderTaskDetailPage(params: {
     if (s === 'ASSIGNED' || s === 'CHANGES_REQUESTED' || s === 'REJECTED') keys.push('pending');
     if (s === 'IN_PROGRESS' || s === 'BLOCKED') keys.push('in_progress');
     if (s === 'DONE') keys.push('done');
-    if (s === 'REJECTED') keys.push('rejected');
     return keys;
   }
   function applyMgrSubtaskFilter(mountEl, f) {
