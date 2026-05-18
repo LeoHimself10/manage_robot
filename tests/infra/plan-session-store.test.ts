@@ -196,6 +196,78 @@ describe("plan-session-store", () => {
     expect((reloaded2.latestDraft as any)?.title).toBe("Topic A");
   });
 
+  it("startNewTaskScope resets conversationHistory to a single system_note anchor", () => {
+    const now = new Date().toISOString();
+    const session: PlanSession = {
+      chatKeyHash: "h",
+      planId: "p1",
+      createdAt: now,
+      updatedAt: now,
+      knownFacts: [],
+      conversationHistory: [
+        { role: "user", content: "u1" },
+        { role: "assistant", content: "a1" },
+      ],
+      currentTaskScopeId: "scope:old",
+      taskScopes: {
+        "scope:old": {
+          scopeId: "scope:old",
+          scopeLabel: "旧任务",
+          planId: "p1",
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+    };
+    const r = startNewTaskScope(session, { scopeLabel: "新主题" });
+    expect(r.clearedHistoryEntries).toBe(2);
+    expect(session.conversationHistory).toHaveLength(1);
+    expect(session.conversationHistory[0]!.role).toBe("assistant");
+    expect(session.conversationHistory[0]!.content).toMatch(/^\[system_note\]/);
+    expect(session.conversationHistory[0]!.content).toContain("新主题");
+  });
+
+  it("restoreTaskScope resets conversationHistory to system_note", () => {
+    const now = new Date().toISOString();
+    const session: PlanSession = {
+      chatKeyHash: "h",
+      planId: "p2",
+      createdAt: now,
+      updatedAt: now,
+      knownFacts: [],
+      conversationHistory: [
+        { role: "user", content: "x" },
+        { role: "assistant", content: "y" },
+      ],
+      currentTaskScopeId: "scope:new",
+      taskScopes: {
+        "scope:old": {
+          scopeId: "scope:old",
+          scopeLabel: "归档A",
+          planId: "p-old",
+          createdAt: now,
+          updatedAt: now,
+          latestDraft: { title: "D" },
+        },
+        "scope:new": {
+          scopeId: "scope:new",
+          scopeLabel: "当前",
+          planId: "p2",
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+    };
+    const res = restoreTaskScope(session, { scopeId: "scope:old" });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.clearedHistoryEntries).toBe(2);
+    }
+    expect(session.conversationHistory).toHaveLength(1);
+    expect(session.conversationHistory[0]!.content).toContain("已切回");
+    expect(session.conversationHistory[0]!.content).toContain("归档A");
+  });
+
   it("appends session events into jsonl", () => {
     sessionDir = join(tmpdir(), `sessions-${Date.now()}`);
     eventsPath = join(tmpdir(), `session-events-${Date.now()}.jsonl`);

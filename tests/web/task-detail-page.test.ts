@@ -4,7 +4,7 @@ import { renderTaskDetailPage } from "../../src/web/assignment-workbench";
 /**
  * Manual acceptance (Workbench 通知落地页 + 员工按钮 + 事件降噪):
  * - 钉钉员工动作通知 singleURL / Markdown 链接含 taskNo、subtaskId、focus=reassign；打开后主管可见改派区并提交成功。
- * - 员工「需要主管协助」单选 customize / request_changes 各提交一次，审计 action 区分；主管仍收到通知。
+ * - 员工「需要主管协助」统一走 request_changes，主管通知 focus=reassign；历史 customize 入口仍由 API 归一。
  * - 主管/员工任务详情事件无 REASSIGN_NOTIFY_*；MANAGER_REASSIGN 无「查看原始信息」块；?debug=1 时主管可见改派 payload 子事件。
  */
 describe("renderTaskDetailPage", () => {

@@ -171,6 +171,7 @@ export function startNewTaskScope(
   toScopeId: string;
   toScopeLabel: string;
   toPlanId: string;
+  clearedHistoryEntries: number;
 } {
   const fromPlanId = session.planId;
   const fromScopeId = session.currentTaskScopeId;
@@ -202,6 +203,20 @@ export function startNewTaskScope(
   session.candidatePool = undefined;
   session.pendingRosterText = undefined;
   session.pendingRosterSource = undefined;
+
+  const archivedLabel = fromScopeLabel ? `「${fromScopeLabel}」` : "上一个任务";
+  const clearedHistoryEntries = session.conversationHistory?.length ?? 0;
+  session.conversationHistory = [
+    {
+      role: "assistant",
+      at: now,
+      content:
+        `[system_note] 已归档${archivedLabel}并开始新任务「${toScopeLabel}」。`
+        + "旧任务的人员名单、子任务编号（task_x）、姓名/userId 均不应被引用；"
+        + "如需回到旧任务，请明确说「切回上一条任务」。",
+    },
+  ];
+
   appendScopeAudit(session, {
     at: now,
     eventType: "SCOPE_CREATED",
@@ -210,7 +225,15 @@ export function startNewTaskScope(
     scopeLabel: toScopeLabel,
     reason: input.reason,
   });
-  return { fromScopeId, fromScopeLabel, fromPlanId, toScopeId, toScopeLabel, toPlanId };
+  return {
+    fromScopeId,
+    fromScopeLabel,
+    fromPlanId,
+    toScopeId,
+    toScopeLabel,
+    toPlanId,
+    clearedHistoryEntries,
+  };
 }
 
 /**
@@ -265,6 +288,7 @@ export function restoreTaskScope(
       toScopeLabel: string;
       toPlanId: string;
       hasDraft: boolean;
+      clearedHistoryEntries: number;
     }
   | { ok: false; reason: "scope_not_found" | "no_archived_scopes" | "missing_query"; candidates: Array<{ scopeId: string; scopeLabel: string; hasDraft: boolean }> } {
   const archives = session.taskScopes ?? {};
@@ -319,6 +343,16 @@ export function restoreTaskScope(
   session.pendingRosterSource = undefined;
 
   const now = new Date().toISOString();
+  const clearedHistoryEntries = session.conversationHistory?.length ?? 0;
+  session.conversationHistory = [
+    {
+      role: "assistant",
+      at: now,
+      content:
+        `[system_note] 已切回「${target.scopeLabel}」。如要复用旧名单/旧分工请先确认。`,
+    },
+  ];
+
   appendScopeAudit(session, {
     at: now,
     eventType: "SCOPE_RESTORED",
@@ -334,6 +368,7 @@ export function restoreTaskScope(
     toScopeLabel: target.scopeLabel,
     toPlanId,
     hasDraft: Boolean(target.latestDraft),
+    clearedHistoryEntries,
   };
 }
 

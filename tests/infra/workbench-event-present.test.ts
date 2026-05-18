@@ -48,6 +48,14 @@ describe("workbench-event-present", () => {
       payload_json: "{}",
     });
     expect(d.title).toContain("驳回");
+    const dRej = presentWorkbenchTaskEvent({
+      event_type: "MANAGER_DECLINE_CHANGES",
+      occurred_at: "2026-01-01T00:00:00.000Z",
+      actor_user_id: "m1",
+      note: "请继续",
+      payload_json: JSON.stringify({ declinedSignal: "rejected" }),
+    });
+    expect(dRej.title).toContain("拒绝承接");
     const a = presentWorkbenchTaskEvent({
       event_type: "MANAGER_ACK_SUBTASK_SIGNAL",
       occurred_at: "2026-01-01T00:00:00.000Z",
@@ -69,6 +77,22 @@ describe("workbench-event-present", () => {
     });
     expect(e.title).toContain("补充说明");
     expect(e.severity).toBe("info");
+  });
+
+  it("appends subtask anchor when resolveSubtaskLabel is provided", () => {
+    const e = presentWorkbenchTaskEvent(
+      {
+        event_type: "SUBTASK_ACCEPTED",
+        occurred_at: "2026-01-01T00:00:00.000Z",
+        actor_user_id: "u1",
+        note: "ok",
+        subtask_id: "st-1",
+        payload_json: "{}",
+      },
+      { resolveSubtaskLabel: () => "#1 拆解" },
+    );
+    expect(e.title).toContain("#1 拆解");
+    expect(e.summary).toContain("#1 拆解");
   });
 
   it("MANAGER_REASSIGN omits raw JSON detail unless showManagerReassignPayload", () => {

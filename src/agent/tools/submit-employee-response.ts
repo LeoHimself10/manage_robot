@@ -48,15 +48,14 @@ export function buildSubmitEmployeeResponseHandler(
     if ((action === "reject" || action === "request_changes" || action === "customize") && !note) {
       throw new Error("note is required for reject/request_changes/customize");
     }
+    const storeAction = action === "customize" ? "request_changes" : (action as "accept" | "reject" | "request_changes");
     const updated = taskStore.updateSubtaskStatus({
       subtaskId,
       actorUserId,
-      action:
-        action === "customize"
-          ? "customize"
-          : (action as "accept" | "reject" | "request_changes"),
+      action: storeAction,
       note,
     });
+    const auditAction = action === "customize" ? "request_changes" : action;
     if (action === "reject" || action === "request_changes" || action === "customize") {
       const summaryText = (managerSummary || note).trim();
       if (summaryText) {
@@ -67,7 +66,7 @@ export function buildSubmitEmployeeResponseHandler(
           actorUserId,
           note: summaryText,
           payload: {
-            action,
+            action: auditAction,
           },
         });
       }
@@ -82,23 +81,13 @@ export function buildSubmitEmployeeResponseHandler(
         note,
         getDisplayName: deps.getDisplayName,
       });
-    } else if (action === "request_changes") {
+    } else if (action === "request_changes" || action === "customize") {
       await notifyManagerOfEmployeeActionAfterUpdate({
         taskStore,
         notifier: deps.notifier,
         subtaskId: updated.subtask.subtaskId,
         actorUserId,
         kind: "changes_requested",
-        note,
-        getDisplayName: deps.getDisplayName,
-      });
-    } else if (action === "customize") {
-      await notifyManagerOfEmployeeActionAfterUpdate({
-        taskStore,
-        notifier: deps.notifier,
-        subtaskId: updated.subtask.subtaskId,
-        actorUserId,
-        kind: "customize",
         note,
         getDisplayName: deps.getDisplayName,
       });

@@ -785,12 +785,9 @@ export function createWorkbenchFormalTaskStore() {
       } else if (input.action === "reject") {
         nextStatus = "REJECTED";
         eventType = "SUBTASK_REJECTED";
-      } else if (input.action === "request_changes") {
+      } else if (input.action === "request_changes" || input.action === "customize") {
         nextStatus = "ASSIGNED";
         eventType = "SUBTASK_CHANGES_REQUESTED";
-      } else if (input.action === "customize") {
-        nextStatus = normalizeStatus(String(subtask.status ?? "ASSIGNED"));
-        eventType = "SUBTASK_CUSTOMIZE_NOTE";
       } else {
         nextStatus = normalizeStatus(input.progressStatus ?? "IN_PROGRESS");
         eventType = "SUBTASK_PROGRESS";
@@ -847,17 +844,29 @@ export function createWorkbenchFormalTaskStore() {
         throw new Error("Task does not belong to current manager");
       }
       const recentDesc = qSubtaskEvents.all(input.subtaskId) as Array<{ event_type?: unknown }>;
-      /** Chronological (oldest→newest): open after SUBTASK_CHANGES_REQUESTED until decline or terminal employee signal. */
-      let hasOpenChangesRequest = false;
+      /** Chronological (oldest→newest): last open signal — 调整申请 / 拒绝承接 — 直至主管驳回或改派等闭环。 */
+      type OpenDecline = "none" | "changes" | "rejected";
+      let open: OpenDecline = "none";
       for (const row of recentDesc.slice().reverse()) {
         const et = String(row.event_type ?? "");
-        if (et === "SUBTASK_CHANGES_REQUESTED") hasOpenChangesRequest = true;
-        else if (et === "MANAGER_DECLINE_CHANGES") hasOpenChangesRequest = false;
-        else if (et === "SUBTASK_ACCEPTED" || et === "SUBTASK_REJECTED") hasOpenChangesRequest = false;
+        if (et === "SUBTASK_CHANGES_REQUESTED" || et === "SUBTASK_CUSTOMIZE_NOTE") {
+          open = "changes";
+        } else if (et === "SUBTASK_REJECTED") {
+          open = "rejected";
+        } else if (et === "MANAGER_DECLINE_CHANGES") {
+          open = "none";
+        } else if (et === "MANAGER_REASSIGN") {
+          open = "none";
+        } else if (open === "changes" && et === "SUBTASK_ACCEPTED") {
+          open = "none";
+        } else if (open === "rejected" && et === "SUBTASK_ACCEPTED") {
+          open = "none";
+        }
       }
-      if (!hasOpenChangesRequest) {
-        throw new Error("No pending change request for this subtask");
+      if (open === "none") {
+        throw new Error("没有待处理的调整申请或拒绝承接记录");
       }
+      const declinedSignal = open === "rejected" ? "rejected" : "changes_requested";
       const now = nowIso();
       const taskId = String(subtask.task_id ?? "");
       runInTransaction(() => {
@@ -873,7 +882,7 @@ export function createWorkbenchFormalTaskStore() {
           "MANAGER_DECLINE_CHANGES",
           input.managerUserId,
           input.note?.trim() || null,
-          stringify({}),
+          stringify({ declinedSignal }),
           now,
         );
         updateTaskStatus(taskId);

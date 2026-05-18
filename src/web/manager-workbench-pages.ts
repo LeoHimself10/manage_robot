@@ -141,12 +141,15 @@ export function renderManagerTasksPage(params: {
       setActiveTab(tid);
     });
   });
-  function priorityRank(status) {
-    if (status === 'BLOCKED') return 0;
-    if (status === 'REJECTED') return 1;
-    if (status === 'ASSIGNED' || status === 'CHANGES_REQUESTED') return 2;
-    if (status === 'IN_PROGRESS') return 3;
-    return 4;
+  function priorityRank(t) {
+    var nBlocked = Number(t.blockedCount);
+    if (isFinite(nBlocked) && nBlocked > 0) return 0;
+    var st = String(t.status || '').trim();
+    var tri = Number(t.triageOpenSubtaskCount);
+    if (!isFinite(tri) || tri < 0) tri = 0;
+    if (st === 'DONE') return 3;
+    if (tri > 0 || st === 'ASSIGNED' || st === 'REJECTED' || st === 'CHANGES_REQUESTED') return 1;
+    return 2;
   }
   function badgeClass(status) {
     if (status === 'BLOCKED') return 'blocked';
@@ -272,8 +275,8 @@ export function renderManagerTasksPage(params: {
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var tasks = data.tasks || [];
       tasks.sort(function (a, b) {
-        var pa = priorityRank(a.status);
-        var pb = priorityRank(b.status);
+        var pa = priorityRank(a);
+        var pb = priorityRank(b);
         if (pa !== pb) return pa - pb;
         var ta = Date.parse(a.updatedAt || '') || 0;
         var tb = Date.parse(b.updatedAt || '') || 0;
@@ -317,12 +320,16 @@ export function renderManagerTasksPage(params: {
 
       var rows = tasks.map(function (t) {
         var detail = '<a href="/workbench/manager/task?taskNo=' + encodeURIComponent(t.taskNo || '') + '">查看详情</a>';
+        var rowSt = String(t.triageDisplayStatus || t.status || '');
+        var rowLabel = String(t.triageDisplayStatusLabel || t.statusLabel || t.status || '');
+        var triN = Number(t.triageOpenSubtaskCount);
+        var triSeg = isFinite(triN) && triN > 0 ? ' · 待处理 ' + escapeHtml(String(triN)) : '';
         return '<tr>'
           + '<td><code>' + escapeHtml(t.taskNo || '—') + '</code></td>'
           + '<td>' + escapeHtml(t.title || '—') + '</td>'
           + '<td>' + escapeHtml(t.assigneeSummary || '—') + '</td>'
-          + '<td>' + escapeHtml(String(t.subtasksCount || 0)) + '（阻塞 ' + escapeHtml(String(t.blockedCount || 0)) + '）</td>'
-          + '<td><span class="badge ' + badgeClass(t.status) + '">' + escapeHtml(t.statusLabel || t.status) + '</span></td>'
+          + '<td>' + escapeHtml(String(t.subtasksCount || 0)) + '（阻塞 ' + escapeHtml(String(t.blockedCount || 0)) + '）' + triSeg + '</td>'
+          + '<td><span class="badge ' + badgeClass(rowSt) + '">' + escapeHtml(rowLabel) + '</span></td>'
           + '<td>' + escapeHtml(t.updatedAt || '—') + '<br>' + detail + '</td>'
           + '</tr>';
       }).join('');
@@ -332,7 +339,7 @@ export function renderManagerTasksPage(params: {
         + '<tbody>' + rows + '</tbody></table></div>';
 
       sel.innerHTML = '<option value="">请选择任务</option>' + tasks.map(function (t) {
-        var optLabel = escapeHtml(t.taskNo || '任务') + ' · ' + escapeHtml(t.title || '') + ' · ' + escapeHtml(t.statusLabel || t.status);
+        var optLabel = escapeHtml(t.taskNo || '任务') + ' · ' + escapeHtml(t.title || '') + ' · ' + escapeHtml(t.triageDisplayStatusLabel || t.statusLabel || t.status);
         return '<option value="' + escapeHtml(t.planId) + '" data-task-no="' + escapeHtml(t.taskNo || '') + '">' + optLabel + '</option>';
       }).join('');
 

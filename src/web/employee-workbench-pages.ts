@@ -79,17 +79,7 @@ export function renderEmployeeWorkbenchPage(): string {
   <div class="card" id="actionPanel" style="display:none;">
     <h3 id="actionTitle">补充说明</h3>
     <div class="form-stack">
-      <div id="assistKindRow" class="form-stack" style="display:none;">
-        <span class="muted" style="font-size:13px;">请选择协助类型</span>
-        <label style="display:flex;gap:8px;align-items:flex-start;">
-          <input type="radio" name="assistKind" value="customize" checked />
-          <span>仅补充说明（不改变承接结论）</span>
-        </label>
-        <label style="display:flex;gap:8px;align-items:flex-start;">
-          <input type="radio" name="assistKind" value="request_changes" />
-          <span>申请调整范围、截止或分工</span>
-        </label>
-      </div>
+      <p id="assistHint" class="muted" style="display:none;margin:0;font-size:13px;">请说明需主管协助的具体事项（将通知主管并按「申请调整」处理）。</p>
       <label>说明（必填）
         <textarea id="actionNote" placeholder="请填写拒绝理由、补充信息或修改诉求"></textarea>
       </label>
@@ -359,14 +349,12 @@ export function renderEmployeeWorkbenchPage(): string {
     pending = { planId: planId, subtaskId: subtaskId, action: action };
     document.getElementById('actionNote').value = '';
     document.getElementById('actionPanel').style.display = 'block';
-    var assistRow = document.getElementById('assistKindRow');
+    var assistHint = document.getElementById('assistHint');
     if (action === 'assist') {
-      if (assistRow) assistRow.style.display = 'grid';
+      if (assistHint) assistHint.style.display = 'block';
       document.getElementById('actionTitle').textContent = '需要主管协助';
-      var r0 = document.querySelector('input[name="assistKind"][value="customize"]');
-      if (r0) r0.checked = true;
     } else {
-      if (assistRow) assistRow.style.display = 'none';
+      if (assistHint) assistHint.style.display = 'none';
       var titles = { reject: '拒绝任务（需填写理由）' };
       document.getElementById('actionTitle').textContent = titles[action] || '说明';
     }
@@ -412,8 +400,7 @@ export function renderEmployeeWorkbenchPage(): string {
     if (!note) { setFb('actionFeedback', '请填写说明', 'err'); return; }
     var action = pending.action;
     if (action === 'assist') {
-      var sel = document.querySelector('input[name="assistKind"]:checked');
-      action = sel ? sel.value : 'customize';
+      action = 'request_changes';
     }
     setFb('actionFeedback', '提交中…', 'muted');
     try {

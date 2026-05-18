@@ -42,6 +42,10 @@ describe("start_new_task tool", () => {
 
   it("archives current draft and clears top-level fields", () => {
     const session = makeSession({
+      conversationHistory: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "bye" },
+      ],
       latestDraft: { title: "OCT 主机 U 盘", tasks: [{ id: "t1", title: "现场排查" }] },
       latestAssignment: { assignments: [{ taskId: "t1", primary: { userId: "u1" } }] },
       knownFacts: ["上下文 OCT 设备型号 K5"],
@@ -73,5 +77,8 @@ describe("start_new_task tool", () => {
 
     const audit = session.scopeAuditTrail ?? [];
     expect(audit.some((e) => e.eventType === "SCOPE_CREATED" && e.toScopeId === result.toScopeId)).toBe(true);
+    expect(result.clearedHistoryEntries).toBe(2);
+    expect(session.conversationHistory).toHaveLength(1);
+    expect(session.conversationHistory[0]!.content).toMatch(/^\[system_note\]/);
   });
 });

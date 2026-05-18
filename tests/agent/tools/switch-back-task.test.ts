@@ -64,10 +64,15 @@ describe("switch_back_task tool", () => {
     const switchResult = startNewTaskScope(session, { scopeLabel: "无纺布 KT 批次" });
     expect(session.currentTaskScopeId).toBe(switchResult.toScopeId);
 
+    session.conversationHistory = [
+      { role: "user", content: "noise" },
+      { role: "assistant", content: "noise2" },
+    ];
     const handler = buildSwitchBackTaskHandler({ currentSession: session });
     const result = handler({ scopeLabelKeyword: "OCT" }) as any;
 
     expect(result.ok).toBe(true);
+    expect(result.clearedHistoryEntries).toBe(2);
     expect(result.toScopeLabel).toBe("OCT 主机 U 盘");
     expect(result.toPlanId).toBe("plan-1");
     expect(result.hasDraft).toBe(true);

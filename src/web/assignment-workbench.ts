@@ -587,7 +587,10 @@ function enrichWorkbenchTaskDetail(
   detail: FormalTaskDetail,
   opts?: {
     omitReassignNotifyEvents?: boolean;
-    presentEventCtx?: { showManagerReassignPayload?: boolean };
+    presentEventCtx?: {
+      showManagerReassignPayload?: boolean;
+      resolveSubtaskLabel?: (subtaskId: string) => string | undefined;
+    };
   },
 ): {
   task: FormalTaskDetail["task"] & { statusLabel: string };
@@ -615,6 +618,16 @@ function enrichWorkbenchTaskDetail(
     ...detail.task,
     statusLabel: taskStatusLabel(detail.task.status),
   };
+  const resolveSubtaskLabel = (subtaskId: string): string | undefined => {
+    const sid = String(subtaskId ?? "").trim();
+    if (!sid) return undefined;
+    const idx = detail.subtasks.findIndex((x) => String(x.subtaskId) === sid);
+    if (idx < 0) return undefined;
+    const sub = detail.subtasks[idx]!;
+    const ord = idx + 1;
+    const title = String(sub.title ?? "").trim();
+    return title ? `#${ord} ${title}` : `#${ord}`;
+  };
   const subtasks = detail.subtasks.map((s, idx) => ({
     ...s,
     orderIndex: idx + 1,
@@ -627,7 +640,8 @@ function enrichWorkbenchTaskDetail(
     : rawEvents;
   const presentCtx = {
     resolveActorName: resolveName,
-    ...(opts?.presentEventCtx ?? {}),
+    resolveSubtaskLabel,
+    ...opts?.presentEventCtx,
   };
   const events = filtered.map((row) => {
     const presented = presentWorkbenchTaskEvent(row, presentCtx);
@@ -674,11 +688,27 @@ function enrichManagerTasksForApi(managerUserId: string) {
         if (st === "ASSIGNED" || st === "REJECTED" || st === "CHANGES_REQUESTED") triageOpenSubtaskCount += 1;
       }
     }
+    const rawSt = String(t.status ?? "").trim();
+    const tri = Math.max(0, Math.floor(Number(triageOpenSubtaskCount) || 0));
+    let triageDisplayStatus: string;
+    let triageDisplayStatusLabel: string;
+    if (rawSt === "DONE") {
+      triageDisplayStatus = "DONE";
+      triageDisplayStatusLabel = taskStatusLabel("DONE");
+    } else if (tri > 0 || rawSt === "ASSIGNED" || rawSt === "REJECTED" || rawSt === "CHANGES_REQUESTED") {
+      triageDisplayStatus = "ASSIGNED";
+      triageDisplayStatusLabel = "待处理";
+    } else {
+      triageDisplayStatus = "IN_PROGRESS";
+      triageDisplayStatusLabel = taskStatusLabel("IN_PROGRESS");
+    }
     return {
       ...t,
       statusLabel: taskStatusLabel(t.status),
       assigneeSummary: names.size ? [...names].join("、") : "—",
       triageOpenSubtaskCount,
+      triageDisplayStatus,
+      triageDisplayStatusLabel,
     };
   });
 }
@@ -1389,9 +1419,9 @@ export function renderTaskDetailPage(params: {
       var t = Date.parse(x);
       return isNaN(t) ? 0 : t;
     }
-    function hasOpenChangesRequestForSubtask(subId) {
+    function getOpenDeclineKindForSubtask(subId) {
       var sid = String(subId || '').trim();
-      if (!sid) return false;
+      if (!sid) return null;
       var mine = [];
       for (var i = 0; i < events.length; i++) {
         var e = events[i];
@@ -1407,14 +1437,18 @@ export function renderTaskDetailPage(params: {
         var ib = Number(b.eventRowId || b.id || b.eventId || 0) || 0;
         return ia - ib;
       });
-      var open = false;
+      var bucket = 'none';
       for (var j = 0; j < mine.length; j++) {
         var et = String(mine[j].type || mine[j].eventType || mine[j].event_type || '').trim();
-        if (et === 'SUBTASK_CHANGES_REQUESTED') open = true;
-        else if (et === 'MANAGER_DECLINE_CHANGES') open = false;
-        else if (et === 'SUBTASK_ACCEPTED' || et === 'SUBTASK_REJECTED') open = false;
+        if (et === 'SUBTASK_CHANGES_REQUESTED' || et === 'SUBTASK_CUSTOMIZE_NOTE') bucket = 'changes';
+        else if (et === 'SUBTASK_REJECTED') bucket = 'rejected';
+        else if (et === 'MANAGER_DECLINE_CHANGES') bucket = 'none';
+        else if (et === 'MANAGER_REASSIGN') bucket = 'none';
+        else if (bucket === 'changes' && et === 'SUBTASK_ACCEPTED') bucket = 'none';
+        else if (bucket === 'rejected' && et === 'SUBTASK_ACCEPTED') bucket = 'none';
       }
-      return open;
+      if (bucket === 'none') return null;
+      return bucket;
     }
     lastSubsForReassign = subs;
     ensureMgrRowHandlers();
@@ -1513,10 +1547,13 @@ export function renderTaskDetailPage(params: {
         var upd = fmtTime(s.updatedAt);
         var progHint = esc(clipStr(s.progressNote || '', 72));
         var actions = [];
-        var hasReq = hasOpenChangesRequestForSubtask(rawId);
-        if (hasReq) {
+        var declineKind = getOpenDeclineKindForSubtask(rawId);
+        var declineBtnLabel = declineKind === 'rejected' ? '驳回拒绝' : declineKind === 'changes' ? '驳回申请' : '';
+        if (declineKind) {
           actions.push(
-            '<button type="button" class="btn btn-danger btn-sm" data-mgr-toggle="decline">驳回申请</button>',
+            '<button type="button" class="btn btn-danger btn-sm" data-mgr-toggle="decline">' +
+              esc(declineBtnLabel) +
+              '</button>',
           );
         }
         if (st === 'BLOCKED' || st === 'DONE') {
@@ -1542,8 +1579,10 @@ export function renderTaskDetailPage(params: {
         var defaultSig = st === 'BLOCKED' ? 'blocked' : 'done';
         var note = String(s.progressNote || '').trim();
         var employeeSignal = '';
-        if (hasReq) {
+        if (declineKind === 'changes') {
           employeeSignal = '员工申请修改';
+        } else if (declineKind === 'rejected') {
+          employeeSignal = '员工拒绝承接';
         } else if (st === 'REJECTED') {
           employeeSignal = '员工拒绝承接';
         } else if (st === 'BLOCKED') {
@@ -1570,19 +1609,29 @@ export function renderTaskDetailPage(params: {
           rejectedPoolHint +
           '</div>';
         var ctxHtml = '';
-        if (hasReq) {
+        if (declineKind === 'changes') {
           ctxHtml = note
             ? '<p class="mgr-inline-ctx">' + esc(note) + '</p>'
             : '<p class="mgr-inline-ctx muted">（员工未填写补充说明，可在下方「事件」中查看申请记录。）</p>';
+        } else if (declineKind === 'rejected') {
+          ctxHtml = note
+            ? '<p class="mgr-inline-ctx">' + esc(note) + '</p>'
+            : '<p class="mgr-inline-ctx muted">（拒绝理由见下方「本子任务事件」或全量事件。）</p>';
         }
+        var declinePanelHeading =
+          declineKind === 'rejected'
+            ? '驳回拒绝承接 · 子任务将回到「进行中」'
+            : '驳回调整申请 · 子任务将回到「进行中」';
         var declinePanel =
-          hasReq
+          declineKind
             ? '<div class="mgr-inline-panel mgr-inline-panel--danger" hidden data-mgr-panel="decline">' +
-              '<h4 class="mgr-inline-h">驳回申请 · 子任务将回到「进行中」</h4>' +
+              '<h4 class="mgr-inline-h">' +
+              esc(declinePanelHeading) +
+              '</h4>' +
               '<div class="mgr-callout" role="status">驳回后负责人不变。</div>' +
               ctxHtml +
               '<label class="mgr-inline-label">驳回理由<span class="mgr-req">（必填）</span>' +
-              '<textarea data-field="note" rows="3" maxlength="800" placeholder="简述不采纳调整的原因。"></textarea></label>' +
+              '<textarea data-field="note" rows="3" maxlength="800" placeholder="简述不采纳的原因。"></textarea></label>' +
               (ENFORCE_GUARDS
                 ? '<label class="mgr-inline-confirm"><input type="checkbox" data-field="confirm" /> 确认执行驳回</label>'
                 : '') +
@@ -2732,7 +2781,11 @@ export function handleAssignmentHttp(
         }
         const planId = String(body.planId ?? "").trim();
         const subtaskIdInput = String(body.subtaskId ?? "").trim();
-        const action = String(body.action ?? "").trim();
+        const actionRaw = String(body.action ?? "").trim();
+        const action =
+          actionRaw === "customize"
+            ? "request_changes"
+            : actionRaw;
         const note = String(body.note ?? "").trim();
         if (!planId && !subtaskIdInput) {
           writeJson(res, 400, { ok: false, error: "subtaskId or planId is required" });
@@ -2746,12 +2799,12 @@ export function handleAssignmentHttp(
           action !== "accept"
           && action !== "reject"
           && action !== "request_changes"
-          && action !== "customize"
+          && actionRaw !== "customize"
         ) {
           writeJson(res, 400, { ok: false, error: "unsupported action" });
           return;
         }
-        if ((action === "reject" || action === "request_changes" || action === "customize") && !note) {
+        if ((action === "reject" || action === "request_changes") && !note) {
           writeJson(res, 400, {
             ok: false,
             error: "note is required for this action",
@@ -2772,24 +2825,21 @@ export function handleAssignmentHttp(
           subtaskId: targetSubtaskId,
           actorUserId: session.userId,
           action:
-            action === "accept"
-              ? "accept"
-              : action === "reject"
-                ? "reject"
-                : action === "customize"
-                  ? "customize"
-                  : "request_changes",
+            action === "accept" ? "accept" : action === "reject" ? "reject" : "request_changes",
           note,
         });
         const store = getFormalTaskStore();
-        if (action === "reject" || action === "request_changes" || action === "customize") {
+        if (action === "reject" || action === "request_changes") {
           store.appendTaskEvent({
             taskId: updated.task.taskId,
             subtaskId: updated.subtask.subtaskId,
             eventType: "EMPLOYEE_RESPONSE_SUMMARY",
             actorUserId: session.userId,
             note,
-            payload: { action, source: "employee_web" },
+            payload: {
+              action: actionRaw === "customize" ? "request_changes" : action,
+              source: "employee_web",
+            },
           });
         }
         const notifyKind =
@@ -2797,9 +2847,7 @@ export function handleAssignmentHttp(
             ? ("rejected" as const)
             : action === "accept"
               ? undefined
-              : action === "customize"
-                ? ("customize" as const)
-                : ("changes_requested" as const);
+              : ("changes_requested" as const);
         if (notifyKind) {
           await notifyManagerOfEmployeeActionAfterUpdate({
             taskStore: store,

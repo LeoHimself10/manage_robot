@@ -49,6 +49,51 @@ describe("submit_employee_response tool", () => {
     );
   });
 
+  it("maps customize to request_changes in store and notifies changes_requested", async () => {
+    const updateSubtaskStatus = vi.fn(() => ({
+      task: {
+        taskId: "tid",
+        planId: "p1",
+        status: "IN_PROGRESS" as const,
+        taskNo: "W-3",
+        title: "Main",
+        managerUserId: "mgr-1",
+      },
+      subtask: { subtaskId: "sid", status: "ASSIGNED" as const, title: "Sub" },
+    }));
+    const appendTaskEvent = vi.fn();
+    const notifyManagerOfEmployeeAction = vi.fn(async () => ({
+      enabled: true,
+      success: [{ userId: "mgr-1", robotMessageKey: "x" }],
+      failed: [] as Array<{ userId: string; reason: string }>,
+    }));
+    const handler = buildSubmitEmployeeResponseHandler({
+      taskStore: { updateSubtaskStatus, appendTaskEvent, getSubtaskWithTask: () => ({
+        task: {
+          taskId: "tid",
+          taskNo: "W-3",
+          title: "Main",
+          managerUserId: "mgr-1",
+          planId: "p1",
+        },
+        subtask: { subtaskId: "sid", title: "Sub", assigneeUserId: "e1" },
+      }) } as any,
+      notifier: { notifyManagerOfEmployeeAction } as any,
+    });
+    await handler({
+      subtaskId: "sid",
+      actorUserId: "e1",
+      action: "customize",
+      note: "补充说明",
+    });
+    expect(updateSubtaskStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "request_changes" }),
+    );
+    expect(notifyManagerOfEmployeeAction).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "changes_requested" }),
+    );
+  });
+
   it("does not notify on accept", async () => {
     const updateSubtaskStatus = vi.fn(() => ({
       task: {

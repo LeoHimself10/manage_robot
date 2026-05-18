@@ -631,7 +631,7 @@ describe("employee / manager subtask flows", () => {
     expect(list[list.length - 1].status).toBe("REJECTED");
   });
 
-  it("updateSubtaskStatus customize keeps IN_PROGRESS and emits SUBTASK_CUSTOMIZE_NOTE", () => {
+  it("updateSubtaskStatus customize maps to request_changes and emits SUBTASK_CHANGES_REQUESTED", () => {
     const store = createWorkbenchFormalTaskStore();
     const session: PlanSession = {
       chatKeyHash: "h-cust",
@@ -673,10 +673,10 @@ describe("employee / manager subtask flows", () => {
       note: "补充说明一条",
     });
     const detail = store.getTaskDetail("plan-cust");
-    expect(detail?.subtasks[0]?.status).toBe("IN_PROGRESS");
+    expect(detail?.subtasks[0]?.status).toBe("ASSIGNED");
     const types = (detail?.events ?? []).map((e) => String(e.event_type ?? ""));
-    expect(types).toContain("SUBTASK_CUSTOMIZE_NOTE");
-    expect(types.filter((t) => t === "SUBTASK_CHANGES_REQUESTED").length).toBe(0);
+    expect(types).toContain("SUBTASK_CHANGES_REQUESTED");
+    expect(types.filter((t) => t === "SUBTASK_CUSTOMIZE_NOTE").length).toBe(0);
   });
 
   it("managerDeclineSubtaskChanges returns subtask to IN_PROGRESS", () => {
@@ -728,6 +728,61 @@ describe("employee / manager subtask flows", () => {
     expect(out.subtask.status).toBe("IN_PROGRESS");
     const ev = store.getTaskDetail("plan-dec")?.events ?? [];
     expect(ev.some((e) => String(e.event_type) === "MANAGER_DECLINE_CHANGES")).toBe(true);
+    const declineEv = ev.find((e) => String(e.event_type) === "MANAGER_DECLINE_CHANGES");
+    const pj = declineEv?.payload_json ? JSON.parse(String(declineEv.payload_json)) : {};
+    expect(pj.declinedSignal).toBe("changes_requested");
+  });
+
+  it("managerDeclineSubtaskChanges after reject returns IN_PROGRESS and records declinedSignal rejected", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "h-dec-rej",
+      planId: "plan-dec-rej",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "单任务",
+        tasks: [
+          {
+            id: "t_r",
+            title: "R",
+            timeNode: { dueAt: "2026-06-01" },
+            dependencyTaskIds: [],
+            risksAndOpenQuestions: [],
+          },
+        ],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t_r", primary: { userId: "emp-rej", displayName: "R" } }],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-dec-rej",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const sid = published.subtasks[0]!.subtaskId;
+    store.updateSubtaskStatus({
+      subtaskId: sid,
+      actorUserId: "emp-rej",
+      action: "reject",
+      note: "无法做",
+    });
+    const out = store.managerDeclineSubtaskChanges({
+      subtaskId: sid,
+      managerUserId: "manager-1",
+      note: "请继续跟进",
+    });
+    expect(out.subtask.status).toBe("IN_PROGRESS");
+    const ev = store.getTaskDetail("plan-dec-rej")?.events ?? [];
+    const declineEv = ev.find((e) => String(e.event_type) === "MANAGER_DECLINE_CHANGES");
+    const pj = declineEv?.payload_json ? JSON.parse(String(declineEv.payload_json)) : {};
+    expect(pj.declinedSignal).toBe("rejected");
   });
 
   it("managerDeclineSubtaskChanges still works when employee posted progress after change request", () => {

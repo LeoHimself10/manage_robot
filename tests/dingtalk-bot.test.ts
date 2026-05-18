@@ -4,6 +4,7 @@ import {
   renderDraftSupplementSection,
   shouldUseAnonymousSession,
 } from "../src/dingtalk-bot";
+import { looksLikeTaskDraftMessage } from "../src/agent/demo/draft-fallback-extract";
 import { buildToolRegistry } from "../src/agent/tools/registry";
 
 describe("dingtalk bot helpers", () => {
@@ -86,5 +87,23 @@ describe("dingtalk bot helpers", () => {
     expect(markdown).toContain("前置依赖");
     expect(markdown).toContain("检查点");
     expect(markdown).toContain("风险与待澄清");
+  });
+
+  it("looksLikeTaskDraftMessage matches multi-signal markdown", () => {
+    const md = [
+      "以下是任务草案。",
+      "",
+      "| ID | 子任务标题 | 负责人 |",
+      "| --- | --- | --- |",
+      "| task_1 | A | 张三 |",
+      "| task_2 | B | 李四 |",
+      "",
+      "**说明**：请确认。",
+      "",
+      "更多上下文行。",
+      "再一行。",
+      "再一行。",
+    ].join("\n");
+    expect(looksLikeTaskDraftMessage(md)).toBe(true);
   });
 });
