@@ -844,45 +844,6 @@ export function renderTaskDetailPage(params: {
     <div style="margin-top:10px;"><a href="${params.backPath}">返回</a></div>
   </div>
   <div class="card" id="focusContextBanner" style="display:none;" role="status"></div>
-  <div class="card" id="managerSignalCard" style="display:none;">
-    <h3 style="margin:0 0 10px;">主管处理</h3>
-    <div id="mgrDeclineWrap" style="display:none;">
-      <p class="muted" style="font-size:13px;margin:0 0 10px;">驳回「申请调整」后，子任务将回到进行中。</p>
-      <div class="form-stack">
-        <label>子任务
-          <select id="mgrDeclineSubtask"></select>
-        </label>
-        <label>驳回理由（必填）
-          <textarea id="mgrDeclineNote" rows="2"></textarea>
-        </label>
-        <label id="mgrDeclineConfirmWrap" style="display:none;align-items:center;gap:8px;">
-          <input type="checkbox" id="mgrDeclineConfirm" /> 确认执行驳回
-        </label>
-        <button type="button" class="btn btn-secondary" id="mgrDeclineBtn">驳回申请</button>
-        <div class="feedback muted" id="mgrDeclineFb"></div>
-      </div>
-    </div>
-    <div id="mgrAckWrap" style="margin-top:14px;">
-      <p class="muted" style="font-size:13px;margin:0 0 10px;">对员工「标记完成 / 阻塞」等通知仅做已知悉留痕（不改变子任务状态）。</p>
-      <div class="form-stack">
-        <label>关联子任务（可选，默认第一条）
-          <select id="mgrAckSubtask"><option value="">（默认首条子任务）</option></select>
-        </label>
-        <label>类型
-          <select id="mgrAckSignal">
-            <option value="done">员工标记完成</option>
-            <option value="blocked">员工标记阻塞</option>
-            <option value="other">其他</option>
-          </select>
-        </label>
-        <label>备注（可选）
-          <textarea id="mgrAckNote" rows="2"></textarea>
-        </label>
-        <button type="button" class="btn btn-ghost" id="mgrAckBtn">已知悉</button>
-        <div class="feedback muted" id="mgrAckFb"></div>
-      </div>
-    </div>
-  </div>
   <div class="card" id="taskMount">加载中…</div>
   <div class="card" id="reassignCard" style="display:none;">
     <h3 style="margin:0 0 8px;">改派</h3>
@@ -921,7 +882,8 @@ export function renderTaskDetailPage(params: {
   var ENFORCE_GUARDS = ${params.enforceActionGuards ? "true" : "false"};
   var lastLoadedPlanId = '';
   var detailReassignComboBound = false;
-  var mgrSignalBound = false;
+  var mgrRowHandlersBound = false;
+  var lastSubsForReassign = [];
   function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   function cssEscAttr(v){
     var s = String(v||'');
@@ -1156,94 +1118,199 @@ export function renderTaskDetailPage(params: {
       }
     }
   }
-  function setMgrFb(id, msg, cls) {
-    var el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = msg || '';
-    el.className = 'feedback ' + (cls || 'muted');
-  }
   function newMgrIdem() {
     try {
       if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
     } catch (e0) {}
     return 'mgr-' + Date.now() + '-' + Math.random().toString(36).slice(2);
   }
-  function ensureManagerSignalHandlers() {
-    if (mgrSignalBound) return;
-    mgrSignalBound = true;
-    var dbtn = document.getElementById('mgrDeclineBtn');
-    if (dbtn) {
-      dbtn.addEventListener('click', async function () {
+  function setRowMgrFb(row, which, msg, cls) {
+    var fb = row.querySelector('[data-mgr-fb="' + which + '"]');
+    if (!fb) return;
+    fb.textContent = msg || '';
+    fb.className = 'feedback ' + (cls || 'muted');
+  }
+  function ensureMgrRowHandlers() {
+    if (mgrRowHandlersBound) return;
+    mgrRowHandlersBound = true;
+    document.body.addEventListener('click', function (ev) {
+      var el = ev.target;
+      if (!el || !el.closest) return;
+      var openRs = el.closest('[data-mgr-open-reassign-sub]');
+      if (openRs) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var sid0 = String(openRs.getAttribute('data-mgr-open-reassign-sub') || '').trim();
+        if (lastLoadedPlanId) initDetailReassign(lastSubsForReassign, sid0);
+        return;
+      }
+      var adminA = el.closest('[data-admin-open-reassign]');
+      if (adminA) {
+        ev.preventDefault();
+        if (lastLoadedPlanId) initDetailReassign(lastSubsForReassign, '');
+        return;
+      }
+      var toggle = el.closest('[data-mgr-toggle]');
+      if (toggle) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var row = toggle.closest('details.sub-row-mgr');
+        if (!row) return;
+        var kind = toggle.getAttribute('data-mgr-toggle');
+        var pDecl = row.querySelector('[data-mgr-panel="decline"]');
+        var pAck = row.querySelector('[data-mgr-panel="ack"]');
+        if (kind === 'decline' && pDecl) {
+          var showD = pDecl.hidden;
+          if (pAck) pAck.hidden = true;
+          pDecl.hidden = !showD;
+          if (showD) {
+            row.open = true;
+            setRowMgrFb(row, 'decline', '', 'muted');
+          }
+        } else if (kind === 'ack' && pAck) {
+          var showA = pAck.hidden;
+          if (pDecl) pDecl.hidden = true;
+          pAck.hidden = !showA;
+          if (showA) {
+            row.open = true;
+            setRowMgrFb(row, 'ack', '', 'muted');
+          }
+        }
+        return;
+      }
+      var cancel = el.closest('[data-mgr-cancel]');
+      if (cancel) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var row2 = cancel.closest('details.sub-row-mgr');
+        if (!row2) return;
+        var which = cancel.getAttribute('data-mgr-cancel') || '';
+        var pan = row2.querySelector('[data-mgr-panel="' + which + '"]');
+        if (pan) pan.hidden = true;
+        return;
+      }
+      var subm = el.closest('[data-mgr-submit]');
+      if (!subm) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      var row3 = subm.closest('details.sub-row-mgr');
+      if (!row3) return;
+      var submitKind = subm.getAttribute('data-mgr-submit') || '';
+      void (async function () {
         var planId = (lastLoadedPlanId || '').trim();
-        var sel = document.getElementById('mgrDeclineSubtask');
-        var sid = sel ? String(sel.value || '').trim() : '';
-        var noteEl = document.getElementById('mgrDeclineNote');
-        var note = noteEl ? String(noteEl.value || '').trim() : '';
-        if (!planId) { setMgrFb('mgrDeclineFb', '缺少 planId', 'err'); return; }
-        if (!sid) { setMgrFb('mgrDeclineFb', '请选择子任务', 'err'); return; }
-        if (!note) { setMgrFb('mgrDeclineFb', '请填写驳回理由', 'err'); return; }
-        if (ENFORCE_GUARDS) {
-          var cx = document.getElementById('mgrDeclineConfirm');
-          if (!cx || !cx.checked) { setMgrFb('mgrDeclineFb', '请勾选确认执行驳回', 'err'); return; }
+        var sid = String(row3.getAttribute('data-subtask-id') || '').trim();
+        if (!planId) {
+          setRowMgrFb(row3, submitKind === 'decline' ? 'decline' : 'ack', '缺少 planId', 'err');
+          return;
         }
-        var payload = { planId: planId, subtaskId: sid, note: note };
-        if (ENFORCE_GUARDS) {
-          payload.confirm = true;
-          payload.idempotencyKey = newMgrIdem();
+        if (submitKind === 'decline') {
+          var pnl = row3.querySelector('[data-mgr-panel="decline"]');
+          var noteEl = pnl ? pnl.querySelector('textarea[data-field="note"]') : null;
+          var note = noteEl ? String(noteEl.value || '').trim() : '';
+          if (!sid) {
+            setRowMgrFb(row3, 'decline', '缺少子任务', 'err');
+            return;
+          }
+          if (!note) {
+            setRowMgrFb(row3, 'decline', '请填写驳回理由', 'err');
+            return;
+          }
+          if (ENFORCE_GUARDS) {
+            var cx = pnl ? pnl.querySelector('input[data-field="confirm"]') : null;
+            if (!cx || !cx.checked) {
+              setRowMgrFb(row3, 'decline', '请勾选确认执行驳回', 'err');
+              return;
+            }
+          }
+          var payload = { planId: planId, subtaskId: sid, note: note };
+          if (ENFORCE_GUARDS) {
+            payload.confirm = true;
+            payload.idempotencyKey = newMgrIdem();
+          }
+          subm.disabled = true;
+          setRowMgrFb(row3, 'decline', '提交中…', 'muted');
+          try {
+            var res = await fetch('/api/workbench/manager/decline-changes', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            var data = await res.json().catch(function () { return {}; });
+            if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+            setRowMgrFb(row3, 'decline', '已驳回', 'ok');
+            if (noteEl) noteEl.value = '';
+            if (pnl) pnl.hidden = true;
+            await load();
+          } catch (er) {
+            setRowMgrFb(row3, 'decline', String(er && er.message ? er.message : er), 'err');
+          } finally {
+            subm.disabled = false;
+          }
+        } else if (submitKind === 'ack') {
+          var pnlA = row3.querySelector('[data-mgr-panel="ack"]');
+          var sigEl = pnlA ? pnlA.querySelector('select[data-field="signal"]') : null;
+          var sig = sigEl ? String(sigEl.value || 'done').trim() : 'done';
+          var nEl = pnlA ? pnlA.querySelector('textarea[data-field="ack-note"]') : null;
+          var noteA = nEl ? String(nEl.value || '').trim() : '';
+          var payloadA = { planId: planId, signal: sig, note: noteA };
+          if (sid) payloadA.subtaskId = sid;
+          if (ENFORCE_GUARDS) payloadA.idempotencyKey = newMgrIdem();
+          subm.disabled = true;
+          setRowMgrFb(row3, 'ack', '提交中…', 'muted');
+          try {
+            var resA = await fetch('/api/workbench/manager/ack-signal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payloadA),
+            });
+            var dataA = await resA.json().catch(function () { return {}; });
+            if (!resA.ok || !dataA.ok) throw new Error(dataA.error || ('HTTP ' + resA.status));
+            setRowMgrFb(row3, 'ack', '已记录', 'ok');
+            if (pnlA) pnlA.hidden = true;
+            await load();
+          } catch (er2) {
+            setRowMgrFb(row3, 'ack', String(er2 && er2.message ? er2.message : er2), 'err');
+          } finally {
+            subm.disabled = false;
+          }
         }
-        dbtn.disabled = true;
-        setMgrFb('mgrDeclineFb', '提交中…', 'muted');
-        try {
-          var res = await fetch('/api/workbench/manager/decline-changes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          var data = await res.json().catch(function () { return {}; });
-          if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-          setMgrFb('mgrDeclineFb', '已驳回', 'ok');
-          if (noteEl) noteEl.value = '';
-          await load();
-        } catch (er) {
-          setMgrFb('mgrDeclineFb', String(er && er.message ? er.message : er), 'err');
-        } finally {
-          dbtn.disabled = false;
-        }
-      });
+      })();
+    });
+  }
+  function applyMgrSubtaskFilter(mountEl, f) {
+    if (!mountEl) return;
+    var key = f || 'all';
+    mountEl.querySelectorAll('[data-sub-filter]').forEach(function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute('data-sub-filter') === key ? 'true' : 'false');
+    });
+    mountEl.querySelectorAll('details.sub-row-mgr').forEach(function (row) {
+      var tags = (row.getAttribute('data-filter-tags') || '').split(/\s+/).filter(Boolean);
+      row.hidden = key !== 'all' && tags.indexOf(key) < 0;
+    });
+  }
+  function formatSubEventsMiniForRow(eventsArr, subId) {
+    var picked = [];
+    var sid = String(subId || '').trim();
+    for (var ei = 0; ei < (eventsArr || []).length; ei++) {
+      var e = eventsArr[ei];
+      var esid = String(e.subtask_id || e.subtaskId || '').trim();
+      if (esid !== sid) continue;
+      if (picked.length >= 5) break;
+      picked.push(e);
     }
-    var abtn = document.getElementById('mgrAckBtn');
-    if (abtn) {
-      abtn.addEventListener('click', async function () {
-        var planId = (lastLoadedPlanId || '').trim();
-        var sel = document.getElementById('mgrAckSubtask');
-        var sid = sel ? String(sel.value || '').trim() : '';
-        var sigEl = document.getElementById('mgrAckSignal');
-        var sig = sigEl ? String(sigEl.value || 'done').trim() : 'done';
-        var nEl = document.getElementById('mgrAckNote');
-        var note = nEl ? String(nEl.value || '').trim() : '';
-        if (!planId) { setMgrFb('mgrAckFb', '缺少 planId', 'err'); return; }
-        var payload = { planId: planId, signal: sig, note: note };
-        if (sid) payload.subtaskId = sid;
-        if (ENFORCE_GUARDS) payload.idempotencyKey = newMgrIdem();
-        abtn.disabled = true;
-        setMgrFb('mgrAckFb', '提交中…', 'muted');
-        try {
-          var res = await fetch('/api/workbench/manager/ack-signal', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          var data = await res.json().catch(function () { return {}; });
-          if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-          setMgrFb('mgrAckFb', '已记录', 'ok');
-          await load();
-        } catch (er2) {
-          setMgrFb('mgrAckFb', String(er2 && er2.message ? er2.message : er2), 'err');
-        } finally {
-          abtn.disabled = false;
-        }
-      });
-    }
+    if (!picked.length) return '<p class="muted mgr-events-empty">暂无关联事件</p>';
+    return (
+      '<div class="mgr-events-mini">' +
+      picked
+        .map(function (e) {
+          var when = fmtTime(e.occurredAt || e.occurred_at || '');
+          var title = esc(e.title || e.type || '');
+          var sum = esc(clipStr(e.summary || '', 220));
+          return '<div class="mgr-ev"><time class="muted">' + when + '</time><div>' + title + ' · ' + sum + '</div></div>';
+        })
+        .join('') +
+      '</div>'
+    );
   }
   async function load(){
     var pageQs = new URLSearchParams(location.search);
@@ -1262,15 +1329,30 @@ export function renderTaskDetailPage(params: {
     var descBlock = desc
       ? '<section class="task-desc"><h3 style="margin:12px 0 6px;font-size:15px;">任务背景</h3><div class="task-desc-body">'+esc(desc)+'</div></section>'
       : '<section class="task-desc muted"><p style="margin:10px 0 0;font-size:14px;">主管未填写任务整体背景。</p></section>';
+    var mgrTop =
+      ROLE === 'manager'
+        ? '<p class="muted mgr-task-tools" style="margin:12px 0 0;font-size:13px;">'
+          + '<a class="btn btn-secondary btn-sm" href="/workbench/manager/tasks?planId='
+          + encodeURIComponent(String(t.planId || ''))
+          + '">前往改派页</a> <span class="muted">在「调整分配」中选择本任务与子任务</span></p>'
+        : ROLE === 'admin'
+          ? '<p class="muted mgr-task-tools" style="margin:12px 0 0;font-size:13px;">'
+            + '<button type="button" class="btn btn-secondary btn-sm" data-admin-open-reassign>打开改派</button>'
+            + ' <span class="muted">使用本页下方改派卡片</span></p>'
+          : '';
     document.getElementById('taskMount').innerHTML =
       '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">'
       +'<h2 style="margin:0;font-size:20px;flex:1 1 200px;">'+esc(t.title||'—')+'</h2>'
       +'<span class="badge '+subBadgeClass(t.status)+'">'+stLabel+'</span></div>'
       +'<p class="muted" style="margin:8px 0 0;">业务编号 <code>'+esc(t.taskNo||taskNo)+'</code></p>'
+      + mgrTop
       + descBlock
       +'<details'+planOpen+' style="margin-top:10px;"><summary>内部编号（排障）</summary>'
       +'<p class="muted" style="margin:6px 0 0;">planId <code>'+esc(t.planId||'—')+'</code></p></details>';
     var subs = data.subtasks || [];
+    var events = data.events || [];
+    lastSubsForReassign = subs;
+    ensureMgrRowHandlers();
     if(!subs.length){ document.getElementById('subtasksMount').textContent='暂无子任务'; }
     else if (ROLE === 'employee') {
       var mine = subs.filter(function (s) { return s.mine; });
@@ -1304,33 +1386,202 @@ export function renderTaskDetailPage(params: {
       if (!parts.length) document.getElementById('subtasksMount').textContent='暂无子任务';
       else document.getElementById('subtasksMount').innerHTML = parts.join('');
     } else {
-      var tableHtml =
-      '<div class="table-wrap"><table class="data"><thead><tr><th>#</th><th>子任务</th><th>负责人</th><th>状态</th><th style="width:30%">进度</th><th>更新时间</th></tr></thead><tbody>'
-      +subs.map(function(s){
-        var bc = subBadgeClass(s.status);
+      function countByFilter(f) {
+        return subs.filter(function (s) {
+          var st = String(s.status || '');
+          if (f === 'pending_me') return st === 'CHANGES_REQUESTED' || st === 'BLOCKED';
+          if (f === 'in_progress') return st === 'IN_PROGRESS' || st === 'ASSIGNED';
+          if (f === 'done') return st === 'DONE';
+          if (f === 'rejected') return st === 'REJECTED';
+          return true;
+        }).length;
+      }
+      function subFilterTags(st) {
+        var tags = ['all'];
+        if (st === 'CHANGES_REQUESTED' || st === 'BLOCKED') tags.push('pending_me');
+        if (st === 'IN_PROGRESS' || st === 'ASSIGNED') tags.push('in_progress');
+        if (st === 'DONE') tags.push('done');
+        if (st === 'REJECTED') tags.push('rejected');
+        return tags.join(' ');
+      }
+      var initialFilter = countByFilter('pending_me') > 0 ? 'pending_me' : 'all';
+      if (urlSubtaskId) {
+        var hitSu = subs.filter(function (x) { return String(x.subtaskId || '') === urlSubtaskId; })[0];
+        if (hitSu) {
+          var hst = String(hitSu.status || '');
+          if (hst === 'CHANGES_REQUESTED' || hst === 'BLOCKED') initialFilter = 'pending_me';
+          else if (hst === 'IN_PROGRESS' || hst === 'ASSIGNED') initialFilter = 'in_progress';
+          else if (hst === 'DONE') initialFilter = 'done';
+          else if (hst === 'REJECTED') initialFilter = 'rejected';
+          else initialFilter = 'all';
+        }
+      }
+      var reassignListHref = '/workbench/manager/tasks?planId=' + encodeURIComponent(String(t.planId || ''));
+      var chipHtml = function (key, label, cnt, alertCls) {
+        var pressed = initialFilter === key ? 'true' : 'false';
+        var ac = alertCls ? ' mgr-sub-filter-chip--alert' : '';
+        return (
+          '<button type="button" class="mgr-sub-filter-chip' +
+          ac +
+          '" data-sub-filter="' +
+          esc(key) +
+          '" aria-pressed="' +
+          pressed +
+          '">' +
+          esc(label) +
+          ' <span class="mgr-sub-filter-count">' +
+          esc(String(cnt)) +
+          '</span></button>'
+        );
+      };
+      var head =
+        '<div class="mgr-sub-filter" role="tablist" aria-label="子任务筛选">' +
+        chipHtml('pending_me', '待我处理', countByFilter('pending_me'), countByFilter('pending_me') > 0) +
+        chipHtml('in_progress', '进行中', countByFilter('in_progress'), false) +
+        chipHtml('done', '已完成', countByFilter('done'), false) +
+        chipHtml('rejected', '已拒绝', countByFilter('rejected'), false) +
+        chipHtml('all', '全部', subs.length, false) +
+        '</div>' +
+        '<p class="muted mgr-sub-hint" style="margin:10px 0 14px;font-size:13px;">在对应行展开后可查看字段与事件；<strong>驳回申请</strong>与<strong>已知悉</strong>在行内完成。</p>';
+      var rowParts = subs.map(function (s) {
+        var rawId = String(s.subtaskId || '');
+        var sid = esc(rawId);
+        var st = String(s.status || '');
+        var tags = subFilterTags(st);
+        var openAttr = urlSubtaskId && rawId === urlSubtaskId ? ' open' : '';
         var who = esc(s.assigneeDisplayName || s.assigneeUserId || '—');
-        var st = esc(s.statusLabel || s.status || '—');
-        var pn = esc(s.progressNote || '—');
-        return '<tr data-sub-highlight="'+esc(String(s.subtaskId||''))+'"><td>'+esc(String(s.orderIndex||''))+'</td><td>'+esc(s.title||'—')+'</td><td>'+who+'</td>'
-          +'<td><span class="badge '+bc+'">'+st+'</span></td>'
-          +'<td><div class="progress-cell" title="'+pn+'">'+pn+'</div></td>'
-          +'<td>'+fmtTime(s.updatedAt)+'</td></tr>';
-      }).join('')
-      +'</tbody></table></div>';
-      var cardsHtml = '<h4 class="subs-section-h" style="margin-top:18px;">子任务详情</h4>'
-        + subs.map(function (s) {
-          var bc = subBadgeClass(s.status);
-          var who = esc(s.assigneeDisplayName || s.assigneeUserId || '—');
-          var st = esc(s.statusLabel || s.status || '—');
-          return '<div class="subtask-detail-card" data-sub-highlight="'+esc(String(s.subtaskId||''))+'"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">'
-            +'<h4 style="margin:0;font-size:16px;flex:1 1 200px;">'+esc(s.title||'—')+'</h4>'
-            +'<span class="badge '+bc+'">'+st+'</span>'
-            +'<span class="muted" style="font-size:13px;">负责人 '+who+'</span></div>'
-            +'<dl class="subtask-detail-dl">'+subtaskDetailDtDds(s, subs)+'</dl></div>';
-        }).join('');
-      document.getElementById('subtasksMount').innerHTML = tableHtml + cardsHtml;
+        var stEsc = esc(s.statusLabel || st || '—');
+        var bc = subBadgeClass(st);
+        var idx = s.orderIndex != null && s.orderIndex !== '' ? esc(String(s.orderIndex)) : '—';
+        var title = esc(s.title || '—');
+        var due = s.dueAt ? esc(String(s.dueAt).slice(0, 10)) : '—';
+        var upd = fmtTime(s.updatedAt);
+        var progHint = esc(clipStr(s.progressNote || '', 72));
+        var actions = [];
+        if (st === 'CHANGES_REQUESTED') {
+          actions.push(
+            '<button type="button" class="btn btn-danger btn-sm" data-mgr-toggle="decline">驳回申请</button>',
+          );
+        }
+        if (st === 'BLOCKED' || st === 'DONE') {
+          actions.push('<button type="button" class="btn btn-ghost btn-sm" data-mgr-toggle="ack">已知悉</button>');
+        }
+        if (ROLE === 'manager') {
+          actions.push(
+            '<a class="btn btn-secondary btn-sm" href="' +
+              esc(reassignListHref) +
+              '">改派页</a>',
+          );
+        } else {
+          actions.push(
+            '<button type="button" class="btn btn-secondary btn-sm" data-mgr-open-reassign-sub="' +
+              sid +
+              '">改派</button>',
+          );
+        }
+        var actionHtml =
+          actions.length > 0 ? '<div class="mgr-sub-actions">' + actions.join('') + '</div>' : '';
+        var defaultSig = st === 'BLOCKED' ? 'blocked' : 'done';
+        var note = String(s.progressNote || '').trim();
+        var ctxHtml = '';
+        if (st === 'CHANGES_REQUESTED') {
+          ctxHtml = note
+            ? '<p class="mgr-inline-ctx">' + esc(note) + '</p>'
+            : '<p class="mgr-inline-ctx muted">（员工未填写补充说明，可在下方「事件」中查看申请记录。）</p>';
+        }
+        var declinePanel =
+          st === 'CHANGES_REQUESTED'
+            ? '<div class="mgr-inline-panel mgr-inline-panel--danger" hidden data-mgr-panel="decline">' +
+              '<h4 class="mgr-inline-h">驳回申请 · 子任务将回到「进行中」</h4>' +
+              '<div class="mgr-callout" role="status">驳回后负责人不变。</div>' +
+              ctxHtml +
+              '<label class="mgr-inline-label">驳回理由<span class="mgr-req">（必填）</span>' +
+              '<textarea data-field="note" rows="3" maxlength="800" placeholder="简述不采纳调整的原因。"></textarea></label>' +
+              (ENFORCE_GUARDS
+                ? '<label class="mgr-inline-confirm"><input type="checkbox" data-field="confirm" /> 确认执行驳回</label>'
+                : '') +
+              '<div class="mgr-inline-actions">' +
+              '<button type="button" class="btn btn-ghost btn-sm" data-mgr-cancel="decline">取消</button>' +
+              '<button type="button" class="btn btn-danger btn-sm" data-mgr-submit="decline">提交驳回</button></div>' +
+              '<div class="feedback muted" data-mgr-fb="decline"></div></div>'
+            : '';
+        var ackPanel =
+          st === 'BLOCKED' || st === 'DONE'
+            ? '<div class="mgr-inline-panel" hidden data-mgr-panel="ack">' +
+              '<h4 class="mgr-inline-h">已知悉（留痕）</h4>' +
+              '<p class="muted" style="margin:0 0 8px;font-size:13px;">不改变子任务状态，仅写入事件。</p>' +
+              '<label class="mgr-inline-label">类型<select data-field="signal">' +
+              '<option value="done"' +
+              (defaultSig === 'done' ? ' selected' : '') +
+              '>员工标记完成</option>' +
+              '<option value="blocked"' +
+              (defaultSig === 'blocked' ? ' selected' : '') +
+              '>员工标记阻塞</option>' +
+              '<option value="other">其他</option></select></label>' +
+              '<label class="mgr-inline-label">备注（可选）<textarea data-field="ack-note" rows="2"></textarea></label>' +
+              '<div class="mgr-inline-actions"><button type="button" class="btn btn-ghost btn-sm" data-mgr-cancel="ack">取消</button>' +
+              '<button type="button" class="btn btn-primary btn-sm" data-mgr-submit="ack">已知悉</button></div>' +
+              '<div class="feedback muted" data-mgr-fb="ack"></div></div>'
+            : '';
+        return (
+          '<details class="sub-row-mgr"' +
+          openAttr +
+          ' data-sub-highlight="' +
+          sid +
+          '" data-subtask-id="' +
+          sid +
+          '" data-status="' +
+          esc(st) +
+          '" data-filter-tags="' +
+          esc(tags) +
+          '">' +
+          '<summary class="mgr-sub-summary">' +
+          '<span class="mgr-sub-idx">#' +
+          idx +
+          '</span>' +
+          '<div class="mgr-sub-main"><div class="mgr-sub-title">' +
+          title +
+          '</div>' +
+          '<div class="mgr-sub-meta muted">负责人 ' +
+          who +
+          ' · 更新 ' +
+          upd +
+          ' · 截止 ' +
+          due +
+          (progHint ? ' · ' + progHint : '') +
+          '</div></div>' +
+          '<span class="badge ' +
+          bc +
+          '">' +
+          stEsc +
+          '</span>' +
+          actionHtml +
+          '</summary>' +
+          '<div class="mgr-sub-body">' +
+          '<div class="mgr-sub-body-grid">' +
+          '<dl class="subtask-detail-dl">' +
+          subtaskDetailDtDds(s, subs) +
+          '</dl>' +
+          '<div><div class="muted" style="font-weight:650;font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;">本子任务事件</div>' +
+          formatSubEventsMiniForRow(events, rawId) +
+          '</div></div>' +
+          declinePanel +
+          ackPanel +
+          '</div></details>'
+        );
+      });
+      var mount = document.getElementById('subtasksMount');
+      mount.innerHTML = head + '<div class="mgr-sub-rows">' + rowParts.join('') + '</div>';
+      if (!mount.dataset.mgrFilterBound) {
+        mount.dataset.mgrFilterBound = '1';
+        mount.addEventListener('click', function (ev) {
+          var chip = ev.target && ev.target.closest ? ev.target.closest('[data-sub-filter]') : null;
+          if (!chip || !mount.contains(chip)) return;
+          applyMgrSubtaskFilter(mount, chip.getAttribute('data-sub-filter') || 'all');
+        });
+      }
+      applyMgrSubtaskFilter(mount, initialFilter);
     }
-    var events = data.events || [];
     if(!events.length){ document.getElementById('eventsMount').textContent='暂无事件';}
     else{
       document.getElementById('eventsMount').innerHTML = '<ul class="event-list">'+events.slice(0,40).map(function(e){
@@ -1356,51 +1607,11 @@ export function renderTaskDetailPage(params: {
         fcb.innerHTML = '<p style="margin:0;font-size:14px;">你从通知进入：<strong>阻塞风险</strong>。请关注下方子任务状态与进度说明。</p>';
       } else if (urlFocus === 'review') {
         fcb.style.display = 'block';
-        fcb.innerHTML = '<p style="margin:0;font-size:14px;">你从通知进入：<strong>知晓 / 抽检</strong>。可向下查看完成情况，并使用「已知悉」留痕。</p>';
+        fcb.innerHTML =
+          '<p style="margin:0;font-size:14px;">你从通知进入：<strong>知晓 / 抽检</strong>。请在对应子任务行展开后使用「已知悉」留痕；若有待修改申请，请使用「驳回申请」。</p>';
       } else {
         fcb.style.display = 'none';
         fcb.innerHTML = '';
-      }
-    }
-    var msc = document.getElementById('managerSignalCard');
-    if (msc) {
-      if (ROLE === 'manager' || ROLE === 'admin') {
-        msc.style.display = 'block';
-        var hasChanges = subs.some(function (s) { return String(s.status || '') === 'CHANGES_REQUESTED'; });
-        var dw = document.getElementById('mgrDeclineWrap');
-        if (dw) dw.style.display = hasChanges ? 'block' : 'none';
-        var dcf = document.getElementById('mgrDeclineConfirmWrap');
-        if (dcf) dcf.style.display = ENFORCE_GUARDS ? 'flex' : 'none';
-        var dsel = document.getElementById('mgrDeclineSubtask');
-        if (dsel) {
-          dsel.innerHTML = subs
-            .filter(function (s) { return String(s.status || '') === 'CHANGES_REQUESTED'; })
-            .map(function (s) {
-              return '<option value="' + esc(String(s.subtaskId || '')) + '">' + esc(s.title || s.subtaskId) + '</option>';
-            })
-            .join('');
-          if (urlSubtaskId) {
-            for (var di = 0; di < dsel.options.length; di++) {
-              if (dsel.options[di].value === urlSubtaskId) { dsel.value = urlSubtaskId; break; }
-            }
-          }
-        }
-        var ask = document.getElementById('mgrAckSubtask');
-        if (ask) {
-          ask.innerHTML =
-            '<option value="">（默认首条子任务）</option>' +
-            subs.map(function (s) {
-              return '<option value="' + esc(String(s.subtaskId || '')) + '">' + esc(s.title || s.subtaskId) + '</option>';
-            }).join('');
-          if (urlSubtaskId) {
-            for (var ai = 0; ai < ask.options.length; ai++) {
-              if (ask.options[ai].value === urlSubtaskId) { ask.value = urlSubtaskId; break; }
-            }
-          }
-        }
-        ensureManagerSignalHandlers();
-      } else {
-        msc.style.display = 'none';
       }
     }
     var rc = document.getElementById('reassignCard');
