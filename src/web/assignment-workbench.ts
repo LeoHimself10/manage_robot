@@ -925,8 +925,11 @@ export function renderTaskDetailPage(params: {
   function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   function cssEscAttr(v){
     var s = String(v||'');
-    try { if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s); } catch(e0){}
-    return s.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+    try {
+      if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(s);
+    } catch (e0) {}
+    /* 外层是 TS 模板字符串：这里必须写成 \\\\ 才能在生成的 HTML 里得到 \\，浏览器里的脚本才是合法的 split('\\\\') 等。 */
+    return s.split('\\\\').join('\\\\\\\\').split('"').join('\\\\"');
   }
   function fmtTime(iso){
     try { var d = new Date(iso); if (!isFinite(d.getTime())) return esc(iso); return esc(d.toLocaleString()); } catch(e){ return esc(iso); }
