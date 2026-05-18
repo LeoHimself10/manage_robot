@@ -1279,13 +1279,21 @@ export function renderTaskDetailPage(params: {
   }
   function applyMgrSubtaskFilter(mountEl, f) {
     if (!mountEl) return;
-    var key = f || 'all';
+    var key = String(f || 'all').trim() || 'all';
     mountEl.querySelectorAll('[data-sub-filter]').forEach(function (b) {
-      b.setAttribute('aria-pressed', b.getAttribute('data-sub-filter') === key ? 'true' : 'false');
+      var bf = String(b.getAttribute('data-sub-filter') || '').trim();
+      b.setAttribute('aria-pressed', bf === key ? 'true' : 'false');
     });
     mountEl.querySelectorAll('details.sub-row-mgr').forEach(function (row) {
-      var tags = (row.getAttribute('data-filter-tags') || '').split(/\s+/).filter(Boolean);
-      row.hidden = key !== 'all' && tags.indexOf(key) < 0;
+      var raw = String(row.getAttribute('data-filter-tags') || '');
+      var tags = raw
+        .split(/[\s,]+/)
+        .map(function (t) {
+          return t.trim();
+        })
+        .filter(Boolean);
+      var match = key === 'all' || tags.indexOf(key) >= 0;
+      row.classList.toggle('mgr-sub-row--hidden', !match);
     });
   }
   function formatSubEventsMiniForRow(eventsArr, subId) {
@@ -1396,13 +1404,14 @@ export function renderTaskDetailPage(params: {
           return true;
         }).length;
       }
-      function subFilterTags(st) {
-        var tags = ['all'];
-        if (st === 'CHANGES_REQUESTED' || st === 'BLOCKED') tags.push('pending_me');
-        if (st === 'IN_PROGRESS' || st === 'ASSIGNED') tags.push('in_progress');
-        if (st === 'DONE') tags.push('done');
-        if (st === 'REJECTED') tags.push('rejected');
-        return tags.join(' ');
+      /** 逗号分隔、仅 [a-z_]，避免部分 WebView 对属性里空格规范化导致筛选失效 */
+      function subFilterTagsCsv(st) {
+        var parts = ['all'];
+        if (st === 'CHANGES_REQUESTED' || st === 'BLOCKED') parts.push('pending_me');
+        if (st === 'IN_PROGRESS' || st === 'ASSIGNED') parts.push('in_progress');
+        if (st === 'DONE') parts.push('done');
+        if (st === 'REJECTED') parts.push('rejected');
+        return parts.join(',');
       }
       var initialFilter = countByFilter('pending_me') > 0 ? 'pending_me' : 'all';
       if (urlSubtaskId) {
@@ -1447,7 +1456,7 @@ export function renderTaskDetailPage(params: {
         var rawId = String(s.subtaskId || '');
         var sid = esc(rawId);
         var st = String(s.status || '');
-        var tags = subFilterTags(st);
+        var filterTagsCsv = subFilterTagsCsv(st);
         var openAttr = urlSubtaskId && rawId === urlSubtaskId ? ' open' : '';
         var who = esc(s.assigneeDisplayName || s.assigneeUserId || '—');
         var stEsc = esc(s.statusLabel || st || '—');
@@ -1533,7 +1542,7 @@ export function renderTaskDetailPage(params: {
           '" data-status="' +
           esc(st) +
           '" data-filter-tags="' +
-          esc(tags) +
+          filterTagsCsv +
           '">' +
           '<summary class="mgr-sub-summary">' +
           '<span class="mgr-sub-idx">#' +
@@ -1577,7 +1586,7 @@ export function renderTaskDetailPage(params: {
         mount.addEventListener('click', function (ev) {
           var chip = ev.target && ev.target.closest ? ev.target.closest('[data-sub-filter]') : null;
           if (!chip || !mount.contains(chip)) return;
-          applyMgrSubtaskFilter(mount, chip.getAttribute('data-sub-filter') || 'all');
+          applyMgrSubtaskFilter(mount, String(chip.getAttribute('data-sub-filter') || 'all').trim() || 'all');
         });
       }
       applyMgrSubtaskFilter(mount, initialFilter);
