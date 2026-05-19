@@ -46,6 +46,7 @@ import {
   type PlanSession,
 } from "./infra/plan-session-store";
 import { readSearchSimilarPlansEnabled } from "./agent/tools/search-similar-plans";
+import { deepMergePreserveRichFields } from "./agent/draft-merge";
 import { logStructured } from "./infra/logger";
 import { createDingTalkContactSyncService } from "./infra/dingtalk-contact-sync";
 import {
@@ -942,11 +943,14 @@ async function main(): Promise<void> {
         }
 
         const snapshotPlanId = session.planId;
-        const currentDraft = orchResult.draft ?? session.latestDraft;
-        // 仅在本轮模型真生成了新草案时，才渲染结构化任务表与「任务补充信息」。
-        // 否则会把上一个任务（已归档/未归档但未在本轮重述）的 description / 子任务
-        // 直接拼回 markdown，造成跨任务串台（即用户看到的「污染」）。
-        const freshDraft = orchResult.draft;
+        // 深合并：新 draft 的空数组字段不覆盖 session 中已有的富字段（如 inputMaterials/scope 等）
+        const freshDraft = orchResult.draft
+          ? deepMergePreserveRichFields(
+              session.latestDraft as Record<string, unknown> | undefined,
+              orchResult.draft as Record<string, unknown>,
+            )
+          : undefined;
+        const currentDraft = freshDraft ?? session.latestDraft;
 
         // 长期记忆：有草案时自动存快照+embedding
         if (currentDraft && !isAnonymousSender) {

@@ -1,0 +1,117 @@
+/**
+ * Draft merge utilities for preserving rich fields when a "thin" draft
+ * update would otherwise overwrite previously gathered rich fields.
+ *
+ * Rule: non-empty arrays in `prev` are preserved when `next` supplies an
+ * empty array (or omits the field entirely). Non-array fields are taken from
+ * `next` as long as they are defined.
+ */
+
+const RICH_ARRAY_FIELDS = [
+  "deliverables",
+  "completionCriteria",
+  "dependencyTaskIds",
+  "checkpoints",
+  "risksAndOpenQuestions",
+  "inputMaterials",
+  "actions",
+  "collaborators",
+] as const;
+
+function isNonEmptyArray(v: unknown): v is unknown[] {
+  return Array.isArray(v) && v.length > 0;
+}
+
+function asRecord(v: unknown): Record<string, unknown> | undefined {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  return v as Record<string, unknown>;
+}
+
+/**
+ * Merge two subtask objects. Rich array fields from `prev` are kept when
+ * `next` omits them or provides an empty array.
+ */
+function mergeSubtask(
+  prev: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...prev, ...next };
+
+  for (const field of RICH_ARRAY_FIELDS) {
+    const prevVal = prev[field];
+    const nextVal = next[field];
+    if (isNonEmptyArray(prevVal) && !isNonEmptyArray(nextVal)) {
+      merged[field] = prevVal;
+    }
+  }
+
+  // scope: merge inScope / outOfScope independently
+  const prevScope = asRecord(prev.scope);
+  const nextScope = asRecord(next.scope);
+  if (prevScope || nextScope) {
+    merged.scope = {
+      inScope:
+        isNonEmptyArray(nextScope?.inScope)
+          ? nextScope!.inScope
+          : (prevScope?.inScope ?? []),
+      outOfScope:
+        isNonEmptyArray(nextScope?.outOfScope)
+          ? nextScope!.outOfScope
+          : (prevScope?.outOfScope ?? []),
+    };
+  }
+
+  // timeNode: preserve dueAt and checkpoints from prev when next omits them
+  const prevTimeNode = asRecord(prev.timeNode);
+  const nextTimeNode = asRecord(next.timeNode);
+  if (prevTimeNode || nextTimeNode) {
+    merged.timeNode = {
+      ...(prevTimeNode ?? {}),
+      ...(nextTimeNode ?? {}),
+    };
+  }
+
+  return merged;
+}
+
+/**
+ * Deep-merge a new draft onto the previous draft, preserving rich fields
+ * from `prev` when `next` supplies empty arrays or omits them.
+ *
+ * Top-level scalar fields (title, description, classification, etc.) are
+ * taken from `next`. tasks[] is merged per-taskId.
+ */
+export function deepMergePreserveRichFields(
+  prev: Record<string, unknown> | undefined,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!prev) return next;
+
+  const merged: Record<string, unknown> = { ...prev, ...next };
+
+  const prevTasks = Array.isArray(prev.tasks)
+    ? (prev.tasks as Array<Record<string, unknown>>)
+    : [];
+  const nextTasks = Array.isArray(next.tasks)
+    ? (next.tasks as Array<Record<string, unknown>>)
+    : [];
+
+  if (nextTasks.length > 0) {
+    const prevById = new Map<string, Record<string, unknown>>();
+    for (const t of prevTasks) {
+      const id = String(t?.id ?? "");
+      if (id) prevById.set(id, t);
+    }
+    merged.tasks = nextTasks.map((nextTask) => {
+      const id = String(nextTask?.id ?? "");
+      const prevTask = prevById.get(id);
+      if (!prevTask) return nextTask;
+      return mergeSubtask(prevTask, nextTask);
+    });
+  } else if (prevTasks.length > 0) {
+    // next has no tasks; preserve prev's tasks
+    merged.tasks = prevTasks;
+  }
+
+  return merged;
+}

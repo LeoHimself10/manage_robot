@@ -334,6 +334,23 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const RICH_TASK_FIELDS = [
+  "objective", "deliverables", "completionCriteria", "feedbackFrequency",
+  "dependencyTaskIds", "checkpoints", "risksAndOpenQuestions",
+  "inputMaterials", "actions", "collaborators", "scope",
+] as const;
+
+function taskFieldStatus(t: Record<string, unknown>): { filled: string[]; missing: string[] } {
+  const filled: string[] = [];
+  const missing: string[] = [];
+  for (const f of RICH_TASK_FIELDS) {
+    const v = t[f];
+    const hasValue = Array.isArray(v) ? v.length > 0 : (v !== undefined && v !== null && v !== "");
+    (hasValue ? filled : missing).push(f);
+  }
+  return { filled, missing };
+}
+
 function summarizeDraftForPrompt(draft: Record<string, unknown>): Record<string, unknown> {
   const tasks = Array.isArray((draft as { tasks?: unknown[] }).tasks)
     ? ((draft as { tasks: Array<Record<string, unknown>> }).tasks)
@@ -343,12 +360,17 @@ function summarizeDraftForPrompt(draft: Record<string, unknown>): Record<string,
     .filter((t) => t.length > 0)
     .slice(0, 5);
   const stagedBy = String((draft as { stagedBy?: unknown }).stagedBy ?? "").trim() || null;
+  const taskFieldsPerTask = tasks.slice(0, 5).map((t) => ({
+    id: String(t?.id ?? ""),
+    ...taskFieldStatus(t),
+  }));
   return {
     hasDraft: true,
     taskTitles,
     domain: (draft as { classification?: { domain?: unknown } }).classification?.domain ?? null,
     subtype: (draft as { classification?: { subtype?: unknown } }).classification?.subtype ?? null,
     ...(stagedBy ? { stagedBy } : {}),
+    taskFields: taskFieldsPerTask,
   };
 }
 

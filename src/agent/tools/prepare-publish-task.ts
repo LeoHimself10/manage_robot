@@ -7,7 +7,7 @@ export const PREPARE_PUBLISH_TASK_TOOL: ToolDefinition = {
   function: {
     name: "prepare_publish_task",
     description:
-      "在主管确认可发布后，整理正式任务发布 payload 并把结构化草案 + 指派关系暂存到当前会话（落 session.latestDraft / latestAssignment）。仅此一步还不会真正写入正式任务表；必须在主管下一条消息中明确表达确认意愿后再调 publish_task。返回结构化发布表单供主管确认。",
+      "在主管确认可发布后，整理正式任务发布 payload 并把结构化草案 + 指派关系暂存到当前会话（落 session.latestDraft / latestAssignment）。仅此一步还不会真正写入正式任务表；必须在主管下一条消息中明确表达确认意愿后再调 publish_task。返回结构化发布表单供主管确认。未传或传空数组的字段会沿用 session.latestDraft 旧值，禁止用空数组覆盖已有内容。",
     parameters: {
       type: "object",
       properties: {
@@ -22,7 +22,23 @@ export const PREPARE_PUBLISH_TASK_TOOL: ToolDefinition = {
               title: { type: "string" },
               assigneeUserId: { type: "string" },
               objective: { type: "string" },
+              deliverables: { type: "array", items: { type: "string" } },
+              completionCriteria: { type: "array", items: { type: "string" } },
               dueAt: { type: "string" },
+              feedbackFrequency: { type: "string" },
+              dependencyTaskIds: { type: "array", items: { type: "string" } },
+              checkpoints: { type: "array", items: { type: "string" } },
+              risksAndOpenQuestions: { type: "array", items: { type: "string" } },
+              inputMaterials: { type: "array", items: { type: "string" } },
+              actions: { type: "array", items: { type: "string" } },
+              collaborators: { type: "array", items: { type: "string" } },
+              scope: {
+                type: "object",
+                properties: {
+                  inScope: { type: "array", items: { type: "string" } },
+                  outOfScope: { type: "array", items: { type: "string" } },
+                },
+              },
             },
             required: ["taskId", "title", "assigneeUserId"],
           },
@@ -65,12 +81,32 @@ export function buildPreparePublishTaskHandler(
     const rawSubtasks = Array.isArray(args.subtasks) ? args.subtasks : [];
     const normalizedSubtasks = rawSubtasks.map((item) => {
       const row = item as Record<string, unknown>;
+      const toStrArr = (v: unknown): string[] | undefined => {
+        if (!Array.isArray(v)) return undefined;
+        const arr = v.map((x) => String(x ?? "").trim()).filter((x) => x.length > 0);
+        return arr.length > 0 ? arr : undefined;
+      };
+      const scopeRaw = row.scope as Record<string, unknown> | undefined;
+      const scopeIn = toStrArr((scopeRaw as any)?.inScope);
+      const scopeOut = toStrArr((scopeRaw as any)?.outOfScope);
       return {
         taskId: String(row.taskId ?? "").trim(),
         title: String(row.title ?? "").trim(),
         assigneeUserId: String(row.assigneeUserId ?? "").trim(),
         objective: String(row.objective ?? "").trim() || undefined,
         dueAt: String(row.dueAt ?? "").trim() || undefined,
+        feedbackFrequency: String(row.feedbackFrequency ?? "").trim() || undefined,
+        deliverables: toStrArr(row.deliverables),
+        completionCriteria: toStrArr(row.completionCriteria),
+        dependencyTaskIds: toStrArr(row.dependencyTaskIds),
+        checkpoints: toStrArr(row.checkpoints),
+        risksAndOpenQuestions: toStrArr(row.risksAndOpenQuestions),
+        inputMaterials: toStrArr(row.inputMaterials),
+        actions: toStrArr(row.actions),
+        collaborators: toStrArr(row.collaborators),
+        scope: scopeIn !== undefined || scopeOut !== undefined
+          ? { inScope: scopeIn ?? [], outOfScope: scopeOut ?? [] }
+          : undefined,
       };
     });
     const subtasks = normalizedSubtasks.filter(
@@ -217,21 +253,65 @@ function asPlainObject(input: unknown): Record<string, unknown> | undefined {
   return input as Record<string, unknown>;
 }
 
+interface SubtaskPatch {
+  taskId: string;
+  title: string;
+  assigneeUserId: string;
+  objective?: string;
+  dueAt?: string;
+  feedbackFrequency?: string;
+  deliverables?: string[];
+  completionCriteria?: string[];
+  dependencyTaskIds?: string[];
+  checkpoints?: string[];
+  risksAndOpenQuestions?: string[];
+  inputMaterials?: string[];
+  actions?: string[];
+  collaborators?: string[];
+  scope?: { inScope: string[]; outOfScope: string[] };
+}
+
 function mergeSubtaskPatch(
   originalTask: Record<string, unknown> | undefined,
-  patch: { taskId: string; title: string; objective?: string; dueAt?: string },
+  patch: SubtaskPatch,
 ): Record<string, unknown> {
   const next = { ...(originalTask ?? {}) };
   next.id = patch.taskId;
   next.title = patch.title;
-  if (patch.objective !== undefined) {
-    next.objective = patch.objective;
+  if (patch.assigneeUserId) next.assigneeUserId = patch.assigneeUserId;
+  if (patch.objective !== undefined) next.objective = patch.objective;
+  if (patch.feedbackFrequency !== undefined) next.feedbackFrequency = patch.feedbackFrequency;
+
+  // 数组字段：非空才覆盖，空数组或 undefined 保留 session 里已有的值。
+  const arrayFields = [
+    "deliverables", "completionCriteria", "dependencyTaskIds",
+    "checkpoints", "risksAndOpenQuestions", "inputMaterials", "actions", "collaborators",
+  ] as const;
+  for (const f of arrayFields) {
+    const v = patch[f];
+    if (Array.isArray(v) && v.length > 0) next[f] = v;
   }
+
   const rawTimeNode = asPlainObject(next.timeNode) ?? {};
   if (patch.dueAt !== undefined) {
     next.timeNode = { ...rawTimeNode, dueAt: patch.dueAt };
   } else if (Object.keys(rawTimeNode).length > 0) {
     next.timeNode = rawTimeNode;
   }
+
+  // scope: 只有明确传了才覆盖。
+  if (patch.scope !== undefined) {
+    const existingScope = asPlainObject(next.scope) ?? {};
+    next.scope = {
+      inScope: (Array.isArray(patch.scope.inScope) && patch.scope.inScope.length > 0)
+        ? patch.scope.inScope
+        : (existingScope.inScope ?? []),
+      outOfScope: (Array.isArray(patch.scope.outOfScope) && patch.scope.outOfScope.length > 0)
+        ? patch.scope.outOfScope
+        : (existingScope.outOfScope ?? []),
+    };
+  }
+
   return next;
 }
+
