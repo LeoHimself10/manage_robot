@@ -40,11 +40,11 @@ function listField(values: unknown): string {
 }
 
 /**
- * Renders the "任务草案（结构化字段）" supplement block from a draft object.
+ * Renders the "任务补充信息" block from a draft object (background + rich per-task fields).
  *
- * This is deterministic rendering: regardless of what the model wrote in prose,
- * if the JSON draft contains rich fields they will always be visible to the user.
- * Returns empty string when draft has no displayable content.
+ * The main structured task table is rendered only by renderDingtalkTaskMarkdown
+ * ("### 任务列表（结构化字段）"); this function must not duplicate that table.
+ * Returns empty string when draft has no supplement content.
  */
 export function renderDraftSupplementSection(draft: unknown): string {
   if (!draft || typeof draft !== "object") return "";
@@ -58,25 +58,16 @@ export function renderDraftSupplementSection(draft: unknown): string {
     if (id) taskTitleById.set(id, title || id);
   }
   const lines: string[] = [];
-  const tableRows: string[] = [];
   if (description) {
     lines.push(`**任务背景**：${description.length > 500 ? description.slice(0, 500) + "…" : description}`);
   }
   const supplementBlocks: string[] = [];
   tasks.forEach((t, idx) => {
     const title = String(t?.title ?? "").trim() || `任务 ${idx + 1}`;
-    const objective = String(t?.objective ?? "").trim();
-    const deliverables = listField(t?.deliverables);
-    const completionCriteria = listField(t?.completionCriteria);
     const deps = Array.isArray(t?.dependencyTaskIds) ? (t.dependencyTaskIds as unknown[]) : [];
     const timeNode = (t?.timeNode ?? {}) as Record<string, unknown>;
     const checkpoints = Array.isArray(timeNode.checkpoints) ? (timeNode.checkpoints as unknown[]) : [];
     const risks = Array.isArray(t?.risksAndOpenQuestions) ? (t.risksAndOpenQuestions as unknown[]) : [];
-    const dueAt = String(timeNode?.dueAt ?? t?.dueAt ?? "").trim() || "待确认";
-    const feedbackFrequency = String(t?.feedbackFrequency ?? "").trim() || "待确认";
-    tableRows.push(
-      `| ${idx + 1} | ${title} | ${objective || "-"} | ${deliverables || "-"} | ${completionCriteria || "-"} | ${dueAt} | ${feedbackFrequency} |`,
-    );
     const inputMaterials = listField(t?.inputMaterials);
     const actions = listField(t?.actions);
     const collaborators = listField(t?.collaborators);
@@ -118,14 +109,8 @@ export function renderDraftSupplementSection(draft: unknown): string {
     }
     supplementBlocks.push(block.join("\n"));
   });
-  if (lines.length === 0 && tableRows.length === 0 && supplementBlocks.length === 0) return "";
-  const sections = ["### 任务草案（结构化字段）"];
-  if (tableRows.length) {
-    sections.push(
-      "| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |\n|---|---|---|---|---|---|---|\n" + tableRows.join("\n"),
-    );
-  }
-  sections.push("### 任务补充信息");
+  if (lines.length === 0 && supplementBlocks.length === 0) return "";
+  const sections = ["### 任务补充信息"];
   if (lines.length) sections.push(lines.join("\n"));
   if (supplementBlocks.length) sections.push(supplementBlocks.join("\n\n"));
   return sections.join("\n\n");

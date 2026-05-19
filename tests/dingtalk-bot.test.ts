@@ -90,8 +90,9 @@ describe("dingtalk bot helpers", () => {
         },
       ],
     });
-    expect(markdown).toContain("### 任务草案（结构化字段）");
-    expect(markdown).toContain("| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |");
+    expect(markdown).not.toContain("### 任务草案（结构化字段）");
+    expect(markdown).not.toContain("| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |");
+    expect(markdown).toContain("### 任务补充信息");
     expect(markdown).toContain("任务背景");
     expect(markdown).toContain("输入材料");
     expect(markdown).toContain("执行动作");

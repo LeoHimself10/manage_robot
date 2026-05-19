@@ -44,7 +44,7 @@ describe("renderDraftSupplementSection", () => {
     expect(renderDraftSupplementSection({})).toBe("");
   });
 
-  it("renders task table and supplement block", () => {
+  it("renders supplement block without duplicate task table", () => {
     const draft = {
       tasks: [
         {
@@ -60,13 +60,29 @@ describe("renderDraftSupplementSection", () => {
       ],
     };
     const result = renderDraftSupplementSection(draft);
-    expect(result).toContain("### 任务草案（结构化字段）");
-    expect(result).toContain("产线巡检");
-    expect(result).toContain("完成每日巡检");
-    expect(result).toContain("检查报告");
+    expect(result).not.toContain("### 任务草案（结构化字段）");
+    expect(result).not.toContain("| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |");
     expect(result).toContain("### 任务补充信息");
+    expect(result).toContain("产线巡检");
     expect(result).toContain("检查点：中期确认");
     expect(result).toContain("风险与待澄清：设备停机风险");
+  });
+
+  it("returns empty when draft has only basic task fields (main table elsewhere)", () => {
+    const draft = {
+      tasks: [
+        {
+          id: "task_1",
+          title: "基础任务",
+          objective: "目标",
+          deliverables: ["交付"],
+          completionCriteria: ["标准"],
+          timeNode: { dueAt: "2026-06-01" },
+          feedbackFrequency: "每日",
+        },
+      ],
+    };
+    expect(renderDraftSupplementSection(draft)).toBe("");
   });
 
   it("renders rich v2 fields (inputMaterials/actions/collaborators/scope)", () => {
@@ -207,8 +223,11 @@ describe("renderDingtalkTaskMarkdown", () => {
       appendStructuredTaskTable: true,
     });
     expect(result).toContain("模型回复");
-    expect(result).toContain("### 任务草案（结构化字段）");
+    expect(result).toContain("### 任务列表（结构化字段）");
+    expect(result).toContain("### 任务补充信息");
     expect(result).toContain("检测任务");
+    const tableHeaderCount = (result.match(/\| # \| 任务 \| 目标 \| 交付物 \| 完成标准 \| 截止日期 \| 反馈频率 \|/g) ?? []).length;
+    expect(tableHeaderCount).toBe(1);
   });
 
   it("does not render rich section when planRotatedAfterPublish (shouldRenderRichSection=false)", () => {
@@ -224,7 +243,7 @@ describe("renderDingtalkTaskMarkdown", () => {
         subtasks: [{ assigneeUserId: "u1" }],
       },
     });
-    expect(result).not.toContain("### 任务草案");
+    expect(result).not.toContain("### 任务列表（结构化字段）");
     expect(result).toContain("【已发布】");
   });
 
@@ -243,7 +262,7 @@ describe("renderDingtalkTaskMarkdown", () => {
       },
       rotatePlanHintTail: "\n\n---\n已切换新任务上下文",
     });
-    const richIdx = result.indexOf("### 任务草案");
+    const richIdx = result.indexOf("### 任务列表（结构化字段）");
     const assignIdx = result.indexOf("分配建议：张三");
     const publishIdx = result.indexOf("【已发布】");
     const rotateIdx = result.indexOf("已切换新任务上下文");
@@ -273,7 +292,7 @@ describe("renderDingtalkTaskMarkdown", () => {
       appendStructuredTaskTable: false,
     });
     expect(result).not.toContain("### 任务列表（结构化字段）");
-    // But supplement section (risks/checkpoints) should still be rendered
-    expect(result).toContain("### 任务草案（结构化字段）");
+    // Supplement section (risks/checkpoints) should still be rendered
+    expect(result).toContain("### 任务补充信息");
   });
 });

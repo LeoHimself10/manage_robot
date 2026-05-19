@@ -5,9 +5,9 @@ import {
 } from "../../../src/agent/demo/qwen-prompt";
 
 describe("buildQwenPlannerSystemPrompt", () => {
-  it("v5.20: five modes by default, six with managerFollowup", () => {
+  it("v5.20.1: five modes by default, six with managerFollowup", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.20");
+    expect(sys).toContain("orchestrator-agent-v5.20.1");
     expect(sys).toContain("医疗器械");
     expect(sys).toContain("OCT");
     expect(sys).toContain("本轮操作模式");
@@ -18,7 +18,10 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("PUBLISH");
     expect(sys).toContain("QUERY 模式纪律");
     expect(sys).toContain("服务端根据 draft 自动渲染");
-    expect(sys).toContain("在 message 中自行输出");
+    expect(sys).toContain("message 为空");
+    expect(sys).toContain("工具后衔接");
+    expect(sys).toContain("必须 **CLARIFY**（确认新任务需求");
+    expect(sys).toContain("已为您生成 OCT 导管 A100 折断调查");
     expect(sys).not.toContain("摘要表");
     expect(sys).not.toContain("message 可附");
     expect(sys).toContain("可在同句叠加");
@@ -52,14 +55,14 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).not.toContain("FOLLOWUP");
     expect(sys).not.toContain("list_follow_up_candidates");
   });
-  it("v5.20: managerFollowup injects sixth mode and tools", () => {
+  it("v5.20.1: managerFollowup injects sixth mode and tools", () => {
     const sys = buildQwenPlannerSystemPrompt("planner", { managerFollowup: true });
     expect(sys).toContain("FOLLOWUP");
     expect(sys).toContain("list_follow_up_candidates");
     expect(sys).toContain("send_subtask_reminder");
     expect(sys).toContain("示例 8");
   });
-  it("v5.20: tools, fields, and length cap", () => {
+  it("v5.20.1: tools, fields, and length cap", () => {
     const sys = buildQwenPlannerSystemPrompt();
     expect(sys).toContain("search_web");
     expect(sys).toContain("update_known_facts");
@@ -85,7 +88,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
 describe("buildQwenPlannerSystemPrompt employee profile", () => {
   it("requires get_task_detail for overall task background questions", () => {
     const sys = buildQwenPlannerSystemPrompt("employee");
-    expect(sys).toContain("orchestrator-agent-v5.20-employee");
+    expect(sys).toContain("orchestrator-agent-v5.20.1-employee");
     expect(sys).toContain("医疗器械");
     expect(sys).toContain("OCT");
     expect(sys).toContain("任务整体背景纪律");
