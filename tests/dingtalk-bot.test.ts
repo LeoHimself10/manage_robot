@@ -79,7 +79,7 @@ describe("dingtalk bot helpers", () => {
       ],
     });
     expect(markdown).toContain("### 任务草案");
-    expect(markdown).toContain("| # | 任务 | 开始 | 截止 | 依赖 | 目标 | 交付物 | 完成标准 | 输入材料 | 执行动作 | 协作人 | 范围内 | 范围外 | 风险 |");
+    expect(markdown).toContain("| # | 任务 | 负责人 | 开始 | 截止 | 依赖 | 目标 | 交付物 | 完成标准 | 输入材料 | 执行动作 | 协作人 | 范围内 | 范围外 | 风险 |");
     expect(markdown).toContain("任务目标");
     expect(markdown).toContain("触发背景");
     expect(markdown).toContain("输入A");
@@ -87,6 +87,36 @@ describe("dingtalk bot helpers", () => {
     expect(markdown).toContain("范围内A");
     expect(markdown).not.toContain("### 任务补充信息");
     expect(markdown).not.toContain("- 输入材料：");
+  });
+
+  it("renders assignment summary table when assigneeUserId is set", () => {
+    const markdown = renderDraftSupplementSection({
+      title: "OCT 导管改进",
+      objective: "目标",
+      background: "背景",
+      tasks: [
+        {
+          id: "t1",
+          title: "子任务A",
+          assigneeUserId: "u1",
+          assigneeDisplayName: "杨楚榛",
+          objective: "o1",
+          deliverables: [],
+          completionCriteria: [],
+          dependencyTaskIds: [],
+          timeNode: { startAt: "2026-05-19", dueAt: "2026-05-21", checkpoints: [] },
+          risksAndOpenQuestions: [],
+          inputMaterials: [],
+          actions: [],
+          collaborators: [],
+          scope: { inScope: [], outOfScope: [] },
+        },
+      ],
+    });
+    expect(markdown).toContain("### 分配结果（简表）");
+    expect(markdown).toContain("| # | 任务 | 负责人 | 开始 | 截止 | 依赖 |");
+    expect(markdown).toContain("杨楚榛");
+    expect(markdown).toContain("### 任务详情（宽表）");
   });
 
   it("looksLikeTaskDraftMessage matches multi-signal markdown", () => {

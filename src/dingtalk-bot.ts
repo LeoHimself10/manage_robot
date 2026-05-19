@@ -25,6 +25,13 @@ import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import { runOrchestrator } from "./agent/orchestrator";
 import { inferDraftTaskStartDates } from "./agent/demo/draft-schedule-infer";
 import {
+  draftHasAssignedTasks,
+  enrichDraftAssigneeDisplayNames,
+  shouldSlimOrchestratorMessageForDraft,
+} from "./agent/demo/draft-display";
+import { synthesizeMessageFromDraft } from "./agent/orchestrator-draft-message";
+import { createPeopleDirectoryStore } from "./infra/people-directory-store";
+import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
 } from "./agent/role-routing";
@@ -87,6 +94,29 @@ function tableCell(text: string, max = 72): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
+function assigneeCell(task: Record<string, unknown>): string {
+  const name = String(task.assigneeDisplayName ?? "").trim();
+  if (name) return tableCell(name, 20);
+  const userId = String(task.assigneeUserId ?? "").trim();
+  if (userId) return tableCell(userId, 20);
+  return "-";
+}
+
+function buildDependencyLabel(
+  deps: unknown[],
+  taskTitleById: Map<string, string>,
+): string {
+  if (!deps.length) return "-";
+  return deps
+    .map((d) => {
+      const id = String(d ?? "").trim();
+      const tt = taskTitleById.get(id);
+      return tt ? `${id}（${tt}）` : id;
+    })
+    .filter(Boolean)
+    .join("；");
+}
+
 export function renderDraftSupplementSection(draft: unknown): string {
   if (!draft || typeof draft !== "object") return "";
   const root = draft as Record<string, unknown>;
@@ -112,29 +142,24 @@ export function renderDraftSupplementSection(draft: unknown): string {
     headerLines.push(`**触发背景**：${background.length > 300 ? `${background.slice(0, 300)}…` : background}`);
   }
 
+  const showAssignmentSummary = draftHasAssignedTasks(root);
   const tableRows: string[] = [];
+  const summaryRows: string[] = [];
   tasks.forEach((t, idx) => {
     const taskTitle = String(t?.title ?? "").trim() || `任务 ${idx + 1}`;
     const timeNode = (t?.timeNode ?? {}) as Record<string, unknown>;
     const scope = (t?.scope ?? {}) as Record<string, unknown>;
     const deps = Array.isArray(t?.dependencyTaskIds) ? (t.dependencyTaskIds as unknown[]) : [];
-    const depLabel = deps.length
-      ? deps
-          .map((d) => {
-            const id = String(d ?? "").trim();
-            const tt = taskTitleById.get(id);
-            return tt ? `${id}（${tt}）` : id;
-          })
-          .filter(Boolean)
-          .join("；")
-      : "-";
+    const depLabel = buildDependencyLabel(deps, taskTitleById);
     const startAt = String(timeNode.startAt ?? t.startAt ?? "").trim() || "-";
     const dueAt = String(timeNode.dueAt ?? t.dueAt ?? "").trim() || "待确认";
+    const assignee = assigneeCell(t);
 
     tableRows.push(
       `| ${[
         idx + 1,
         tableCell(taskTitle, 40),
+        assignee,
         tableCell(startAt, 12),
         tableCell(dueAt, 12),
         tableCell(depLabel, 36),
@@ -149,18 +174,44 @@ export function renderDraftSupplementSection(draft: unknown): string {
         tableCell(listField(t?.risksAndOpenQuestions), 40),
       ].join(" | ")} |`,
     );
+
+    if (showAssignmentSummary) {
+      summaryRows.push(
+        `| ${[
+          idx + 1,
+          tableCell(taskTitle, 48),
+          assignee,
+          tableCell(startAt, 12),
+          tableCell(dueAt, 12),
+          tableCell(depLabel, 40),
+        ].join(" | ")} |`,
+      );
+    }
   });
 
   const sections: string[] = ["### 任务草案"];
   if (headerLines.length) sections.push(headerLines.join("\n"));
-  if (tableRows.length) {
+  if (showAssignmentSummary && summaryRows.length) {
     sections.push(
       [
-        "| # | 任务 | 开始 | 截止 | 依赖 | 目标 | 交付物 | 完成标准 | 输入材料 | 执行动作 | 协作人 | 范围内 | 范围外 | 风险 |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
-        ...tableRows,
+        "### 分配结果（简表）",
+        "| # | 任务 | 负责人 | 开始 | 截止 | 依赖 |",
+        "|---|---|---|---|---|---|",
+        ...summaryRows,
       ].join("\n"),
     );
+  }
+  if (tableRows.length) {
+    const wideTitle = showAssignmentSummary ? "### 任务详情（宽表）" : "";
+    const wideBlock = [
+      wideTitle,
+      "| # | 任务 | 负责人 | 开始 | 截止 | 依赖 | 目标 | 交付物 | 完成标准 | 输入材料 | 执行动作 | 协作人 | 范围内 | 范围外 | 风险 |",
+      "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+      ...tableRows,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    sections.push(wideBlock);
   }
   return sections.join("\n\n");
 }
@@ -863,7 +914,26 @@ async function main(): Promise<void> {
         // message 为模型摘要；统一宽表由 draft 确定性渲染（避免「简表+分条补充」双结构）
         let outboundMarkdown = orchResult.messages.join("\n\n").trim();
         if (freshDraft) {
-          const unifiedTable = renderDraftSupplementSection(freshDraft);
+          const resolveAssigneeName = (userId: string): string | undefined => {
+            const fromRepo =
+              employeeRepo.get?.(userId) ??
+              employeeRepo.list().find((e) => e.userId === userId);
+            if (fromRepo?.displayName?.trim()) return fromRepo.displayName.trim();
+            const store = createPeopleDirectoryStore();
+            try {
+              return store.getContact(userId)?.name?.trim() || undefined;
+            } finally {
+              store.close();
+            }
+          };
+          const displayDraft = enrichDraftAssigneeDisplayNames(
+            freshDraft as Record<string, unknown>,
+            resolveAssigneeName,
+          );
+          if (shouldSlimOrchestratorMessageForDraft(outboundMarkdown)) {
+            outboundMarkdown = synthesizeMessageFromDraft(displayDraft);
+          }
+          const unifiedTable = renderDraftSupplementSection(displayDraft);
           if (unifiedTable) {
             outboundMarkdown = outboundMarkdown
               ? `${outboundMarkdown}\n\n${unifiedTable}`

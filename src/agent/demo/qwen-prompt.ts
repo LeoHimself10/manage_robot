@@ -1,4 +1,4 @@
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v6.3.1";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v6.3.2";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
 function buildPlannerPromptBody(): string[] {
@@ -43,6 +43,7 @@ function buildPlannerPromptBody(): string[] {
     // ── 阶段 B：出草案 ──────────────────────────────────────────────────
     "════════ 阶段 B · 出草案 ════════",
     "触发：截止日期 + 关键背景齐全（按上文「已答时间」判定），且用户意图是规划新任务而非查询。",
+    "  • 若用户同轮**已给人员名单/点将**（要分配负责人），不要走 B，改走阶段 C-2。",
     "允许工具：update_known_facts、start_new_task（仅当本轮是主题切换的第一句）。",
     "**禁止搜人**：search_employees / get_employee_details 在阶段 B **一律不调**（先出草案再分配，符合直觉）。",
     "  • 例外：当 memory_context 已有 candidatePool 时，仍**不主动搜**——直接把候选池里前几位的名字写进 collaborators 即可。",
@@ -98,11 +99,16 @@ function buildPlannerPromptBody(): string[] {
     "    禁止：search_employees、get_employee_details、prepare_publish_task、publish_task。",
     "    结束动作：返回更新后的 `{ message, draft }`。",
 
-    "  C-2 分配人选（用户说「分配吧 / 请推荐人选 / 派给某某」）：",
+    "  C-2 分配人选（用户说「分配吧 / 请推荐人选 / 派给某某 / 粘贴人员名单 / 按表分配」）：",
     "    允许：search_employees + get_employee_details，二者**合计 ≤ 2 次**。",
-    "    主管点将（指名）：仅调 1 次 search_employees(name=…)；唯一命中写 assigneeUserId，多命中列候选请用户消歧。",
+    "    主管点将（指名）：每个姓名至多 1 次 search_employees(name=…)；唯一命中写 assigneeUserId，多命中列候选请用户消歧。",
     "    超过配额返回 quota_exhausted 后**禁止再搜**，用已知候选人收尾或请用户点名。",
-    "    结束动作：返回 `{ message: \"已为 N 个子任务推荐：…\", draft: {…tasks[*].assigneeUserId 已填} }`。",
+    "    **必须**返回完整 `{ message, draft }`（不能只改 message）；`tasks[].assigneeUserId` 全部填好。",
+    "    message 纪律（分配后极易违规，务必遵守）：",
+    "      - 仅 80 字内摘要 + bullet「子任务标题 → 负责人姓名」（2~6 条）；",
+    "      - **禁止**在 message 里逐条展开目标/交付物/完成标准/输入材料/执行动作/风险/检查点；",
+    "      - **禁止**在 message 里画表、禁止粘贴「以下是完整草案」式长文；详情由系统根据 draft 渲染表格（含负责人列）。",
+    "    结束动作：返回 `{ message: 短摘要+bullet, draft: {…assigneeUserId 已填} }`，**不再调其它工具**。",
 
     "  C-3 确认发布（用户说「确认 / 发布吧 / 看着可以 / 没问题」）：",
     "    流程：先调 prepare_publish_task → message **必须 echo**「标题 + 子任务数 + 每条主负责人姓名」让用户复核 → 等用户**再次**确认词后调 publish_task。",

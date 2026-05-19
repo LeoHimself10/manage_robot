@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildQwenPlannerSystemPrompt } from "../../../src/agent/demo/qwen-prompt";
 
-describe("buildQwenPlannerSystemPrompt v6.3.1", () => {
+describe("buildQwenPlannerSystemPrompt v6.3.2", () => {
   it("contains version header and four-phase structure including query phase D", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v6.3.1");
+    expect(sys).toContain("orchestrator-agent-v6.3.2");
     expect(sys).toContain("阶段 D · 查询与进展");
     expect(sys).toContain("阶段 A · 追问");
     expect(sys).toContain("阶段 B · 出草案");
@@ -44,6 +44,9 @@ describe("buildQwenPlannerSystemPrompt v6.3.1", () => {
     expect(sys).toContain("C-3");
     expect(sys).toContain("合计 ≤ 2 次");
     expect(sys).toContain("prepare_publish_task");
+    expect(sys).toContain("禁止") ;
+    expect(sys).toMatch(/禁止.*message.*交付物|禁止.*逐条展开/);
+    expect(sys).toContain("负责人列");
   });
 
   it("requires non-empty message and discards top-level assignment", () => {
