@@ -13,6 +13,7 @@ import {
   looksLikeTaskDraftMessage,
   readDraftFallbackEnabled,
 } from "./demo/draft-fallback-extract";
+import { synthesizeMessageFromDraft } from "./orchestrator-draft-message";
 import type { KnownFactsStore } from "./tools/update-known-facts";
 import type { PlanSession } from "../infra/plan-session-store";
 import type { PublishTaskRecentStore } from "./tools/publish-task";
@@ -246,10 +247,9 @@ export async function runOrchestrator(
   const toolInvocationNames =
     timing?.iterations?.flatMap((it) => (it.tools ?? []).map((t) => t.toolName)) ?? [];
 
-  const msg = String(payload?.message ?? "").trim();
+  let msg = String(payload?.message ?? "").trim();
   let assignment = isPlainObject(payload?.assignment) ? payload?.assignment as Record<string, unknown> : undefined;
 
-  const messages: string[] = msg ? [msg] : [];
   const payloadDraft = isPlainObject(payload?.draft)
     ? (payload.draft as Record<string, unknown>)
     : undefined;
@@ -257,6 +257,18 @@ export async function runOrchestrator(
   if (draft) {
     draft = stabilizeDraftTaskIds(draft, previousDraft);
   }
+
+  // 模型常把 token 全塞进 draft 导致 message 为空；补一段短摘要，避免钉钉只显示空行+表
+  if (draft && !msg) {
+    msg = synthesizeMessageFromDraft(draft);
+    logStructured({
+      event: "orchestrator_message_synthesized_from_draft",
+      traceId,
+      title: String((draft as { title?: unknown }).title ?? "").slice(0, 80),
+    });
+  }
+
+  const messages: string[] = msg ? [msg] : [];
 
   const fallbackStartedAt = Date.now();
   let draftFallbackOutcome: "skipped" | "triggered_ok" | "triggered_failed" = "skipped";

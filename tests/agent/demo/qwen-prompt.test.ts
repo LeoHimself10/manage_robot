@@ -4,7 +4,9 @@ import { buildQwenPlannerSystemPrompt } from "../../../src/agent/demo/qwen-promp
 describe("buildQwenPlannerSystemPrompt v6.2", () => {
   it("requires unified table via system render and compact draft", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v6.2.0");
+    expect(sys).toContain("orchestrator-agent-v6.2.1");
+    expect(sys).toContain("追问清单第 1 条必须是");
+    expect(sys).toContain("禁止只返回 draft");
     expect(sys).not.toContain("先调一次");
     expect(sys).toContain("currentTimeIso");
     expect(sys).toContain("统一宽表");
