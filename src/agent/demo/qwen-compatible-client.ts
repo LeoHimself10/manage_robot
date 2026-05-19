@@ -91,6 +91,8 @@ export class MaxToolIterationsExceededError extends Error {
 export interface CallWithToolsResult {
   payload: unknown;
   rawContent: string;
+  /** 最后一轮 assistant 原文（含 tool 轮内联 content），供 message 为空时抢救 */
+  lastAssistantContent?: string;
   trace: InferenceTrace;
   toolCallsExecuted: number;
   timing?: {
@@ -442,6 +444,9 @@ export class QwenCompatibleClient {
           // No tool_calls: return parsed JSON
           if (!msg?.tool_calls || msg.tool_calls.length === 0) {
             const content = extractAssistantContent(resp);
+            if (content.trim()) {
+              lastAssistantContent = content.trim();
+            }
             const payload = parseAssistantJsonPayload(content);
             parseMs = Date.now() - parseStartedAt;
             const totalMs = Date.now() - iterationStartedAt;
@@ -472,6 +477,7 @@ export class QwenCompatibleClient {
             return {
               payload,
               rawContent: content,
+              lastAssistantContent,
               trace: {
                 traceId: request.traceId,
                 requestId: resp.id ?? `req_${Date.now()}`,

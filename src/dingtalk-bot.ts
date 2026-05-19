@@ -27,8 +27,11 @@ import { inferDraftTaskStartDates } from "./agent/demo/draft-schedule-infer";
 import {
   draftHasAssignedTasks,
   enrichDraftAssigneeDisplayNames,
+  guardFalsePublishClaimInMessage,
+  shouldAppendDraftTableFromSession,
   shouldSlimOrchestratorMessageForDraft,
 } from "./agent/demo/draft-display";
+import { looksLikeTaskDraftMessage } from "./agent/demo/draft-fallback-extract";
 import { synthesizeMessageFromDraft } from "./agent/orchestrator-draft-message";
 import { createPeopleDirectoryStore } from "./infra/people-directory-store";
 import {
@@ -45,6 +48,7 @@ import {
   hashChatKey,
   markPublishedAndRotatePlanSession,
   readDingtalkPlanIdRotateEnabled,
+  startNewTaskScope,
   type PlanSession,
 } from "./infra/plan-session-store";
 import { readSearchSimilarPlansEnabled } from "./agent/tools/search-similar-plans";
@@ -56,6 +60,13 @@ import {
 } from "./infra/workbench-memory-store";
 import { createRecentPublishStore } from "./agent/tools/publish-task";
 import type { KnownFactsStore } from "./agent/tools/update-known-facts";
+import {
+  deriveNewTaskScopeLabel,
+  getCurrentScopeLabel,
+  hasPlanScopedContextToClear,
+  isExplicitNewTaskRequest,
+  isLikelyTopicShiftFromScope,
+} from "./agent/new-task-intent";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -247,6 +258,23 @@ function maskUserId(userId: string): string {
 
 export function shouldUseAnonymousSession(senderStaffId: string): boolean {
   return !String(senderStaffId ?? "").trim();
+}
+
+type AssigneeNameResolver = (userId: string) => string | undefined;
+
+export function appendUnifiedDraftTableToOutbound(
+  outboundMarkdown: string,
+  draft: Record<string, unknown>,
+  resolveAssigneeName: AssigneeNameResolver,
+): string {
+  const displayDraft = enrichDraftAssigneeDisplayNames(draft, resolveAssigneeName);
+  let next = outboundMarkdown;
+  if (shouldSlimOrchestratorMessageForDraft(next)) {
+    next = synthesizeMessageFromDraft(displayDraft);
+  }
+  const unifiedTable = renderDraftSupplementSection(displayDraft);
+  if (!unifiedTable) return next;
+  return next ? `${next}\n\n${unifiedTable}` : unifiedTable;
 }
 
 export function appendPublishSummaryMarkdown(
@@ -799,6 +827,47 @@ async function main(): Promise<void> {
           });
         }
 
+        const explicitNewTask = isExplicitNewTaskRequest(background);
+        const topicShift = isLikelyTopicShiftFromScope(
+          background,
+          getCurrentScopeLabel(session),
+        );
+        if (
+          !isAnonymousSender &&
+          hasPlanScopedContextToClear(session) &&
+          (explicitNewTask || topicShift)
+        ) {
+          const fromPlanId = session.planId;
+          const switchResult = startNewTaskScope(session, {
+            scopeLabel: explicitNewTask
+              ? deriveNewTaskScopeLabel(background)
+              : background.replace(/\s+/g, " ").trim().slice(0, 30) || "新任务",
+            reason: explicitNewTask
+              ? "preclear_explicit_new_task"
+              : "preclear_topic_shift",
+          });
+          planSessionStore.save(session);
+          planSessionStore.appendEvent({
+            planId: session.planId,
+            chatKeyHash: session.chatKeyHash,
+            eventType: "explicit_new_task_precleared",
+            payload: {
+              fromPlanId,
+              toPlanId: session.planId,
+              fromScopeId: switchResult.fromScopeId,
+              toScopeId: switchResult.toScopeId,
+              messageId,
+            },
+          });
+          logStructured({
+            event: "explicit_new_task_precleared",
+            messageId,
+            fromPlanId,
+            toPlanId: session.planId,
+            clearedHistoryEntries: switchResult.clearedHistoryEntries,
+          });
+        }
+
         const memoryContext = isAnonymousSender
           ? { summary: "", facts: [] as string[] }
           : loadMemoryContextForPlan(session.planId);
@@ -913,34 +982,60 @@ async function main(): Promise<void> {
 
         // message 为模型摘要；统一宽表由 draft 确定性渲染（避免「简表+分条补充」双结构）
         let outboundMarkdown = orchResult.messages.join("\n\n").trim();
+        const effectivePublishResult =
+          publishResult ?? (orchResult.publishResult as Record<string, unknown> | undefined);
+        const resolveAssigneeName = (userId: string): string | undefined => {
+          const fromRepo =
+            employeeRepo.get?.(userId) ??
+            employeeRepo.list().find((e) => e.userId === userId);
+          if (fromRepo?.displayName?.trim()) return fromRepo.displayName.trim();
+          const store = createPeopleDirectoryStore();
+          try {
+            return store.getContact(userId)?.name?.trim() || undefined;
+          } finally {
+            store.close();
+          }
+        };
         if (freshDraft) {
-          const resolveAssigneeName = (userId: string): string | undefined => {
-            const fromRepo =
-              employeeRepo.get?.(userId) ??
-              employeeRepo.list().find((e) => e.userId === userId);
-            if (fromRepo?.displayName?.trim()) return fromRepo.displayName.trim();
-            const store = createPeopleDirectoryStore();
-            try {
-              return store.getContact(userId)?.name?.trim() || undefined;
-            } finally {
-              store.close();
-            }
-          };
-          const displayDraft = enrichDraftAssigneeDisplayNames(
+          outboundMarkdown = appendUnifiedDraftTableToOutbound(
+            outboundMarkdown,
             freshDraft as Record<string, unknown>,
             resolveAssigneeName,
           );
-          if (shouldSlimOrchestratorMessageForDraft(outboundMarkdown)) {
-            outboundMarkdown = synthesizeMessageFromDraft(displayDraft);
-          }
-          const unifiedTable = renderDraftSupplementSection(displayDraft);
-          if (unifiedTable) {
-            outboundMarkdown = outboundMarkdown
-              ? `${outboundMarkdown}\n\n${unifiedTable}`
-              : unifiedTable;
-          }
+        } else if (
+          looksLikeTaskDraftMessage(outboundMarkdown)
+          && currentDraft
+          && Array.isArray((currentDraft as { tasks?: unknown }).tasks)
+          && ((currentDraft as { tasks: unknown[] }).tasks.length > 0)
+        ) {
+          outboundMarkdown = appendUnifiedDraftTableToOutbound(
+            outboundMarkdown,
+            currentDraft as Record<string, unknown>,
+            resolveAssigneeName,
+          );
+        } else if (
+          shouldAppendDraftTableFromSession({
+            freshDraft,
+            currentDraft,
+            toolInvocationNames: orchResult.toolInvocationNames,
+            publishResult: effectivePublishResult,
+          })
+          && currentDraft
+        ) {
+          outboundMarkdown = appendUnifiedDraftTableToOutbound(
+            outboundMarkdown,
+            currentDraft as Record<string, unknown>,
+            resolveAssigneeName,
+          );
         }
-        if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
+        outboundMarkdown = guardFalsePublishClaimInMessage(outboundMarkdown, {
+          publishResult: effectivePublishResult,
+          toolInvocationNames: orchResult.toolInvocationNames,
+        });
+        if (!outboundMarkdown.trim()) {
+          outboundMarkdown =
+            "已记录您的消息。若刚才在补充任务背景或截止时间，请再发一句「继续」；若信息已齐，我将为您生成或更新草案。";
+        }
 
         const assignmentStartedAt = Date.now();
         let latestAssignment: Record<string, unknown> | undefined = session.latestAssignment;
@@ -1007,7 +1102,7 @@ async function main(): Promise<void> {
 
         let planRotatedAfterPublish = false;
         let rotatePlanHintTail = "";
-        const pr = publishResult as Record<string, unknown> | undefined;
+        const pr = effectivePublishResult;
         if (
           readDingtalkPlanIdRotateEnabled() &&
           !isAnonymousSender &&
@@ -1053,7 +1148,10 @@ async function main(): Promise<void> {
           }
         }
 
-        outboundMarkdown = appendPublishSummaryMarkdown(outboundMarkdown, publishResult);
+        outboundMarkdown = appendPublishSummaryMarkdown(
+          outboundMarkdown,
+          effectivePublishResult,
+        );
         if (planRotatedAfterPublish) {
           outboundMarkdown += rotatePlanHintTail;
         }

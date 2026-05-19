@@ -374,6 +374,44 @@ describe("runOrchestrator", () => {
     expect(result.toolCallsTotal).toBe(3);
   });
 
+  it("keeps search_employees tool definition and handler registered", async () => {
+    mockCallWithTools.mockImplementationOnce(async (request: {
+      tools: Array<{ function?: { name?: string } }>;
+      toolHandlers: Record<string, (args: Record<string, unknown>) => unknown>;
+    }) => {
+      expect(request.tools.map((t) => t.function?.name)).toContain("search_employees");
+      expect(request.toolHandlers.search_employees).toBeDefined();
+      const result = await request.toolHandlers.search_employees({});
+      expect(result).toBeDefined();
+      return {
+        payload: { message: "已处理" },
+        rawContent: "{}",
+        trace: { requestId: "t-hidden-search", model: "qwen3.6-plus", tokenUsage: { totalTokens: 20 }, latencyMs: 80 },
+        toolCallsExecuted: 1,
+        timing: {
+          iterations: [
+            { tools: [{ toolName: "search_employees", elapsedMs: 1 }] },
+          ],
+        },
+      };
+    });
+
+    const { runOrchestrator } = await import("../../src/agent/orchestrator");
+    const result = await runOrchestrator("两周内完成，涉及3台机器", {
+      clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
+      employeeRepo: { list: () => [] },
+      sessionContext: {
+        candidatePool: {
+          source: "uploaded:roster",
+          entries: [{ userId: "u1", displayName: "张三" }],
+        },
+      },
+    });
+
+    expect(result.messages[0]).toBe("已处理");
+    expect(result.toolInvocationNames).toEqual(["search_employees"]);
+  });
+
   it("stabilizes draft task ids across revisions and aligns assignment ids", async () => {
     mockCallWithTools.mockResolvedValueOnce({
       payload: {

@@ -13,7 +13,11 @@ import {
   looksLikeTaskDraftMessage,
   readDraftFallbackEnabled,
 } from "./demo/draft-fallback-extract";
-import { synthesizeMessageFromDraft } from "./orchestrator-draft-message";
+import {
+  recoverOrchestratorUserMessage,
+  synthesizeMessageFromDraft,
+} from "./orchestrator-draft-message";
+import { shouldInjectCandidatePoolMemoryHint } from "./planning-phase";
 import type { KnownFactsStore } from "./tools/update-known-facts";
 import type { PlanSession } from "../infra/plan-session-store";
 import type { PublishTaskRecentStore } from "./tools/publish-task";
@@ -148,7 +152,15 @@ export async function runOrchestrator(
       `pendingRoster: ${safeJson(config.sessionContext.pendingRoster)} | ACTION_REQUIRED: 调用 read_uploaded_roster_text 拿原文 → 抽取姓名 → 用 search_employees(name=...) 逐一匹配 → 用 set_candidate_pool 提交，未匹配项写进 unresolved 并在 message 反问主管。`,
     );
   }
-  if (config.sessionContext?.candidatePool) {
+  if (
+    config.sessionContext?.candidatePool
+    && shouldInjectCandidatePoolMemoryHint({
+      userMessage,
+      hasLatestDraft: Boolean(config.sessionContext?.latestDraft),
+      hasPendingRoster: Boolean(config.sessionContext?.pendingRoster),
+      hasCandidatePool: true,
+    })
+  ) {
     memoryParts.push(
       `candidatePool: ${safeJson(config.sessionContext.candidatePool)} | 本 plan 的指派只能在 entries[*].userId 中选；search_employees 已自动收窄到池内。`,
     );
@@ -257,7 +269,11 @@ export async function runOrchestrator(
   const toolInvocationNames =
     timing?.iterations?.flatMap((it) => (it.tools ?? []).map((t) => t.toolName)) ?? [];
 
-  let msg = String(payload?.message ?? "").trim();
+  let msg = String(
+    (payload as Record<string, unknown> | undefined)?.message
+    ?? (payload as Record<string, unknown> | undefined)?.assistantMessage
+    ?? "",
+  ).trim();
   let assignment = isPlainObject(payload?.assignment) ? payload?.assignment as Record<string, unknown> : undefined;
 
   const payloadDraft = isPlainObject(payload?.draft)
@@ -266,6 +282,23 @@ export async function runOrchestrator(
   let draft: Record<string, unknown> | undefined = savedDraft ?? payloadDraft;
   if (draft) {
     draft = stabilizeDraftTaskIds(draft, previousDraft);
+  }
+
+  const msgBeforeRecover = msg;
+  msg = recoverOrchestratorUserMessage({
+    message: msg,
+    rawContent: response.rawContent,
+    lastAssistantContent: response.lastAssistantContent,
+    toolInvocationNames,
+    draft,
+  });
+  if (!msgBeforeRecover && msg) {
+    logStructured({
+      event: "orchestrator_message_recovered",
+      traceId,
+      messageChars: msg.length,
+      toolCalls: toolInvocationNames?.slice(-5),
+    });
   }
 
   // 模型常把 token 全塞进 draft 导致 message 为空；补一段短摘要，避免钉钉只显示空行+表
@@ -281,8 +314,30 @@ export async function runOrchestrator(
   const messages: string[] = msg ? [msg] : [];
 
   const fallbackStartedAt = Date.now();
-  let draftFallbackOutcome: "skipped" | "triggered_ok" | "triggered_failed" = "skipped";
-  if (!draft && readDraftFallbackEnabled() && msg && looksLikeTaskDraftMessage(msg)) {
+  let draftFallbackOutcome:
+    | "skipped"
+    | "skipped_session_after_prepare"
+    | "triggered_ok"
+    | "triggered_failed" = "skipped";
+  const toolsCalled = toolInvocationNames ?? [];
+  const sessionDraftAfterTools = config.currentSession?.latestDraft;
+  const sessionDraftTasks = Array.isArray(
+    (sessionDraftAfterTools as { tasks?: unknown[] } | undefined)?.tasks,
+  )
+    ? (sessionDraftAfterTools as { tasks: unknown[] }).tasks
+    : [];
+  if (
+    !draft
+    && toolsCalled.includes("prepare_publish_task")
+    && sessionDraftAfterTools
+    && sessionDraftTasks.length > 0
+  ) {
+    draft = stabilizeDraftTaskIds(
+      sessionDraftAfterTools as Record<string, unknown>,
+      previousDraft,
+    );
+    draftFallbackOutcome = "skipped_session_after_prepare";
+  } else if (!draft && readDraftFallbackEnabled() && msg && looksLikeTaskDraftMessage(msg)) {
     draftFallbackOutcome = "triggered_failed";
     const fallbackDraft =
       (await extractStructuredDraftFromMessage({
@@ -305,7 +360,11 @@ export async function runOrchestrator(
       draftFallbackOutcome = "triggered_ok";
     }
   }
-  if (draftFallbackOutcome === "triggered_ok" || draftFallbackOutcome === "triggered_failed") {
+  if (
+    draftFallbackOutcome === "triggered_ok"
+    || draftFallbackOutcome === "triggered_failed"
+    || draftFallbackOutcome === "skipped_session_after_prepare"
+  ) {
     logStructured({
       event: "draft_fallback_extracted",
       traceId,

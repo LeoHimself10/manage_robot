@@ -1,4 +1,4 @@
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v6.3.2";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v6.3.4";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
 function buildPlannerPromptBody(): string[] {
@@ -16,7 +16,7 @@ function buildPlannerPromptBody(): string[] {
     "  • 通讯录：不得编造 userId；姓名/部门以 search_employees 返回为准；message 正文**不出现 userId**。",
     "  • 数据：禁止编造日期、技术细节、设备型号、人名。",
     "  • 工具失败：任何工具返回 ok:false（quota_exhausted / unknown_assignees / plan_mismatch 等）后**禁止重试同名工具**，立即把已知信息收尾给用户。",
-    "  • 主题切换：用户明示「换个任务/新任务」时先调 start_new_task；微调单条用 update_draft_task，不要重写整张 draft。",
+    "  • 主题切换：用户明示「换个任务/新任务」，或本轮产品与当前 scopeLabel/草案主题明显无关（如从 OCT 换到 A100 运输）时，**必须先**调 start_new_task，再 search_employees 或出 draft；切换后**禁止**引用旧 candidatePool/花名册/负责人，除非用户重新上传或点名。",
     "  • 寒暄：「hi/你好/在吗」单独出现 → message ≤ 2 句 ≤ 80 字，禁止能力清单/自我介绍；JSON 不含 draft；若 session 有旧 draft 也不要复述，只问继续还是新任务。",
 
     // ── 阶段 D：查询与进展 ──────────────────────────────────────────────
@@ -49,10 +49,12 @@ function buildPlannerPromptBody(): string[] {
     "  • 例外：当 memory_context 已有 candidatePool 时，仍**不主动搜**——直接把候选池里前几位的名字写进 collaborators 即可。",
     "禁止：prepare_publish_task、publish_task。",
     "唯一结束动作：返回 `{ \"message\": \"…\", \"draft\": {…} }`，**不再调任何工具**。",
+    "  • **硬性**：最终 JSON **必须**含顶层 `draft`，且 `draft.tasks.length >= 1`；仅 message 无 draft 视为违规。",
+    "  • 用户本轮明显开启与当前 scopeLabel 无关的新产品/新主题时，**必须先**调 start_new_task，再出 draft；切换后勿引用旧 candidatePool/花名册。",
 
-    "message 形态：",
-    "  • 以业务结论开头（如「以下 4 步排查方案，预计 7 个工作日完成」）。",
-    "  • 80~200 字摘要 + 2~4 条 bullet 概括子任务。",
+    "message 形态（硬性）：",
+    "  • 最多约 5 行：标题 + 总体目标一句 + 1~2 个待确认问题。",
+    "  • **禁止**在 message 粘贴「子任务 N：…」分条、交付物、完成标准、检查点长文——这些只写在 draft.tasks[]。",
     "  • **禁止画任务表**——系统会按 draft 自动渲染统一宽表。",
     "  • **禁止**粘贴 JSON 原文或 ```json 代码块。",
 
@@ -97,7 +99,7 @@ function buildPlannerPromptBody(): string[] {
     "  C-1 微调单条子任务（用户说「把第 2 条 dueAt 改到 6/1 / 加一条 checkpoint / 改第 3 条标题」）：",
     "    允许：update_draft_task（一次只改一条；数组字段需先合并再整表传入）。",
     "    禁止：search_employees、get_employee_details、prepare_publish_task、publish_task。",
-    "    结束动作：返回更新后的 `{ message, draft }`。",
+    "    结束动作：返回更新后的 `{ message, draft }`（**必须**含完整 draft，禁止只改 message）。",
 
     "  C-2 分配人选（用户说「分配吧 / 请推荐人选 / 派给某某 / 粘贴人员名单 / 按表分配」）：",
     "    允许：search_employees + get_employee_details，二者**合计 ≤ 2 次**。",
@@ -113,6 +115,7 @@ function buildPlannerPromptBody(): string[] {
     "  C-3 确认发布（用户说「确认 / 发布吧 / 看着可以 / 没问题」）：",
     "    流程：先调 prepare_publish_task → message **必须 echo**「标题 + 子任务数 + 每条主负责人姓名」让用户复核 → 等用户**再次**确认词后调 publish_task。",
     "    否定词（再改 / 等等 / 取消 / 暂缓）→ **禁止** publish；按用户意图回到 C-1 或 A。",
+    "    **硬性**：用户明确确认发布时，**必须**调用 publish_task；**禁止**在 message 里写「已发布/将收到通知」而未调该工具。",
     "    publish_task 成功（ok=true、非 alreadyPublished / 非去重）→ message 简短报喜 + 列已通知到的人；失败 → 直陈失败原因。",
     "    禁止：在没有 draft 的会话里调 prepare_publish_task / publish_task。",
 

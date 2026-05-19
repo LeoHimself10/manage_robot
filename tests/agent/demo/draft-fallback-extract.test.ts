@@ -47,6 +47,23 @@ describe("draft-fallback-extract", () => {
     expect(looksLikeTaskDraftMessage("你好")).toBe(false);
   });
 
+  it("looksLikeTaskDraftMessage detects 以下是针对 + 子任务 prose (OCT trace pattern)", () => {
+    const md = [
+      "以下是针对 A100 OCT 导管运输的整改草案。",
+      "",
+      "子任务 1：运输前检查",
+      "负责人：待定",
+      "交付物：检查清单",
+      "完成标准：全部项通过",
+      "",
+      "子任务 2：途中监控",
+      "交付物：温度记录",
+      ...Array.from({ length: 20 }, (_, i) => `细节行 ${i + 1}`),
+    ].join("\n");
+    expect(md.length).toBeGreaterThan(200);
+    expect(looksLikeTaskDraftMessage(md)).toBe(true);
+  });
+
   it("looksLikeTaskDraftMessage matches 行动草案 headings without Markdown table", () => {
     const md = [
       "以下是为您规划的分析与行动草案：",

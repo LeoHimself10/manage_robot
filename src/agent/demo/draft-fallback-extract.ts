@@ -28,6 +28,9 @@ export function looksLikeTaskDraftMessage(markdown: string): boolean {
     && !/\|/.test(s);
   if (shortArchiveEcho) return false;
 
+  if (/子任务\s*\d+\s*[：:]/.test(s) && s.length > 200) return true;
+  if (/以下是针对/.test(s) && /子任务/.test(s)) return true;
+
   let score = 0;
   if (/任务草案|草案预览|行动草案|子任务|任务分配|负责人|拆解|待派发/.test(s)) score += 1;
   if (/\|\s*(ID|子任务|任务|负责人|截止)/i.test(s)) score += 1;

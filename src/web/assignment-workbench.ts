@@ -11,6 +11,7 @@ import {
   createPlanSessionStore,
   hashChatKey,
   resolvePlanSessionDir,
+  startNewTaskScope,
   type PlanSession,
 } from "../infra/plan-session-store";
 import {
@@ -64,6 +65,11 @@ import {
 import { renderEmployeeWorkbenchPage } from "./employee-workbench-pages";
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { logStructured } from "../infra/logger";
+import {
+  deriveNewTaskScopeLabel,
+  hasPlanScopedContextToClear,
+  isExplicitNewTaskRequest,
+} from "../agent/new-task-intent";
 
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
@@ -3297,7 +3303,38 @@ export function handleAssignmentHttp(
           planId,
           userId: session.userId,
         });
-        const memoryContext = loadMemoryContextForPlan(planId);
+        if (
+          isExplicitNewTaskRequest(message) &&
+          hasPlanScopedContextToClear(target)
+        ) {
+          const fromPlanId = target.planId;
+          const switchResult = startNewTaskScope(target, {
+            scopeLabel: deriveNewTaskScopeLabel(message),
+            reason: "preclear_explicit_new_task",
+          });
+          planSessionStore.save(target);
+          planSessionStore.appendEvent({
+            planId: target.planId,
+            chatKeyHash: target.chatKeyHash,
+            eventType: "explicit_new_task_precleared",
+            payload: {
+              fromPlanId,
+              toPlanId: target.planId,
+              fromScopeId: switchResult.fromScopeId,
+              toScopeId: switchResult.toScopeId,
+              actorUserId: session.userId,
+            },
+          });
+          logStructured({
+            event: "explicit_new_task_precleared",
+            fromPlanId,
+            toPlanId: target.planId,
+            actorUserId: session.userId,
+            clearedHistoryEntries: switchResult.clearedHistoryEntries,
+          });
+        }
+        const activePlanId = target.planId;
+        const memoryContext = loadMemoryContextForPlan(activePlanId);
         let mutableKnownFacts = [...(target.knownFacts ?? [])];
         const knownFactsStore: KnownFactsStore = {
           get: () => mutableKnownFacts,
@@ -3381,14 +3418,14 @@ export function handleAssignmentHttp(
             {
               occurredAt: new Date().toISOString(),
               eventType: "MANAGER_AGENT_CHAT",
-              planId,
+              planId: activePlanId,
               traceId: orch.traceId,
               messageChars: message.length,
             },
           ].slice(-60),
         });
         planSessionStore.appendEvent({
-          planId,
+          planId: activePlanId,
           chatKeyHash: target.chatKeyHash,
           eventType: "manager_agent_chat",
           payload: {
@@ -3399,7 +3436,7 @@ export function handleAssignmentHttp(
           },
         });
         appendMemoryEvents({
-          planId,
+          planId: activePlanId,
           userMessage: message,
           assistantMessage,
           latestDraft: orch.draft ?? target.latestDraft,
@@ -3413,7 +3450,7 @@ export function handleAssignmentHttp(
         }).catch(() => {});
         writeJson(res, 200, {
           ok: true,
-          planId,
+          planId: activePlanId,
           traceId: orch.traceId,
           assistantMessage,
           hasDraft: !!orch.draft,

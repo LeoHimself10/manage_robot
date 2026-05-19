@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   appendPublishSummaryMarkdown,
+  appendUnifiedDraftTableToOutbound,
   renderDraftSupplementSection,
   shouldUseAnonymousSession,
 } from "../src/dingtalk-bot";
@@ -117,6 +118,38 @@ describe("dingtalk bot helpers", () => {
     expect(markdown).toContain("| # | 任务 | 负责人 | 开始 | 截止 | 依赖 |");
     expect(markdown).toContain("杨楚榛");
     expect(markdown).toContain("### 任务详情（宽表）");
+  });
+
+  it("appendUnifiedDraftTableToOutbound appends wide table for session draft", () => {
+    const out = appendUnifiedDraftTableToOutbound(
+      "已将负责人调整为杨贺新，请确认是否发布？",
+      {
+        title: "OCT 1210",
+        objective: "目标",
+        background: "背景",
+        tasks: [
+          {
+            id: "t1",
+            title: "子任务A",
+            assigneeUserId: "u1",
+            assigneeDisplayName: "杨贺新",
+            objective: "o1",
+            deliverables: ["d1"],
+            completionCriteria: ["c1"],
+            dependencyTaskIds: [],
+            timeNode: { startAt: "2026-05-19", dueAt: "2026-05-21", checkpoints: [] },
+            risksAndOpenQuestions: [],
+            inputMaterials: [],
+            actions: [],
+            collaborators: [],
+            scope: { inScope: [], outOfScope: [] },
+          },
+        ],
+      },
+      () => "杨贺新",
+    );
+    expect(out).toContain("### 分配结果（简表）");
+    expect(out).toContain("杨贺新");
   });
 
   it("looksLikeTaskDraftMessage matches multi-signal markdown", () => {
