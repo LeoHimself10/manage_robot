@@ -57,7 +57,8 @@ describe("dingtalk bot helpers", () => {
 
   it("renders deterministic structured draft preview with rich fields", () => {
     const markdown = renderDraftSupplementSection({
-      description: "任务整体背景",
+      objective: "任务整体目标",
+      background: "任务整体背景",
       tasks: [
         {
           id: "task_1",
@@ -67,7 +68,7 @@ describe("dingtalk bot helpers", () => {
           completionCriteria: ["标准A"],
           feedbackFrequency: "每日",
           dependencyTaskIds: ["task_0"],
-          timeNode: { dueAt: "2026-06-01", checkpoints: ["里程碑1"] },
+          timeNode: { startAt: "2026-05-20", dueAt: "2026-06-01", checkpoints: ["里程碑1"] },
           risksAndOpenQuestions: ["风险A"],
           inputMaterials: ["输入A"],
           actions: ["动作A"],
@@ -77,8 +78,9 @@ describe("dingtalk bot helpers", () => {
       ],
     });
     expect(markdown).toContain("### 任务草案（结构化字段）");
-    expect(markdown).toContain("| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |");
-    expect(markdown).toContain("任务背景");
+    expect(markdown).toContain("| # | 任务 | 开始 | 截止 | 依赖 |");
+    expect(markdown).toContain("任务目标");
+    expect(markdown).toContain("触发背景");
     expect(markdown).toContain("输入材料");
     expect(markdown).toContain("执行动作");
     expect(markdown).toContain("协作人");

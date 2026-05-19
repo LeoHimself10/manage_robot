@@ -32,6 +32,8 @@ export interface OrchestratorTask {
   deliverables: string[];
   completionCriteria: string[];
   timeNode: {
+    /** 计划开始日期；有依赖或多阶段时必填 */
+    startAt?: string;
     dueAt: string;
     checkpoints: string[];
   };

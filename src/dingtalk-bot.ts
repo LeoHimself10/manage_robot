@@ -116,10 +116,14 @@ export function renderDraftSupplementSection(draft: unknown): string {
     const timeNode = (t?.timeNode ?? {}) as Record<string, unknown>;
     const checkpoints = Array.isArray(timeNode.checkpoints) ? (timeNode.checkpoints as unknown[]) : [];
     const risks = Array.isArray(t?.risksAndOpenQuestions) ? (t.risksAndOpenQuestions as unknown[]) : [];
+    const startAt = String(timeNode?.startAt ?? t?.startAt ?? "").trim() || "待确认";
     const dueAt = String(timeNode?.dueAt ?? t?.dueAt ?? "").trim() || "待确认";
     const feedbackFrequency = String(t?.feedbackFrequency ?? "").trim() || "待确认";
+    const depLabel = deps.length
+      ? deps.map((d) => String(d ?? "").trim()).filter(Boolean).join("；")
+      : "-";
     tableRows.push(
-      `| ${idx + 1} | ${title} | ${taskObjective || "-"} | ${deliverables || "-"} | ${completionCriteria || "-"} | ${dueAt} | ${feedbackFrequency} |`,
+      `| ${idx + 1} | ${title} | ${startAt} | ${dueAt} | ${depLabel} |`,
     );
     const inputMaterials = listField(t?.inputMaterials);
     const actions = listField(t?.actions);
@@ -138,6 +142,12 @@ export function renderDraftSupplementSection(draft: unknown): string {
       || Boolean(outOfScope);
     if (!hasAnyDetail) return;
     const block: string[] = [`**${idx + 1}. ${title}**`];
+    if (taskObjective) block.push(`- 目标：${taskObjective}`);
+    if (deliverables) block.push(`- 交付物：${deliverables}`);
+    if (completionCriteria) block.push(`- 完成标准：${completionCriteria}`);
+    if (startAt && startAt !== "待确认") block.push(`- 开始：${startAt}`);
+    if (dueAt && dueAt !== "待确认") block.push(`- 截止：${dueAt}`);
+    if (feedbackFrequency && feedbackFrequency !== "待确认") block.push(`- 反馈频率：${feedbackFrequency}`);
     if (inputMaterials) block.push(`- 输入材料：${inputMaterials}`);
     if (actions) block.push(`- 执行动作：${actions}`);
     if (collaborators) block.push(`- 协作人：${collaborators}`);
@@ -166,7 +176,7 @@ export function renderDraftSupplementSection(draft: unknown): string {
   const sections = ["### 任务草案（结构化字段）"];
   if (tableRows.length) {
     sections.push(
-      "| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |\n|---|---|---|---|---|---|---|\n" + tableRows.join("\n"),
+      "| # | 任务 | 开始 | 截止 | 依赖 |\n|---|---|---|---|---|\n" + tableRows.join("\n"),
     );
   }
   sections.push("### 任务补充信息");
@@ -841,30 +851,25 @@ async function main(): Promise<void> {
 
         const snapshotPlanId = session.planId;
         let currentDraft = orchResult.draft ?? session.latestDraft;
-        // Markdown→draft 二次抽取已在 runOrchestrator 内统一执行（见 draft_fallback_extract 日志）。
-
-        // 仅在本轮模型产出草案（含 Markdown→draft 兜底抽取）时，才渲染结构化任务表与「任务补充信息」。
-        // 否则会把上一任务的 description / 子任务直接拼回 markdown，造成串台。
         const freshDraft = orchResult.draft;
 
-        // 长期记忆：有草案时自动存快照+embedding
-        if (currentDraft && !isAnonymousSender) {
+        // 长期记忆：仅在本轮产出新 draft 时存快照
+        if (freshDraft && !isAnonymousSender) {
           savePlanSnapshot(snapshotPlanId, {
             planId: snapshotPlanId,
             traceId: orchResult.traceId,
             status: "DRAFT_READY",
-            draft: currentDraft,
+            draft: freshDraft,
             messagePreview: orchResult.messages[0]?.slice(0, 500),
           });
           savePlanSnapshot(orchResult.traceId, {
             traceId: orchResult.traceId,
             status: "DRAFT_READY",
-            draft: currentDraft,
+            draft: freshDraft,
             messagePreview: orchResult.messages[0]?.slice(0, 500),
           });
-          // 生成 embedding 用于未来相似任务检索
           if (readSearchSimilarPlansEnabled()) {
-            const summary = `领域:${(currentDraft as any)?.classification?.domain ?? "未知"} 子类型:${(currentDraft as any)?.classification?.subtype ?? "未知"}`;
+            const summary = String((freshDraft as { title?: unknown }).title ?? "").trim() || "任务草案";
             generateQueryEmbedding(summary).then((emb) => {
               if (emb) {
                 savePlanEmbedding(orchResult.traceId, summary, emb);
@@ -1036,7 +1041,7 @@ async function main(): Promise<void> {
           traceId: orchResult.traceId,
           messageId,
           selectedProfile,
-          hasDraft: currentDraft !== undefined,
+          hasDraft: freshDraft !== undefined,
           hasAssignmentSection: assignmentSection.length > 0,
           orchestratorMs,
           assignmentMs,

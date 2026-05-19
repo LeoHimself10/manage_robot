@@ -69,6 +69,7 @@ function normalizeTask(raw: unknown, index: number): OrchestratorTask {
     deliverables: normalizeStringArray(r.deliverables),
     completionCriteria: normalizeStringArray(r.completionCriteria),
     timeNode: {
+      startAt: String(timeNodeRaw.startAt ?? r.startAt ?? "").trim() || undefined,
       dueAt: String(timeNodeRaw.dueAt ?? r.dueAt ?? "待确认").trim() || "待确认",
       checkpoints: normalizeStringArray(timeNodeRaw.checkpoints),
     },
@@ -124,7 +125,7 @@ export async function extractStructuredDraftFromMessage(
     '  "inputMaterials": string[], "actions": string[], "collaborators": string[],',
     '  "scope": { "inScope": string[], "outOfScope": string[] },',
     '  "dependencyTaskIds": string[], "risksAndOpenQuestions": string[],',
-    '  "timeNode": { "dueAt": string, "checkpoints": string[] },',
+    '  "timeNode": { "startAt": string, "dueAt": string, "checkpoints": string[] },',
     '  "feedbackFrequency": string',
     "} ] }",
     "未识别到的数组字段给 []；字符串缺失给 \"\"；dueAt 缺失给 \"待确认\"；feedbackFrequency 缺失给 \"待确认\"。",
