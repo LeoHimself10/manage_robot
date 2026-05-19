@@ -495,6 +495,15 @@ function normalizeTasks(input: unknown): TaskPackage[] {
     .filter((task): task is TaskPackage => task !== null);
 }
 
+function parseScopeFromRaw(raw: unknown): import("../../domain/task-package").TaskScope | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const inScope = normalizeStringArray(obj.inScope);
+  const outOfScope = normalizeStringArray(obj.outOfScope);
+  if (inScope.length === 0 && outOfScope.length === 0) return undefined;
+  return { inScope, outOfScope };
+}
+
 function normalizeTask(input: unknown, index: number): TaskPackage | null {
   if (!input || typeof input !== "object") return null;
   const candidate = input as Record<string, unknown>;
@@ -508,11 +517,17 @@ function normalizeTask(input: unknown, index: number): TaskPackage | null {
     : normalizeStringArray(candidate.dependencies);
   const owner = asString(candidate.owner);
 
+  // collaborators: use model's array when provided (multi-person), fall back to owner only
+  const arrFromCandidate = normalizeStringArray(candidate.collaborators);
+  const collaborators = arrFromCandidate.length > 0
+    ? arrFromCandidate
+    : (owner ? [owner] : []);
+
   return {
     id: asString(candidate.id),
     title: asString(candidate.title),
     objective: asString(candidate.objective),
-    collaborators: owner ? [owner] : [],
+    collaborators,
     inputMaterials: normalizeStringArray(candidate.inputMaterials),
     actions: normalizeStringArray(candidate.actions),
     deliverables: normalizeStringArray(candidate.deliverables),
@@ -524,6 +539,7 @@ function normalizeTask(input: unknown, index: number): TaskPackage | null {
     feedbackFrequency: asString(candidate.feedbackFrequency),
     risksAndOpenQuestions: normalizeStringArray(candidate.risksAndOpenQuestions),
     dependencyTaskIds: dependencies,
+    scope: parseScopeFromRaw(candidate.scope),
   };
 }
 

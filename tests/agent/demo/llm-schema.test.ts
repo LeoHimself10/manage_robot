@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { CAPA_DISCLAIMER } from "../../../src/domain/capa";
 import {
   coerceLlmPlanPayload,
@@ -597,5 +597,86 @@ describe("clarificationUx", () => {
     );
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes("clarificationUx"))).toBe(true);
+  });
+});
+
+describe("coerceLlmPlanPayload - scope and collaborators passthrough", () => {
+  it("passes scope.inScope and outOfScope through normalizeTask", () => {
+    const result = coerceLlmPlanPayload({
+      classification: {
+        domain: "QUALITY",
+        subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+        confidence: "HIGH",
+        rationale: [],
+        missingInformation: [],
+      },
+      tasks: [
+        {
+          id: "task_1",
+          title: "test task",
+          objective: "obj",
+          scope: { inScope: ["A"], outOfScope: ["B"] },
+        },
+      ],
+    });
+    expect(result.tasks[0].scope).toEqual({ inScope: ["A"], outOfScope: ["B"] });
+  });
+
+  it("returns undefined scope when scope is empty object", () => {
+    const result = coerceLlmPlanPayload({
+      classification: {
+        domain: "QUALITY",
+        subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+        confidence: "HIGH",
+        rationale: [],
+        missingInformation: [],
+      },
+      tasks: [{ id: "task_1", title: "t", objective: "o", scope: {} }],
+    });
+    expect(result.tasks[0].scope).toBeUndefined();
+  });
+
+  it("uses collaborators array when provided, does not reduce to owner alone", () => {
+    const result = coerceLlmPlanPayload({
+      classification: {
+        domain: "QUALITY",
+        subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+        confidence: "HIGH",
+        rationale: [],
+        missingInformation: [],
+      },
+      tasks: [
+        {
+          id: "task_1",
+          title: "t",
+          objective: "o",
+          owner: "zhang san",
+          collaborators: ["li si", "wang wu"],
+        },
+      ],
+    });
+    expect(result.tasks[0].collaborators).toEqual(["li si", "wang wu"]);
+  });
+
+  it("falls back to owner when collaborators array is empty", () => {
+    const result = coerceLlmPlanPayload({
+      classification: {
+        domain: "QUALITY",
+        subtype: "PRODUCTION_PROCESS_ABNORMALITY",
+        confidence: "HIGH",
+        rationale: [],
+        missingInformation: [],
+      },
+      tasks: [
+        {
+          id: "task_1",
+          title: "t",
+          objective: "o",
+          owner: "zhang san",
+          collaborators: [],
+        },
+      ],
+    });
+    expect(result.tasks[0].collaborators).toEqual(["zhang san"]);
   });
 });
