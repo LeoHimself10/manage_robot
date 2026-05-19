@@ -20,6 +20,20 @@ export interface SearchEmployeesResult {
   poolConstrained?: boolean;
 }
 
+/**
+ * 单次 orchestrator 调用内 `search_employees` + `get_employee_details` 的合并配额状态。
+ * 同一 orchestrator 调用里创建一次（registry 里），传给两个 handler 共享计数；
+ * 任一工具命中 quota 上限即终止两者，避免「换关键词反复搜 → 编排超轮」。
+ */
+export interface SearchQuotaState {
+  count: number;
+  quota: number;
+}
+
+export function createSearchQuotaState(): SearchQuotaState {
+  return { count: 0, quota: searchEmployeesPerOrchestratorQuota() };
+}
+
 export interface SearchEmployeesHandlerContext {
   /** Current actor (e.g. DingTalk sender) for local-department boost */
   actorUserId?: string;
@@ -30,6 +44,16 @@ export interface SearchEmployeesHandlerContext {
    * （目的：硬约束本 plan 只能在主管圈定的人里挑。）
    */
   candidatePool?: () => Array<{ userId: string; displayName: string; fileNotes?: string }>;
+  /**
+   * 与 `get_employee_details` 共享的配额状态。registry 在每次 orchestrator 调用开头创建一次并同时传给两个 handler。
+   * 不提供时，handler 自建独立状态（保持旧的"按 handler 实例独立计数"行为，方便单测/独立调用）。
+   */
+  quotaState?: SearchQuotaState;
+}
+
+export interface GetEmployeeDetailsHandlerContext {
+  /** 与 `search_employees` 共享的配额状态（见 SearchQuotaState）。 */
+  quotaState?: SearchQuotaState;
 }
 
 const MAX_LOCAL_FIRST = 15;
@@ -220,10 +244,34 @@ function recordFromContactOnly(row: DingTalkContactRow): EmployeeProfileRecord {
   };
 }
 
-export function buildGetEmployeeDetailsHandler(repo: {
-  get(userId: string): EmployeeProfileRecord | undefined;
-}): ToolHandler {
-  return (args: Record<string, unknown>) => {
+export function buildGetEmployeeDetailsHandler(
+  repo: {
+    get(userId: string): EmployeeProfileRecord | undefined;
+  },
+  ctx: GetEmployeeDetailsHandlerContext = {},
+): ToolHandler {
+  return (args: Record<string, unknown>):
+    | { employees: string[]; note?: string }
+    | {
+        ok: false;
+        reason: "get_employee_details_quota_exhausted";
+        callCount: number;
+        quota: number;
+        hint: string;
+      } => {
+    if (ctx.quotaState) {
+      ctx.quotaState.count += 1;
+      if (ctx.quotaState.count > ctx.quotaState.quota) {
+        return {
+          ok: false,
+          reason: "get_employee_details_quota_exhausted",
+          callCount: ctx.quotaState.count,
+          quota: ctx.quotaState.quota,
+          hint:
+            `通讯录「按条件找人/拉画像」在本轮对话里已用到上限（${ctx.quotaState.quota} 次合并）。请用已经掌握的候选人完成本轮回复，或请用户点名指定要指派谁；不要再发起同类查找。`,
+        };
+      }
+    }
     const raw = args.userIds;
     const userIds = Array.isArray(raw)
       ? raw.map((id) => String(id ?? "").trim()).filter(Boolean).slice(0, 8)
@@ -247,10 +295,9 @@ export function buildSearchEmployeesHandler(
   },
   ctx: SearchEmployeesHandlerContext = {},
 ): ToolHandler {
-  // 每个 handler 实例（=每次 orchestrator 调用）维护独立计数。
-  // 模型连续反复换参数搜索时，第 N 次起强制截断，避免 max iterations / token budget 爆栈。
-  let callCount = 0;
-  const quota = searchEmployeesPerOrchestratorQuota();
+  // 配额状态：若 ctx.quotaState 提供则共享（与 get_employee_details 合并计数）；
+  // 不提供时退化为"本 handler 实例独立计数"，保持单测 / 独立调用语义。
+  const state = ctx.quotaState ?? createSearchQuotaState();
 
   return (args: Record<string, unknown>): SearchEmployeesResult | {
     ok: false;
@@ -259,15 +306,15 @@ export function buildSearchEmployeesHandler(
     quota: number;
     hint: string;
   } => {
-    callCount += 1;
-    if (callCount > quota) {
+    state.count += 1;
+    if (state.count > state.quota) {
       return {
         ok: false,
         reason: "search_employees_quota_exhausted",
-        callCount,
-        quota,
+        callCount: state.count,
+        quota: state.quota,
         hint:
-          `通讯录「按条件找人」在本轮对话里已用到上限（${quota} 次），请不要再发起同类查找。请根据已列出的候选人，用**姓名（部门）**请用户明确指定要指派谁；若信息仍不足，请用户补充**具体全名**或缩小范围，不要向用户提及技术词或内部编号。`,
+          `通讯录「按条件找人/拉画像」在本轮对话里已用到上限（${state.quota} 次合并）。请不要再发起同类查找；请用已列出的候选人，用姓名（部门）让用户点名要指派谁；若信息仍不足，请用户补充具体全名或缩小范围。`,
       };
     }
     const typed = args as unknown as SearchEmployeesArgs;

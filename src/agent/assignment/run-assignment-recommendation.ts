@@ -14,6 +14,7 @@ import {
   SEARCH_EMPLOYEES_TOOL,
   GET_EMPLOYEE_DETAILS_TOOL,
   buildSearchEmployeesHandler,
+  createSearchQuotaState,
   buildGetEmployeeDetailsHandler,
 } from "./tools/search-employees";
 
@@ -62,10 +63,14 @@ export async function runAssignmentRecommendation(
   const getFn = (userId: string) =>
     deps.employeeRepo.get?.(userId) ?? listFn().find((e) => e.userId === userId);
   const employeeRepoResolved = { list: listFn, get: getFn };
+  const sharedQuota = createSearchQuotaState();
   const searchHandler = buildSearchEmployeesHandler(employeeRepoResolved, {
     actorUserId: deps.actorUserId,
+    quotaState: sharedQuota,
   });
-  const detailsHandler = buildGetEmployeeDetailsHandler(employeeRepoResolved);
+  const detailsHandler = buildGetEmployeeDetailsHandler(employeeRepoResolved, {
+    quotaState: sharedQuota,
+  });
   const assignmentTools = [SEARCH_EMPLOYEES_TOOL, GET_EMPLOYEE_DETAILS_TOOL];
   const assignmentToolHandlers = {
     search_employees: searchHandler,

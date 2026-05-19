@@ -4,6 +4,7 @@ import {
   GET_EMPLOYEE_DETAILS_TOOL,
   buildSearchEmployeesHandler,
   buildGetEmployeeDetailsHandler,
+  createSearchQuotaState,
 } from "../assignment/tools/search-employees";
 import type { EmployeeProfileRecord } from "../../integrations/repos/employee-profile-repo";
 import { SEARCH_WEB_TOOL, buildSearchWebHandler } from "./search-web";
@@ -171,17 +172,24 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     getContact: (userId: string) => peopleStore.getContact(userId),
   };
 
+  // search_employees + get_employee_details 共享一份"本次 orchestrator 调用内"的合并配额，
+  // 避免模型反复换关键词搜人导致编排超轮（任一命中上限即拒绝两者）。
+  const searchQuotaState = createSearchQuotaState();
+
   const all: Record<string, ToolRegistryEntry> = {
     search_employees: {
       definition: SEARCH_EMPLOYEES_TOOL,
       handler: buildSearchEmployeesHandler(employeeRepoResolved, {
         actorUserId: trustedActor,
         candidatePool: candidatePoolReader,
+        quotaState: searchQuotaState,
       }),
     },
     get_employee_details: {
       definition: GET_EMPLOYEE_DETAILS_TOOL,
-      handler: buildGetEmployeeDetailsHandler(employeeRepoResolved),
+      handler: buildGetEmployeeDetailsHandler(employeeRepoResolved, {
+        quotaState: searchQuotaState,
+      }),
     },
     read_uploaded_roster_text: {
       definition: READ_UPLOADED_ROSTER_TEXT_TOOL,

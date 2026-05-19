@@ -6,6 +6,7 @@ import {
   compressProfile,
   compressProfileBrief,
   compressProfileFull,
+  createSearchQuotaState,
   SEARCH_EMPLOYEES_TOOL,
 } from "../../../../src/agent/assignment/tools/search-employees";
 
@@ -246,5 +247,34 @@ describe("buildSearchEmployeesHandler", () => {
     const fresh = h2({}) as Record<string, unknown>;
     expect(fresh.ok).toBeUndefined();
     expect(fresh.total).toBe(5);
+  });
+
+  it("shares quota across search_employees and get_employee_details when state is shared", () => {
+    const repoBoth = repoWithGet(PROFILES);
+    const shared = createSearchQuotaState();
+    const search = buildSearchEmployeesHandler(repoBoth, { quotaState: shared });
+    const details = buildGetEmployeeDetailsHandler(repoBoth, { quotaState: shared });
+
+    // 默认 quota=3：3 次合并调用后第 4 次任一都会被拒。
+    search({});
+    details({ userIds: ["emp_qa_001"] });
+    search({});
+    const exhaustedSearch = search({}) as Record<string, unknown>;
+    expect(exhaustedSearch.ok).toBe(false);
+    expect(exhaustedSearch.reason).toBe("search_employees_quota_exhausted");
+    expect(String(exhaustedSearch.hint)).toContain("合并");
+
+    // 同一共享配额已满 → get_employee_details 也直接拒绝
+    const exhaustedDetails = details({ userIds: ["emp_qa_001"] }) as Record<string, unknown>;
+    expect(exhaustedDetails.ok).toBe(false);
+    expect(exhaustedDetails.reason).toBe("get_employee_details_quota_exhausted");
+  });
+
+  it("get_employee_details without shared quota has no per-call limit", () => {
+    const handler = buildGetEmployeeDetailsHandler(repoWithGet(PROFILES));
+    for (let i = 0; i < 10; i++) {
+      const r = handler({ userIds: ["emp_qa_001"] }) as Record<string, unknown>;
+      expect(r.ok).toBeUndefined();
+    }
   });
 });
