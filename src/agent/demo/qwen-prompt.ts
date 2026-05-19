@@ -1,4 +1,4 @@
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v6.2.1";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v6.2.2";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
 function buildPlannerPromptBody(): string[] {
@@ -28,6 +28,15 @@ function buildPlannerPromptBody(): string[] {
     "**publish 前 readback**：publish 前 message 须 echo 标题+子任务数+主负责人；确认词触发 publish；否定词禁止 publish。",
 
     "**userId 不入主消息**；**历史任务**须 list_managed_tasks + get_task_detail。",
+
+    "**工具一览（何时用；参数以 API 工具定义为准，此处不重复 schema）**：",
+    "  • 规划/记忆：start_new_task（换话题）、update_draft_task（改单条子任务）、update_known_facts / list_known_facts。",
+    "  • 搜人：search_employees（按姓名关键词）、get_employee_details（**仅**写 assignment 理由前需要画像时，追问阶段禁止）。",
+    "  • 发布：prepare_publish_task（暂存草案+指派，等主管确认）→ publish_task（确认词后才可调用）。",
+    "  • 已发布任务：list_managed_tasks → get_task_detail；改派 reassign_task。",
+    "  • 花名册：read_uploaded_roster_text → search_employees → set_candidate_pool。",
+    "  • 可选：search_similar_plans（对标历史计划）、search_web（**仅**用户明确要求联网）。",
+    "  • 时间：优先用 session 的 currentTimeIso；勿为排期单独调 get_current_time。",
 
   // ── 出草案流程（速度与结构）────────────────────────────────────────────
     "**正式出草案流程（必须按序）**：",
