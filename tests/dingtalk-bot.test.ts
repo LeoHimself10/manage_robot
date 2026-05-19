@@ -57,6 +57,7 @@ describe("dingtalk bot helpers", () => {
 
   it("renders deterministic structured draft preview with rich fields", () => {
     const markdown = renderDraftSupplementSection({
+      title: "OCT U盘稳定性排查",
       objective: "任务整体目标",
       background: "任务整体背景",
       tasks: [
@@ -77,18 +78,15 @@ describe("dingtalk bot helpers", () => {
         },
       ],
     });
-    expect(markdown).toContain("### 任务草案（结构化字段）");
-    expect(markdown).toContain("| # | 任务 | 开始 | 截止 | 依赖 |");
+    expect(markdown).toContain("### 任务草案");
+    expect(markdown).toContain("| # | 任务 | 开始 | 截止 | 依赖 | 目标 | 交付物 | 完成标准 | 输入材料 | 执行动作 | 协作人 | 范围内 | 范围外 | 风险 |");
     expect(markdown).toContain("任务目标");
     expect(markdown).toContain("触发背景");
-    expect(markdown).toContain("输入材料");
-    expect(markdown).toContain("执行动作");
-    expect(markdown).toContain("协作人");
-    expect(markdown).toContain("范围内");
-    expect(markdown).toContain("范围外");
-    expect(markdown).toContain("前置依赖");
-    expect(markdown).toContain("检查点");
-    expect(markdown).toContain("风险与待澄清");
+    expect(markdown).toContain("输入A");
+    expect(markdown).toContain("协作A");
+    expect(markdown).toContain("范围内A");
+    expect(markdown).not.toContain("### 任务补充信息");
+    expect(markdown).not.toContain("- 输入材料：");
   });
 
   it("looksLikeTaskDraftMessage matches multi-signal markdown", () => {

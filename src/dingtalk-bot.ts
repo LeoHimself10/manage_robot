@@ -23,6 +23,7 @@ import { createAssignmentEventRepo } from "./integrations/repos/assignment-event
 import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import { runOrchestrator } from "./agent/orchestrator";
+import { inferDraftTaskStartDates } from "./agent/demo/draft-schedule-infer";
 import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
@@ -73,115 +74,94 @@ function hasTaskTableInMessage(markdown: string): boolean {
 }
 
 /**
- * 把 draft.objective / draft.background / 每个 task 的详细字段
- * 渲染成一段「任务补充信息」追加到模型 markdown 之后。
+ * 从 draft 渲染给用户看的统一任务宽表（所有字段在一张表里，不再分条补充）。
  */
 function listField(values: unknown): string {
   if (!Array.isArray(values)) return "";
   return values.map((v) => String(v ?? "").trim()).filter(Boolean).join("；");
 }
 
+function tableCell(text: string, max = 72): string {
+  const s = String(text ?? "").trim().replace(/\|/g, "∣").replace(/\r?\n/g, " ");
+  if (!s || s === "待确认") return s === "待确认" ? "待确认" : "-";
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
 export function renderDraftSupplementSection(draft: unknown): string {
   if (!draft || typeof draft !== "object") return "";
   const root = draft as Record<string, unknown>;
-  // v6：优先用 objective + background；兜底用旧 description 字段（旧数据兼容）
   const objective = String(root.objective ?? "").trim();
   const background = String(root.background ?? "").trim();
-  const description = objective || String(root.description ?? "").trim();
+  const title = String(root.title ?? "").trim();
   const tasks = Array.isArray(root.tasks) ? (root.tasks as Array<Record<string, unknown>>) : [];
+  if (tasks.length === 0 && !objective && !background && !title) return "";
+
   const taskTitleById = new Map<string, string>();
   for (const t of tasks) {
     const id = String(t?.id ?? "").trim();
-    const title = String(t?.title ?? "").trim();
-    if (id) taskTitleById.set(id, title || id);
+    const tt = String(t?.title ?? "").trim();
+    if (id) taskTitleById.set(id, tt || id);
   }
-  const lines: string[] = [];
-  const tableRows: string[] = [];
+
+  const headerLines: string[] = [];
+  if (title) headerLines.push(`**${title}**`);
   if (objective) {
-    lines.push(`**任务目标**：${objective.length > 400 ? objective.slice(0, 400) + "…" : objective}`);
+    headerLines.push(`**任务目标**：${objective.length > 400 ? `${objective.slice(0, 400)}…` : objective}`);
   }
   if (background) {
-    lines.push(`**触发背景**：${background.length > 300 ? background.slice(0, 300) + "…" : background}`);
-  } else if (!objective && description) {
-    // 兜底：旧 draft 只有 description
-    lines.push(`**任务背景**：${description.length > 500 ? description.slice(0, 500) + "…" : description}`);
+    headerLines.push(`**触发背景**：${background.length > 300 ? `${background.slice(0, 300)}…` : background}`);
   }
-  const supplementBlocks: string[] = [];
+
+  const tableRows: string[] = [];
   tasks.forEach((t, idx) => {
-    const title = String(t?.title ?? "").trim() || `任务 ${idx + 1}`;
-    const taskObjective = String(t?.objective ?? "").trim();
-    const deliverables = listField(t?.deliverables);
-    const completionCriteria = listField(t?.completionCriteria);
-    const deps = Array.isArray(t?.dependencyTaskIds) ? (t.dependencyTaskIds as unknown[]) : [];
+    const taskTitle = String(t?.title ?? "").trim() || `任务 ${idx + 1}`;
     const timeNode = (t?.timeNode ?? {}) as Record<string, unknown>;
-    const checkpoints = Array.isArray(timeNode.checkpoints) ? (timeNode.checkpoints as unknown[]) : [];
-    const risks = Array.isArray(t?.risksAndOpenQuestions) ? (t.risksAndOpenQuestions as unknown[]) : [];
-    const startAt = String(timeNode?.startAt ?? t?.startAt ?? "").trim() || "待确认";
-    const dueAt = String(timeNode?.dueAt ?? t?.dueAt ?? "").trim() || "待确认";
-    const feedbackFrequency = String(t?.feedbackFrequency ?? "").trim() || "待确认";
-    const depLabel = deps.length
-      ? deps.map((d) => String(d ?? "").trim()).filter(Boolean).join("；")
-      : "-";
-    tableRows.push(
-      `| ${idx + 1} | ${title} | ${startAt} | ${dueAt} | ${depLabel} |`,
-    );
-    const inputMaterials = listField(t?.inputMaterials);
-    const actions = listField(t?.actions);
-    const collaborators = listField(t?.collaborators);
     const scope = (t?.scope ?? {}) as Record<string, unknown>;
-    const inScope = listField(scope?.inScope);
-    const outOfScope = listField(scope?.outOfScope);
-    const hasAnyDetail =
-      deps.length > 0
-      || checkpoints.length > 0
-      || risks.length > 0
-      || Boolean(inputMaterials)
-      || Boolean(actions)
-      || Boolean(collaborators)
-      || Boolean(inScope)
-      || Boolean(outOfScope);
-    if (!hasAnyDetail) return;
-    const block: string[] = [`**${idx + 1}. ${title}**`];
-    if (taskObjective) block.push(`- 目标：${taskObjective}`);
-    if (deliverables) block.push(`- 交付物：${deliverables}`);
-    if (completionCriteria) block.push(`- 完成标准：${completionCriteria}`);
-    if (startAt && startAt !== "待确认") block.push(`- 开始：${startAt}`);
-    if (dueAt && dueAt !== "待确认") block.push(`- 截止：${dueAt}`);
-    if (feedbackFrequency && feedbackFrequency !== "待确认") block.push(`- 反馈频率：${feedbackFrequency}`);
-    if (inputMaterials) block.push(`- 输入材料：${inputMaterials}`);
-    if (actions) block.push(`- 执行动作：${actions}`);
-    if (collaborators) block.push(`- 协作人：${collaborators}`);
-    if (inScope) block.push(`- 范围内：${inScope}`);
-    if (outOfScope) block.push(`- 范围外：${outOfScope}`);
-    if (deps.length) {
-      const rendered = deps
-        .map((d) => {
-          const id = String(d ?? "").trim();
-          const tt = taskTitleById.get(id);
-          return tt ? `${id}（${tt}）` : id;
-        })
-        .filter(Boolean)
-        .join("；");
-      if (rendered) block.push(`- 前置依赖：${rendered}`);
-    }
-    if (checkpoints.length) {
-      block.push(`- 检查点：${checkpoints.map((c) => String(c ?? "").trim()).filter(Boolean).join("；")}`);
-    }
-    if (risks.length) {
-      block.push(`- 风险与待澄清：${risks.map((r) => String(r ?? "").trim()).filter(Boolean).join("；")}`);
-    }
-    supplementBlocks.push(block.join("\n"));
+    const deps = Array.isArray(t?.dependencyTaskIds) ? (t.dependencyTaskIds as unknown[]) : [];
+    const depLabel = deps.length
+      ? deps
+          .map((d) => {
+            const id = String(d ?? "").trim();
+            const tt = taskTitleById.get(id);
+            return tt ? `${id}（${tt}）` : id;
+          })
+          .filter(Boolean)
+          .join("；")
+      : "-";
+    const startAt = String(timeNode.startAt ?? t.startAt ?? "").trim() || "-";
+    const dueAt = String(timeNode.dueAt ?? t.dueAt ?? "").trim() || "待确认";
+
+    tableRows.push(
+      `| ${[
+        idx + 1,
+        tableCell(taskTitle, 40),
+        tableCell(startAt, 12),
+        tableCell(dueAt, 12),
+        tableCell(depLabel, 36),
+        tableCell(String(t?.objective ?? ""), 48),
+        tableCell(listField(t?.deliverables), 48),
+        tableCell(listField(t?.completionCriteria), 48),
+        tableCell(listField(t?.inputMaterials), 40),
+        tableCell(listField(t?.actions), 40),
+        tableCell(listField(t?.collaborators), 32),
+        tableCell(listField(scope?.inScope), 40),
+        tableCell(listField(scope?.outOfScope), 40),
+        tableCell(listField(t?.risksAndOpenQuestions), 40),
+      ].join(" | ")} |`,
+    );
   });
-  if (lines.length === 0 && tableRows.length === 0 && supplementBlocks.length === 0) return "";
-  const sections = ["### 任务草案（结构化字段）"];
+
+  const sections: string[] = ["### 任务草案"];
+  if (headerLines.length) sections.push(headerLines.join("\n"));
   if (tableRows.length) {
     sections.push(
-      "| # | 任务 | 开始 | 截止 | 依赖 |\n|---|---|---|---|---|\n" + tableRows.join("\n"),
+      [
+        "| # | 任务 | 开始 | 截止 | 依赖 | 目标 | 交付物 | 完成标准 | 输入材料 | 执行动作 | 协作人 | 范围内 | 范围外 | 风险 |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        ...tableRows,
+      ].join("\n"),
     );
   }
-  sections.push("### 任务补充信息");
-  if (lines.length) sections.push(lines.join("\n"));
-  if (supplementBlocks.length) sections.push(supplementBlocks.join("\n\n"));
   return sections.join("\n\n");
 }
 
@@ -850,8 +830,13 @@ async function main(): Promise<void> {
         const orchestratorMs = Date.now() - orchestratorStartedAt;
 
         const snapshotPlanId = session.planId;
-        let currentDraft = orchResult.draft ?? session.latestDraft;
-        const freshDraft = orchResult.draft;
+        const freshDraft = orchResult.draft
+          ? inferDraftTaskStartDates(
+              orchResult.draft as Record<string, unknown>,
+              new Date().toISOString(),
+            )
+          : undefined;
+        let currentDraft = freshDraft ?? session.latestDraft;
 
         // 长期记忆：仅在本轮产出新 draft 时存快照
         if (freshDraft && !isAnonymousSender) {
@@ -879,27 +864,14 @@ async function main(): Promise<void> {
           }
         }
 
-        // 模型自己决定输出格式，代码只做兜底
-        let outboundMarkdown = orchResult.messages.join("\n\n");
-        // 默认不再自动补结构化任务表，避免和模型正文重复；可通过 DINGTALK_APPEND_STRUCTURED_TABLE=1 手动开启。
+        // message 为模型摘要；统一宽表由 draft 确定性渲染（避免「简表+分条补充」双结构）
+        let outboundMarkdown = orchResult.messages.join("\n\n").trim();
         if (freshDraft) {
-          const tasks = (freshDraft as any)?.tasks;
-          if (
-            appendStructuredTaskTable &&
-            Array.isArray(tasks) &&
-            tasks.length > 0 &&
-            !hasTaskTableInMessage(outboundMarkdown)
-          ) {
-            const rows = tasks.map((t: any, i: number) =>
-              `| ${i + 1} | ${t.title ?? ""} | ${t.objective ?? ""} | ${(t.deliverables ?? []).join("；") || "-"} | ${(t.completionCriteria ?? []).join("；") || "-"} | ${t.timeNode?.dueAt ?? "待确认"} | ${t.feedbackFrequency ?? "待确认"} |`
-            );
-            outboundMarkdown += "\n\n### 任务列表（结构化字段）\n| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |\n|---|---|---|---|---|---|---|\n" + rows.join("\n");
-          }
-        }
-        if (freshDraft) {
-          const supplement = renderDraftSupplementSection(freshDraft);
-          if (supplement) {
-            outboundMarkdown += `\n\n${supplement}`;
+          const unifiedTable = renderDraftSupplementSection(freshDraft);
+          if (unifiedTable) {
+            outboundMarkdown = outboundMarkdown
+              ? `${outboundMarkdown}\n\n${unifiedTable}`
+              : unifiedTable;
           }
         }
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
