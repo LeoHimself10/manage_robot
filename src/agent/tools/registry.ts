@@ -85,6 +85,10 @@ import {
   buildClearCandidatePoolHandler,
   buildListCandidatePoolHandler,
 } from "./candidate-pool";
+import {
+  MATCH_ROSTER_TO_CONTACTS_TOOL,
+  buildMatchRosterToContactsHandler,
+} from "./match-roster-to-contacts";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 import {
@@ -206,6 +210,10 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     list_candidate_pool: {
       definition: LIST_CANDIDATE_POOL_TOOL,
       handler: buildListCandidatePoolHandler(candidatePoolDeps),
+    },
+    match_roster_to_contacts: {
+      definition: MATCH_ROSTER_TO_CONTACTS_TOOL,
+      handler: buildMatchRosterToContactsHandler(candidatePoolDeps),
     },
     save_draft: {
       definition: SAVE_DRAFT_TOOL,
@@ -389,6 +397,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     "start_new_task",
     "update_draft_task",
     "read_uploaded_roster_text",
+    "match_roster_to_contacts",
     "set_candidate_pool",
     "clear_candidate_pool",
     "list_candidate_pool",
@@ -417,6 +426,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "start_new_task",
       "update_draft_task",
       "read_uploaded_roster_text",
+      "match_roster_to_contacts",
       "set_candidate_pool",
       "clear_candidate_pool",
       "list_candidate_pool",

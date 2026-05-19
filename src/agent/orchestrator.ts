@@ -146,7 +146,7 @@ export async function runOrchestrator(
   }
   if (config.sessionContext?.pendingRoster) {
     memoryParts.push(
-      `pendingRoster: ${safeJson(config.sessionContext.pendingRoster)} | ACTION_REQUIRED: 调用 read_uploaded_roster_text 拿原文 → 抽取姓名 → 用 search_employees(name=...) 逐一匹配 → 用 set_candidate_pool 提交，未匹配项写进 unresolved 并在 message 反问主管。`,
+      `pendingRoster: ${safeJson(config.sessionContext.pendingRoster)} | ACTION_REQUIRED: 调 match_roster_to_contacts（fromPendingRoster=true，默认写 candidatePool）；禁止对名单每人 search_employees。unresolved 在 message 反问主管消歧。`,
     );
   }
   if (

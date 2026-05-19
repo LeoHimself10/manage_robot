@@ -253,6 +253,7 @@ describe("publish_task handler", () => {
     expect(notifySpy).toHaveBeenCalledTimes(1);
     expect(notifySpy.mock.calls[0]?.[0]).toMatchObject({
       taskNo: "W20260513001",
+      taskDescription: "通知用背景",
     });
     expect(appendTaskEvent).toHaveBeenCalled();
     expect(onAudit).toHaveBeenCalledWith(

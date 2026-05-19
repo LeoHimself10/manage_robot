@@ -233,7 +233,7 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
       title: published.task.title,
       managerUserId: trustedActor,
       managerDisplayName,
-      taskDescription: undefined,
+      taskDescription: published.task.description ?? undefined,
       subtaskTitleBySourceKey,
       assignees: [...groupedAssignees.entries()].map(([userId, subtasks]) => ({
         userId,

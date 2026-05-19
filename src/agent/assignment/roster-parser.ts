@@ -206,3 +206,37 @@ async function extractPdf(buffer: Buffer): Promise<string> {
   }
   return lines.join("\n\n");
 }
+
+const DEFAULT_ROSTER_MATCH_MAX_NAMES = 50;
+
+function rosterMatchMaxNames(): number {
+  const raw = Number(String(process.env.ROSTER_MATCH_MAX_NAMES ?? "").trim());
+  if (Number.isFinite(raw) && raw > 0) return Math.min(500, Math.floor(raw));
+  return DEFAULT_ROSTER_MATCH_MAX_NAMES;
+}
+
+/**
+ * 从花名册纯文本抽取候选人姓名（Markdown `## 标题` 为主）。
+ * 不做 LLM；姓名识别交给本函数 + match_roster_to_contacts 批量查表。
+ */
+export function extractNamesFromRosterText(text: string): string[] {
+  const maxNames = rosterMatchMaxNames();
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const lines = String(text ?? "").split(/\r?\n/);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const m = /^#{2,3}\s+(.+?)\s*$/.exec(trimmed);
+    if (!m) continue;
+    let name = m[1]!.trim();
+    name = name.replace(/\s*[（(].*[)）]\s*$/u, "").trim();
+    if (!name || name.length > 20) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+    if (out.length >= maxNames) break;
+  }
+
+  return out;
+}

@@ -1,4 +1,4 @@
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v6.3.5";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v6.3.6";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
 function buildPlannerPromptBody(): string[] {
@@ -35,7 +35,7 @@ function buildPlannerPromptBody(): string[] {
     "════════ 阶段 A · 追问 ════════",
     "触发：用户提出**新**任务但关键信息不全（且**不是**阶段 D 的查询意图）。**第 1 条必问**：期望完成时间 / 截止日期（用户已答则跳过）。",
     "判定「已答时间」：knownFacts 含 deadline 类条目，或本轮/历史消息含「X 月 X 日 / N 天内 / 周内 / 季度内」。",
-    "允许工具：update_known_facts、list_known_facts、read_uploaded_roster_text（仅当用户本轮上传花名册）。",
+    "允许工具：update_known_facts、list_known_facts、read_uploaded_roster_text（可选）、match_roster_to_contacts（用户上传花名册后优先，一次批量匹配写候选池）。",
     "禁止工具：search_employees、get_employee_details、prepare_publish_task、publish_task、update_draft_task。",
     "唯一结束动作：返回 `{ \"message\": \"…\" }`（不含 draft、不含 assignment），且**不再调任何工具**。",
     "message 形态：1~3 句问题分析 + 编号追问（≤5 条）；不复述用户原话超过 1 句、不画表、不写示例子任务。",
@@ -102,8 +102,9 @@ function buildPlannerPromptBody(): string[] {
     "    结束动作：返回更新后的 `{ message, draft }`（**必须**含完整 draft，禁止只改 message）。",
 
     "  C-2 分配人选（用户说「分配吧 / 请推荐人选 / 派给某某 / 粘贴人员名单 / 按表分配」）：",
-    "    允许：search_employees + get_employee_details，二者**合计 ≤ 2 次**。",
-    "    主管点将（指名）：每个姓名至多 1 次 search_employees(name=…)；唯一命中写 assigneeUserId，多命中列候选请用户消歧。",
+    "    **花名册/上传名单**：必须先 match_roster_to_contacts（fromPendingRoster 或 names），禁止对名单每人 search_employees。",
+    "    允许：match_roster_to_contacts；零星点将时 search_employees + get_employee_details，二者**合计 ≤ 2 次**。",
+    "    主管点将（指名、非整表花名册）：每个姓名至多 1 次 search_employees(name=…)；唯一命中写 assigneeUserId，多命中列候选请用户消歧。",
     "    超过配额返回 quota_exhausted 后**禁止再搜**，用已知候选人收尾或请用户点名。",
     "    **必须**返回完整 `{ message, draft }`（不能只改 message）；`tasks[].assigneeUserId` 全部填好。",
     "    message 纪律（分配后极易违规，务必遵守）：",

@@ -43,7 +43,7 @@ export const READ_UPLOADED_ROSTER_TEXT_TOOL: ToolDefinition = {
   function: {
     name: "read_uploaded_roster_text",
     description:
-      "读取主管刚上传但尚未处理的花名册原文（md/docx/pdf 提取出的纯文本）。仅在 [memory_context] 出现 pendingRosterSource 时调用一次；调用后该文本会被消费（再调返回 ok:false / no_pending_roster）。读到后请逐一抽取姓名 → 用 search_employees(name=...) 匹配 → 然后用 set_candidate_pool 落库。",
+      "读取主管刚上传但尚未处理的花名册原文（md/docx/pdf 提取出的纯文本）。仅在 [memory_context] 出现 pendingRosterSource 时调用一次；调用后该文本会被消费（再调返回 ok:false / no_pending_roster）。读到后请调 match_roster_to_contacts（fromPendingRoster=true 或传 names）批量匹配通讯录并写候选池；禁止对花名册每人调用 search_employees。",
     parameters: { type: "object", properties: {}, required: [] },
   },
 };

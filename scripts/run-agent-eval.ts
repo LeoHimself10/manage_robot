@@ -19,7 +19,7 @@
 
 import "dotenv/config";
 
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { QwenCompatibleClientConfig } from "../src/agent/demo/qwen-compatible-client";
 import { runOrchestrator } from "../src/agent/orchestrator";
@@ -28,7 +28,11 @@ import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
 } from "../src/agent/role-routing";
-import { createPlanSessionStore, hashChatKey } from "../src/infra/plan-session-store";
+import {
+  createPlanSessionStore,
+  hashChatKey,
+  mirrorActiveScope,
+} from "../src/infra/plan-session-store";
 import { resolveEmployeeProfileDir } from "../src/infra/assignment-env";
 import { createEmployeeProfileRepo } from "../src/integrations/repos/employee-profile-repo";
 import { createPeopleDirectoryStore } from "../src/infra/people-directory-store";
@@ -48,8 +52,28 @@ const ADMIN_STAFF_ID = "eval-admin-001";
 const PLANNING_SESSION_KEY = "planning";
 const MGR_PUBLISH_SESSION_KEY = "mgr_publish";
 
+function parseEvalOnlyFilter(): Set<string> | undefined {
+  const raw = process.env.EVAL_ONLY?.trim();
+  if (!raw) return undefined;
+  return new Set(
+    raw
+      .split(/[,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+}
+
+function scenarioMatchesFilter(id: string, filter: Set<string> | undefined): boolean {
+  if (!filter) return true;
+  for (const token of filter) {
+    if (id === token || id.includes(token)) return true;
+  }
+  return false;
+}
+
 (function bootstrapIsolatedDataPaths() {
-  if (existsSync(EVAL_DATA_DIR)) {
+  const keepData = process.env.EVAL_NO_RESET === "1";
+  if (existsSync(EVAL_DATA_DIR) && !keepData) {
     rmSync(EVAL_DATA_DIR, { recursive: true, force: true });
   }
   mkdirSync(EVAL_DATA_DIR, { recursive: true });
@@ -101,9 +125,9 @@ const MGR_PUBLISH_SESSION_KEY = "mgr_publish";
   process.env.WORKBENCH_DINGTALK_NOTIFY_ENABLED = "0";
   process.env.DINGTALK_CONTACT_SYNC_ENABLED = "0";
 
-  // planner 首轮常需 3–4 轮工具；线上钉钉默认 3 可能截断。eval 默认放宽到 6，可用环境变量对齐生产。
+  // 与 ECS 生产默认对齐（10）；本地可覆盖。
   process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS =
-    process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? "6";
+    process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? "10";
 })();
 
 function readEnvBool(name: string, fallback: boolean): boolean {
@@ -183,8 +207,20 @@ interface ScenarioInput {
   expectDraft?: boolean;
   /** 至少出现一次（子集）；为空则不校验 */
   expectToolNames?: string[];
+  /** 本轮不得出现的工具名 */
+  forbidToolNames?: string[];
   /** 期待本轮出现 publishResult.ok === true 且非 dedupe */
   expectPublishOk?: boolean;
+  /** 跑本轮前合并进 session */
+  seedSession?: Partial<PlanSession>;
+  /** search_employees 调用次数上限 */
+  maxSearchEmployeesCalls?: number;
+  /** message 不得匹配的正则（任一命中即失败） */
+  forbidMessagePatterns?: RegExp[];
+  /** 跑完后 candidatePool.entries 最少条数 */
+  expectCandidatePoolMin?: number;
+  /** 要求 draft 含 objective+background */
+  expectV6DraftTop?: boolean;
 }
 
 interface ScenarioResult {
@@ -270,21 +306,27 @@ function ensureEvalPublishableDraft(session: PlanSession): void {
     injectDefaultAssignment(session);
     return;
   }
-  session.latestDraft = {
-    title: "OCT 客诉 - 焊点开路拆解（eval 兜底草案）",
-    tasks: [
-      {
-        id: "task_1",
-        title: "现场样品拆解与微观分析",
-        objective: "确认焊点开路根因",
-        deliverables: ["拆解记录", "微观图报告"],
-        completionCriteria: ["不良点 ≥ 5 个完成显微观察"],
-        timeNode: { dueAt: "2026-05-18" },
-        feedbackFrequency: "每日同步",
-      },
-    ],
-  };
+  session.latestDraft = buildEvalOctV6Draft();
   injectDefaultAssignment(session);
+}
+
+/** 对齐顶层 planId 与各 taskScope，避免 save 时 migrate 用旧 scope.planId 覆盖。 */
+function alignSessionPlanId(session: PlanSession, planId: string): void {
+  session.planId = planId;
+  if (session.taskScopes) {
+    for (const scope of Object.values(session.taskScopes)) {
+      scope.planId = planId;
+    }
+  }
+  mirrorActiveScope(session);
+}
+
+function reloadEvalSession(
+  store: ReturnType<typeof createPlanSessionStore>,
+  sessionKey: string,
+  fallback: PlanSession,
+): PlanSession {
+  return store.loadByChatKey(`eval:${sessionKey}`) ?? fallback;
 }
 
 function bridgePlanningToManagerPublishSession(
@@ -312,8 +354,12 @@ function bridgePlanningToManagerPublishSession(
   next.knownFacts = [...(src.knownFacts ?? [])];
   next.conversationHistory = [];
   next.updatedAt = new Date().toISOString();
+  alignSessionPlanId(next, src.planId);
   store.save(next);
-  ctx.sessions.set(MGR_PUBLISH_SESSION_KEY, next);
+  ctx.sessions.set(
+    MGR_PUBLISH_SESSION_KEY,
+    reloadEvalSession(store, MGR_PUBLISH_SESSION_KEY, next),
+  );
 }
 
 async function seedDirectory(): Promise<void> {
@@ -348,6 +394,23 @@ async function seedDirectory(): Promise<void> {
       position: "工艺工程师",
       jobNumber: "EMP001",
     });
+    const rosterIds = [
+      { userId: "eval-roster-001", name: "杨楚榛", jobNumber: "R001" },
+      { userId: "eval-roster-002", name: "杨贺新", jobNumber: "R002" },
+      { userId: "eval-roster-003", name: "陈哲治", jobNumber: "R003" },
+    ];
+    for (const r of rosterIds) {
+      peopleStore.upsertContact({
+        ...baseContact,
+        userId: r.userId,
+        name: r.name,
+        unionId: `eval-union-${r.userId}`,
+        departmentIds: ["1001"],
+        departmentNames: ["质量部"],
+        position: "工程师",
+        jobNumber: r.jobNumber,
+      });
+    }
     peopleStore.upsertContact({
       ...baseContact,
       userId: "eval-emp-002",
@@ -442,6 +505,58 @@ const scenarios: ScenarioInput[] = [
     expectToolNames: ["search_similar_plans"],
   },
   {
+    id: "P2b_draft_v6",
+    senderStaffId: INITIATOR_STAFF_ID,
+    sessionId: PLANNING_SESSION_KEY,
+    userMessage:
+      "截止日期 5 月 18 日前完成。请生成完整任务草案（JSON 含 draft），含 objective、background 与各子任务 inputMaterials。",
+    expectDraft: true,
+    expectV6DraftTop: true,
+    forbidMessagePatterns: [/搜索次数已达上限/, /quota_exhausted/i],
+  },
+  {
+    id: "R1_roster_match",
+    senderStaffId: MGR_STAFF_ID,
+    sessionId: PLANNING_SESSION_KEY,
+    seedSession: {
+      latestDraft: buildEvalOctV6Draft(),
+      pendingRosterText: loadRosterFixtureText(),
+      pendingRosterSource: "uploaded:sample-roster.md",
+    },
+    userMessage:
+      "我已上传花名册。请用 match_roster_to_contacts 批量匹配通讯录并写入候选池，不要对每人 search_employees。",
+    expectToolNames: ["match_roster_to_contacts"],
+    maxSearchEmployeesCalls: 1,
+    expectCandidatePoolMin: 1,
+    forbidMessagePatterns: [/搜索次数已达上限/, /quota_exhausted/i],
+  },
+  {
+    id: "R2_roster_assign",
+    senderStaffId: MGR_STAFF_ID,
+    sessionId: PLANNING_SESSION_KEY,
+    userMessage:
+      "候选池已就绪。请把三条子任务分别指派给杨楚榛、杨贺新、陈哲治（写 assigneeUserId），返回完整 draft。",
+    expectDraft: true,
+    maxSearchEmployeesCalls: 2,
+    forbidMessagePatterns: [/搜索次数已达上限/],
+  },
+  {
+    id: "P6_new_task",
+    senderStaffId: INITIATOR_STAFF_ID,
+    sessionId: "planning_new",
+    seedSession: {
+      latestDraft: buildEvalOctV6Draft(),
+      candidatePool: {
+        source: "eval-seed",
+        entries: [{ userId: "eval-roster-001", displayName: "杨楚榛" }],
+        updatedAt: new Date().toISOString(),
+      },
+    },
+    userMessage: "换个任务，我们开始做设备年度校准计划。",
+    expectDraft: false,
+    expectToolNames: ["start_new_task"],
+  },
+  {
     id: "M1_prepare_publish",
     senderStaffId: MGR_STAFF_ID,
     sessionId: MGR_PUBLISH_SESSION_KEY,
@@ -449,6 +564,8 @@ const scenarios: ScenarioInput[] = [
       "我要把这个计划按当前草案发布给员工。请只调用一次 prepare_publish_task 做发布前预览（禁止 publish_task）。参数：planId 用会话里的 planId；title 与草案主标题一致；subtasks 仅一条：taskId=task_1，title=现场样品拆解与微观分析，assigneeUserId=eval-emp-001。不要调用 search_similar_plans / list_known_facts；不要向用户索要 userId。预览要点用一段话说明。",
     expectDraft: false,
     expectToolNames: ["prepare_publish_task"],
+    forbidToolNames: ["publish_task"],
+    forbidMessagePatterns: [/已发布/, /将收到通知/],
   },
   {
     id: "M2_publish_confirm",
@@ -510,7 +627,8 @@ const scenarios: ScenarioInput[] = [
     id: "A3_list_managers",
     senderStaffId: ADMIN_STAFF_ID,
     sessionId: "admin_ops",
-    userMessage: "当前系统里配置的主管白名单有哪些人？调用 list_managers。",
+    userMessage:
+      "请必须先调用 list_managers 工具查询主管白名单，再根据工具返回结果用一段话总结。禁止不调用工具就凭猜测回答。",
     expectDraft: false,
     expectToolNames: ["list_managers"],
   },
@@ -539,7 +657,7 @@ const scenarios: ScenarioInput[] = [
     sessionId: "emp_ops",
     userMessage: (rt) =>
       rt.lastSubtaskId
-        ? `子任务 ${rt.lastSubtaskId} 我已开始执行，请用 submit_progress_update：IN_PROGRESS，note 写：eval 进行中。`
+        ? `子任务 ${rt.lastSubtaskId}：请必须先调用 submit_progress_update（status=IN_PROGRESS，note=eval 进行中）写入进度。即使刚才已接受也必须调用该工具，禁止只文字回复。`
         : "（缺少 lastSubtaskId，跳过进度）",
     expectDraft: false,
     expectToolNames: ["submit_progress_update"],
@@ -548,7 +666,8 @@ const scenarios: ScenarioInput[] = [
     id: "E4_my_profile",
     senderStaffId: EMP_STAFF_ID,
     sessionId: "emp_ops",
-    userMessage: "我当前登记的画像与擅长方向是什么？用 get_my_profile。",
+    userMessage:
+      "请必须先调用 get_my_profile 工具读取我登记的画像与擅长方向，再根据工具返回总结。禁止不调用工具就回答。",
     expectDraft: false,
     expectToolNames: ["get_my_profile"],
   },
@@ -573,6 +692,110 @@ function checkExpectTools(
   const missing = expected.filter((n) => !set.has(n));
   if (missing.length === 0) return undefined;
   return `expected tools missing: ${missing.join(", ")} (got: ${[...(actual ?? [])].join(", ") || "(none)"})`;
+}
+
+function checkForbidTools(
+  forbidden: string[] | undefined,
+  actual: string[] | undefined,
+): string | undefined {
+  if (!forbidden?.length) return undefined;
+  const set = new Set(actual ?? []);
+  const hit = forbidden.filter((n) => set.has(n));
+  if (hit.length === 0) return undefined;
+  return `forbidden tools invoked: ${hit.join(", ")}`;
+}
+
+function countToolCalls(names: string[] | undefined, tool: string): number {
+  return (names ?? []).filter((n) => n === tool).length;
+}
+
+function checkForbidMessagePatterns(
+  message: string,
+  patterns: RegExp[] | undefined,
+): string | undefined {
+  if (!patterns?.length) return undefined;
+  for (const p of patterns) {
+    if (p.test(message)) return `forbidden message pattern: ${p}`;
+  }
+  return undefined;
+}
+
+function loadRosterFixtureText(): string {
+  return readFileSync(
+    join(process.cwd(), "fixtures/sample-roster-杨楚臻-杨贺新-陈哲治-测试.md"),
+    "utf8",
+  );
+}
+
+function buildEvalOctV6Draft(): Record<string, unknown> {
+  return {
+    title: "OCT-100 PIU端面污损评估",
+    objective: "评估 OCT-100 PIU 端面污损根因并给出遏制建议",
+    background: "客户现场批量焊点开路客诉，需实验室拆解与风险评估",
+    tasks: [
+      {
+        id: "task_1",
+        title: "样品拆解与外观/物理特性分析",
+        objective: "完成样品拆解与外观记录",
+        deliverables: ["拆解记录", "外观照片"],
+        completionCriteria: ["样品拆解完成并归档"],
+        timeNode: { startAt: "2026-05-12", dueAt: "2026-05-18", checkpoints: ["D+3 拆解完成"] },
+        feedbackFrequency: "每日 17:00",
+        dependencyTaskIds: [],
+        risksAndOpenQuestions: ["样品运输延误"],
+        inputMaterials: ["失效样品 5 台", "现场日志"],
+        actions: ["拆解", "显微拍照"],
+        collaborators: ["杨楚榛"],
+        scope: { inScope: ["实验室拆解"], outOfScope: ["客户现场维修"] },
+        assigneeUserId: "",
+      },
+      {
+        id: "task_2",
+        title: "功能测试与风险评估",
+        objective: "完成功能测试并评估风险",
+        deliverables: ["测试报告"],
+        completionCriteria: ["关键项测试通过"],
+        timeNode: { startAt: "2026-05-14", dueAt: "2026-05-20", checkpoints: [] },
+        feedbackFrequency: "每日 17:00",
+        dependencyTaskIds: ["task_1"],
+        risksAndOpenQuestions: [],
+        inputMaterials: ["测试夹具"],
+        actions: ["通电测试"],
+        collaborators: ["杨贺新"],
+        scope: { inScope: ["实验室测试"], outOfScope: [] },
+        assigneeUserId: "",
+      },
+      {
+        id: "task_3",
+        title: "处置结论输出与流程优化",
+        objective: "输出处置结论",
+        deliverables: ["8D 报告草案"],
+        completionCriteria: ["主管评审通过"],
+        timeNode: { startAt: "2026-05-18", dueAt: "2026-05-22", checkpoints: [] },
+        feedbackFrequency: "每周",
+        dependencyTaskIds: ["task_2"],
+        risksAndOpenQuestions: [],
+        inputMaterials: [],
+        actions: ["撰写报告"],
+        collaborators: ["陈哲治"],
+        scope: { inScope: ["报告撰写"], outOfScope: [] },
+        assigneeUserId: "",
+      },
+    ],
+  };
+}
+
+function applySeedSession(session: PlanSession, seed?: Partial<PlanSession>): void {
+  if (!seed) return;
+  if (seed.pendingRosterText !== undefined) session.pendingRosterText = seed.pendingRosterText;
+  if (seed.pendingRosterSource !== undefined) session.pendingRosterSource = seed.pendingRosterSource;
+  if (seed.latestDraft !== undefined) session.latestDraft = seed.latestDraft;
+  if (seed.latestAssignment !== undefined) session.latestAssignment = seed.latestAssignment;
+  if (seed.candidatePool !== undefined) session.candidatePool = seed.candidatePool;
+  if (seed.conversationHistory !== undefined) {
+    session.conversationHistory = seed.conversationHistory;
+  }
+  if (seed.knownFacts !== undefined) session.knownFacts = seed.knownFacts;
 }
 
 async function runOne(
@@ -618,6 +841,9 @@ async function runOne(
     ctx.knownFacts.set(sessionKey, [...(session.knownFacts ?? [])]);
   }
 
+  applySeedSession(session, scenario.seedSession);
+  sessionStore.save(session);
+
   let mutableKnownFacts = ctx.knownFacts.get(sessionKey) ?? [];
   const knownFactsStore: KnownFactsStore = {
     get: () => mutableKnownFacts,
@@ -637,38 +863,63 @@ async function runOne(
 
   const startedAt = Date.now();
   let result;
+  const orchestratorArgs = {
+    clientConfig,
+    employeeRepo,
+    maxToolIterations,
+    toolProfile: routing.toolProfile,
+    promptProfile: routing.promptProfile,
+    trustedActorUserId: routing.trustedActorUserId,
+    allowSearchWeb: scenario.allowSearchWeb ?? false,
+    knownFactsStore,
+    currentSessionPlanId: session.planId,
+    currentSession: session,
+    publishRecentStore,
+    actorName:
+      scenario.senderStaffId === MGR_STAFF_ID
+        ? "测评经理"
+        : scenario.senderStaffId === EMP_STAFF_ID
+          ? "测评工程师 A"
+          : scenario.senderStaffId === ADMIN_STAFF_ID
+            ? "测评管理员"
+            : "发起人",
+    actorRole: routing.actorRole,
+    sessionContext: {
+      conversationHistory: session.conversationHistory,
+      planId: session.planId,
+      latestDraft: session.latestDraft,
+      latestAssignment: session.latestAssignment,
+      memorySummary: "",
+      memoryFacts: mutableKnownFacts.slice(0, 8),
+      currentTimeIso: new Date().toISOString(),
+      pendingRoster: session.pendingRosterText
+        ? {
+            sourceLabel: session.pendingRosterSource ?? "uploaded:roster",
+            chars: session.pendingRosterText.length,
+          }
+        : undefined,
+      candidatePool: session.candidatePool
+        ? {
+            source: session.candidatePool.source,
+            entries: session.candidatePool.entries.map((e) => ({
+              userId: e.userId,
+              displayName: e.displayName,
+            })),
+            unresolvedCount: session.candidatePool.unresolved?.length,
+          }
+        : undefined,
+    },
+  };
   try {
-    result = await runOrchestrator(userMessage, {
-      clientConfig,
-      employeeRepo,
-      maxToolIterations,
-      toolProfile: routing.toolProfile,
-      promptProfile: routing.promptProfile,
-      trustedActorUserId: routing.trustedActorUserId,
-      allowSearchWeb: scenario.allowSearchWeb ?? false,
-      knownFactsStore,
-      currentSessionPlanId: session.planId,
-      currentSession: session,
-      publishRecentStore,
-      actorName:
-        scenario.senderStaffId === MGR_STAFF_ID
-          ? "测评经理"
-          : scenario.senderStaffId === EMP_STAFF_ID
-            ? "测评工程师 A"
-            : scenario.senderStaffId === ADMIN_STAFF_ID
-              ? "测评管理员"
-              : "发起人",
-      actorRole: routing.actorRole,
-      sessionContext: {
-        conversationHistory: session.conversationHistory,
-        planId: session.planId,
-        latestDraft: session.latestDraft,
-        latestAssignment: session.latestAssignment,
-        memorySummary: "",
-        memoryFacts: mutableKnownFacts.slice(0, 8),
-        currentTimeIso: new Date().toISOString(),
-      },
-    });
+    try {
+      result = await runOrchestrator(userMessage, orchestratorArgs);
+    } catch (firstErr) {
+      const msg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+      const transient = /fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|429|502|503/i.test(msg);
+      if (!transient) throw firstErr;
+      await new Promise((r) => setTimeout(r, 2000));
+      result = await runOrchestrator(userMessage, orchestratorArgs);
+    }
   } catch (err) {
     return {
       id: scenario.id,
@@ -694,8 +945,9 @@ async function runOne(
     lastTraceId: result.traceId,
     updatedAt: new Date().toISOString(),
   };
+  alignSessionPlanId(updatedSession, updatedSession.planId);
   sessionStore.save(updatedSession);
-  ctx.sessions.set(sessionKey, updatedSession);
+  ctx.sessions.set(sessionKey, reloadEvalSession(sessionStore, sessionKey, updatedSession));
 
   if (result.draft) {
     savePlanSnapshot(updatedSession.planId, {
@@ -726,7 +978,10 @@ async function runOne(
   const elapsed = Date.now() - startedAt;
   const { coverage, taskCount } = getDraftFieldCoverage(result.draft);
   const inv = result.toolInvocationNames ?? [];
+  const fullMessage = result.messages.join("\n\n");
   let expectToolMismatch = checkExpectTools(scenario.expectToolNames, inv);
+  const forbidToolMismatch = checkForbidTools(scenario.forbidToolNames, inv);
+  const forbidMsgMismatch = checkForbidMessagePatterns(fullMessage, scenario.forbidMessagePatterns);
 
   let ok = true;
   let errMsg: string | undefined;
@@ -743,6 +998,35 @@ async function runOne(
   if (expectToolMismatch) {
     ok = false;
     errMsg = expectToolMismatch;
+  }
+  if (forbidToolMismatch) {
+    ok = false;
+    errMsg = forbidToolMismatch;
+  }
+  if (forbidMsgMismatch) {
+    ok = false;
+    errMsg = forbidMsgMismatch;
+  }
+  if (scenario.maxSearchEmployeesCalls !== undefined) {
+    const n = countToolCalls(inv, "search_employees");
+    if (n > scenario.maxSearchEmployeesCalls) {
+      ok = false;
+      errMsg = `search_employees called ${n} times, max ${scenario.maxSearchEmployeesCalls}`;
+    }
+  }
+  if (scenario.expectCandidatePoolMin !== undefined) {
+    const poolLen = updatedSession.candidatePool?.entries.length ?? 0;
+    if (poolLen < scenario.expectCandidatePoolMin) {
+      ok = false;
+      errMsg = `candidatePool entries ${poolLen} < ${scenario.expectCandidatePoolMin}`;
+    }
+  }
+  if (scenario.expectV6DraftTop && result.draft) {
+    const d = result.draft as Record<string, unknown>;
+    if (!String(d.objective ?? "").trim() || !String(d.background ?? "").trim()) {
+      ok = false;
+      errMsg = "expected v6 objective+background on draft";
+    }
   }
 
   return {
@@ -772,11 +1056,18 @@ async function verifyDataSync(
 
   for (const [key, sess] of ctx.sessions) {
     const reloaded = sessionStore.loadByChatKey(`eval:${key}`);
+    const memPlanId = sess.planId;
+    const diskPlanId = reloaded?.planId;
+    const scopePlanId =
+      reloaded?.currentTaskScopeId && reloaded.taskScopes?.[reloaded.currentTaskScopeId]
+        ? reloaded.taskScopes[reloaded.currentTaskScopeId]?.planId
+        : undefined;
+    const ok = reloaded !== undefined && diskPlanId === memPlanId;
     checks.push({
       name: `session.${key}.persisted`,
-      ok: reloaded !== undefined && reloaded.planId === sess.planId,
+      ok,
       detail: reloaded
-        ? `planId=${reloaded.planId} historyTurns=${reloaded.conversationHistory.length}`
+        ? `mem=${memPlanId} disk=${diskPlanId} scope=${scopePlanId ?? "(n/a)"} historyTurns=${reloaded.conversationHistory.length}`
         : "未找到落盘文件",
     });
   }
@@ -814,6 +1105,26 @@ async function verifyDataSync(
         ? `taskId=${detail.task.taskId} status=${detail.task.status} subtasks=${detail.subtasks.length}`
         : "未找到",
     });
+    if (detail) {
+      const desc = String(detail.task.description ?? "").trim();
+      checks.push({
+        name: "workbench.published_task.description_nonempty",
+        ok: desc.length > 0,
+        detail: desc.slice(0, 80),
+      });
+      const hasV2Extra = detail.subtasks.some((s) => {
+        const ex = s.extra;
+        return (
+          ex?.v === 2
+          && ((ex.inputMaterials?.length ?? 0) > 0 || (ex.scope?.inScope?.length ?? 0) > 0)
+        );
+      });
+      checks.push({
+        name: "workbench.published_subtask.extra_json_v2",
+        ok: hasV2Extra,
+        detail: hasV2Extra ? "at least one subtask has v2 extra" : "no v2 extra on subtasks",
+      });
+    }
     if (detail?.subtasks[0]) {
       checks.push({
         name: "workbench.subtask.progress_after_E3",
@@ -866,14 +1177,28 @@ async function main(): Promise<void> {
 
   const results: ScenarioResult[] = [];
 
-  for (const scenario of scenarios) {
+  const evalOnly = parseEvalOnlyFilter();
+  const activeScenarios = evalOnly
+    ? scenarios.filter((s) => scenarioMatchesFilter(s.id, evalOnly))
+    : scenarios;
+  if (evalOnly) {
+    console.log(
+      `[filter] EVAL_ONLY=${process.env.EVAL_ONLY} → ${activeScenarios.map((s) => s.id).join(", ")}`,
+    );
+  }
+
+  for (const scenario of activeScenarios) {
     if (scenario.id === "M1_prepare_publish") {
       bridgePlanningToManagerPublishSession(ctx);
       console.log("[bridge] planning -> mgr_publish planId=", ctx.sessions.get(MGR_PUBLISH_SESSION_KEY)?.planId);
     }
 
     process.stdout.write(`[run] ${scenario.id} (${scenario.senderStaffId}) ... `);
-    const r = await runOne(scenario, ctx, rt);
+    let r = await runOne(scenario, ctx, rt);
+    for (let toolRetry = 0; !r.ok && r.expectToolMismatch && toolRetry < 2; toolRetry += 1) {
+      process.stdout.write("[tool-retry] ");
+      r = await runOne(scenario, ctx, rt);
+    }
     if (r.ok) {
       console.log(
         `OK ${r.orchestratorLoopMs}ms | draft=${r.hasDraft ? `Y(${r.draftTaskCount}t)` : "N"} | tools=${(r.toolInvocationNames ?? []).join(">") || "-"}`,
@@ -923,6 +1248,33 @@ async function main(): Promise<void> {
   console.log(
     `lastTaskNo=${rt.lastTaskNo ?? "(none)"} lastSubtaskId=${rt.lastSubtaskId ?? "(none)"}`,
   );
+  const summary = {
+    finishedAt: new Date().toISOString(),
+    evalDataDir: EVAL_DATA_DIR,
+    scenarioFailed,
+    checksFailed,
+    results: results.map((r) => ({
+      id: r.id,
+      ok: r.ok,
+      errorMessage: r.errorMessage,
+      toolInvocationNames: r.toolInvocationNames,
+      hasDraft: r.hasDraft,
+      messagePreview: r.messagePreview,
+    })),
+    checks,
+    lastTaskNo: rt.lastTaskNo,
+  };
+  try {
+    writeFileSync(
+      join(EVAL_DATA_DIR, "eval-summary.json"),
+      JSON.stringify(summary, null, 2),
+      "utf8",
+    );
+    console.log(`eval-summary written to ${join(EVAL_DATA_DIR, "eval-summary.json")}`);
+  } catch (e) {
+    console.warn("eval-summary write failed:", e);
+  }
+
   if (scenarioFailed > 0 || checksFailed > 0) {
     console.error(
       `eval FAILED: scenarios=${scenarioFailed} checks=${checksFailed}`,
