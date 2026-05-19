@@ -392,13 +392,9 @@ async function main(): Promise<void> {
   if (Number.isFinite(healthPort) && healthPort > 0) {
     ports.add(Math.trunc(healthPort));
   }
-  if (
-    process.env.ASSIGNMENT_WEB_PORT?.trim() ||
-    process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL?.trim() ||
-    process.env.ASSIGNMENT_PHASE_ENABLED === "1"
-  ) {
-    ports.add(resolveAssignmentWebPort());
-  }
+  // 钉钉 bot 进程始终监听工作台端口（默认 8787），与常见 deploy `-p 8787:8787` 对齐；
+  // 不再依赖 ASSIGNMENT_PHASE_ENABLED / PUBLIC_BASE_URL 才开 HTTP（避免 .env 漏配导致连接被拒）。
+  ports.add(resolveAssignmentWebPort());
   for (const port of ports) {
     startCombinedServer(port);
   }
