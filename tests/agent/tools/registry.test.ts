@@ -41,14 +41,18 @@ describe("tool registry profiles", () => {
     }
   });
 
-  it("planner profile excludes employee mutation tools", () => {
+  it("planner profile excludes employee mutation tools but includes publish", () => {
     const registry = buildToolRegistry({
       employeeRepo: { list: () => [] },
       toolProfile: "planner",
       allowSearchWeb: false,
+      trustedActorUserId: "manager-1",
+      currentSessionPlanId: "plan-1",
     });
     expect(registry.save_draft).toBeUndefined();
     expect(registry.search_employees).toBeDefined();
+    expect(registry.prepare_publish_task).toBeDefined();
+    expect(registry.publish_task).toBeDefined();
     expect(registry.list_my_tasks).toBeUndefined();
     expect(registry.submit_employee_response).toBeUndefined();
     expect(registry.search_web).toBeUndefined();

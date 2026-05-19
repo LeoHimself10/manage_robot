@@ -61,6 +61,6 @@ describe("dingtalk entry routing integration", () => {
     });
     expect(params.promptProfile).toBe("planner");
     expect(params.toolProfile).toBe("planner");
-    expect(params.trustedActorUserId).toBeUndefined();
+    expect(params.trustedActorUserId).toBe("emp_001");
   });
 });

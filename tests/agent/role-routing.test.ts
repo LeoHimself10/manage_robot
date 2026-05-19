@@ -30,7 +30,7 @@ describe("resolveDingtalkAgentRouting", () => {
     expect(result.promptProfile).toBe("planner");
     expect(result.toolProfile).toBe("planner");
     expect(result.reason).toBe("routing_disabled");
-    expect(result.trustedActorUserId).toBeUndefined();
+    expect(result.trustedActorUserId).toBe("emp_001");
   });
 
   it("routes admin/manager to planner prompt with manager tools", () => {
@@ -74,7 +74,7 @@ describe("resolveDingtalkAgentRouting", () => {
     });
     expect(missResult.promptProfile).toBe("planner");
     expect(missResult.toolProfile).toBe("planner");
-    expect(missResult.trustedActorUserId).toBeUndefined();
+    expect(missResult.trustedActorUserId).toBe("emp_001");
     expect(missResult.reason).toBe("employee_directory_miss");
   });
 });

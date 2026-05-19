@@ -30,15 +30,17 @@ export function isDingtalkRoleRoutingEnabled(): boolean {
 export function resolveDingtalkAgentRouting(
   input: DingtalkAgentRoutingInput
 ): DingtalkAgentRoutingResult {
+  const sender = String(input.senderStaffId ?? "").trim();
+
   if (!input.roleRoutingEnabled) {
     return {
       resolvedRole: "unknown",
       promptProfile: "planner",
       toolProfile: "planner",
+      trustedActorUserId: sender || undefined,
       reason: "routing_disabled",
     };
   }
-  const sender = String(input.senderStaffId ?? "").trim();
   if (!sender) {
     return {
       resolvedRole: "unknown",
@@ -74,9 +76,10 @@ export function resolveDingtalkAgentRouting(
   }
 
   return {
-    resolvedRole: "employee",
+    resolvedRole: "unknown",
     promptProfile: "planner",
     toolProfile: "planner",
+    trustedActorUserId: sender,
     reason: "employee_directory_miss",
   };
 }

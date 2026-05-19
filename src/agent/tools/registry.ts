@@ -364,38 +364,31 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     }
   }
 
+  /** 钉钉主链路 planner 与 manager 共用：提示词含 prepare_publish_task / publish_task，路由关闭时默认也是 planner */
+  const plannerManagerTools = [
+    "prepare_publish_task",
+    "publish_task",
+    "list_managed_tasks",
+    "get_task_detail",
+    "reassign_task",
+    "search_employees",
+    "get_employee_details",
+    "search_similar_plans",
+    "search_web",
+    "get_current_time",
+    "update_known_facts",
+    "list_known_facts",
+    "start_new_task",
+    "update_draft_task",
+    "read_uploaded_roster_text",
+    "set_candidate_pool",
+    "clear_candidate_pool",
+    "list_candidate_pool",
+  ];
+
   const profileTools: Record<ToolProfile, string[]> = {
-    planner: [
-      "search_employees",
-      "get_employee_details",
-      "search_similar_plans",
-      "search_web",
-      "get_current_time",
-      "update_known_facts",
-      "list_known_facts",
-      "start_new_task",
-      "update_draft_task",
-    ],
-    manager: [
-      "prepare_publish_task",
-      "publish_task",
-      "list_managed_tasks",
-      "get_task_detail",
-      "reassign_task",
-      "search_employees",
-      "get_employee_details",
-      "search_similar_plans",
-      "search_web",
-      "get_current_time",
-      "update_known_facts",
-      "list_known_facts",
-      "start_new_task",
-      "update_draft_task",
-      "read_uploaded_roster_text",
-      "set_candidate_pool",
-      "clear_candidate_pool",
-      "list_candidate_pool",
-    ],
+    planner: plannerManagerTools,
+    manager: plannerManagerTools,
     admin: [
       "prepare_publish_task",
       "publish_task",
