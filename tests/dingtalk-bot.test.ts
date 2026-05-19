@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  appendPublishSummaryMarkdown,
-  renderDraftSupplementSection,
   sanitizeToolNameLeak,
   shouldUseAnonymousSession,
 } from "../src/dingtalk-bot";
+import {
+  appendPublishSummaryMarkdown,
+  renderDraftSupplementSection,
+} from "../src/view/dingtalk-task-markdown";
 import { buildToolRegistry } from "../src/agent/tools/registry";
 
 describe("dingtalk bot helpers", () => {

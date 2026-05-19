@@ -64,7 +64,7 @@ describe("workbench-formal-task-store mapping", () => {
     expect(published.subtasks[0].sourceTaskKey).toBe("draft-task-a");
   });
 
-  it("persists extra_json from draft and maps back to extra", () => {
+  it("persists rich fields from draft into flat columns", () => {
     const store = createWorkbenchFormalTaskStore();
     const session: PlanSession = {
       chatKeyHash: "hash-extra",
@@ -108,19 +108,19 @@ describe("workbench-formal-task-store mapping", () => {
       actorUserId: "manager-1",
     });
     const t2 = published.subtasks.find((s) => s.sourceTaskKey === "task_2");
-    expect(t2?.extra).toMatchObject({
-      v: 1,
-      dependsOn: ["task_1"],
-      checkpoints: ["M1 评审"],
-      risks: ["样品可能延迟"],
-    });
+    expect(t2?.dependsOn).toEqual(["task_1"]);
+    expect(t2?.checkpoints).toEqual(["M1 评审"]);
+    expect(t2?.risks).toEqual(["样品可能延迟"]);
     const t1 = published.subtasks.find((s) => s.sourceTaskKey === "task_1");
-    expect(t1?.extra).toBeUndefined();
+    expect(t1?.dependsOn).toBeUndefined();
     const detail = store.getTaskDetail("plan-extra-1");
-    expect(detail?.subtasks.find((s) => s.sourceTaskKey === "task_2")?.extra).toEqual(t2?.extra);
+    const detailT2 = detail?.subtasks.find((s) => s.sourceTaskKey === "task_2");
+    expect(detailT2?.dependsOn).toEqual(["task_1"]);
+    expect(detailT2?.checkpoints).toEqual(["M1 评审"]);
+    expect(detailT2?.risks).toEqual(["样品可能延迟"]);
   });
 
-  it("persists extra_json v2 when inputMaterials or scope present", () => {
+  it("persists v2 rich fields (inputMaterials/actions/collaborators/scope) as flat columns", () => {
     const store = createWorkbenchFormalTaskStore();
     const session: PlanSession = {
       chatKeyHash: "hash-v2",
@@ -158,16 +158,14 @@ describe("workbench-formal-task-store mapping", () => {
       actorUserId: "manager-1",
     });
     const s1 = published.subtasks.find((x) => x.sourceTaskKey === "task_1");
-    expect(s1?.extra).toMatchObject({
-      v: 2,
-      inputMaterials: ["需求文档"],
-      actions: ["跑用例"],
-      collaborators: ["测试"],
-      scope: { inScope: ["功能 A"], outOfScope: ["不做性能"] },
-    });
+    expect(s1?.inputMaterials).toEqual(["需求文档"]);
+    expect(s1?.actions).toEqual(["跑用例"]);
+    expect(s1?.collaborators).toEqual(["测试"]);
+    expect(s1?.inScope).toEqual(["功能 A"]);
+    expect(s1?.outOfScope).toEqual(["不做性能"]);
   });
 
-  it("tolerates invalid extra_json when loading subtasks", () => {
+  it("tolerates invalid JSON in flat rich columns when loading subtasks", () => {
     const store = createWorkbenchFormalTaskStore();
     const session: PlanSession = {
       chatKeyHash: "hash-badjson",
@@ -192,11 +190,11 @@ describe("workbench-formal-task-store mapping", () => {
     const sqlitePath = process.env.WORKBENCH_SQLITE_PATH;
     if (!sqlitePath) throw new Error("WORKBENCH_SQLITE_PATH missing");
     const raw = new DatabaseSync(sqlitePath);
-    raw.prepare("UPDATE subtasks SET extra_json = ? WHERE subtask_id = ?").run("{not-json", subId);
+    raw.prepare("UPDATE subtasks SET depends_on = ? WHERE subtask_id = ?").run("{not-json", subId);
     raw.close();
     const reopened = createWorkbenchFormalTaskStore();
     const detail = reopened.getTaskDetail("plan-badjson");
-    expect(detail?.subtasks[0]?.extra).toBeUndefined();
+    expect(detail?.subtasks[0]?.dependsOn).toBeUndefined();
   });
 
   it("adds extra_json via ALTER on legacy db missing column", () => {
@@ -280,7 +278,7 @@ describe("workbench-formal-task-store mapping", () => {
     const cols = new DatabaseSync(legacyPath)
       .prepare("PRAGMA table_info(subtasks)")
       .all() as Array<{ name: string }>;
-    expect(cols.some((c) => c.name === "extra_json")).toBe(true);
+    expect(cols.some((c) => c.name === "depends_on")).toBe(true);
     const session: PlanSession = {
       chatKeyHash: "h-leg",
       planId: "plan-leg-1",
@@ -310,7 +308,7 @@ describe("workbench-formal-task-store mapping", () => {
       initiatorDepartment: "质量部",
       actorUserId: "manager-1",
     });
-    expect(pub.subtasks[0]?.extra?.dependsOn).toEqual(["task_x"]);
+    expect(pub.subtasks[0]?.dependsOn).toEqual(["task_x"]);
   });
 
   it("accept action sets subtask to IN_PROGRESS and keeps SUBTASK_ACCEPTED event", () => {

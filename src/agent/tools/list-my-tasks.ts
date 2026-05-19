@@ -35,12 +35,14 @@ export function buildListMyTasksHandler(
       taskTitle: item.taskTitle,
       taskDescription: item.taskDescription,
       objective: item.objective,
-      dependsOn: item.extra?.dependsOn,
-      checkpoints: item.extra?.checkpoints,
-      inputMaterials: item.extra?.inputMaterials,
-      actions: item.extra?.actions,
-      collaborators: item.extra?.collaborators,
-      scope: item.extra?.scope,
+      dependsOn: item.dependsOn,
+      checkpoints: item.checkpoints,
+      inputMaterials: item.inputMaterials,
+      actions: item.actions,
+      collaborators: item.collaborators,
+      scope: (item.inScope?.length || item.outOfScope?.length)
+        ? { inScope: item.inScope ?? [], outOfScope: item.outOfScope ?? [] }
+        : undefined,
     }));
     return { actorUserId, tasks };
   };

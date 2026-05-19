@@ -34,6 +34,12 @@ import {
   resolveDingtalkAgentRouting,
 } from "./agent/role-routing";
 import { extractLightAssignment, renderLightAssignmentSection } from "./agent/assignment/light-assignment";
+import {
+  hasTaskTableInMessage,
+  renderDraftSupplementSection,
+  appendPublishSummaryMarkdown,
+  renderDingtalkTaskMarkdown,
+} from "./view/dingtalk-task-markdown";
 import { parseRosterFile } from "./agent/assignment/roster-parser";
 import { DingTalkFileDownloadError, fetchDingTalkFile } from "./integrations/dingtalk/dingtalk-file-download";
 import { savePlanSnapshot } from "./infra/plan-store";
@@ -80,114 +86,8 @@ function truncateMarkdown(text: string, maxChars: number): string {
   return text.slice(0, budget) + suffix;
 }
 
-function hasTaskTableInMessage(markdown: string): boolean {
-  const normalized = markdown.toLowerCase();
-  return (
-    normalized.includes("### 任务列表（结构化字段）") ||
-    normalized.includes("### 任务草案（结构化字段）") ||
-    normalized.includes("| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |") ||
-    normalized.includes("| 序号 | 任务名称 |")
-  );
-}
-
-/**
- * 把 draft.description / 每个 task 的 dependencyTaskIds / timeNode.checkpoints / risksAndOpenQuestions
- * 渲染成一段「任务补充信息」追加到模型 markdown 之后。
- *
- * 这是「确定性渲染」：哪怕模型的 markdown 表只写了 6 列旧字段，只要 draft JSON 里
- * 有这些字段，下面就一定能看到，避免「字段进了 draft 但用户看不见」的体感问题。
- *
- * 字段都缺时返回空串，外层会自动跳过（不污染普通追问/纯文本回复）。
- */
-function listField(values: unknown): string {
-  if (!Array.isArray(values)) return "";
-  return values.map((v) => String(v ?? "").trim()).filter(Boolean).join("；");
-}
-
-export function renderDraftSupplementSection(draft: unknown): string {
-  if (!draft || typeof draft !== "object") return "";
-  const root = draft as Record<string, unknown>;
-  const description = String(root.description ?? "").trim();
-  const tasks = Array.isArray(root.tasks) ? (root.tasks as Array<Record<string, unknown>>) : [];
-  const taskTitleById = new Map<string, string>();
-  for (const t of tasks) {
-    const id = String(t?.id ?? "").trim();
-    const title = String(t?.title ?? "").trim();
-    if (id) taskTitleById.set(id, title || id);
-  }
-  const lines: string[] = [];
-  const tableRows: string[] = [];
-  if (description) {
-    lines.push(`**任务背景**：${description.length > 500 ? description.slice(0, 500) + "…" : description}`);
-  }
-  const supplementBlocks: string[] = [];
-  tasks.forEach((t, idx) => {
-    const title = String(t?.title ?? "").trim() || `任务 ${idx + 1}`;
-    const objective = String(t?.objective ?? "").trim();
-    const deliverables = listField(t?.deliverables);
-    const completionCriteria = listField(t?.completionCriteria);
-    const deps = Array.isArray(t?.dependencyTaskIds) ? (t.dependencyTaskIds as unknown[]) : [];
-    const timeNode = (t?.timeNode ?? {}) as Record<string, unknown>;
-    const checkpoints = Array.isArray(timeNode.checkpoints) ? (timeNode.checkpoints as unknown[]) : [];
-    const risks = Array.isArray(t?.risksAndOpenQuestions) ? (t.risksAndOpenQuestions as unknown[]) : [];
-    const dueAt = String(timeNode?.dueAt ?? t?.dueAt ?? "").trim() || "待确认";
-    const feedbackFrequency = String(t?.feedbackFrequency ?? "").trim() || "待确认";
-    tableRows.push(
-      `| ${idx + 1} | ${title} | ${objective || "-"} | ${deliverables || "-"} | ${completionCriteria || "-"} | ${dueAt} | ${feedbackFrequency} |`,
-    );
-    const inputMaterials = listField(t?.inputMaterials);
-    const actions = listField(t?.actions);
-    const collaborators = listField(t?.collaborators);
-    const scope = (t?.scope ?? {}) as Record<string, unknown>;
-    const inScope = listField(scope?.inScope);
-    const outOfScope = listField(scope?.outOfScope);
-    const hasAnyDetail =
-      deps.length > 0
-      || checkpoints.length > 0
-      || risks.length > 0
-      || Boolean(inputMaterials)
-      || Boolean(actions)
-      || Boolean(collaborators)
-      || Boolean(inScope)
-      || Boolean(outOfScope);
-    if (!hasAnyDetail) return;
-    const block: string[] = [`**${idx + 1}. ${title}**`];
-    if (inputMaterials) block.push(`- 输入材料：${inputMaterials}`);
-    if (actions) block.push(`- 执行动作：${actions}`);
-    if (collaborators) block.push(`- 协作人：${collaborators}`);
-    if (inScope) block.push(`- 范围内：${inScope}`);
-    if (outOfScope) block.push(`- 范围外：${outOfScope}`);
-    if (deps.length) {
-      const rendered = deps
-        .map((d) => {
-          const id = String(d ?? "").trim();
-          const tt = taskTitleById.get(id);
-          return tt ? `${id}（${tt}）` : id;
-        })
-        .filter(Boolean)
-        .join("；");
-      if (rendered) block.push(`- 前置依赖：${rendered}`);
-    }
-    if (checkpoints.length) {
-      block.push(`- 检查点：${checkpoints.map((c) => String(c ?? "").trim()).filter(Boolean).join("；")}`);
-    }
-    if (risks.length) {
-      block.push(`- 风险与待澄清：${risks.map((r) => String(r ?? "").trim()).filter(Boolean).join("；")}`);
-    }
-    supplementBlocks.push(block.join("\n"));
-  });
-  if (lines.length === 0 && tableRows.length === 0 && supplementBlocks.length === 0) return "";
-  const sections = ["### 任务草案（结构化字段）"];
-  if (tableRows.length) {
-    sections.push(
-      "| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |\n|---|---|---|---|---|---|---|\n" + tableRows.join("\n"),
-    );
-  }
-  sections.push("### 任务补充信息");
-  if (lines.length) sections.push(lines.join("\n"));
-  if (supplementBlocks.length) sections.push(supplementBlocks.join("\n\n"));
-  return sections.join("\n\n");
-}
+// hasTaskTableInMessage, renderDraftSupplementSection, appendPublishSummaryMarkdown
+// are now in src/view/dingtalk-task-markdown.ts and imported above.
 
 function isExplicitSearchRequest(input: string): boolean {
   const text = input.trim().toLowerCase();
@@ -220,34 +120,6 @@ function maskUserId(userId: string): string {
 
 export function shouldUseAnonymousSession(senderStaffId: string): boolean {
   return !String(senderStaffId ?? "").trim();
-}
-
-export function appendPublishSummaryMarkdown(
-  outboundMarkdown: string,
-  publishResult?: Record<string, unknown>,
-): string {
-  if (!publishResult || String((publishResult as any).ok ?? "") !== "true") return outboundMarkdown;
-  const publishTaskNo = String((publishResult as any)?.task?.taskNo ?? "").trim();
-  if (String((publishResult as any).alreadyPublished ?? "") === "true") {
-    if (publishTaskNo) {
-      return `${outboundMarkdown}\n\n【已发布】此计划已发布过（任务编号 ${publishTaskNo}），未重复推送。`;
-    }
-    return `${outboundMarkdown}\n\n【已发布】此计划已发布过，未重复推送。`;
-  }
-  const subtaskCount = Array.isArray((publishResult as any).subtasks)
-    ? (publishResult as any).subtasks.length
-    : 0;
-  const assignees = new Set<string>(
-    Array.isArray((publishResult as any).subtasks)
-      ? (publishResult as any).subtasks.map((s: any) => String(s?.assigneeUserId ?? "").trim()).filter(Boolean)
-      : [],
-  );
-  const warningText = Array.isArray((publishResult as any).warnings)
-    ? (publishResult as any).warnings.join("；")
-    : "";
-  let next = `${outboundMarkdown}\n\n【已发布】任务编号 ${publishTaskNo || "未知"}\n标题：${String((publishResult as any)?.task?.title ?? "未命名任务")}\n子任务 ${subtaskCount} 个 → 已通知 ${assignees.size} 名员工`;
-  if (warningText) next += `\n${warningText}`;
-  return next;
 }
 
 export function buildDingtalkOrchestratorRoutingParams(input: {
@@ -881,7 +753,7 @@ async function main(): Promise<void> {
           const isFalsePublish = detectFalsePublish({
             userMessage: background,
             preTurnLatestDraft,
-            toolInvocationNames: orchResult.toolInvocationNames,
+            toolInvocationNames: orchResult.toolInvocationNames ?? [],
             hasPublishResult: publishResult !== undefined,
             outboundMarkdown: initialOutbound,
           });
@@ -891,7 +763,7 @@ async function main(): Promise<void> {
               messageId,
               traceId: orchResult.traceId,
               planId: session.planId,
-              initialToolNames: [...orchResult.toolInvocationNames],
+              initialToolNames: [...(orchResult.toolInvocationNames ?? [])],
               initialMessagePreview: initialOutbound.slice(0, 160),
             });
             const retryStartedAt = Date.now();
@@ -902,7 +774,7 @@ async function main(): Promise<void> {
               event: "publish_silent_skip_retry_done",
               messageId,
               traceId: retryResult.traceId,
-              retriedToolNames: [...retryResult.toolInvocationNames],
+              retriedToolNames: [...(retryResult.toolInvocationNames ?? [])],
               retryHasPublishResult: publishResult !== undefined,
               retryMessagePreview: retryResult.messages.join("\n\n").slice(0, 160),
             });
@@ -1108,39 +980,24 @@ async function main(): Promise<void> {
         // 渲染守卫：只要 session 有草案（currentDraft），且本轮不是「刚发布完自动轮转」，就渲染富字段。
         // 放宽条件（freshDraft → currentDraft）让「模型仅发确认 message 未重复输出 JSON draft」的轮次也能展示子任务详情。
         const shouldRenderRichSection = !!currentDraft && !planRotatedAfterPublish;
-        if (shouldRenderRichSection) {
-          const tasks = (currentDraft as any)?.tasks;
-          if (
-            appendStructuredTaskTable &&
-            Array.isArray(tasks) &&
-            tasks.length > 0 &&
-            !hasTaskTableInMessage(outboundMarkdown)
-          ) {
-            const rows = tasks.map((t: any, i: number) =>
-              `| ${i + 1} | ${t.title ?? ""} | ${t.objective ?? ""} | ${(t.deliverables ?? []).join("；") || "-"} | ${(t.completionCriteria ?? []).join("；") || "-"} | ${t.timeNode?.dueAt ?? "待确认"} | ${t.feedbackFrequency ?? "待确认"} |`
-            );
-            outboundMarkdown += "\n\n### 任务列表（结构化字段）\n| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |\n|---|---|---|---|---|---|---|\n" + rows.join("\n");
-          } else if (hasTaskTableInMessage(outboundMarkdown)) {
+        // 正确拼接顺序（renderDingtalkTaskMarkdown 内部保证）：
+        //   富字段段 → 分配建议 → 发布回执 → 轮转提示
+        const finalOutboundForHistory = renderDingtalkTaskMarkdown({
+          modelMessage: outboundMarkdown,
+          currentDraft,
+          shouldRenderRichSection,
+          appendStructuredTaskTable,
+          onModelDrewTable: () => {
             logStructured({
               event: "dingtalk_model_drew_task_table",
               messageId,
               traceId: orchResult.traceId,
             });
-          }
-          const supplement = renderDraftSupplementSection(currentDraft);
-          if (supplement) {
-            outboundMarkdown += `\n\n${supplement}`;
-          }
-        }
-        // 正确拼接顺序：分配建议 → 发布回执 → 轮转提示（修复：之前 assignmentSection 落到发布回执后面，用户先看到「已发布」再看到「分配建议」逻辑倒置）
-        if (assignmentSection) {
-          outboundMarkdown += assignmentSection;
-        }
-        outboundMarkdown = appendPublishSummaryMarkdown(outboundMarkdown, publishResult);
-        if (planRotatedAfterPublish) {
-          outboundMarkdown += rotatePlanHintTail;
-        }
-        const finalOutboundForHistory = outboundMarkdown;
+          },
+          assignmentSection,
+          publishResult: publishResult as Record<string, unknown> | undefined,
+          rotatePlanHintTail: planRotatedAfterPublish ? rotatePlanHintTail : "",
+        });
         // history 中只保留模型原话（不含本轮 bot 渲染的「任务补充信息」/ 结构化任务表 / 分配建议段），
         // 否则下一轮模型读 conversationHistory 会把上一轮的 latestDraft.description 等内容
         // 一字不漏地「复读」到新回复里造成跨任务串台（即用户看到的污染）。

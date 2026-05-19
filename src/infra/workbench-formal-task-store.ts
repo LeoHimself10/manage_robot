@@ -34,23 +34,6 @@ export interface WorkbenchTaskRow {
   updatedAt: string;
 }
 
-/** 发布时写入 `subtasks.extra_json`（v1：依赖/检查点/风险；v2 追加输入材料/动作/协作人/范围）。 */
-export type WorkbenchSubtaskExtraScope = {
-  inScope: string[];
-  outOfScope: string[];
-};
-
-export type WorkbenchSubtaskExtra = {
-  v: 1 | 2;
-  dependsOn?: string[];
-  checkpoints?: string[];
-  risks?: string[];
-  inputMaterials?: string[];
-  actions?: string[];
-  collaborators?: string[];
-  scope?: WorkbenchSubtaskExtraScope;
-};
-
 export interface WorkbenchSubtaskRow {
   subtaskId: string;
   taskId: string;
@@ -68,127 +51,68 @@ export interface WorkbenchSubtaskRow {
   progressNote?: string;
   createdAt: string;
   updatedAt: string;
-  extra?: WorkbenchSubtaskExtra;
+  /** 前置依赖任务 ID 列表（JSON 数组字符串）。 */
+  dependsOn?: string[];
+  checkpoints?: string[];
+  risks?: string[];
+  inputMaterials?: string[];
+  actions?: string[];
+  collaborators?: string[];
+  inScope?: string[];
+  outOfScope?: string[];
 }
 
-const EXTRA_LIST_MAX_ITEMS = 10;
-const EXTRA_ITEM_MAX_CHARS = 200;
+const RICH_LIST_MAX_ITEMS = 10;
+const RICH_ITEM_MAX_CHARS = 200;
 
-function clipExtraItem(s: string): string {
-  const t = s.trim();
-  return t.length > EXTRA_ITEM_MAX_CHARS ? t.slice(0, EXTRA_ITEM_MAX_CHARS) : t;
-}
-
-function normalizeExtraStringList(input: unknown): string[] {
+function normalizeRichStringList(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   const out: string[] = [];
   for (const item of input) {
-    if (out.length >= EXTRA_LIST_MAX_ITEMS) break;
-    const s = clipExtraItem(String(item ?? ""));
-    if (s) out.push(s);
+    if (out.length >= RICH_LIST_MAX_ITEMS) break;
+    const s = String(item ?? "").trim();
+    if (s) out.push(s.length > RICH_ITEM_MAX_CHARS ? s.slice(0, RICH_ITEM_MAX_CHARS) : s);
   }
   return out;
 }
 
-function parseScopeFromDraft(scopeRaw: unknown): WorkbenchSubtaskExtraScope | undefined {
-  if (!scopeRaw || typeof scopeRaw !== "object" || Array.isArray(scopeRaw)) return undefined;
-  const rec = scopeRaw as Record<string, unknown>;
-  const inScope = normalizeExtraStringList(rec.inScope);
-  const outOfScope = normalizeExtraStringList(rec.outOfScope);
-  if (!inScope.length && !outOfScope.length) return undefined;
-  return { inScope, outOfScope };
-}
-
-/** 发布时从草案单条 task 序列化 `extra_json`；全部为空则返回 null。 */
-export function serializeSubtaskExtraFromDraftTask(draftTask: Record<string, unknown>): string | null {
-  const depsRaw = draftTask.dependencyTaskIds ?? draftTask.dependencies;
-  const dependsOn = normalizeExtraStringList(depsRaw);
-  const timeNode = draftTask.timeNode as Record<string, unknown> | undefined;
-  const checkpoints = normalizeExtraStringList(timeNode?.checkpoints);
-  const risks = normalizeExtraStringList(draftTask.risksAndOpenQuestions);
-  const inputMaterials = normalizeExtraStringList(draftTask.inputMaterials);
-  const actions = normalizeExtraStringList(draftTask.actions);
-  const collaborators = normalizeExtraStringList(draftTask.collaborators);
-  const scope = parseScopeFromDraft(draftTask.scope);
-
-  const hasV1 = dependsOn.length > 0 || checkpoints.length > 0 || risks.length > 0;
-  const hasV2 =
-    inputMaterials.length > 0
-    || actions.length > 0
-    || collaborators.length > 0
-    || scope !== undefined;
-  if (!hasV1 && !hasV2) return null;
-
-  const version: 1 | 2 = hasV2 ? 2 : 1;
-  const obj: Record<string, unknown> = { v: version };
-  if (dependsOn.length) obj.dependsOn = dependsOn;
-  if (checkpoints.length) obj.checkpoints = checkpoints;
-  if (risks.length) obj.risks = risks;
-  if (inputMaterials.length) obj.inputMaterials = inputMaterials;
-  if (actions.length) obj.actions = actions;
-  if (collaborators.length) obj.collaborators = collaborators;
-  if (scope) obj.scope = scope;
-  return JSON.stringify(obj);
-}
-
-function parseSubtaskExtraJson(raw: unknown): WorkbenchSubtaskExtra | undefined {
-  if (raw === null || raw === undefined) return undefined;
+function parseRichJsonColumn(raw: unknown): string[] {
+  if (raw === null || raw === undefined) return [];
   const s = String(raw).trim();
-  if (!s) return undefined;
-  let parsed: unknown;
+  if (!s) return [];
   try {
-    parsed = JSON.parse(s);
+    const arr = JSON.parse(s);
+    return normalizeRichStringList(arr);
   } catch {
-    logStructured({ event: "workbench_subtask_extra_json_parse_failed", snippet: s.slice(0, 120) });
-    return undefined;
+    logStructured({ event: "workbench_subtask_rich_col_parse_failed", snippet: s.slice(0, 80) });
+    return [];
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
-  const o = parsed as Record<string, unknown>;
-  const dependsOn = normalizeExtraStringList(o.dependsOn ?? o.dependencyTaskIds);
-  const checkpoints = normalizeExtraStringList(o.checkpoints);
-  const risks = normalizeExtraStringList(o.risks);
-  const inputMaterials = normalizeExtraStringList(o.inputMaterials);
-  const actions = normalizeExtraStringList(o.actions);
-  const collaborators = normalizeExtraStringList(o.collaborators);
-  const scope = parseScopeFromDraft(o.scope);
-
-  if (
-    !dependsOn.length
-    && !checkpoints.length
-    && !risks.length
-    && !inputMaterials.length
-    && !actions.length
-    && !collaborators.length
-    && !scope
-  ) {
-    return undefined;
-  }
-
-  const versionRaw = o.v;
-  const version: 1 | 2 =
-    versionRaw === 2
-    || inputMaterials.length
-    || actions.length
-    || collaborators.length
-    || scope !== undefined
-      ? 2
-      : 1;
-
-  const out: WorkbenchSubtaskExtra = { v: version };
-  if (dependsOn.length) out.dependsOn = dependsOn;
-  if (checkpoints.length) out.checkpoints = checkpoints;
-  if (risks.length) out.risks = risks;
-  if (inputMaterials.length) out.inputMaterials = inputMaterials;
-  if (actions.length) out.actions = actions;
-  if (collaborators.length) out.collaborators = collaborators;
-  if (scope) out.scope = scope;
-  return out;
 }
 
-function ensureExtraJsonColumn(db: DatabaseSync): void {
+function encodeRichJsonColumn(arr: string[]): string | null {
+  return arr.length > 0 ? JSON.stringify(arr) : null;
+}
+
+/** Add the 8 rich flat columns to subtasks table (idempotent).
+ *  Also drops the legacy extra_json column if it still exists (SQLite 3.35+). */
+function ensureSubtaskRichColumns(db: DatabaseSync): void {
   const rows = db.prepare("PRAGMA table_info(subtasks)").all() as Array<{ name?: string }>;
-  if (!rows.some((r) => String(r.name ?? "") === "extra_json")) {
-    db.exec("ALTER TABLE subtasks ADD COLUMN extra_json TEXT");
+  const existing = new Set(rows.map((r) => String(r.name ?? "")));
+  const richCols = [
+    "depends_on", "checkpoints", "risks", "input_materials",
+    "actions", "collaborators", "in_scope", "out_of_scope",
+  ];
+  for (const col of richCols) {
+    if (!existing.has(col)) {
+      db.exec(`ALTER TABLE subtasks ADD COLUMN ${col} TEXT`);
+    }
+  }
+  if (existing.has("extra_json")) {
+    try {
+      db.exec("ALTER TABLE subtasks DROP COLUMN extra_json");
+    } catch {
+      // SQLite < 3.35 fallback: leave extra_json in place (harmless)
+    }
   }
 }
 
@@ -352,7 +276,14 @@ export function createWorkbenchFormalTaskStore() {
       progress_note TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      extra_json TEXT,
+      depends_on TEXT,
+      checkpoints TEXT,
+      risks TEXT,
+      input_materials TEXT,
+      actions TEXT,
+      collaborators TEXT,
+      in_scope TEXT,
+      out_of_scope TEXT,
       UNIQUE(task_id, source_task_key)
     );
     CREATE INDEX IF NOT EXISTS idx_subtasks_task_id ON subtasks(task_id);
@@ -409,7 +340,7 @@ export function createWorkbenchFormalTaskStore() {
   }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_task_no ON tasks(task_no)");
 
-  ensureExtraJsonColumn(db);
+  ensureSubtaskRichColumns(db);
   ensureTaskDescriptionColumn(db);
 
   const migratedAt = nowIso();
@@ -495,6 +426,14 @@ export function createWorkbenchFormalTaskStore() {
   }
 
   function mapSubtaskRow(row: Record<string, unknown>): WorkbenchSubtaskRow {
+    const dependsOn = parseRichJsonColumn(row.depends_on);
+    const checkpoints = parseRichJsonColumn(row.checkpoints);
+    const risks = parseRichJsonColumn(row.risks);
+    const inputMaterials = parseRichJsonColumn(row.input_materials);
+    const actions = parseRichJsonColumn(row.actions);
+    const collaborators = parseRichJsonColumn(row.collaborators);
+    const inScope = parseRichJsonColumn(row.in_scope);
+    const outOfScope = parseRichJsonColumn(row.out_of_scope);
     return {
       subtaskId: String(row.subtask_id ?? ""),
       taskId: String(row.task_id ?? ""),
@@ -511,7 +450,14 @@ export function createWorkbenchFormalTaskStore() {
       progressNote: asString(row.progress_note),
       createdAt: String(row.created_at ?? ""),
       updatedAt: String(row.updated_at ?? ""),
-      extra: parseSubtaskExtraJson(row.extra_json),
+      ...(dependsOn.length > 0 ? { dependsOn } : {}),
+      ...(checkpoints.length > 0 ? { checkpoints } : {}),
+      ...(risks.length > 0 ? { risks } : {}),
+      ...(inputMaterials.length > 0 ? { inputMaterials } : {}),
+      ...(actions.length > 0 ? { actions } : {}),
+      ...(collaborators.length > 0 ? { collaborators } : {}),
+      ...(inScope.length > 0 ? { inScope } : {}),
+      ...(outOfScope.length > 0 ? { outOfScope } : {}),
     };
   }
 
@@ -599,6 +545,9 @@ export function createWorkbenchFormalTaskStore() {
         if (!assigneeUserId) {
           throw new Error(`Missing assignee for subtask ${sourceKey}`);
         }
+        const timeNode = draftTask.timeNode as Record<string, unknown> | undefined;
+        const depsRaw = draftTask.dependencyTaskIds ?? draftTask.dependencies;
+        const scopeRaw = draftTask.scope as Record<string, unknown> | undefined;
         return {
           sourceKey,
           title: asString(draftTask.title) || `子任务 ${index + 1}`,
@@ -612,7 +561,14 @@ export function createWorkbenchFormalTaskStore() {
           dueAt: resolveDraftTaskDueAt(draftTask),
           feedbackFrequency: asString(draftTask.feedbackFrequency),
           assigneeUserId,
-          extraJson: serializeSubtaskExtraFromDraftTask(draftTask),
+          dependsOn: encodeRichJsonColumn(normalizeRichStringList(depsRaw)),
+          checkpoints: encodeRichJsonColumn(normalizeRichStringList(timeNode?.checkpoints)),
+          risks: encodeRichJsonColumn(normalizeRichStringList(draftTask.risksAndOpenQuestions)),
+          inputMaterials: encodeRichJsonColumn(normalizeRichStringList(draftTask.inputMaterials)),
+          actions: encodeRichJsonColumn(normalizeRichStringList(draftTask.actions)),
+          collaborators: encodeRichJsonColumn(normalizeRichStringList(draftTask.collaborators)),
+          inScope: encodeRichJsonColumn(normalizeRichStringList(scopeRaw?.inScope)),
+          outOfScope: encodeRichJsonColumn(normalizeRichStringList(scopeRaw?.outOfScope)),
         };
       });
       const taskId = `task:${planId}`;
@@ -641,8 +597,8 @@ export function createWorkbenchFormalTaskStore() {
           publishedAt,
         );
         const insertSubtask = db.prepare(
-          `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at, extra_json)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at, depends_on, checkpoints, risks, input_materials, actions, collaborators, in_scope, out_of_scope)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         );
         pendingSubtasks.forEach((subtask) => {
           const subtaskId = `${taskId}:${subtask.sourceKey}`;
@@ -661,7 +617,14 @@ export function createWorkbenchFormalTaskStore() {
             null,
             publishedAt,
             publishedAt,
-            subtask.extraJson,
+            subtask.dependsOn,
+            subtask.checkpoints,
+            subtask.risks,
+            subtask.inputMaterials,
+            subtask.actions,
+            subtask.collaborators,
+            subtask.inScope,
+            subtask.outOfScope,
           );
         });
         db.prepare(

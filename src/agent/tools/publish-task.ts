@@ -1,7 +1,9 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 import type { PlanSession } from "../../infra/plan-session-store";
 import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
-import type { WorkbenchSubtaskExtra } from "../../infra/workbench-formal-task-store";
+import type { WorkbenchSubtaskRow } from "../../infra/workbench-formal-task-store";
+
+type SubtaskRichFields = Pick<WorkbenchSubtaskRow, "dependsOn" | "checkpoints" | "risks" | "inputMaterials" | "actions" | "collaborators" | "inScope" | "outOfScope">;
 
 type PublishFromSessionFn = (input: {
   planId: string;
@@ -11,13 +13,12 @@ type PublishFromSessionFn = (input: {
   actorUserId: string;
   actorName?: string;
 }) => {
-  task: { taskId: string; taskNo: string; title: string };
-  subtasks: Array<{
+  task: { taskId: string; taskNo: string; title: string; description?: string };
+    subtasks: Array<{
     assigneeUserId: string;
     title: string;
     sourceTaskKey: string;
-    extra?: WorkbenchSubtaskExtra;
-  }>;
+  } & Partial<SubtaskRichFields>>;
   alreadyPublished: boolean;
 };
 
@@ -177,10 +178,20 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
     }
     deps.recentPublished.mark(planId);
 
-    const groupedAssignees = new Map<string, Array<{ title: string; extra?: WorkbenchSubtaskExtra }>>();
+    const groupedAssignees = new Map<string, Array<{ title: string } & Partial<SubtaskRichFields>>>();
     published.subtasks.forEach((subtask) => {
       const current = groupedAssignees.get(subtask.assigneeUserId) ?? [];
-      current.push({ title: subtask.title, extra: subtask.extra });
+      current.push({
+        title: subtask.title,
+        dependsOn: subtask.dependsOn,
+        checkpoints: subtask.checkpoints,
+        risks: subtask.risks,
+        inputMaterials: subtask.inputMaterials,
+        actions: subtask.actions,
+        collaborators: subtask.collaborators,
+        inScope: subtask.inScope,
+        outOfScope: subtask.outOfScope,
+      });
       groupedAssignees.set(subtask.assigneeUserId, current);
     });
     const subtaskTitleBySourceKey: Record<string, string> = {};

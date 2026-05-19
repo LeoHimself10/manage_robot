@@ -437,7 +437,9 @@ describe("buildPublishTaskNotifyMarkdown", () => {
         subtasks: [
           {
             title: "子B",
-            extra: { dependsOn: ["task_1"], checkpoints: ["c1"], risks: ["r1"] },
+            dependsOn: ["task_1"],
+            checkpoints: ["c1"],
+            risks: ["r1"],
           },
         ],
       },
@@ -461,16 +463,14 @@ describe("buildPublishTaskNotifyMarkdown", () => {
         subtasks: [
           {
             title: "子V2",
-            extra: {
-              v: 2,
-              inputMaterials: ["图纸 v2"],
-              actions: ["复测"],
-              collaborators: ["质量"],
-              scope: { inScope: ["A"], outOfScope: ["不做包装"] },
-              dependsOn: ["task_1"],
-              checkpoints: ["c1"],
-              risks: ["r1"],
-            },
+            inputMaterials: ["图纸 v2"],
+            actions: ["复测"],
+            collaborators: ["质量"],
+            inScope: ["A"],
+            outOfScope: ["不做包装"],
+            dependsOn: ["task_1"],
+            checkpoints: ["c1"],
+            risks: ["r1"],
           },
         ],
       },

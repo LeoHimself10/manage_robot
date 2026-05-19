@@ -16,7 +16,6 @@ import {
 import {
   createWorkbenchFormalTaskStore,
   type SubtaskOpenDeclineKind,
-  type WorkbenchSubtaskExtra,
   type WorkbenchTaskStatus,
 } from "../infra/workbench-formal-task-store";
 import { presentDueBarState, presentDueLabel, presentDueProgress } from "../infra/due-present";
@@ -945,7 +944,7 @@ export function renderTaskDetailPage(params: {
       return sid;
     }).join('；');
   }
-  /** 子任务详情 dl 行（主管/管理员与员工「我的子任务」共用；数据来自 extra_json 解析后的 s.extra） */
+  /** 子任务详情 dl 行（主管/管理员与员工「我的子任务」共用；数据来自 subtasks 表扁平字段） */
   function subtaskDetailDtDds(s, subs) {
     var parts = [];
     if (s.objective) parts.push('<dt>目标</dt><dd>'+esc(s.objective)+'</dd>');
@@ -953,29 +952,29 @@ export function renderTaskDetailPage(params: {
     if (s.completionCriteria) parts.push('<dt>完成标准</dt><dd>'+esc(s.completionCriteria)+'</dd>');
     if (s.dueAt) parts.push('<dt>截止</dt><dd>'+esc(String(s.dueAt).slice(0,10))+'</dd>');
     if (s.feedbackFrequency) parts.push('<dt>反馈频率</dt><dd>'+esc(s.feedbackFrequency)+'</dd>');
-    var ex = s.extra || {};
-    if (ex.inputMaterials && ex.inputMaterials.length) {
-      parts.push('<dt>输入材料</dt><dd>'+esc(ex.inputMaterials.join('；'))+'</dd>');
+    if (s.inputMaterials && s.inputMaterials.length) {
+      parts.push('<dt>输入材料</dt><dd>'+esc(s.inputMaterials.join('；'))+'</dd>');
     }
-    if (ex.actions && ex.actions.length) {
-      parts.push('<dt>执行动作</dt><dd>'+esc(ex.actions.join('；'))+'</dd>');
+    if (s.actions && s.actions.length) {
+      parts.push('<dt>执行动作</dt><dd>'+esc(s.actions.join('；'))+'</dd>');
     }
-    if (ex.collaborators && ex.collaborators.length) {
-      parts.push('<dt>协作人</dt><dd>'+esc(ex.collaborators.join('；'))+'</dd>');
+    if (s.collaborators && s.collaborators.length) {
+      parts.push('<dt>协作人</dt><dd>'+esc(s.collaborators.join('；'))+'</dd>');
     }
-    if (ex.scope && (ex.scope.inScope && ex.scope.inScope.length || ex.scope.outOfScope && ex.scope.outOfScope.length)) {
-      var sc = ex.scope;
-      if (sc.inScope && sc.inScope.length) parts.push('<dt>范围内</dt><dd>'+esc(sc.inScope.join('；'))+'</dd>');
-      if (sc.outOfScope && sc.outOfScope.length) parts.push('<dt>范围外</dt><dd>'+esc(sc.outOfScope.join('；'))+'</dd>');
+    if (s.inScope && s.inScope.length) {
+      parts.push('<dt>范围内</dt><dd>'+esc(s.inScope.join('；'))+'</dd>');
     }
-    if (ex.dependsOn && ex.dependsOn.length) {
-      parts.push('<dt>前置依赖</dt><dd>'+esc(depTitles(subs, ex.dependsOn))+'</dd>');
+    if (s.outOfScope && s.outOfScope.length) {
+      parts.push('<dt>范围外</dt><dd>'+esc(s.outOfScope.join('；'))+'</dd>');
     }
-    if (ex.checkpoints && ex.checkpoints.length) {
-      parts.push('<dt>检查点</dt><dd>'+esc(ex.checkpoints.join('；'))+'</dd>');
+    if (s.dependsOn && s.dependsOn.length) {
+      parts.push('<dt>前置依赖</dt><dd>'+esc(depTitles(subs, s.dependsOn))+'</dd>');
     }
-    if (ex.risks && ex.risks.length) {
-      parts.push('<dt>风险与待澄清</dt><dd>'+esc(ex.risks.join('；'))+'</dd>');
+    if (s.checkpoints && s.checkpoints.length) {
+      parts.push('<dt>检查点</dt><dd>'+esc(s.checkpoints.join('；'))+'</dd>');
+    }
+    if (s.risks && s.risks.length) {
+      parts.push('<dt>风险与待澄清</dt><dd>'+esc(s.risks.join('；'))+'</dd>');
     }
     return parts.join('');
   }

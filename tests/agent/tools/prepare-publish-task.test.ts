@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildPreparePublishTaskHandler } from "../../../src/agent/tools/prepare-publish-task";
 import { TASK_DESCRIPTION_MAX_DB } from "../../../src/infra/workbench-formal-task-store";
+import type { PlanSession } from "../../../src/infra/plan-session-store";
 
 function makeSession(overrides: Partial<PlanSession> = {}): PlanSession {
   return {
