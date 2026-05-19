@@ -64,6 +64,7 @@ import {
 import { renderEmployeeWorkbenchPage } from "./employee-workbench-pages";
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { logStructured } from "../infra/logger";
+import { sendSubtaskReminder } from "../agent/reminders/reminder-send";
 
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
@@ -1170,6 +1171,40 @@ export function renderTaskDetailPage(params: {
         if (lastLoadedPlanId) initDetailReassign(lastSubsForReassign, sid0);
         return;
       }
+      var remindBtn = el.closest('[data-mgr-remind-sub]');
+      if (remindBtn) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var rowR = remindBtn.closest('details.sub-row-mgr');
+        if (!rowR) return;
+        var sidR = String(rowR.getAttribute('data-subtask-id') || '').trim();
+        if (!sidR) return;
+        remindBtn.disabled = true;
+        setRowMgrFb(rowR, 'remind', '发送中…', 'muted');
+        void (async function () {
+          try {
+            var payloadR = { subtaskId: sidR, tone: 'polite' };
+            if (ENFORCE_GUARDS) {
+              payloadR.confirm = true;
+              payloadR.idempotencyKey = newMgrIdem();
+            }
+            var resR = await fetch('/api/workbench/manager/subtasks/remind', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payloadR),
+            });
+            var dataR = await resR.json().catch(function () { return {}; });
+            if (!resR.ok || !dataR.ok) throw new Error(dataR.error || dataR.skipped || ('HTTP ' + resR.status));
+            var ch = (dataR.channels && dataR.channels.length) ? dataR.channels.join('+') : '已发送';
+            setRowMgrFb(rowR, 'remind', '催办成功（' + ch + '）', 'ok');
+          } catch (erR) {
+            setRowMgrFb(rowR, 'remind', String(erR && erR.message ? erR.message : erR), 'err');
+          } finally {
+            remindBtn.disabled = false;
+          }
+        })();
+        return;
+      }
       var adminA = el.closest('[data-admin-open-reassign]');
       if (adminA) {
         ev.preventDefault();
@@ -1544,6 +1579,13 @@ export function renderTaskDetailPage(params: {
         if (st === 'BLOCKED' || st === 'DONE') {
           actions.push('<button type="button" class="btn btn-ghost btn-sm" data-mgr-toggle="ack">已知悉</button>');
         }
+        if (st !== 'DONE' && (ROLE === 'manager' || ROLE === 'admin')) {
+          actions.push(
+            '<button type="button" class="btn btn-primary btn-sm" data-mgr-remind-sub="' +
+              sid +
+              '">催办</button>',
+          );
+        }
         if (st !== 'DONE' && ROLE === 'manager') {
           actions.push(
             '<a class="btn btn-secondary btn-sm" href="' +
@@ -1559,7 +1601,19 @@ export function renderTaskDetailPage(params: {
         }
         var actionButtons = actions.join('');
         var summaryActionsRow = actionButtons
-          ? '<div class="mgr-sub-summary-actions"><div class="mgr-sub-actions">' + actionButtons + '</div></div>'
+          ? (function () {
+              var remindFb =
+                st !== 'DONE' && (ROLE === 'manager' || ROLE === 'admin')
+                  ? '<div class="feedback muted" data-mgr-fb="remind" style="margin-top:4px;font-size:12px;"></div>'
+                  : '';
+              return (
+                '<div class="mgr-sub-summary-actions"><div class="mgr-sub-actions">' +
+                actionButtons +
+                '</div>' +
+                remindFb +
+                '</div>'
+              );
+            })()
           : '';
         var defaultSig = st === 'BLOCKED' ? 'blocked' : 'done';
         var note = String(s.progressNote || '').trim();
@@ -2756,6 +2810,85 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/subtasks/remind") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res);
+        if (!session) return;
+        if (session.role !== "manager" && session.role !== "admin") {
+          writeJson(res, 403, { ok: false, error: "manager or admin role required" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        if (shouldEnforceActionGuards()) {
+          const confirmed = body.confirm === true;
+          if (!confirmed) {
+            writeJson(res, 400, { ok: false, error: "confirm=true is required" });
+            return;
+          }
+          const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+          if (!idempotencyKey) {
+            writeJson(res, 400, { ok: false, error: "idempotencyKey is required" });
+            return;
+          }
+          if (!rememberActionKey("manager_subtask_remind", idempotencyKey)) {
+            writeJson(res, 200, { ok: true, duplicated: true, alreadyHandled: true });
+            return;
+          }
+        }
+        const subtaskId = String(body.subtaskId ?? "").trim();
+        const toneRaw = String(body.tone ?? "").trim();
+        const tone = toneRaw === "firm" || toneRaw === "polite" ? toneRaw : undefined;
+        if (!subtaskId) {
+          writeJson(res, 400, { ok: false, error: "subtaskId is required" });
+          return;
+        }
+        const store = getFormalTaskStore();
+        const pair = store.getSubtaskWithTask(subtaskId);
+        if (!pair) {
+          writeJson(res, 404, { ok: false, error: "Subtask not found" });
+          return;
+        }
+        if (session.role === "manager" && pair.task.managerUserId !== session.userId) {
+          writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
+          return;
+        }
+        const actorUserId =
+          session.role === "admin" ? pair.task.managerUserId : session.userId;
+        const peopleStore = createPeopleDirectoryStore();
+        try {
+          const result = await sendSubtaskReminder(
+            {
+              subtaskId,
+              trigger: "manual_workbench",
+              actorUserId,
+              tone,
+            },
+            {
+              taskStore: store,
+              notifier: workbenchPublishNotifier,
+              peopleStore,
+            },
+          );
+          if (!result.ok) {
+            const status = result.error === "forbidden" ? 403 : result.skipped ? 200 : 400;
+            writeJson(res, status, result);
+            return;
+          }
+          writeJson(res, 200, result);
+        } finally {
+          peopleStore.close();
+        }
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request body",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (
     req.method === "POST"
     && (url.pathname === "/api/workbench/employee/action"
@@ -3323,6 +3456,7 @@ export function handleAssignmentHttp(
           ),
           toolProfile: session.role === "admin" ? "admin" : "manager",
           promptProfile: "planner",
+          managerFollowup: session.role === "admin" || session.role === "manager",
           knownFactsStore,
           currentSessionPlanId: target.planId,
           currentSession: target,

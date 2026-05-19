@@ -94,12 +94,28 @@ export interface WorkbenchManagerEmployeeActionNotifyInput {
   traceId?: string;
 }
 
+export interface WorkbenchSubtaskReminderNotifyInput {
+  taskNo: string;
+  taskTitle: string;
+  subtaskId: string;
+  subtaskTitle: string;
+  assigneeUserId: string;
+  unionId?: string;
+  managerUserId: string;
+  managerDisplayName?: string;
+  subject: string;
+  markdown: string;
+  tier: "day1" | "day2plus";
+  sourceId: string;
+}
+
 export interface WorkbenchPublishNotifier {
   notifyPublishedTask(input: WorkbenchPublishTaskNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyReassignedAssignee(input: WorkbenchReassignNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyManagerOfEmployeeAction(
     input: WorkbenchManagerEmployeeActionNotifyInput,
   ): Promise<WorkbenchNotifyResult>;
+  notifySubtaskReminder(input: WorkbenchSubtaskReminderNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyEmployeeTodoOnAccept(input: {
     taskNo: string;
     taskTitle: string;
@@ -792,6 +808,126 @@ export function createWorkbenchPublishNotifier(
           reason: `robot chat message failed: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
+      return { enabled: true, success, failed };
+    },
+
+    async notifySubtaskReminder(
+      input: WorkbenchSubtaskReminderNotifyInput,
+    ): Promise<WorkbenchNotifyResult> {
+      if (!isNotifyEnabled()) {
+        return {
+          enabled: false,
+          skippedReason: "WORKBENCH_DINGTALK_NOTIFY_ENABLED is off",
+          success: [],
+          failed: [],
+        };
+      }
+      const agentId = env("DINGTALK_AGENT_ID") || env("WORKBENCH_DINGTALK_NOTIFY_AGENT_ID");
+      const baseUrl = resolveNotifyBaseUrl();
+      if (!baseUrl) {
+        return {
+          enabled: false,
+          skippedReason: "missing DINGTALK_AGENT_ID or WORKBENCH_NOTIFY_DETAIL_URL_BASE",
+          success: [],
+          failed: [],
+        };
+      }
+      const robotMsgEnabled = isRobotMsgEnabled();
+      const robotCode = resolveRobotCode();
+      const uid = input.assigneeUserId;
+      const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}&subtaskId=${encodeURIComponent(input.subtaskId)}`;
+      const success: WorkbenchNotifyResult["success"] = [];
+      const failed: WorkbenchNotifyResult["failed"] = [];
+      const userOutcome: WorkbenchNotifyResult["success"][number] = { userId: uid };
+      let anyChannelOk = false;
+
+      let token: string;
+      try {
+        token = await getAccessToken(fetchImpl);
+      } catch (err) {
+        failed.push({
+          userId: uid,
+          reason: `getAccessToken failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        return { enabled: true, success, failed };
+      }
+
+      if (input.unionId) {
+        try {
+          const todoId = await createTodo({
+            fetchImpl,
+            accessToken: token,
+            unionId: input.unionId,
+            sourceId: input.sourceId,
+            subject: input.subject,
+            description: input.markdown,
+            detailUrl,
+          });
+          userOutcome.todoId = todoId;
+          anyChannelOk = true;
+        } catch (err) {
+          failed.push({
+            userId: uid,
+            reason: `create todo failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+      } else {
+        failed.push({
+          userId: uid,
+          reason: `unionId missing for ${uid}`,
+        });
+      }
+
+      if (robotMsgEnabled) {
+        if (!robotCode) {
+          failed.push({
+            userId: uid,
+            reason: "skip robot chat message: DINGTALK_ROBOT_CODE missing",
+          });
+        } else {
+          try {
+            const robotMessageKey = await sendRobotChatMessage({
+              fetchImpl,
+              accessToken: token,
+              robotCode,
+              userId: uid,
+              title: input.subject,
+              markdown: input.markdown,
+              detailUrl,
+            });
+            userOutcome.robotMessageKey = robotMessageKey;
+            anyChannelOk = true;
+          } catch (err) {
+            failed.push({
+              userId: uid,
+              reason: `robot chat message failed: ${err instanceof Error ? err.message : String(err)}`,
+            });
+          }
+        }
+      }
+
+      if (input.tier === "day2plus" && agentId) {
+        try {
+          const cardMessageId = await sendCard({
+            fetchImpl,
+            accessToken: token,
+            agentId,
+            userId: uid,
+            title: input.subject,
+            markdown: input.markdown,
+            detailUrl,
+          });
+          userOutcome.cardMessageId = cardMessageId;
+          anyChannelOk = true;
+        } catch (err) {
+          failed.push({
+            userId: uid,
+            reason: `send card failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+      }
+
+      if (anyChannelOk) success.push(userOutcome);
       return { enabled: true, success, failed };
     },
 

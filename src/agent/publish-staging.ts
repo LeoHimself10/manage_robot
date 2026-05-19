@@ -55,9 +55,17 @@ export interface PublishStagingMemoryHintInput {
   latestDraft?: unknown;
 }
 
-/** 草案已 staged，且用户本轮在确认发布 → 注入「只准 publish」强提示。 */
+function hasDraftTasksForPublish(draft: unknown): boolean {
+  if (!draft || typeof draft !== "object" || Array.isArray(draft)) return false;
+  const tasks = (draft as { tasks?: unknown }).tasks;
+  return Array.isArray(tasks) && tasks.length > 0;
+}
+
+/** 用户确认发布且会话有未发布草案 → 注入发布强提示（含未 prepare 时须先 prepare 再 publish）。 */
 export function shouldInjectPublishStagingMemoryHint(input: PublishStagingMemoryHintInput): boolean {
-  return isDraftStagedForPublish(input.latestDraft) && isPublishConfirmUserMessage(input.userMessage);
+  if (!isPublishConfirmUserMessage(input.userMessage)) return false;
+  if (isDraftStagedForPublish(input.latestDraft)) return true;
+  return hasDraftTasksForPublish(input.latestDraft);
 }
 
 export interface FalsePublishDetectionInput {

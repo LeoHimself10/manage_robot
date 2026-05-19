@@ -94,6 +94,14 @@ import {
   type PublishTaskRecentStore,
 } from "./publish-task";
 import { createWorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
+import {
+  LIST_FOLLOW_UP_CANDIDATES_TOOL,
+  buildListFollowUpCandidatesHandler,
+} from "./list-follow-up-candidates";
+import {
+  SEND_SUBTASK_REMINDER_TOOL,
+  buildSendSubtaskReminderHandler,
+} from "./send-subtask-reminder";
 import { createEmployeeProfileRepo } from "../../integrations/repos/employee-profile-repo";
 import { resolveEmployeeProfileDir } from "../../infra/assignment-env";
 import type { PlanSession } from "../../infra/plan-session-store";
@@ -299,6 +307,14 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
         getContact: (userId) => peopleStore.getContact(userId),
       }),
     },
+    list_follow_up_candidates: {
+      definition: LIST_FOLLOW_UP_CANDIDATES_TOOL,
+      handler: buildListFollowUpCandidatesHandler({ taskStore }),
+    },
+    send_subtask_reminder: {
+      definition: SEND_SUBTASK_REMINDER_TOOL,
+      handler: buildSendSubtaskReminderHandler({ taskStore, notifier }),
+    },
     get_my_profile: {
       definition: GET_MY_PROFILE_TOOL,
       handler: buildGetMyProfileHandler({ peopleStore }),
@@ -380,6 +396,8 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     "submit_progress_update",
     "update_employee_profile",
     "publish_task",
+    "list_follow_up_candidates",
+    "send_subtask_reminder",
   ] as const;
   if (trustedActor) {
     const enforceActor = (handler: ToolHandler): ToolHandler => (args) =>
@@ -421,6 +439,8 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "list_managed_tasks",
       "get_task_detail",
       "reassign_task",
+      "list_follow_up_candidates",
+      "send_subtask_reminder",
       "search_employees",
       "get_employee_details",
       "search_similar_plans",
@@ -442,6 +462,8 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "list_managed_tasks",
       "get_task_detail",
       "reassign_task",
+      "list_follow_up_candidates",
+      "send_subtask_reminder",
       "admin_list_all_tasks",
       "get_metrics",
       "list_managers",

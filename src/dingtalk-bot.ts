@@ -24,11 +24,16 @@ import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import { runOrchestrator } from "./agent/orchestrator";
 import {
-  buildPublishRetryUserMessage,
   buildScopeSwitchRetryUserMessage,
-  detectFalsePublish,
   detectFalseScopeSwitch,
+  isPublishConfirmUserMessage,
 } from "./agent/publish-staging";
+import {
+  publishResultSucceeded,
+  runAuthoritativePublishOnConfirm,
+  sanitizeFalsePublishClaims,
+} from "./agent/authoritative-publish";
+import { buildToolRegistry } from "./agent/tools/registry";
 import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
@@ -55,6 +60,7 @@ import { readSearchSimilarPlansEnabled } from "./agent/tools/search-similar-plan
 import { deepMergePreserveRichFields } from "./agent/draft-merge";
 import { logStructured } from "./infra/logger";
 import { createDingTalkContactSyncService } from "./infra/dingtalk-contact-sync";
+import { createReminderScheduler } from "./agent/reminders/reminder-scheduler";
 import {
   appendMemoryEvents,
   loadMemoryContextForPlan,
@@ -321,6 +327,8 @@ async function main(): Promise<void> {
     });
     contactSyncService.startIntervalLoop();
   }
+  const reminderScheduler = createReminderScheduler();
+  reminderScheduler.startIntervalLoop();
 
   client.registerCallbackListener(TOPIC_ROBOT, (res: DWClientDownStream) => {
     void (async () => {
@@ -675,7 +683,6 @@ async function main(): Promise<void> {
           reason: routing.reason,
         });
         const orchestratorStartedAt = Date.now();
-        const preTurnLatestDraft = session.latestDraft;
         // 检测上一轮是否发生了 scope 切换（发布后自动轮转 / 手动 start_new_task）。
         // conversationHistory 以 [system_note] 开头且 <= 3 条记录 → 上一轮刚发生了 scope 切换。
         const scopeRotatedSinceLastTurn = (() => {
@@ -699,6 +706,8 @@ async function main(): Promise<void> {
           maxToolIterations: dingtalkOrchestratorMaxIterations,
           toolProfile: routing.toolProfile,
           promptProfile: routing.promptProfile,
+          managerFollowup:
+            routing.toolProfile === "manager" || routing.toolProfile === "admin",
           trustedActorUserId: routing.trustedActorUserId,
           allowSearchWeb: isExplicitSearchRequest(background),
           knownFactsStore,
@@ -745,44 +754,7 @@ async function main(): Promise<void> {
         let orchResult = await runOrchestrator(background, buildOrchestratorConfig());
         let orchestratorMs = Date.now() - orchestratorStartedAt;
 
-        // Layer-2 兜底：检测「主管已确认发布、prepare 已 staged、但模型未调 publish_task 却口播已发布」。
-        // 命中则**自动重试一次**，强制要求调用 publish_task；仍不调时下游会原样把第二次结果发出去
-        // （由 prompt 自身的兜底 message 给用户）。原 background 不被改写，history/审计保持原貌。
-        {
-          const initialOutbound = orchResult.messages.join("\n\n");
-          const isFalsePublish = detectFalsePublish({
-            userMessage: background,
-            preTurnLatestDraft,
-            toolInvocationNames: orchResult.toolInvocationNames ?? [],
-            hasPublishResult: publishResult !== undefined,
-            outboundMarkdown: initialOutbound,
-          });
-          if (isFalsePublish) {
-            logStructured({
-              event: "publish_silent_skip_detected",
-              messageId,
-              traceId: orchResult.traceId,
-              planId: session.planId,
-              initialToolNames: [...(orchResult.toolInvocationNames ?? [])],
-              initialMessagePreview: initialOutbound.slice(0, 160),
-            });
-            const retryStartedAt = Date.now();
-            const retryBackground = buildPublishRetryUserMessage(background, session.planId);
-            const retryResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
-            orchestratorMs += Date.now() - retryStartedAt;
-            logStructured({
-              event: "publish_silent_skip_retry_done",
-              messageId,
-              traceId: retryResult.traceId,
-              retriedToolNames: [...(retryResult.toolInvocationNames ?? [])],
-              retryHasPublishResult: publishResult !== undefined,
-              retryMessagePreview: retryResult.messages.join("\n\n").slice(0, 160),
-            });
-            orchResult = retryResult;
-          }
-        }
-
-        // Layer-3 兜底：检测「用户要切换/归档任务，但模型口播已切换却未调用 start_new_task」。
+        // Layer-3：scope 切换口播未调 start_new_task 时重试（与发布无关，保留）。
         {
           const initialOutbound = orchResult.messages.join("\n\n");
           const isFalseScopeSwitch = detectFalseScopeSwitch({
@@ -927,7 +899,65 @@ async function main(): Promise<void> {
             });
           }
         }
+        if (!latestAssignment && orchResult.assignment) {
+          latestAssignment = orchResult.assignment;
+        }
         const assignmentMs = Date.now() - assignmentStartedAt;
+
+        // 主管「确认发布」：由服务端执行 prepare + publish，不以模型口播为准。
+        if (
+          !isAnonymousSender &&
+          isPublishConfirmUserMessage(background) &&
+          (routing.toolProfile === "manager" || routing.toolProfile === "admin") &&
+          !publishResultSucceeded(publishResult as Record<string, unknown> | undefined)
+        ) {
+          const sessionForPublish = {
+            ...session,
+            latestDraft: currentDraft as PlanSession["latestDraft"],
+            latestAssignment,
+          };
+          const publishRegistry = buildToolRegistry({
+            employeeRepo,
+            toolProfile: routing.toolProfile,
+            trustedActorUserId: routing.trustedActorUserId,
+            knownFactsStore,
+            currentSessionPlanId: session.planId,
+            currentSession: sessionForPublish,
+            publishRecentStore,
+            actorName: (payload.senderNick as string | undefined)?.trim(),
+            actorRole:
+              routing.resolvedRole === "admin"
+                ? "admin"
+                : routing.resolvedRole === "manager"
+                  ? "manager"
+                  : "employee",
+            onPublishTaskResult: (result: Record<string, unknown>) => {
+              publishResult = result;
+            },
+          });
+          const authStartedAt = Date.now();
+          const authOutcome = await runAuthoritativePublishOnConfirm({
+            session: sessionForPublish,
+            userMessage: background,
+            prepareHandler: publishRegistry.prepare_publish_task.handler,
+            publishHandler: publishRegistry.publish_task.handler,
+          });
+          session.latestDraft = sessionForPublish.latestDraft;
+          session.latestAssignment = sessionForPublish.latestAssignment;
+          logStructured({
+            event: "authoritative_publish_on_confirm",
+            messageId,
+            traceId: orchResult.traceId,
+            planId: session.planId,
+            durationMs: Date.now() - authStartedAt,
+            skippedReason: authOutcome.skippedReason,
+            prepareOk: String(authOutcome.prepareResult?.ok ?? "") === "true",
+            publishOk: publishResultSucceeded(authOutcome.publishResult),
+          });
+          if (authOutcome.publishResult) {
+            publishResult = authOutcome.publishResult;
+          }
+        }
 
         let planRotatedAfterPublish = false;
         let rotatePlanHintTail = "";
@@ -980,6 +1010,10 @@ async function main(): Promise<void> {
         // 渲染守卫：只要 session 有草案（currentDraft），且本轮不是「刚发布完自动轮转」，就渲染富字段。
         // 放宽条件（freshDraft → currentDraft）让「模型仅发确认 message 未重复输出 JSON draft」的轮次也能展示子任务详情。
         const shouldRenderRichSection = !!currentDraft && !planRotatedAfterPublish;
+        outboundMarkdown = sanitizeFalsePublishClaims(
+          outboundMarkdown,
+          publishResultSucceeded(publishResult as Record<string, unknown> | undefined),
+        );
         // 正确拼接顺序（renderDingtalkTaskMarkdown 内部保证）：
         //   富字段段 → 分配建议 → 发布回执 → 轮转提示
         const finalOutboundForHistory = renderDingtalkTaskMarkdown({

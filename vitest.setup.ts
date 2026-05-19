@@ -9,3 +9,6 @@ process.env.PLAN_SNAPSHOT_DISABLED = "1";
 
 /** Skip PII masking in Markdown under test unless a test clears this. */
 process.env.CONTENT_FILTER_DISABLED = "1";
+
+/** Default-off follow-up scheduler during Vitest. */
+process.env.FOLLOWUP_REMINDER_ENABLED = "0";

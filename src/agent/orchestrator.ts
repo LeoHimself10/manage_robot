@@ -8,7 +8,11 @@ import { coerceLlmPlanPayload } from "./demo/llm-schema";
 import { buildToolRegistry, type ToolProfile } from "./tools/registry";
 import { logStructured } from "../infra/logger";
 import type { EmployeeProfileRecord } from "../integrations/repos/employee-profile-repo";
-import { buildQwenPlannerSystemPrompt, type AgentPromptProfile } from "./demo/qwen-prompt";
+import {
+  buildQwenPlannerSystemPrompt,
+  type AgentPromptProfile,
+  type QwenPlannerPromptOpts,
+} from "./demo/qwen-prompt";
 import type { KnownFactsStore } from "./tools/update-known-facts";
 import type { PlanSession } from "../infra/plan-session-store";
 import type { PublishTaskRecentStore } from "./tools/publish-task";
@@ -28,6 +32,8 @@ export interface OrchestratorConfig {
   maxToolIterations?: number;
   toolProfile?: ToolProfile;
   promptProfile?: AgentPromptProfile;
+  /** When true, inject sixth mode FOLLOWUP + follow-up tool discipline (manager/admin). */
+  managerFollowup?: boolean;
   trustedActorUserId?: string;
   allowSearchWeb?: boolean;
   knownFactsStore?: KnownFactsStore;
@@ -120,7 +126,13 @@ export async function runOrchestrator(
   }
 
   // Build messages with conversation history
-  const sysPrompt = buildQwenPlannerSystemPrompt(config.promptProfile ?? "planner");
+  const promptOpts: QwenPlannerPromptOpts | undefined = config.managerFollowup
+    ? { managerFollowup: true }
+    : undefined;
+  const sysPrompt = buildQwenPlannerSystemPrompt(
+    config.promptProfile ?? "planner",
+    promptOpts,
+  );
   const allMessages: Array<{ role: string; content: string }> = [
     { role: "system", content: sysPrompt },
   ];
@@ -182,8 +194,11 @@ export async function runOrchestrator(
       latestDraft: config.sessionContext?.latestDraft,
     })
   ) {
+    const staged = isDraftStagedForPublish(config.sessionContext?.latestDraft);
     memoryParts.push(
-      "publishStagingAction: 主管已确认发布｜本轮唯一动作：调用 publish_task(planId=当前 planId, confirmationContext=用户原话)；**禁止**仅口播「已发布/已派发」而不调工具。",
+      staged
+        ? "publishStagingAction: 主管已确认发布｜本轮**必须**调用 publish_task(planId=当前 planId, confirmationContext=用户原话)；**禁止**仅口播「已发布/已派发」而不调工具。"
+        : "publishStagingAction: 主管已确认发布｜本轮**必须先** prepare_publish_task（补齐 title/description/subtasks/assigneeUserId）→ 再 publish_task；**禁止**未调工具就声称已发布。",
     );
   }
   if (memoryParts.length > 0) {

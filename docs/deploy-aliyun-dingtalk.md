@@ -228,7 +228,7 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DINGTALK_CLIENT_SECRET` | 是 | 钉钉应用 Client Secret |
 | `DINGTALK_CORP_ID` | 工作台强烈建议 | **JSAPI `dd.config` 与企业 corpId**：用于签名接口返回及兜底注入；仅在仅靠旧版 `getCurrentCorpId` 时可不配（不推荐） |
 | `DINGTALK_AGENT_ID` | 工作台强烈建议 | 开放平台微应用 **AgentId**（数字），与 `dd.config` 一致；缺则 `/api/workbench/auth/jsapi-config` 不可用 |
-| `WORKBENCH_DINGTALK_NOTIFY_ENABLED` | 否 | `1` 时启用“主管发布后通知员工”流程（卡片+待办），默认关闭 |
+| `WORKBENCH_DINGTALK_NOTIFY_ENABLED` | 否 | `1` 时启用员工通知总开关：发布/改派=卡片+机器人1:1；员工 accept 后=钉钉原生待办；默认关闭 |
 | `WORKBENCH_NOTIFY_DETAIL_URL_BASE` | 否 | 通知卡片/待办详情链接基础地址，建议设为 `https://你的域名/workbench/employee/task` |
 | `WORKBENCH_DINGTALK_NOTIFY_AGENT_ID` | 否 | 通知备用 AgentId。当前实现优先读取 `DINGTALK_AGENT_ID`，为空时才回退此变量 |
 | `DINGTALK_CONTACT_SYNC_ENABLED` | 否 | `1` 开启钉钉通讯录同步（落地到 SQLite `dingtalk_contacts`）。**员工 accept 后创建待办需要 unionId，必须启用此项** |
@@ -270,8 +270,15 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DINGTALK_ASSIGNMENT_MOCK` | 否 | `1` 使用 mock 钉钉交互卡片（无需真实卡片回调） |
 | `WORKBENCH_MANAGER_USER_IDS` | 否 | 钉钉 **主管** 身份白名单（与 `TASK_INITIATOR_USER_IDS` 独立），逗号分隔 `userId`。供后续工作台网页应用 Session 判定；未配或空则人均按非主管处理（见 `src/security/workbench-manager-whitelist.ts`） |
 | `WORKBENCH_MANAGER_IDS_FILE` | 否 | 主管名单 JSON 数组文件路径（格式同 `TASK_INITIATOR_IDS_FILE`）；存在且为数组时优先于 `WORKBENCH_MANAGER_USER_IDS` |
+| `FOLLOWUP_REMINDER_ENABLED` | 否 | `1` 开启执行中逾期定时催办 scheduler（默认 `0`）；**单实例**假设，多副本需后续 leader lease |
+| `FOLLOWUP_SCAN_INTERVAL_MS` | 否 | scheduler 扫描间隔（默认 `300000`） |
+| `FOLLOWUP_TIMEZONE` | 否 | 自然日与静默时段时区（默认 `Asia/Shanghai`） |
+| `FOLLOWUP_TIER2_AFTER_OVERDUE_DAYS` | 否 | 逾期满 N 天后 day2plus 追加卡片（默认 `1`） |
+| `FOLLOWUP_QUIET_HOURS` | 否 | 静默时段，如 `22:00-08:00`（默认同左） |
+| `FOLLOWUP_MANUAL_LLM_ENABLED` | 否 | 手动催办是否尝试 LLM 润色（默认 `1`） |
+| `FOLLOWUP_MANUAL_LLM_TIMEOUT_MS` | 否 | 手动催办 LLM 超时毫秒（默认 `5000`） |
 
-单测默认会设置 `*_DISABLED`，避免写入仓库外路径；与本节生产配置无关。
+单测默认会设置 `*_DISABLED`，避免写入仓库外路径；`vitest.setup.ts` 默认 `FOLLOWUP_REMINDER_ENABLED=0` 避免测试进程启动后台扫描。与本节生产配置无关。
 
 本地直连调试：
 
@@ -295,7 +302,7 @@ npm run dingtalk-bot
 - **函数计算 FC**：若改为 HTTP 回调型机器人，可使用 FC HTTP 触发器；当前代码路径为 **Stream**，迁移需改用开放平台 HTTP 加解密回调。
 - **高可用**：多实例部署需注意钉钉 Stream 连接模型与机器人会话幂等；试点阶段建议 **单实例**。
 - **集中式审计 / 网关限流**：进程内已实现 Demo JSONL、Harness 可选 FileSink 及会话限速；若要跨实例报表或网关级配额，可再接入集中日志或 API 网关。
-- **发布后员工通知**：若启用 `WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`，钉钉端 `publish_task` 工具在写入 SQLite 后尝试发送钉钉卡片并创建待办。通知失败不会回滚发布，会在响应 `warnings` 与 `task_events` 中留痕（`EMPLOYEE_NOTIFY_FAILED`）。
+- **发布后员工通知**：若启用 `WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`，`publish_task` 成功后向员工发送钉钉卡片 + 机器人 1:1 消息（**不在发布时创建待办**）。员工在工作台 **accept** 子任务后才创建钉钉原生待办（需 `DINGTALK_CONTACT_SYNC_ENABLED=1` 以解析 unionId）。通知失败不会回滚发布，在 `warnings` 与 `task_events` 中留痕（`EMPLOYEE_NOTIFY_FAILED` / `EMPLOYEE_TODO_*`）。
 
 ## 六、上线前清库（纯 SQLite 模式）
 

@@ -330,6 +330,20 @@ export function createWorkbenchFormalTaskStore() {
     );
     CREATE INDEX IF NOT EXISTS idx_dingtalk_contacts_active ON dingtalk_contacts(active);
     CREATE INDEX IF NOT EXISTS idx_dingtalk_contacts_name ON dingtalk_contacts(name);
+    CREATE TABLE IF NOT EXISTS subtask_reminder_state (
+      subtask_id TEXT PRIMARY KEY,
+      overdue_since TEXT NOT NULL,
+      last_reminded_at TEXT,
+      remind_count INTEGER NOT NULL DEFAULT 0,
+      last_tier TEXT,
+      last_manual_reminded_at TEXT,
+      manual_remind_count INTEGER NOT NULL DEFAULT 0,
+      last_scheduler_source_id TEXT,
+      last_manual_source_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_subtasks_due_active
+      ON subtasks(status, due_at)
+      WHERE status IN ('IN_PROGRESS','BLOCKED');
   `);
   const taskColumns = new Set(
     (db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>)
@@ -1060,6 +1074,120 @@ export function createWorkbenchFormalTaskStore() {
     resolveTaskByNo(taskNo: string): WorkbenchTaskRow | undefined {
       const row = qTaskByNo.get(taskNo) as Record<string, unknown> | undefined;
       return row ? mapTaskRow(row) : undefined;
+    },
+
+    listActiveSubtasksForReminders(): Array<{
+      subtaskId: string;
+      taskId: string;
+      planId: string;
+      taskNo: string;
+      title: string;
+      subtaskTitle: string;
+      sourceTaskKey: string;
+      dueAt?: string;
+      status: WorkbenchTaskStatus;
+      assigneeUserId: string;
+      managerUserId: string;
+      updatedAt: string;
+    }> {
+      const rows = db
+        .prepare(
+          `SELECT s.subtask_id, s.task_id, s.source_task_key, s.title AS subtask_title, s.due_at, s.status,
+                  s.assignee_user_id, s.updated_at,
+                  t.plan_id, t.task_no, t.title AS task_title, t.manager_user_id
+             FROM subtasks s
+             JOIN tasks t ON t.task_id = s.task_id
+            WHERE s.status IN ('IN_PROGRESS','BLOCKED')`,
+        )
+        .all() as Array<Record<string, unknown>>;
+      return rows.map((row) => ({
+        subtaskId: String(row.subtask_id ?? ""),
+        taskId: String(row.task_id ?? ""),
+        planId: String(row.plan_id ?? ""),
+        taskNo: asString(row.task_no) || String(row.task_id ?? ""),
+        title: String(row.task_title ?? ""),
+        subtaskTitle: String(row.subtask_title ?? ""),
+        sourceTaskKey: String(row.source_task_key ?? ""),
+        dueAt: asString(row.due_at),
+        status: normalizeStatus(String(row.status ?? "IN_PROGRESS")),
+        assigneeUserId: String(row.assignee_user_id ?? ""),
+        managerUserId: String(row.manager_user_id ?? ""),
+        updatedAt: String(row.updated_at ?? ""),
+      }));
+    },
+
+    getSubtaskReminderState(subtaskId: string):
+      | {
+          overdueSince: string;
+          lastRemindedAt?: string;
+          remindCount: number;
+          lastTier?: string;
+          lastManualRemindedAt?: string;
+          manualRemindCount: number;
+        }
+      | undefined {
+      const row = db
+        .prepare("SELECT * FROM subtask_reminder_state WHERE subtask_id = ?")
+        .get(subtaskId) as Record<string, unknown> | undefined;
+      if (!row) return undefined;
+      return {
+        overdueSince: String(row.overdue_since ?? ""),
+        lastRemindedAt: asString(row.last_reminded_at),
+        remindCount: Number(row.remind_count ?? 0),
+        lastTier: asString(row.last_tier),
+        lastManualRemindedAt: asString(row.last_manual_reminded_at),
+        manualRemindCount: Number(row.manual_remind_count ?? 0),
+      };
+    },
+
+    tryClaimSchedulerReminder(input: {
+      subtaskId: string;
+      overdueSince: string;
+      nowIso: string;
+      tier: string;
+      todayStartIso: string;
+      schedulerSourceId: string;
+    }): { claimed: boolean; reason?: string } {
+      const changes = db
+        .prepare(
+          `INSERT INTO subtask_reminder_state(
+             subtask_id, overdue_since, last_reminded_at, remind_count, last_tier, last_scheduler_source_id
+           ) VALUES(?, ?, ?, 1, ?, ?)
+           ON CONFLICT(subtask_id) DO UPDATE SET
+             last_reminded_at = excluded.last_reminded_at,
+             remind_count = subtask_reminder_state.remind_count + 1,
+             last_tier = excluded.last_tier,
+             last_scheduler_source_id = excluded.last_scheduler_source_id
+           WHERE subtask_reminder_state.last_reminded_at IS NULL
+              OR subtask_reminder_state.last_reminded_at < ?`,
+        )
+        .run(
+          input.subtaskId,
+          input.overdueSince,
+          input.nowIso,
+          input.tier,
+          input.schedulerSourceId,
+          input.todayStartIso,
+        ).changes;
+      return changes === 1 ? { claimed: true } : { claimed: false, reason: "already_sent_today" };
+    },
+
+    recordManualReminder(input: {
+      subtaskId: string;
+      overdueSince: string;
+      nowIso: string;
+      manualSourceId: string;
+    }): void {
+      db.prepare(
+        `INSERT INTO subtask_reminder_state(
+           subtask_id, overdue_since, last_manual_reminded_at, manual_remind_count, last_manual_source_id
+         ) VALUES(?, ?, ?, 1, ?)
+         ON CONFLICT(subtask_id) DO UPDATE SET
+           overdue_since = COALESCE(subtask_reminder_state.overdue_since, excluded.overdue_since),
+           last_manual_reminded_at = excluded.last_manual_reminded_at,
+           manual_remind_count = subtask_reminder_state.manual_remind_count + 1,
+           last_manual_source_id = excluded.last_manual_source_id`,
+      ).run(input.subtaskId, input.overdueSince, input.nowIso, input.manualSourceId);
     },
   };
 }

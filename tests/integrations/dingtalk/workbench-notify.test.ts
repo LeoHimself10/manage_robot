@@ -309,6 +309,59 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(result.skippedReason).toContain("MANAGER");
     expect(spyFetch).not.toHaveBeenCalled();
   });
+
+  it("notifySubtaskReminder day1 sends todo + robot without card", async () => {
+    const sourceId = "followup:scheduler:sub-1:20260520";
+    const { fetch: fetchImpl, calls } = buildFetchMock([
+      () => jsonRes({ accessToken: "tok-1" }),
+      () => jsonRes({ id: "todo-1" }),
+      () => jsonRes({ processQueryKey: "robot-remind-1" }),
+    ]);
+    const notifier = createWorkbenchPublishNotifier(fetchImpl);
+    const result = await notifier.notifySubtaskReminder({
+      taskNo: "TK-9",
+      subtaskId: "sub-1",
+      assigneeUserId: "emp-1",
+      unionId: "uni-emp-1",
+      subject: "催办",
+      markdown: "请尽快完成",
+      tier: "day1",
+      sourceId,
+    });
+    expect(result.enabled).toBe(true);
+    expect(result.success).toHaveLength(1);
+    expect(result.success[0]).toMatchObject({
+      userId: "emp-1",
+      todoId: "todo-1",
+      robotMessageKey: "robot-remind-1",
+    });
+    expect(result.success[0].cardMessageId).toBeUndefined();
+    expect(calls.some((c) => c.url.includes("/topapi/message/corpconversation"))).toBe(false);
+    const todoCall = calls.find((c) => c.url.includes("/v1.0/todo/"));
+    expect(todoCall?.body).toMatchObject({ sourceId });
+  });
+
+  it("notifySubtaskReminder day2plus also sends card", async () => {
+    const { fetch: fetchImpl, calls } = buildFetchMock([
+      () => jsonRes({ accessToken: "tok-1" }),
+      () => jsonRes({ id: "todo-2" }),
+      () => jsonRes({ processQueryKey: "robot-remind-2" }),
+      () => jsonRes({ errcode: 0, task_id: "card-remind-1" }),
+    ]);
+    const notifier = createWorkbenchPublishNotifier(fetchImpl);
+    const result = await notifier.notifySubtaskReminder({
+      taskNo: "TK-9",
+      subtaskId: "sub-1",
+      assigneeUserId: "emp-1",
+      unionId: "uni-emp-1",
+      subject: "催办",
+      markdown: "请尽快完成",
+      tier: "day2plus",
+      sourceId: "followup:manual_chat:sub-1:1730000000",
+    });
+    expect(result.success[0].cardMessageId).toBeDefined();
+    expect(calls.some((c) => c.url.includes("/topapi/message/corpconversation"))).toBe(true);
+  });
 });
 
 describe("buildPublishTaskNotifyMarkdown", () => {

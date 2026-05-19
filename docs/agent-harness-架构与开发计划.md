@@ -98,9 +98,10 @@ V1 聚焦：
 
 ### 4.7 Reminder & Escalation Scheduler（提醒升级）
 
-- 承接超时提醒、二次超时升级（FR-07）。
+- **v1（已实现）**：执行中逾期催办——`IN_PROGRESS` / `BLOCKED` 且 `due_at` 可解析；`src/agent/reminders/` + `FOLLOWUP_REMINDER_ENABLED` scheduler；主管对话 `list_follow_up_candidates` / `send_subtask_reminder` 与工作台 `POST /api/workbench/manager/subtasks/remind`；钉钉通知经 `WorkbenchPublishNotifier.notifySubtaskReminder`（day1: todo+robot；day2plus: +card）。
+- **Phase 1.5（待做）**：承接超时（`ASSIGNED`）提醒、二次超时升级（FR-07）。
 - 节点到期提醒与阻塞通知。
-- 策略配置化：时长阈值、升级路径、静默时段。
+- 策略配置化：时长阈值、升级路径、静默时段（`FOLLOWUP_*` env）。
 
 ### 4.8 Audit Logger（审计）
 

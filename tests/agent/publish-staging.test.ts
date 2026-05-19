@@ -70,7 +70,15 @@ describe("publish-staging", () => {
         }),
       ).toBe(true);
     });
-    it("false when not staged or user not confirming", () => {
+    it("true when user confirms publish and draft has tasks (even not staged)", () => {
+      expect(
+        shouldInjectPublishStagingMemoryHint({
+          userMessage: "确认",
+          latestDraft: { tasks: [{ id: "task_1" }] },
+        }),
+      ).toBe(true);
+    });
+    it("false when no draft tasks or user not confirming", () => {
       expect(
         shouldInjectPublishStagingMemoryHint({
           userMessage: "发布",
