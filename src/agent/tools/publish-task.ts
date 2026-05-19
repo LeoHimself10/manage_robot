@@ -273,7 +273,6 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
             userId: item.userId,
             cardMessageId: item.cardMessageId,
             robotMessageKey: item.robotMessageKey,
-            todoId: item.todoId,
             taskNo: published.task.taskNo,
           },
         });

@@ -13,7 +13,7 @@ export function normalizeReassignSubtaskId(planId: string, raw?: string): string
 
 export function voidFireReassignAssigneeNotify(input: {
   notifier: WorkbenchPublishNotifier;
-  getContact: (userId: string) => { unionId?: string; name?: string } | undefined;
+  getDisplayName: (userId: string) => string | undefined;
   appendTaskEvent?: FormalTaskStore["appendTaskEvent"];
   taskStore: Pick<FormalTaskStore, "getTaskDetail">;
   taskId: string;
@@ -42,16 +42,12 @@ export function voidFireReassignAssigneeNotify(input: {
         const sub = detail.subtasks.find((s) => s.subtaskId === normalizedSubtaskId);
         subtaskTitle = sub?.title;
       }
-      const contact = input.getContact(input.assigneeUserId);
-      const unionId = contact?.unionId?.trim() || undefined;
-      const managerContact = input.getContact(input.managerUserId);
       const notifyInput = {
         taskNo: task.taskNo,
         taskTitle: task.title,
         managerUserId: input.managerUserId,
-        managerDisplayName: managerContact?.name?.trim() || undefined,
+        managerDisplayName: input.getDisplayName(input.managerUserId) || undefined,
         assigneeUserId: input.assigneeUserId,
-        unionId,
         subtaskId: normalizedSubtaskId,
         subtaskTitle,
         scope,

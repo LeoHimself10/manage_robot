@@ -13,6 +13,7 @@ describe("submit_employee_response tool", () => {
         managerUserId: "mgr-1",
       },
       subtask: { subtaskId: "sid", status: "REJECTED" as const, title: "Sub" },
+      previousStatus: "ASSIGNED" as const,
     }));
     const appendTaskEvent = vi.fn();
     const notifyManagerOfEmployeeAction = vi.fn(async () => ({
@@ -20,6 +21,7 @@ describe("submit_employee_response tool", () => {
       success: [{ userId: "mgr-1", robotMessageKey: "x" }],
       failed: [] as Array<{ userId: string; reason: string }>,
     }));
+    const notifyEmployeeTodoOnAccept = vi.fn(async () => ({ enabled: false }));
     const handler = buildSubmitEmployeeResponseHandler({
       taskStore: { updateSubtaskStatus, appendTaskEvent, getSubtaskWithTask: () => ({
         task: {
@@ -31,7 +33,7 @@ describe("submit_employee_response tool", () => {
         },
         subtask: { subtaskId: "sid", title: "Sub", assigneeUserId: "e1" },
       }) } as any,
-      notifier: { notifyManagerOfEmployeeAction } as any,
+      notifier: { notifyManagerOfEmployeeAction, notifyEmployeeTodoOnAccept } as any,
       getDisplayName: () => "员工甲",
     });
     await handler({
@@ -47,9 +49,11 @@ describe("submit_employee_response tool", () => {
     expect(notifyManagerOfEmployeeAction).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "rejected", managerUserId: "mgr-1" }),
     );
+    // reject does not trigger todo
+    expect(notifyEmployeeTodoOnAccept).not.toHaveBeenCalled();
   });
 
-  it("does not notify on accept", async () => {
+  it("does not notify manager on accept, but calls todo notifier", async () => {
     const updateSubtaskStatus = vi.fn(() => ({
       task: {
         taskId: "tid",
@@ -60,12 +64,21 @@ describe("submit_employee_response tool", () => {
         managerUserId: "mgr-1",
       },
       subtask: { subtaskId: "sid", status: "IN_PROGRESS" as const, title: "Sub" },
+      previousStatus: "ASSIGNED" as const,
     }));
     const appendTaskEvent = vi.fn();
     const notifyManagerOfEmployeeAction = vi.fn();
+    const notifyEmployeeTodoOnAccept = vi.fn(async () => ({
+      enabled: true,
+      todoId: "todo-new",
+    }));
     const handler = buildSubmitEmployeeResponseHandler({
-      taskStore: { updateSubtaskStatus, appendTaskEvent, getSubtaskWithTask: () => undefined } as any,
-      notifier: { notifyManagerOfEmployeeAction } as any,
+      taskStore: { updateSubtaskStatus, appendTaskEvent, getSubtaskWithTask: () => ({
+        task: { taskId: "tid", taskNo: "W-2", title: "Main", managerUserId: "mgr-1", planId: "p1" },
+        subtask: { subtaskId: "sid", title: "Sub", assigneeUserId: "e1" },
+      }) } as any,
+      notifier: { notifyManagerOfEmployeeAction, notifyEmployeeTodoOnAccept } as any,
+      getContact: () => ({ unionId: "uni-e1" }),
     });
     await handler({
       subtaskId: "sid",
@@ -73,6 +86,11 @@ describe("submit_employee_response tool", () => {
       action: "accept",
     });
     expect(notifyManagerOfEmployeeAction).not.toHaveBeenCalled();
-    expect(appendTaskEvent).not.toHaveBeenCalled();
+    expect(notifyEmployeeTodoOnAccept).toHaveBeenCalledWith(
+      expect.objectContaining({ taskNo: "W-2", unionId: "uni-e1" }),
+    );
+    expect(appendTaskEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: "EMPLOYEE_TODO_CREATED" }),
+    );
   });
 });

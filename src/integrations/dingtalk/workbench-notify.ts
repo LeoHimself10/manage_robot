@@ -32,9 +32,7 @@ export interface WorkbenchPublishTaskNotifyInput {
     /** 通讯录姓名；缺省则「负责人」行回退为 userId */
     displayName?: string;
     /**
-     * 钉钉 unionId。
-     * 创建钉钉原生待办（v1.0/todo/users/{unionId}/tasks）必填；缺失时降级为只发工作消息卡片，
-     * 并把"missing unionId"作为 failed 一条记录返回，调用方应将其写入 warnings/EMPLOYEE_NOTIFY_FAILED。
+     * 钉钉 unionId。发布通知阶段不再创建待办，此字段暂保留供其他通知场景使用。
      */
     unionId?: string;
     /** 推荐使用：含 title 与可选 extra（依赖/检查点/风险） */
@@ -59,7 +57,7 @@ export interface WorkbenchNotifyResult {
   failed: Array<{ userId: string; reason: string }>;
 }
 
-/** 子任务（或整单）改派成功后，通知新负责人（与发布通道一致：卡片 + 机器人 + 可选待办）。 */
+/** 子任务（或整单）改派成功后，通知新负责人（卡片 + 机器人）。 */
 export interface WorkbenchReassignNotifyInput {
   taskNo: string;
   taskTitle: string;
@@ -67,7 +65,6 @@ export interface WorkbenchReassignNotifyInput {
   /** 通讯录姓名；缺省则「主管」行回退为 managerUserId */
   managerDisplayName?: string;
   assigneeUserId: string;
-  unionId?: string;
   /** 单子任务改派时有值；整单改派为 undefined */
   subtaskId?: string;
   subtaskTitle?: string;
@@ -103,6 +100,19 @@ export interface WorkbenchPublishNotifier {
   notifyManagerOfEmployeeAction(
     input: WorkbenchManagerEmployeeActionNotifyInput,
   ): Promise<WorkbenchNotifyResult>;
+  notifyEmployeeTodoOnAccept(input: {
+    taskNo: string;
+    taskTitle: string;
+    subtaskId: string;
+    subtaskTitle: string;
+    assigneeUserId: string;
+    unionId?: string;
+  }): Promise<{
+    enabled: boolean;
+    skippedReason?: string;
+    todoId?: string;
+    failedReason?: string;
+  }>;
 }
 
 function env(name: string): string {
@@ -455,6 +465,7 @@ async function createTodo(params: {
   unionId: string;
   sourceId: string;
   subject: string;
+  description?: string;
   detailUrl: string;
 }): Promise<string | undefined> {
   const res = await params.fetchImpl(
@@ -468,8 +479,10 @@ async function createTodo(params: {
       body: JSON.stringify({
         sourceId: params.sourceId,
         subject: params.subject,
-        description: params.subject,
-        detailUrl: params.detailUrl,
+        description: params.description ?? params.subject,
+        detailUrl: { appUrl: params.detailUrl, pcUrl: params.detailUrl },
+        executorIds: [params.unionId],
+        creatorId: params.unionId,
       }),
     },
   );
@@ -577,32 +590,6 @@ export function createWorkbenchPublishNotifier(
           }
         }
 
-        // 通道 3：钉钉原生待办
-        if (!assignee.unionId) {
-          failed.push({
-            userId: assignee.userId,
-            reason: "skip create todo: unionId missing (need contact sync or unionId resolver)",
-          });
-        } else {
-          try {
-            const todoId = await createTodo({
-              fetchImpl,
-              accessToken: token,
-              unionId: assignee.unionId,
-              sourceId: `workbench:${input.taskNo}:${assignee.userId}`,
-              subject,
-              detailUrl,
-            });
-            userOutcome.todoId = todoId;
-            anyChannelOk = true;
-          } catch (err) {
-            failed.push({
-              userId: assignee.userId,
-              reason: `create todo failed: ${err instanceof Error ? err.message : String(err)}`,
-            });
-          }
-        }
-
         if (anyChannelOk) {
           success.push(userOutcome);
         }
@@ -699,32 +686,6 @@ export function createWorkbenchPublishNotifier(
               reason: `robot chat message failed: ${err instanceof Error ? err.message : String(err)}`,
             });
           }
-        }
-      }
-
-      const todoKeyPart = (input.subtaskId ?? "plan").replace(/:/g, "-");
-      if (!input.unionId) {
-        failed.push({
-          userId: uid,
-          reason: "skip create todo: unionId missing (need contact sync or unionId resolver)",
-        });
-      } else {
-        try {
-          const todoId = await createTodo({
-            fetchImpl,
-            accessToken: token,
-            unionId: input.unionId,
-            sourceId: `workbench:reassign:${input.taskNo}:${todoKeyPart}`,
-            subject,
-            detailUrl,
-          });
-          userOutcome.todoId = todoId;
-          anyChannelOk = true;
-        } catch (err) {
-          failed.push({
-            userId: uid,
-            reason: `create todo failed: ${err instanceof Error ? err.message : String(err)}`,
-          });
         }
       }
 
@@ -832,6 +793,55 @@ export function createWorkbenchPublishNotifier(
         });
       }
       return { enabled: true, success, failed };
+    },
+
+    async notifyEmployeeTodoOnAccept(input: {
+      taskNo: string;
+      taskTitle: string;
+      subtaskId: string;
+      subtaskTitle: string;
+      assigneeUserId: string;
+      unionId?: string;
+    }): Promise<{
+      enabled: boolean;
+      skippedReason?: string;
+      todoId?: string;
+      failedReason?: string;
+    }> {
+      if (!isNotifyEnabled()) {
+        return { enabled: false, skippedReason: "WORKBENCH_DINGTALK_NOTIFY_ENABLED is off" };
+      }
+      const baseUrl = resolveNotifyBaseUrl();
+      if (!baseUrl) {
+        return { enabled: false, skippedReason: "missing WORKBENCH_NOTIFY_DETAIL_URL_BASE" };
+      }
+      if (!input.unionId) {
+        return {
+          enabled: true,
+          failedReason: `unionId missing for ${input.assigneeUserId} — enable DINGTALK_CONTACT_SYNC_ENABLED to populate unionId`,
+        };
+      }
+      const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}&subtaskId=${encodeURIComponent(input.subtaskId)}`;
+      const subject = `[${input.taskNo}] ${input.subtaskTitle}`;
+      const sourceId = `workbench:accepted:${input.taskNo}:${input.subtaskId.replace(/:/g, "-")}`;
+      try {
+        const token = await getAccessToken(fetchImpl);
+        const todoId = await createTodo({
+          fetchImpl,
+          accessToken: token,
+          unionId: input.unionId,
+          sourceId,
+          subject,
+          description: `任务「${input.taskTitle}」子任务：${input.subtaskTitle}`,
+          detailUrl,
+        });
+        return { enabled: true, todoId };
+      } catch (err) {
+        return {
+          enabled: true,
+          failedReason: err instanceof Error ? err.message : String(err),
+        };
+      }
     },
   };
 }

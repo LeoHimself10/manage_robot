@@ -231,7 +231,7 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `WORKBENCH_DINGTALK_NOTIFY_ENABLED` | 否 | `1` 时启用“主管发布后通知员工”流程（卡片+待办），默认关闭 |
 | `WORKBENCH_NOTIFY_DETAIL_URL_BASE` | 否 | 通知卡片/待办详情链接基础地址，建议设为 `https://你的域名/workbench/employee/task` |
 | `WORKBENCH_DINGTALK_NOTIFY_AGENT_ID` | 否 | 通知备用 AgentId。当前实现优先读取 `DINGTALK_AGENT_ID`，为空时才回退此变量 |
-| `DINGTALK_CONTACT_SYNC_ENABLED` | 否 | `1` 开启钉钉通讯录同步（落地到 SQLite `dingtalk_contacts`） |
+| `DINGTALK_CONTACT_SYNC_ENABLED` | 否 | `1` 开启钉钉通讯录同步（落地到 SQLite `dingtalk_contacts`）。**员工 accept 后创建待办需要 unionId，必须启用此项** |
 | `DINGTALK_CONTACT_SYNC_INTERVAL_MS` | 否 | 通讯录兜底同步周期（默认 `1800000`，即 30 分钟） |
 | `DINGTALK_CONTACT_ROOT_DEPT_ID` | 否 | 通讯录全量同步部门根节点（默认 `1`） |
 | `DINGTALK_CONTACT_EVENT_TOKEN` | 否 | 通讯录事件回调鉴权 token；配置后需在请求头 `x-contact-event-token` 传入 |

@@ -29,7 +29,11 @@
 - **兜底**：自然语言回复自动包装为 `{ message, stopReason: "end_turn" }`；空消息有最终 fallback。
 - **不做**：OA 自动流程、承接三态、电子签名、执行中变更、节点反馈与验收闭环。
 - **运行时数据源约束**：工作台正式任务仅以 SQLite 为权威源；`tasks.json` 不参与运行时查询与回灌迁移。`tasks` 表 **`description`**（TEXT，可选）：任务整体背景，发布时从 `latestDraft.description`（无则回退 `latestDraft.summary`）写入并截断至 `TASK_DESCRIPTION_MAX_DB`，供钉钉通知、工作台与员工工具消费。`subtasks` 表新增 8 个独立富字段列（TEXT，存 JSON 数组字符串）：`depends_on`（对应 `dependencyTaskIds`）、`checkpoints`（对应 `timeNode.checkpoints`）、`risks`（对应 `risksAndOpenQuestions`）、`input_materials`、`actions`、`collaborators`、`in_scope`、`out_of_scope`，发布时从草案直接写入，供详情接口、钉钉发布通知与主管/员工工作台展示；`WorkbenchSubtaskRow` 已扁平化为同名驼峰字段（`dependsOn`、`checkpoints`、`risks`、`inputMaterials`、`actions`、`collaborators`、`inScope`、`outOfScope`）。员工画像与通讯录快照也已落在 SQLite 数据层（`people-directory-store`、`dingtalk_contacts`）。**工作台子任务状态**：员工「接受」后子任务直接为 **`IN_PROGRESS`**（不再落库 **`ACCEPTED`**）；启动时会把历史 **`ACCEPTED`** 行迁移为 **`IN_PROGRESS`**，审计事件名 **`SUBTASK_ACCEPTED`** 仍保留。
-- **钉钉集成**：已支持发布后员工卡片 + 待办通知（`WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`）与通讯录同步（`DINGTALK_CONTACT_SYNC_ENABLED=1`），通知失败不回滚发布，但在 `warnings` 与任务事件中留痕。**员工拒绝 / 请求调整 / 标记阻塞 / 标记完成**时，在总开关开启且 `WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED` 未关闭（默认开启）的前提下，向主管钉钉 **1:1 机器人会话**推送 Markdown（`notifyManagerOfEmployeeAction`）；投递失败写入 `task_events` 类型 `MANAGER_NOTIFY_FAILED`。
+- **钉钉集成**：总开关 `WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`，需配合 `DINGTALK_CONTACT_SYNC_ENABLED=1` 保证 unionId 可用。通知失败不回滚，但在 `warnings` 与任务事件中留痕。
+  - **发布 / 改派**：向员工推送工作通知卡片（corpconversation/asyncsend_v2）+ 机器人 1:1 消息（robot/oToMessages/batchSend）。
+  - **员工 accept（ASSIGNED → IN_PROGRESS）**：通过 `notifyEmployeeTodoOnAccept` 创建钉钉原生待办（`POST /v1.0/todo/users/{unionId}/tasks`）。幂等门禁基于 `previousStatus === "ASSIGNED"`；改派后重置为 ASSIGNED，新员工 accept 可触发新待办。审计事件：`EMPLOYEE_TODO_CREATED` / `EMPLOYEE_TODO_SKIPPED` / `EMPLOYEE_TODO_FAILED`。副作用模块：`src/integrations/dingtalk/employee-todo-on-accept.ts`。
+  - **员工拒绝 / 请求调整 / 标记阻塞 / 标记完成**：在 `WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED` 未关闭（默认开启）时，向主管钉钉 1:1 机器人推送 Markdown（`notifyManagerOfEmployeeAction`）；投递失败写入 `task_events` 类型 `MANAGER_NOTIFY_FAILED`。
+  - **通知静默期**：发布后员工钉钉待办列表无新项属正常——待办在员工工作台「接受」子任务后才创建。如需发布即可见，可考虑额外推送发布卡片提醒（现有卡片 + 1:1 消息已覆盖），或后续为未 accept 的子任务添加超时兜底。
 
 ## 承接指派阶段（v0.2 MVP）
 

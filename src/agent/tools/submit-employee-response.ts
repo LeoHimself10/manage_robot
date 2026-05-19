@@ -2,6 +2,7 @@ import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
 import { notifyManagerOfEmployeeActionAfterUpdate } from "../../integrations/dingtalk/manager-notify-on-employee-action";
+import { notifyEmployeeTodoOnAcceptAfterUpdate } from "../../integrations/dingtalk/employee-todo-on-accept";
 
 export const SUBMIT_EMPLOYEE_RESPONSE_TOOL: ToolDefinition = {
   type: "function",
@@ -31,6 +32,7 @@ export function buildSubmitEmployeeResponseHandler(
     taskStore?: ReturnType<typeof createWorkbenchFormalTaskStore>;
     notifier?: WorkbenchPublishNotifier;
     getDisplayName?: (userId: string) => string | undefined;
+    getContact?: (userId: string) => { unionId?: string } | undefined;
   } = {},
 ): ToolHandler {
   const taskStore = deps.taskStore ?? createWorkbenchFormalTaskStore();
@@ -56,6 +58,15 @@ export function buildSubmitEmployeeResponseHandler(
           ? "customize"
           : (action as "accept" | "reject" | "request_changes"),
       note,
+    });
+    await notifyEmployeeTodoOnAcceptAfterUpdate({
+      taskStore,
+      notifier: deps.notifier,
+      subtaskId: updated.subtask.subtaskId,
+      actorUserId,
+      previousStatus: updated.previousStatus,
+      action: action as "accept" | "reject" | "request_changes" | "customize",
+      getContact: deps.getContact,
     });
     if (action === "reject" || action === "request_changes" || action === "customize") {
       const summaryText = (managerSummary || note).trim();

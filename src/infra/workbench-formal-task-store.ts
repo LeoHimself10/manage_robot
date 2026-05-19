@@ -764,6 +764,7 @@ export function createWorkbenchFormalTaskStore() {
     }): {
       task: WorkbenchTaskRow;
       subtask: WorkbenchSubtaskRow;
+      previousStatus: WorkbenchTaskStatus;
     } {
       const subtask = db.prepare("SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?").get(
         input.subtaskId,
@@ -773,6 +774,7 @@ export function createWorkbenchFormalTaskStore() {
       if (currentAssignee !== input.actorUserId) {
         throw new Error("Subtask does not belong to current employee");
       }
+      const previousStatus = normalizeStatus(String(subtask.status ?? "ASSIGNED"));
       let nextStatus: WorkbenchTaskStatus;
       let eventType = "EMPLOYEE_ACTION";
       if (input.action === "accept") {
@@ -822,6 +824,7 @@ export function createWorkbenchFormalTaskStore() {
       return {
         task: mapTaskRow(taskRow),
         subtask: mapSubtaskRow(subtaskRow),
+        previousStatus,
       };
     },
 

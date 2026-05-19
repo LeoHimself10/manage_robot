@@ -51,6 +51,7 @@ describe("publish_task handler", () => {
           success: [],
           failed: [],
         })),
+        notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
       },
       recentPublished: createRecentPublishStore(),
     });
@@ -88,6 +89,7 @@ describe("publish_task handler", () => {
           success: [],
           failed: [],
         })),
+        notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
       },
       recentPublished: createRecentPublishStore(),
     });
@@ -124,6 +126,7 @@ describe("publish_task handler", () => {
           success: [],
           failed: [],
         })),
+        notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
       },
       recentPublished: createRecentPublishStore(),
     });
@@ -148,7 +151,7 @@ describe("publish_task handler", () => {
       },
       appendTaskEvent: () => {},
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })) },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
       recentPublished: recent,
     });
     await expect(handler({ planId: "plan-1" })).resolves.toMatchObject({
@@ -174,7 +177,7 @@ describe("publish_task handler", () => {
       },
       appendTaskEvent: () => {},
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })) },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
       recentPublished: createRecentPublishStore(),
     });
     const res = (await handler({ planId: "plan-1" })) as Record<string, unknown>;
@@ -196,7 +199,7 @@ describe("publish_task handler", () => {
       },
       appendTaskEvent: () => {},
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })) },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
       recentPublished: createRecentPublishStore(),
     });
     const res = (await handler({ planId: "plan-1" })) as Record<string, unknown>;
@@ -210,7 +213,7 @@ describe("publish_task handler", () => {
   it("publishes successfully and reports warnings", async () => {
     const notifySpy = vi.fn(async () => ({
       enabled: true,
-      success: [{ userId: "emp-1", cardMessageId: "card-1", todoId: "todo-1" }],
+      success: [{ userId: "emp-1", cardMessageId: "card-1" }],
       failed: [{ userId: "emp-2", reason: "network error" }],
     }));
     const appendTaskEvent = vi.fn();
@@ -237,7 +240,7 @@ describe("publish_task handler", () => {
       }),
       appendTaskEvent,
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })) },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
       recentPublished: createRecentPublishStore(),
       onAudit,
       onPublishResult,
@@ -286,7 +289,7 @@ describe("publish_task handler", () => {
       appendTaskEvent,
       // contact lookup returns undefined → unknown assignee
       getContact: () => undefined,
-      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })) },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
       recentPublished: createRecentPublishStore(),
       onPublishResult,
     });

@@ -40,6 +40,7 @@ import {
   type WorkbenchPublishNotifier,
 } from "../integrations/dingtalk/workbench-notify";
 import { notifyManagerOfEmployeeActionAfterUpdate } from "../integrations/dingtalk/manager-notify-on-employee-action";
+import { notifyEmployeeTodoOnAcceptAfterUpdate } from "../integrations/dingtalk/employee-todo-on-accept";
 import { createEmployeeProfileRepo } from "../integrations/repos/employee-profile-repo";
 import { createDingTalkContactSyncService } from "../infra/dingtalk-contact-sync";
 import { createPeopleDirectoryStore } from "../infra/people-directory-store";
@@ -2581,7 +2582,7 @@ export function handleAssignmentHttp(
         const storeAfter = getFormalTaskStore();
         voidFireReassignAssigneeNotify({
           notifier: workbenchPublishNotifier,
-          getContact: (userId) => withPeopleDirectoryStore((s) => s.getContact(userId)),
+          getDisplayName: (userId) => withPeopleDirectoryStore((s) => s.getContact(userId)?.name?.trim()),
           appendTaskEvent: storeAfter.appendTaskEvent,
           taskStore: storeAfter,
           taskId: updated.taskId,
@@ -2856,6 +2857,17 @@ export function handleAssignmentHttp(
             note,
             getDisplayName: (uid) =>
               withPeopleDirectoryStore((s) => s.getContact(uid)?.name?.trim()),
+          });
+        }
+        if (action === "accept") {
+          await notifyEmployeeTodoOnAcceptAfterUpdate({
+            taskStore: store,
+            notifier: workbenchPublishNotifier,
+            subtaskId: updated.subtask.subtaskId,
+            actorUserId: session.userId,
+            previousStatus: updated.previousStatus,
+            action: "accept",
+            getContact: (uid) => withPeopleDirectoryStore((s) => s.getContact(uid)) ?? undefined,
           });
         }
         writeJson(res, 200, {

@@ -264,6 +264,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
         taskStore,
         notifier,
         getDisplayName: (userId) => peopleStore.getContact(userId)?.name?.trim(),
+        getContact: (userId) => peopleStore.getContact(userId) ?? undefined,
       }),
     },
     submit_progress_update: {

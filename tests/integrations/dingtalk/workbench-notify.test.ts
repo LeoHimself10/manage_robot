@@ -86,12 +86,11 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(result.skippedReason).toContain("WORKBENCH_DINGTALK_NOTIFY_ENABLED");
   });
 
-  it("sends card + robot 1:1 message + creates todo when all channels succeed", async () => {
+  it("sends card + robot 1:1 message (no todo) when all channels succeed", async () => {
     const { fetch: fetchImpl, calls } = buildFetchMock([
       () => jsonRes({ accessToken: "tok-1" }),
       () => jsonRes({ errcode: 0, task_id: "card-task-1" }),
       () => jsonRes({ processQueryKey: "robot-msg-1" }),
-      () => jsonRes({ id: "todo-1" }),
     ]);
     const notifier = createWorkbenchPublishNotifier(fetchImpl);
     const result = await notifier.notifyPublishedTask(baseInput);
@@ -101,9 +100,10 @@ describe("createWorkbenchPublishNotifier", () => {
       userId: "emp-1",
       cardMessageId: expect.any(String),
       robotMessageKey: "robot-msg-1",
-      todoId: "todo-1",
     });
+    expect(result.success[0].todoId).toBeUndefined();
     expect(result.failed).toHaveLength(0);
+    expect(calls).toHaveLength(3); // token + card + robot, no todo
 
     expect(calls[0]?.url).toContain("/v1.0/oauth2/accessToken");
 
@@ -134,13 +134,8 @@ describe("createWorkbenchPublishNotifier", () => {
       "x-acs-dingtalk-access-token": "tok-1",
     });
 
-    const todoCall = calls[3];
-    expect(todoCall?.url).toContain("/v1.0/todo/users/uni-emp-1/tasks");
-    expect(todoCall?.url).not.toContain("/users/emp-1/");
-    const todoBody = todoCall?.body as { sourceId: string; detailUrl: string };
-    expect(todoBody.sourceId).toBe("workbench:TK-001:emp-1");
-    expect(todoBody.sourceId).not.toMatch(/\d{13}/);
-    expect(todoBody.detailUrl).toContain("taskNo=TK-001");
+    // Publish no longer creates a DingTalk todo — todo creation moved to accept phase
+    expect(calls.some((c) => c.url.includes("/v1.0/todo/"))).toBe(false);
   });
 
   it("falls back to DINGTALK_CLIENT_ID as robotCode when DINGTALK_ROBOT_CODE is unset", async () => {
@@ -149,136 +144,73 @@ describe("createWorkbenchPublishNotifier", () => {
       () => jsonRes({ accessToken: "tok-1" }),
       () => jsonRes({ errcode: 0, task_id: "card-task-1" }),
       () => jsonRes({ processQueryKey: "robot-msg-1" }),
-      () => jsonRes({ id: "todo-1" }),
     ]);
     const notifier = createWorkbenchPublishNotifier(fetchImpl);
     const result = await notifier.notifyPublishedTask(baseInput);
     expect(result.success).toHaveLength(1);
     expect(result.success[0].robotMessageKey).toBe("robot-msg-1");
+    expect(calls).toHaveLength(3); // token + card + robot
 
     const robotBody = calls[2]?.body as { robotCode: string };
     expect(robotBody.robotCode).toBe("client-id");
   });
 
-  it("skips robot 1:1 channel when WORKBENCH_DINGTALK_ROBOT_MSG_ENABLED=0 (still sends card + todo)", async () => {
+  it("skips robot 1:1 channel when WORKBENCH_DINGTALK_ROBOT_MSG_ENABLED=0 (sends card only)", async () => {
     process.env.WORKBENCH_DINGTALK_ROBOT_MSG_ENABLED = "0";
     const { fetch: fetchImpl, calls } = buildFetchMock([
       () => jsonRes({ accessToken: "tok-1" }),
       () => jsonRes({ errcode: 0, task_id: "card-task-1" }),
-      () => jsonRes({ id: "todo-1" }),
     ]);
     const notifier = createWorkbenchPublishNotifier(fetchImpl);
     const result = await notifier.notifyPublishedTask(baseInput);
     expect(calls.some((c) => c.url.includes("/robot/oToMessages/batchSend"))).toBe(false);
+    expect(calls.some((c) => c.url.includes("/v1.0/todo/"))).toBe(false);
     expect(result.success).toHaveLength(1);
     expect(result.success[0].robotMessageKey).toBeUndefined();
     expect(result.success[0].cardMessageId).toBeDefined();
-    expect(result.success[0].todoId).toBe("todo-1");
+    expect(result.success[0].todoId).toBeUndefined();
     expect(result.failed).toHaveLength(0);
   });
 
-  it("records robot send failure but keeps card + todo successes (graceful per-channel)", async () => {
+  it("records robot send failure but keeps card success (graceful per-channel)", async () => {
     const { fetch: fetchImpl } = buildFetchMock([
       () => jsonRes({ accessToken: "tok-1" }),
       () => jsonRes({ errcode: 0, task_id: "card-task-1" }),
       () => new Response("forbidden", { status: 403 }),
-      () => jsonRes({ id: "todo-1" }),
     ]);
     const notifier = createWorkbenchPublishNotifier(fetchImpl);
     const result = await notifier.notifyPublishedTask(baseInput);
     expect(result.success).toHaveLength(1);
     expect(result.success[0].cardMessageId).toBeDefined();
     expect(result.success[0].robotMessageKey).toBeUndefined();
-    expect(result.success[0].todoId).toBe("todo-1");
+    expect(result.success[0].todoId).toBeUndefined();
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0].reason).toContain("robot chat message failed");
   });
 
-  it("still creates todo with deterministic sourceId when unionId present", async () => {
-    process.env.WORKBENCH_DINGTALK_ROBOT_MSG_ENABLED = "0";
-    const { fetch: fetchImpl, calls } = buildFetchMock([
-      () => jsonRes({ accessToken: "tok-1" }),
-      () => jsonRes({ errcode: 0, task_id: "card-task-1" }),
-      () => jsonRes({ id: "todo-1" }),
-    ]);
-    const notifier = createWorkbenchPublishNotifier(fetchImpl);
-    const result = await notifier.notifyPublishedTask(baseInput);
-    expect(result.success).toHaveLength(1);
-    const todoCall = calls[2];
-    expect(todoCall?.url).toContain("/v1.0/todo/users/uni-emp-1/tasks");
-    const todoBody = todoCall?.body as { sourceId: string };
-    expect(todoBody.sourceId).toBe("workbench:TK-001:emp-1");
-  });
-
-  it("skips createTodo and records failed entry when unionId is missing, but still sends card + robot msg", async () => {
-    const { fetch: fetchImpl, calls } = buildFetchMock([
-      () => jsonRes({ accessToken: "tok-1" }),
-      () => jsonRes({ errcode: 0, task_id: "card-task-2" }),
-      () => jsonRes({ processQueryKey: "robot-msg-2" }),
-    ]);
-    const notifier = createWorkbenchPublishNotifier(fetchImpl);
-    const result = await notifier.notifyPublishedTask({
-      ...baseInput,
-      assignees: [{ userId: "emp-1", unionId: undefined, subtaskTitles: ["排查日志"] }],
-    });
-    expect(calls).toHaveLength(3);
-    expect(calls.some((c) => c.url.includes("/v1.0/todo/"))).toBe(false);
-    expect(result.success).toHaveLength(1);
-    expect(result.success[0]).toMatchObject({
-      userId: "emp-1",
-      cardMessageId: expect.any(String),
-      robotMessageKey: "robot-msg-2",
-    });
-    expect(result.success[0].todoId).toBeUndefined();
-    expect(result.failed).toHaveLength(1);
-    expect(result.failed[0]).toMatchObject({
-      userId: "emp-1",
-      reason: expect.stringContaining("unionId missing"),
-    });
-  });
-
-  it("records failed when todo API returns non-200 but keeps card + robot successes", async () => {
-    const { fetch: fetchImpl } = buildFetchMock([
-      () => jsonRes({ accessToken: "tok-1" }),
-      () => jsonRes({ errcode: 0, task_id: "card-task-3" }),
-      () => jsonRes({ processQueryKey: "robot-msg-3" }),
-      () => new Response("forbidden", { status: 403 }),
-    ]);
-    const notifier = createWorkbenchPublishNotifier(fetchImpl);
-    const result = await notifier.notifyPublishedTask(baseInput);
-    expect(result.success).toHaveLength(1);
-    expect(result.success[0].cardMessageId).toBeDefined();
-    expect(result.success[0].robotMessageKey).toBe("robot-msg-3");
-    expect(result.success[0].todoId).toBeUndefined();
-    expect(result.failed).toHaveLength(1);
-    expect(result.failed[0].reason).toContain("create todo failed");
-  });
-
-  it("returns user in failed (no card) but still tries robot msg + todo when card API fails", async () => {
+  it("returns user in failed (no card) but still tries robot when card API fails", async () => {
     const { fetch: fetchImpl, calls } = buildFetchMock([
       () => jsonRes({ accessToken: "tok-1" }),
       () => jsonRes({ errcode: 60011, errmsg: "no permission" }, 200),
       () => jsonRes({ processQueryKey: "robot-msg-x" }),
-      () => jsonRes({ id: "todo-x" }),
     ]);
     const notifier = createWorkbenchPublishNotifier(fetchImpl);
     const result = await notifier.notifyPublishedTask(baseInput);
     expect(calls.some((c) => c.url.includes("/robot/oToMessages/batchSend"))).toBe(true);
-    expect(calls.some((c) => c.url.includes("/v1.0/todo/"))).toBe(true);
+    expect(calls.some((c) => c.url.includes("/v1.0/todo/"))).toBe(false);
     expect(result.success).toHaveLength(1);
     expect(result.success[0].cardMessageId).toBeUndefined();
     expect(result.success[0].robotMessageKey).toBe("robot-msg-x");
-    expect(result.success[0].todoId).toBe("todo-x");
+    expect(result.success[0].todoId).toBeUndefined();
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0].reason).toContain("send card failed");
   });
 
-  it("notifyReassignedAssignee sends card and todo with reassign-specific sourceId", async () => {
+  it("notifyReassignedAssignee sends card + robot (no todo) on reassign", async () => {
     const { fetch: fetchImpl, calls } = buildFetchMock([
       () => jsonRes({ accessToken: "tok-r" }),
       () => jsonRes({ errcode: 0, task_id: "card-r" }),
       () => jsonRes({ processQueryKey: "robot-r" }),
-      () => jsonRes({ id: "todo-r" }),
     ]);
     const notifier = createWorkbenchPublishNotifier(fetchImpl);
     await notifier.notifyReassignedAssignee({
@@ -287,7 +219,6 @@ describe("createWorkbenchPublishNotifier", () => {
       managerUserId: "mgr-1",
       managerDisplayName: "王主管",
       assigneeUserId: "emp-9",
-      unionId: "uni-9",
       subtaskId: "task:p1:task_2",
       subtaskTitle: "子A",
       scope: "subtask",
@@ -296,10 +227,9 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(JSON.stringify(corp?.body)).toContain("改派");
     expect(JSON.stringify(corp?.body)).toContain("王主管");
     expect(JSON.stringify(corp?.body)).not.toContain("mgr-1");
-    const todoCall = calls.find((c) => c.url.includes("/v1.0/todo/"));
-    expect((todoCall?.body as { sourceId: string }).sourceId).toBe(
-      "workbench:reassign:TK-002:task-p1-task_2",
-    );
+    // Reassign no longer creates a todo — todo creation moved to accept phase
+    expect(calls.some((c) => c.url.includes("/v1.0/todo/"))).toBe(false);
+    expect(calls).toHaveLength(3); // token + card + robot
   });
 
   it("notifyManagerOfEmployeeAction sends robot 1:1 only (no corp card)", async () => {

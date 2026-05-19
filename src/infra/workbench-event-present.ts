@@ -191,7 +191,7 @@ export function presentWorkbenchTaskEvent(
         type,
         severity: "info",
         title: "钉钉通知已发送",
-        summary: "已向员工发送卡片或待办提醒",
+        summary: "已向员工发送卡片或机器人消息",
         detail: note || undefined,
       };
     case "EMPLOYEE_NOTIFY_SKIPPED":
@@ -209,10 +209,36 @@ export function presentWorkbenchTaskEvent(
         type,
         severity: "error",
         title: "钉钉通知失败",
-        summary: "创建待办或发送通知时失败，请查看原始信息",
+        summary: "发送卡片或机器人消息时失败，请查看原始信息",
         detail,
       };
     }
+    case "EMPLOYEE_TODO_CREATED":
+      return {
+        occurredAt,
+        type,
+        severity: "info",
+        title: "钉钉待办已创建",
+        summary: `已为 ${actor} 在钉钉创建任务待办`,
+        detail: note || undefined,
+      };
+    case "EMPLOYEE_TODO_SKIPPED":
+      return {
+        occurredAt,
+        type,
+        severity: "info",
+        title: "钉钉待办未创建",
+        summary: note || "通知开关未开启或条件不满足",
+      };
+    case "EMPLOYEE_TODO_FAILED":
+      return {
+        occurredAt,
+        type,
+        severity: "error",
+        title: "钉钉待办创建失败",
+        summary: note || "创建待办时发生错误",
+        detail: note || undefined,
+      };
     default:
       return base();
   }

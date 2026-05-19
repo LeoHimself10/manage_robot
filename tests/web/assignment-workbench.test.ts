@@ -387,6 +387,7 @@ describe("assignment-workbench HTTP handler", () => {
         success: [],
         failed: [],
       })),
+      notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
     });
     await seedPublishedTask({
       planId: "plan-reassign-notify",
@@ -920,6 +921,7 @@ describe("assignment-workbench HTTP handler", () => {
       notifyPublishedTask: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
       notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
       notifyManagerOfEmployeeAction,
+      notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
     });
     await seedPublishedTask({
       planId: "plan-rej-notify",

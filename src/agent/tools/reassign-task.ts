@@ -88,6 +88,7 @@ export function buildReassignTaskHandler(
     findSessionByPlanId?: (planId: string) => (PlanSession & { chatKeyHash: string }) | undefined;
     patchAssignment?: (latest: Record<string, unknown> | undefined, assigneeUserId: string) => Record<string, unknown>;
     notifier?: WorkbenchPublishNotifier;
+    getDisplayName?: (userId: string) => string | undefined;
     getContact?: (userId: string) => DingTalkContactRow | undefined;
   } = {},
 ): ToolHandler {
@@ -120,10 +121,11 @@ export function buildReassignTaskHandler(
         patchLatestAssignmentAssignee: deps.patchAssignment ?? patchLatestAssignmentAssignee,
       },
     );
-    if (deps.notifier && deps.getContact) {
+    if (deps.notifier) {
+      const getDisplayName = deps.getDisplayName ?? ((uid) => deps.getContact?.(uid)?.name?.trim() ?? undefined);
       voidFireReassignAssigneeNotify({
         notifier: deps.notifier,
-        getContact: deps.getContact,
+        getDisplayName,
         appendTaskEvent: taskStore.appendTaskEvent,
         taskStore,
         taskId: result.task.taskId,
