@@ -977,27 +977,6 @@ async function main(): Promise<void> {
 
         // 模型自己决定输出格式，代码只做兜底
         let outboundMarkdown = orchResult.messages.join("\n\n");
-        // 默认不再自动补结构化任务表，避免和模型正文重复；可通过 DINGTALK_APPEND_STRUCTURED_TABLE=1 手动开启。
-        if (freshDraft) {
-          const tasks = (freshDraft as any)?.tasks;
-          if (
-            appendStructuredTaskTable &&
-            Array.isArray(tasks) &&
-            tasks.length > 0 &&
-            !hasTaskTableInMessage(outboundMarkdown)
-          ) {
-            const rows = tasks.map((t: any, i: number) =>
-              `| ${i + 1} | ${t.title ?? ""} | ${t.objective ?? ""} | ${(t.deliverables ?? []).join("；") || "-"} | ${(t.completionCriteria ?? []).join("；") || "-"} | ${t.timeNode?.dueAt ?? "待确认"} | ${t.feedbackFrequency ?? "待确认"} |`
-            );
-            outboundMarkdown += "\n\n### 任务列表（结构化字段）\n| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |\n|---|---|---|---|---|---|---|\n" + rows.join("\n");
-          }
-        }
-        if (freshDraft) {
-          const supplement = renderDraftSupplementSection(freshDraft);
-          if (supplement) {
-            outboundMarkdown += `\n\n${supplement}`;
-          }
-        }
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
         const sanitizedOutbound = sanitizeToolNameLeak(outboundMarkdown);
         const leakedToolName = sanitizedOutbound.leaked ? sanitizedOutbound.toolName : undefined;
@@ -1122,11 +1101,42 @@ async function main(): Promise<void> {
           }
         }
 
+        // 渲染守卫：只要 session 有草案（currentDraft），且本轮不是「刚发布完自动轮转」，就渲染富字段。
+        // 放宽条件（freshDraft → currentDraft）让「模型仅发确认 message 未重复输出 JSON draft」的轮次也能展示子任务详情。
+        const shouldRenderRichSection = !!currentDraft && !planRotatedAfterPublish;
+        if (shouldRenderRichSection) {
+          const tasks = (currentDraft as any)?.tasks;
+          if (
+            appendStructuredTaskTable &&
+            Array.isArray(tasks) &&
+            tasks.length > 0 &&
+            !hasTaskTableInMessage(outboundMarkdown)
+          ) {
+            const rows = tasks.map((t: any, i: number) =>
+              `| ${i + 1} | ${t.title ?? ""} | ${t.objective ?? ""} | ${(t.deliverables ?? []).join("；") || "-"} | ${(t.completionCriteria ?? []).join("；") || "-"} | ${t.timeNode?.dueAt ?? "待确认"} | ${t.feedbackFrequency ?? "待确认"} |`
+            );
+            outboundMarkdown += "\n\n### 任务列表（结构化字段）\n| # | 任务 | 目标 | 交付物 | 完成标准 | 截止日期 | 反馈频率 |\n|---|---|---|---|---|---|---|\n" + rows.join("\n");
+          } else if (hasTaskTableInMessage(outboundMarkdown)) {
+            logStructured({
+              event: "dingtalk_model_drew_task_table",
+              messageId,
+              traceId: orchResult.traceId,
+            });
+          }
+          const supplement = renderDraftSupplementSection(currentDraft);
+          if (supplement) {
+            outboundMarkdown += `\n\n${supplement}`;
+          }
+        }
+        // 正确拼接顺序：分配建议 → 发布回执 → 轮转提示（修复：之前 assignmentSection 落到发布回执后面，用户先看到「已发布」再看到「分配建议」逻辑倒置）
+        if (assignmentSection) {
+          outboundMarkdown += assignmentSection;
+        }
         outboundMarkdown = appendPublishSummaryMarkdown(outboundMarkdown, publishResult);
         if (planRotatedAfterPublish) {
           outboundMarkdown += rotatePlanHintTail;
         }
-        const finalOutboundForHistory = outboundMarkdown + assignmentSection;
+        const finalOutboundForHistory = outboundMarkdown;
         // history 中只保留模型原话（不含本轮 bot 渲染的「任务补充信息」/ 结构化任务表 / 分配建议段），
         // 否则下一轮模型读 conversationHistory 会把上一轮的 latestDraft.description 等内容
         // 一字不漏地「复读」到新回复里造成跨任务串台（即用户看到的污染）。
