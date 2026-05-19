@@ -25,7 +25,9 @@ import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import { runOrchestrator } from "./agent/orchestrator";
 import {
   buildPublishRetryUserMessage,
+  buildScopeSwitchRetryUserMessage,
   detectFalsePublish,
+  detectFalseScopeSwitch,
 } from "./agent/publish-staging";
 import {
   isDingtalkRoleRoutingEnabled,
@@ -801,6 +803,23 @@ async function main(): Promise<void> {
         });
         const orchestratorStartedAt = Date.now();
         const preTurnLatestDraft = session.latestDraft;
+        // 检测上一轮是否发生了 scope 切换（发布后自动轮转 / 手动 start_new_task）。
+        // conversationHistory 以 [system_note] 开头且 <= 3 条记录 → 上一轮刚发生了 scope 切换。
+        const scopeRotatedSinceLastTurn = (() => {
+          const hist = session.conversationHistory;
+          if (hist.length === 0) return undefined;
+          const first = hist[0];
+          if (typeof first.content !== "string" || !first.content.startsWith("[system_note]")) return undefined;
+          if (hist.length > 3) return undefined;
+          const trail = session.scopeAuditTrail ?? [];
+          const last = trail[trail.length - 1];
+          if (last && (last.eventType === "SCOPE_CREATED" || last.eventType === "SCOPE_RESTORED")) {
+            const fromScopeId = last.fromScopeId;
+            const fromLabel = fromScopeId ? session.taskScopes?.[fromScopeId]?.scopeLabel : undefined;
+            return { fromLabel, toLabel: last.scopeLabel };
+          }
+          return {};
+        })();
         const buildOrchestratorConfig = () => ({
           clientConfig: dingtalkQwenConfig,
           employeeRepo,
@@ -847,6 +866,7 @@ async function main(): Promise<void> {
                   unresolvedCount: session.candidatePool.unresolved?.length,
                 }
               : undefined,
+            scopeRotatedSinceLastTurn,
           },
         });
         let orchResult = await runOrchestrator(background, buildOrchestratorConfig());
@@ -883,6 +903,38 @@ async function main(): Promise<void> {
               traceId: retryResult.traceId,
               retriedToolNames: [...retryResult.toolInvocationNames],
               retryHasPublishResult: publishResult !== undefined,
+              retryMessagePreview: retryResult.messages.join("\n\n").slice(0, 160),
+            });
+            orchResult = retryResult;
+          }
+        }
+
+        // Layer-3 兜底：检测「用户要切换/归档任务，但模型口播已切换却未调用 start_new_task」。
+        {
+          const initialOutbound = orchResult.messages.join("\n\n");
+          const isFalseScopeSwitch = detectFalseScopeSwitch({
+            userMessage: background,
+            toolInvocationNames: orchResult.toolInvocationNames ?? [],
+            outboundMarkdown: initialOutbound,
+          });
+          if (isFalseScopeSwitch) {
+            logStructured({
+              event: "scope_switch_silent_skip_detected",
+              messageId,
+              traceId: orchResult.traceId,
+              planId: session.planId,
+              initialToolNames: [...(orchResult.toolInvocationNames ?? [])],
+              initialMessagePreview: initialOutbound.slice(0, 160),
+            });
+            const retryStartedAt = Date.now();
+            const retryBackground = buildScopeSwitchRetryUserMessage(background);
+            const retryResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
+            orchestratorMs += Date.now() - retryStartedAt;
+            logStructured({
+              event: "scope_switch_silent_skip_retry_done",
+              messageId,
+              traceId: retryResult.traceId,
+              retriedToolNames: [...(retryResult.toolInvocationNames ?? [])],
               retryMessagePreview: retryResult.messages.join("\n\n").slice(0, 160),
             });
             orchResult = retryResult;

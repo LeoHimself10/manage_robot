@@ -171,6 +171,7 @@ export function startNewTaskScope(
   toScopeId: string;
   toScopeLabel: string;
   toPlanId: string;
+  clearedHistoryEntries: number;
 } {
   const fromPlanId = session.planId;
   const fromScopeId = session.currentTaskScopeId;
@@ -202,6 +203,16 @@ export function startNewTaskScope(
   session.candidatePool = undefined;
   session.pendingRosterText = undefined;
   session.pendingRosterSource = undefined;
+  // 清空对话历史，防止模型将上一条任务的人名/编号/上下文带入新任务。
+  // 保留单条 [system_note] 作为 scope 边界锚点，让模型知道自己已切换到新任务。
+  const clearedHistoryEntries = session.conversationHistory.length;
+  session.conversationHistory = [
+    {
+      role: "assistant",
+      content: `[system_note] 已切到任务「${toScopeLabel}」。旧任务的人员名单 / task_x 编号 / 姓名不应被引用。当前 planId=${toPlanId}。`,
+      at: now,
+    },
+  ];
   appendScopeAudit(session, {
     at: now,
     eventType: "SCOPE_CREATED",
@@ -210,7 +221,7 @@ export function startNewTaskScope(
     scopeLabel: toScopeLabel,
     reason: input.reason,
   });
-  return { fromScopeId, fromScopeLabel, fromPlanId, toScopeId, toScopeLabel, toPlanId };
+  return { fromScopeId, fromScopeLabel, fromPlanId, toScopeId, toScopeLabel, toPlanId, clearedHistoryEntries };
 }
 
 /**
@@ -265,6 +276,7 @@ export function restoreTaskScope(
       toScopeLabel: string;
       toPlanId: string;
       hasDraft: boolean;
+      clearedHistoryEntries: number;
     }
   | { ok: false; reason: "scope_not_found" | "no_archived_scopes" | "missing_query"; candidates: Array<{ scopeId: string; scopeLabel: string; hasDraft: boolean }> } {
   const archives = session.taskScopes ?? {};
@@ -319,6 +331,15 @@ export function restoreTaskScope(
   session.pendingRosterSource = undefined;
 
   const now = new Date().toISOString();
+  // 清空对话历史，防止跨 scope 污染。
+  const clearedHistoryEntries = session.conversationHistory.length;
+  session.conversationHistory = [
+    {
+      role: "assistant",
+      content: `[system_note] 已切回任务「${target.scopeLabel}」。当前 planId=${toPlanId}。${Boolean(target.latestDraft) ? "原草案已恢复，可继续讨论或发布。" : "该 scope 之前无草案，需重新拆解。"}旧任务的人员名单 / task_x 编号 / 姓名不应被引用。`,
+      at: now,
+    },
+  ];
   appendScopeAudit(session, {
     at: now,
     eventType: "SCOPE_RESTORED",
@@ -334,6 +355,7 @@ export function restoreTaskScope(
     toScopeLabel: target.scopeLabel,
     toPlanId,
     hasDraft: Boolean(target.latestDraft),
+    clearedHistoryEntries,
   };
 }
 

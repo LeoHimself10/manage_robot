@@ -20,7 +20,7 @@ import {
   type WorkbenchTaskStatus,
 } from "../infra/workbench-formal-task-store";
 import { presentDueBarState, presentDueLabel, presentDueProgress } from "../infra/due-present";
-import { presentWorkbenchTaskEvent } from "../infra/workbench-event-present";
+import { buildSubtaskLabelResolver, presentWorkbenchTaskEvent } from "../infra/workbench-event-present";
 import {
   inferConversationTitleFromSession,
   truncateConversationPreview,
@@ -626,8 +626,10 @@ function enrichWorkbenchTaskDetail(
   const filtered = opts?.omitReassignNotifyEvents
     ? rawEvents.filter((row) => !REASSIGN_NOTIFY_EVENT_TYPES.has(String(row.event_type ?? "").trim()))
     : rawEvents;
+  const resolveSubtaskLabel = buildSubtaskLabelResolver(subtasks);
   const presentCtx = {
     resolveActorName: resolveName,
+    resolveSubtaskLabel,
     ...(opts?.presentEventCtx ?? {}),
   };
   const events = filtered.map((row) => {

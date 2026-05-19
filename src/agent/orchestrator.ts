@@ -61,6 +61,11 @@ export interface OrchestratorConfig {
       entries: Array<{ userId: string; displayName: string }>;
       unresolvedCount?: number;
     };
+    /**
+     * 本轮发生了 scope 切换（start_new_task / switch_back_task / 发布后自动轮转）。
+     * orchestrator 会把它渲染成强 memory hint，告知模型禁止引用上一 scope 内容。
+     */
+    scopeRotatedSinceLastTurn?: { fromLabel?: string; toLabel?: string };
   };
   traceId?: string;
 }
@@ -155,6 +160,15 @@ export async function runOrchestrator(
   if (config.sessionContext?.pendingRoster) {
     memoryParts.push(
       `pendingRoster: ${safeJson(config.sessionContext.pendingRoster)} | ACTION_REQUIRED: 调用 read_uploaded_roster_text 拿原文 → 抽取姓名 → 用 search_employees(name=...) 逐一匹配 → 用 set_candidate_pool 提交，未匹配项写进 unresolved 并在 message 反问主管。`,
+    );
+  }
+  if (config.sessionContext?.scopeRotatedSinceLastTurn) {
+    const rot = config.sessionContext.scopeRotatedSinceLastTurn;
+    const fromDesc = rot.fromLabel ? `（从「${rot.fromLabel}」）` : "";
+    const toDesc = rot.toLabel ? `「${rot.toLabel}」` : "新任务";
+    memoryParts.push(
+      `scopeBoundary: 本轮已切换到新 scope ${toDesc}${fromDesc}。` +
+      "**禁止引用上一 scope 的任何 task_x 编号 / 员工姓名 / userId**；candidatePool、latestDraft 均已清空，须按新需求从头来。",
     );
   }
   if (config.sessionContext?.candidatePool) {

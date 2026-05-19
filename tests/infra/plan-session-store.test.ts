@@ -277,4 +277,67 @@ describe("plan-session-store", () => {
     expect(session.currentTaskScopeId).toBe(ok.toScopeId);
     expect(session.latestDraft).toBeUndefined();
   });
+
+  it("startNewTaskScope resets conversationHistory to a single [system_note] anchor", () => {
+    const session: PlanSession = {
+      chatKeyHash: "test",
+      planId: "p-x",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      knownFacts: [],
+      conversationHistory: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "world" },
+        { role: "user", content: "second" },
+      ],
+    };
+    const result = startNewTaskScope(session, { scopeLabel: "新任务B" });
+    expect(result.clearedHistoryEntries).toBe(3);
+    expect(session.conversationHistory).toHaveLength(1);
+    expect(session.conversationHistory[0].role).toBe("assistant");
+    expect(session.conversationHistory[0].content).toContain("[system_note]");
+    expect(session.conversationHistory[0].content).toContain("新任务B");
+  });
+
+  it("restoreTaskScope resets conversationHistory to a single [system_note] anchor", () => {
+    const session: PlanSession = {
+      chatKeyHash: "test",
+      planId: "p-y",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      knownFacts: [],
+      conversationHistory: [
+        { role: "user", content: "task B msg 1" },
+        { role: "assistant", content: "reply B" },
+      ],
+      currentTaskScopeId: "scope:bb",
+      taskScopes: {
+        "scope:aa": {
+          scopeId: "scope:aa",
+          scopeLabel: "任务A",
+          planId: "p-a",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          latestDraft: { title: "draft A" },
+          knownFacts: ["fact-a"],
+        },
+        "scope:bb": {
+          scopeId: "scope:bb",
+          scopeLabel: "任务B",
+          planId: "p-y",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    };
+    const result = restoreTaskScope(session, { scopeLabelKeyword: "任务A" });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.clearedHistoryEntries).toBe(2);
+    }
+    expect(session.conversationHistory).toHaveLength(1);
+    expect(session.conversationHistory[0].role).toBe("assistant");
+    expect(session.conversationHistory[0].content).toContain("[system_note]");
+    expect(session.conversationHistory[0].content).toContain("任务A");
+  });
 });

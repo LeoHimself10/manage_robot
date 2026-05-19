@@ -78,9 +78,11 @@ export function buildSwitchBackTaskHandler(
       toScopeLabel: result.toScopeLabel,
       toPlanId: result.toPlanId,
       hasDraft: result.hasDraft,
+      clearedHistoryEntries: result.clearedHistoryEntries,
       hint:
         `已切回任务「${result.toScopeLabel}」，当前规划 id 为 \`${result.toPlanId}\`。` +
-        `${result.hasDraft ? "原草案已恢复到当前会话，可基于它继续讨论或发布。" : "该 scope 之前没有保存过草案，需要重新拆解。"}`,
+        `${result.hasDraft ? "原草案已恢复到当前会话，可基于它继续讨论或发布。" : "该 scope 之前没有保存过草案，需要重新拆解。"}` +
+        `对话历史已清空（清除 ${result.clearedHistoryEntries} 条旧记录），旧 candidatePool 已重置；如需复用名单请重新上传或主管手动重选。`,
     };
   };
 }

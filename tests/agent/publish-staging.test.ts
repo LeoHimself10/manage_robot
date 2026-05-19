@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPublishRetryUserMessage,
+  buildScopeSwitchRetryUserMessage,
   detectFalsePublish,
+  detectFalseScopeSwitch,
   isDraftStagedForPublish,
   isPublishConfirmUserMessage,
   looksLikeFalsePublishClaim,
@@ -125,6 +127,45 @@ describe("publish-staging", () => {
       const cc = out.match(/confirmationContext="([^"]*)"/);
       expect(cc).not.toBeNull();
       expect(cc?.[1]).toBe("好的'立刻'发");
+    });
+  });
+
+  describe("detectFalseScopeSwitch", () => {
+    it("returns true when model claims scope switched but start_new_task not called", () => {
+      expect(detectFalseScopeSwitch({
+        userMessage: "重新开个任务",
+        toolInvocationNames: [],
+        outboundMarkdown: "好的，已归档旧任务，已切换到新任务。",
+      })).toBe(true);
+    });
+    it("returns false when start_new_task was called", () => {
+      expect(detectFalseScopeSwitch({
+        userMessage: "重新开个任务",
+        toolInvocationNames: ["start_new_task"],
+        outboundMarkdown: "已归档旧任务，切换完成。",
+      })).toBe(false);
+    });
+    it("returns false when message does not claim scope switch", () => {
+      expect(detectFalseScopeSwitch({
+        userMessage: "修改一下任务标题",
+        toolInvocationNames: [],
+        outboundMarkdown: "好的，帮您修改标题。",
+      })).toBe(false);
+    });
+    it("returns true for '已切到新任务' claim without tool", () => {
+      expect(detectFalseScopeSwitch({
+        userMessage: "换个任务",
+        toolInvocationNames: [],
+        outboundMarkdown: "已切到新任务，当前草案已清空。",
+      })).toBe(true);
+    });
+  });
+
+  describe("buildScopeSwitchRetryUserMessage", () => {
+    it("produces message with start_new_task instruction", () => {
+      const out = buildScopeSwitchRetryUserMessage("换个任务，做别的了");
+      expect(out).toContain("start_new_task");
+      expect(out).toContain("换个任务");
     });
   });
 });

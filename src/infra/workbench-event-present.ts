@@ -24,12 +24,36 @@ function parsePayload(raw: unknown): Record<string, unknown> | undefined {
 }
 
 /**
+ * 给定 subtaskId，返回 "#<orderIndex> <title>" 形式的短标签。
+ * 供 `presentWorkbenchTaskEvent` ctx 注入，让事件列表中每条记录能标注属于哪个子任务。
+ */
+export type SubtaskLabelResolver = (subtaskId: string) => string | undefined;
+
+/**
+ * 从已知子任务列表构建 SubtaskLabelResolver。
+ * @param subtasks 必须至少有 subtaskId 与 title；orderIndex 可选（按数组索引+1 兜底）。
+ */
+export function buildSubtaskLabelResolver(
+  subtasks: Array<{ subtaskId: string; title?: string; orderIndex?: number }>,
+): SubtaskLabelResolver {
+  const map = new Map<string, string>();
+  subtasks.forEach((s, idx) => {
+    const order = s.orderIndex ?? idx + 1;
+    const title = asString(s.title);
+    map.set(s.subtaskId, title ? `#${order} ${title}` : `#${order}`);
+  });
+  return (id: string) => map.get(id);
+}
+
+/**
  * Map raw `task_events` row to user-facing copy. Unknown types fall back to generic info.
  */
 export function presentWorkbenchTaskEvent(
   row: Record<string, unknown>,
   ctx?: {
     resolveActorName?: (userId: string) => string;
+    /** Resolve subtask short label (e.g. "#2 产线巡检") from subtaskId; used to annotate event summaries. */
+    resolveSubtaskLabel?: SubtaskLabelResolver;
     /** When true, include raw JSON payload in `detail` for MANAGER_REASSIGN (admin / debug). */
     showManagerReassignPayload?: boolean;
   },
@@ -41,6 +65,8 @@ export function presentWorkbenchTaskEvent(
   const actor = ctx?.resolveActorName?.(actorId) || actorId || "系统";
   const payload = parsePayload(row.payload_json);
   const subtaskId = asString(row.subtask_id);
+  const subtaskLabel = subtaskId ? ctx?.resolveSubtaskLabel?.(subtaskId) : undefined;
+  const withSubtaskCtx = (text: string) => subtaskLabel ? `${text}（${subtaskLabel}）` : text;
 
   const detailFromNote = (): string | undefined => {
     if (!note) return undefined;
@@ -76,7 +102,7 @@ export function presentWorkbenchTaskEvent(
         type,
         severity: "info",
         title: "员工接受子任务",
-        summary: subtaskId ? `${actor} 已接受子任务` : `${actor} 已接受分配`,
+        summary: withSubtaskCtx(subtaskId ? `${actor} 已接受子任务` : `${actor} 已接受分配`),
         detail: note || undefined,
       };
     case "SUBTASK_PROGRESS":
@@ -85,7 +111,7 @@ export function presentWorkbenchTaskEvent(
         type,
         severity: "info",
         title: "员工提交进度",
-        summary: shortNote || `${actor} 更新了执行进度`,
+        summary: withSubtaskCtx(shortNote || `${actor} 更新了执行进度`),
         detail: note && note.length > 120 ? note : undefined,
       };
     case "SUBTASK_CHANGES_REQUESTED":
@@ -94,7 +120,7 @@ export function presentWorkbenchTaskEvent(
         type,
         severity: "warn",
         title: "员工申请修改",
-        summary: shortNote || `${actor} 申请调整任务内容`,
+        summary: withSubtaskCtx(shortNote || `${actor} 申请调整任务内容`),
         detail: note || undefined,
       };
     case "SUBTASK_CUSTOMIZE_NOTE":
@@ -103,7 +129,7 @@ export function presentWorkbenchTaskEvent(
         type,
         severity: "info",
         title: "员工补充说明",
-        summary: shortNote || `${actor} 补充了说明（不改变承接状态）`,
+        summary: withSubtaskCtx(shortNote || `${actor} 补充了说明（不改变承接状态）`),
         detail: note || undefined,
       };
     case "MANAGER_DECLINE_CHANGES":
@@ -134,7 +160,7 @@ export function presentWorkbenchTaskEvent(
         type,
         severity: "warn",
         title: "员工拒绝子任务",
-        summary: shortNote || `${actor} 拒绝了子任务`,
+        summary: withSubtaskCtx(shortNote || `${actor} 拒绝了子任务`),
         detail: note || undefined,
       };
     case "MANAGER_REASSIGN":

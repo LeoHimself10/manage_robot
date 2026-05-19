@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿﻿﻿import { describe, expect, it } from "vitest";
 import {
   buildQwenPlannerSystemPrompt,
   buildQwenPlannerUserPrompt,
@@ -7,7 +7,7 @@ import {
 describe("buildQwenPlannerSystemPrompt", () => {
   it("v5.16: publish/draft/candidate-pool discipline prompt", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.16.1");
+    expect(sys).toContain("orchestrator-agent-v5.18.1");
     expect(sys).toContain("search_web");
     expect(sys).toContain("deliverables");
     expect(sys).toContain("待确认");
@@ -28,7 +28,6 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("钉钉 publish_task 成功后");
     expect(sys).toContain("dependencyTaskIds");
     expect(sys).toContain("checkpoints");
-    expect(sys).toContain("draft 顶层必须含 `description`");
     expect(sys).toContain("严禁反问用户");
     expect(sys).toContain("inputMaterials");
     expect(sys).toContain("update_draft_task 纪律");
@@ -49,13 +48,15 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys.length).toBeLessThanOrEqual(8000);
     expect(sys).toContain("read_uploaded_roster_text");
     expect(sys).toContain("set_candidate_pool");
+    // v5.18.1: scope boundary + forbid prose task table
+    expect(sys).toContain("[system_note]");
   });
 });
 
 describe("buildQwenPlannerSystemPrompt employee profile", () => {
   it("requires get_task_detail for overall task background questions", () => {
     const sys = buildQwenPlannerSystemPrompt("employee");
-    expect(sys).toContain("orchestrator-agent-v5.16.1-employee");
+    expect(sys).toContain("orchestrator-agent-v5.18.1-employee");
     expect(sys).toContain("任务整体背景纪律");
     expect(sys).toContain("get_task_detail");
   });

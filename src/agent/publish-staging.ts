@@ -85,6 +85,44 @@ export function detectFalsePublish(input: FalsePublishDetectionInput): boolean {
   return looksLikeFalsePublishClaim(input.outboundMarkdown);
 }
 
+const FALSE_SCOPE_SWITCH_CLAIM =
+  /(已归档|已切(换|到新任务)|已开新任务|已重置(话题|上下文)?|重置完成|已新建任务|已切到|切换完成)/;
+
+export interface FalseScopeSwitchDetectionInput {
+  /** 本轮（重试前）用户原话 */
+  userMessage: string;
+  /** orchestrator 真的调过的工具名列表 */
+  toolInvocationNames: ReadonlyArray<string>;
+  /** 即将发给用户的 markdown */
+  outboundMarkdown: string;
+}
+
+/**
+ * 模型声称"已归档/已切到新任务/重置完成"，但本轮实际未调用 start_new_task 工具。
+ * 调用方应重试并强制要求调用 start_new_task。
+ */
+export function detectFalseScopeSwitch(input: FalseScopeSwitchDetectionInput): boolean {
+  if (input.toolInvocationNames.includes("start_new_task")) return false;
+  const text = String(input.outboundMarkdown ?? "").trim();
+  if (!text) return false;
+  return FALSE_SCOPE_SWITCH_CLAIM.test(text);
+}
+
+/**
+ * 构造重试时塞给 orchestrator 的 user 消息：保留原话，前置强指令，要求**立刻**调 start_new_task。
+ */
+export function buildScopeSwitchRetryUserMessage(originalUserMessage: string): string {
+  const safeOriginal = String(originalUserMessage ?? "").replace(/"/g, "'").slice(0, 200);
+  return [
+    "[scopeSwitchAction]",
+    "上一轮你在用户要求切换/归档任务的情况下，没有调用 start_new_task 就声称「已归档/已切换/已重置」，这违反硬性规则。",
+    `本轮请**仅**先调用一次 start_new_task(scopeLabel=...)，拿到 ok=true 后再继续讨论新任务；**禁止**仅输出文字而不调用工具。`,
+    "",
+    "[原指令]",
+    String(originalUserMessage ?? ""),
+  ].join("\n");
+}
+
 /**
  * 构造重试时塞给 orchestrator 的 user 消息：保留原话，前置强指令，要求**立刻**调 publish_task。
  * 调用方仍应把**原 userMessage**写入 conversationHistory，避免污染。
