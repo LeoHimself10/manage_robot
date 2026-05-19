@@ -193,7 +193,13 @@ export async function runOrchestrator(
         (it.tools ?? []).map((t) => t.toolName),
       );
       // 模型若在最后一轮 inline 给了内容，且能解析出 draft，就把 draft 抢救出来
-      let salvagedDraft: Record<string, unknown> | undefined = savedDraft;
+      // prepare_publish_task 在 max-iter 前已把规整后 draft 暂存到 session.latestDraft——也要兜底
+      const sessionStagedDraft =
+        isPlainObject(config.currentSession?.latestDraft)
+          ? (config.currentSession!.latestDraft as Record<string, unknown>)
+          : undefined;
+      let salvagedDraft: Record<string, unknown> | undefined =
+        savedDraft ?? sessionStagedDraft;
       let salvagedMessage = err.lastAssistantContent.trim();
       if (salvagedMessage && !salvagedDraft) {
         try {
@@ -223,11 +229,15 @@ export async function runOrchestrator(
         hasPartialDraft: salvagedDraft !== undefined,
         hasSalvagedMessage: salvagedMessage.length > 0,
       });
-      const fallbackMessage = salvagedMessage
-        ? salvagedMessage
-        : buildOrchestratorIterationLimitMessage(userMessage, {
-            hasPartialDraft: salvagedDraft !== undefined,
-          });
+      let fallbackMessage = salvagedMessage;
+      if (!fallbackMessage && salvagedDraft) {
+        fallbackMessage = synthesizeMessageFromDraft(salvagedDraft);
+      }
+      if (!fallbackMessage) {
+        fallbackMessage = buildOrchestratorIterationLimitMessage(userMessage, {
+          hasPartialDraft: salvagedDraft !== undefined,
+        });
+      }
       return {
         messages: [fallbackMessage],
         draft: salvagedDraft,
