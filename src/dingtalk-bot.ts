@@ -51,6 +51,7 @@ import {
   loadMemoryContextForPlan,
 } from "./infra/workbench-memory-store";
 import { createRecentPublishStore } from "./agent/tools/publish-task";
+import { KNOWN_TOOL_NAMES } from "./agent/tools/registry";
 import type { KnownFactsStore } from "./agent/tools/update-known-facts";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
@@ -58,6 +59,16 @@ const MAX_MARKDOWN_CHARS = 18_000;
 const DEFAULT_DINGTALK_MAX_TOKENS = 2200;
 const DEFAULT_DINGTALK_ORCH_ITERATIONS = 6;
 const DEFAULT_DINGTALK_TIMEOUT_MS = 90000;
+const TOOL_NAME_LEAK_FALLBACK = "（系统检测到模型输出异常，已忽略；请重新描述您的需求。）";
+const KNOWN_TOOL_NAME_SET = new Set<string>(KNOWN_TOOL_NAMES);
+
+export function sanitizeToolNameLeak(markdown: string): { markdown: string; leaked: boolean; toolName?: string } {
+  const trimmed = markdown.trim();
+  if (trimmed.length > 0 && trimmed.length <= 32 && KNOWN_TOOL_NAME_SET.has(trimmed)) {
+    return { markdown: TOOL_NAME_LEAK_FALLBACK, leaked: true, toolName: trimmed };
+  }
+  return { markdown, leaked: false };
+}
 
 function truncateMarkdown(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -936,6 +947,17 @@ async function main(): Promise<void> {
           }
         }
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
+        const sanitizedOutbound = sanitizeToolNameLeak(outboundMarkdown);
+        const leakedToolName = sanitizedOutbound.leaked ? sanitizedOutbound.toolName : undefined;
+        if (sanitizedOutbound.leaked) {
+          logStructured({
+            event: "dingtalk_tool_name_leak",
+            messageId,
+            traceId: orchResult.traceId,
+            toolName: sanitizedOutbound.toolName,
+          });
+          outboundMarkdown = sanitizedOutbound.markdown;
+        }
 
         const assignmentStartedAt = Date.now();
         let latestAssignment: Record<string, unknown> | undefined = session.latestAssignment;
@@ -1056,7 +1078,7 @@ async function main(): Promise<void> {
         // history 中只保留模型原话（不含本轮 bot 渲染的「任务补充信息」/ 结构化任务表 / 分配建议段），
         // 否则下一轮模型读 conversationHistory 会把上一轮的 latestDraft.description 等内容
         // 一字不漏地「复读」到新回复里造成跨任务串台（即用户看到的污染）。
-        const pureAssistantMessageForHistory = orchResult.messages.join("\n\n").trim() ||
+        const pureAssistantMessageForHistory = leakedToolName ? TOOL_NAME_LEAK_FALLBACK : orchResult.messages.join("\n\n").trim() ||
           "（已收到）";
         const sendReplyStartedAt = Date.now();
         dingtalkResponse = await sendMarkdownReply({

@@ -185,6 +185,8 @@ interface ScenarioInput {
   expectToolNames?: string[];
   /** 期待本轮出现 publishResult.ok === true 且非 dedupe */
   expectPublishOk?: boolean;
+  /** 期待回复中包含的片段；可依赖前序运行时产物 */
+  expectMessageIncludes?: Array<string | ((rt: EvalRuntime) => string)>;
 }
 
 interface ScenarioResult {
@@ -459,6 +461,15 @@ const scenarios: ScenarioInput[] = [
     expectDraft: false,
     expectToolNames: ["publish_task"],
     expectPublishOk: true,
+  },
+  {
+    id: "M_list_published_after_draft",
+    senderStaffId: MGR_STAFF_ID,
+    sessionId: MGR_PUBLISH_SESSION_KEY,
+    userMessage: "已发布的任务有哪些？",
+    expectDraft: false,
+    expectToolNames: ["list_managed_tasks"],
+    expectMessageIncludes: [(rt) => rt.lastTaskNo ?? ""],
   },
   {
     id: "M3_list_managed_tasks",
@@ -743,6 +754,18 @@ async function runOne(
   if (expectToolMismatch) {
     ok = false;
     errMsg = expectToolMismatch;
+  }
+  if (scenario.expectMessageIncludes?.length) {
+    const message = result.messages.join("\n\n");
+    const missing = scenario.expectMessageIncludes
+      .map((item) => (typeof item === "function" ? item(rt) : item))
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean)
+      .filter((item) => !message.includes(item));
+    if (missing.length > 0) {
+      ok = false;
+      errMsg = `expected message missing: ${missing.join(", ")}`;
+    }
   }
 
   return {

@@ -135,7 +135,12 @@ export async function runOrchestrator(
     memoryParts.push(`topFacts: ${safeJson(memoryFacts.slice(0, 8))}`);
   }
   if (config.sessionContext?.latestDraft) {
-    memoryParts.push(`latestDraftSummary: ${safeJson(summarizeDraftForPrompt(config.sessionContext.latestDraft))}`);
+    memoryParts.push(
+      `latestDraftSummary (未发布草案，仅供继续编辑用，不是已发布任务): ${safeJson(summarizeDraftForPrompt(config.sessionContext.latestDraft))}`,
+    );
+    memoryParts.push(
+      "publishedTasksLookup: 用户问已发布/我管理的任务时，必须调 list_managed_tasks 取库内真实数据；不得用 latestDraftSummary 充数。",
+    );
     if (isDraftStagedForPublish(config.sessionContext.latestDraft)) {
       memoryParts.push(
         `publishStaging: ${safeJson({ staged: true, stagedBy: "prepare_publish_task", awaitingFinalPublish: true })}`,

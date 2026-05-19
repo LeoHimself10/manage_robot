@@ -128,6 +128,38 @@ export interface ToolRegistryDeps {
 
 export type ToolProfile = "planner" | "employee" | "manager" | "admin" | "full";
 
+export const KNOWN_TOOL_NAMES = [
+  "search_employees",
+  "get_employee_details",
+  "read_uploaded_roster_text",
+  "set_candidate_pool",
+  "clear_candidate_pool",
+  "list_candidate_pool",
+  "save_draft",
+  "prepare_publish_task",
+  "start_new_task",
+  "switch_back_task",
+  "update_draft_task",
+  "submit_employee_response",
+  "submit_progress_update",
+  "update_employee_profile",
+  "list_my_tasks",
+  "list_managed_tasks",
+  "get_task_detail",
+  "reassign_task",
+  "get_my_profile",
+  "admin_list_all_tasks",
+  "get_metrics",
+  "list_managers",
+  "set_manager_permission",
+  "get_current_time",
+  "publish_task",
+  "update_known_facts",
+  "list_known_facts",
+  "search_web",
+  "search_similar_plans",
+] as const;
+
 export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRegistryEntry> {
   const profile = deps.toolProfile ?? "planner";
   const taskStore = createWorkbenchFormalTaskStore();

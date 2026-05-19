@@ -57,9 +57,39 @@ describe("get_task_detail tool", () => {
       taskStore: { getTaskDetail: () => detailFixture() } as any,
       actorRole: "manager",
     });
-    expect(() => handler({ actorUserId: "mgr-2", taskNo: "TASK-1" })).toThrow(
-      "Task does not belong to current manager",
-    );
+    const result = handler({ actorUserId: "mgr-2", taskNo: "TASK-1" }) as any;
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "task_not_owned",
+      hint: "该任务不在你的管理范围",
+    });
+  });
+
+  it("returns soft error when task key is missing", () => {
+    const handler = buildGetTaskDetailHandler({
+      taskStore: { getTaskDetail: () => detailFixture() } as any,
+      actorRole: "manager",
+    });
+    const result = handler({ actorUserId: "mgr-1" }) as any;
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "missing_key",
+      hint: "未提供任务编号或 ID",
+    });
+  });
+
+  it("returns soft error when task is not found", () => {
+    const handler = buildGetTaskDetailHandler({
+      taskStore: { getTaskDetail: () => undefined } as any,
+      actorRole: "manager",
+    });
+    const result = handler({ actorUserId: "mgr-1", taskNo: "TASK-MISSING" }) as any;
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "task_not_found",
+      hint: "未在工作台查到该任务编号",
+      queriedKey: "TASK-MISSING",
+    });
   });
 
   it("prefers handler-bound actorRole over model args", () => {
@@ -107,5 +137,18 @@ describe("get_task_detail tool", () => {
     const result = handler({ actorUserId: "emp-1", taskNo: "TASK-1", includeSiblings: false }) as any;
     expect(result.siblings).toEqual([]);
     expect(result.includeSiblings).toBe(false);
+  });
+
+  it("returns soft error when employee does not own task", () => {
+    const handler = buildGetTaskDetailHandler({
+      taskStore: { getTaskDetail: () => detailFixture() } as any,
+      actorRole: "employee",
+    });
+    const result = handler({ actorUserId: "emp-3", taskNo: "TASK-1" }) as any;
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "task_not_owned",
+      hint: "该任务不在你的管理范围",
+    });
   });
 });

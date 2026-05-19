@@ -64,23 +64,36 @@ export function buildGetTaskDetailHandler(
       role === "admin" || role === "manager" || role === "employee"
         ? role
         : undefined;
-    if (!actorUserId) throw new Error("actorUserId is required");
-    if (!actorRole) throw new Error("actorRole is required");
+    if (!actorUserId) {
+      return { ok: false, reason: "missing_actor", hint: "系统未识别身份" };
+    }
+    if (!actorRole) {
+      return { ok: false, reason: "missing_role", hint: "系统未识别角色" };
+    }
     const key =
       String(args.taskNo ?? "").trim() ||
       String(args.taskId ?? "").trim() ||
       String(args.planId ?? "").trim();
-    if (!key) throw new Error("taskNo or taskId or planId is required");
+    if (!key) {
+      return { ok: false, reason: "missing_key", hint: "未提供任务编号或 ID" };
+    }
     const includeSiblings = args.includeSiblings !== false;
     const detail = taskStore.getTaskDetail(key);
-    if (!detail) throw new Error("Task not found");
+    if (!detail) {
+      return {
+        ok: false,
+        reason: "task_not_found",
+        hint: "未在工作台查到该任务编号",
+        queriedKey: key,
+      };
+    }
     if (actorRole === "manager" && detail.task.managerUserId !== actorUserId) {
-      throw new Error("Task does not belong to current manager");
+      return { ok: false, reason: "task_not_owned", hint: "该任务不在你的管理范围" };
     }
     if (actorRole === "employee") {
       const own = detail.subtasks.some((subtask) => subtask.assigneeUserId === actorUserId);
       if (!own) {
-        throw new Error("Task does not belong to current employee");
+        return { ok: false, reason: "task_not_owned", hint: "该任务不在你的管理范围" };
       }
       const mySubtaskIds = new Set(
         detail.subtasks.filter((s) => s.assigneeUserId === actorUserId).map((s) => s.subtaskId),

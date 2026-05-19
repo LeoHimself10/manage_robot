@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendPublishSummaryMarkdown,
   renderDraftSupplementSection,
+  sanitizeToolNameLeak,
   shouldUseAnonymousSession,
 } from "../src/dingtalk-bot";
 import { buildToolRegistry } from "../src/agent/tools/registry";
@@ -52,6 +53,18 @@ describe("dingtalk bot helpers", () => {
     });
     await registry.update_known_facts.handler({ facts: ["新事实"] });
     expect(facts).toContain("新事实");
+  });
+
+  it("replaces bare tool-name replies before sending to DingTalk", () => {
+    expect(sanitizeToolNameLeak("release_task").markdown).toBe("release_task");
+    expect(sanitizeToolNameLeak("list_managed_tasks")).toMatchObject({
+      leaked: true,
+      markdown: "（系统检测到模型输出异常，已忽略；请重新描述您的需求。）",
+    });
+    expect(sanitizeToolNameLeak("请调用 list_managed_tasks")).toMatchObject({
+      leaked: false,
+      markdown: "请调用 list_managed_tasks",
+    });
   });
 
   it("renders deterministic structured draft preview with rich fields", () => {
