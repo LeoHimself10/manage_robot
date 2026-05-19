@@ -24,6 +24,10 @@ import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import { runOrchestrator } from "./agent/orchestrator";
 import {
+  buildPublishRetryUserMessage,
+  detectFalsePublish,
+} from "./agent/publish-staging";
+import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
 } from "./agent/role-routing";
@@ -785,7 +789,8 @@ async function main(): Promise<void> {
           reason: routing.reason,
         });
         const orchestratorStartedAt = Date.now();
-        const orchResult = await runOrchestrator(background, {
+        const preTurnLatestDraft = session.latestDraft;
+        const buildOrchestratorConfig = () => ({
           clientConfig: dingtalkQwenConfig,
           employeeRepo,
           maxToolIterations: dingtalkOrchestratorMaxIterations,
@@ -800,11 +805,11 @@ async function main(): Promise<void> {
           actorName: (payload.senderNick as string | undefined)?.trim(),
           actorRole:
             routing.resolvedRole === "admin"
-              ? "admin"
+              ? ("admin" as const)
               : routing.resolvedRole === "manager"
-                ? "manager"
-                : "employee",
-          onPublishTaskResult: (result) => {
+                ? ("manager" as const)
+                : ("employee" as const),
+          onPublishTaskResult: (result: Record<string, unknown>) => {
             publishResult = result;
           },
           sessionContext: {
@@ -833,7 +838,45 @@ async function main(): Promise<void> {
               : undefined,
           },
         });
-        const orchestratorMs = Date.now() - orchestratorStartedAt;
+        let orchResult = await runOrchestrator(background, buildOrchestratorConfig());
+        let orchestratorMs = Date.now() - orchestratorStartedAt;
+
+        // Layer-2 兜底：检测「主管已确认发布、prepare 已 staged、但模型未调 publish_task 却口播已发布」。
+        // 命中则**自动重试一次**，强制要求调用 publish_task；仍不调时下游会原样把第二次结果发出去
+        // （由 prompt 自身的兜底 message 给用户）。原 background 不被改写，history/审计保持原貌。
+        {
+          const initialOutbound = orchResult.messages.join("\n\n");
+          const isFalsePublish = detectFalsePublish({
+            userMessage: background,
+            preTurnLatestDraft,
+            toolInvocationNames: orchResult.toolInvocationNames,
+            hasPublishResult: publishResult !== undefined,
+            outboundMarkdown: initialOutbound,
+          });
+          if (isFalsePublish) {
+            logStructured({
+              event: "publish_silent_skip_detected",
+              messageId,
+              traceId: orchResult.traceId,
+              planId: session.planId,
+              initialToolNames: [...orchResult.toolInvocationNames],
+              initialMessagePreview: initialOutbound.slice(0, 160),
+            });
+            const retryStartedAt = Date.now();
+            const retryBackground = buildPublishRetryUserMessage(background, session.planId);
+            const retryResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
+            orchestratorMs += Date.now() - retryStartedAt;
+            logStructured({
+              event: "publish_silent_skip_retry_done",
+              messageId,
+              traceId: retryResult.traceId,
+              retriedToolNames: [...retryResult.toolInvocationNames],
+              retryHasPublishResult: publishResult !== undefined,
+              retryMessagePreview: retryResult.messages.join("\n\n").slice(0, 160),
+            });
+            orchResult = retryResult;
+          }
+        }
 
         const snapshotPlanId = session.planId;
         const currentDraft = orchResult.draft ?? session.latestDraft;

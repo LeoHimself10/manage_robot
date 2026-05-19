@@ -12,6 +12,10 @@ import { buildQwenPlannerSystemPrompt, type AgentPromptProfile } from "./demo/qw
 import type { KnownFactsStore } from "./tools/update-known-facts";
 import type { PlanSession } from "../infra/plan-session-store";
 import type { PublishTaskRecentStore } from "./tools/publish-task";
+import {
+  isDraftStagedForPublish,
+  shouldInjectPublishStagingMemoryHint,
+} from "./publish-staging";
 
 const MAX_TOOL_ITERATIONS = 6;
 
@@ -132,6 +136,11 @@ export async function runOrchestrator(
   }
   if (config.sessionContext?.latestDraft) {
     memoryParts.push(`latestDraftSummary: ${safeJson(summarizeDraftForPrompt(config.sessionContext.latestDraft))}`);
+    if (isDraftStagedForPublish(config.sessionContext.latestDraft)) {
+      memoryParts.push(
+        `publishStaging: ${safeJson({ staged: true, stagedBy: "prepare_publish_task", awaitingFinalPublish: true })}`,
+      );
+    }
   }
   if (config.sessionContext?.latestAssignment) {
     memoryParts.push(
@@ -146,6 +155,16 @@ export async function runOrchestrator(
   if (config.sessionContext?.candidatePool) {
     memoryParts.push(
       `candidatePool: ${safeJson(config.sessionContext.candidatePool)} | 本 plan 的指派只能在 entries[*].userId 中选；search_employees 已自动收窄到池内。`,
+    );
+  }
+  if (
+    shouldInjectPublishStagingMemoryHint({
+      userMessage,
+      latestDraft: config.sessionContext?.latestDraft,
+    })
+  ) {
+    memoryParts.push(
+      "publishStagingAction: 主管已确认发布｜本轮唯一动作：调用 publish_task(planId=当前 planId, confirmationContext=用户原话)；**禁止**仅口播「已发布/已派发」而不调工具。",
     );
   }
   if (memoryParts.length > 0) {
@@ -304,11 +323,13 @@ function summarizeDraftForPrompt(draft: Record<string, unknown>): Record<string,
     .map((t) => String(t?.title ?? "").trim())
     .filter((t) => t.length > 0)
     .slice(0, 5);
+  const stagedBy = String((draft as { stagedBy?: unknown }).stagedBy ?? "").trim() || null;
   return {
     hasDraft: true,
     taskTitles,
     domain: (draft as { classification?: { domain?: unknown } }).classification?.domain ?? null,
     subtype: (draft as { classification?: { subtype?: unknown } }).classification?.subtype ?? null,
+    ...(stagedBy ? { stagedBy } : {}),
   };
 }
 
