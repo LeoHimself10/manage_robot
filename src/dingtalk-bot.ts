@@ -27,11 +27,8 @@ import { inferDraftTaskStartDates } from "./agent/demo/draft-schedule-infer";
 import {
   draftHasAssignedTasks,
   enrichDraftAssigneeDisplayNames,
-  guardFalsePublishClaimInMessage,
-  shouldAppendDraftTableFromSession,
   shouldSlimOrchestratorMessageForDraft,
 } from "./agent/demo/draft-display";
-import { looksLikeTaskDraftMessage } from "./agent/demo/draft-fallback-extract";
 import { synthesizeMessageFromDraft } from "./agent/orchestrator-draft-message";
 import { createPeopleDirectoryStore } from "./infra/people-directory-store";
 import {
@@ -62,10 +59,8 @@ import { createRecentPublishStore } from "./agent/tools/publish-task";
 import type { KnownFactsStore } from "./agent/tools/update-known-facts";
 import {
   deriveNewTaskScopeLabel,
-  getCurrentScopeLabel,
   hasPlanScopedContextToClear,
   isExplicitNewTaskRequest,
-  isLikelyTopicShiftFromScope,
 } from "./agent/new-task-intent";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
@@ -827,24 +822,15 @@ async function main(): Promise<void> {
           });
         }
 
-        const explicitNewTask = isExplicitNewTaskRequest(background);
-        const topicShift = isLikelyTopicShiftFromScope(
-          background,
-          getCurrentScopeLabel(session),
-        );
         if (
           !isAnonymousSender &&
-          hasPlanScopedContextToClear(session) &&
-          (explicitNewTask || topicShift)
+          isExplicitNewTaskRequest(background) &&
+          hasPlanScopedContextToClear(session)
         ) {
           const fromPlanId = session.planId;
           const switchResult = startNewTaskScope(session, {
-            scopeLabel: explicitNewTask
-              ? deriveNewTaskScopeLabel(background)
-              : background.replace(/\s+/g, " ").trim().slice(0, 30) || "新任务",
-            reason: explicitNewTask
-              ? "preclear_explicit_new_task"
-              : "preclear_topic_shift",
+            scopeLabel: deriveNewTaskScopeLabel(background),
+            reason: "preclear_explicit_new_task",
           });
           planSessionStore.save(session);
           planSessionStore.appendEvent({
@@ -982,8 +968,6 @@ async function main(): Promise<void> {
 
         // message 为模型摘要；统一宽表由 draft 确定性渲染（避免「简表+分条补充」双结构）
         let outboundMarkdown = orchResult.messages.join("\n\n").trim();
-        const effectivePublishResult =
-          publishResult ?? (orchResult.publishResult as Record<string, unknown> | undefined);
         const resolveAssigneeName = (userId: string): string | undefined => {
           const fromRepo =
             employeeRepo.get?.(userId) ??
@@ -1002,39 +986,9 @@ async function main(): Promise<void> {
             freshDraft as Record<string, unknown>,
             resolveAssigneeName,
           );
-        } else if (
-          looksLikeTaskDraftMessage(outboundMarkdown)
-          && currentDraft
-          && Array.isArray((currentDraft as { tasks?: unknown }).tasks)
-          && ((currentDraft as { tasks: unknown[] }).tasks.length > 0)
-        ) {
-          outboundMarkdown = appendUnifiedDraftTableToOutbound(
-            outboundMarkdown,
-            currentDraft as Record<string, unknown>,
-            resolveAssigneeName,
-          );
-        } else if (
-          shouldAppendDraftTableFromSession({
-            freshDraft,
-            currentDraft,
-            toolInvocationNames: orchResult.toolInvocationNames,
-            publishResult: effectivePublishResult,
-          })
-          && currentDraft
-        ) {
-          outboundMarkdown = appendUnifiedDraftTableToOutbound(
-            outboundMarkdown,
-            currentDraft as Record<string, unknown>,
-            resolveAssigneeName,
-          );
         }
-        outboundMarkdown = guardFalsePublishClaimInMessage(outboundMarkdown, {
-          publishResult: effectivePublishResult,
-          toolInvocationNames: orchResult.toolInvocationNames,
-        });
         if (!outboundMarkdown.trim()) {
-          outboundMarkdown =
-            "已记录您的消息。若刚才在补充任务背景或截止时间，请再发一句「继续」；若信息已齐，我将为您生成或更新草案。";
+          outboundMarkdown = "已收到，正在处理中。";
         }
 
         const assignmentStartedAt = Date.now();
@@ -1102,7 +1056,7 @@ async function main(): Promise<void> {
 
         let planRotatedAfterPublish = false;
         let rotatePlanHintTail = "";
-        const pr = effectivePublishResult;
+        const pr = publishResult as Record<string, unknown> | undefined;
         if (
           readDingtalkPlanIdRotateEnabled() &&
           !isAnonymousSender &&
@@ -1148,10 +1102,7 @@ async function main(): Promise<void> {
           }
         }
 
-        outboundMarkdown = appendPublishSummaryMarkdown(
-          outboundMarkdown,
-          effectivePublishResult,
-        );
+        outboundMarkdown = appendPublishSummaryMarkdown(outboundMarkdown, publishResult);
         if (planRotatedAfterPublish) {
           outboundMarkdown += rotatePlanHintTail;
         }

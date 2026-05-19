@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildQwenPlannerSystemPrompt } from "../../../src/agent/demo/qwen-prompt";
 
-describe("buildQwenPlannerSystemPrompt v6.3.4", () => {
+describe("buildQwenPlannerSystemPrompt v6.3.5", () => {
   it("contains version header and four-phase structure including query phase D", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v6.3.4");
+    expect(sys).toContain("orchestrator-agent-v6.3.5");
     expect(sys).toContain("阶段 D · 查询与进展");
     expect(sys).toContain("阶段 A · 追问");
     expect(sys).toContain("阶段 B · 出草案");

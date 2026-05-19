@@ -13,10 +13,7 @@ import {
   looksLikeTaskDraftMessage,
   readDraftFallbackEnabled,
 } from "./demo/draft-fallback-extract";
-import {
-  recoverOrchestratorUserMessage,
-  synthesizeMessageFromDraft,
-} from "./orchestrator-draft-message";
+import { synthesizeMessageFromDraft } from "./orchestrator-draft-message";
 import { shouldInjectCandidatePoolMemoryHint } from "./planning-phase";
 import type { KnownFactsStore } from "./tools/update-known-facts";
 import type { PlanSession } from "../infra/plan-session-store";
@@ -284,23 +281,6 @@ export async function runOrchestrator(
     draft = stabilizeDraftTaskIds(draft, previousDraft);
   }
 
-  const msgBeforeRecover = msg;
-  msg = recoverOrchestratorUserMessage({
-    message: msg,
-    rawContent: response.rawContent,
-    lastAssistantContent: response.lastAssistantContent,
-    toolInvocationNames,
-    draft,
-  });
-  if (!msgBeforeRecover && msg) {
-    logStructured({
-      event: "orchestrator_message_recovered",
-      traceId,
-      messageChars: msg.length,
-      toolCalls: toolInvocationNames?.slice(-5),
-    });
-  }
-
   // 模型常把 token 全塞进 draft 导致 message 为空；补一段短摘要，避免钉钉只显示空行+表
   if (draft && !msg) {
     msg = synthesizeMessageFromDraft(draft);
@@ -314,30 +294,8 @@ export async function runOrchestrator(
   const messages: string[] = msg ? [msg] : [];
 
   const fallbackStartedAt = Date.now();
-  let draftFallbackOutcome:
-    | "skipped"
-    | "skipped_session_after_prepare"
-    | "triggered_ok"
-    | "triggered_failed" = "skipped";
-  const toolsCalled = toolInvocationNames ?? [];
-  const sessionDraftAfterTools = config.currentSession?.latestDraft;
-  const sessionDraftTasks = Array.isArray(
-    (sessionDraftAfterTools as { tasks?: unknown[] } | undefined)?.tasks,
-  )
-    ? (sessionDraftAfterTools as { tasks: unknown[] }).tasks
-    : [];
-  if (
-    !draft
-    && toolsCalled.includes("prepare_publish_task")
-    && sessionDraftAfterTools
-    && sessionDraftTasks.length > 0
-  ) {
-    draft = stabilizeDraftTaskIds(
-      sessionDraftAfterTools as Record<string, unknown>,
-      previousDraft,
-    );
-    draftFallbackOutcome = "skipped_session_after_prepare";
-  } else if (!draft && readDraftFallbackEnabled() && msg && looksLikeTaskDraftMessage(msg)) {
+  let draftFallbackOutcome: "skipped" | "triggered_ok" | "triggered_failed" = "skipped";
+  if (!draft && readDraftFallbackEnabled() && msg && looksLikeTaskDraftMessage(msg)) {
     draftFallbackOutcome = "triggered_failed";
     const fallbackDraft =
       (await extractStructuredDraftFromMessage({
@@ -360,11 +318,7 @@ export async function runOrchestrator(
       draftFallbackOutcome = "triggered_ok";
     }
   }
-  if (
-    draftFallbackOutcome === "triggered_ok"
-    || draftFallbackOutcome === "triggered_failed"
-    || draftFallbackOutcome === "skipped_session_after_prepare"
-  ) {
+  if (draftFallbackOutcome === "triggered_ok" || draftFallbackOutcome === "triggered_failed") {
     logStructured({
       event: "draft_fallback_extracted",
       traceId,

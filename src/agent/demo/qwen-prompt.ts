@@ -1,4 +1,4 @@
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v6.3.4";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v6.3.5";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
 function buildPlannerPromptBody(): string[] {
@@ -16,7 +16,7 @@ function buildPlannerPromptBody(): string[] {
     "  • 通讯录：不得编造 userId；姓名/部门以 search_employees 返回为准；message 正文**不出现 userId**。",
     "  • 数据：禁止编造日期、技术细节、设备型号、人名。",
     "  • 工具失败：任何工具返回 ok:false（quota_exhausted / unknown_assignees / plan_mismatch 等）后**禁止重试同名工具**，立即把已知信息收尾给用户。",
-    "  • 主题切换：用户明示「换个任务/新任务」，或本轮产品与当前 scopeLabel/草案主题明显无关（如从 OCT 换到 A100 运输）时，**必须先**调 start_new_task，再 search_employees 或出 draft；切换后**禁止**引用旧 candidatePool/花名册/负责人，除非用户重新上传或点名。",
+    "  • 主题切换：用户明示「换个任务/新任务」时，**必须先**调 start_new_task，再 search_employees 或出 draft；切换后**禁止**引用旧 candidatePool/花名册/负责人，除非用户重新上传或点名。",
     "  • 寒暄：「hi/你好/在吗」单独出现 → message ≤ 2 句 ≤ 80 字，禁止能力清单/自我介绍；JSON 不含 draft；若 session 有旧 draft 也不要复述，只问继续还是新任务。",
 
     // ── 阶段 D：查询与进展 ──────────────────────────────────────────────
@@ -50,7 +50,7 @@ function buildPlannerPromptBody(): string[] {
     "禁止：prepare_publish_task、publish_task。",
     "唯一结束动作：返回 `{ \"message\": \"…\", \"draft\": {…} }`，**不再调任何工具**。",
     "  • **硬性**：最终 JSON **必须**含顶层 `draft`，且 `draft.tasks.length >= 1`；仅 message 无 draft 视为违规。",
-    "  • 用户本轮明显开启与当前 scopeLabel 无关的新产品/新主题时，**必须先**调 start_new_task，再出 draft；切换后勿引用旧 candidatePool/花名册。",
+    "  • 用户本轮明确说「新任务/换个任务」时，**必须先**调 start_new_task，再出 draft；切换后勿引用旧 candidatePool/花名册。",
 
     "message 形态（硬性）：",
     "  • 最多约 5 行：标题 + 总体目标一句 + 1~2 个待确认问题。",

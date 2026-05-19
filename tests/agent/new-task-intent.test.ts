@@ -3,7 +3,6 @@ import {
   deriveNewTaskScopeLabel,
   hasPlanScopedContextToClear,
   isExplicitNewTaskRequest,
-  isLikelyTopicShiftFromScope,
 } from "../../src/agent/new-task-intent";
 
 describe("new task intent helpers", () => {
@@ -27,20 +26,5 @@ describe("new task intent helpers", () => {
     expect(hasPlanScopedContextToClear({ candidatePool: { entries: [] } })).toBe(true);
     expect(hasPlanScopedContextToClear({ pendingRosterText: "张三" })).toBe(true);
     expect(hasPlanScopedContextToClear({ conversationHistory: [] })).toBe(false);
-  });
-
-  it("detects OCT transport vs line-fault topic shift", () => {
-    expect(
-      isLikelyTopicShiftFromScope(
-        "产线老化多台 OCT 报错 1210 通信超时，请两周内分析解决",
-        "A100 OCT 样机运输周转故障",
-      ),
-    ).toBe(true);
-    expect(
-      isLikelyTopicShiftFromScope(
-        "继续优化医疗箱防震内衬",
-        "A100 OCT 样机运输周转故障",
-      ),
-    ).toBe(false);
   });
 });

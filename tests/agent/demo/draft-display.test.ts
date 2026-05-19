@@ -2,9 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   draftHasAssignedTasks,
   enrichDraftAssigneeDisplayNames,
-  guardFalsePublishClaimInMessage,
-  messageClaimsPublishedWithoutTool,
-  shouldAppendDraftTableFromSession,
   shouldSlimOrchestratorMessageForDraft,
 } from "../../../src/agent/demo/draft-display";
 
@@ -49,41 +46,5 @@ describe("draft-display", () => {
     expect(mediumSubtask.length).toBeGreaterThan(200);
     expect(shouldSlimOrchestratorMessageForDraft(mediumSubtask)).toBe(true);
     expect(shouldSlimOrchestratorMessageForDraft("以下是针对 OCT 的摘要，无子任务。")).toBe(true);
-  });
-
-  it("shouldAppendDraftTableFromSession after update_draft_task without freshDraft", () => {
-    const draft = { tasks: [{ id: "t1", title: "A", assigneeUserId: "u1" }] };
-    expect(
-      shouldAppendDraftTableFromSession({
-        currentDraft: draft,
-        toolInvocationNames: ["update_draft_task"],
-      }),
-    ).toBe(true);
-    expect(
-      shouldAppendDraftTableFromSession({
-        freshDraft: draft,
-        currentDraft: draft,
-      }),
-    ).toBe(false);
-  });
-
-  it("guardFalsePublishClaimInMessage blocks fake publish", () => {
-    expect(
-      messageClaimsPublishedWithoutTool({
-        message: "任务已发布，杨贺新将收到通知。",
-        toolInvocationNames: [],
-      }),
-    ).toBe(true);
-    const guarded = guardFalsePublishClaimInMessage("任务已发布，杨贺新将收到通知。", {
-      toolInvocationNames: [],
-    });
-    expect(guarded).toContain("尚未正式发布");
-    expect(guarded).not.toContain("将收到通知");
-    expect(
-      guardFalsePublishClaimInMessage("任务已发布", {
-        toolInvocationNames: ["publish_task"],
-        publishResult: { ok: true },
-      }),
-    ).toBe("任务已发布");
   });
 });

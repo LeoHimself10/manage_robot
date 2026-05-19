@@ -26,54 +26,6 @@ export function deriveNewTaskScopeLabel(message: string): string {
   return label.slice(0, 30);
 }
 
-export function getCurrentScopeLabel(session: {
-  currentTaskScopeId?: string;
-  taskScopes?: Record<string, { scopeLabel?: string }>;
-}): string | undefined {
-  const scopeId = session.currentTaskScopeId;
-  if (!scopeId || !session.taskScopes?.[scopeId]) return undefined;
-  return String(session.taskScopes[scopeId]?.scopeLabel ?? "").trim() || undefined;
-}
-
-/**
- * 用户描述的新事项与当前 scopeLabel 明显不是同一条规划（如「运输故障」→「产线报错1210」）。
- * 用于在 ReAct 之前预清 candidatePool / 草案，避免旧名单粘连。
- */
-export function isLikelyTopicShiftFromScope(
-  message: string,
-  currentScopeLabel?: string,
-): boolean {
-  const msg = message.replace(/\s+/g, " ").trim();
-  const scope = String(currentScopeLabel ?? "").replace(/\s+/g, " ").trim();
-  if (!msg || !scope || msg.length < 16) return false;
-  if (isExplicitNewTaskRequest(msg)) return false;
-
-  const msgCore = msg.slice(0, 80);
-  if (msgCore.includes(scope) || scope.includes(msgCore.slice(0, Math.min(10, msgCore.length)))) {
-    return false;
-  }
-
-  const octInBoth = /OCT|oct/i.test(msg) && /OCT|oct/i.test(scope);
-  if (octInBoth) {
-    const hasTransport = (s: string) => /运输|周转|包装|抗震|医疗箱/.test(s);
-    const hasLineFault = (s: string) => /报错|1210|通信|老化|产线|蓝屏|黑屏/.test(s);
-    const scopeTransport = hasTransport(scope);
-    const msgTransport = hasTransport(msg);
-    const scopeFault = hasLineFault(scope);
-    const msgFault = hasLineFault(msg);
-    if (scopeTransport && msgFault && !msgTransport) return true;
-    if (scopeFault && msgTransport && !msgFault) return true;
-  }
-
-  if (msg.length >= 40 && /任务|问题|排查|故障|整改|专项/.test(msg)) {
-    const scopeKey = scope.slice(0, Math.min(12, scope.length));
-    if (scopeKey.length >= 4 && !msg.includes(scopeKey.slice(0, 4))) {
-      return true;
-    }
-  }
-  return false;
-}
-
 export function hasPlanScopedContextToClear(session: {
   latestDraft?: unknown;
   latestAssignment?: unknown;
