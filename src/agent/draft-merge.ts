@@ -115,3 +115,27 @@ export function deepMergePreserveRichFields(
 
   return merged;
 }
+
+const ORCHESTRATOR_DRAFT_SCALAR_KEYS = ["title", "description", "summary", "stagedBy"] as const;
+
+/**
+ * coerceLlmPlanPayload strips orchestrator draft scalars (title, description).
+ * Re-attach them from the model's raw draft object so prepare/publish can read them.
+ */
+export function preserveOrchestratorDraftScalars(
+  rawDraft: unknown,
+  coerced: Record<string, unknown>,
+): Record<string, unknown> {
+  const raw =
+    rawDraft && typeof rawDraft === "object" && !Array.isArray(rawDraft)
+      ? (rawDraft as Record<string, unknown>)
+      : {};
+  const out: Record<string, unknown> = { ...coerced };
+  for (const key of ORCHESTRATOR_DRAFT_SCALAR_KEYS) {
+    const v = raw[key];
+    if (v === undefined || v === null) continue;
+    const s = typeof v === "string" ? v.trim() : String(v).trim();
+    if (s) out[key] = typeof v === "string" ? s : v;
+  }
+  return out;
+}

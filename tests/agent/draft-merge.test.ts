@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { deepMergePreserveRichFields } from "../../src/agent/draft-merge";
+import {
+  deepMergePreserveRichFields,
+  preserveOrchestratorDraftScalars,
+} from "../../src/agent/draft-merge";
+import { coerceLlmPlanPayload } from "../../src/agent/demo/llm-schema";
 
 describe("deepMergePreserveRichFields", () => {
   it("returns next unchanged when prev is undefined", () => {
@@ -111,5 +115,34 @@ describe("deepMergePreserveRichFields", () => {
     const result = deepMergePreserveRichFields(prev, next);
     expect((result.tasks as any[]).length).toBe(2);
     expect((result.tasks as any[])[1].title).toBe("任务2");
+  });
+});
+
+describe("preserveOrchestratorDraftScalars", () => {
+  it("re-attaches title, description, summary after coerce strips them", () => {
+    const raw = {
+      title: "OCT 调查",
+      description: "3起投诉，2周内完成",
+      summary: "折断风险",
+      responseIntent: "DRAFT",
+      assistantMessage: "ignored",
+      tasks: [{ id: "task_1", title: "调查", objective: "o", deliverables: [], completionCriteria: [], timeNode: { dueAt: "2026-06-01" }, feedbackFrequency: "每周" }],
+    };
+    const coerced = coerceLlmPlanPayload(raw) as unknown as Record<string, unknown>;
+    expect(coerced.title).toBeUndefined();
+    expect(coerced.description).toBeUndefined();
+
+    const out = preserveOrchestratorDraftScalars(raw, coerced);
+    expect(out.title).toBe("OCT 调查");
+    expect(out.description).toBe("3起投诉，2周内完成");
+    expect(out.summary).toBe("折断风险");
+    expect((out.tasks as unknown[]).length).toBe(1);
+  });
+
+  it("preserves stagedBy from raw draft", () => {
+    const raw = { title: "T", stagedBy: "prepare_publish_task", tasks: [] };
+    const coerced = coerceLlmPlanPayload(raw) as unknown as Record<string, unknown>;
+    const out = preserveOrchestratorDraftScalars(raw, coerced);
+    expect(out.stagedBy).toBe("prepare_publish_task");
   });
 });

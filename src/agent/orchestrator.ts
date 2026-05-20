@@ -16,6 +16,7 @@ import {
 import type { KnownFactsStore } from "./tools/update-known-facts";
 import type { PlanSession } from "../infra/plan-session-store";
 import type { PublishTaskRecentStore } from "./tools/publish-task";
+import { preserveOrchestratorDraftScalars } from "./draft-merge";
 import {
   isDraftStagedForPublish,
   shouldInjectPublishStagingMemoryHint,
@@ -188,6 +189,11 @@ export async function runOrchestrator(
       `candidatePool: ${safeJson(config.sessionContext.candidatePool)} | 本 plan 的指派只能在 entries[*].userId 中选；search_employees 已自动收窄到池内。`,
     );
   }
+  if (shouldInjectPostClarifyDraftHint(config.sessionContext, userMessage)) {
+    memoryParts.push(
+      "postClarifyDraftAction: 用户已在 CLARIFY 后大段补充；本轮走 DRAFT，遵守 system 中 DRAFT 四段 message + draft.title/description，禁止空 message。",
+    );
+  }
   if (
     shouldInjectPublishStagingMemoryHint({
       userMessage,
@@ -299,8 +305,12 @@ export async function runOrchestrator(
   let assignment = isPlainObject(payload?.assignment) ? payload?.assignment as Record<string, unknown> : undefined;
 
   const messages: string[] = msg ? [msg] : [];
-  const payloadDraft = isPlainObject(payload?.draft)
-    ? (coerceLlmPlanPayload(payload?.draft) as unknown as Record<string, unknown>)
+  const rawDraft = isPlainObject(payload?.draft) ? payload.draft : undefined;
+  const payloadDraft = rawDraft
+    ? preserveOrchestratorDraftScalars(
+        rawDraft,
+        coerceLlmPlanPayload(rawDraft) as unknown as Record<string, unknown>,
+      )
     : undefined;
   let draft: Record<string, unknown> | undefined = savedDraft ?? payloadDraft;
   if (draft) {
@@ -347,6 +357,23 @@ function safeJson(input: unknown): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** 用户在上轮追问后做了实质性补充、且会话尚无草案 → 注入 DRAFT 强提示。 */
+function shouldInjectPostClarifyDraftHint(
+  sessionContext: OrchestratorConfig["sessionContext"],
+  userMessage: string,
+): boolean {
+  const text = String(userMessage ?? "").trim();
+  if (text.length < 120) return false;
+  if (sessionContext?.latestDraft) return false;
+  const history = sessionContext?.conversationHistory ?? [];
+  if (history.length === 0) return false;
+  const lastAssistant = [...history].reverse().find((h) => h.role === "assistant")?.content ?? "";
+  const clarifyMarkers =
+    /请补充|补充以下|关键信息|截止日期|期望.{0,6}完成|？\s*$/m.test(lastAssistant)
+    || (lastAssistant.includes("？") && lastAssistant.length > 40 && !lastAssistant.includes("任务列表"));
+  return clarifyMarkers;
 }
 
 const RICH_TASK_FIELDS = [

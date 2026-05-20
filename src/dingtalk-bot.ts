@@ -24,8 +24,12 @@ import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import { runOrchestrator } from "./agent/orchestrator";
 import {
+  buildPublishRetryUserMessage,
   buildScopeSwitchRetryUserMessage,
+  detectFalsePublish,
+  detectFalsePublishOnConfirm,
   detectFalseScopeSwitch,
+  formatAuthoritativePublishBlockedNotice,
   isPublishConfirmUserMessage,
 } from "./agent/publish-staging";
 import {
@@ -786,6 +790,51 @@ async function main(): Promise<void> {
           }
         }
 
+        // 假发布：主管确认发布但模型未调 publish_task 却口播「已发布」→ 重试一轮。
+        {
+          const preTurnDraft = session.latestDraft;
+          const initialOutbound = orchResult.messages.join("\n\n");
+          const falsePublish =
+            detectFalsePublish({
+              userMessage: background,
+              preTurnLatestDraft: preTurnDraft,
+              toolInvocationNames: orchResult.toolInvocationNames ?? [],
+              hasPublishResult: publishResultSucceeded(publishResult as Record<string, unknown> | undefined),
+              outboundMarkdown: initialOutbound,
+            })
+            || detectFalsePublishOnConfirm({
+              userMessage: background,
+              preTurnLatestDraft: preTurnDraft,
+              toolInvocationNames: orchResult.toolInvocationNames ?? [],
+              hasPublishResult: publishResultSucceeded(publishResult as Record<string, unknown> | undefined),
+              outboundMarkdown: initialOutbound,
+            });
+          if (falsePublish) {
+            logStructured({
+              event: "false_publish_detected",
+              messageId,
+              traceId: orchResult.traceId,
+              planId: session.planId,
+              initialMessagePreview: initialOutbound.slice(0, 160),
+            });
+            const retryStartedAt = Date.now();
+            const retryBackground = buildPublishRetryUserMessage(background, session.planId);
+            const retryResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
+            orchestratorMs += Date.now() - retryStartedAt;
+            logStructured({
+              event: "false_publish_retry_done",
+              messageId,
+              traceId: retryResult.traceId,
+              retriedToolNames: [...(retryResult.toolInvocationNames ?? [])],
+              hasPublishResult: publishResultSucceeded(retryResult.publishResult as Record<string, unknown> | undefined),
+            });
+            orchResult = retryResult;
+            if (retryResult.publishResult) {
+              publishResult = retryResult.publishResult;
+            }
+          }
+        }
+
         const snapshotPlanId = session.planId;
         // 深合并：新 draft 的空数组字段不覆盖 session 中已有的富字段（如 inputMaterials/scope 等）
         const freshDraft = orchResult.draft
@@ -823,7 +872,6 @@ async function main(): Promise<void> {
           }
         }
 
-        // 模型自己决定输出格式，代码只做兜底
         let outboundMarkdown = orchResult.messages.join("\n\n");
         if (!outboundMarkdown.trim()) outboundMarkdown = "已收到，正在处理中。";
         const sanitizedOutbound = sanitizeToolNameLeak(outboundMarkdown);
@@ -905,6 +953,7 @@ async function main(): Promise<void> {
         const assignmentMs = Date.now() - assignmentStartedAt;
 
         // 主管「确认发布」：由服务端执行 prepare + publish，不以模型口播为准。
+        let authoritativePublishNotice = "";
         if (
           !isAnonymousSender &&
           isPublishConfirmUserMessage(background) &&
@@ -956,6 +1005,13 @@ async function main(): Promise<void> {
           });
           if (authOutcome.publishResult) {
             publishResult = authOutcome.publishResult;
+          }
+          if (!publishResultSucceeded(publishResult as Record<string, unknown> | undefined)) {
+            authoritativePublishNotice = formatAuthoritativePublishBlockedNotice({
+              skippedReason: authOutcome.skippedReason,
+              prepareResult: authOutcome.prepareResult,
+              publishResult: authOutcome.publishResult,
+            });
           }
         }
 
@@ -1014,6 +1070,9 @@ async function main(): Promise<void> {
           outboundMarkdown,
           publishResultSucceeded(publishResult as Record<string, unknown> | undefined),
         );
+        if (authoritativePublishNotice) {
+          outboundMarkdown = `${outboundMarkdown.trim()}\n\n${authoritativePublishNotice}`;
+        }
         // 正确拼接顺序（renderDingtalkTaskMarkdown 内部保证）：
         //   富字段段 → 分配建议 → 发布回执 → 轮转提示
         const finalOutboundForHistory = renderDingtalkTaskMarkdown({

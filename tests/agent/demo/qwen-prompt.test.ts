@@ -5,92 +5,56 @@ import {
 } from "../../../src/agent/demo/qwen-prompt";
 
 describe("buildQwenPlannerSystemPrompt", () => {
-  it("v5.20.1: five modes by default, six with managerFollowup", () => {
+  it("v5.22.0: JSON contract, modes, no PREPARE mode", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.20.1");
-    expect(sys).toContain("医疗器械");
-    expect(sys).toContain("OCT");
-    expect(sys).toContain("本轮操作模式");
+    expect(sys).toContain("orchestrator-agent-v5.22.0");
+    expect(sys).toContain("§1 输出 JSON 契约");
+    expect(sys).toContain("顶层**必填** `message`");
+    expect(sys).toContain("draft`：`{ title, description, tasks[] }`");
+    expect(sys).toContain("禁止**在 draft 内使用 demo 字段名");
+    expect(sys).toContain("assistantMessage");
+    expect(sys).toContain("**无 PREPARE 模式**");
+    expect(sys).not.toMatch(/message 仅 1[–-]3 句/);
+    expect(sys).not.toContain("message 仅 1–3 句");
     expect(sys).toContain("CLARIFY");
     expect(sys).toContain("QUERY");
     expect(sys).toContain("DRAFT");
     expect(sys).toContain("ASSIGN");
     expect(sys).toContain("PUBLISH");
-    expect(sys).toContain("QUERY 模式纪律");
-    expect(sys).toContain("服务端根据 draft 自动渲染");
-    expect(sys).toContain("message 为空");
-    expect(sys).toContain("工具后衔接");
-    expect(sys).toContain("必须 **CLARIFY**（确认新任务需求");
-    expect(sys).toContain("已为您生成 OCT 导管 A100 折断调查");
-    expect(sys).not.toContain("摘要表");
-    expect(sys).not.toContain("message 可附");
-    expect(sys).toContain("可在同句叠加");
-    expect(sys).toContain("核心红线");
-    expect(sys).toContain("行为示例");
-    expect(sys).not.toContain("responseIntent");
-    expect(sys).not.toContain("save_draft");
-    expect(sys).toContain("禁止说已发布");
-    expect(sys).toContain("会污染下一轮上下文");
-    expect(sys).toContain("start_new_task` ok=true");
-    expect(sys).toContain("JSON 顶层 draft");
-    expect(sys).toContain("用户已给出明确截止日期");
-    expect(sys).toContain("期望完成时间/截止日期");
-    expect(sys).toContain("确认发布");
-    expect(sys).toContain("否定/暂停词");
-    expect(sys).toContain("等等");
-    expect(sys).toContain("候选池内");
-    expect(sys).toContain("禁止报「未找到」");
-    expect(sys).toContain("主管显式指派纪律");
-    expect(sys).toContain("主题切换纪律");
-    expect(sys).toContain("publish 前 readback");
-    expect(sys).toContain("update_draft_task 纪律");
-    expect(sys).toContain("整表替换");
-    expect(sys).toContain("主管上传花名册纪律");
-    expect(sys).toContain("严禁反问用户");
-    expect(sys).toContain("userId 不入主消息");
-    expect(sys).toContain("[system_note]");
-    expect(sys).toContain("钉钉 publish_task 成功后");
-    expect(sys).toContain("示例 7");
-    expect(sys).toContain("list_managed_tasks");
+    expect(sys).toContain("**REVISE**");
+    expect(sys).toContain("发布纪律");
+    expect(sys).toContain("prepare_publish_task");
+    expect(sys).toContain("尚未正式发布");
+    expect(sys).toContain("示例2 CLARIFY→DRAFT");
+    expect(sys).toContain("示例4 prepare");
+    expect(sys).toContain("示例5 PUBLISH");
     expect(sys).not.toContain("FOLLOWUP");
-    expect(sys).not.toContain("list_follow_up_candidates");
+    expect(sys).not.toContain("save_draft");
+    expect(sys.length).toBeLessThanOrEqual(8000);
   });
-  it("v5.20.1: managerFollowup injects sixth mode and tools", () => {
+
+  it("v5.22.0: managerFollowup injects FOLLOWUP", () => {
     const sys = buildQwenPlannerSystemPrompt("planner", { managerFollowup: true });
     expect(sys).toContain("FOLLOWUP");
     expect(sys).toContain("list_follow_up_candidates");
     expect(sys).toContain("send_subtask_reminder");
-    expect(sys).toContain("示例 8");
+    expect(sys).toContain("示例6 FOLLOWUP");
   });
-  it("v5.20.1: tools, fields, and length cap", () => {
+
+  it("v5.22.0: tools and key disciplines", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("search_web");
-    expect(sys).toContain("update_known_facts");
-    expect(sys).toContain("list_known_facts");
-    expect(sys).toContain("read_uploaded_roster_text");
-    expect(sys).toContain("set_candidate_pool");
-    expect(sys).toContain("list_candidate_pool");
-    expect(sys).toContain("deliverables");
-    expect(sys).toContain("dependencyTaskIds");
-    expect(sys).toContain("checkpoints");
-    expect(sys).toContain("inputMaterials");
-    expect(sys).toContain("待确认");
-    expect(sys).toContain("新话题");
-    expect(sys).toContain("必须成对闭合");
-    expect(sys).toContain("不设固定上限");
-    expect(sys).toContain("start_new_task");
-    expect(sys).toContain("switch_back_task");
+    expect(sys).toContain("search_employees");
     expect(sys).toContain("update_draft_task");
-    expect(sys.length).toBeLessThanOrEqual(8000);
+    expect(sys).toContain("整表替换");
+    expect(sys).toContain("禁止说已发布");
+    expect(sys).toContain("start_new_task");
   });
 });
 
 describe("buildQwenPlannerSystemPrompt employee profile", () => {
   it("requires get_task_detail for overall task background questions", () => {
     const sys = buildQwenPlannerSystemPrompt("employee");
-    expect(sys).toContain("orchestrator-agent-v5.20.1-employee");
-    expect(sys).toContain("医疗器械");
-    expect(sys).toContain("OCT");
+    expect(sys).toContain("orchestrator-agent-v5.22.0-employee");
     expect(sys).toContain("任务整体背景纪律");
     expect(sys).toContain("get_task_detail");
   });

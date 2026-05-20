@@ -3,6 +3,8 @@ import {
   buildPublishRetryUserMessage,
   buildScopeSwitchRetryUserMessage,
   detectFalsePublish,
+  detectFalsePublishOnConfirm,
+  formatAuthoritativePublishBlockedNotice,
   detectFalseScopeSwitch,
   isDraftStagedForPublish,
   isPublishConfirmUserMessage,
@@ -119,6 +121,41 @@ describe("publish-staging", () => {
     });
     it("false when outbound does not claim published", () => {
       expect(detectFalsePublish({ ...base, outboundMarkdown: "请确认发布" })).toBe(false);
+    });
+  });
+
+  describe("detectFalsePublishOnConfirm", () => {
+    it("true when user confirms publish and model claims published without tool", () => {
+      expect(
+        detectFalsePublishOnConfirm({
+          userMessage: "确认发布",
+          preTurnLatestDraft: {},
+          toolInvocationNames: [],
+          hasPublishResult: false,
+          outboundMarkdown: "任务已成功发布。",
+        }),
+      ).toBe(true);
+    });
+    it("false when draft not staged but not claiming publish", () => {
+      expect(
+        detectFalsePublishOnConfirm({
+          userMessage: "确认发布",
+          preTurnLatestDraft: {},
+          toolInvocationNames: [],
+          hasPublishResult: false,
+          outboundMarkdown: "请稍候",
+        }),
+      ).toBe(false);
+    });
+  });
+
+  describe("formatAuthoritativePublishBlockedNotice", () => {
+    it("explains missing assignee / prepare args", () => {
+      const msg = formatAuthoritativePublishBlockedNotice({
+        skippedReason: "cannot_build_prepare_args",
+      });
+      expect(msg).toContain("尚未发布");
+      expect(msg).toContain("负责人");
     });
   });
 

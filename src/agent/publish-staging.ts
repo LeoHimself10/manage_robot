@@ -93,6 +93,47 @@ export function detectFalsePublish(input: FalsePublishDetectionInput): boolean {
   return looksLikeFalsePublishClaim(input.outboundMarkdown);
 }
 
+/**
+ * 用户在确认发布、模型口播已发布，但本轮未真正调用 publish_task（不要求 draft 已 staged）。
+ * 用于 authoritative publish 之前的 orchestrator 重试。
+ */
+export function detectFalsePublishOnConfirm(input: FalsePublishDetectionInput): boolean {
+  if (input.hasPublishResult) return false;
+  if (!isPublishConfirmUserMessage(input.userMessage)) return false;
+  if (input.toolInvocationNames.includes("publish_task")) return false;
+  return looksLikeFalsePublishClaim(input.outboundMarkdown);
+}
+
+/** 主管确认发布但服务端未能落库时的可读说明。 */
+export function formatAuthoritativePublishBlockedNotice(input: {
+  skippedReason?: string;
+  prepareResult?: Record<string, unknown>;
+  publishResult?: Record<string, unknown>;
+}): string {
+  const skipped = String(input.skippedReason ?? "").trim();
+  if (skipped === "not_publish_confirm") return "";
+  if (skipped === "no_publishable_draft") {
+    return "**尚未发布**：当前会话没有可发布的结构化草案。请先完成拆解与负责人指派。";
+  }
+  if (skipped === "cannot_build_prepare_args") {
+    return "**尚未发布**：草案缺少标题/背景描述，或部分子任务尚未指定负责人。请补齐后再次回复「确认发布」。";
+  }
+  const prepOk = String(input.prepareResult?.ok ?? "");
+  if (skipped === "prepare_failed" || prepOk === "false") {
+    const hint = String(input.prepareResult?.hint ?? input.prepareResult?.reason ?? "").trim();
+    return `**尚未发布**：发布预检未通过。${hint ? hint.slice(0, 200) : "请检查负责人与草案字段后重试。"}`;
+  }
+  const pubOk = String(input.publishResult?.ok ?? "");
+  if (pubOk === "false") {
+    const reason = String(input.publishResult?.reason ?? input.publishResult?.message ?? "").trim();
+    return `**尚未发布**：落库失败。${reason ? reason.slice(0, 200) : "请稍后重试或在工作台查看。"}`;
+  }
+  if (skipped) {
+    return `**尚未发布**：${skipped}。请在工作台核对或联系管理员。`;
+  }
+  return "**尚未发布**：未收到发布成功回执。请勿将任务视为已派发。";
+}
+
 const FALSE_SCOPE_SWITCH_CLAIM =
   /(已归档|已切(换|到新任务)|已开新任务|已重置(话题|上下文)?|重置完成|已新建任务|已切到|切换完成)/;
 
