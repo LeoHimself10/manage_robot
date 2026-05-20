@@ -26,9 +26,11 @@ import { runOrchestrator } from "./agent/orchestrator";
 import {
   buildPublishRetryUserMessage,
   buildScopeSwitchRetryUserMessage,
+  buildTopicSwitchRetryUserMessage,
   detectFalsePublish,
   detectFalsePublishOnConfirm,
   detectFalseScopeSwitch,
+  detectTopicSwitchWithoutArchive,
   formatAuthoritativePublishBlockedNotice,
   isPublishConfirmUserMessage,
 } from "./agent/publish-staging";
@@ -49,6 +51,7 @@ import {
   appendPublishSummaryMarkdown,
   renderDingtalkTaskMarkdown,
 } from "./view/dingtalk-task-markdown";
+import { resolveDraftForOutbound } from "./view/draft-outbound";
 import { parseRosterFile } from "./agent/assignment/roster-parser";
 import { DingTalkFileDownloadError, fetchDingTalkFile } from "./integrations/dingtalk/dingtalk-file-download";
 import { savePlanSnapshot } from "./infra/plan-store";
@@ -61,7 +64,6 @@ import {
   type PlanSession,
 } from "./infra/plan-session-store";
 import { readSearchSimilarPlansEnabled } from "./agent/tools/search-similar-plans";
-import { deepMergePreserveRichFields } from "./agent/draft-merge";
 import { logStructured } from "./infra/logger";
 import { createDingTalkContactSyncService } from "./infra/dingtalk-contact-sync";
 import { createReminderScheduler } from "./agent/reminders/reminder-scheduler";
@@ -755,6 +757,7 @@ async function main(): Promise<void> {
             scopeRotatedSinceLastTurn,
           },
         });
+        const preTurnDraft = session.latestDraft;
         let orchResult = await runOrchestrator(background, buildOrchestratorConfig());
         let orchestratorMs = Date.now() - orchestratorStartedAt;
 
@@ -790,9 +793,37 @@ async function main(): Promise<void> {
           }
         }
 
+        // 用户要求换题/新任务但未调 start_new_task → 重试一轮（与假 scope 口播互补）。
+        {
+          if (
+            detectTopicSwitchWithoutArchive({
+              userMessage: background,
+              preTurnLatestDraft: preTurnDraft,
+              toolInvocationNames: orchResult.toolInvocationNames ?? [],
+            })
+          ) {
+            logStructured({
+              event: "topic_switch_without_archive_detected",
+              messageId,
+              traceId: orchResult.traceId,
+              planId: session.planId,
+            });
+            const retryStartedAt = Date.now();
+            const retryBackground = buildTopicSwitchRetryUserMessage(background);
+            const retryResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
+            orchestratorMs += Date.now() - retryStartedAt;
+            logStructured({
+              event: "topic_switch_without_archive_retry_done",
+              messageId,
+              traceId: retryResult.traceId,
+              retriedToolNames: [...(retryResult.toolInvocationNames ?? [])],
+            });
+            orchResult = retryResult;
+          }
+        }
+
         // 假发布：主管确认发布但模型未调 publish_task 却口播「已发布」→ 重试一轮。
         {
-          const preTurnDraft = session.latestDraft;
           const initialOutbound = orchResult.messages.join("\n\n");
           const falsePublish =
             detectFalsePublish({
@@ -836,33 +867,36 @@ async function main(): Promise<void> {
         }
 
         const snapshotPlanId = session.planId;
-        // 深合并：新 draft 的空数组字段不覆盖 session 中已有的富字段（如 inputMaterials/scope 等）
-        const freshDraft = orchResult.draft
-          ? deepMergePreserveRichFields(
-              session.latestDraft as Record<string, unknown> | undefined,
-              orchResult.draft as Record<string, unknown>,
-            )
-          : undefined;
-        const currentDraft = freshDraft ?? session.latestDraft;
+        const postTurnDraft = session.latestDraft;
+        const draftOutbound = resolveDraftForOutbound({
+          preTurnDraft,
+          postTurnDraft,
+          orchResultDraft: orchResult.draft as Record<string, unknown> | undefined,
+          toolInvocationNames: orchResult.toolInvocationNames ?? [],
+        });
+        const { draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound;
+        if (persistedDraft) {
+          session.latestDraft = persistedDraft as PlanSession["latestDraft"];
+        }
 
         // 长期记忆：有草案时自动存快照+embedding
-        if (currentDraft && !isAnonymousSender) {
+        if (persistedDraft && !isAnonymousSender) {
           savePlanSnapshot(snapshotPlanId, {
             planId: snapshotPlanId,
             traceId: orchResult.traceId,
             status: "DRAFT_READY",
-            draft: currentDraft,
+            draft: persistedDraft,
             messagePreview: orchResult.messages[0]?.slice(0, 500),
           });
           savePlanSnapshot(orchResult.traceId, {
             traceId: orchResult.traceId,
             status: "DRAFT_READY",
-            draft: currentDraft,
+            draft: persistedDraft,
             messagePreview: orchResult.messages[0]?.slice(0, 500),
           });
           // 生成 embedding 用于未来相似任务检索
           if (readSearchSimilarPlansEnabled()) {
-            const summary = `领域:${(currentDraft as any)?.classification?.domain ?? "未知"} 子类型:${(currentDraft as any)?.classification?.subtype ?? "未知"}`;
+            const summary = `领域:${(persistedDraft as any)?.classification?.domain ?? "未知"} 子类型:${(persistedDraft as any)?.classification?.subtype ?? "未知"}`;
             generateQueryEmbedding(summary).then((emb) => {
               if (emb) {
                 savePlanEmbedding(orchResult.traceId, summary, emb);
@@ -889,9 +923,14 @@ async function main(): Promise<void> {
         const assignmentStartedAt = Date.now();
         let latestAssignment: Record<string, unknown> | undefined = session.latestAssignment;
         let assignmentSection = "";
-        if (currentDraft && process.env.ASSIGNMENT_PHASE_ENABLED === "1") {
-          const taskIds = Array.isArray((currentDraft as any)?.tasks)
-            ? (currentDraft as any).tasks
+        const assignmentDraft = draftForRender ?? persistedDraft;
+        const showAssignment =
+          process.env.ASSIGNMENT_PHASE_ENABLED === "1" &&
+          (draftForRender || orchResult.assignment) &&
+          assignmentDraft;
+        if (showAssignment) {
+          const taskIds = Array.isArray((assignmentDraft as any)?.tasks)
+            ? (assignmentDraft as any).tasks
                 .map((t: any) => (typeof t?.id === "string" ? t.id : ""))
                 .filter((id: string) => id.length > 0)
             : [];
@@ -962,7 +1001,7 @@ async function main(): Promise<void> {
         ) {
           const sessionForPublish = {
             ...session,
-            latestDraft: currentDraft as PlanSession["latestDraft"],
+            latestDraft: (persistedDraft ?? session.latestDraft) as PlanSession["latestDraft"],
             latestAssignment,
           };
           const publishRegistry = buildToolRegistry({
@@ -1063,9 +1102,12 @@ async function main(): Promise<void> {
           }
         }
 
-        // 渲染守卫：只要 session 有草案（currentDraft），且本轮不是「刚发布完自动轮转」，就渲染富字段。
-        // 放宽条件（freshDraft → currentDraft）让「模型仅发确认 message 未重复输出 JSON draft」的轮次也能展示子任务详情。
-        const shouldRenderRichSection = !!currentDraft && !planRotatedAfterPublish;
+        const shouldRenderRichSection = Boolean(draftForRender) && !planRotatedAfterPublish;
+        const renderedTaskTable =
+          shouldRenderRichSection &&
+          appendStructuredTaskTable &&
+          Array.isArray((draftForRender as { tasks?: unknown[] })?.tasks) &&
+          ((draftForRender as { tasks: unknown[] }).tasks?.length ?? 0) > 0;
         outboundMarkdown = sanitizeFalsePublishClaims(
           outboundMarkdown,
           publishResultSucceeded(publishResult as Record<string, unknown> | undefined),
@@ -1077,7 +1119,7 @@ async function main(): Promise<void> {
         //   富字段段 → 分配建议 → 发布回执 → 轮转提示
         const finalOutboundForHistory = renderDingtalkTaskMarkdown({
           modelMessage: outboundMarkdown,
-          currentDraft,
+          currentDraft: draftForRender,
           shouldRenderRichSection,
           appendStructuredTaskTable,
           onModelDrewTable: () => {
@@ -1102,7 +1144,7 @@ async function main(): Promise<void> {
           sessionWebhook,
           messageId,
           senderStaffId,
-          title: currentDraft ? "任务拆解草案" : "消息",
+          title: draftForRender ? "任务拆解草案" : "消息",
           markdownText: truncateMarkdown(finalOutboundForHistory, MAX_MARKDOWN_CHARS),
         });
         const sendReplyMs = Date.now() - sendReplyStartedAt;
@@ -1112,7 +1154,9 @@ async function main(): Promise<void> {
           traceId: orchResult.traceId,
           messageId,
           selectedProfile,
-          hasDraft: currentDraft !== undefined,
+          hasDraft: persistedDraft !== undefined,
+          draftTouchedThisTurn,
+          renderedTaskTable,
           hasAssignmentSection: assignmentSection.length > 0,
           orchestratorMs,
           assignmentMs,
@@ -1124,7 +1168,7 @@ async function main(): Promise<void> {
           ...(session.revisionEvents ?? []),
           {
             occurredAt: new Date().toISOString(),
-            eventType: currentDraft ? "DRAFT_UPDATED" : "MESSAGE_ONLY",
+            eventType: draftTouchedThisTurn ? "DRAFT_UPDATED" : "MESSAGE_ONLY",
             userInput: background.slice(0, 2000),
             traceId: orchResult.traceId,
           },
@@ -1145,7 +1189,7 @@ async function main(): Promise<void> {
             lastTraceId: orchResult.traceId,
             knownFacts: mutableKnownFacts,
             conversationHistory: nextConversationHistory,
-            latestDraft: planRotatedAfterPublish ? undefined : currentDraft,
+            latestDraft: planRotatedAfterPublish ? undefined : persistedDraft,
             latestAssignment: planRotatedAfterPublish ? undefined : latestAssignment,
             revisionEvents: nextRevisionEvents,
           });
@@ -1157,7 +1201,7 @@ async function main(): Promise<void> {
             planId: memoryPlanId,
             userMessage: background,
             assistantMessage: pureAssistantMessageForHistory,
-            latestDraft: currentDraft,
+            latestDraft: persistedDraft,
             latestAssignment,
             traceId: orchResult.traceId,
             modelConfig: {

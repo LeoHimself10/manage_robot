@@ -6,6 +6,7 @@ import {
   detectFalsePublishOnConfirm,
   formatAuthoritativePublishBlockedNotice,
   detectFalseScopeSwitch,
+  detectTopicSwitchWithoutArchive,
   isDraftStagedForPublish,
   isPublishConfirmUserMessage,
   looksLikeFalsePublishClaim,
@@ -211,6 +212,45 @@ describe("publish-staging", () => {
       const out = buildScopeSwitchRetryUserMessage("换个任务，做别的了");
       expect(out).toContain("start_new_task");
       expect(out).toContain("换个任务");
+    });
+  });
+
+  describe("detectTopicSwitchWithoutArchive", () => {
+    it("true when user signals new topic and draft exists without start_new_task", () => {
+      expect(
+        detectTopicSwitchWithoutArchive({
+          userMessage: "我们换个问题，做一下来料检验",
+          preTurnLatestDraft: { tasks: [{ id: "task_1" }] },
+          toolInvocationNames: [],
+        }),
+      ).toBe(true);
+    });
+    it("false on publish confirm short phrase", () => {
+      expect(
+        detectTopicSwitchWithoutArchive({
+          userMessage: "确认发布",
+          preTurnLatestDraft: { tasks: [{ id: "task_1" }] },
+          toolInvocationNames: [],
+        }),
+      ).toBe(false);
+    });
+    it("false when start_new_task was called", () => {
+      expect(
+        detectTopicSwitchWithoutArchive({
+          userMessage: "换个新任务",
+          preTurnLatestDraft: { tasks: [] },
+          toolInvocationNames: ["start_new_task"],
+        }),
+      ).toBe(false);
+    });
+    it("false when no draft in session", () => {
+      expect(
+        detectTopicSwitchWithoutArchive({
+          userMessage: "换个新任务",
+          preTurnLatestDraft: undefined,
+          toolInvocationNames: [],
+        }),
+      ).toBe(false);
     });
   });
 });

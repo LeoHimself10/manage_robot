@@ -160,6 +160,39 @@ export function detectFalseScopeSwitch(input: FalseScopeSwitchDetectionInput): b
 /**
  * 构造重试时塞给 orchestrator 的 user 消息：保留原话，前置强指令，要求**立刻**调 start_new_task。
  */
+const TOPIC_SWITCH_USER_SIGNAL =
+  /换个|新任务|不说这个|另外(一个)?问题|先放一放|归档|换个话题|另一项|重新开始|开新(的)?任务/i;
+
+export interface TopicSwitchWithoutArchiveInput {
+  userMessage: string;
+  preTurnLatestDraft?: unknown;
+  toolInvocationNames: ReadonlyArray<string>;
+}
+
+/**
+ * 用户明显要换题/归档，但本轮未调 start_new_task（且会话里仍有未发布草案）。
+ * 与 detectFalseScopeSwitch（模型口播已切换）互补。
+ */
+export function detectTopicSwitchWithoutArchive(input: TopicSwitchWithoutArchiveInput): boolean {
+  if (!input.preTurnLatestDraft) return false;
+  if (input.toolInvocationNames.includes("start_new_task")) return false;
+  if (isPublishConfirmUserMessage(input.userMessage)) return false;
+  const text = String(input.userMessage ?? "").replace(/\s+/g, " ").trim();
+  if (!text || text.length < 4) return false;
+  return TOPIC_SWITCH_USER_SIGNAL.test(text);
+}
+
+export function buildTopicSwitchRetryUserMessage(originalUserMessage: string): string {
+  return [
+    "[scopeSwitchAction]",
+    "用户已表达切换/新任务意图，但上一轮未调用 start_new_task 归档当前草案。",
+    "本轮请**仅**先调用一次 start_new_task(scopeLabel=...)，ok=true 后再处理用户新需求；**禁止**在未归档时输出 draft/tasks[] 或引用旧 task_x。",
+    "",
+    "[原指令]",
+    String(originalUserMessage ?? ""),
+  ].join("\n");
+}
+
 export function buildScopeSwitchRetryUserMessage(originalUserMessage: string): string {
   const safeOriginal = String(originalUserMessage ?? "").replace(/"/g, "'").slice(0, 200);
   return [
