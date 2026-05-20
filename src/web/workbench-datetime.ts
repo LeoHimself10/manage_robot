@@ -20,18 +20,21 @@ export function formatWorkbenchDateTime(iso: string | undefined | null): string 
   return `${pick("year")}-${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")}`;
 }
 
-/** Client-side `fmtTime` body for inline SSR scripts (returns escaped HTML-safe string). */
+/** Client-side `fmtTime` for inline SSR scripts (self-contained; no `esc` dependency). */
 export function buildWorkbenchFmtTimeClientJs(): string {
   return `
+  function wbEsc(v){
+    return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
   function fmtTime(iso){
     try {
       var raw = String(iso || '').trim();
-      if (!raw) return esc('—');
+      if (!raw) return wbEsc('—');
       var d = new Date(raw);
-      if (!isFinite(d.getTime())) return esc('—');
+      if (!isFinite(d.getTime())) return wbEsc('—');
       var p = new Intl.DateTimeFormat('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false }).formatToParts(d);
       function pick(t){ for (var i=0;i<p.length;i++) if (p[i].type===t) return p[i].value; return ''; }
-      return esc(pick('year')+'-'+pick('month')+'-'+pick('day')+' '+pick('hour')+':'+pick('minute'));
-    } catch(e){ return esc('—'); }
+      return wbEsc(pick('year')+'-'+pick('month')+'-'+pick('day')+' '+pick('hour')+':'+pick('minute'));
+    } catch(e){ return wbEsc('—'); }
   }`.trim();
 }
