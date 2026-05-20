@@ -117,7 +117,70 @@ a:hover { text-decoration: underline; }
 }
 .form-stack textarea { min-height: 88px; resize: vertical; }
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.kpis.kpis--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.kpis.kpis--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 480px; }
 @media (max-width: 1020px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1020px) { .kpis.kpis--5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.mgr-list-toolbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.info-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--muted);
+}
+.task-card-field { margin: 4px 0 0; line-height: 1.45; }
+.task-card-lbl { font-weight: 600; color: #475569; margin-right: 4px; }
+.subtask-more-details { margin-top: 10px; }
+.subtask-more-details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: #475569; }
+.mgr-employee-dynamic {
+  border-left: 4px solid #2563eb;
+  background: #f8fafc;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.mgr-feedback-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: #c2410c;
+  background: #ffedd5;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 6px;
+}
+.emp-detail-action-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
+  margin-top: 16px;
+  z-index: 5;
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
 @media (max-width: 720px) { .kpis { grid-template-columns: 1fr; } }
 .kpi {
   background: var(--surface);

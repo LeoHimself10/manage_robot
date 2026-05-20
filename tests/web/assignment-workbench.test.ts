@@ -809,7 +809,7 @@ describe("assignment-workbench HTTP handler", () => {
     const c = captured();
     expect(c.statusCode).toBe(200);
     expect(c.body).toContain('class="task-desc"');
-    expect(c.body).toContain("新任务");
+    expect(c.body).toContain("待承接");
     expect(c.body).toContain("进行中");
   });
 

@@ -29,6 +29,7 @@ export const START_NEW_TASK_TOOL: ToolDefinition = {
 
 export interface BuildStartNewTaskHandlerDeps {
   currentSession?: PlanSession;
+  onSessionMutated?: (session: PlanSession) => void;
 }
 
 export function buildStartNewTaskHandler(
@@ -52,6 +53,7 @@ export function buildStartNewTaskHandler(
       };
     }
     const result = startNewTaskScope(deps.currentSession, { scopeLabel, reason });
+    deps.onSessionMutated?.(deps.currentSession);
     return {
       ok: true,
       fromScopeId: result.fromScopeId,
@@ -65,7 +67,8 @@ export function buildStartNewTaskHandler(
         `已归档原任务${result.fromScopeLabel ? `「${result.fromScopeLabel}」` : ""}，` +
         `切换到新任务「${result.toScopeLabel}」。规划 id 已从 \`${result.fromPlanId}\` 更新为 \`${result.toPlanId}\`。` +
         `对话历史已清空（清除 ${result.clearedHistoryEntries} 条旧记录），candidatePool 已重置。` +
-        `当前 scope 草案为空，请按用户最新输入重新生成；旧 scope 的人员名单/task_x 编号/姓名不得引用。`,
+        `当前 scope 草案为空，请按用户最新输入重新生成；旧 scope 的人员名单/task_x 编号/姓名不得引用。` +
+        `scope 已切换｜**本回合禁止再调任何工具**；若用户尚未描述新需求，下一条 assistant 须为纯 CLARIFY JSON（仅 message，无 draft/tasks[]）。`,
     };
   };
 }

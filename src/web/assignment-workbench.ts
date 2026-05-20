@@ -65,6 +65,14 @@ import { renderEmployeeWorkbenchPage } from "./employee-workbench-pages";
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { logStructured } from "../infra/logger";
 import { sendSubtaskReminder } from "../agent/reminders/reminder-send";
+import {
+  attentionBadgeClass,
+  deriveManagerAttentionLabel,
+  EMPLOYEE_KEY_EVENT_TYPES,
+  type SubtaskAttentionInput,
+} from "./workbench-attention";
+import { buildWorkbenchFmtTimeClientJs } from "./workbench-datetime";
+import { buildSubtaskPlanningFieldsClientJs } from "./workbench-subtask-fields-snippet";
 
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
@@ -72,6 +80,7 @@ const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/manager/tasks",
   "/workbench/manager/chat",
   "/workbench/manager/task",
+  "/workbench/manager/task/events",
 ]);
 
 const EMPLOYEE_WORKBENCH_PAGE_PATHS = new Set([
@@ -79,8 +88,13 @@ const EMPLOYEE_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/employee/new",
   "/workbench/employee/current",
   "/workbench/employee/task",
+  "/workbench/employee/task/events",
 ]);
-const ADMIN_WORKBENCH_PAGE_PATHS = new Set(["/workbench/admin", "/workbench/admin/task"]);
+const ADMIN_WORKBENCH_PAGE_PATHS = new Set([
+  "/workbench/admin",
+  "/workbench/admin/task",
+  "/workbench/admin/task/events",
+]);
 
 /** Legacy bookmarks → canonical paths (302 after session + role check). */
 const LEGACY_WORKBENCH_REDIRECTS: Record<string, string> = {
@@ -662,6 +676,7 @@ function mapEmployeeSubtaskForApi(
     withPeopleDirectoryStore((st) => st.getContact(t.managerUserId)?.name?.trim()) ?? "";
   const dueProgress =
     t.status === "DONE" ? 1 : presentDueProgress(t.createdAt, t.dueAt, now);
+  const openSignal = getFormalTaskStore().getSubtaskOpenDeclineKind(t.subtaskId);
   return {
     ...t,
     statusLabel: taskStatusLabel(t.status),
@@ -669,6 +684,7 @@ function mapEmployeeSubtaskForApi(
     dueLabel: presentDueLabel(t.dueAt, now),
     dueProgress,
     dueBarState: presentDueBarState(t.dueAt, now, t.status),
+    openSignal,
   };
 }
 
@@ -677,22 +693,30 @@ function enrichManagerTasksForApi(managerUserId: string) {
   return store.listManagerTasks(managerUserId).map((t) => {
     const detail = store.getTaskDetail(t.taskNo);
     const names = new Set<string>();
-    let triageOpenSubtaskCount = 0;
+    const subInputs: SubtaskAttentionInput[] = [];
     if (detail) {
       for (const s of detail.subtasks) {
         const picked = withPeopleDirectoryStore((st) =>
           st.getContact(s.assigneeUserId)?.name?.trim(),
         );
         if (picked) names.add(picked);
-        const st = String(s.status ?? "").trim();
-        if (st === "ASSIGNED" || st === "REJECTED" || st === "CHANGES_REQUESTED") triageOpenSubtaskCount += 1;
+        subInputs.push({
+          status: String(s.status ?? ""),
+          openDeclineKind: store.getSubtaskOpenDeclineKind(s.subtaskId),
+        });
       }
     }
+    const attn = deriveManagerAttentionLabel(subInputs);
     return {
       ...t,
-      statusLabel: taskStatusLabel(t.status),
+      statusLabel: attn.attentionLabel,
+      attentionLabel: attn.attentionLabel,
+      attentionBucket: attn.attentionBucket,
+      attentionHint: attn.attentionHint,
+      subtaskBreakdown: attn.breakdown,
+      openManagerSubtaskCount: attn.openManagerSubtaskCount,
       assigneeSummary: names.size ? [...names].join("、") : "—",
-      triageOpenSubtaskCount,
+      triageOpenSubtaskCount: attn.openManagerSubtaskCount,
     };
   });
 }
@@ -844,11 +868,76 @@ window.__WB_CONFIGURED_CORP_ID = ${JSON.stringify(corpId)};
 </html>`;
 }
 
+export function renderTaskEventsPage(params: {
+  roleLabel: "employee" | "manager" | "admin";
+  backPath: string;
+  detailPath: string;
+}): string {
+  return `<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全部事件记录</title>
+<style>${WORKBENCH_APP_BASE_CSS}</style>
+</head>
+<body>
+<div class="app-shell" style="max-width:980px;">
+  <div class="card">
+    <div class="brand">工作台</div>
+    <h1 class="page-title" style="font-size:22px;">全部事件记录</h1>
+    <p class="page-desc muted" style="margin-top:8px;font-size:13px;">含系统通知、待办投递等完整日志。</p>
+    <p style="margin-top:10px;"><a href="${params.detailPath}">← 返回任务详情</a> · <a href="${params.backPath}">返回列表</a></p>
+  </div>
+  <div class="card" id="taskMount">加载中…</div>
+  <div class="card">
+    <div id="eventsMount" class="muted">加载中…</div>
+  </div>
+</div>
+<script>
+(function(){
+  ${buildWorkbenchFmtTimeClientJs()}
+  function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  async function load(){
+    var taskNo = new URLSearchParams(location.search).get('taskNo') || '';
+    if(!taskNo){ document.getElementById('taskMount').textContent='缺少 taskNo'; return; }
+    var debugQ = new URLSearchParams(location.search).get('debug') === '1' ? '&debug=1' : '';
+    var res = await fetch('/api/workbench/tasks/detail?taskNo='+encodeURIComponent(taskNo)+debugQ);
+    var data = await res.json().catch(function(){ return {}; });
+    if(!res.ok || !data.ok){ document.getElementById('taskMount').textContent = data.error || ('HTTP '+res.status); return; }
+    var t = data.task || {};
+    document.getElementById('taskMount').innerHTML = '<h2 style="margin:0;font-size:18px;">'+esc(t.title||'—')+'</h2><p class="muted" style="margin:6px 0 0;">业务编号 <code>'+esc(t.taskNo||taskNo)+'</code></p>';
+    var events = data.events || [];
+    if(!events.length){ document.getElementById('eventsMount').textContent='暂无事件'; return; }
+    document.getElementById('eventsMount').innerHTML = '<ul class="event-list">'+events.map(function(e){
+      var sev = esc(e.severity||'info');
+      var when = fmtTime(e.occurredAt || e.occurred_at || '');
+      var title = esc(e.title || e.type || '');
+      var sum = esc(e.summary || '');
+      var det = e.detail ? '<details><summary>查看原始信息</summary><pre>'+esc(e.detail)+'</pre></details>' : '';
+      return '<li class="event '+sev+'"><div class="event-row"><span class="event-time">'+when+'</span><span class="event-title">'+title+'</span><span class="event-summary">'+sum+'</span></div>'+det+'</li>';
+    }).join('')+'</ul>';
+  }
+  void load();
+})();
+</script>
+</body>
+</html>`;
+}
+
 export function renderTaskDetailPage(params: {
   roleLabel: "admin" | "manager" | "employee";
   backPath: string;
   enforceActionGuards: boolean;
+  eventsPagePath?: string;
 }): string {
+  const employeeActionBar =
+    params.roleLabel === "employee"
+      ? `<div class="emp-detail-action-bar" id="empDetailActionBar" role="navigation" aria-label="返回列表操作">
+    <a class="btn btn-secondary" id="empBackListLink" href="${params.backPath}">返回列表继续操作</a>
+    <a class="btn btn-primary" id="empPrimaryActionLink" href="${params.backPath}" style="display:none;">—</a>
+  </div>`
+      : "";
   return `<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -865,10 +954,10 @@ export function renderTaskDetailPage(params: {
     <p class="page-desc" style="margin-top:4px;">当前角色：${params.roleLabel}</p>
     ${
       params.roleLabel === "employee"
-        ? '<p class="page-desc muted" style="margin-top:8px;font-size:13px;">接受、拒绝、进度等操作请在「新任务 / 进行中」列表卡片上完成；本页仅供查看背景与分工。</p>'
+        ? '<p class="page-desc muted" style="margin-top:8px;font-size:13px;">接受、拒绝、进度等操作请在「待承接 / 进行中」列表卡片上完成；本页查看完整背景与分工。</p>'
         : ""
     }
-    <div style="margin-top:10px;"><a href="${params.backPath}">返回</a></div>
+    <div style="margin-top:10px;"><a href="${params.backPath}">返回列表</a></div>
   </div>
   <div class="card" id="focusContextBanner" style="display:none;" role="status"></div>
   <div class="card" id="taskMount">加载中…</div>
@@ -899,14 +988,18 @@ export function renderTaskDetailPage(params: {
     <div id="subtasksMount" class="muted">加载中…</div>
   </div>
   <div class="card">
-    <h3 style="margin:0 0 10px;">事件</h3>
+    <h3 style="margin:0 0 10px;">${params.roleLabel === "employee" ? "关键节点" : "事件"}</h3>
     <div id="eventsMount" class="muted">加载中…</div>
+    <p id="eventsMoreLink" style="margin:12px 0 0;display:none;"><a id="eventsFullPageLink" href="#">查看全部事件记录 →</a></p>
   </div>
+  ${employeeActionBar}
 </div>
 <script>
 (function(){
   var ROLE = ${JSON.stringify(params.roleLabel)};
   var ENFORCE_GUARDS = ${params.enforceActionGuards ? "true" : "false"};
+  var EVENTS_PAGE_BASE = ${JSON.stringify(params.eventsPagePath ?? "")};
+  var KEY_EVENT_TYPES = ${JSON.stringify([...EMPLOYEE_KEY_EVENT_TYPES])};
   var lastLoadedPlanId = '';
   var detailReassignComboBound = false;
   var mgrRowHandlersBound = false;
@@ -920,9 +1013,8 @@ export function renderTaskDetailPage(params: {
     /* 外层是 TS 模板字符串：这里必须写成 \\\\ 才能在生成的 HTML 里得到 \\，浏览器里的脚本才是合法的 split('\\\\') 等。 */
     return s.split('\\\\').join('\\\\\\\\').split('"').join('\\\\"');
   }
-  function fmtTime(iso){
-    try { var d = new Date(iso); if (!isFinite(d.getTime())) return esc(iso); return esc(d.toLocaleString()); } catch(e){ return esc(iso); }
-  }
+  ${buildWorkbenchFmtTimeClientJs()}
+  ${buildSubtaskPlanningFieldsClientJs()}
   function subBadgeClass(st){
     if (st === 'BLOCKED') return 'blocked';
     if (st === 'DONE') return 'done';
@@ -945,40 +1037,6 @@ export function renderTaskDetailPage(params: {
       }
       return sid;
     }).join('；');
-  }
-  /** 子任务详情 dl 行（主管/管理员与员工「我的子任务」共用；数据来自 subtasks 表扁平字段） */
-  function subtaskDetailDtDds(s, subs) {
-    var parts = [];
-    if (s.objective) parts.push('<dt>目标</dt><dd>'+esc(s.objective)+'</dd>');
-    if (s.deliverables) parts.push('<dt>交付物</dt><dd>'+esc(s.deliverables)+'</dd>');
-    if (s.completionCriteria) parts.push('<dt>完成标准</dt><dd>'+esc(s.completionCriteria)+'</dd>');
-    if (s.dueAt) parts.push('<dt>截止</dt><dd>'+esc(String(s.dueAt).slice(0,10))+'</dd>');
-    if (s.feedbackFrequency) parts.push('<dt>反馈频率</dt><dd>'+esc(s.feedbackFrequency)+'</dd>');
-    if (s.inputMaterials && s.inputMaterials.length) {
-      parts.push('<dt>输入材料</dt><dd>'+esc(s.inputMaterials.join('；'))+'</dd>');
-    }
-    if (s.actions && s.actions.length) {
-      parts.push('<dt>执行动作</dt><dd>'+esc(s.actions.join('；'))+'</dd>');
-    }
-    if (s.collaborators && s.collaborators.length) {
-      parts.push('<dt>协作人</dt><dd>'+esc(s.collaborators.join('；'))+'</dd>');
-    }
-    if (s.inScope && s.inScope.length) {
-      parts.push('<dt>范围内</dt><dd>'+esc(s.inScope.join('；'))+'</dd>');
-    }
-    if (s.outOfScope && s.outOfScope.length) {
-      parts.push('<dt>范围外</dt><dd>'+esc(s.outOfScope.join('；'))+'</dd>');
-    }
-    if (s.dependsOn && s.dependsOn.length) {
-      parts.push('<dt>前置依赖</dt><dd>'+esc(depTitles(subs, s.dependsOn))+'</dd>');
-    }
-    if (s.checkpoints && s.checkpoints.length) {
-      parts.push('<dt>检查点</dt><dd>'+esc(s.checkpoints.join('；'))+'</dd>');
-    }
-    if (s.risks && s.risks.length) {
-      parts.push('<dt>风险与待澄清</dt><dd>'+esc(s.risks.join('；'))+'</dd>');
-    }
-    return parts.join('');
   }
   function setDetailReassignFb(msg, cls) {
     var el = document.getElementById('detailReassignFeedback');
@@ -1338,13 +1396,16 @@ export function renderTaskDetailPage(params: {
       })();
     });
   }
-  function rowBucketsForStatus(st) {
-    var s = String(st || '');
-    var keys = ['all'];
-    if (s === 'ASSIGNED' || s === 'CHANGES_REQUESTED' || s === 'REJECTED') keys.push('pending');
-    if (s === 'IN_PROGRESS' || s === 'BLOCKED') keys.push('in_progress');
-    if (s === 'DONE') keys.push('done');
-    return keys;
+  function rowBucketForSubtask(s) {
+    var st = String(s.status || '');
+    if (st === 'DONE') return 'done';
+    var dk = String(s.openDeclineKind || '').trim();
+    if (st === 'REJECTED' || dk === 'changes' || dk === 'rejected') return 'needs_manager';
+    if (st === 'ASSIGNED' || st === 'CHANGES_REQUESTED') return 'waiting_employee';
+    return 'in_progress';
+  }
+  function rowBucketsForSubtask(s) {
+    return ['all', rowBucketForSubtask(s)];
   }
   function applyMgrSubtaskFilter(mountEl, f) {
     if (!mountEl) return;
@@ -1354,8 +1415,10 @@ export function renderTaskDetailPage(params: {
       b.setAttribute('aria-pressed', bf === key ? 'true' : 'false');
     });
     mountEl.querySelectorAll('details.sub-row-mgr').forEach(function (row) {
+      var tagsRaw = String(row.getAttribute('data-mgr-buckets') || '');
+      var tags = tagsRaw.split(/[\s,]+/).map(function (t) { return t.trim(); }).filter(Boolean);
       var st = String(row.getAttribute('data-status') || '');
-      var tags = rowBucketsForStatus(st);
+      if (!tags.length) tags = rowBucketsForSubtask({ status: st, openDeclineKind: null });
       // Fallback: keep compatibility with old markup in case stale HTML is cached.
       if (!tags.length || tags.length === 1) {
         var raw = String(row.getAttribute('data-mgr-buckets') || '');
@@ -1404,7 +1467,25 @@ export function renderTaskDetailPage(params: {
     var data = await res.json().catch(function(){ return {}; });
     if(!res.ok || !data.ok){ document.getElementById('taskMount').textContent = data.error || ('HTTP '+res.status); return; }
     var t=data.task||{};
-    var stLabel = esc(t.statusLabel || t.status || '—');
+    var subsEarly = data.subtasks || [];
+    function deriveTaskAttnLabel(subList) {
+      var needs = 0, wait = 0, blocked = 0, done = 0, total = subList.length;
+      subList.forEach(function(s) {
+        var b = rowBucketForSubtask(s);
+        if (b === 'needs_manager') needs++;
+        if (b === 'waiting_employee') wait++;
+        if (b === 'in_progress' && String(s.status||'') === 'BLOCKED') blocked++;
+        if (b === 'done') done++;
+      });
+      if (total > 0 && done === total) return { label: '已完成', cls: 'done' };
+      if (blocked > 0 || subList.some(function(s){ return String(s.status||'')==='BLOCKED'; })) return { label: '阻塞中', cls: 'blocked' };
+      if (needs > 0) return { label: '待您处理', cls: 'pending' };
+      if (wait > 0) return { label: '待员工承接', cls: 'assigned' };
+      return { label: '员工执行中', cls: 'progress' };
+    }
+    var attnTop = (ROLE === 'manager' || ROLE === 'admin') ? deriveTaskAttnLabel(subsEarly) : null;
+    var stLabel = attnTop ? esc(attnTop.label) : esc(t.statusLabel || t.status || '—');
+    var stBadgeCls = attnTop ? attnTop.cls : subBadgeClass(t.status);
     var planOpen = ROLE === 'admin' ? ' open' : '';
     var desc = String(t.description || '').trim();
     var descBlock = desc
@@ -1424,7 +1505,7 @@ export function renderTaskDetailPage(params: {
     document.getElementById('taskMount').innerHTML =
       '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">'
       +'<h2 style="margin:0;font-size:20px;flex:1 1 200px;">'+esc(t.title||'—')+'</h2>'
-      +'<span class="badge '+subBadgeClass(t.status)+'">'+stLabel+'</span></div>'
+      +'<span class="badge '+stBadgeCls+'">'+stLabel+'</span></div>'
       +'<p class="muted" style="margin:8px 0 0;">业务编号 <code>'+esc(t.taskNo||taskNo)+'</code></p>'
       + mgrTop
       + descBlock
@@ -1479,9 +1560,8 @@ export function renderTaskDetailPage(params: {
         parts.push('<h4 class="subs-section-h">我的子任务</h4>');
         mine.forEach(function (s) {
           var cardCls = 'subtask-detail-card' + (String(s.status||'') === 'REJECTED' ? ' is-rejected-sub' : '');
-          parts.push('<div class="'+cardCls+'" data-sub-highlight="'+esc(String(s.subtaskId||''))+'"><h4 style="margin:0 0 8px;font-size:16px;">'+esc(s.title||'—')+'</h4><dl class="subtask-detail-dl">');
-          parts.push(subtaskDetailDtDds(s, subs));
-          parts.push('</dl>');
+          parts.push('<div class="'+cardCls+'" data-sub-highlight="'+esc(String(s.subtaskId||''))+'"><h4 style="margin:0 0 8px;font-size:16px;">'+esc(s.title||'—')+'</h4>');
+          parts.push(subtaskPlanningBlock(s, subs));
           if (String(s.status||'') === 'REJECTED') {
             parts.push('<p class="muted subtask-rejected-hint" style="margin:10px 0 0;font-size:13px;">您已拒绝该子任务；主管已收到通知，请等待主管改派或确认。</p>');
           }
@@ -1505,23 +1585,17 @@ export function renderTaskDetailPage(params: {
     } else {
       function countByFilter(f) {
         return subs.filter(function (s) {
-          var st = String(s.status || '');
-          if (f === 'pending') return st === 'ASSIGNED' || st === 'CHANGES_REQUESTED' || st === 'REJECTED';
-          if (f === 'in_progress') return st === 'IN_PROGRESS' || st === 'BLOCKED';
-          if (f === 'done') return st === 'DONE';
+          if (f === 'needs_manager') return rowBucketForSubtask(s) === 'needs_manager';
+          if (f === 'waiting_employee') return rowBucketForSubtask(s) === 'waiting_employee';
+          if (f === 'in_progress') return rowBucketForSubtask(s) === 'in_progress';
+          if (f === 'done') return rowBucketForSubtask(s) === 'done';
           return true;
         }).length;
       }
-      var initialFilter = countByFilter('pending') > 0 ? 'pending' : 'all';
+      var initialFilter = countByFilter('needs_manager') > 0 ? 'needs_manager' : (countByFilter('waiting_employee') > 0 ? 'waiting_employee' : 'all');
       if (urlSubtaskId) {
         var hitSu = subs.filter(function (x) { return String(x.subtaskId || '') === urlSubtaskId; })[0];
-        if (hitSu) {
-          var hst = String(hitSu.status || '');
-          if (hst === 'ASSIGNED' || hst === 'CHANGES_REQUESTED' || hst === 'REJECTED') initialFilter = 'pending';
-          else if (hst === 'IN_PROGRESS' || hst === 'BLOCKED') initialFilter = 'in_progress';
-          else if (hst === 'DONE') initialFilter = 'done';
-          else initialFilter = 'all';
-        }
+        if (hitSu) initialFilter = rowBucketForSubtask(hitSu);
       }
       var reassignListHrefBase =
         '/workbench/manager/tasks?planId=' +
@@ -1546,7 +1620,8 @@ export function renderTaskDetailPage(params: {
       };
       var head =
         '<div class="mgr-sub-filter" role="tablist" aria-label="子任务筛选">' +
-        chipHtml('pending', '待处理', countByFilter('pending'), countByFilter('pending') > 0) +
+        chipHtml('needs_manager', '待您处理', countByFilter('needs_manager'), countByFilter('needs_manager') > 0) +
+        chipHtml('waiting_employee', '待员工承接', countByFilter('waiting_employee'), false) +
         chipHtml('in_progress', '进行中', countByFilter('in_progress'), false) +
         chipHtml('done', '已完成', countByFilter('done'), false) +
         chipHtml('all', '全部', subs.length, false) +
@@ -1579,7 +1654,7 @@ export function renderTaskDetailPage(params: {
         if (st === 'BLOCKED' || st === 'DONE') {
           actions.push('<button type="button" class="btn btn-ghost btn-sm" data-mgr-toggle="ack">已知悉</button>');
         }
-        if (st !== 'DONE' && (ROLE === 'manager' || ROLE === 'admin')) {
+        if ((st === 'IN_PROGRESS' || st === 'BLOCKED') && (ROLE === 'manager' || ROLE === 'admin')) {
           actions.push(
             '<button type="button" class="btn btn-primary btn-sm" data-mgr-remind-sub="' +
               sid +
@@ -1629,24 +1704,21 @@ export function renderTaskDetailPage(params: {
         } else if (st === 'DONE') {
           employeeSignal = '员工标记完成';
         }
-        var signalBadge = employeeSignal
-          ? '<span class="mgr-employee-signal">' + esc(employeeSignal) + '</span>'
-          : '<span class="mgr-employee-signal mgr-employee-signal--quiet">' + esc('暂无员工侧标记信号') + '</span>';
-        var noteBlock =
-          '<p class="mgr-inline-ctx' + (note ? '' : ' muted') + '">' +
-          (note ? esc(note) : esc('（员工未填写进度说明；更多上下文见「本子任务事件」或下方全量事件。）')) +
-          '</p>';
-        var rejectedPoolHint =
-          st === 'REJECTED'
-            ? '<p class="mgr-rejected-pool-hint"><strong>待处理池</strong>：已拒绝与待分配同属「待处理」，请用「改派页」或线下沟通后再调整。</p>'
-            : '';
-        var employeeInfoHtml =
-          '<div class="mgr-employee-info mgr-employee-info--top">' +
-          '<div class="mgr-employee-info-h">员工信息重点</div>' +
-          signalBadge +
-          noteBlock +
-          rejectedPoolHint +
-          '</div>';
+        var feedbackTag = (declineKind || note) ? '<span class="mgr-feedback-tag">有反馈</span>' : '';
+        var employeeDynamicHtml = '';
+        if (employeeSignal || note || declineKind || st === 'REJECTED') {
+          var dynParts = ['<div class="mgr-employee-dynamic">', '<div class="mgr-employee-info-h">员工动态</div>'];
+          if (employeeSignal) dynParts.push('<span class="mgr-employee-signal">' + esc(employeeSignal) + '</span>');
+          if (note) dynParts.push('<p class="mgr-inline-ctx">' + esc(note) + '</p>');
+          if (st === 'REJECTED') {
+            dynParts.push('<p class="mgr-rejected-pool-hint">请使用「改派页」调整负责人。</p>');
+          }
+          if (st === 'BLOCKED') {
+            dynParts.push('<p class="mgr-blocked-hint muted" style="font-size:13px;margin:6px 0 0;">阻塞需关注：可在本行「已知悉」留痕或「催办」协调。</p>');
+          }
+          dynParts.push('</div>');
+          employeeDynamicHtml = dynParts.join('');
+        }
         var ctxHtml = '';
         if (declineKind === 'changes') {
           ctxHtml = note
@@ -1707,7 +1779,7 @@ export function renderTaskDetailPage(params: {
           '" data-status="' +
           esc(st) +
           '" data-mgr-buckets="' +
-          rowBucketsForStatus(st).join(',') +
+          rowBucketsForSubtask(s).join(',') +
           '">' +
           '<summary class="mgr-sub-summary' +
           (st === 'REJECTED' ? ' mgr-sub-summary--rejected-pool' : '') +
@@ -1726,6 +1798,7 @@ export function renderTaskDetailPage(params: {
           ' · 截止 ' +
           due +
           (progHint ? ' · ' + progHint : '') +
+          (feedbackTag ? ' ' + feedbackTag : '') +
           '</div></div>' +
           '<span class="badge ' +
           bc +
@@ -1735,11 +1808,9 @@ export function renderTaskDetailPage(params: {
           summaryActionsRow +
           '</summary>' +
           '<div class="mgr-sub-body">' +
-          employeeInfoHtml +
+          employeeDynamicHtml +
           '<div class="mgr-sub-body-grid">' +
-          '<dl class="subtask-detail-dl">' +
-          subtaskDetailDtDds(s, subs) +
-          '</dl>' +
+          subtaskPlanningBlock(s, subs) +
           '<div><div class="muted" style="font-weight:650;font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;">本子任务事件</div>' +
           formatSubEventsMiniForRow(events, rawId) +
           '</div></div>' +
@@ -1760,19 +1831,66 @@ export function renderTaskDetailPage(params: {
       }
       applyMgrSubtaskFilter(mount, initialFilter);
     }
-    if(!events.length){ document.getElementById('eventsMount').textContent='暂无事件';}
-    else{
-      document.getElementById('eventsMount').innerHTML = '<ul class="event-list">'+events.slice(0,40).map(function(e){
-        var sev = esc(e.severity||'info');
-        var when = fmtTime(e.occurredAt || e.occurred_at || '');
-        var title = esc(e.title || e.type || '');
-        var sum = esc(e.summary || '');
-        var det = e.detail ? '<details><summary>查看原始信息</summary><pre>'+esc(e.detail)+'</pre></details>' : '';
-        return '<li class="event '+sev+'"><div class="event-row">'
-          +'<span class="event-time">'+when+'</span>'
-          +'<span class="event-title">'+title+'</span>'
-          +'<span class="event-summary">'+sum+'</span></div>'+det+'</li>';
-      }).join('')+'</ul>';
+    var eventsEl = document.getElementById('eventsMount');
+    var eventsMore = document.getElementById('eventsMoreLink');
+    var eventsFullLink = document.getElementById('eventsFullPageLink');
+    if (eventsFullLink && EVENTS_PAGE_BASE && taskNo) {
+      var fromView = pageQs.get('fromView') || 'current';
+      eventsFullLink.href = EVENTS_PAGE_BASE + '?taskNo=' + encodeURIComponent(taskNo) + '&fromView=' + encodeURIComponent(fromView);
+      if (eventsMore) eventsMore.style.display = 'block';
+    }
+    if(!events.length){
+      if (eventsEl) eventsEl.textContent='暂无事件';
+    } else {
+      var timeline = events;
+      if (ROLE === 'employee') {
+        timeline = events.filter(function(e){
+          var ty = String(e.type || e.eventType || '').trim();
+          return KEY_EVENT_TYPES.indexOf(ty) >= 0;
+        });
+        timeline.sort(function(a,b){
+          return (Date.parse(b.occurredAt||'')||0) - (Date.parse(a.occurredAt||'')||0);
+        });
+        timeline = timeline.slice(0, 8);
+      } else {
+        timeline = events.slice(0, 40);
+      }
+      if (!timeline.length) {
+        if (eventsEl) eventsEl.textContent='暂无关键节点';
+      } else if (eventsEl) {
+        eventsEl.innerHTML = '<ul class="event-list">'+timeline.map(function(e){
+          var sev = esc(e.severity||'info');
+          var when = fmtTime(e.occurredAt || e.occurred_at || '');
+          var title = esc(e.title || e.type || '');
+          var sum = esc(e.summary || '');
+          var det = e.detail ? '<details><summary>查看原始信息</summary><pre>'+esc(e.detail)+'</pre></details>' : '';
+          return '<li class="event '+sev+'"><div class="event-row">'
+            +'<span class="event-time">'+when+'</span>'
+            +'<span class="event-title">'+title+'</span>'
+            +'<span class="event-summary">'+sum+'</span></div>'+det+'</li>';
+        }).join('')+'</ul>';
+      }
+    }
+    if (ROLE === 'employee') {
+      var mineSub = subs.filter(function(s){ return s.mine; })[0];
+      var bar = document.getElementById('empDetailActionBar');
+      var backL = document.getElementById('empBackListLink');
+      var prim = document.getElementById('empPrimaryActionLink');
+      var fromView = pageQs.get('fromView') || 'current';
+      var listHref = '/workbench/employee?view=' + encodeURIComponent(fromView === 'new' ? 'new' : 'current');
+      if (backL) backL.href = listHref;
+      if (prim && mineSub) {
+        prim.style.display = 'inline-flex';
+        if (String(mineSub.status||'') === 'ASSIGNED') {
+          prim.textContent = '返回列表 · 接受任务';
+          prim.href = listHref;
+        } else if (String(mineSub.status||'') !== 'DONE' && String(mineSub.status||'') !== 'REJECTED') {
+          prim.textContent = '返回列表 · 填写进度';
+          prim.href = listHref;
+        } else {
+          prim.style.display = 'none';
+        }
+      }
     }
     lastLoadedPlanId = String(t.planId || '');
     var fcb = document.getElementById('focusContextBanner');
@@ -3579,16 +3697,24 @@ export function handleAssignmentHttp(
         const s = findLatestSessionByPlanId(planId);
         if (s) planTitle = inferConversationTitleFromSession(s);
       }
+      const mgrTaskNo = url.searchParams.get("taskNo")?.trim() ?? "";
       const html =
         url.pathname === "/workbench/manager/tasks"
           ? renderManagerTasksPage({ planId, planTitle, userLabel })
           : url.pathname === "/workbench/manager/chat"
             ? renderManagerChatPage({ planId, planTitle, userLabel })
-            : renderTaskDetailPage({
-              roleLabel: "manager",
-              backPath: "/workbench/manager/tasks",
-              enforceActionGuards: shouldEnforceActionGuards(),
-            });
+            : url.pathname === "/workbench/manager/task/events"
+              ? renderTaskEventsPage({
+                roleLabel: "manager",
+                backPath: "/workbench/manager/tasks",
+                detailPath: `/workbench/manager/task?taskNo=${encodeURIComponent(mgrTaskNo)}`,
+              })
+              : renderTaskDetailPage({
+                roleLabel: "manager",
+                backPath: "/workbench/manager/tasks",
+                enforceActionGuards: shouldEnforceActionGuards(),
+                eventsPagePath: "/workbench/manager/task/events",
+              });
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(html);
@@ -3601,13 +3727,22 @@ export function handleAssignmentHttp(
         return true;
       }
       const userLabel = session.dingUser?.name ?? session.userId;
-      const html = url.pathname === "/workbench/admin/task"
-        ? renderTaskDetailPage({
-          roleLabel: "admin",
-          backPath: "/workbench/admin",
-          enforceActionGuards: shouldEnforceActionGuards(),
-        })
-        : renderAdminWorkbenchPage({ userLabel });
+      const adminTaskNo = url.searchParams.get("taskNo")?.trim() ?? "";
+      const html =
+        url.pathname === "/workbench/admin/task/events"
+          ? renderTaskEventsPage({
+            roleLabel: "admin",
+            backPath: "/workbench/admin",
+            detailPath: `/workbench/admin/task?taskNo=${encodeURIComponent(adminTaskNo)}`,
+          })
+          : url.pathname === "/workbench/admin/task"
+            ? renderTaskDetailPage({
+              roleLabel: "admin",
+              backPath: "/workbench/admin",
+              enforceActionGuards: shouldEnforceActionGuards(),
+              eventsPagePath: "/workbench/admin/task/events",
+            })
+            : renderAdminWorkbenchPage({ userLabel });
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(html);
@@ -3633,14 +3768,28 @@ export function handleAssignmentHttp(
         redirect(res, "/workbench/employee?view=new");
         return true;
       }
+      const fromView = url.searchParams.get("fromView")?.trim() || "current";
+      const empListBack =
+        fromView === "new"
+          ? "/workbench/employee?view=new"
+          : fromView === "history"
+            ? "/workbench/employee?view=history"
+            : "/workbench/employee?view=current";
       const html =
-        url.pathname === "/workbench/employee/task"
-          ? renderTaskDetailPage({
+        url.pathname === "/workbench/employee/task/events"
+          ? renderTaskEventsPage({
             roleLabel: "employee",
-            backPath: "/workbench/employee?view=current",
-            enforceActionGuards: shouldEnforceActionGuards(),
+            backPath: empListBack,
+            detailPath: `/workbench/employee/task?taskNo=${encodeURIComponent(url.searchParams.get("taskNo") ?? "")}&fromView=${encodeURIComponent(fromView)}`,
           })
-          : renderEmployeeWorkbenchPage();
+          : url.pathname === "/workbench/employee/task"
+            ? renderTaskDetailPage({
+              roleLabel: "employee",
+              backPath: empListBack,
+              enforceActionGuards: shouldEnforceActionGuards(),
+              eventsPagePath: "/workbench/employee/task/events",
+            })
+            : renderEmployeeWorkbenchPage();
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(html);

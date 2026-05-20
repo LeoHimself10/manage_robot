@@ -36,6 +36,14 @@
   - **员工拒绝 / 请求调整 / 标记阻塞 / 标记完成**：在 `WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED` 未关闭（默认开启）时，向主管钉钉 1:1 机器人推送 Markdown（`notifyManagerOfEmployeeAction`）；投递失败写入 `task_events` 类型 `MANAGER_NOTIFY_FAILED`。
   - **通知静默期**：发布后员工钉钉待办列表无新项属正常——待办在员工工作台「接受」子任务后才创建。如需发布即可见，可考虑额外推送发布卡片提醒（现有卡片 + 1:1 消息已覆盖），或后续为未 accept 的子任务添加超时兜底。
 
+## 工作台 UI（主管 / 员工，2026-05）
+
+- **主管列表关注状态**（展示层，`src/web/workbench-attention.ts`）：与 DB `aggregateTaskStatus` 解耦。`待您处理` = 拒绝 / 开放修改申请；`待员工承接` = 仅 `ASSIGNED`；`员工执行中` / `阻塞中` / `已完成`。API `GET /api/workbench/manager/tasks` 返回 `attentionLabel`、`attentionBucket`、`subtaskBreakdown`。列表支持筛选、排序与「共 N 条 · 显示 M 条」反馈。
+- **子任务规划字段**（双端一致）：执行要点 6 项（目标、交付物、完成标准、截止、执行动作、前置依赖）+ 更多规划 7 项（`<details>` 折叠）；无值显示 `—`。共享片段 `workbench-subtask-fields-snippet.ts`。
+- **催办按钮**：仅 `IN_PROGRESS` / `BLOCKED` 子任务显示（与 `reminder-send` 一致）。
+- **员工**：Tab「待承接」；列表卡片含 6 项要点；详情默认关键节点最近 8 条，全量事件见 `/workbench/employee/task/events`；`openSignal=changes` 时徽章「待主管回复」。
+- **时间格式**：`formatWorkbenchDateTime` → `zh-CN` `yyyy-MM-dd HH:mm`。
+
 ## 催办（Follow-up，v1）
 
 - **范围**：仅正式库 `IN_PROGRESS` / `BLOCKED` 且 `due_at` 可解析的子任务执行中逾期；`ASSIGNED` 承接超时留 Phase 1.5。

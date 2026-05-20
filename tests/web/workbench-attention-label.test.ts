@@ -1,0 +1,59 @@
+import { describe, expect, it } from "vitest";
+import {
+  deriveManagerAttentionLabel,
+  subtaskNeedsManagerAction,
+} from "../../src/web/workbench-attention.js";
+
+describe("deriveManagerAttentionLabel", () => {
+  it("returns 已完成 when all subtasks done", () => {
+    const r = deriveManagerAttentionLabel([
+      { status: "DONE" },
+      { status: "DONE" },
+    ]);
+    expect(r.attentionLabel).toBe("已完成");
+    expect(r.attentionBucket).toBe("done");
+  });
+
+  it("returns 阻塞中 when any blocked (before needs_manager)", () => {
+    const r = deriveManagerAttentionLabel([
+      { status: "IN_PROGRESS" },
+      { status: "BLOCKED" },
+    ]);
+    expect(r.attentionLabel).toBe("阻塞中");
+    expect(r.attentionBucket).toBe("blocked");
+  });
+
+  it("returns 待您处理 for rejected or open changes", () => {
+    expect(
+      deriveManagerAttentionLabel([{ status: "ASSIGNED" }, { status: "REJECTED" }])
+        .attentionLabel,
+    ).toBe("待您处理");
+    expect(
+      deriveManagerAttentionLabel([
+        { status: "IN_PROGRESS", openDeclineKind: "changes" },
+      ]).attentionLabel,
+    ).toBe("待您处理");
+  });
+
+  it("returns 待员工承接 for assigned only without manager action", () => {
+    const r = deriveManagerAttentionLabel([
+      { status: "ASSIGNED" },
+      { status: "IN_PROGRESS" },
+    ]);
+    expect(r.attentionLabel).toBe("待员工承接");
+    expect(r.attentionBucket).toBe("waiting_employee");
+    expect(r.openManagerSubtaskCount).toBe(0);
+  });
+
+  it("returns 员工执行中 when only in progress", () => {
+    const r = deriveManagerAttentionLabel([{ status: "IN_PROGRESS" }]);
+    expect(r.attentionLabel).toBe("员工执行中");
+    expect(r.attentionBucket).toBe("employee_running");
+  });
+});
+
+describe("subtaskNeedsManagerAction", () => {
+  it("does not treat plain ASSIGNED as needs manager", () => {
+    expect(subtaskNeedsManagerAction({ status: "ASSIGNED" })).toBe(false);
+  });
+});

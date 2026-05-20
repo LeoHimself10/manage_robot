@@ -1,4 +1,5 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
+import { buildSubtaskPlanningFieldsClientJs } from "./workbench-subtask-fields-snippet";
 
 /** Single-page employee workbench: `?view=new|current|history|profile` */
 export function renderEmployeeWorkbenchPage(): string {
@@ -20,7 +21,7 @@ export function renderEmployeeWorkbenchPage(): string {
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="员工导航">
-        <a id="navNew" href="/workbench/employee?view=new">新任务</a>
+        <a id="navNew" href="/workbench/employee?view=new">待承接</a>
         <a id="navCur" href="/workbench/employee?view=current">进行中</a>
         <a id="navHist" href="/workbench/employee?view=history">已完成</a>
         <a id="navProf" href="/workbench/employee?view=profile">能力画像</a>
@@ -29,11 +30,11 @@ export function renderEmployeeWorkbenchPage(): string {
     </div>
   </header>
 
-  <section class="kpis" id="empKpis" style="display:none;">
+  <section class="kpis kpis--2" id="empKpis" style="display:none;">
     <div class="kpi"><div class="lbl" id="kpiL1">—</div><div class="val" id="kpiV1">—</div></div>
     <div class="kpi"><div class="lbl" id="kpiL2">—</div><div class="val" id="kpiV2">—</div></div>
-    <div class="kpi"><div class="lbl" id="kpiL3">—</div><div class="val" id="kpiV3" style="font-size:15px;font-weight:600;line-height:1.35;margin-top:8px;color:#64748b;">—</div></div>
   </section>
+  <div class="info-banner" id="empInfoBanner" style="display:none;" role="note"></div>
 
   <div id="panelNew" hidden>
     <div id="cardsNew"><div class="empty-state">加载中…</div></div>
@@ -80,14 +81,15 @@ export function renderEmployeeWorkbenchPage(): string {
     <h3 id="actionTitle">补充说明</h3>
     <div class="form-stack">
       <div id="assistKindRow" class="form-stack" style="display:none;">
+        <p class="muted" id="assistHintTop" style="margin:0;font-size:13px;display:none;">选择「申请调整」后，进行中列表可能显示「待主管回复」徽章。</p>
         <span class="muted" style="font-size:13px;">请选择协助类型</span>
         <label style="display:flex;gap:8px;align-items:flex-start;">
           <input type="radio" name="assistKind" value="customize" checked />
-          <span>仅补充说明（不改变承接结论）</span>
+          <span><strong>仅补充说明</strong><br><span class="muted" style="font-size:12px;">不改变承接状态，主管会收到说明。</span></span>
         </label>
         <label style="display:flex;gap:8px;align-items:flex-start;">
           <input type="radio" name="assistKind" value="request_changes" />
-          <span>申请调整范围、截止或分工</span>
+          <span><strong>申请调整范围、截止或分工</strong><br><span class="muted" style="font-size:12px;">正式调整诉求，主管可驳回；未接受前可能保持待承接。</span></span>
         </label>
       </div>
       <label>说明（必填）
@@ -97,7 +99,7 @@ export function renderEmployeeWorkbenchPage(): string {
         <button type="button" class="btn btn-primary" id="confirmActionBtn">提交</button>
         <button type="button" class="btn btn-secondary" id="cancelActionBtn">取消</button>
       </div>
-      <div class="feedback muted" id="actionFeedback"></div>
+      <div class="feedback muted" id="actionFeedback" role="status" aria-live="polite"></div>
     </div>
   </div>
 
@@ -118,7 +120,7 @@ export function renderEmployeeWorkbenchPage(): string {
         <button type="button" class="btn btn-primary" id="progSubmitBtn">提交</button>
         <button type="button" class="btn btn-secondary" id="progCancelBtn">取消</button>
       </div>
-      <div class="feedback muted" id="progPanelFb"></div>
+      <div class="feedback muted" id="progPanelFb" role="status" aria-live="polite"></div>
     </div>
   </div>
 </div>
@@ -172,8 +174,19 @@ export function renderEmployeeWorkbenchPage(): string {
     document.getElementById('panelProf').hidden = view !== 'profile';
     var kpis = document.getElementById('empKpis');
     if (kpis) kpis.style.display = (view === 'new' || view === 'current') ? 'grid' : 'none';
+    var banner = document.getElementById('empInfoBanner');
+    if (banner) {
+      if (view === 'new' || view === 'current') {
+        banner.style.display = 'flex';
+        banner.textContent = view === 'new'
+          ? '提示：请先核对执行要点与截止，再接受或拒绝；需要主管协助时请选协助类型并填写说明。'
+          : '提示：及时更新进度便于主管掌握风险；申请调整后请关注「待主管回复」状态。';
+      } else {
+        banner.style.display = 'none';
+      }
+    }
     var titles = {
-      new: ['新分配的任务', '主管发布后的正式子任务。请在接受前核对标题与说明；拒绝或需要主管协助时请填写说明。'],
+      new: ['待承接', '主管发布后的正式子任务。请在接受前核对下方六项要点；拒绝或需要主管协助时请填写说明。'],
       current: ['进行中的任务', '执行中或阻塞的子任务。可在卡片上直接填写进度。'],
       history: ['已完成', '历史已完成的子任务。'],
       profile: ['能力画像', '补充你的技能与协作偏好，便于主管分配合适任务。']
@@ -195,6 +208,17 @@ export function renderEmployeeWorkbenchPage(): string {
     if (st === 'REJECTED') return 'rejected';
     return 'progress';
   }
+  ${buildSubtaskPlanningFieldsClientJs()}
+  function depTitles(subs, depIds) {
+    if (!depIds || !depIds.length) return '—';
+    return depIds.map(function (id) {
+      var sid = String(id);
+      for (var i = 0; i < subs.length; i++) {
+        if (String(subs[i].sourceTaskKey || '') === sid) return subs[i].title || sid;
+      }
+      return sid;
+    }).join('；');
+  }
   function formatDue(t) {
     if (!t.dueAt) return '<p class="meta">截止：未设置</p>';
     var bar = '';
@@ -213,8 +237,8 @@ export function renderEmployeeWorkbenchPage(): string {
     var st = '';
     if (stRaw === 'REJECTED') {
       st = '<span class="badge rejected">已拒绝 · 已通知主管</span>';
-    } else if (t.status === 'CHANGES_REQUESTED') {
-      st = '<span class="badge pending">待确认</span>';
+    } else if (t.openSignal === 'changes') {
+      st = '<span class="badge pending">待主管回复</span>';
     } else {
       st = '<span class="badge '+badgeClass(t.status)+'">'+esc(t.statusLabel||t.status)+'</span>';
     }
@@ -223,13 +247,15 @@ export function renderEmployeeWorkbenchPage(): string {
     var td = String(t.taskDescription || '').trim();
     var descLine = td ? ('<p class="meta task-card-desc">'+esc(clipStr(td, 140))+'</p>') : '';
     var tn = String(t.taskNo || '').trim();
-    var detailLink = tn ? ('<p class="meta"><a class="task-detail-readonly-link" href="/workbench/employee/task?taskNo='+encodeURIComponent(tn)+'">查看背景与分工（只读）</a></p>') : '';
+    var fromView = getView();
+    var detailLink = tn ? ('<p class="meta"><a class="task-detail-readonly-link" href="/workbench/employee/task?taskNo='+encodeURIComponent(tn)+'&fromView='+encodeURIComponent(fromView)+'">完整背景与分工</a></p>') : '';
+    var coreLines = subtaskCardCoreLines(t, [t]);
     var actions = actionsHtml || '';
     return '<article class="'+cardCls+'" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'">'
       + '<div class="head"><div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+st+'</div>'
       + '<p class="title">'+esc(t.title||t.taskNo||'子任务')+'</p>'
       + '<p class="meta">业务编号 <code>'+esc(t.taskNo||'—')+'</code>'+mgrLine+'</p>'
-      + descLine + detailLink
+      + descLine + coreLines + detailLink
       + formatDue(t)
       + '</div></div>'+actions+'</article>';
   }
@@ -241,13 +267,10 @@ export function renderEmployeeWorkbenchPage(): string {
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var tasks = data.tasks || [];
-      var pend = tasks.filter(function (t) { return t.status === 'CHANGES_REQUESTED'; }).length;
-      document.getElementById('kpiL1').textContent = '待处理数量';
+      document.getElementById('kpiL1').textContent = '待承接';
       document.getElementById('kpiV1').textContent = String(tasks.length);
-      document.getElementById('kpiL2').textContent = '待确认';
-      document.getElementById('kpiV2').textContent = String(pend);
-      document.getElementById('kpiL3').textContent = '提示';
-      document.getElementById('kpiV3').textContent = '优先处理阻塞风险';
+      document.getElementById('kpiL2').textContent = '—';
+      document.getElementById('kpiV2').textContent = '—';
       var mount = document.getElementById('cardsNew');
       if (!tasks.length) {
         mount.innerHTML = '<div class="empty-state">暂无新任务。可到「进行中」查看执行中的工作。</div>';
@@ -297,10 +320,10 @@ export function renderEmployeeWorkbenchPage(): string {
       var rejected = tasks.filter(function (t) { return t.status === 'REJECTED'; }).length;
       document.getElementById('kpiL1').textContent = '执行中';
       document.getElementById('kpiV1').textContent = String(doing);
+      document.getElementById('kpiL1').textContent = '执行中';
+      document.getElementById('kpiV1').textContent = String(doing);
       document.getElementById('kpiL2').textContent = '阻塞 / 已拒绝';
       document.getElementById('kpiV2').textContent = String(blocked) + ' / ' + String(rejected);
-      document.getElementById('kpiL3').textContent = '提示';
-      document.getElementById('kpiV3').textContent = '及时更新进度便于主管掌握风险';
       var mount = document.getElementById('cardsCur');
       if (!tasks.length) {
         mount.innerHTML = '<div class="empty-state">暂无进行中的任务。请先到「新任务」承接分配。</div>';
@@ -362,10 +385,14 @@ export function renderEmployeeWorkbenchPage(): string {
     var assistRow = document.getElementById('assistKindRow');
     if (action === 'assist') {
       if (assistRow) assistRow.style.display = 'grid';
+      var ah = document.getElementById('assistHintTop');
+      if (ah) ah.style.display = 'block';
       document.getElementById('actionTitle').textContent = '需要主管协助';
       var r0 = document.querySelector('input[name="assistKind"][value="customize"]');
       if (r0) r0.checked = true;
     } else {
+      var ah2 = document.getElementById('assistHintTop');
+      if (ah2) ah2.style.display = 'none';
       if (assistRow) assistRow.style.display = 'none';
       var titles = { reject: '拒绝任务（需填写理由）' };
       document.getElementById('actionTitle').textContent = titles[action] || '说明';
@@ -415,6 +442,8 @@ export function renderEmployeeWorkbenchPage(): string {
       var sel = document.querySelector('input[name="assistKind"]:checked');
       action = sel ? sel.value : 'customize';
     }
+    var confirmBtn = document.getElementById('confirmActionBtn');
+    if (confirmBtn) confirmBtn.disabled = true;
     setFb('actionFeedback', '提交中…', 'muted');
     try {
       var go = (action === 'reject') ? { goView: 'current' } : undefined;
@@ -423,6 +452,8 @@ export function renderEmployeeWorkbenchPage(): string {
       if (!go) await loadNew();
     } catch (e) {
       setFb('actionFeedback', String(e && e.message ? e.message : e), 'err');
+    } finally {
+      if (confirmBtn) confirmBtn.disabled = false;
     }
   });
   document.getElementById('cancelActionBtn').addEventListener('click', closePanel);

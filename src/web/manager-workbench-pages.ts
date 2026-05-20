@@ -1,4 +1,5 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
+import { buildWorkbenchFmtTimeClientJs } from "./workbench-datetime";
 
 function escapeHtml(v: string): string {
   return v
@@ -61,14 +62,46 @@ export function renderManagerTasksPage(params: {
     </div>
 
     <section class="tab-panel panel-stack" id="mgrPanelList" role="tabpanel" aria-labelledby="mgrTabList">
-      <section class="kpis" aria-live="polite">
+      <section class="kpis kpis--5" aria-live="polite">
         <div class="kpi"><div class="lbl">任务总数</div><div class="val" id="kpiTotal">—</div></div>
-        <div class="kpi"><div class="lbl">待处理</div><div class="val" id="kpiPending">—</div></div>
-        <div class="kpi"><div class="lbl">进行中</div><div class="val" id="kpiInProgress">—</div></div>
+        <div class="kpi"><div class="lbl">待您处理</div><div class="val" id="kpiNeedsMgr">—</div></div>
+        <div class="kpi"><div class="lbl">待员工承接</div><div class="val" id="kpiWaiting">—</div></div>
+        <div class="kpi"><div class="lbl">员工执行中</div><div class="val" id="kpiRunning">—</div></div>
         <div class="kpi"><div class="lbl">已完成</div><div class="val" id="kpiDone">—</div></div>
       </section>
+      <div class="mgr-list-toolbar form-stack" role="search" aria-label="任务筛选">
+        <label>关注状态
+          <select id="filterAttention">
+            <option value="">全部</option>
+            <option value="needs_manager">待您处理</option>
+            <option value="waiting_employee">待员工承接</option>
+            <option value="employee_running">员工执行中</option>
+            <option value="blocked">阻塞</option>
+            <option value="done">已完成</option>
+          </select>
+        </label>
+        <label>标题 / 业务编号
+          <input id="filterKeyword" type="search" placeholder="关键词" autocomplete="off" />
+        </label>
+        <label>负责人
+          <input id="filterAssignee" type="search" placeholder="姓名关键词" autocomplete="off" />
+        </label>
+        <label>排序
+          <select id="filterSort">
+            <option value="updated_desc">更新时间 ↓</option>
+            <option value="updated_asc">更新时间 ↑</option>
+            <option value="task_no">业务编号</option>
+            <option value="attention">关注优先级</option>
+          </select>
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+          <button type="button" class="btn btn-primary btn-sm" id="filterApplyBtn">应用筛选</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="filterClearBtn">清除筛选</button>
+        </div>
+      </div>
+      <p class="muted" id="filterResultMeta" style="margin:0 0 10px;font-size:13px;" role="status" aria-live="polite">—</p>
       <div>
-        <p class="page-desc" style="margin:0 0 14px;">${who}可见的全部任务，按状态优先级排序。</p>
+        <p class="page-desc" style="margin:0 0 14px;">${who}可见的全部任务；列表状态为「需您关注」视角，与子任务实际状态可能不同。</p>
         <div id="taskTableMount">
           <div class="empty-state">加载中…</div>
         </div>
@@ -141,22 +174,23 @@ export function renderManagerTasksPage(params: {
       setActiveTab(tid);
     });
   });
-  function priorityRank(status) {
-    if (status === 'BLOCKED') return 0;
-    if (status === 'REJECTED') return 1;
-    if (status === 'ASSIGNED' || status === 'CHANGES_REQUESTED') return 2;
-    if (status === 'IN_PROGRESS') return 3;
+  ${buildWorkbenchFmtTimeClientJs()}
+  function attentionRank(bucket) {
+    if (bucket === 'needs_manager') return 0;
+    if (bucket === 'blocked') return 1;
+    if (bucket === 'waiting_employee') return 2;
+    if (bucket === 'employee_running') return 3;
     return 4;
   }
-  function badgeClass(status) {
-    if (status === 'BLOCKED') return 'blocked';
-    if (status === 'CHANGES_REQUESTED') return 'pending';
-    if (status === 'ASSIGNED') return 'assigned';
-    if (status === 'IN_PROGRESS') return 'progress';
-    if (status === 'DONE') return 'done';
-    if (status === 'REJECTED') return 'rejected';
+  function badgeClassForBucket(bucket) {
+    if (bucket === 'needs_manager') return 'pending';
+    if (bucket === 'blocked') return 'blocked';
+    if (bucket === 'waiting_employee') return 'assigned';
+    if (bucket === 'employee_running') return 'progress';
+    if (bucket === 'done') return 'done';
     return 'assigned';
   }
+  var allTasksCache = [];
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
@@ -264,74 +298,118 @@ export function renderManagerTasksPage(params: {
     assigneeSearchTimer = setTimeout(function () { void runAssigneeSearch(); }, 250);
   }
 
+  function renderTaskTable(tasks) {
+    var mount = document.getElementById('taskTableMount');
+    var meta = document.getElementById('filterResultMeta');
+    var total = allTasksCache.length;
+    if (meta) meta.textContent = '共 ' + total + ' 条 · 当前显示 ' + tasks.length + ' 条';
+    if (!tasks.length) {
+      mount.innerHTML = '<div class="empty-state">' + (total ? '无匹配任务。<button type="button" class="btn btn-ghost btn-sm" id="filterClearInline">清除筛选</button>' : '暂无任务。请到钉钉与机器人发起规划并发布。') + '</div>';
+      var clr = document.getElementById('filterClearInline');
+      if (clr) clr.addEventListener('click', clearFilters);
+      return;
+    }
+    var rows = tasks.map(function (t) {
+      var bucket = String(t.attentionBucket || '');
+      var hint = String(t.attentionHint || '').trim();
+      var stHtml = '<span class="badge ' + badgeClassForBucket(bucket) + '">' + escapeHtml(t.attentionLabel || t.statusLabel || '—') + '</span>';
+      if (hint) stHtml += '<br><span class="muted" style="font-size:12px;">' + escapeHtml(hint) + '</span>';
+      var detail = '<a href="/workbench/manager/task?taskNo=' + encodeURIComponent(t.taskNo || '') + '">查看详情</a>';
+      return '<tr>'
+        + '<td><code>' + escapeHtml(t.taskNo || '—') + '</code></td>'
+        + '<td>' + escapeHtml(t.title || '—') + '</td>'
+        + '<td>' + escapeHtml(t.assigneeSummary || '—') + '</td>'
+        + '<td>' + escapeHtml(String(t.subtasksCount || 0)) + '（阻塞 ' + escapeHtml(String(t.blockedCount || 0)) + '）</td>'
+        + '<td>' + stHtml + '</td>'
+        + '<td>' + fmtTime(t.updatedAt) + '<br>' + detail + '</td>'
+        + '</tr>';
+    }).join('');
+    mount.innerHTML = '<div class="table-wrap"><table class="data">'
+      + '<thead><tr><th>业务编号</th><th>标题</th><th>负责人</th><th>子任务</th><th>关注状态</th><th>更新时间</th></tr></thead>'
+      + '<tbody>' + rows + '</tbody></table></div>';
+  }
+  function applyFiltersAndSort() {
+    var att = String(document.getElementById('filterAttention')?.value || '').trim();
+    var kw = String(document.getElementById('filterKeyword')?.value || '').trim().toLowerCase();
+    var asg = String(document.getElementById('filterAssignee')?.value || '').trim().toLowerCase();
+    var sort = String(document.getElementById('filterSort')?.value || 'updated_desc');
+    var list = allTasksCache.slice();
+    list = list.filter(function (t) {
+      if (att && String(t.attentionBucket || '') !== att) return false;
+      if (kw) {
+        var hay = (String(t.taskNo || '') + ' ' + String(t.title || '')).toLowerCase();
+        if (hay.indexOf(kw) < 0) return false;
+      }
+      if (asg) {
+        var who = String(t.assigneeSummary || '').toLowerCase();
+        if (who.indexOf(asg) < 0) return false;
+      }
+      return true;
+    });
+    list.sort(function (a, b) {
+      if (sort === 'attention') {
+        var pa = attentionRank(String(a.attentionBucket || ''));
+        var pb = attentionRank(String(b.attentionBucket || ''));
+        if (pa !== pb) return pa - pb;
+      } else if (sort === 'task_no') {
+        return String(a.taskNo || '').localeCompare(String(b.taskNo || ''), 'zh-CN');
+      }
+      var ta = Date.parse(a.updatedAt || '') || 0;
+      var tb = Date.parse(b.updatedAt || '') || 0;
+      return sort === 'updated_asc' ? ta - tb : tb - ta;
+    });
+    renderTaskTable(list);
+  }
+  function clearFilters() {
+    var fa = document.getElementById('filterAttention');
+    var fk = document.getElementById('filterKeyword');
+    var fas = document.getElementById('filterAssignee');
+    var fs = document.getElementById('filterSort');
+    if (fa) fa.value = '';
+    if (fk) fk.value = '';
+    if (fas) fas.value = '';
+    if (fs) fs.value = 'updated_desc';
+    applyFiltersAndSort();
+  }
   async function loadTasks() {
     setFb('tableFeedback', '加载中…', 'muted');
     try {
       var res = await fetch('/api/workbench/manager/tasks');
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      var tasks = data.tasks || [];
-      tasks.sort(function (a, b) {
-        var pa = priorityRank(a.status);
-        var pb = priorityRank(b.status);
-        if (pa !== pb) return pa - pb;
-        var ta = Date.parse(a.updatedAt || '') || 0;
-        var tb = Date.parse(b.updatedAt || '') || 0;
-        return tb - ta;
-      });
-
-      function managerKpiBucket(t) {
-        var st = String(t.status || '').trim();
-        var tri = Number(t.triageOpenSubtaskCount);
-        if (!isFinite(tri) || tri < 0) tri = 0;
-        if (st === 'DONE') return 'done';
-        if (tri > 0 || st === 'ASSIGNED' || st === 'REJECTED' || st === 'CHANGES_REQUESTED') return 'pending';
-        return 'in_progress';
-      }
-      var kDone = 0;
-      var kPending = 0;
-      var kProg = 0;
-      tasks.forEach(function (t) {
-        var b = managerKpiBucket(t);
+      allTasksCache = data.tasks || [];
+      var kNeeds = 0, kWait = 0, kRun = 0, kDone = 0;
+      allTasksCache.forEach(function (t) {
+        var b = String(t.attentionBucket || '');
         if (b === 'done') kDone++;
-        else if (b === 'pending') kPending++;
-        else kProg++;
+        else if (b === 'needs_manager') kNeeds++;
+        else if (b === 'waiting_employee') kWait++;
+        else if (b === 'employee_running' || b === 'blocked') kRun++;
       });
-      setText('kpiTotal', String(tasks.length));
-      setText('kpiPending', String(kPending));
-      setText('kpiInProgress', String(kProg));
+      setText('kpiTotal', String(allTasksCache.length));
+      setText('kpiNeedsMgr', String(kNeeds));
+      setText('kpiWaiting', String(kWait));
+      setText('kpiRunning', String(kRun));
       setText('kpiDone', String(kDone));
 
-      var mount = document.getElementById('taskTableMount');
       var sel = document.getElementById('reassignPlanId');
-      if (!tasks.length) {
-        mount.innerHTML = '<div class="empty-state">暂无任务。请到钉钉与机器人发起规划并发布。</div>';
+      if (!allTasksCache.length) {
+        document.getElementById('taskTableMount').innerHTML = '<div class="empty-state">暂无任务。请到钉钉与机器人发起规划并发布。</div>';
         sel.innerHTML = '<option value="">暂无任务</option>';
         setText('kpiTotal', '0');
-        setText('kpiPending', '0');
-        setText('kpiInProgress', '0');
+        setText('kpiNeedsMgr', '0');
+        setText('kpiWaiting', '0');
+        setText('kpiRunning', '0');
         setText('kpiDone', '0');
+        var meta0 = document.getElementById('filterResultMeta');
+        if (meta0) meta0.textContent = '共 0 条 · 当前显示 0 条';
         setFb('tableFeedback', '', 'muted');
         return;
       }
 
-      var rows = tasks.map(function (t) {
-        var detail = '<a href="/workbench/manager/task?taskNo=' + encodeURIComponent(t.taskNo || '') + '">查看详情</a>';
-        return '<tr>'
-          + '<td><code>' + escapeHtml(t.taskNo || '—') + '</code></td>'
-          + '<td>' + escapeHtml(t.title || '—') + '</td>'
-          + '<td>' + escapeHtml(t.assigneeSummary || '—') + '</td>'
-          + '<td>' + escapeHtml(String(t.subtasksCount || 0)) + '（阻塞 ' + escapeHtml(String(t.blockedCount || 0)) + '）</td>'
-          + '<td><span class="badge ' + badgeClass(t.status) + '">' + escapeHtml(t.statusLabel || t.status) + '</span></td>'
-          + '<td>' + escapeHtml(t.updatedAt || '—') + '<br>' + detail + '</td>'
-          + '</tr>';
-      }).join('');
+      applyFiltersAndSort();
 
-      mount.innerHTML = '<div class="table-wrap"><table class="data">'
-        + '<thead><tr><th>业务编号</th><th>标题</th><th>负责人</th><th>子任务</th><th>状态</th><th>更新时间</th></tr></thead>'
-        + '<tbody>' + rows + '</tbody></table></div>';
-
-      sel.innerHTML = '<option value="">请选择任务</option>' + tasks.map(function (t) {
+      sel.innerHTML = '<option value="">请选择任务</option>' + allTasksCache.map(function (t) {
         var optLabel = escapeHtml(t.taskNo || '任务') + ' · ' + escapeHtml(t.title || '') + ' · ' + escapeHtml(t.statusLabel || t.status);
         return '<option value="' + escapeHtml(t.planId) + '" data-task-no="' + escapeHtml(t.taskNo || '') + '">' + optLabel + '</option>';
       }).join('');
@@ -479,6 +557,11 @@ export function renderManagerTasksPage(params: {
     await fetch('/api/workbench/logout', { method: 'POST' });
     window.location.href = '/workbench';
   });
+
+  var filterApplyBtn = document.getElementById('filterApplyBtn');
+  var filterClearBtn = document.getElementById('filterClearBtn');
+  if (filterApplyBtn) filterApplyBtn.addEventListener('click', applyFiltersAndSort);
+  if (filterClearBtn) filterClearBtn.addEventListener('click', clearFilters);
 
   void loadTasks();
 })();

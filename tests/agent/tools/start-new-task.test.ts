@@ -74,4 +74,23 @@ describe("start_new_task tool", () => {
     const audit = session.scopeAuditTrail ?? [];
     expect(audit.some((e) => e.eventType === "SCOPE_CREATED" && e.toScopeId === result.toScopeId)).toBe(true);
   });
+
+  it("calls onSessionMutated after successful scope switch", () => {
+    const session = makeSession({
+      knownFacts: ["旧 scope 事实"],
+      latestDraft: { title: "旧草案", tasks: [] },
+    });
+    let mutated: PlanSession | undefined;
+    const handler = buildStartNewTaskHandler({
+      currentSession: session,
+      onSessionMutated: (s) => {
+        mutated = s;
+      },
+    });
+    const result = handler({ scopeLabel: "新任务" }) as any;
+    expect(result.ok).toBe(true);
+    expect(mutated).toBe(session);
+    expect(mutated?.knownFacts).toEqual([]);
+    expect(mutated?.latestDraft).toBeUndefined();
+  });
 });

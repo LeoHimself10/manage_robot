@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildPublishRetryUserMessage,
   buildScopeSwitchRetryUserMessage,
+  buildDraftClarifyMixRetryUserMessage,
+  detectDraftClarifyMix,
   detectFalsePublish,
   detectFalsePublishOnConfirm,
   formatAuthoritativePublishBlockedNotice,
@@ -212,6 +214,46 @@ describe("publish-staging", () => {
       const out = buildScopeSwitchRetryUserMessage("换个任务，做别的了");
       expect(out).toContain("start_new_task");
       expect(out).toContain("换个任务");
+    });
+  });
+
+  describe("detectDraftClarifyMix", () => {
+    it("true when draft output mixed with CLARIFY tone", () => {
+      expect(
+        detectDraftClarifyMix({
+          hasDraft: true,
+          message: "④ 请补充以下信息，以便我生成正式的任务草案。",
+        }),
+      ).toBe(true);
+      expect(
+        detectDraftClarifyMix({
+          hasDraft: true,
+          message: "已拆解完成，等待补充型号批次后再完善。",
+        }),
+      ).toBe(true);
+    });
+    it("false when no draft or pure DRAFT message", () => {
+      expect(
+        detectDraftClarifyMix({
+          hasDraft: false,
+          message: "请补充型号与批次？",
+        }),
+      ).toBe(false);
+      expect(
+        detectDraftClarifyMix({
+          hasDraft: true,
+          message: "④ 下一步：请确认负责人或直接回复「确认发布」。",
+        }),
+      ).toBe(false);
+    });
+  });
+
+  describe("buildDraftClarifyMixRetryUserMessage", () => {
+    it("includes draftClarifyMixAction and original message", () => {
+      const out = buildDraftClarifyMixRetryUserMessage("客诉分析，下周五完成");
+      expect(out).toContain("draftClarifyMixAction");
+      expect(out).toContain("客诉分析，下周五完成");
+      expect(out).toContain("openQuestions");
     });
   });
 

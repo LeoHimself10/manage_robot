@@ -26,6 +26,8 @@ import { runOrchestrator } from "./agent/orchestrator";
 import {
   buildScopeSwitchRetryUserMessage,
   buildTopicSwitchRetryUserMessage,
+  buildDraftClarifyMixRetryUserMessage,
+  detectDraftClarifyMix,
   detectFalsePublish,
   detectFalsePublishOnConfirm,
   detectFalseScopeSwitch,
@@ -724,6 +726,10 @@ async function main(): Promise<void> {
           onPublishTaskResult: (result: Record<string, unknown>) => {
             publishResult = result;
           },
+          onSessionMutated: (mutated) => {
+            session = mutated;
+            mutableKnownFacts = [...(mutated.knownFacts ?? [])];
+          },
           sessionContext: {
             conversationHistory: session.conversationHistory,
             planId: session.planId,
@@ -811,6 +817,38 @@ async function main(): Promise<void> {
               messageId,
               traceId: retryResult.traceId,
               retriedToolNames: [...(retryResult.toolInvocationNames ?? [])],
+            });
+            orchResult = retryResult;
+          }
+        }
+
+        // CLARIFY 语气与 draft JSON 混写 → 内部重试一轮（不追加用户可见兜底文案）。
+        {
+          const initialOutbound = orchResult.messages.join("\n\n");
+          const hasDraftOutput = orchResult.draft !== undefined;
+          if (
+            detectDraftClarifyMix({
+              message: initialOutbound,
+              hasDraft: hasDraftOutput,
+            })
+          ) {
+            logStructured({
+              event: "draft_clarify_mix_detected",
+              messageId,
+              traceId: orchResult.traceId,
+              planId: session.planId,
+              messagePreview: initialOutbound.slice(0, 160),
+            });
+            const retryStartedAt = Date.now();
+            const retryBackground = buildDraftClarifyMixRetryUserMessage(background);
+            const retryResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
+            orchestratorMs += Date.now() - retryStartedAt;
+            logStructured({
+              event: "draft_clarify_mix_retry_done",
+              messageId,
+              traceId: retryResult.traceId,
+              retriedToolNames: [...(retryResult.toolInvocationNames ?? [])],
+              retryMessagePreview: retryResult.messages.join("\n\n").slice(0, 160),
             });
             orchResult = retryResult;
           }

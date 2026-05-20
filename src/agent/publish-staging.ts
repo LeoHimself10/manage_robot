@@ -213,6 +213,37 @@ export function buildScopeSwitchRetryUserMessage(originalUserMessage: string): s
   ].join("\n");
 }
 
+const CLARIFY_TONE_IN_DRAFT_MESSAGE =
+  /等待补充|请补充以下|请补充|生成正式(?:的)?(?:任务)?草案|以便我生成|还需补充|缺少关键信息|待您补充|请您补充|补充以下信息/i;
+
+export interface DraftClarifyMixInput {
+  message: string;
+  hasDraft: boolean;
+}
+
+/**
+ * 模型同轮输出 draft JSON，但 message 仍带 CLARIFY 追问语气（如「以便我生成正式草案」）。
+ * 命中 → 调用方应内部重试，要求纯 DRAFT message 四段。
+ */
+export function detectDraftClarifyMix(input: DraftClarifyMixInput): boolean {
+  if (!input.hasDraft) return false;
+  const text = String(input.message ?? "").trim();
+  if (!text) return false;
+  return CLARIFY_TONE_IN_DRAFT_MESSAGE.test(text);
+}
+
+export function buildDraftClarifyMixRetryUserMessage(originalUserMessage: string): string {
+  return [
+    "[draftClarifyMixAction]",
+    "上一轮你在输出 JSON draft/tasks[] 的同时，message 仍使用 CLARIFY 语气（等待补充/请补充/以便我生成正式草案等），违反 v5.23.3 纪律。",
+    "本轮请重新输出：**仅 DRAFT 模式** message 四段（①已采纳要点 ②拆解逻辑 ③阅读导览 ④下一步：已有 draft 时仅点将或确认发布；待确认项写入 draft.openQuestions，禁止在 message 里追问）。",
+    "同轮必须保留或更新顶层 draft JSON；**禁止** CLARIFY 语气混写。",
+    "",
+    "[原指令]",
+    String(originalUserMessage ?? ""),
+  ].join("\n");
+}
+
 /**
  * 构造重试时塞给 orchestrator 的 user 消息：保留原话，前置强指令，要求**立刻**调 publish_task。
  * 调用方仍应把**原 userMessage**写入 conversationHistory，避免污染。

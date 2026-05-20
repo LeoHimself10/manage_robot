@@ -2,6 +2,7 @@ import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 import { LlmPlanPayload, InferenceTrace, TokenUsage } from "./llm-types";
 import { logStructured } from "../../infra/logger";
+import { applyScopeSwitchToRuntimeMessages } from "../scope-message-truncate";
 import {
   buildLegacyDemoPlannerSystemPrompt,
   buildQwenPlannerUserPrompt,
@@ -611,6 +612,7 @@ export class QwenCompatibleClient {
           const resultsById = new Map(
             [...parallelResults, ...sequentialResults].map((item) => [item.toolCallId, item]),
           );
+          const scopeToolResults: Array<{ toolName: string; result: unknown }> = [];
           for (const call of preparedCalls) {
             const toolResult = resultsById.get(call.tc.id);
             if (!toolResult) continue;
@@ -618,11 +620,15 @@ export class QwenCompatibleClient {
             toolsMs += toolResult.elapsedMs;
             toolCallsThisIteration += 1;
             toolCallsExecuted += 1;
+            scopeToolResults.push({ toolName: toolResult.toolName, result: toolResult.result });
             currentMessages.push({
               role: "tool",
               tool_call_id: call.tc.id,
               content: JSON.stringify(toolResult.result),
             });
+          }
+          if (scopeToolResults.length > 0) {
+            applyScopeSwitchToRuntimeMessages(currentMessages, scopeToolResults);
           }
 
           const totalMs = Date.now() - iterationStartedAt;

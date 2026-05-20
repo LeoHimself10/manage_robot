@@ -287,11 +287,17 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     },
     start_new_task: {
       definition: START_NEW_TASK_TOOL,
-      handler: buildStartNewTaskHandler({ currentSession: deps.currentSession }),
+      handler: buildStartNewTaskHandler({
+        currentSession: deps.currentSession,
+        onSessionMutated: deps.onSessionMutated,
+      }),
     },
     switch_back_task: {
       definition: SWITCH_BACK_TASK_TOOL,
-      handler: buildSwitchBackTaskHandler({ currentSession: deps.currentSession }),
+      handler: buildSwitchBackTaskHandler({
+        currentSession: deps.currentSession,
+        onSessionMutated: deps.onSessionMutated,
+      }),
     },
     update_draft_task: {
       definition: UPDATE_DRAFT_TASK_TOOL,
