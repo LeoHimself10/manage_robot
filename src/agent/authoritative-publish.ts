@@ -3,7 +3,6 @@ import type { ToolHandler } from "./demo/qwen-compatible-client";
 import {
   isDraftStagedForPublish,
   isPublishConfirmUserMessage,
-  looksLikeFalsePublishClaim,
 } from "./publish-staging";
 
 export function hasPublishableDraftInSession(session: PlanSession): boolean {
@@ -110,19 +109,4 @@ export async function runAuthoritativePublishOnConfirm(input: {
   });
   const publishResult = publishRaw as Record<string, unknown>;
   return { publishResult, prepareResult };
-}
-
-/** 未真正发布成功时，去掉模型自称「已发布」的段落，避免误导用户。 */
-export function sanitizeFalsePublishClaims(
-  outboundMarkdown: string,
-  publishSucceeded: boolean,
-): string {
-  if (publishSucceeded) return outboundMarkdown;
-  const text = String(outboundMarkdown ?? "");
-  if (!looksLikeFalsePublishClaim(text)) return text;
-  const lines = text.split("\n");
-  const kept = lines.filter((line) => !looksLikeFalsePublishClaim(line));
-  const next = kept.join("\n").trim();
-  if (next) return next;
-  return "当前尚未完成正式发布。请稍候，或在工作台核对任务是否已生成。";
 }

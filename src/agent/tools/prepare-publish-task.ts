@@ -62,6 +62,8 @@ export interface BuildPreparePublishTaskHandlerDeps {
    * 兼容缺省（用于单测 / demo 链路）。
    */
   currentSession?: PlanSession;
+  /** When search_employees quota exhausted this orchestrator turn, block premature prepare. */
+  searchEmployeesQuotaExhausted?: () => boolean;
   /**
    * 通讯录查询。用于在 stage 之前校验每个 assigneeUserId 都是真实在职钉钉账号，
    * 防止模型把姓名 → 假 userId（如 "u_yanghexin"）写进 session，进而污染正式任务表
@@ -75,6 +77,14 @@ export function buildPreparePublishTaskHandler(
   deps: BuildPreparePublishTaskHandlerDeps = {},
 ): ToolHandler {
   return (args: Record<string, unknown>) => {
+    if (deps.searchEmployeesQuotaExhausted?.()) {
+      return {
+        ok: false,
+        reason: "search_employees_quota_exhausted",
+        hint:
+          "本轮 search_employees 已达上限且点将尚未完成。请先让用户用**姓名（部门）**明确负责人，或输出/修订 JSON draft；**禁止**在未完成点将时调用 prepare_publish_task。",
+      };
+    }
     const planId = String(args.planId ?? "").trim();
     const title = String(args.title ?? "").trim();
     const description = String(args.description ?? "").trim();

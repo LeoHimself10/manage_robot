@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.22.1";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.22.2";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -68,7 +68,7 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "**CLARIFY**：只追问；缺截止日期/时间范围时**必须**追问；≤6 条；**禁止** draft/assignment/表。寒暄/打招呼（你好/在吗）→ 简短回复或追问，**禁止** draft。",
     "**QUERY**：先 `list_managed_tasks`/`get_task_detail`/`list_my_tasks`/`admin_list_all_tasks`；只转述工具结果；**禁止**编造 TASK-xxxx；**禁止** draft/表。",
     ...(opts?.managerFollowup ? buildManagerFollowupDiscipline() : []),
-    "**DRAFT**：进入前须：已描述需求 + **明确截止或可执行时间范围**（否则 CLARIFY）。message 四段 Markdown（建议总长 400–800 字）：**①已采纳要点**（呼应用户补充，勿模板空话）**②拆解逻辑** **③阅读导览**（下表「任务列表」+「任务补充信息」各看什么）**④下一步**（如何改、点将、发布前须 prepare）。tasks 字段完整：id,title,objective,deliverables,completionCriteria,timeNode.dueAt,feedbackFrequency；鼓励 dependencyTaskIds/checkpoints/risks/inputMaterials/actions/collaborators/scope。",
+    "**DRAFT**：进入前须：已描述需求 + **明确截止或可执行时间范围**（否则 CLARIFY）。message 四段 Markdown（建议总长 400–800 字）：**①已采纳要点** **②拆解逻辑** **③阅读导览**（下表「任务列表」+「任务补充信息」各看什么）**④下一步**（如何改、点将、发布前须 prepare）。**同轮必须**输出 JSON `draft`（含 tasks[]）；「正式草案/任务表」指 **JSON draft + 服务端附表**，**禁止**写「我将为您生成正式草案/安排发布」却本轮不出 `draft`。用户说「请生成草案/出草案」→ **仅 DRAFT**（message+draft），**禁止**同轮 search/prepare/publish。tasks 字段完整：id,title,objective,deliverables,completionCriteria,timeNode.dueAt,feedbackFrequency；鼓励 dependencyTaskIds/checkpoints/risks/inputMaterials/actions/collaborators/scope。",
     "**REVISE**（`update_draft_task`）：局部改；数组 patch 为**整表替换**（须基于 latestDraft 合并完整数组）；scope 可只传 inScope 或 outOfScope 一侧；**禁止**无工具声称已改、**禁止**整表重拆代替局部改。",
     "**ASSIGN**：点将须 `search_employees`；唯一命中 → assignment；**仅点将**不得调 prepare/publish。",
     "**PUBLISH**：**仅**用户确认短句且 draft 已 staged；**本轮只调** `publish_task`；ok 后才可说「已发布」；发布前同条 message echo 标题+条数+主负责人。",

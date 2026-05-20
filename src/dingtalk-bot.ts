@@ -37,7 +37,6 @@ import {
 import {
   publishResultSucceeded,
   runAuthoritativePublishOnConfirm,
-  sanitizeFalsePublishClaims,
 } from "./agent/authoritative-publish";
 import { buildToolRegistry } from "./agent/tools/registry";
 import {
@@ -1108,10 +1107,6 @@ async function main(): Promise<void> {
           appendStructuredTaskTable &&
           Array.isArray((draftForRender as { tasks?: unknown[] })?.tasks) &&
           ((draftForRender as { tasks: unknown[] }).tasks?.length ?? 0) > 0;
-        outboundMarkdown = sanitizeFalsePublishClaims(
-          outboundMarkdown,
-          publishResultSucceeded(publishResult as Record<string, unknown> | undefined),
-        );
         if (authoritativePublishNotice) {
           outboundMarkdown = `${outboundMarkdown.trim()}\n\n${authoritativePublishNotice}`;
         }

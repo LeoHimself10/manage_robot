@@ -30,6 +30,8 @@ export interface SearchEmployeesHandlerContext {
    * （目的：硬约束本 plan 只能在主管圈定的人里挑。）
    */
   candidatePool?: () => Array<{ userId: string; displayName: string; fileNotes?: string }>;
+  /** Called when per-orchestrator quota is hit (prepare_publish_task may block). */
+  onQuotaExhausted?: () => void;
 }
 
 const MAX_LOCAL_FIRST = 15;
@@ -261,6 +263,7 @@ export function buildSearchEmployeesHandler(
   } => {
     callCount += 1;
     if (callCount > quota) {
+      ctx.onQuotaExhausted?.();
       return {
         ok: false,
         reason: "search_employees_quota_exhausted",

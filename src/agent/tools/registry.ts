@@ -212,12 +212,17 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     getContact: (userId: string) => peopleStore.getContact(userId),
   };
 
+  const searchQuotaState = { exhausted: false };
+
   const all: Record<string, ToolRegistryEntry> = {
     search_employees: {
       definition: SEARCH_EMPLOYEES_TOOL,
       handler: buildSearchEmployeesHandler(employeeRepoResolved, {
         actorUserId: trustedActor,
         candidatePool: candidatePoolReader,
+        onQuotaExhausted: () => {
+          searchQuotaState.exhausted = true;
+        },
       }),
     },
     get_employee_details: {
@@ -249,6 +254,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       handler: buildPreparePublishTaskHandler({
         currentSession: deps.currentSession,
         getContact: (userId) => peopleStore.getContact(userId),
+        searchEmployeesQuotaExhausted: () => searchQuotaState.exhausted,
       }),
     },
     start_new_task: {

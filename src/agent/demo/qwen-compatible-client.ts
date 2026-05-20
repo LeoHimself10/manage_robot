@@ -92,6 +92,27 @@ export class MaxToolIterationsExceededError extends Error {
   }
 }
 
+/** Thrown when cumulative prompt+completion tokens exceed maxTotalTokens mid-loop. */
+export class TokenBudgetExceededError extends Error {
+  public readonly maxTotalTokens: number;
+  public readonly toolCallsExecuted: number;
+  public readonly iterationTimings: NonNullable<CallWithToolsResult["timing"]>["iterations"];
+  public readonly lastAssistantContent: string;
+  constructor(input: {
+    maxTotalTokens: number;
+    toolCallsExecuted: number;
+    iterationTimings: NonNullable<CallWithToolsResult["timing"]>["iterations"];
+    lastAssistantContent: string;
+  }) {
+    super(`ReAct loop exceeded token budget (${input.maxTotalTokens})`);
+    this.name = "TokenBudgetExceededError";
+    this.maxTotalTokens = input.maxTotalTokens;
+    this.toolCallsExecuted = input.toolCallsExecuted;
+    this.iterationTimings = input.iterationTimings;
+    this.lastAssistantContent = input.lastAssistantContent;
+  }
+}
+
 export interface CallWithToolsResult {
   payload: unknown;
   rawContent: string;
@@ -432,7 +453,21 @@ export class QwenCompatibleClient {
           maxPromptTokensSeen = Math.max(maxPromptTokensSeen, usage?.prompt_tokens ?? 0);
           accumulatedCompletionTokens += usage?.completion_tokens ?? 0;
           if (maxPromptTokensSeen + accumulatedCompletionTokens > maxTotalTokens) {
-            throw new Error(`ReAct loop exceeded token budget (${maxTotalTokens})`);
+            logStructured({
+              event: "orchestrator_token_budget_exceeded",
+              traceId: request.traceId,
+              maxTotalTokens,
+              maxPromptTokensSeen,
+              accumulatedCompletionTokens,
+              toolCallsExecuted,
+              iterations: iterationTimings.length,
+            });
+            throw new TokenBudgetExceededError({
+              maxTotalTokens,
+              toolCallsExecuted,
+              iterationTimings: [...iterationTimings],
+              lastAssistantContent,
+            });
           }
 
           const msg = resp.choices?.[0]?.message;

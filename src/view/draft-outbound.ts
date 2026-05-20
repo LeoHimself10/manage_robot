@@ -64,6 +64,8 @@ export function resolveDraftForOutbound(
   const post = input.postTurnDraft as Record<string, unknown> | undefined;
   const touched = isDraftTouchedThisTurn(input);
 
+  // When !touched, only persist post (may be undefined after start_new_task cleared session).
+  // Never fall back to pre — that re-writes archived draft after scope rotation.
   let persistedDraft: Record<string, unknown> | undefined = post;
   if (input.orchResultDraft) {
     persistedDraft = mergeOrchestratorDraftIntoSession(
@@ -71,8 +73,6 @@ export function resolveDraftForOutbound(
       input.orchResultDraft,
       input.toolInvocationNames,
     );
-  } else if (!post && pre) {
-    persistedDraft = pre;
   }
 
   if (!touched) {

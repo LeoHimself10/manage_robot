@@ -16,6 +16,20 @@ function makeSession(overrides: Partial<PlanSession> = {}): PlanSession {
 }
 
 describe("prepare_publish_task tool", () => {
+  it("blocks prepare when search_employees quota exhausted this turn", () => {
+    const handler = buildPreparePublishTaskHandler({
+      searchEmployeesQuotaExhausted: () => true,
+    });
+    const result = handler({
+      planId: "plan-1",
+      title: "测试",
+      description: "背景",
+      subtasks: [{ taskId: "task_1", title: "任务1", assigneeUserId: "emp-1" }],
+    }) as { ok: boolean; reason?: string };
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("search_employees_quota_exhausted");
+  });
+
   it("returns missing assignee hint instead of throwing", () => {
     const handler = buildPreparePublishTaskHandler();
     const result = handler({

@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  buildPreparePublishArgsFromSession,
-  sanitizeFalsePublishClaims,
-} from "../../src/agent/authoritative-publish";
+import { buildPreparePublishArgsFromSession } from "../../src/agent/authoritative-publish";
 import type { PlanSession } from "../../src/infra/plan-session-store";
 
 describe("authoritative-publish", () => {
@@ -41,17 +38,5 @@ describe("authoritative-publish", () => {
         assigneeUserId: "641728622",
       }),
     ]);
-  });
-
-  it("sanitizeFalsePublishClaims strips false publish lines when not succeeded", () => {
-    const raw = "任务已正式发布。\n\n**发布详情：**\n- 子任务 5 条";
-    const out = sanitizeFalsePublishClaims(raw, false);
-    expect(out).not.toMatch(/已正式发布/);
-    expect(out.length).toBeGreaterThan(0);
-  });
-
-  it("sanitizeFalsePublishClaims keeps text when publish succeeded", () => {
-    const raw = "任务已正式发布。";
-    expect(sanitizeFalsePublishClaims(raw, true)).toBe(raw);
   });
 });

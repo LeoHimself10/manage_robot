@@ -71,12 +71,48 @@ vi.mock("../../src/agent/demo/qwen-compatible-client", () => {
       this.lastAssistantContent = input.lastAssistantContent;
     }
   }
+  class TokenBudgetExceededError extends Error {
+    public readonly maxTotalTokens: number;
+    public readonly toolCallsExecuted: number;
+    public readonly iterationTimings: Array<{
+      iteration: number;
+      llmMs: number;
+      parseMs: number;
+      toolsMs: number;
+      toolCalls: number;
+      totalMs: number;
+      tools: Array<{ toolName: string; elapsedMs: number }>;
+    }>;
+    public readonly lastAssistantContent: string;
+    constructor(input: {
+      maxTotalTokens: number;
+      toolCallsExecuted: number;
+      iterationTimings: Array<{
+        iteration: number;
+        llmMs: number;
+        parseMs: number;
+        toolsMs: number;
+        toolCalls: number;
+        totalMs: number;
+        tools: Array<{ toolName: string; elapsedMs: number }>;
+      }>;
+      lastAssistantContent: string;
+    }) {
+      super(`ReAct loop exceeded token budget (${input.maxTotalTokens})`);
+      this.name = "TokenBudgetExceededError";
+      this.maxTotalTokens = input.maxTotalTokens;
+      this.toolCallsExecuted = input.toolCallsExecuted;
+      this.iterationTimings = input.iterationTimings;
+      this.lastAssistantContent = input.lastAssistantContent;
+    }
+  }
   return {
     QwenCompatibleClient: vi.fn(function(this: Record<string, unknown>) {
       this.callWithTools = mockCallWithTools;
     }),
     QwenCompatibleClientConfig: {} as never,
     MaxToolIterationsExceededError,
+    TokenBudgetExceededError,
   };
 });
 

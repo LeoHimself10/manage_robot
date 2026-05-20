@@ -31,6 +31,17 @@ describe("resolveDraftForOutbound", () => {
     expect(result.persistedDraft).toEqual(baseDraft);
   });
 
+  it("clears persisted draft after start_new_task when post is undefined", () => {
+    const result = resolveDraftForOutbound({
+      preTurnDraft: baseDraft,
+      postTurnDraft: undefined,
+      toolInvocationNames: ["start_new_task"],
+    });
+    expect(result.draftTouchedThisTurn).toBe(false);
+    expect(result.draftForRender).toBeUndefined();
+    expect(result.persistedDraft).toBeUndefined();
+  });
+
   it("renders when orchestrator returns draft JSON", () => {
     const newDraft = {
       title: "新",

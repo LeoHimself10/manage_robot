@@ -3,6 +3,7 @@ import type { QwenCompatibleClientConfig } from "./demo/qwen-compatible-client";
 import {
   MaxToolIterationsExceededError,
   QwenCompatibleClient,
+  TokenBudgetExceededError,
 } from "./demo/qwen-compatible-client";
 import { coerceLlmPlanPayload } from "./demo/llm-schema";
 import { buildToolRegistry, type ToolProfile } from "./tools/registry";
@@ -189,9 +190,13 @@ export async function runOrchestrator(
       `candidatePool: ${safeJson(config.sessionContext.candidatePool)} | 本 plan 的指派只能在 entries[*].userId 中选；search_employees 已自动收窄到池内。`,
     );
   }
-  if (shouldInjectPostClarifyDraftHint(config.sessionContext, userMessage)) {
+  if (shouldInjectExplicitDraftRequestHint(userMessage)) {
     memoryParts.push(
-      "postClarifyDraftAction: 用户已在 CLARIFY 后大段补充；本轮走 DRAFT，遵守 system 中 DRAFT 四段 message + draft.title/description，禁止空 message。",
+      "explicitDraftRequest: 用户明确要求生成草案。本轮**必须**走 DRAFT：顶层 message（四段）+ JSON draft（含 title/description/tasks[]）。**禁止** search_employees、prepare_publish_task、publish_task（除非用户另句明确点将或可发布）。**禁止**仅 message 无 draft。",
+    );
+  } else if (shouldInjectPostClarifyDraftHint(config.sessionContext, userMessage)) {
+    memoryParts.push(
+      "postClarifyDraftAction: 用户已在 CLARIFY 后大段补充；本轮走 DRAFT，遵守 system 中 DRAFT 四段 message + draft.title/description/tasks[]，禁止空 message。",
     );
   }
   if (
@@ -240,13 +245,10 @@ export async function runOrchestrator(
       maxTotalTokens: Number(process.env.AGENT_MAX_TOTAL_TOKENS ?? "12000"),
     });
   } catch (err) {
-    if (err instanceof MaxToolIterationsExceededError) {
-      // 抢救：把客户端记录的工具序列 / 已经"溢出"的中间内容 / 上次会话草案，统一回填给上层，
-      // 避免用户看到一句空洞的"流程中断"。
+    if (err instanceof MaxToolIterationsExceededError || err instanceof TokenBudgetExceededError) {
       const toolNames = err.iterationTimings.flatMap((it) =>
         (it.tools ?? []).map((t) => t.toolName),
       );
-      // 模型若在最后一轮 inline 给了内容，且能解析出 draft，就把 draft 抢救出来
       let salvagedDraft: Record<string, unknown> | undefined = savedDraft;
       let salvagedMessage = err.lastAssistantContent.trim();
       if (salvagedMessage && !salvagedDraft) {
@@ -267,8 +269,11 @@ export async function runOrchestrator(
           // 不是 JSON，直接作为自然语言抢救输出
         }
       }
+      const eventName = err instanceof TokenBudgetExceededError
+        ? "orchestrator_token_budget_exceeded"
+        : "orchestrator_max_turns_exceeded";
       logStructured({
-        event: "orchestrator_max_turns_exceeded",
+        event: eventName,
         traceId,
         maxToolIterations,
         reason: err.message,
@@ -276,12 +281,15 @@ export async function runOrchestrator(
         toolInvocationNames: toolNames,
         hasPartialDraft: salvagedDraft !== undefined,
         hasSalvagedMessage: salvagedMessage.length > 0,
+        stagedForPublish: salvagedDraft ? isDraftStagedForPublish(salvagedDraft) : false,
       });
-      const fallbackMessage = salvagedMessage
-        ? salvagedMessage
-        : buildOrchestratorIterationLimitMessage(userMessage, {
-            hasPartialDraft: salvagedDraft !== undefined,
-          });
+      const fallbackMessage = buildOrchestratorInterruptMessage({
+        userMessage,
+        salvagedMessage,
+        hasPartialDraft: salvagedDraft !== undefined,
+        stagedForPublish: salvagedDraft ? isDraftStagedForPublish(salvagedDraft) : false,
+        tokenBudgetExceeded: err instanceof TokenBudgetExceededError,
+      });
       return {
         messages: [fallbackMessage],
         draft: salvagedDraft,
@@ -320,6 +328,17 @@ export async function runOrchestrator(
     assignment = alignAssignmentTaskIds(assignment, draft);
   }
 
+  const draftLikeMessageWithoutJson =
+    !draft && msg.length > 0 && looksLikeDraftStyleMessage(msg);
+  if (draftLikeMessageWithoutJson) {
+    logStructured({
+      event: "orchestrator_draft_message_without_json",
+      traceId,
+      messageChars: msg.length,
+      messagePreview: msg.slice(0, 200),
+    });
+  }
+
   logStructured({
     event: "orchestrator_done",
     traceId,
@@ -334,6 +353,7 @@ export async function runOrchestrator(
     hasPublishResult: publishResult !== undefined,
     messageChars: msg.length,
     messagePreview: msg.slice(0, 200),
+    draftLikeMessageWithoutJson,
   });
 
   return {
@@ -357,6 +377,19 @@ function safeJson(input: unknown): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const EXPLICIT_DRAFT_REQUEST_RE =
+  /请?\s*生成(正式)?草案|出草案|生成任务表|出任务表/i;
+
+/** 用户短句明确要求生成草案（如「请生成草案」）。 */
+export function shouldInjectExplicitDraftRequestHint(userMessage: string): boolean {
+  return EXPLICIT_DRAFT_REQUEST_RE.test(String(userMessage ?? "").trim());
+}
+
+function looksLikeDraftStyleMessage(message: string): boolean {
+  const text = String(message ?? "");
+  return /已采纳要点|拆解逻辑|阅读导览/.test(text);
 }
 
 /** 用户在上轮追问后做了实质性补充、且会话尚无草案 → 注入 DRAFT 强提示。 */
@@ -526,18 +559,29 @@ function normalizeConversationHistoryForModel(
 }
 
 /**
- * 编排轮次用尽时的用户可见说明：必须是「技术性中断」，不得伪装成「用户未提供信息」，
- * 否则会在用户已补充答案时表现为「失忆」。
+ * 编排轮次用尽 / token 预算触顶时的用户可见说明：必须是「技术性中断」，不得伪装成「用户未提供信息」。
  */
-function buildOrchestratorIterationLimitMessage(
-  userMessage: string,
-  options: { hasPartialDraft: boolean },
-): string {
-  const preview = userMessage.trim().slice(0, 400);
+function buildOrchestratorInterruptMessage(input: {
+  userMessage: string;
+  salvagedMessage: string;
+  hasPartialDraft: boolean;
+  stagedForPublish: boolean;
+  tokenBudgetExceeded: boolean;
+}): string {
+  if (input.salvagedMessage) return input.salvagedMessage;
+  if (input.stagedForPublish) {
+    return (
+      "**发布预检已完成**（尚未正式发布）。请核对下方任务表与负责人；确认无误后回复「**确认发布**」。"
+    );
+  }
+  const preview = input.userMessage.trim().slice(0, 400);
+  const reason = input.tokenBudgetExceeded
+    ? "本轮对话 token 预算已用尽"
+    : "本轮已达到编排工具轮次上限";
   const parts = [
-    "**说明**：本轮已达到编排工具轮次上限（模型在多轮工具调用后仍未给出最终 JSON）。这是**流程中断**，不是你没有提供信息。",
+    `**说明**：${reason}（模型在多轮工具调用后仍未给出最终 JSON）。这是**流程中断**，不是你没有提供信息。`,
   ];
-  if (options.hasPartialDraft) {
+  if (input.hasPartialDraft) {
     parts.push(
       "已通过工具暂存了**部分草案**；请在下一条直接发「**继续**」或「**继续生成草案**」，我会在同一会话里接着补全。",
     );
@@ -547,7 +591,7 @@ function buildOrchestratorIterationLimitMessage(
   if (preview.length > 0) {
     parts.push(
       "",
-      `你刚发送的内容（节选）：${preview}${userMessage.trim().length > 400 ? "…" : ""}`,
+      `你刚发送的内容（节选）：${preview}${input.userMessage.trim().length > 400 ? "…" : ""}`,
     );
   }
   return parts.join("\n\n");
