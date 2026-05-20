@@ -24,20 +24,15 @@ import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import { runOrchestrator } from "./agent/orchestrator";
 import {
-  buildPublishRetryUserMessage,
   buildScopeSwitchRetryUserMessage,
   buildTopicSwitchRetryUserMessage,
   detectFalsePublish,
   detectFalsePublishOnConfirm,
   detectFalseScopeSwitch,
   detectTopicSwitchWithoutArchive,
-  formatAuthoritativePublishBlockedNotice,
-  isPublishConfirmUserMessage,
+  formatFalsePublishObservedNotice,
 } from "./agent/publish-staging";
-import {
-  publishResultSucceeded,
-  runAuthoritativePublishOnConfirm,
-} from "./agent/authoritative-publish";
+import { publishResultSucceeded } from "./agent/publish-helpers";
 import { buildToolRegistry } from "./agent/tools/registry";
 import {
   isDingtalkRoleRoutingEnabled,
@@ -735,7 +730,7 @@ async function main(): Promise<void> {
             latestDraft: session.latestDraft,
             latestAssignment: session.latestAssignment,
             memorySummary: memoryContext.summary || buildMemorySummary(session),
-            memoryFacts: [...memoryContext.facts, ...mutableKnownFacts].slice(0, 8),
+            memoryFacts: [...mutableKnownFacts].slice(0, 8),
             currentTimeIso: new Date().toISOString(),
             pendingRoster: session.pendingRosterText
               ? {
@@ -821,7 +816,7 @@ async function main(): Promise<void> {
           }
         }
 
-        // 假发布：主管确认发布但模型未调 publish_task 却口播「已发布」→ 重试一轮。
+        // 假发布观测：主管确认发布但模型未调 publish_task 却口播「已发布」→ 审计 + 用户提示，不替模型重试。
         {
           const initialOutbound = orchResult.messages.join("\n\n");
           const falsePublish =
@@ -841,27 +836,12 @@ async function main(): Promise<void> {
             });
           if (falsePublish) {
             logStructured({
-              event: "false_publish_detected",
+              event: "false_publish_observed",
               messageId,
               traceId: orchResult.traceId,
               planId: session.planId,
               initialMessagePreview: initialOutbound.slice(0, 160),
             });
-            const retryStartedAt = Date.now();
-            const retryBackground = buildPublishRetryUserMessage(background, session.planId);
-            const retryResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
-            orchestratorMs += Date.now() - retryStartedAt;
-            logStructured({
-              event: "false_publish_retry_done",
-              messageId,
-              traceId: retryResult.traceId,
-              retriedToolNames: [...(retryResult.toolInvocationNames ?? [])],
-              hasPublishResult: publishResultSucceeded(retryResult.publishResult as Record<string, unknown> | undefined),
-            });
-            orchResult = retryResult;
-            if (retryResult.publishResult) {
-              publishResult = retryResult.publishResult;
-            }
           }
         }
 
@@ -990,69 +970,6 @@ async function main(): Promise<void> {
         }
         const assignmentMs = Date.now() - assignmentStartedAt;
 
-        // 主管「确认发布」：由服务端执行 prepare + publish，不以模型口播为准。
-        let authoritativePublishNotice = "";
-        if (
-          !isAnonymousSender &&
-          isPublishConfirmUserMessage(background) &&
-          (routing.toolProfile === "manager" || routing.toolProfile === "admin") &&
-          !publishResultSucceeded(publishResult as Record<string, unknown> | undefined)
-        ) {
-          const sessionForPublish = {
-            ...session,
-            latestDraft: (persistedDraft ?? session.latestDraft) as PlanSession["latestDraft"],
-            latestAssignment,
-          };
-          const publishRegistry = buildToolRegistry({
-            employeeRepo,
-            toolProfile: routing.toolProfile,
-            trustedActorUserId: routing.trustedActorUserId,
-            knownFactsStore,
-            currentSessionPlanId: session.planId,
-            currentSession: sessionForPublish,
-            publishRecentStore,
-            actorName: (payload.senderNick as string | undefined)?.trim(),
-            actorRole:
-              routing.resolvedRole === "admin"
-                ? "admin"
-                : routing.resolvedRole === "manager"
-                  ? "manager"
-                  : "employee",
-            onPublishTaskResult: (result: Record<string, unknown>) => {
-              publishResult = result;
-            },
-          });
-          const authStartedAt = Date.now();
-          const authOutcome = await runAuthoritativePublishOnConfirm({
-            session: sessionForPublish,
-            userMessage: background,
-            prepareHandler: publishRegistry.prepare_publish_task.handler,
-            publishHandler: publishRegistry.publish_task.handler,
-          });
-          session.latestDraft = sessionForPublish.latestDraft;
-          session.latestAssignment = sessionForPublish.latestAssignment;
-          logStructured({
-            event: "authoritative_publish_on_confirm",
-            messageId,
-            traceId: orchResult.traceId,
-            planId: session.planId,
-            durationMs: Date.now() - authStartedAt,
-            skippedReason: authOutcome.skippedReason,
-            prepareOk: String(authOutcome.prepareResult?.ok ?? "") === "true",
-            publishOk: publishResultSucceeded(authOutcome.publishResult),
-          });
-          if (authOutcome.publishResult) {
-            publishResult = authOutcome.publishResult;
-          }
-          if (!publishResultSucceeded(publishResult as Record<string, unknown> | undefined)) {
-            authoritativePublishNotice = formatAuthoritativePublishBlockedNotice({
-              skippedReason: authOutcome.skippedReason,
-              prepareResult: authOutcome.prepareResult,
-              publishResult: authOutcome.publishResult,
-            });
-          }
-        }
-
         let planRotatedAfterPublish = false;
         let rotatePlanHintTail = "";
         const pr = publishResult as Record<string, unknown> | undefined;
@@ -1107,14 +1024,31 @@ async function main(): Promise<void> {
           appendStructuredTaskTable &&
           Array.isArray((draftForRender as { tasks?: unknown[] })?.tasks) &&
           ((draftForRender as { tasks: unknown[] }).tasks?.length ?? 0) > 0;
-        if (authoritativePublishNotice) {
-          outboundMarkdown = `${outboundMarkdown.trim()}\n\n${authoritativePublishNotice}`;
+        if (
+          !publishResultSucceeded(publishResult as Record<string, unknown> | undefined)
+          && (detectFalsePublish({
+            userMessage: background,
+            preTurnLatestDraft: preTurnDraft,
+            toolInvocationNames: orchResult.toolInvocationNames ?? [],
+            hasPublishResult: false,
+            outboundMarkdown: outboundMarkdown,
+          })
+            || detectFalsePublishOnConfirm({
+              userMessage: background,
+              preTurnLatestDraft: preTurnDraft,
+              toolInvocationNames: orchResult.toolInvocationNames ?? [],
+              hasPublishResult: false,
+              outboundMarkdown: outboundMarkdown,
+            }))
+        ) {
+          outboundMarkdown = `${outboundMarkdown.trim()}${formatFalsePublishObservedNotice()}`;
         }
         // 正确拼接顺序（renderDingtalkTaskMarkdown 内部保证）：
         //   富字段段 → 分配建议 → 发布回执 → 轮转提示
         const finalOutboundForHistory = renderDingtalkTaskMarkdown({
           modelMessage: outboundMarkdown,
           currentDraft: draftForRender,
+          latestAssignment,
           shouldRenderRichSection,
           appendStructuredTaskTable,
           onModelDrewTable: () => {

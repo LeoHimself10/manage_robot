@@ -1,5 +1,12 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 import type { PlanSession } from "../../infra/plan-session-store";
+import {
+  getEmployeeSearchHit,
+  isRawUserIdToken,
+  isUserIdAllowedForAssignment,
+  resolveCollaboratorToken,
+} from "../employee-search-cache";
+import { stripPlanningPersonFieldsFromTask } from "../draft-person-fields";
 
 const EXTRA_LIST_MAX_ITEMS = 10;
 const EXTRA_ITEM_MAX_CHARS = 200;
@@ -16,12 +23,42 @@ function normalizePatchStringList(input: unknown): string[] {
   return out;
 }
 
+function upsertAssignmentRow(
+  session: PlanSession,
+  taskId: string,
+  patch: {
+    assigneeUserId?: string;
+    assigneeDisplayName?: string;
+    collaborators?: string[];
+  },
+): void {
+  const assignment = (session.latestAssignment as
+    | { assignments?: Array<Record<string, unknown>> }
+    | undefined) ?? {};
+  const assignments = Array.isArray(assignment.assignments) ? [...assignment.assignments] : [];
+  let row = assignments.find((a) => String(a.taskId ?? "") === taskId);
+  if (!row) {
+    row = { taskId, primary: {}, confidence: "HIGH" };
+    assignments.push(row);
+  }
+  if (patch.assigneeUserId) {
+    const primary = (row.primary as Record<string, unknown> | undefined) ?? {};
+    primary.userId = patch.assigneeUserId;
+    if (patch.assigneeDisplayName) primary.displayName = patch.assigneeDisplayName;
+    row.primary = primary;
+  }
+  if (patch.collaborators !== undefined) {
+    row.collaborators = patch.collaborators;
+  }
+  session.latestAssignment = { ...assignment, assignments } as Record<string, unknown>;
+}
+
 export const UPDATE_DRAFT_TASK_TOOL: ToolDefinition = {
   type: "function",
   function: {
     name: "update_draft_task",
     description:
-      "在当前 session.latestDraft 中原地修改单个子任务的字段（title/objective/dueAt/assigneeUserId/dependencyTaskIds/checkpoints/risks/inputMaterials/actions/collaborators/scope）。用于局部修改，**避免重新生成整张草案**而触发主题串台。数组类字段为**整表替换**：须先基于当前草案合并后再提交完整数组；**例外**：`scope` 仅可传 `{ inScope?, outOfScope? }` 的一边或两边，未出现的键保留原值。assigneeUserId 必须是 dingtalk_contacts 里的真实在职 userId。",
+      "在当前 session.latestDraft 中原地修改单个子任务的字段（title/objective/dueAt/dependencyTaskIds/checkpoints/risks/inputMaterials/actions/scope）；**负责人/协作人**通过 patch.assigneeUserId / patch.collaborators 写入 latestAssignment（scheme C，不写进 draft.tasks）。用于局部修改，**避免重新生成整张草案**而触发主题串台。数组类字段为**整表替换**：须先基于当前草案合并后再提交完整数组；**例外**：`scope` 仅可传 `{ inScope?, outOfScope? }` 的一边或两边，未出现的键保留原值。assigneeUserId 须来自本轮 search_employees 命中或 candidatePool。",
     parameters: {
       type: "object",
       properties: {
@@ -65,7 +102,7 @@ export const UPDATE_DRAFT_TASK_TOOL: ToolDefinition = {
             collaborators: {
               type: "array",
               items: { type: "string" },
-              description: "协作人/评审角色（整表替换）。",
+              description: "协作人 displayName（须 search 命中）；写入 latestAssignment，不写 draft。",
             },
             scope: {
               type: "object",
@@ -86,7 +123,7 @@ export const UPDATE_DRAFT_TASK_TOOL: ToolDefinition = {
 
 export interface BuildUpdateDraftTaskHandlerDeps {
   currentSession?: PlanSession;
-  getContact?: (userId: string) => { active?: boolean; unionId?: string } | undefined;
+  getContact?: (userId: string) => { active?: boolean; unionId?: string; name?: string } | undefined;
 }
 
 export function buildUpdateDraftTaskHandler(
@@ -114,7 +151,7 @@ export function buildUpdateDraftTaskHandler(
         ok: false,
         reason: "no_draft",
         hint:
-          "当前 scope 没有 latestDraft，无法局部修改。请先用 prepare_publish_task 或常规链路生成草案，再调用本工具。",
+          "当前 scope 没有 latestDraft，无法局部修改。请先用常规链路生成草案，再调用本工具。",
       };
     }
 
@@ -180,21 +217,66 @@ export function buildUpdateDraftTaskHandler(
       };
     }
 
-    if (patch.assigneeUserId && deps.getContact) {
-      const contact = deps.getContact(patch.assigneeUserId);
-      if (!contact || contact.active === false) {
+    let assigneeResolved: { userId: string; displayName: string; department?: string } | undefined;
+    if (patch.assigneeUserId) {
+      if (!isUserIdAllowedForAssignment(session, patch.assigneeUserId)) {
         return {
           ok: false,
-          reason: "unknown_assignee",
+          reason: "assignee_not_from_search",
           unknown: { subtaskId, assigneeUserId: patch.assigneeUserId },
           hint:
-            `assigneeUserId=${patch.assigneeUserId} 不在钉钉通讯录或已离职。` +
-            "请先调 search_employees 拿到真实 userId 再重试。",
+            `assigneeUserId=${patch.assigneeUserId} 不在本轮 search_employees 命中或 candidatePool 中。` +
+            "请先调 search_employees 拿到真实 userId 再重试；**禁止**编造姓名或从示例抄 ID。",
         };
+      }
+      if (deps.getContact) {
+        const contact = deps.getContact(patch.assigneeUserId);
+        if (!contact || contact.active === false) {
+          return {
+            ok: false,
+            reason: "unknown_assignee",
+            unknown: { subtaskId, assigneeUserId: patch.assigneeUserId },
+            hint:
+              `assigneeUserId=${patch.assigneeUserId} 不在钉钉通讯录或已离职。` +
+              "请先调 search_employees 拿到真实 userId 再重试。",
+          };
+        }
+      }
+      const hit = getEmployeeSearchHit(session, patch.assigneeUserId);
+      assigneeResolved = {
+        userId: patch.assigneeUserId,
+        displayName: hit?.displayName ?? deps.getContact?.(patch.assigneeUserId)?.name?.trim() ?? patch.assigneeUserId,
+        department: hit?.department,
+      };
+    }
+
+    let resolvedCollaborators: string[] | undefined;
+    if (patch.collaborators !== undefined) {
+      resolvedCollaborators = [];
+      for (const token of patch.collaborators) {
+        if (isRawUserIdToken(token) && !isUserIdAllowedForAssignment(session, token)) {
+          return {
+            ok: false,
+            reason: "collaborator_not_from_search",
+            hint: `协作人 ${token} 须来自 search_employees 命中；禁止 raw userId 或编造姓名。`,
+          };
+        }
+        const resolved = resolveCollaboratorToken(session, token);
+        if (!resolved) {
+          return {
+            ok: false,
+            reason: "collaborator_not_from_search",
+            hint: `协作人「${token}」须先 search_employees 命中后再写入；禁止编造。`,
+          };
+        }
+        if (!resolvedCollaborators.includes(resolved.displayName)) {
+          resolvedCollaborators.push(resolved.displayName);
+        }
       }
     }
 
     const target = draft.tasks[targetIdx] as Record<string, unknown>;
+    const targetTaskId = String(target.id ?? "");
     const updatedFields: string[] = [];
     if (patch.title) {
       target.title = patch.title;
@@ -210,22 +292,16 @@ export function buildUpdateDraftTaskHandler(
       target.timeNode = tn;
       updatedFields.push("dueAt");
     }
-    if (patch.assigneeUserId) {
-      const assignment = (session.latestAssignment as
-        | { assignments?: Array<Record<string, unknown>> }
-        | undefined) ?? {};
-      const assignments = Array.isArray(assignment.assignments) ? assignment.assignments : [];
-      const targetTaskId = String(target.id ?? "");
-      let row = assignments.find((a) => String(a.taskId ?? "") === targetTaskId);
-      if (!row) {
-        row = { taskId: targetTaskId, primary: {}, confidence: "HIGH" };
-        assignments.push(row);
-      }
-      const primary = (row.primary as Record<string, unknown> | undefined) ?? {};
-      primary.userId = patch.assigneeUserId;
-      row.primary = primary;
-      session.latestAssignment = { ...assignment, assignments } as Record<string, unknown>;
+    if (patch.assigneeUserId && assigneeResolved) {
+      upsertAssignmentRow(session, targetTaskId, {
+        assigneeUserId: assigneeResolved.userId,
+        assigneeDisplayName: assigneeResolved.displayName,
+      });
       updatedFields.push("assigneeUserId");
+    }
+    if (patch.collaborators !== undefined) {
+      upsertAssignmentRow(session, targetTaskId, { collaborators: resolvedCollaborators ?? [] });
+      updatedFields.push("collaborators");
     }
     if (patch.dependencyTaskIds !== undefined) {
       target.dependencyTaskIds = patch.dependencyTaskIds;
@@ -249,10 +325,6 @@ export function buildUpdateDraftTaskHandler(
       target.actions = patch.actions;
       updatedFields.push("actions");
     }
-    if (patch.collaborators !== undefined) {
-      target.collaborators = patch.collaborators;
-      updatedFields.push("collaborators");
-    }
     if (patch.scope !== undefined) {
       const cur = (target.scope as Record<string, unknown> | undefined) ?? {};
       const p = patch.scope;
@@ -267,13 +339,19 @@ export function buildUpdateDraftTaskHandler(
       updatedFields.push("scope");
     }
 
+    draft.tasks[targetIdx] = stripPlanningPersonFieldsFromTask(target);
+
     return {
       ok: true,
       subtaskId,
       updatedFields,
+      assignee: assigneeResolved,
       after: target,
       hint:
         `已更新 subtaskId=${subtaskId} 的 ${updatedFields.join(", ")}。` +
+        (assigneeResolved
+          ? `负责人：${assigneeResolved.displayName}${assigneeResolved.department ? `（${assigneeResolved.department}）` : ""}。`
+          : "") +
         "如需推送给员工，记得在后续轮次调用 prepare_publish_task → publish_task 重新发布或 reassign_task。",
     };
   };

@@ -40,9 +40,13 @@ export function buildUpdateEmployeeProfileHandler(
           })
         : {};
     const existed = peopleStore.getProfile(actorUserId);
+    const incomingTags = stringArray(args.skillTags);
+    const mergedTags = incomingTags.length > 0
+      ? Array.from(new Set([...(existed?.skillTags ?? []), ...incomingTags]))
+      : (existed?.skillTags ?? []);
     peopleStore.upsertProfile({
       userId: actorUserId,
-      skillTags: stringArray(args.skillTags),
+      skillTags: mergedTags,
       strengths: stringArray(args.strengths),
       boundaries: stringArray(args.boundaries),
       tools: stringArray(args.tools),

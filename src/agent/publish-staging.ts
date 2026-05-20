@@ -104,7 +104,15 @@ export function detectFalsePublishOnConfirm(input: FalsePublishDetectionInput): 
   return looksLikeFalsePublishClaim(input.outboundMarkdown);
 }
 
-/** 主管确认发布但服务端未能落库时的可读说明。 */
+/** 主管确认发布但 publish_task 未执行时的用户可见提示（非兜底，仅追加说明）。 */
+export function formatFalsePublishObservedNotice(): string {
+  return (
+    "\n\n⚠️ **系统提示**：上条消息提到「已发布」，但 `publish_task` 未执行，任务**未落库**。" +
+    "如确认发布请再次回复「确认发布」。"
+  );
+}
+
+/** @deprecated 已由 formatFalsePublishObservedNotice 取代；保留供测试迁移期引用。 */
 export function formatAuthoritativePublishBlockedNotice(input: {
   skippedReason?: string;
   prepareResult?: Record<string, unknown>;
@@ -131,7 +139,7 @@ export function formatAuthoritativePublishBlockedNotice(input: {
   if (skipped) {
     return `**尚未发布**：${skipped}。请在工作台核对或联系管理员。`;
   }
-  return "**尚未发布**：未收到发布成功回执。请勿将任务视为已派发。";
+  return formatFalsePublishObservedNotice().trim();
 }
 
 const FALSE_SCOPE_SWITCH_CLAIM =

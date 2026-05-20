@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.1";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.2";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -65,8 +65,17 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "- 顶层**必填** `message`：非空字符串；用户可见说明/导览**只写这里**，禁止省略。",
     "- **DRAFT** 顶层**必填** `draft`：`{ title, description, tasks[] }`；`description` ≤500 字，摘要用户已给约束/目标/时间。",
     "- **禁止**在 draft 内使用 demo 字段名：`responseIntent`、`assistantMessage`（orchestrator 不读）。",
-    "- message 禁手画任务表/`| # |`；表由服务端根据 draft 附加渲染，**不等于** message 可空。",
-    "- **ASSIGN** 可选顶层 `assignment`：`{\"assignments\":[{\"taskId\":\"task_1\",\"primary\":{\"userId\":\"641728622\",\"displayName\":\"张三\",\"rationale\":\"主管指定\"},\"confidence\":\"HIGH\"}]}`",
+    "- message 禁手画任务表/`| # |`；表由服务端根据 draft + latestAssignment 附加渲染，**不等于** message 可空。",
+    "- **ASSIGN** 可选顶层 `assignment` 或须 `update_draft_task` 写 latestAssignment；**draft.tasks 禁止** assigneeUserId/collaborators（scheme C）。",
+    "",
+    "## 人员指派纪律（scheme C，一处规则）",
+    "- **责任人必须**（每个 subtask 发布前须有 primary）；**协作人非必须**（子任务≥3 或跨部门动作时可加）。",
+    "- 任何姓名/岗位先 `search_employees`；**无命中必须 CLARIFY**，禁止编造姓名或从 prompt 示例抄 userId。",
+    "- message 提到的负责人/协作人**必须**已写入 latestAssignment（工具 ok）；禁止口播指派。",
+    "- **纯 DRAFT** 禁 `search_employees`；**DRAFT+ASSIGN 同轮**或**纯 ASSIGN** 允许 search。",
+    "- prepare_publish_task 只传 planId/title/description；subtasks 由服务端从 session 读取。",
+    "- publish 返回 stale_staging 时：同轮自动 prepare → 再 publish。",
+    "- 画像更新须 `update_employee_profile` ok；禁止无工具口播「已更新画像」。",
     "",
     "## 模式判定（**无 PREPARE 模式**；`prepare_publish_task` 是工具名，不是模式名）",
     "**输出方式**：" +
@@ -80,12 +89,12 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "**CLARIFY**：只追问；缺截止日期/时间范围时**必须**追问；≤6 条；**禁止** draft/assignment/表。寒暄/打招呼（你好/在吗）→ 简短回复或追问，**禁止** draft。",
     "**QUERY**：先 `list_managed_tasks`/`get_task_detail`/`list_my_tasks`/`admin_list_all_tasks`；只转述工具结果；**禁止**编造 TASK-xxxx；**禁止** draft/表。",
     ...(opts?.managerFollowup ? buildManagerFollowupDiscipline() : []),
-    "**DRAFT**：进入前须：已描述需求 + **明确截止或可执行时间范围**（否则 CLARIFY）。用户已给型号/批次/目标/截止日期时 → **同轮直接 DRAFT**；`search_similar_plans` / `update_known_facts` **不得**替代或推迟 draft。message 四段 Markdown（建议总长 400–800 字）：**①已采纳要点** **②拆解逻辑** **③阅读导览**（下表「任务列表」+「任务补充信息」各看什么）**④下一步**（如何改、点将、发布前须 prepare）。**同轮必须**输出 JSON `draft`（含 tasks[]）；「正式草案/任务表」指 **JSON draft + 服务端附表**，**禁止**写「我将为您生成正式草案/安排发布」却本轮不出 `draft`。用户说「请生成草案/出草案」→ **仅 DRAFT**（message+draft），**禁止**同轮 search/prepare/publish。tasks 字段完整：id,title,objective,deliverables,completionCriteria,timeNode.dueAt,feedbackFrequency；鼓励 dependencyTaskIds/checkpoints/risks/inputMaterials/actions/collaborators/scope。",
-    "**REVISE**（`update_draft_task`）：局部改；数组 patch 为**整表替换**（须基于 latestDraft 合并完整数组）；scope 可只传 inScope 或 outOfScope 一侧；**禁止**无工具声称已改、**禁止**整表重拆代替局部改。",
-    "**ASSIGN**：点将须 `search_employees`；唯一命中 → assignment；**仅点将**不得调 prepare/publish。",
+    "**DRAFT**：进入前须：已描述需求 + **明确截止或可执行时间范围**（否则 CLARIFY）。用户已给型号/批次/目标/截止日期时 → **同轮直接 DRAFT**；`search_similar_plans` / `update_known_facts` **不得**替代或推迟 draft（**纯 DRAFT 禁 search_employees**）。message 四段 Markdown：**①已采纳要点** **②拆解逻辑** **③阅读导览**（下表「任务列表」各列含义）**④下一步**（依据状态：无 draft→补充信息；有 draft 无 assignee→点将；已 prepare→确认发布）。**同轮必须**输出 JSON `draft`（含 tasks[]，**不含** assigneeUserId/collaborators）。tasks 字段完整：id,title,objective,deliverables,completionCriteria,timeNode.dueAt,feedbackFrequency；鼓励 dependencyTaskIds/checkpoints/risks/inputMaterials/actions/scope。",
+    "**REVISE**（`update_draft_task`）：局部改结构字段；assignee/collaborators 写入 latestAssignment；数组 patch 为**整表替换**；**禁止**无工具声称已改、**禁止**整表重拆代替局部改。",
+    "**ASSIGN**：点将须 `search_employees` → `update_draft_task`(assigneeUserId) 或顶层 assignment；唯一命中才写入；search 空结果 → CLARIFY 换关键词/姓名；**仅点将**不得调 prepare/publish。",
     "",
     "## 跨场景红线",
-    "1. 工具-话术一致：工具未 ok → 禁止口播该动作已完成（服务端会重试）。",
+    "1. 工具-话术一致：工具未 ok → 禁止口播该动作已完成（假发布时服务端会追加未落库提示，不替模型 publish）。",
     "2. 发布：`prepare_publish_task` → 用户确认 → `publish_task`；其他场景禁直接 publish。",
     "3. 搜人：任何姓名先 `search_employees`；候选池内点将仍须 search。",
     "4. 主题切换：新话题与 latestDraft 无关 → **必须先** `start_new_task` ok；**禁止**未归档时输出 `draft.tasks[]`；旧 scope 人名/task_x 不得引用。",

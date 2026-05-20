@@ -70,17 +70,8 @@ export function executeReassignWithSideEffects(
       ? { subtaskId: input.subtaskId?.trim(), scope: "subtask" as const }
       : { scope: "plan" as const }),
   };
-  // 单子任务改派只动一行，整 plan 的 latestAssignment 第一项替换是误导，故保持原值；
-  // 整 plan 改派时按原逻辑同步把 latestAssignment 主要负责人替换为新人。
-  const nextLatestAssignment = scopeIsSingleSubtask
-    ? targetSession.latestAssignment
-    : deps.patchLatestAssignmentAssignee(
-        targetSession.latestAssignment,
-        input.assigneeUserId,
-      );
   deps.planSessionStore.save({
     ...targetSession,
-    latestAssignment: nextLatestAssignment,
     revisionEvents: [...(targetSession.revisionEvents ?? []), eventRecord].slice(-60),
   });
   deps.planSessionStore.appendEvent({

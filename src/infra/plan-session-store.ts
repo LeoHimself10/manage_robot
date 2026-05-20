@@ -93,6 +93,13 @@ export interface PlanSession {
   pendingRosterText?: string;
   /** pendingRosterText 的来源标签（如 "uploaded:roster.md" / "dingtalk_file:abc.pdf"）。 */
   pendingRosterSource?: string;
+  /** search_employees 命中缓存；ASSIGN 阶段 update_draft_task 校验 assignee 来源。plan rotate 时清空。 */
+  lastEmployeeSearchHits?: Array<{
+    userId: string;
+    displayName: string;
+    department?: string;
+    hitAt: string;
+  }>;
 }
 
 export function resolvePlanSessionDir(): string {
@@ -203,6 +210,7 @@ export function startNewTaskScope(
   session.candidatePool = undefined;
   session.pendingRosterText = undefined;
   session.pendingRosterSource = undefined;
+  session.lastEmployeeSearchHits = [];
   // 清空对话历史，防止模型将上一条任务的人名/编号/上下文带入新任务。
   // 保留单条 [system_note] 作为 scope 边界锚点，让模型知道自己已切换到新任务。
   const clearedHistoryEntries = session.conversationHistory.length;

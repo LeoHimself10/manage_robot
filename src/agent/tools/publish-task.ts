@@ -2,6 +2,7 @@ import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client
 import type { PlanSession } from "../../infra/plan-session-store";
 import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
 import type { WorkbenchSubtaskRow } from "../../infra/workbench-formal-task-store";
+import { isStagingStale } from "../publish-helpers";
 
 type SubtaskRichFields = Pick<WorkbenchSubtaskRow, "dependsOn" | "checkpoints" | "risks" | "inputMaterials" | "actions" | "collaborators" | "inScope" | "outOfScope">;
 
@@ -142,6 +143,15 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
     }
     const session = deps.currentSession;
     if (!session) throw new Error("session_not_found");
+
+    if (isStagingStale(session)) {
+      return {
+        ok: false,
+        reason: "stale_staging",
+        hint:
+          "草案或负责人指派在 prepare 之后已变更。请先调用 prepare_publish_task 重新暂存，待主管再次确认后再 publish_task。",
+      };
+    }
 
     let published: ReturnType<PublishFromSessionFn>;
     try {

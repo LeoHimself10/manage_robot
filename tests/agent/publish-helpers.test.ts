@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildPreparePublishArgsFromSession } from "../../src/agent/authoritative-publish";
+import { buildPreparePublishArgsFromSession } from "../../src/agent/publish-helpers";
 import type { PlanSession } from "../../src/infra/plan-session-store";
 
-describe("authoritative-publish", () => {
+describe("publish-helpers", () => {
   it("buildPreparePublishArgsFromSession merges draft and assignment", () => {
     const session: PlanSession = {
       chatKeyHash: "h",

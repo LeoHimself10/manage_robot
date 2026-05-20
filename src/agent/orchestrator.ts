@@ -18,6 +18,7 @@ import type { KnownFactsStore } from "./tools/update-known-facts";
 import type { PlanSession } from "../infra/plan-session-store";
 import type { PublishTaskRecentStore } from "./tools/publish-task";
 import { preserveOrchestratorDraftScalars } from "./draft-merge";
+import { stripPlanningPersonFieldsFromDraft } from "./draft-person-fields";
 import {
   isDraftStagedForPublish,
   shouldInjectPublishStagingMemoryHint,
@@ -322,7 +323,7 @@ export async function runOrchestrator(
     : undefined;
   let draft: Record<string, unknown> | undefined = savedDraft ?? payloadDraft;
   if (draft) {
-    draft = stabilizeDraftTaskIds(draft, previousDraft);
+    draft = stripPlanningPersonFieldsFromDraft(stabilizeDraftTaskIds(draft, previousDraft));
   }
   if (assignment && draft) {
     assignment = alignAssignmentTaskIds(assignment, draft);

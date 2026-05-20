@@ -4,6 +4,7 @@ import {
   GET_EMPLOYEE_DETAILS_TOOL,
   buildSearchEmployeesHandler,
   buildGetEmployeeDetailsHandler,
+  type SearchEmployeesResult,
 } from "../assignment/tools/search-employees";
 import type { EmployeeProfileRecord } from "../../integrations/repos/employee-profile-repo";
 import { SEARCH_WEB_TOOL, buildSearchWebHandler } from "./search-web";
@@ -106,6 +107,7 @@ import { createEmployeeProfileRepo } from "../../integrations/repos/employee-pro
 import { resolveEmployeeProfileDir } from "../../infra/assignment-env";
 import type { PlanSession } from "../../infra/plan-session-store";
 import { logStructured } from "../../infra/logger";
+import { recordSearchHitsFromCandidates } from "../employee-search-cache";
 
 export interface ToolRegistryEntry {
   definition: ToolDefinition;
@@ -214,16 +216,42 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
 
   const searchQuotaState = { exhausted: false };
 
+  const baseSearchEmployeesHandler = buildSearchEmployeesHandler(employeeRepoResolved, {
+    actorUserId: trustedActor,
+    candidatePool: candidatePoolReader,
+    onQuotaExhausted: () => {
+      searchQuotaState.exhausted = true;
+    },
+  });
+
   const all: Record<string, ToolRegistryEntry> = {
     search_employees: {
       definition: SEARCH_EMPLOYEES_TOOL,
-      handler: buildSearchEmployeesHandler(employeeRepoResolved, {
-        actorUserId: trustedActor,
-        candidatePool: candidatePoolReader,
-        onQuotaExhausted: () => {
-          searchQuotaState.exhausted = true;
-        },
-      }),
+      handler: (args: Record<string, unknown>) => {
+        const result = baseSearchEmployeesHandler(args) as SearchEmployeesResult & {
+          ok?: false;
+          candidates?: string[];
+        };
+        if (
+          deps.currentSession
+          && result
+          && String((result as { ok?: unknown }).ok ?? "") !== "false"
+          && Array.isArray(result.candidates)
+          && result.candidates.length > 0
+        ) {
+          recordSearchHitsFromCandidates(
+            deps.currentSession,
+            result.candidates,
+            (userId) => {
+              const c = peopleStore.getContact(userId);
+              return c
+                ? { name: c.name, departmentNames: c.departmentNames }
+                : undefined;
+            },
+          );
+        }
+        return result;
+      },
     },
     get_employee_details: {
       definition: GET_EMPLOYEE_DETAILS_TOOL,
