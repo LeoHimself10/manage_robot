@@ -5,9 +5,9 @@ import {
 } from "../../../src/agent/demo/qwen-prompt";
 
 describe("buildQwenPlannerSystemPrompt", () => {
-  it("v5.23.0: JSON contract, modes, no PREPARE mode", () => {
+  it("v5.23.1: JSON contract, modes, no PREPARE mode", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.23.0");
+    expect(sys).toContain("orchestrator-agent-v5.23.1");
     expect(sys).toContain("请生成草案");
     expect(sys).toContain("禁止**写「我将为您生成正式草案");
     expect(sys).toContain("## 输出 JSON 契约");
@@ -26,7 +26,11 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("PUBLISH");
     expect(sys).toContain("**REVISE**");
     expect(sys).toContain("prepare_publish_task");
-    expect(sys).toContain("服务端兜底落库");
+    expect(sys).toContain("须 `publish_task` ok");
+    expect(sys).toContain("不是** tool_calls 函数名");
+    expect(sys).toContain("同轮直接 DRAFT");
+    expect(sys).toContain("tool_calls 调用 CLARIFY/DRAFT/QUERY 等模式名");
+    expect(sys).not.toContain("服务端兜底落库");
     expect(sys).toContain("示例2 CLARIFY→DRAFT");
     expect(sys).toContain("示例5 PUBLISH");
     expect(sys).not.toContain("发布纪律");
@@ -45,7 +49,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys.length).toBeLessThanOrEqual(5500);
   });
 
-  it("v5.23.0: managerFollowup injects FOLLOWUP with continuous step ③", () => {
+  it("v5.23.1: managerFollowup injects FOLLOWUP with continuous step ③", () => {
     const sys = buildQwenPlannerSystemPrompt("planner", { managerFollowup: true });
     expect(sys).toContain("③ 否 → 用户是否要求跟进");
     expect(sys).not.toContain("③ 否 → ④ 否 → 用户是否要求跟进");
@@ -55,7 +59,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("示例6 FOLLOWUP");
   });
 
-  it("v5.23.0: tools and key disciplines", () => {
+  it("v5.23.1: tools and key disciplines", () => {
     const sys = buildQwenPlannerSystemPrompt();
     expect(sys).toContain("search_employees");
     expect(sys).toContain("update_draft_task");
@@ -68,7 +72,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
 describe("buildQwenPlannerSystemPrompt employee profile", () => {
   it("requires get_task_detail for overall task background questions", () => {
     const sys = buildQwenPlannerSystemPrompt("employee");
-    expect(sys).toContain("orchestrator-agent-v5.23.0-employee");
+    expect(sys).toContain("orchestrator-agent-v5.23.1-employee");
     expect(sys).toContain("任务整体背景纪律");
     expect(sys).toContain("get_task_detail");
   });

@@ -547,19 +547,30 @@ export class QwenCompatibleClient {
           });
 
           const preparedCalls = msg.tool_calls.map((tc) => {
-            const handler = request.toolHandlers[tc.function.name];
-            if (!handler) {
-              throw new Error(`No handler for tool: ${tc.function.name}`);
-            }
+            const toolName = tc.function.name;
             let parsedArgs: Record<string, unknown> = {};
             try {
-              parsedArgs = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
+              parsedArgs = JSON.parse(tc.function.arguments || "{}") as Record<
+                string,
+                unknown
+              >;
             } catch {
               throw new Error(
-                `Invalid JSON in tool_call arguments for ${tc.function.name}: ${tc.function.arguments}`
+                `Invalid JSON in tool_call arguments for ${toolName}: ${tc.function.arguments}`,
               );
             }
-            return { tc, handler, parsedArgs };
+            const handler = request.toolHandlers[toolName];
+            if (handler) {
+              return { tc, handler, parsedArgs };
+            }
+            if (isOrchestratorPseudoModeToolName(toolName)) {
+              return {
+                tc,
+                handler: async () => buildModeNotAToolResult(toolName),
+                parsedArgs,
+              };
+            }
+            throw new Error(`No handler for tool: ${toolName}`);
           });
           parseMs = Date.now() - parseStartedAt;
 
@@ -938,4 +949,34 @@ export function sleepWithJitter(
 
 function isParallelSafeTool(toolName: string): boolean {
   return toolName !== "update_known_facts" && toolName !== "save_draft";
+}
+
+/** Prompt 模式标签；模型误当作 tool_calls 时由 ReAct 层返回结构化错误，不中断会话。 */
+export const ORCHESTRATOR_PSEUDO_MODE_TOOL_NAMES = new Set([
+  "CLARIFY",
+  "QUERY",
+  "DRAFT",
+  "ASSIGN",
+  "PUBLISH",
+  "FOLLOWUP",
+  "PREPARE",
+  "REVISE",
+]);
+
+export function buildModeNotAToolResult(modeLabel: string): {
+  ok: false;
+  error: "mode_not_a_tool";
+  mode: string;
+  hint: string;
+} {
+  return {
+    ok: false,
+    error: "mode_not_a_tool",
+    mode: modeLabel,
+    hint: `${modeLabel} 是输出模式标签，不是可调用的 function。请停止 tool_calls，直接返回 JSON（message 或 message+draft）。`,
+  };
+}
+
+function isOrchestratorPseudoModeToolName(name: string): boolean {
+  return ORCHESTRATOR_PSEUDO_MODE_TOOL_NAMES.has(name.trim().toUpperCase());
 }

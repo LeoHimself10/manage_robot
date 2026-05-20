@@ -528,6 +528,70 @@ describe("callWithTools", () => {
     ).rejects.toThrow(/No handler for tool: other_tool/);
   });
 
+  it("returns mode_not_a_tool for pseudo-mode tool names instead of throwing", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_clarify",
+                    type: "function",
+                    function: { name: "CLARIFY", arguments: "{}" },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ message: "请补充型号和批次？" }),
+                tool_calls: [],
+              },
+            },
+          ],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10000,
+      maxRetries: 0,
+      temperature: 0.2,
+      maxTokens: 2048,
+    });
+
+    const result = await client.callWithTools({
+      messages: [{ role: "user", content: "导管批次有问题" }],
+      tools: [
+        {
+          type: "function",
+          function: { name: "search_employees", description: "x", parameters: {} },
+        },
+      ],
+      toolHandlers: { search_employees: async () => ({ ok: true }) },
+    });
+
+    expect(result.payload.message).toBe("请补充型号和批次？");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("throws when tool handler is not found", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce({
       ok: true,
