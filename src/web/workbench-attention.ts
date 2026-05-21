@@ -158,6 +158,14 @@ export function managerSubtaskFilterBucket(
   return "in_progress";
 }
 
+export function managerSubtaskFilterMatches(
+  subtask: SubtaskAttentionInput,
+  filterKey: string,
+): boolean {
+  if (filterKey === "all") return true;
+  return managerSubtaskFilterBucket(subtask) === filterKey;
+}
+
 export const EMPLOYEE_KEY_EVENT_TYPES = new Set([
   "TASK_PUBLISHED",
   "SUBTASK_ACCEPTED",

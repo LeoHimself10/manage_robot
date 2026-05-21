@@ -63,6 +63,8 @@ import { readSearchSimilarPlansEnabled } from "./agent/tools/search-similar-plan
 import { logStructured } from "./infra/logger";
 import { createDingTalkContactSyncService } from "./infra/dingtalk-contact-sync";
 import { createReminderScheduler } from "./agent/reminders/reminder-scheduler";
+import { createProgressDigestScheduler } from "./agent/progress-digest/progress-digest-scheduler";
+import { loadProgressDigestPolicy } from "./agent/progress-digest/progress-digest-policy";
 import {
   appendMemoryEvents,
   loadMemoryContextForPlan,
@@ -331,6 +333,17 @@ async function main(): Promise<void> {
   }
   const reminderScheduler = createReminderScheduler();
   reminderScheduler.startIntervalLoop();
+  const progressDigestPolicy = loadProgressDigestPolicy();
+  const progressDigestScheduler = createProgressDigestScheduler();
+  progressDigestScheduler.startIntervalLoop();
+  logStructured({
+    event: "progress_digest_scheduler_started",
+    enabled: progressDigestPolicy.enabled,
+    scanIntervalMs: progressDigestPolicy.scanIntervalMs,
+    timezone: progressDigestPolicy.timezone,
+    digestHour: progressDigestPolicy.digestHour,
+    digestMinute: progressDigestPolicy.digestMinute,
+  });
 
   client.registerCallbackListener(TOPIC_ROBOT, (res: DWClientDownStream) => {
     void (async () => {

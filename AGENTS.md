@@ -53,6 +53,14 @@
 - **工作台**：`POST /api/workbench/manager/subtasks/remind`；主管任务详情子任务行「催办」按钮。
 - **Env**：`FOLLOWUP_REMINDER_ENABLED`、`FOLLOWUP_SCAN_INTERVAL_MS`、`FOLLOWUP_TIMEZONE`、`FOLLOWUP_TIER2_AFTER_OVERDUE_DAYS`、`FOLLOWUP_QUIET_HOURS`、`FOLLOWUP_MANUAL_LLM_*`（见 `docs/deploy-aliyun-dingtalk.md`）。
 
+## 每日进展推送（Progress Digest，v1）
+
+- **范围**：工作日定时（默认 9:00 `Asia/Shanghai`）向主管（`manager_user_id`）与员工（`assignee_user_id`）推送钉钉机器人 1:1 Markdown；内容含**状态汇总** + **过去 24h 动态**；无活跃任务时发简短确认。
+- **实现**：`src/agent/progress-digest/` + `progress_digest_state` 日去重；`dingtalk-bot` 启动 `createProgressDigestScheduler`（与催办 scheduler 并列，`PROGRESS_DIGEST_ENABLED=1` 时工作日 9:00 窗口扫描）；不写 `PlanSession` / `knownFacts`。
+- **与 FOLLOWUP 区别**：进展日报为全量快照/动态；逾期催办仅针对已逾期子任务且可含 todo/卡片。
+- **可读性**：先抽取结构化事实（`progress-digest-facts`），默认经 **qwen3.6-flash** 生成口语化 Markdown（`PROGRESS_DIGEST_LLM_*`）；失败/关闭时走确定性模板 fallback。LLM **不写** PlanSession。
+- **Env**：`PROGRESS_DIGEST_ENABLED`、`PROGRESS_DIGEST_SCAN_INTERVAL_MS`、`PROGRESS_DIGEST_TIMEZONE`、`PROGRESS_DIGEST_HOUR`、`PROGRESS_DIGEST_MINUTE`、`PROGRESS_DIGEST_WEEKDAYS_ONLY`、`PROGRESS_DIGEST_LOOKBACK_HOURS`、`PROGRESS_DIGEST_MAX_TASK_LINES`、`PROGRESS_DIGEST_LLM_ENABLED`、`PROGRESS_DIGEST_LLM_MODEL`、`PROGRESS_DIGEST_LLM_TIMEOUT_MS`、`PROGRESS_DIGEST_LLM_MAX_TOKENS`（见 `docs/deploy-aliyun-dingtalk.md`）。
+
 ## 承接指派阶段（v0.2 MVP）
 
 当前承接指派为 v0.2 MVP，**尚未**实现完整 承接三态（accept/modify/reject）；该阶段在草案生成后触发第二次 LLM 推荐，提供人员推荐与指派预览。

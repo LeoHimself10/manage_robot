@@ -108,6 +108,11 @@ import { resolveEmployeeProfileDir } from "../../infra/assignment-env";
 import type { PlanSession } from "../../infra/plan-session-store";
 import { logStructured } from "../../infra/logger";
 import { recordSearchHitsFromCandidates } from "../employee-search-cache";
+import {
+  buildPreDraftGateResponse,
+  shouldBlockPreDraftTool,
+  type PreDraftGateTool,
+} from "../registry-pre-draft-gate";
 
 export interface ToolRegistryEntry {
   definition: ToolDefinition;
@@ -134,6 +139,8 @@ export interface ToolRegistryDeps {
    * candidate-pool 工具修改 currentSession 后回调，便于上层即时落盘 / 审计。
    */
   onSessionMutated?: (session: PlanSession) => void;
+  /** 本轮 orchestrator 用户消息，供 pre-draft 工具门禁判定点将意图。 */
+  orchestratorUserMessage?: string;
 }
 
 export type ToolProfile = "planner" | "employee" | "manager" | "admin" | "full";
@@ -216,6 +223,23 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
 
   const searchQuotaState = { exhausted: false };
 
+  const wrapPreDraftGate = (
+    toolName: PreDraftGateTool,
+    handler: ToolHandler,
+  ): ToolHandler => (args) => {
+    if (
+      shouldBlockPreDraftTool({
+        session: deps.currentSession,
+        userMessage: deps.orchestratorUserMessage,
+        toolName,
+        args: args as Record<string, unknown>,
+      })
+    ) {
+      return buildPreDraftGateResponse(toolName);
+    }
+    return handler(args);
+  };
+
   const baseSearchEmployeesHandler = buildSearchEmployeesHandler(employeeRepoResolved, {
     actorUserId: trustedActor,
     candidatePool: candidatePoolReader,
@@ -227,7 +251,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   const all: Record<string, ToolRegistryEntry> = {
     search_employees: {
       definition: SEARCH_EMPLOYEES_TOOL,
-      handler: (args: Record<string, unknown>) => {
+      handler: wrapPreDraftGate("search_employees", (args: Record<string, unknown>) => {
         const result = baseSearchEmployeesHandler(args) as SearchEmployeesResult & {
           ok?: false;
           candidates?: string[];
@@ -251,7 +275,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
           );
         }
         return result;
-      },
+      }),
     },
     get_employee_details: {
       definition: GET_EMPLOYEE_DETAILS_TOOL,
@@ -402,7 +426,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   if (knownFactsHandlers) {
     all.update_known_facts = {
       definition: UPDATE_KNOWN_FACTS_TOOL,
-      handler: knownFactsHandlers.update,
+      handler: wrapPreDraftGate("update_known_facts", knownFactsHandlers.update),
     };
     all.list_known_facts = {
       definition: LIST_KNOWN_FACTS_TOOL,
@@ -420,7 +444,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   if (searchSimilarPlansEnabled) {
     all.search_similar_plans = {
       definition: SEARCH_SIMILAR_PLANS_TOOL,
-      handler: buildSearchSimilarPlansHandler(),
+      handler: wrapPreDraftGate("search_similar_plans", buildSearchSimilarPlansHandler()),
     };
   }
 

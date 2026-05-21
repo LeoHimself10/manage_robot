@@ -130,6 +130,14 @@ export interface WorkbenchSubtaskReminderNotifyInput {
   sourceId: string;
 }
 
+export interface WorkbenchProgressDigestNotifyInput {
+  userId: string;
+  subject: string;
+  markdown: string;
+  detailUrl: string;
+  sourceId: string;
+}
+
 export interface WorkbenchPublishNotifier {
   notifyPublishedTask(input: WorkbenchPublishTaskNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyReassignedAssignee(input: WorkbenchReassignNotifyInput): Promise<WorkbenchNotifyResult>;
@@ -140,6 +148,7 @@ export interface WorkbenchPublishNotifier {
     input: WorkbenchEmployeeManagerActionNotifyInput,
   ): Promise<WorkbenchNotifyResult>;
   notifySubtaskReminder(input: WorkbenchSubtaskReminderNotifyInput): Promise<WorkbenchNotifyResult>;
+  notifyProgressDigest(input: WorkbenchProgressDigestNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyEmployeeTodoOnAccept(input: {
     taskNo: string;
     taskTitle: string;
@@ -1081,6 +1090,79 @@ export function createWorkbenchPublishNotifier(
       }
 
       if (anyChannelOk) success.push(userOutcome);
+      return { enabled: true, success, failed };
+    },
+
+    async notifyProgressDigest(
+      input: WorkbenchProgressDigestNotifyInput,
+    ): Promise<WorkbenchNotifyResult> {
+      if (!isNotifyEnabled()) {
+        return {
+          enabled: false,
+          skippedReason: "WORKBENCH_DINGTALK_NOTIFY_ENABLED is off",
+          success: [],
+          failed: [],
+        };
+      }
+      const uid = String(input.userId ?? "").trim();
+      if (!uid) {
+        return {
+          enabled: false,
+          skippedReason: "userId missing",
+          success: [],
+          failed: [],
+        };
+      }
+      const robotMsgEnabled = isRobotMsgEnabled();
+      const robotCode = resolveRobotCode();
+      const success: WorkbenchNotifyResult["success"] = [];
+      const failed: WorkbenchNotifyResult["failed"] = [];
+      if (!robotMsgEnabled) {
+        failed.push({
+          userId: uid,
+          reason: "WORKBENCH_DINGTALK_ROBOT_MSG_ENABLED is off (progress digest is robot-only)",
+        });
+        return { enabled: true, success, failed };
+      }
+      if (!robotCode) {
+        failed.push({
+          userId: uid,
+          reason: "skip robot chat message: DINGTALK_ROBOT_CODE missing",
+        });
+        return { enabled: true, success, failed };
+      }
+      let token: string;
+      try {
+        token = await getAccessToken(fetchImpl);
+      } catch (err) {
+        failed.push({
+          userId: uid,
+          reason: `getAccessToken failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        return { enabled: true, success, failed };
+      }
+      const detailUrl =
+        String(input.detailUrl ?? "").trim()
+        || (env("ASSIGNMENT_WEB_PUBLIC_BASE_URL")
+          ? `${env("ASSIGNMENT_WEB_PUBLIC_BASE_URL").replace(/\/+$/, "")}/workbench/manager/tasks`
+          : "https://www.dingtalk.com");
+      try {
+        const robotMessageKey = await sendRobotChatMessage({
+          fetchImpl,
+          accessToken: token,
+          robotCode,
+          userId: uid,
+          title: input.subject,
+          markdown: input.markdown,
+          detailUrl,
+        });
+        success.push({ userId: uid, robotMessageKey });
+      } catch (err) {
+        failed.push({
+          userId: uid,
+          reason: `robot chat message failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
       return { enabled: true, success, failed };
     },
 

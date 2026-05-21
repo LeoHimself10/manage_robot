@@ -397,6 +397,11 @@ describe("assignment-workbench HTTP handler", () => {
         success: [],
         failed: [],
       })),
+      notifyProgressDigest: vi.fn(async () => ({
+        enabled: false,
+        success: [],
+        failed: [],
+      })),
       notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
     });
     await seedPublishedTask({

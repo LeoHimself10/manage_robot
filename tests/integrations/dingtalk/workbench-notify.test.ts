@@ -362,6 +362,25 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(result.success[0].cardMessageId).toBeDefined();
     expect(calls.some((c) => c.url.includes("/topapi/message/corpconversation"))).toBe(true);
   });
+
+  it("notifyProgressDigest sends robot-only markdown", async () => {
+    const { fetch: fetchImpl, calls } = buildFetchMock([
+      () => jsonRes({ accessToken: "tok-digest" }),
+      () => jsonRes({ processQueryKey: "robot-digest-1" }),
+    ]);
+    const notifier = createWorkbenchPublishNotifier(fetchImpl);
+    const result = await notifier.notifyProgressDigest({
+      userId: "mgr-1",
+      subject: "任务进展日报 · 2026-05-18",
+      markdown: "## 任务进展日报\n\n- 进行中 1",
+      detailUrl: "https://example.com/workbench/manager/tasks",
+      sourceId: "progress:digest:mgr-1:manager:20260518",
+    });
+    expect(result.success).toHaveLength(1);
+    expect(result.success[0]?.robotMessageKey).toBe("robot-digest-1");
+    expect(calls.some((c) => c.url.includes("/robot/oToMessages/batchSend"))).toBe(true);
+    expect(calls.some((c) => c.url.includes("/todo/"))).toBe(false);
+  });
 });
 
 describe("buildPublishTaskNotifyMarkdown", () => {

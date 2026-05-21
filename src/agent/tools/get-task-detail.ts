@@ -35,14 +35,50 @@ function subtaskIdFromEventRow(row: Record<string, unknown>): string {
   return String(row.subtask_id ?? row.subtaskId ?? "").trim();
 }
 
-function mapSiblingForEmployee(sub: WorkbenchSubtaskRow, resolveName: (uid: string) => string) {
+function subtaskStatusLabel(status: string): string {
+  const s = String(status ?? "");
+  if (s === "ASSIGNED") return "待承接";
+  if (s === "IN_PROGRESS") return "进行中";
+  if (s === "BLOCKED") return "阻塞中";
+  if (s === "DONE") return "已完成";
+  if (s === "CHANGES_REQUESTED") return "待修改";
+  if (s === "ACCEPTED") return "进行中";
+  return s || "未知";
+}
+
+function mapSubtaskForToolResponse(
+  sub: WorkbenchSubtaskRow,
+  resolveName: (uid: string) => string,
+  orderIndex?: number,
+) {
+  const assigneeUserId = String(sub.assigneeUserId ?? "").trim();
+  const assigneeDisplayName = resolveName(assigneeUserId) || assigneeUserId;
+  const collaborators = Array.isArray(sub.collaborators)
+    ? sub.collaborators.map((c) => {
+        const raw = String(c ?? "").trim();
+        if (!raw) return raw;
+        return resolveName(raw) || raw;
+      }).filter(Boolean)
+    : undefined;
   return {
-    subtaskId: sub.subtaskId,
-    sourceTaskKey: sub.sourceTaskKey,
-    title: sub.title,
-    assigneeUserId: sub.assigneeUserId,
-    assigneeDisplayName: resolveName(sub.assigneeUserId) || sub.assigneeUserId,
-    status: sub.status,
+    ...sub,
+    ...(orderIndex !== undefined ? { orderIndex } : {}),
+    assigneeDisplayName,
+    statusLabel: subtaskStatusLabel(sub.status),
+    ...(collaborators?.length ? { collaborators } : {}),
+  };
+}
+
+function mapSiblingForEmployee(sub: WorkbenchSubtaskRow, resolveName: (uid: string) => string) {
+  const mapped = mapSubtaskForToolResponse(sub, resolveName);
+  return {
+    subtaskId: mapped.subtaskId,
+    sourceTaskKey: mapped.sourceTaskKey,
+    title: mapped.title,
+    assigneeUserId: mapped.assigneeUserId,
+    assigneeDisplayName: mapped.assigneeDisplayName,
+    status: mapped.status,
+    statusLabel: mapped.statusLabel,
   };
 }
 
@@ -50,12 +86,14 @@ export function buildGetTaskDetailHandler(
   deps: {
     taskStore?: ReturnType<typeof createWorkbenchFormalTaskStore>;
     actorRole?: "admin" | "manager" | "employee";
+    resolveDisplayName?: (userId: string) => string;
   } = {},
 ): ToolHandler {
   const taskStore = deps.taskStore ?? createWorkbenchFormalTaskStore();
   const people = createPeopleDirectoryStore();
-  const resolveName = (userId: string): string =>
-    people.getContact(userId)?.name?.trim() ?? "";
+  const resolveName =
+    deps.resolveDisplayName ??
+    ((userId: string): string => people.getContact(userId)?.name?.trim() ?? "");
 
   return (args: Record<string, unknown>) => {
     const actorUserId = String(args.actorUserId ?? "").trim();
@@ -104,7 +142,9 @@ export function buildGetTaskDetailHandler(
         if (!sid) return true;
         return mySubtaskIds.has(sid);
       });
-      const mySubtasks = detail.subtasks.filter((subtask) => subtask.assigneeUserId === actorUserId);
+      const mySubtasks = detail.subtasks
+        .filter((subtask) => subtask.assigneeUserId === actorUserId)
+        .map((s, idx) => mapSubtaskForToolResponse(s, resolveName, idx + 1));
       const siblings = includeSiblings
         ? detail.subtasks
             .filter((subtask) => subtask.assigneeUserId !== actorUserId)
@@ -121,11 +161,14 @@ export function buildGetTaskDetailHandler(
         includeSiblings,
       };
     }
+    const subtasks = detail.subtasks.map((s, idx) =>
+      mapSubtaskForToolResponse(s, resolveName, idx + 1),
+    );
     return {
       ok: true,
       actorRole,
       task: detail.task,
-      subtasks: detail.subtasks,
+      subtasks,
       events: detail.events,
     };
   };

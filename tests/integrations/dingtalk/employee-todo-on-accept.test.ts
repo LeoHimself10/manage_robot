@@ -30,6 +30,9 @@ function buildMockNotifier(result: Awaited<ReturnType<WorkbenchPublishNotifier["
     notifyPublishedTask: vi.fn(),
     notifyReassignedAssignee: vi.fn(),
     notifyManagerOfEmployeeAction: vi.fn(),
+    notifySubtaskReminder: vi.fn(),
+    notifyProgressDigest: vi.fn(),
+    notifyEmployeeOfManagerAction: vi.fn(),
     notifyEmployeeTodoOnAccept: vi.fn(async () => result),
   } as unknown as WorkbenchPublishNotifier;
 }

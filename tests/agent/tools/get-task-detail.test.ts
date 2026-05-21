@@ -106,6 +106,38 @@ describe("get_task_detail tool", () => {
     expect(result.subtasks.length).toBe(2);
   });
 
+  it("manager subtasks include assigneeDisplayName and statusLabel", () => {
+    const handler = buildGetTaskDetailHandler({
+      taskStore: { getTaskDetail: () => detailFixture() } as any,
+      actorRole: "manager",
+      resolveDisplayName: (uid) => (uid === "emp-1" ? "张三" : uid === "emp-2" ? "李四" : ""),
+    });
+    const result = handler({ actorUserId: "mgr-1", taskNo: "TASK-1" }) as any;
+    expect(result.ok).toBe(true);
+    expect(result.subtasks[0]).toMatchObject({
+      assigneeUserId: "emp-1",
+      assigneeDisplayName: "张三",
+      statusLabel: "待承接",
+      orderIndex: 1,
+    });
+    expect(result.subtasks[1]).toMatchObject({
+      assigneeDisplayName: "李四",
+      statusLabel: "进行中",
+      orderIndex: 2,
+    });
+  });
+
+  it("employee mySubtasks include assigneeDisplayName", () => {
+    const handler = buildGetTaskDetailHandler({
+      taskStore: { getTaskDetail: () => detailFixture() } as any,
+      actorRole: "employee",
+      resolveDisplayName: (uid) => (uid === "emp-1" ? "张三" : uid === "emp-2" ? "李四" : ""),
+    });
+    const result = handler({ actorUserId: "emp-1", taskNo: "TASK-1" }) as any;
+    expect(result.mySubtasks[0].assigneeDisplayName).toBe("张三");
+    expect(result.siblings[0].assigneeDisplayName).toBe("李四");
+  });
+
   it("scopes employee to my subtasks and siblings whitelist", () => {
     const handler = buildGetTaskDetailHandler({
       taskStore: { getTaskDetail: () => detailFixture() } as any,

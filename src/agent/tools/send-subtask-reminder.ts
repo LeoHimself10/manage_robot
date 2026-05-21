@@ -38,7 +38,7 @@ export function buildSendSubtaskReminderHandler(
     if (!subtaskId) return { ok: false, error: "subtask_id_required" };
     const toneRaw = String(args.tone ?? "").trim();
     const tone = toneRaw === "firm" || toneRaw === "polite" ? toneRaw : undefined;
-    const people = createPeopleDirectoryStore();
+    const peopleStore = createPeopleDirectoryStore();
     try {
       const result = await sendSubtaskReminder(
         {
@@ -51,7 +51,7 @@ export function buildSendSubtaskReminderHandler(
       );
       return { ...result };
     } finally {
-      people.close();
+      peopleStore.close();
     }
   };
 }

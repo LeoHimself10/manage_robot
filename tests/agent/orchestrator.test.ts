@@ -342,6 +342,7 @@ describe("runOrchestrator", () => {
     await runOrchestrator("记住这件事", {
       clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
       employeeRepo: { list: () => [] },
+      currentSession: { latestDraft: { tasks: [{ id: "task_1", title: "测试" }] } } as import("../../src/infra/plan-session-store").PlanSession,
       knownFactsStore: {
         get: () => facts,
         update: (next: string[]) => {

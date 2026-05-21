@@ -344,6 +344,13 @@ export function createWorkbenchFormalTaskStore() {
     CREATE INDEX IF NOT EXISTS idx_subtasks_due_active
       ON subtasks(status, due_at)
       WHERE status IN ('IN_PROGRESS','BLOCKED');
+    CREATE TABLE IF NOT EXISTS progress_digest_state (
+      user_id TEXT NOT NULL,
+      audience TEXT NOT NULL,
+      last_sent_at TEXT,
+      last_source_id TEXT,
+      PRIMARY KEY (user_id, audience)
+    );
   `);
   const taskColumns = new Set(
     (db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>)
@@ -1188,6 +1195,122 @@ export function createWorkbenchFormalTaskStore() {
            manual_remind_count = subtask_reminder_state.manual_remind_count + 1,
            last_manual_source_id = excluded.last_manual_source_id`,
       ).run(input.subtaskId, input.overdueSince, input.nowIso, input.manualSourceId);
+    },
+
+    listProgressDigestManagerUserIds(): string[] {
+      const rows = db
+        .prepare(
+          "SELECT DISTINCT manager_user_id AS uid FROM tasks WHERE TRIM(manager_user_id) <> ''",
+        )
+        .all() as Array<{ uid?: string }>;
+      return rows.map((r) => String(r.uid ?? "").trim()).filter(Boolean);
+    },
+
+    listProgressDigestEmployeeUserIds(): string[] {
+      const rows = db
+        .prepare(
+          "SELECT DISTINCT assignee_user_id AS uid FROM subtasks WHERE TRIM(assignee_user_id) <> ''",
+        )
+        .all() as Array<{ uid?: string }>;
+      return rows.map((r) => String(r.uid ?? "").trim()).filter(Boolean);
+    },
+
+    hasActiveTasksAsManager(managerUserId: string): boolean {
+      const row = db
+        .prepare(
+          `SELECT 1 AS ok FROM tasks t
+             JOIN subtasks s ON s.task_id = t.task_id
+            WHERE t.manager_user_id = ? AND s.status <> 'DONE'
+            LIMIT 1`,
+        )
+        .get(managerUserId) as { ok?: number } | undefined;
+      return Boolean(row?.ok);
+    },
+
+    hasActiveSubtasksAsEmployee(assigneeUserId: string): boolean {
+      const row = db
+        .prepare(
+          "SELECT 1 AS ok FROM subtasks WHERE assignee_user_id = ? AND status <> 'DONE' LIMIT 1",
+        )
+        .get(assigneeUserId) as { ok?: number } | undefined;
+      return Boolean(row?.ok);
+    },
+
+    listTaskEventsForManagerSince(input: {
+      managerUserId: string;
+      sinceIso: string;
+      eventTypes: string[];
+      limit?: number;
+    }): Array<Record<string, unknown>> {
+      const types = input.eventTypes.filter(Boolean);
+      if (types.length === 0) return [];
+      const placeholders = types.map(() => "?").join(", ");
+      const limit = Math.max(1, Math.min(input.limit ?? 50, 200));
+      return db
+        .prepare(
+          `SELECT e.*, t.task_no, t.title AS task_title, s.title AS subtask_title
+             FROM task_events e
+             JOIN tasks t ON t.task_id = e.task_id
+             LEFT JOIN subtasks s ON s.subtask_id = e.subtask_id
+            WHERE t.manager_user_id = ?
+              AND e.occurred_at >= ?
+              AND e.event_type IN (${placeholders})
+            ORDER BY e.occurred_at DESC
+            LIMIT ?`,
+        )
+        .all(input.managerUserId, input.sinceIso, ...types, limit) as Array<Record<string, unknown>>;
+    },
+
+    listTaskEventsForEmployeeSince(input: {
+      assigneeUserId: string;
+      sinceIso: string;
+      eventTypes: string[];
+      limit?: number;
+    }): Array<Record<string, unknown>> {
+      const types = input.eventTypes.filter(Boolean);
+      if (types.length === 0) return [];
+      const placeholders = types.map(() => "?").join(", ");
+      const limit = Math.max(1, Math.min(input.limit ?? 50, 200));
+      return db
+        .prepare(
+          `SELECT e.*, t.task_no, t.title AS task_title, s.title AS subtask_title
+             FROM task_events e
+             JOIN tasks t ON t.task_id = e.task_id
+             JOIN subtasks s ON s.subtask_id = e.subtask_id
+            WHERE s.assignee_user_id = ?
+              AND e.occurred_at >= ?
+              AND e.event_type IN (${placeholders})
+            ORDER BY e.occurred_at DESC
+            LIMIT ?`,
+        )
+        .all(input.assigneeUserId, input.sinceIso, ...types, limit) as Array<Record<string, unknown>>;
+    },
+
+    tryClaimProgressDigest(input: {
+      userId: string;
+      audience: string;
+      nowIso: string;
+      todayStartIso: string;
+      sourceId: string;
+    }): { claimed: boolean; reason?: string } {
+      const changes = db
+        .prepare(
+          `INSERT INTO progress_digest_state(user_id, audience, last_sent_at, last_source_id)
+           VALUES(?, ?, ?, ?)
+           ON CONFLICT(user_id, audience) DO UPDATE SET
+             last_sent_at = excluded.last_sent_at,
+             last_source_id = excluded.last_source_id
+           WHERE progress_digest_state.last_sent_at IS NULL
+              OR progress_digest_state.last_sent_at < ?`,
+        )
+        .run(
+          input.userId,
+          input.audience,
+          input.nowIso,
+          input.sourceId,
+          input.todayStartIso,
+        ).changes;
+      return changes === 1 ? { claimed: true } : { claimed: false, reason: "already_sent_today" };
     },
   };
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveManagerAttentionLabel,
+  managerSubtaskFilterMatches,
   subtaskNeedsManagerAction,
 } from "../../src/web/workbench-attention.js";
 
@@ -55,5 +56,20 @@ describe("deriveManagerAttentionLabel", () => {
 describe("subtaskNeedsManagerAction", () => {
   it("does not treat plain ASSIGNED as needs manager", () => {
     expect(subtaskNeedsManagerAction({ status: "ASSIGNED" })).toBe(false);
+  });
+});
+
+describe("managerSubtaskFilterMatches", () => {
+  it("shows IN_PROGRESS and BLOCKED under 进行中", () => {
+    expect(managerSubtaskFilterMatches({ status: "IN_PROGRESS" }, "in_progress")).toBe(true);
+    expect(managerSubtaskFilterMatches({ status: "BLOCKED" }, "in_progress")).toBe(true);
+    expect(managerSubtaskFilterMatches({ status: "ACCEPTED" }, "in_progress")).toBe(true);
+  });
+
+  it("hides waiting and manager-action rows from 进行中", () => {
+    expect(managerSubtaskFilterMatches({ status: "ASSIGNED" }, "in_progress")).toBe(false);
+    expect(
+      managerSubtaskFilterMatches({ status: "IN_PROGRESS", openDeclineKind: "changes" }, "in_progress"),
+    ).toBe(false);
   });
 });

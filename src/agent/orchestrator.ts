@@ -23,6 +23,14 @@ import {
   isDraftStagedForPublish,
   shouldInjectPublishStagingMemoryHint,
 } from "./publish-staging";
+import {
+  buildTurnActionHintLine,
+  formatPendingRosterHint,
+  formatPublishStagingActionHint,
+  formatScopeBoundaryHint,
+} from "./orchestrator-turn-hints";
+
+export { shouldInjectExplicitDraftRequestHint } from "./orchestrator-turn-hints";
 
 const MAX_TOOL_ITERATIONS = 6;
 
@@ -112,6 +120,7 @@ export async function runOrchestrator(
     publishRecentStore: config.publishRecentStore,
     actorName: config.actorName,
     actorRole: config.actorRole,
+    orchestratorUserMessage: userMessage,
     onPublishTaskResult: (result: Record<string, unknown>) => {
       publishResult = result;
       config.onPublishTaskResult?.(result);
@@ -161,11 +170,6 @@ export async function runOrchestrator(
     memoryParts.push(
       "publishedTasksLookup: 用户问已发布/我管理的任务时，必须调 list_managed_tasks 取库内真实数据；不得用 latestDraftSummary 充数。",
     );
-    if (isDraftStagedForPublish(config.sessionContext.latestDraft)) {
-      memoryParts.push(
-        `publishStaging: ${safeJson({ staged: true, stagedBy: "prepare_publish_task", awaitingFinalPublish: true })}`,
-      );
-    }
   }
   if (config.sessionContext?.latestAssignment) {
     memoryParts.push(
@@ -173,32 +177,13 @@ export async function runOrchestrator(
     );
   }
   if (config.sessionContext?.pendingRoster) {
-    memoryParts.push(
-      `pendingRoster: ${safeJson(config.sessionContext.pendingRoster)} | ACTION_REQUIRED: 调用 read_uploaded_roster_text 拿原文 → 抽取姓名 → 用 search_employees(name=...) 逐一匹配 → 用 set_candidate_pool 提交，未匹配项写进 unresolved 并在 message 反问主管。`,
-    );
+    memoryParts.push(formatPendingRosterHint(config.sessionContext.pendingRoster));
   }
   if (config.sessionContext?.scopeRotatedSinceLastTurn) {
-    const rot = config.sessionContext.scopeRotatedSinceLastTurn;
-    const fromDesc = rot.fromLabel ? `（从「${rot.fromLabel}」）` : "";
-    const toDesc = rot.toLabel ? `「${rot.toLabel}」` : "新任务";
-    memoryParts.push(
-      `scopeBoundary: 本轮已切换到新 scope ${toDesc}${fromDesc}。` +
-      "**禁止引用上一 scope 的任何 task_x 编号 / 员工姓名 / userId**；candidatePool、latestDraft 均已清空，须按新需求从头来。",
-    );
+    memoryParts.push(formatScopeBoundaryHint(config.sessionContext.scopeRotatedSinceLastTurn));
   }
   if (config.sessionContext?.candidatePool) {
-    memoryParts.push(
-      `candidatePool: ${safeJson(config.sessionContext.candidatePool)} | 本 plan 的指派只能在 entries[*].userId 中选；search_employees 已自动收窄到池内。`,
-    );
-  }
-  if (shouldInjectExplicitDraftRequestHint(userMessage)) {
-    memoryParts.push(
-      "explicitDraftRequest: 用户明确要求生成草案。本轮**必须**走 DRAFT：顶层 message（四段）+ JSON draft（含 title/description/tasks[]）。**禁止** search_employees、prepare_publish_task、publish_task（除非用户另句明确点将或可发布）。**禁止**仅 message 无 draft。",
-    );
-  } else if (shouldInjectPostClarifyDraftHint(config.sessionContext, userMessage)) {
-    memoryParts.push(
-      "postClarifyDraftAction: 用户已在 CLARIFY 后大段补充；本轮走 DRAFT，遵守 system 中 DRAFT 四段 message + draft.title/description/tasks[]，禁止空 message。",
-    );
+    memoryParts.push(`candidatePool: ${safeJson(config.sessionContext.candidatePool)}`);
   }
   if (
     shouldInjectPublishStagingMemoryHint({
@@ -207,11 +192,11 @@ export async function runOrchestrator(
     })
   ) {
     const staged = isDraftStagedForPublish(config.sessionContext?.latestDraft);
-    memoryParts.push(
-      staged
-        ? "publishStagingAction: 主管已确认发布｜本轮**必须**调用 publish_task(planId=当前 planId, confirmationContext=用户原话)；**禁止**仅口播「已发布/已派发」而不调工具。"
-        : "publishStagingAction: 主管已确认发布｜本轮**必须先** prepare_publish_task（补齐 title/description/subtasks/assigneeUserId）→ 再 publish_task；**禁止**未调工具就声称已发布。",
-    );
+    memoryParts.push(formatPublishStagingActionHint(staged));
+  }
+  const turnActionHint = buildTurnActionHintLine(config.sessionContext, userMessage);
+  if (turnActionHint) {
+    memoryParts.push(turnActionHint);
   }
   if (memoryParts.length > 0) {
     allMessages.push({
@@ -380,34 +365,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const EXPLICIT_DRAFT_REQUEST_RE =
-  /请?\s*生成(正式)?草案|出草案|生成任务表|出任务表/i;
-
-/** 用户短句明确要求生成草案（如「请生成草案」）。 */
-export function shouldInjectExplicitDraftRequestHint(userMessage: string): boolean {
-  return EXPLICIT_DRAFT_REQUEST_RE.test(String(userMessage ?? "").trim());
-}
-
 function looksLikeDraftStyleMessage(message: string): boolean {
   const text = String(message ?? "");
   return /已采纳要点|拆解逻辑|阅读导览/.test(text);
-}
-
-/** 用户在上轮追问后做了实质性补充、且会话尚无草案 → 注入 DRAFT 强提示。 */
-function shouldInjectPostClarifyDraftHint(
-  sessionContext: OrchestratorConfig["sessionContext"],
-  userMessage: string,
-): boolean {
-  const text = String(userMessage ?? "").trim();
-  if (text.length < 120) return false;
-  if (sessionContext?.latestDraft) return false;
-  const history = sessionContext?.conversationHistory ?? [];
-  if (history.length === 0) return false;
-  const lastAssistant = [...history].reverse().find((h) => h.role === "assistant")?.content ?? "";
-  const clarifyMarkers =
-    /请补充|补充以下|关键信息|截止日期|期望.{0,6}完成|？\s*$/m.test(lastAssistant)
-    || (lastAssistant.includes("？") && lastAssistant.length > 40 && !lastAssistant.includes("任务列表"));
-  return clarifyMarkers;
 }
 
 const RICH_TASK_FIELDS = [
@@ -536,9 +496,9 @@ function fingerprintTask(task: Record<string, unknown>): string {
 function allocTaskId(index: number, used: Set<string>): string {
   const base = `task_${index + 1}`;
   if (!used.has(base)) return base;
-  let seq = index + 1;
-  while (used.has(`task_${seq}`)) seq += 1;
-  return `task_${seq}`;
+  let n = index + 2;
+  while (used.has(`task_${n}`)) n += 1;
+  return `task_${n}`;
 }
 
 function normalizeConversationHistoryForModel(

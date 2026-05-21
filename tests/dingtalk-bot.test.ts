@@ -41,11 +41,14 @@ describe("dingtalk bot helpers", () => {
     expect(output).toContain("W20260513001");
   });
 
-  it("known facts store can be updated through registry tools", async () => {
+  it("known facts store can be updated through registry tools when draft exists", async () => {
     let facts: string[] = ["旧事实"];
     const registry = buildToolRegistry({
       employeeRepo: { list: () => [] },
       toolProfile: "planner",
+      currentSession: {
+        latestDraft: { tasks: [{ id: "task_1", title: "测试" }] },
+      } as import("../../src/infra/plan-session-store").PlanSession,
       knownFactsStore: {
         get: () => facts,
         update: (next) => {
@@ -69,7 +72,7 @@ describe("dingtalk bot helpers", () => {
     });
   });
 
-  it("renders unified structured draft table with rich fields", () => {
+  it("renders list overview and supplement cards with rich fields", () => {
     const markdown = renderDingtalkTaskMarkdown({
       modelMessage: "草案说明",
       currentDraft: {
@@ -99,8 +102,10 @@ describe("dingtalk bot helpers", () => {
       shouldRenderRichSection: true,
       appendStructuredTaskTable: true,
     });
-    expect(markdown).toContain("### 任务列表（结构化字段）");
-    expect(markdown).not.toContain("### 任务补充信息");
+    expect(markdown).toContain("### 结构化任务表（列表）");
+    expect(markdown).toMatch(/1\.\s*任务A/);
+    expect(markdown).toContain("### 任务补充信息");
+    expect(markdown).not.toMatch(/\| # \| 任务 \|/);
     expect(markdown).toContain("任务背景");
     expect(markdown).toContain("输入材料");
     expect(markdown).toContain("执行动作");
