@@ -4,6 +4,7 @@ import {
   isGenuineClarifyAssistantMessage,
   isStartNewTaskWelcomeMessage,
   resolveTurnActionHint,
+  shouldInjectAssignActionHint,
   shouldInjectClarifyActionHint,
   shouldInjectPostClarifyDraftHint,
 } from "../../src/agent/orchestrator-turn-hints";
@@ -52,5 +53,16 @@ describe("postClarify hint tightening", () => {
   it("explicit draft request without deadline yields clarifyAction", () => {
     const hint = resolveTurnActionHint(undefined, "请生成草案");
     expect(hint).toEqual({ kind: "clarifyAction" });
+  });
+
+  it("inject assignAction when draft exists and user asks for auto assign", () => {
+    const ctx = {
+      latestDraft: { tasks: [{ id: "task_1", title: "A" }] },
+      conversationHistory: [],
+      memoryFacts: [],
+    };
+    expect(shouldInjectAssignActionHint(ctx, "可以，由你为我分派")).toBe(true);
+    expect(resolveTurnActionHint(ctx, "可以，由你为我分派")).toEqual({ kind: "assignAction" });
+    expect(buildTurnActionHintLine(ctx, "可以，由你为我分派")).toContain("assignAction");
   });
 });

@@ -5,9 +5,9 @@ import {
 } from "../../../src/agent/demo/qwen-prompt";
 
 describe("buildQwenPlannerSystemPrompt", () => {
-  it("v5.23.5: JSON contract, modes, no PREPARE mode", () => {
+  it("v5.23.6: JSON contract, modes, no PREPARE mode", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.23.5");
+    expect(sys).toContain("orchestrator-agent-v5.23.6");
     expect(sys).toContain("scheme C");
     expect(sys).toContain("## 输出 JSON 契约");
     expect(sys).not.toContain("§1 ");
@@ -42,13 +42,14 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).not.toContain("服务端兜底落库");
     expect(sys).toContain("示例2 CLARIFY→DRAFT");
     expect(sys).toContain("示例4 REDRAFT");
-    expect(sys).toContain("示例5 PUBLISH");
+    expect(sys).toContain("示例5 ASSIGN");
+    expect(sys).toContain("示例6 PUBLISH");
     expect(sys).not.toContain("FOLLOWUP");
     expect(sys).not.toContain("save_draft");
     expect(sys.length).toBeLessThanOrEqual(7200);
   });
 
-  it("v5.23.5: latestDraft judgment order and redraft discipline", () => {
+  it("v5.23.6: latestDraft judgment order and redraft discipline", () => {
     const sys = buildQwenPlannerSystemPrompt();
     expect(sys).toContain("已有未发布草案");
     expect(sys).toContain("latestDraft");
@@ -60,32 +61,34 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("扩成 7 条/拆更细");
   });
 
-  it("v5.23.5: managerFollowup injects FOLLOWUP with continuous step ③", () => {
+  it("v5.23.6: managerFollowup injects FOLLOWUP with continuous step ③", () => {
     const sys = buildQwenPlannerSystemPrompt("planner", { managerFollowup: true });
     expect(sys).toContain("③ 否 → 用户是否要求跟进");
     expect(sys).not.toContain("③ 否 → ④ 否 → 用户是否要求跟进");
     expect(sys).toContain("FOLLOWUP");
     expect(sys).toContain("list_follow_up_candidates");
     expect(sys).toContain("send_subtask_reminder");
-    expect(sys).toContain("示例6 FOLLOWUP");
+    expect(sys).toContain("示例7 FOLLOWUP");
   });
 
-  it("v5.23.5: tools and key disciplines", () => {
+  it("v5.23.6: tools and key disciplines", () => {
     const sys = buildQwenPlannerSystemPrompt();
     expect(sys).toContain("search_employees");
+    expect(sys).toContain("resolve_roster_names");
     expect(sys).toContain("按模式选用");
     expect(sys).toContain("update_draft_task");
     expect(sys).toContain("remove_draft_subtask");
     expect(sys).toContain("整表替换");
     expect(sys).toContain("未落库提示");
     expect(sys).toContain("start_new_task");
+    expect(sys).toContain("assignment JSON");
   });
 });
 
 describe("buildQwenPlannerSystemPrompt employee profile", () => {
   it("requires get_task_detail for overall task background questions", () => {
     const sys = buildQwenPlannerSystemPrompt("employee");
-    expect(sys).toContain("orchestrator-agent-v5.23.5-employee");
+    expect(sys).toContain("orchestrator-agent-v5.23.6-employee");
     expect(sys).toContain("任务整体背景纪律");
     expect(sys).toContain("get_task_detail");
   });

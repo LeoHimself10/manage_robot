@@ -19,7 +19,7 @@ const DEADLINE_IN_TEXT_RE =
   /\d{4}[-/年]\d{1,2}([-/月]\d{1,2}日?)?|\d{1,2}\s*月\s*\d{1,2}\s*日|下[周礼拜]|本[周礼拜]|[一二三四五六七八九十\d]+\s*个?\s*月内|[一二三四五六七八九十\d]+\s*周内|之前|以内|前完成|deadline:/i;
 
 const ASSIGN_INTENT_RE =
-  /指派|点将|分配给|交给|负责人|谁来做|按这份名单|从.*(中选|分配)|改派/i;
+  /指派|点将|分配给|交给|负责人|谁来做|按这份名单|从.*(中选|分配)|改派|由你.{0,6}分派|由你分配|你来派|帮我分派|为我分派/i;
 
 const START_NEW_TASK_WELCOME_RE =
   /已开启新任务|开启新任务[。！]?请描述|请描述您需要规划的具体工作/i;
@@ -53,6 +53,22 @@ export function hasDeadlineInContext(
 
 export function hasAssigneeIntentInUserMessage(userMessage: string): boolean {
   return ASSIGN_INTENT_RE.test(String(userMessage ?? "").trim());
+}
+
+function hasDraftTasks(sessionContext: TurnHintSessionContext | undefined): boolean {
+  const draft = sessionContext?.latestDraft;
+  if (!draft || typeof draft !== "object") return false;
+  const tasks = (draft as { tasks?: unknown }).tasks;
+  return Array.isArray(tasks) && tasks.length > 0;
+}
+
+/** 已有草案且用户要求分派/点将 → ASSIGN 批量纪律注入。 */
+export function shouldInjectAssignActionHint(
+  sessionContext: TurnHintSessionContext | undefined,
+  userMessage: string,
+): boolean {
+  if (!hasDraftTasks(sessionContext)) return false;
+  return hasAssigneeIntentInUserMessage(userMessage);
 }
 
 /** start_new_task 后的「请描述…期望完成时间？」欢迎语，不是真实 CLARIFY 回合。 */
@@ -118,10 +134,11 @@ export function shouldInjectClarifyActionHint(
 
 export type TurnActionHint =
   | { kind: "explicitDraftRequest" }
+  | { kind: "assignAction" }
   | { kind: "clarifyAction" }
   | { kind: "postClarifyDraftAction" };
 
-/** 互斥优先级：explicit（含 deadline 分支）→ clarify → postClarify */
+/** 互斥优先级：explicit → assign（有草案）→ clarify → postClarify */
 export function resolveTurnActionHint(
   sessionContext: TurnHintSessionContext | undefined,
   userMessage: string,
@@ -132,6 +149,9 @@ export function resolveTurnActionHint(
     }
     return { kind: "clarifyAction" };
   }
+  if (shouldInjectAssignActionHint(sessionContext, userMessage)) {
+    return { kind: "assignAction" };
+  }
   if (shouldInjectClarifyActionHint(sessionContext, userMessage)) {
     return { kind: "clarifyAction" };
   }
@@ -141,10 +161,19 @@ export function resolveTurnActionHint(
   return undefined;
 }
 
+export function formatAssignActionHint(): string {
+  return (
+    "assignAction: 用户要求分派；≤2 次 search_employees + get_employee_details 核对 shortlisted 后，" +
+    "**顶层 assignment JSON 一次写完**所有 subtask 负责人；**禁止**逐 task 循环 search+update_draft_task（>4 次会被拒）。"
+  );
+}
+
 export function formatTurnActionHint(hint: TurnActionHint): string {
   switch (hint.kind) {
     case "explicitDraftRequest":
       return "explicitDraftRequest: 用户要求生成草案；本轮须 DRAFT + 顶层 draft JSON（含 title/description/tasks[]）。";
+    case "assignAction":
+      return formatAssignActionHint();
     case "clarifyAction":
       return "clarifyAction: 缺关键信息（如截止时间）；CLARIFY-only，直接输出 message JSON，禁止 tool_calls。";
     case "postClarifyDraftAction":
@@ -178,5 +207,8 @@ export function formatScopeBoundaryHint(input: {
 }
 
 export function formatPendingRosterHint(roster: { sourceLabel: string; chars: number }): string {
-  return `pendingRoster: ${JSON.stringify(roster)} → 调用 read_uploaded_roster_text。`;
+  return (
+    `pendingRoster: ${JSON.stringify(roster)} → read_uploaded_roster_text → resolve_roster_names → set_candidate_pool；` +
+    "禁止逐一 search_employees(name=...)。"
+  );
 }

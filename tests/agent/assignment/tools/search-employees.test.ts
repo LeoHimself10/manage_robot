@@ -137,7 +137,7 @@ describe("buildSearchEmployeesHandler", () => {
   const repo = repoWithGet(PROFILES);
   const handler = buildSearchEmployeesHandler(repo);
 
-  it("returns default list with soft hints only (no domain hard filter)", () => {
+  it("returns default browse list when only domain hint (domain stays soft)", () => {
     const result = handler({ domain: "QUALITY" }) as {
       candidates: string[];
       truncated: boolean;
@@ -148,19 +148,45 @@ describe("buildSearchEmployeesHandler", () => {
     expect(result.candidates).toHaveLength(5);
     expect(result.truncated).toBe(false);
     expect(result.note).toContain("domainHint=QUALITY");
-    expect(result.note).toContain("soft_hints_only_no_hard_filter");
+    expect(result.note).toContain("browse_directory_cap");
   });
 
-  it("includes skills and department hints in note without reducing total", () => {
-    const result = handler({
-      skills: ["8D"],
-      department: "软件部",
-      role: "Technician",
-    }) as { total: number; note?: string };
-    expect(result.total).toBe(5);
-    expect(result.note).toContain("skillsHint=8D");
-    expect(result.note).toContain("departmentHint=软件部");
-    expect(result.note).toContain("roleHint=Technician");
+  it("hard-filters by department", () => {
+    const result = handler({ department: "质量部" }) as {
+      candidates: string[];
+      total: number;
+      note?: string;
+    };
+    expect(result.total).toBe(1);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toContain("emp_qa_001");
+    expect(result.note).toContain("hard_filter_applied");
+    expect(result.note).toContain("departmentFilter=质量部");
+  });
+
+  it("returns empty with hint when department filter matches nobody", () => {
+    const result = handler({ department: "不存在的部门" }) as {
+      candidates: string[];
+      total: number;
+      hint?: string;
+      note?: string;
+    };
+    expect(result.total).toBe(0);
+    expect(result.candidates).toHaveLength(0);
+    expect(result.hint).toContain("未找到");
+    expect(result.note).toContain("hard_filter_applied");
+  });
+
+  it("hard-filters by role", () => {
+    const roleHandler = buildSearchEmployeesHandler(repoWithGet(PROFILES));
+    const result = roleHandler({ role: "Technician" }) as {
+      total: number;
+      candidates: string[];
+      note?: string;
+    };
+    expect(result.total).toBe(1);
+    expect(result.candidates[0]).toContain("emp_qa_002");
+    expect(result.note).toContain("hard_filter_applied");
   });
 
   it("sets truncated when over default cap (default = 25)", () => {

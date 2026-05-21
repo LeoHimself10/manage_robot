@@ -53,6 +53,34 @@ function truncateText(s: string, max: number): string {
   return `${t.slice(0, max)}…`;
 }
 
+/** Hard filter: department name substring match on department or departmentNames. */
+export function matchesDepartmentHint(p: EmployeeProfileRecord, hint: string): boolean {
+  const needle = String(hint ?? "").trim().toLowerCase();
+  if (!needle) return true;
+  if (String(p.department ?? "").toLowerCase().includes(needle)) return true;
+  if (p.departmentNames?.some((n) => String(n).toLowerCase().includes(needle))) return true;
+  return false;
+}
+
+/** Hard filter: role/position substring match. */
+export function matchesRoleHint(p: EmployeeProfileRecord, hint: string): boolean {
+  const needle = String(hint ?? "").trim().toLowerCase();
+  if (!needle) return true;
+  return String(p.role ?? "").toLowerCase().includes(needle);
+}
+
+export function applyBrowseHardFilters(
+  profiles: EmployeeProfileRecord[],
+  filters: { department?: string; role?: string },
+): EmployeeProfileRecord[] {
+  const dept = String(filters.department ?? "").trim();
+  const role = String(filters.role ?? "").trim();
+  if (!dept && !role) return profiles;
+  return profiles.filter(
+    (p) => matchesDepartmentHint(p, dept) && matchesRoleHint(p, role),
+  );
+}
+
 /** Full profile block for get_employee_details / name lookup */
 export function compressProfileFull(p: EmployeeProfileRecord): string {
   const lines: string[] = [];
@@ -145,7 +173,7 @@ export const SEARCH_EMPLOYEES_TOOL: ToolDefinition = {
   function: {
     name: "search_employees",
     description:
-      "列出在职员工作为任务分配候选人。默认返回精简画像（每人数行）；写分配理由前请再调 get_employee_details。可选 name 按姓名/SQL 精确查找（绕过人数上限）。domain/skills/department/role 仅作软提示写入 note，不再硬过滤剔除候选人。",
+      "列出在职员工作为任务分配候选人。默认返回精简画像（每人数行）；写分配理由前请再调 get_employee_details。可选 name 按姓名/SQL 精确查找（绕过人数上限）。department/role 为**硬过滤**（无匹配则返回空列表+hint）；domain/skills 仅作 note 软提示。",
     parameters: {
       type: "object",
       properties: {
@@ -165,11 +193,11 @@ export const SEARCH_EMPLOYEES_TOOL: ToolDefinition = {
         },
         department: {
           type: "string",
-          description: "不再用于硬过滤；可填部门关键词供 note 提示",
+          description: "部门关键词硬过滤（匹配 department/departmentNames 子串）；无命中返回空 candidates",
         },
         role: {
           type: "string",
-          description: "不再用于硬过滤；可填岗位关键词供 note 提示",
+          description: "岗位/职位关键词硬过滤（匹配 role 子串）；可与 department 叠加",
         },
       },
       required: [],
@@ -338,14 +366,36 @@ export function buildSearchEmployeesHandler(
     }
 
     const cap = maxCandidatesCap();
-    const baseAll = repo.list().filter((p) => p.userId);
+    let baseAll = repo.list().filter((p) => p.userId);
+
+    const deptHint = String(typed.department ?? "").trim();
+    const roleHint = String(typed.role ?? "").trim();
+    const hardFilterActive = Boolean(deptHint || roleHint);
+    if (hardFilterActive) {
+      baseAll = applyBrowseHardFilters(baseAll, { department: deptHint, role: roleHint });
+    }
 
     const notes: string[] = [];
     if (typed.domain) notes.push(`domainHint=${typed.domain}`);
     if (typed.skills?.length) notes.push(`skillsHint=${typed.skills.join(",")}`);
-    if (typed.department) notes.push(`departmentHint=${typed.department}`);
-    if (typed.role) notes.push(`roleHint=${typed.role}`);
-    notes.push("soft_hints_only_no_hard_filter");
+    if (deptHint) notes.push(`departmentFilter=${deptHint}`);
+    if (roleHint) notes.push(`roleFilter=${roleHint}`);
+    if (hardFilterActive) {
+      notes.push("hard_filter_applied");
+    } else {
+      notes.push("browse_directory_cap");
+    }
+
+    if (hardFilterActive && baseAll.length === 0) {
+      return {
+        candidates: [],
+        truncated: false,
+        total: 0,
+        note: notes.join(" | "),
+        hint:
+          "未找到符合 department/role 条件的在职员工。请换关键词、上传花名册 set_candidate_pool，或请主管补充具体姓名。",
+      };
+    }
 
     let actorDeptIds = new Set<string>();
     if (ctx.actorUserId?.trim()) {

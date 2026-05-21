@@ -84,10 +84,12 @@ import {
 } from "./mutate-draft-subtasks";
 import {
   READ_UPLOADED_ROSTER_TEXT_TOOL,
+  RESOLVE_ROSTER_NAMES_TOOL,
   SET_CANDIDATE_POOL_TOOL,
   CLEAR_CANDIDATE_POOL_TOOL,
   LIST_CANDIDATE_POOL_TOOL,
   buildReadUploadedRosterTextHandler,
+  buildResolveRosterNamesHandler,
   buildSetCandidatePoolHandler,
   buildClearCandidatePoolHandler,
   buildListCandidatePoolHandler,
@@ -155,6 +157,7 @@ export const KNOWN_TOOL_NAMES = [
   "search_employees",
   "get_employee_details",
   "read_uploaded_roster_text",
+  "resolve_roster_names",
   "set_candidate_pool",
   "clear_candidate_pool",
   "list_candidate_pool",
@@ -230,6 +233,8 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   };
 
   const searchQuotaState = { exhausted: false };
+  let updateDraftTaskCallCount = 0;
+  const UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX = 4;
 
   const wrapPreDraftGate = (
     toolName: PreDraftGateTool,
@@ -293,6 +298,10 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       definition: READ_UPLOADED_ROSTER_TEXT_TOOL,
       handler: buildReadUploadedRosterTextHandler(candidatePoolDeps),
     },
+    resolve_roster_names: {
+      definition: RESOLVE_ROSTER_NAMES_TOOL,
+      handler: buildResolveRosterNamesHandler(candidatePoolDeps),
+    },
     set_candidate_pool: {
       definition: SET_CANDIDATE_POOL_TOOL,
       handler: buildSetCandidatePoolHandler(candidatePoolDeps),
@@ -333,10 +342,23 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     },
     update_draft_task: {
       definition: UPDATE_DRAFT_TASK_TOOL,
-      handler: buildUpdateDraftTaskHandler({
-        currentSession: deps.currentSession,
-        getContact: (userId) => peopleStore.getContact(userId),
-      }),
+      handler: (args: Record<string, unknown>) => {
+        updateDraftTaskCallCount += 1;
+        if (updateDraftTaskCallCount > UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX) {
+          return {
+            ok: false,
+            reason: "too_many_draft_patches",
+            callCount: updateDraftTaskCallCount,
+            max: UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX,
+            hint:
+              "本轮 update_draft_task 次数过多。多 subtask 指派请改用**顶层 assignment JSON** 一次写完，或先 get_employee_details 再单次 assignment。",
+          };
+        }
+        return buildUpdateDraftTaskHandler({
+          currentSession: deps.currentSession,
+          getContact: (userId) => peopleStore.getContact(userId),
+        })(args);
+      },
     },
     add_draft_subtask: {
       definition: ADD_DRAFT_SUBTASK_TOOL,
@@ -536,6 +558,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "add_draft_subtask",
       "remove_draft_subtask",
       "read_uploaded_roster_text",
+      "resolve_roster_names",
       "set_candidate_pool",
       "clear_candidate_pool",
       "list_candidate_pool",
@@ -565,6 +588,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "add_draft_subtask",
       "remove_draft_subtask",
       "read_uploaded_roster_text",
+      "resolve_roster_names",
       "set_candidate_pool",
       "clear_candidate_pool",
       "list_candidate_pool",
