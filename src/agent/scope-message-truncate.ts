@@ -70,7 +70,7 @@ export function refreshMemoryContextAfterScopeSwitch(
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("[memory_context]")) continue;
       if (/^planId:/.test(trimmed)) continue;
-      if (/^latestDraftSummary\b|^latestAssignmentSummary|^candidatePool|^pendingRoster|^publishStaging/.test(trimmed)) {
+      if (/^latestDraft\b|^latestAssignmentSummary|^candidatePool|^pendingRoster|^publishStaging|^draftReviseDiscipline/.test(trimmed)) {
         continue;
       }
       kept.push(trimmed);

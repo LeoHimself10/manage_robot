@@ -70,9 +70,9 @@ describe("multi-turn regression scenarios", () => {
     const toolNames = req.tools.map((t) => t.function.name);
     expect(toolNames).toContain("search_web");
     const memory = req.messages.find((m) => m.role === "assistant" && String(m.content ?? "").includes("[memory_context]"));
-    expect(memory?.content).toContain("latestDraftSummary");
+    expect(memory?.content).toContain("latestDraft (");
     expect(memory?.content).toContain("旧任务");
-    expect(memory?.content).not.toContain("latestDraft (");
+    expect(memory?.content).not.toContain("latestDraftSummary");
     expect(memory?.content).toContain("latestAssignmentSummary");
     expect(memory?.content).toContain("topFacts");
   });

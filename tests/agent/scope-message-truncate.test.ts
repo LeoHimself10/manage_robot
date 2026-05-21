@@ -70,7 +70,7 @@ describe("scope-message-truncate", () => {
           content: [
             "[memory_context]",
             "planId: old-plan",
-            "latestDraftSummary: {\"tasks\":[]}",
+            "latestDraft: {\"tasks\":[]}",
             "latestAssignmentSummary: 宋元勋",
             "candidatePool: 3 entries",
             "knownFact: 测评组倾向",
@@ -80,7 +80,7 @@ describe("scope-message-truncate", () => {
       refreshMemoryContextAfterScopeSwitch(messages, "plan-new");
       const mem = String(messages[1].content);
       expect(mem).toContain("planId: plan-new");
-      expect(mem).not.toContain("latestDraftSummary:");
+      expect(mem).not.toContain("latestDraft:");
       expect(mem).not.toContain("latestAssignmentSummary");
       expect(mem).not.toContain("candidatePool");
       expect(mem).toContain("knownFact: 测评组倾向");
@@ -93,7 +93,7 @@ describe("scope-message-truncate", () => {
         { role: "system", content: "sys" },
         {
           role: "assistant",
-          content: "[memory_context]\nplanId: old\nlatestDraftSummary: stale",
+          content: "[memory_context]\nplanId: old\nlatestDraft: stale",
         },
         { role: "user", content: "old" },
         { role: "assistant", content: "old assistant" },
@@ -110,7 +110,7 @@ describe("scope-message-truncate", () => {
       expect(rotated).toBe(true);
       expect(messages.some((m) => m.content === "old assistant")).toBe(false);
       expect(String(messages[1].content)).toContain("planId: plan-rotated");
-      expect(String(messages[1].content)).not.toContain("latestDraftSummary:");
+      expect(String(messages[1].content)).not.toContain("latestDraft:");
     });
 
     it("returns false when no scope switch ok", () => {

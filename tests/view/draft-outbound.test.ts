@@ -100,12 +100,26 @@ describe("mergeOrchestratorDraftIntoSession", () => {
     expect((merged.tasks as Array<{ inputMaterials?: string[] }>)[0].inputMaterials).toBeUndefined();
   });
 
-  it("deep-merges on update_draft_task", () => {
-    const orch = {
-      tasks: [{ id: "task_1", title: "局部改标题" }],
-    };
+  it("deep-merges on add_draft_subtask without replacing tasks from thin orch json", () => {
+    const orch = { tasks: [{ id: "task_99", title: "phantom" }] };
     const merged = mergeOrchestratorDraftIntoSession(
       baseDraft as Record<string, unknown>,
+      orch,
+      ["add_draft_subtask"],
+    );
+    expect((merged.tasks as Array<{ title: string }>)[0].title).toBe("旧子任务");
+  });
+
+  it("ignores orch tasks[] when update_draft_task already mutated session", () => {
+    const postSession = {
+      ...baseDraft,
+      tasks: [{ ...baseDraft.tasks[0], title: "局部改标题" }],
+    };
+    const orch = {
+      tasks: [{ id: "task_1", title: "误覆盖标题" }],
+    };
+    const merged = mergeOrchestratorDraftIntoSession(
+      postSession as Record<string, unknown>,
       orch,
       ["update_draft_task"],
     );

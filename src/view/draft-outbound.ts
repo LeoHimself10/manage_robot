@@ -4,7 +4,16 @@ import { deepMergePreserveRichFields } from "../agent/draft-merge";
 export const DRAFT_MUTATING_TOOL_NAMES = new Set([
   "prepare_publish_task",
   "update_draft_task",
+  "add_draft_subtask",
+  "remove_draft_subtask",
   "save_draft",
+]);
+
+/** In-place structural edits: do not replace tasks[] from thin orchestrator JSON. */
+export const DRAFT_STRUCT_MUTATE_TOOL_NAMES = new Set([
+  "update_draft_task",
+  "add_draft_subtask",
+  "remove_draft_subtask",
 ]);
 
 export interface ResolveDraftForOutboundInput {
@@ -43,9 +52,11 @@ export function mergeOrchestratorDraftIntoSession(
   orchResultDraft: Record<string, unknown>,
   toolInvocationNames: ReadonlyArray<string>,
 ): Record<string, unknown> {
-  const isPartialRevise = toolInvocationNames.includes("update_draft_task");
+  const isPartialRevise = toolInvocationNames.some((n) => DRAFT_STRUCT_MUTATE_TOOL_NAMES.has(n));
   if (isPartialRevise) {
-    return deepMergePreserveRichFields(preTurnDraft, orchResultDraft) as Record<string, unknown>;
+    const orchScalars = { ...orchResultDraft };
+    delete orchScalars.tasks;
+    return deepMergePreserveRichFields(preTurnDraft, orchScalars) as Record<string, unknown>;
   }
   const merged = deepMergePreserveRichFields(preTurnDraft, orchResultDraft) as Record<string, unknown>;
   if (Array.isArray(orchResultDraft.tasks)) {

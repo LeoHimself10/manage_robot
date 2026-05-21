@@ -77,6 +77,12 @@ import { START_NEW_TASK_TOOL, buildStartNewTaskHandler } from "./start-new-task"
 import { SWITCH_BACK_TASK_TOOL, buildSwitchBackTaskHandler } from "./switch-back-task";
 import { UPDATE_DRAFT_TASK_TOOL, buildUpdateDraftTaskHandler } from "./update-draft-task";
 import {
+  ADD_DRAFT_SUBTASK_TOOL,
+  REMOVE_DRAFT_SUBTASK_TOOL,
+  buildAddDraftSubtaskHandler,
+  buildRemoveDraftSubtaskHandler,
+} from "./mutate-draft-subtasks";
+import {
   READ_UPLOADED_ROSTER_TEXT_TOOL,
   SET_CANDIDATE_POOL_TOOL,
   CLEAR_CANDIDATE_POOL_TOOL,
@@ -157,6 +163,8 @@ export const KNOWN_TOOL_NAMES = [
   "start_new_task",
   "switch_back_task",
   "update_draft_task",
+  "add_draft_subtask",
+  "remove_draft_subtask",
   "submit_employee_response",
   "submit_progress_update",
   "update_employee_profile",
@@ -330,6 +338,14 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
         getContact: (userId) => peopleStore.getContact(userId),
       }),
     },
+    add_draft_subtask: {
+      definition: ADD_DRAFT_SUBTASK_TOOL,
+      handler: buildAddDraftSubtaskHandler({ currentSession: deps.currentSession }),
+    },
+    remove_draft_subtask: {
+      definition: REMOVE_DRAFT_SUBTASK_TOOL,
+      handler: buildRemoveDraftSubtaskHandler({ currentSession: deps.currentSession }),
+    },
     submit_employee_response: {
       definition: SUBMIT_EMPLOYEE_RESPONSE_TOOL,
       handler: buildSubmitEmployeeResponseHandler({
@@ -496,6 +512,8 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "start_new_task",
       "switch_back_task",
       "update_draft_task",
+      "add_draft_subtask",
+      "remove_draft_subtask",
     ],
     manager: [
       "prepare_publish_task",
@@ -515,6 +533,8 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "start_new_task",
       "switch_back_task",
       "update_draft_task",
+      "add_draft_subtask",
+      "remove_draft_subtask",
       "read_uploaded_roster_text",
       "set_candidate_pool",
       "clear_candidate_pool",
@@ -542,6 +562,8 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "start_new_task",
       "switch_back_task",
       "update_draft_task",
+      "add_draft_subtask",
+      "remove_draft_subtask",
       "read_uploaded_roster_text",
       "set_candidate_pool",
       "clear_candidate_pool",

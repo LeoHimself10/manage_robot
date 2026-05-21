@@ -29,6 +29,7 @@ import {
   formatPublishStagingActionHint,
   formatScopeBoundaryHint,
 } from "./orchestrator-turn-hints";
+import { allocTaskId } from "./draft-task-ids";
 
 export { shouldInjectExplicitDraftRequestHint } from "./orchestrator-turn-hints";
 
@@ -165,10 +166,13 @@ export async function runOrchestrator(
   }
   if (config.sessionContext?.latestDraft) {
     memoryParts.push(
-      `latestDraftSummary (未发布草案，仅供继续编辑用，不是已发布任务): ${safeJson(summarizeDraftForPrompt(config.sessionContext.latestDraft))}`,
+      `latestDraft (未发布草案，权威结构；非已发布任务): ${safeJson(serializeDraftForMemory(config.sessionContext.latestDraft))}`,
     );
     memoryParts.push(
-      "publishedTasksLookup: 用户问已发布/我管理的任务时，必须调 list_managed_tasks 取库内真实数据；不得用 latestDraftSummary 充数。",
+      "publishedTasksLookup: 用户问已发布/我管理的任务时，必须调 list_managed_tasks 取库内真实数据；不得用 latestDraft 充数。",
+    );
+    memoryParts.push(
+      "draftReviseDiscipline: 改字段→update_draft_task；增子任务→add_draft_subtask；删子任务→remove_draft_subtask；仅用户明确要求重新拆解时才整表输出 draft.tasks[]。",
     );
   }
   if (config.sessionContext?.latestAssignment) {
@@ -370,44 +374,33 @@ function looksLikeDraftStyleMessage(message: string): boolean {
   return /已采纳要点|拆解逻辑|阅读导览/.test(text);
 }
 
-const RICH_TASK_FIELDS = [
-  "objective", "deliverables", "completionCriteria", "feedbackFrequency",
-  "dependencyTaskIds", "checkpoints", "risksAndOpenQuestions",
-  "inputMaterials", "actions", "collaborators", "scope",
-] as const;
+function serializeDraftForMemory(draft: Record<string, unknown>): Record<string, unknown> {
+  const maxChars = Number(process.env.ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS ?? "16000");
+  const cap = Number.isFinite(maxChars) && maxChars > 500 ? Math.floor(maxChars) : 16000;
+  const full = JSON.stringify(draft);
+  if (full.length <= cap) return draft;
 
-function taskFieldStatus(t: Record<string, unknown>): { filled: string[]; missing: string[] } {
-  const filled: string[] = [];
-  const missing: string[] = [];
-  for (const f of RICH_TASK_FIELDS) {
-    const v = t[f];
-    const hasValue = Array.isArray(v) ? v.length > 0 : (v !== undefined && v !== null && v !== "");
-    (hasValue ? filled : missing).push(f);
-  }
-  return { filled, missing };
-}
-
-function summarizeDraftForPrompt(draft: Record<string, unknown>): Record<string, unknown> {
   const tasks = Array.isArray((draft as { tasks?: unknown[] }).tasks)
     ? ((draft as { tasks: Array<Record<string, unknown>> }).tasks)
     : [];
-  const taskTitles = tasks
-    .map((t) => String(t?.title ?? "").trim())
-    .filter((t) => t.length > 0)
-    .slice(0, 5);
-  const stagedBy = String((draft as { stagedBy?: unknown }).stagedBy ?? "").trim() || null;
-  const taskFieldsPerTask = tasks.slice(0, 5).map((t) => ({
+  const slimTasks = tasks.map((t) => ({
     id: String(t?.id ?? ""),
-    ...taskFieldStatus(t),
+    title: String(t?.title ?? "").slice(0, 120),
+    objective: String(t?.objective ?? "").slice(0, 200),
+    timeNode: (t?.timeNode as Record<string, unknown> | undefined)?.dueAt
+      ? { dueAt: String((t.timeNode as Record<string, unknown>).dueAt ?? "") }
+      : undefined,
   }));
-  return {
-    hasDraft: true,
-    taskTitles,
-    domain: (draft as { classification?: { domain?: unknown } }).classification?.domain ?? null,
-    subtype: (draft as { classification?: { subtype?: unknown } }).classification?.subtype ?? null,
-    ...(stagedBy ? { stagedBy } : {}),
-    taskFields: taskFieldsPerTask,
+  const slim: Record<string, unknown> = {
+    _truncated: true,
+    title: draft.title,
+    description: typeof draft.description === "string" ? (draft.description as string).slice(0, 500) : draft.description,
+    classification: (draft as { classification?: unknown }).classification,
+    tasks: slimTasks,
   };
+  const slimJson = JSON.stringify(slim);
+  if (slimJson.length <= cap) return slim;
+  return { _truncated: true, title: draft.title, taskCount: tasks.length, taskIds: slimTasks.map((t) => t.id) };
 }
 
 function summarizeAssignmentForPrompt(
@@ -491,14 +484,6 @@ function fingerprintTask(task: Record<string, unknown>): string {
   const title = String(task?.title ?? "").trim().toLowerCase();
   const objective = String(task?.objective ?? "").trim().toLowerCase();
   return `${title}::${objective}`;
-}
-
-function allocTaskId(index: number, used: Set<string>): string {
-  const base = `task_${index + 1}`;
-  if (!used.has(base)) return base;
-  let n = index + 2;
-  while (used.has(`task_${n}`)) n += 1;
-  return `task_${n}`;
 }
 
 function normalizeConversationHistoryForModel(

@@ -273,8 +273,10 @@ describe("runOrchestrator", () => {
 
     const memoryMsg = requestArg.messages.find((m) => m.role === "assistant" && m.content.includes("planId: plan-123"));
     expect(memoryMsg).toBeDefined();
-    expect(memoryMsg?.content).toContain("latestDraftSummary");
+    expect(memoryMsg?.content).toContain("latestDraft (");
+    expect(memoryMsg?.content).toContain("旧任务");
     expect(memoryMsg?.content).toContain("latestAssignmentSummary");
+    expect(memoryMsg?.content).not.toContain("latestDraftSummary");
     expect(memoryMsg?.content).not.toContain("latestDraftTasks");
     expect(memoryMsg?.content).not.toContain("taskCount");
     expect(memoryMsg?.content).not.toContain("assignmentCount");
@@ -325,7 +327,7 @@ describe("runOrchestrator", () => {
     expect(result.messages[0]).toBe("ok");
   });
 
-  it("supports known facts tools when store is provided", async () => {
+  it("supports known facts tools when store is provided and draft exists", async () => {
     let facts: string[] = ["旧事实"];
     mockCallWithTools.mockImplementationOnce(async (req: {
       toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<unknown> | unknown>;
@@ -342,7 +344,12 @@ describe("runOrchestrator", () => {
     await runOrchestrator("记住这件事", {
       clientConfig: { baseUrl: "", apiKey: "", model: "qwen3.6-plus", timeoutMs: 5000, maxRetries: 0, temperature: 0, maxTokens: 2000 },
       employeeRepo: { list: () => [] },
-      currentSession: { latestDraft: { tasks: [{ id: "task_1", title: "测试" }] } } as import("../../src/infra/plan-session-store").PlanSession,
+      currentSession: {
+        latestDraft: { tasks: [{ id: "task_1", title: "测试" }] },
+      } as import("../../src/infra/plan-session-store").PlanSession,
+      sessionContext: {
+        latestDraft: { tasks: [{ id: "task_1", title: "测试" }] },
+      },
       knownFactsStore: {
         get: () => facts,
         update: (next: string[]) => {
