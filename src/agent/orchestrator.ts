@@ -172,7 +172,7 @@ export async function runOrchestrator(
       "publishedTasksLookup: 用户问已发布/我管理的任务时，必须调 list_managed_tasks 取库内真实数据；不得用 latestDraft 充数。",
     );
     memoryParts.push(
-      "draftReviseDiscipline: 改字段→update_draft_task；增子任务→add_draft_subtask；删子任务→remove_draft_subtask；仅用户明确要求重新拆解时才整表输出 draft.tasks[]。",
+      "draftReviseDiscipline: 拆细/扩条/重新拆解→DRAFT 整表输出完整 draft JSON（tasks[] 全量替换）；单点改 task_x 字段→update_draft_task；删一条→remove_draft_subtask；禁止口播拆细无 JSON。",
     );
   }
   if (config.sessionContext?.latestAssignment) {

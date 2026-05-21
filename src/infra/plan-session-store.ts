@@ -213,7 +213,8 @@ export function startNewTaskScope(
   session.lastEmployeeSearchHits = [];
   // 清空对话历史，防止模型将上一条任务的人名/编号/上下文带入新任务。
   // 保留单条 [system_note] 作为 scope 边界锚点，让模型知道自己已切换到新任务。
-  const clearedHistoryEntries = session.conversationHistory.length;
+  const history = session.conversationHistory ?? [];
+  const clearedHistoryEntries = history.length;
   session.conversationHistory = [
     {
       role: "assistant",
@@ -340,7 +341,8 @@ export function restoreTaskScope(
 
   const now = new Date().toISOString();
   // 清空对话历史，防止跨 scope 污染。
-  const clearedHistoryEntries = session.conversationHistory.length;
+  const restoreHistory = session.conversationHistory ?? [];
+  const clearedHistoryEntries = restoreHistory.length;
   session.conversationHistory = [
     {
       role: "assistant",

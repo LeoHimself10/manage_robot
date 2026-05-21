@@ -27,6 +27,9 @@ data/
 # One-off ops/inspect scripts (executed against ECS sqlite, not part of source tree)
 .tmp/
 
+# ECS / local snapshots (may contain manage-robot.env secrets)
+backups/
+
 # Local notes (do not commit)
 agent-maturity-assessment.md
 
