@@ -387,6 +387,16 @@ describe("assignment-workbench HTTP handler", () => {
         success: [],
         failed: [],
       })),
+      notifyEmployeeOfManagerAction: vi.fn(async () => ({
+        enabled: false,
+        success: [],
+        failed: [],
+      })),
+      notifySubtaskReminder: vi.fn(async () => ({
+        enabled: false,
+        success: [],
+        failed: [],
+      })),
       notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
     });
     await seedPublishedTask({
@@ -911,7 +921,7 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).toContain("note is required");
   });
 
-  it("employee reject invokes notifyManagerOfEmployeeAction, writes EMPLOYEE_RESPONSE_SUMMARY, appears in /tasks/current", async () => {
+  it("employee reject invokes notifyManagerOfEmployeeAction, writes EMPLOYEE_RESPONSE_SUMMARY, appears in /tasks/new waiting bucket (not /current)", async () => {
     const notifyManagerOfEmployeeAction = vi.fn(async () => ({
       enabled: true,
       success: [{ userId: "manager-1", robotMessageKey: "rk-reject-test" }],
@@ -921,6 +931,8 @@ describe("assignment-workbench HTTP handler", () => {
       notifyPublishedTask: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
       notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
       notifyManagerOfEmployeeAction,
+      notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
       notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
     });
     await seedPublishedTask({
@@ -979,7 +991,24 @@ describe("assignment-workbench HTTP handler", () => {
     await flushAsync();
     const cur = JSON.parse(curRes.captured().body) as { ok: boolean; tasks: Array<{ subtaskId: string }> };
     expect(cur.ok).toBe(true);
-    expect(cur.tasks.some((t) => t.subtaskId === subtaskId)).toBe(true);
+    expect(cur.tasks.some((t) => t.subtaskId === subtaskId)).toBe(false);
+
+    const newReq = stubReq({
+      url: "/api/workbench/employee/tasks/new",
+      method: "GET",
+      headers: { cookie },
+    });
+    const newRes = stubRes();
+    handleAssignmentHttp(newReq, newRes.res);
+    await flushAsync();
+    const inbox = JSON.parse(newRes.captured().body) as {
+      ok: boolean;
+      actionable: Array<{ subtaskId: string }>;
+      waiting: Array<{ subtaskId: string }>;
+    };
+    expect(inbox.ok).toBe(true);
+    expect(inbox.waiting.some((t) => t.subtaskId === subtaskId)).toBe(true);
+    expect(inbox.actionable.some((t) => t.subtaskId === subtaskId)).toBe(false);
   });
 
   it("employee subtasks/action requires idempotencyKey when WORKBENCH_ENFORCE_ACTION_GUARDS=1", async () => {

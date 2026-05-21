@@ -51,6 +51,16 @@ describe("publish_task handler", () => {
           success: [],
           failed: [],
         })),
+        notifyEmployeeOfManagerAction: vi.fn(async () => ({
+          enabled: false,
+          success: [],
+          failed: [],
+        })),
+        notifySubtaskReminder: vi.fn(async () => ({
+          enabled: false,
+          success: [],
+          failed: [],
+        })),
         notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
       },
       recentPublished: createRecentPublishStore(),
@@ -85,6 +95,16 @@ describe("publish_task handler", () => {
           failed: [],
         })),
         notifyManagerOfEmployeeAction: vi.fn(async () => ({
+          enabled: false,
+          success: [],
+          failed: [],
+        })),
+        notifyEmployeeOfManagerAction: vi.fn(async () => ({
+          enabled: false,
+          success: [],
+          failed: [],
+        })),
+        notifySubtaskReminder: vi.fn(async () => ({
           enabled: false,
           success: [],
           failed: [],
@@ -126,6 +146,16 @@ describe("publish_task handler", () => {
           success: [],
           failed: [],
         })),
+        notifyEmployeeOfManagerAction: vi.fn(async () => ({
+          enabled: false,
+          success: [],
+          failed: [],
+        })),
+        notifySubtaskReminder: vi.fn(async () => ({
+          enabled: false,
+          success: [],
+          failed: [],
+        })),
         notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
       },
       recentPublished: createRecentPublishStore(),
@@ -151,7 +181,7 @@ describe("publish_task handler", () => {
       },
       appendTaskEvent: () => {},
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
       recentPublished: recent,
     });
     await expect(handler({ planId: "plan-1" })).resolves.toMatchObject({
@@ -177,7 +207,7 @@ describe("publish_task handler", () => {
       },
       appendTaskEvent: () => {},
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
       recentPublished: createRecentPublishStore(),
     });
     const res = (await handler({ planId: "plan-1" })) as Record<string, unknown>;
@@ -199,7 +229,7 @@ describe("publish_task handler", () => {
       },
       appendTaskEvent: () => {},
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
       recentPublished: createRecentPublishStore(),
     });
     const res = (await handler({ planId: "plan-1" })) as Record<string, unknown>;
@@ -240,7 +270,7 @@ describe("publish_task handler", () => {
       }),
       appendTaskEvent,
       getContact: () => ({ active: true }),
-      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
       recentPublished: createRecentPublishStore(),
       onAudit,
       onPublishResult,
@@ -289,7 +319,7 @@ describe("publish_task handler", () => {
       appendTaskEvent,
       // contact lookup returns undefined → unknown assignee
       getContact: () => undefined,
-      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
+      notifier: { notifyPublishedTask: notifySpy, notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })), notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })) },
       recentPublished: createRecentPublishStore(),
       onPublishResult,
     });
@@ -310,5 +340,40 @@ describe("publish_task handler", () => {
     expect(onPublishResult).toHaveBeenCalledWith(
       expect.objectContaining({ ok: false, reason: "unknown_assignees" }),
     );
+  });
+
+  it("rejects same-turn prepare+publish with must_confirm_separately", async () => {
+    const { createOrchestratorTurnFlags } = await import("../../../src/agent/orchestrator-turn-flags");
+    const flags = createOrchestratorTurnFlags();
+    flags.markPrepareCalledThisTurn();
+
+    const publishSpy = vi.fn(() => {
+      throw new Error("should not call publishFromSession");
+    });
+    const handler = buildPublishTaskHandler({
+      trustedActorUserId: "manager-1",
+      currentSessionPlanId: "plan-1",
+      currentSession: baseSession(),
+      initiatorDepartment: "质量部",
+      publishFromSession: publishSpy,
+      appendTaskEvent: () => {},
+      getContact: () => ({ active: true }),
+      notifier: {
+        notifyPublishedTask: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+        notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+        notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+        notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+        notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+        notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
+      },
+      recentPublished: createRecentPublishStore(),
+      orchestratorTurnFlags: flags,
+    });
+
+    await expect(handler({ planId: "plan-1", confirmationContext: "确认发布" })).resolves.toMatchObject({
+      ok: false,
+      reason: "must_confirm_separately",
+    });
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 });

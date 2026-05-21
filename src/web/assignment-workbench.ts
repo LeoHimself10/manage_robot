@@ -40,6 +40,7 @@ import {
   type WorkbenchPublishNotifier,
 } from "../integrations/dingtalk/workbench-notify";
 import { notifyManagerOfEmployeeActionAfterUpdate } from "../integrations/dingtalk/manager-notify-on-employee-action";
+import { notifyEmployeeOfManagerActionAfterUpdate } from "../integrations/dingtalk/employee-notify-on-manager-action";
 import { notifyEmployeeTodoOnAcceptAfterUpdate } from "../integrations/dingtalk/employee-todo-on-accept";
 import { createEmployeeProfileRepo } from "../integrations/repos/employee-profile-repo";
 import { createDingTalkContactSyncService } from "../infra/dingtalk-contact-sync";
@@ -1278,9 +1279,11 @@ export function renderTaskDetailPage(params: {
         var kind = toggle.getAttribute('data-mgr-toggle');
         var pDecl = row.querySelector('[data-mgr-panel="decline"]');
         var pAck = row.querySelector('[data-mgr-panel="ack"]');
+        var pAckRej = row.querySelector('[data-mgr-panel="ack-rejection"]');
         if (kind === 'decline' && pDecl) {
           var showD = pDecl.hidden;
           if (pAck) pAck.hidden = true;
+          if (pAckRej) pAckRej.hidden = true;
           pDecl.hidden = !showD;
           if (showD) {
             row.open = true;
@@ -1289,10 +1292,20 @@ export function renderTaskDetailPage(params: {
         } else if (kind === 'ack' && pAck) {
           var showA = pAck.hidden;
           if (pDecl) pDecl.hidden = true;
+          if (pAckRej) pAckRej.hidden = true;
           pAck.hidden = !showA;
           if (showA) {
             row.open = true;
             setRowMgrFb(row, 'ack', '', 'muted');
+          }
+        } else if (kind === 'ack-rejection' && pAckRej) {
+          var showR = pAckRej.hidden;
+          if (pDecl) pDecl.hidden = true;
+          if (pAck) pAck.hidden = true;
+          pAckRej.hidden = !showR;
+          if (showR) {
+            row.open = true;
+            setRowMgrFb(row, 'ack-rejection', '', 'muted');
           }
         }
         return;
@@ -1392,16 +1405,47 @@ export function renderTaskDetailPage(params: {
           } finally {
             subm.disabled = false;
           }
+        } else if (submitKind === 'ack-rejection') {
+          var pnlR = row3.querySelector('[data-mgr-panel="ack-rejection"]');
+          var rEl = pnlR ? pnlR.querySelector('textarea[data-field="ack-rejection-note"]') : null;
+          var noteR = rEl ? String(rEl.value || '').trim() : '';
+          var payloadR = { planId: planId, signal: 'ack_rejection', note: noteR };
+          if (sid) payloadR.subtaskId = sid;
+          if (ENFORCE_GUARDS) payloadR.idempotencyKey = newMgrIdem();
+          subm.disabled = true;
+          setRowMgrFb(row3, 'ack-rejection', '提交中…', 'muted');
+          try {
+            var resR = await fetch('/api/workbench/manager/ack-signal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payloadR),
+            });
+            var dataR = await resR.json().catch(function () { return {}; });
+            if (!resR.ok || !dataR.ok) throw new Error(dataR.error || ('HTTP ' + resR.status));
+            setRowMgrFb(row3, 'ack-rejection', '已确认 · 已通知员工', 'ok');
+            if (pnlR) pnlR.hidden = true;
+            await load();
+          } catch (er3) {
+            setRowMgrFb(row3, 'ack-rejection', String(er3 && er3.message ? er3.message : er3), 'err');
+          } finally {
+            subm.disabled = false;
+          }
         }
       })();
     });
   }
+  function normSubStatus(st) {
+    var s = String(st || '');
+    if (s === 'ACCEPTED') return 'IN_PROGRESS';
+    if (s === 'CHANGES_REQUESTED') return 'ASSIGNED';
+    return s;
+  }
   function rowBucketForSubtask(s) {
-    var st = String(s.status || '');
+    var st = normSubStatus(s.status);
     if (st === 'DONE') return 'done';
     var dk = String(s.openDeclineKind || '').trim();
     if (st === 'REJECTED' || dk === 'changes' || dk === 'rejected') return 'needs_manager';
-    if (st === 'ASSIGNED' || st === 'CHANGES_REQUESTED') return 'waiting_employee';
+    if (st === 'ASSIGNED') return 'waiting_employee';
     return 'in_progress';
   }
   function rowBucketsForSubtask(s) {
@@ -1410,25 +1454,15 @@ export function renderTaskDetailPage(params: {
   function applyMgrSubtaskFilter(mountEl, f) {
     if (!mountEl) return;
     var key = String(f || 'all').trim() || 'all';
-    mountEl.querySelectorAll('[data-mgr-bucket]').forEach(function (b) {
+    mountEl.querySelectorAll('.mgr-sub-filter-chip[data-mgr-bucket]').forEach(function (b) {
       var bf = String(b.getAttribute('data-mgr-bucket') || '').trim();
       b.setAttribute('aria-pressed', bf === key ? 'true' : 'false');
     });
     mountEl.querySelectorAll('details.sub-row-mgr').forEach(function (row) {
-      var tagsRaw = String(row.getAttribute('data-mgr-buckets') || '');
-      var tags = tagsRaw.split(/[\s,]+/).map(function (t) { return t.trim(); }).filter(Boolean);
       var st = String(row.getAttribute('data-status') || '');
-      if (!tags.length) tags = rowBucketsForSubtask({ status: st, openDeclineKind: null });
-      // Fallback: keep compatibility with old markup in case stale HTML is cached.
-      if (!tags.length || tags.length === 1) {
-        var raw = String(row.getAttribute('data-mgr-buckets') || '');
-        var parsed = raw
-          .split(/[\s,]+/)
-          .map(function (t) { return t.trim(); })
-          .filter(Boolean);
-        if (parsed.length) tags = parsed;
-      }
-      var match = key === 'all' || tags.indexOf(key) >= 0;
+      var dk = String(row.getAttribute('data-decline-kind') || '').trim();
+      var bucket = rowBucketForSubtask({ status: st, openDeclineKind: dk || null });
+      var match = key === 'all' || bucket === key;
       row.classList.toggle('mgr-sub-row--hidden', !match);
     });
   }
@@ -1553,14 +1587,41 @@ export function renderTaskDetailPage(params: {
     ensureMgrRowHandlers();
     if(!subs.length){ document.getElementById('subtasksMount').textContent='暂无子任务'; }
     else if (ROLE === 'employee') {
+      function empBucketFor(s) {
+        var st = String(s.status || '');
+        if (st === 'DONE') return 'done';
+        if (st === 'REJECTED') return 'waiting';
+        if (st === 'BLOCKED') return 'blocked';
+        if (st === 'IN_PROGRESS') return 'in_progress';
+        return 'assigned';
+      }
       var mine = subs.filter(function (s) { return s.mine; });
       var sibs = subs.filter(function (s) { return !s.mine; });
       var parts = [];
+      if (mine.length > 1) {
+        function empCount(b) {
+          return mine.filter(function (s) { return b === 'all' ? true : empBucketFor(s) === b; }).length;
+        }
+        var empChip = function (key, label, cnt) {
+          return '<button type="button" data-emp-bucket="'+esc(key)+'" aria-pressed="false">'+esc(label)+' <span class="mgr-sub-filter-count">'+esc(String(cnt))+'</span></button>';
+        };
+        parts.push(
+          '<div class="mgr-sub-filter-label muted" style="font-size:12px;margin:0 0 6px;font-weight:600;letter-spacing:.04em;">按状态筛选我的子任务</div>'
+          + '<div class="emp-sub-filter" role="tablist" aria-label="我的子任务筛选">'
+          + '<button type="button" data-emp-bucket="all" aria-pressed="true">全部 <span class="mgr-sub-filter-count">'+empCount('all')+'</span></button>'
+          + empChip('assigned', '待承接', empCount('assigned'))
+          + empChip('in_progress', '进行中', empCount('in_progress'))
+          + empChip('blocked', '阻塞', empCount('blocked'))
+          + empChip('waiting', '已拒绝 · 等主管', empCount('waiting'))
+          + empChip('done', '已完成', empCount('done'))
+          + '</div>'
+        );
+      }
       if (mine.length) {
         parts.push('<h4 class="subs-section-h">我的子任务</h4>');
         mine.forEach(function (s) {
           var cardCls = 'subtask-detail-card' + (String(s.status||'') === 'REJECTED' ? ' is-rejected-sub' : '');
-          parts.push('<div class="'+cardCls+'" data-sub-highlight="'+esc(String(s.subtaskId||''))+'"><h4 style="margin:0 0 8px;font-size:16px;">'+esc(s.title||'—')+'</h4>');
+          parts.push('<div class="'+cardCls+'" data-sub-highlight="'+esc(String(s.subtaskId||''))+'" data-emp-row-bucket="'+esc(empBucketFor(s))+'"><h4 style="margin:0 0 8px;font-size:16px;">'+esc(s.title||'—')+'</h4>');
           parts.push(subtaskPlanningBlock(s, subs));
           if (String(s.status||'') === 'REJECTED') {
             parts.push('<p class="muted subtask-rejected-hint" style="margin:10px 0 0;font-size:13px;">您已拒绝该子任务；主管已收到通知，请等待主管改派或确认。</p>');
@@ -1581,21 +1642,49 @@ export function renderTaskDetailPage(params: {
         parts.push('</tbody></table></div>');
       }
       if (!parts.length) document.getElementById('subtasksMount').textContent='暂无子任务';
-      else document.getElementById('subtasksMount').innerHTML = parts.join('');
+      else {
+        var mountEmp = document.getElementById('subtasksMount');
+        mountEmp.innerHTML = parts.join('');
+        var empFilter = mountEmp.querySelector('.emp-sub-filter');
+        if (empFilter && !empFilter.dataset.bound) {
+          empFilter.dataset.bound = '1';
+          empFilter.addEventListener('click', function (ev) {
+            var btn = ev.target && ev.target.closest ? ev.target.closest('[data-emp-bucket]') : null;
+            if (!btn) return;
+            var key = String(btn.getAttribute('data-emp-bucket') || 'all').trim() || 'all';
+            empFilter.querySelectorAll('button[data-emp-bucket]').forEach(function (b) {
+              b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+            });
+            mountEmp.querySelectorAll('[data-emp-row-bucket]').forEach(function (row) {
+              var rb = String(row.getAttribute('data-emp-row-bucket') || '');
+              row.style.display = (key === 'all' || key === rb) ? '' : 'none';
+            });
+          });
+        }
+      }
     } else {
       function countByFilter(f) {
         return subs.filter(function (s) {
-          if (f === 'needs_manager') return rowBucketForSubtask(s) === 'needs_manager';
-          if (f === 'waiting_employee') return rowBucketForSubtask(s) === 'waiting_employee';
-          if (f === 'in_progress') return rowBucketForSubtask(s) === 'in_progress';
-          if (f === 'done') return rowBucketForSubtask(s) === 'done';
+          var rawId = String(s.subtaskId || '');
+          var dkSrv = String(s.openDeclineKind || '').trim();
+          var dk = dkSrv === 'changes' || dkSrv === 'rejected' ? dkSrv : getOpenDeclineKindForSubtask(rawId);
+          var bucket = rowBucketForSubtask({ status: s.status, openDeclineKind: dk || null });
+          if (f === 'needs_manager') return bucket === 'needs_manager';
+          if (f === 'waiting_employee') return bucket === 'waiting_employee';
+          if (f === 'in_progress') return bucket === 'in_progress';
+          if (f === 'done') return bucket === 'done';
           return true;
         }).length;
       }
       var initialFilter = countByFilter('needs_manager') > 0 ? 'needs_manager' : (countByFilter('waiting_employee') > 0 ? 'waiting_employee' : 'all');
       if (urlSubtaskId) {
         var hitSu = subs.filter(function (x) { return String(x.subtaskId || '') === urlSubtaskId; })[0];
-        if (hitSu) initialFilter = rowBucketForSubtask(hitSu);
+        if (hitSu) {
+          var hitId = String(hitSu.subtaskId || '');
+          var hitDkSrv = String(hitSu.openDeclineKind || '').trim();
+          var hitDk = hitDkSrv === 'changes' || hitDkSrv === 'rejected' ? hitDkSrv : getOpenDeclineKindForSubtask(hitId);
+          initialFilter = rowBucketForSubtask({ status: hitSu.status, openDeclineKind: hitDk || null });
+        }
       }
       var reassignListHrefBase =
         '/workbench/manager/tasks?planId=' +
@@ -1619,6 +1708,7 @@ export function renderTaskDetailPage(params: {
         );
       };
       var head =
+        '<div class="mgr-sub-filter-label muted" style="font-size:12px;margin:0 0 6px;font-weight:600;letter-spacing:.04em;">按状态筛选子任务</div>' +
         '<div class="mgr-sub-filter" role="tablist" aria-label="子任务筛选">' +
         chipHtml('needs_manager', '待您处理', countByFilter('needs_manager'), countByFilter('needs_manager') > 0) +
         chipHtml('waiting_employee', '待员工承接', countByFilter('waiting_employee'), false) +
@@ -1643,6 +1733,7 @@ export function renderTaskDetailPage(params: {
         var dkSrv = String(s.openDeclineKind || '').trim();
         var declineKind =
           dkSrv === 'changes' || dkSrv === 'rejected' ? dkSrv : getOpenDeclineKindForSubtask(rawId);
+        var bucketSrc = { status: st, openDeclineKind: declineKind || null };
         var declineBtnLabel = declineKind === 'rejected' ? '驳回拒绝' : declineKind === 'changes' ? '驳回申请' : '';
         if (declineKind) {
           actions.push(
@@ -1653,6 +1744,8 @@ export function renderTaskDetailPage(params: {
         }
         if (st === 'BLOCKED' || st === 'DONE') {
           actions.push('<button type="button" class="btn btn-ghost btn-sm" data-mgr-toggle="ack">已知悉</button>');
+        } else if (st === 'REJECTED') {
+          actions.push('<button type="button" class="btn btn-secondary btn-sm" data-mgr-toggle="ack-rejection">接受拒绝</button>');
         }
         if ((st === 'IN_PROGRESS' || st === 'BLOCKED') && (ROLE === 'manager' || ROLE === 'admin')) {
           actions.push(
@@ -1769,6 +1862,21 @@ export function renderTaskDetailPage(params: {
               '<button type="button" class="btn btn-primary btn-sm" data-mgr-submit="ack">已知悉</button></div>' +
               '<div class="feedback muted" data-mgr-fb="ack"></div></div>'
             : '';
+        var ackRejectionPanel =
+          st === 'REJECTED'
+            ? '<div class="mgr-inline-panel" hidden data-mgr-panel="ack-rejection">' +
+              '<h4 class="mgr-inline-h">接受拒绝（确认 · 留痕）</h4>' +
+              '<p class="muted" style="margin:0 0 8px;font-size:13px;">' +
+              '确认接受员工的拒绝，子任务保留「已拒绝」状态，员工会收到 1:1 通知；' +
+              '后续可在「改派页」分配给其他人，或由您驳回拒绝让原员工继续。' +
+              '</p>' +
+              '<label class="mgr-inline-label">说明（建议填写，员工可见）<textarea data-field="ack-rejection-note" rows="3" placeholder="例如：已与你确认，本任务安排其他同事跟进。"></textarea></label>' +
+              '<div class="mgr-inline-actions">' +
+              '<button type="button" class="btn btn-ghost btn-sm" data-mgr-cancel="ack-rejection">取消</button>' +
+              '<button type="button" class="btn btn-primary btn-sm" data-mgr-submit="ack-rejection">提交</button>' +
+              '</div>' +
+              '<div class="feedback muted" data-mgr-fb="ack-rejection"></div></div>'
+            : '';
         return (
           '<details class="sub-row-mgr"' +
           openAttr +
@@ -1778,8 +1886,10 @@ export function renderTaskDetailPage(params: {
           sid +
           '" data-status="' +
           esc(st) +
+          '" data-decline-kind="' +
+          esc(declineKind || '') +
           '" data-mgr-buckets="' +
-          rowBucketsForSubtask(s).join(',') +
+          rowBucketsForSubtask(bucketSrc).join(',') +
           '">' +
           '<summary class="mgr-sub-summary' +
           (st === 'REJECTED' ? ' mgr-sub-summary--rejected-pool' : '') +
@@ -1816,6 +1926,7 @@ export function renderTaskDetailPage(params: {
           '</div></div>' +
           declinePanel +
           ackPanel +
+          ackRejectionPanel +
           '</div></details>'
         );
       });
@@ -2570,15 +2681,22 @@ export function handleAssignmentHttp(
   if (isGetOrHead && url.pathname === "/api/workbench/employee/tasks/new") {
     const session = requireSession(req, res, "employee");
     if (!session) return true;
-    const tasks = getFormalTaskStore()
+    const subs = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
-      .filter((t) => t.status === "ASSIGNED");
+      .filter((t) => t.status === "ASSIGNED" || t.status === "REJECTED");
+    const mapped = subs.map((t) => mapEmployeeSubtaskForApi(t));
+    const actionable = mapped.filter((t) => t.status === "ASSIGNED" && !t.openSignal);
+    const waiting = mapped.filter(
+      (t) => t.status === "REJECTED" || (t.status === "ASSIGNED" && Boolean(t.openSignal)),
+    );
     writeJson(
       res,
       200,
       {
         ok: true,
-        tasks: tasks.map((t) => mapEmployeeSubtaskForApi(t)),
+        actionable,
+        waiting,
+        tasks: mapped,
       },
       { ...NO_STORE_HEADERS },
     );
@@ -2590,7 +2708,7 @@ export function handleAssignmentHttp(
     if (!session) return true;
     const tasks = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
-      .filter((t) => t.status === "IN_PROGRESS" || t.status === "BLOCKED" || t.status === "REJECTED");
+      .filter((t) => t.status === "IN_PROGRESS" || t.status === "BLOCKED");
     writeJson(
       res,
       200,
@@ -2842,11 +2960,28 @@ export function handleAssignmentHttp(
           writeJson(res, 400, { ok: false, error: "subtaskId required or no ASSIGNED subtask" });
           return;
         }
+        const targetSubBeforeDecline = detail.subtasks.find((s) => s.subtaskId === targetSid);
+        const declineKind: "decline_changes" | "decline_rejection" =
+          targetSubBeforeDecline?.status === "REJECTED" ? "decline_rejection" : "decline_changes";
         const updated = store.managerDeclineSubtaskChanges({
           subtaskId: targetSid,
           managerUserId,
           note,
         });
+        try {
+          const mgrName = withPeopleDirectoryStore((st) =>
+            st.getContact(managerUserId)?.name?.trim(),
+          );
+          await notifyEmployeeOfManagerActionAfterUpdate({
+            taskStore: store,
+            notifier: workbenchPublishNotifier,
+            subtaskId: targetSid,
+            managerUserId,
+            managerDisplayName: mgrName || managerUserId,
+            kind: declineKind,
+            note,
+          });
+        } catch {}
         writeJson(res, 200, {
           ok: true,
           task: { ...updated.task, statusLabel: taskStatusLabel(updated.task.status) },
@@ -2917,6 +3052,22 @@ export function handleAssignmentHttp(
           signal: signal || "done",
           note: note || undefined,
         });
+        if (signal === "ack_rejection") {
+          try {
+            const mgrName = withPeopleDirectoryStore((st) =>
+              st.getContact(managerUserId)?.name?.trim(),
+            );
+            await notifyEmployeeOfManagerActionAfterUpdate({
+              taskStore: store,
+              notifier: workbenchPublishNotifier,
+              subtaskId: targetSid,
+              managerUserId,
+              managerDisplayName: mgrName || managerUserId,
+              kind: "ack_rejection",
+              note: note || undefined,
+            });
+          } catch {}
+        }
         writeJson(res, 200, { ok: true });
       } catch (err) {
         writeJson(res, 400, {

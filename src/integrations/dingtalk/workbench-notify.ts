@@ -94,6 +94,27 @@ export interface WorkbenchManagerEmployeeActionNotifyInput {
   traceId?: string;
 }
 
+/** 主管动作触发的员工 1:1 通知类型（驳回员工申请 / 接受员工拒绝 等）。 */
+export type EmployeeManagerNotifyKind =
+  | "decline_changes"
+  | "decline_rejection"
+  | "ack_rejection";
+
+export interface WorkbenchEmployeeManagerActionNotifyInput {
+  employeeUserId: string;
+  managerUserId: string;
+  managerDisplayName: string;
+  taskNo: string;
+  taskTitle: string;
+  subtaskId: string;
+  subtaskTitle: string;
+  kind: EmployeeManagerNotifyKind;
+  note?: string;
+  /** 员工工作台任务详情链接；缺省时 notifier 拼接 ASSIGNMENT_WEB_PUBLIC_BASE_URL */
+  workbenchTaskUrl?: string;
+  traceId?: string;
+}
+
 export interface WorkbenchSubtaskReminderNotifyInput {
   taskNo: string;
   taskTitle: string;
@@ -114,6 +135,9 @@ export interface WorkbenchPublishNotifier {
   notifyReassignedAssignee(input: WorkbenchReassignNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyManagerOfEmployeeAction(
     input: WorkbenchManagerEmployeeActionNotifyInput,
+  ): Promise<WorkbenchNotifyResult>;
+  notifyEmployeeOfManagerAction(
+    input: WorkbenchEmployeeManagerActionNotifyInput,
   ): Promise<WorkbenchNotifyResult>;
   notifySubtaskReminder(input: WorkbenchSubtaskReminderNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyEmployeeTodoOnAccept(input: {
@@ -325,6 +349,49 @@ function managerNotifyActionLabel(kind: ManagerEmployeeNotifyKind): string {
     default:
       return "更新状态";
   }
+}
+
+function employeeNotifyActionLabel(kind: EmployeeManagerNotifyKind): string {
+  switch (kind) {
+    case "decline_changes":
+      return "驳回您的调整申请";
+    case "decline_rejection":
+      return "驳回您的拒绝（请继续承接）";
+    case "ack_rejection":
+      return "已确认您的拒绝（等待改派）";
+    default:
+      return "更新了任务";
+  }
+}
+
+/** 供单测复用：主管动作 → 员工可见 Markdown */
+export function buildEmployeeManagerActionMarkdown(input: {
+  managerDisplayName: string;
+  managerUserId: string;
+  kind: EmployeeManagerNotifyKind;
+  taskNo: string;
+  taskTitle: string;
+  subtaskTitle: string;
+  note?: string;
+  workbenchTaskUrl?: string;
+}): string {
+  const actionLabel = employeeNotifyActionLabel(input.kind);
+  const noteRaw = String(input.note ?? "").trim();
+  const noteLine = noteRaw
+    ? clipNotifyText(noteRaw, MANAGER_NOTIFY_NOTE_MAX)
+    : "无";
+  const link = String(input.workbenchTaskUrl ?? "").trim();
+  const linkMd = link
+    ? "\n\n> **请在钉钉内**点击卡片下方「打开任务详情」进入工作台。"
+    : "\n\n（未配置 ASSIGNMENT_WEB_PUBLIC_BASE_URL，无直达链接）";
+  return (
+    `**主管反馈**：${input.managerDisplayName}（${input.managerUserId}）已**${actionLabel}**\n\n`
+    + `- **任务**：${input.taskNo}  ${clipNotifyText(input.taskTitle, 120)}\n`
+    + `- **子任务**：${clipNotifyText(input.subtaskTitle, 160)}\n`
+    + `- **动作**：${actionLabel}\n`
+    + `- **主管说明**：${noteLine}`
+    + linkMd
+  );
 }
 
 /** 供单测复用：员工动作 → 主管可见 Markdown */
@@ -805,6 +872,92 @@ export function createWorkbenchPublishNotifier(
       } catch (err) {
         failed.push({
           userId: mgr,
+          reason: `robot chat message failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+      return { enabled: true, success, failed };
+    },
+
+    async notifyEmployeeOfManagerAction(
+      input: WorkbenchEmployeeManagerActionNotifyInput,
+    ): Promise<WorkbenchNotifyResult> {
+      if (!isNotifyEnabled()) {
+        return {
+          enabled: false,
+          skippedReason: "WORKBENCH_DINGTALK_NOTIFY_ENABLED is off",
+          success: [],
+          failed: [],
+        };
+      }
+      const emp = String(input.employeeUserId ?? "").trim();
+      if (!emp) {
+        return {
+          enabled: false,
+          skippedReason: "employeeUserId missing",
+          success: [],
+          failed: [],
+        };
+      }
+      const robotMsgEnabled = isRobotMsgEnabled();
+      const robotCode = resolveRobotCode();
+      const success: WorkbenchNotifyResult["success"] = [];
+      const failed: WorkbenchNotifyResult["failed"] = [];
+      if (!robotMsgEnabled) {
+        failed.push({
+          userId: emp,
+          reason: "WORKBENCH_DINGTALK_ROBOT_MSG_ENABLED is off (employee notify is robot-only)",
+        });
+        return { enabled: true, success, failed };
+      }
+      if (!robotCode) {
+        failed.push({
+          userId: emp,
+          reason: "skip robot chat message: DINGTALK_ROBOT_CODE missing",
+        });
+        return { enabled: true, success, failed };
+      }
+      let token: string;
+      try {
+        token = await getAccessToken(fetchImpl);
+      } catch (err) {
+        failed.push({
+          userId: emp,
+          reason: `getAccessToken failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        return { enabled: true, success, failed };
+      }
+      const rawBase = env("ASSIGNMENT_WEB_PUBLIC_BASE_URL").replace(/\/+$/, "");
+      const workbenchTaskUrl =
+        String(input.workbenchTaskUrl ?? "").trim()
+        || (rawBase
+          ? `${rawBase}/workbench/employee/task?taskNo=${encodeURIComponent(input.taskNo)}&fromView=current`
+          : "");
+      const markdown = buildEmployeeManagerActionMarkdown({
+        managerDisplayName: input.managerDisplayName,
+        managerUserId: input.managerUserId,
+        kind: input.kind,
+        taskNo: input.taskNo,
+        taskTitle: input.taskTitle,
+        subtaskTitle: input.subtaskTitle,
+        note: input.note,
+        workbenchTaskUrl: workbenchTaskUrl || undefined,
+      });
+      const subject = `主管反馈 · ${input.taskNo}`;
+      const detailUrl = workbenchTaskUrl || (rawBase ? `${rawBase}/workbench/employee` : "https://www.dingtalk.com");
+      try {
+        const robotMessageKey = await sendRobotChatMessage({
+          fetchImpl,
+          accessToken: token,
+          robotCode,
+          userId: emp,
+          title: subject,
+          markdown,
+          detailUrl,
+        });
+        success.push({ userId: emp, robotMessageKey });
+      } catch (err) {
+        failed.push({
+          userId: emp,
           reason: `robot chat message failed: ${err instanceof Error ? err.message : String(err)}`,
         });
       }

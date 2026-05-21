@@ -14,20 +14,22 @@ describe("renderTaskDetailPage", () => {
       backPath: "/workbench/manager/tasks",
       enforceActionGuards: false,
     });
-    expect(html).toContain("子任务详情");
-    expect(html).toContain("function subtaskDetailDtDds");
+    expect(html).toContain("function subtaskCoreDtDds");
+    expect(html).toContain("function subtaskMoreDtDds");
+    expect(html).toContain("function subtaskPlanningBlock");
     expect(html).toContain("输入材料");
     expect(html).toContain("前置依赖");
     expect(html).toContain("改派");
     expect(html).toContain("detailReassignBtn");
   });
 
-  it("employee HTML still uses subtaskDetailDtDds for mine section", () => {
+  it("employee HTML uses shared subtask planning helpers for mine section", () => {
     const html = renderTaskDetailPage({
       roleLabel: "employee",
       backPath: "/workbench/employee?view=current",
       enforceActionGuards: false,
     });
-    expect(html).toContain("function subtaskDetailDtDds");
+    expect(html).toContain("function subtaskCoreDtDds");
+    expect(html).toContain("function subtaskMoreDtDds");
   });
 });

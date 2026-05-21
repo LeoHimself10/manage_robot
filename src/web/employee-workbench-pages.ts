@@ -13,11 +13,10 @@ export function renderEmployeeWorkbenchPage(): string {
 </head>
 <body>
 <div class="app-shell">
-  <header class="topbar">
+  <header class="topbar topbar--compact">
     <div>
       <div class="brand">员工工作台</div>
       <h1 class="page-title" id="empPageTitle">工作台</h1>
-      <p class="page-desc" id="empPageDesc">在下方切换视图。</p>
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="员工导航">
@@ -30,28 +29,45 @@ export function renderEmployeeWorkbenchPage(): string {
     </div>
   </header>
 
-  <section class="kpis kpis--2" id="empKpis" style="display:none;">
-    <div class="kpi"><div class="lbl" id="kpiL1">—</div><div class="val" id="kpiV1">—</div></div>
-    <div class="kpi"><div class="lbl" id="kpiL2">—</div><div class="val" id="kpiV2">—</div></div>
-  </section>
-  <div class="info-banner" id="empInfoBanner" style="display:none;" role="note"></div>
-
   <div id="panelNew" hidden>
+    <p class="page-desc" id="empPageDescNew">主管发布后的正式子任务。请在接受前核对下方六项要点；拒绝或需要主管协助时请填写说明。</p>
+    <section class="kpis kpis--2" aria-live="polite">
+      <div class="kpi"><div class="lbl">待您处理</div><div class="val" id="kpiNewActionable">—</div></div>
+      <div class="kpi"><div class="lbl">已处理 · 等主管</div><div class="val" id="kpiNewWaiting">—</div></div>
+    </section>
+    <div class="info-banner" role="note">提示：请先核对执行要点与截止，再接受或拒绝；需要主管协助时请选协助类型并填写说明。</div>
+    <div class="emp-list-toolbar">
+      <input id="searchNew" type="search" placeholder="搜索任务标题 / 编号 / 说明" autocomplete="off" />
+    </div>
     <div id="cardsNew"><div class="empty-state">加载中…</div></div>
     <div class="feedback muted" id="fbNew"></div>
   </div>
 
   <div id="panelCur" hidden>
+    <p class="page-desc" id="empPageDescCur">执行中或阻塞的子任务。可在卡片上直接填写进度。</p>
+    <section class="kpis kpis--2" aria-live="polite">
+      <div class="kpi"><div class="lbl">执行中</div><div class="val" id="kpiCurDoing">—</div></div>
+      <div class="kpi"><div class="lbl">阻塞</div><div class="val" id="kpiCurBlocked">—</div></div>
+    </section>
+    <div class="info-banner" role="note">提示：及时更新进度便于主管掌握风险；申请调整后请关注「待主管回复」状态。</div>
+    <div class="emp-list-toolbar">
+      <input id="searchCur" type="search" placeholder="搜索任务标题 / 编号 / 说明" autocomplete="off" />
+    </div>
     <div id="cardsCur"><div class="empty-state">加载中…</div></div>
     <div class="feedback muted" id="fbCur"></div>
   </div>
 
   <div id="panelHist" hidden>
+    <p class="page-desc">历史已完成的子任务。</p>
+    <div class="emp-list-toolbar">
+      <input id="searchHist" type="search" placeholder="搜索任务标题 / 编号 / 说明" autocomplete="off" />
+    </div>
     <div id="cardsHist"><div class="empty-state">加载中…</div></div>
     <div class="feedback muted" id="fbHist"></div>
   </div>
 
   <div id="panelProf" hidden>
+    <p class="page-desc">补充你的技能与协作偏好，便于主管分配合适任务。</p>
     <div class="card">
       <h2>更新我的能力画像</h2>
       <p class="page-desc" style="margin:0 0 14px;">仅更新本地能力画像，不会改钉钉通讯录身份信息。多个标签用中文逗号或英文逗号分隔。</p>
@@ -76,54 +92,85 @@ export function renderEmployeeWorkbenchPage(): string {
       </div>
     </div>
   </div>
+</div>
 
-  <div class="card" id="actionPanel" style="display:none;">
-    <h3 id="actionTitle">补充说明</h3>
-    <div class="form-stack">
-      <div id="assistKindRow" class="form-stack" style="display:none;">
-        <p class="muted" id="assistHintTop" style="margin:0;font-size:13px;display:none;">选择「申请调整」后，进行中列表可能显示「待主管回复」徽章。</p>
-        <span class="muted" style="font-size:13px;">请选择协助类型</span>
-        <label style="display:flex;gap:8px;align-items:flex-start;">
-          <input type="radio" name="assistKind" value="customize" checked />
-          <span><strong>仅补充说明</strong><br><span class="muted" style="font-size:12px;">不改变承接状态，主管会收到说明。</span></span>
-        </label>
-        <label style="display:flex;gap:8px;align-items:flex-start;">
-          <input type="radio" name="assistKind" value="request_changes" />
-          <span><strong>申请调整范围、截止或分工</strong><br><span class="muted" style="font-size:12px;">正式调整诉求，主管可驳回；未接受前可能保持待承接。</span></span>
-        </label>
-      </div>
-      <label>说明（必填）
-        <textarea id="actionNote" placeholder="请填写拒绝理由、补充信息或修改诉求"></textarea>
-      </label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button type="button" class="btn btn-primary" id="confirmActionBtn">提交</button>
-        <button type="button" class="btn btn-secondary" id="cancelActionBtn">取消</button>
-      </div>
-      <div class="feedback muted" id="actionFeedback" role="status" aria-live="polite"></div>
+<!-- 弹窗：协助/拒绝 -->
+<div class="wb-modal-overlay" id="actionModalOverlay" role="dialog" aria-modal="true" aria-labelledby="actionModalTitle">
+  <div class="wb-modal" role="document">
+    <div class="wb-modal__head">
+      <h3 class="wb-modal__title" id="actionModalTitle">补充说明</h3>
+      <button type="button" class="wb-modal__close" id="actionModalClose" aria-label="关闭">×</button>
     </div>
-  </div>
-
-  <div class="card" id="progressPanel" style="display:none;">
-    <h3>填写进度</h3>
-    <div class="form-stack">
-      <label>进度状态
-        <select id="progStatus">
-          <option value="IN_PROGRESS">执行中</option>
-          <option value="BLOCKED">阻塞</option>
-          <option value="DONE">已完成</option>
-        </select>
-      </label>
-      <label>说明（必填）
-        <textarea id="progNote" placeholder="本阶段进展、风险与下一步计划"></textarea>
-      </label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button type="button" class="btn btn-primary" id="progSubmitBtn">提交</button>
-        <button type="button" class="btn btn-secondary" id="progCancelBtn">取消</button>
+    <div class="wb-modal__body">
+      <div id="assistKindRow" class="wb-modal__radio-row" style="display:none;">
+        <label data-assist-radio>
+          <input type="radio" name="assistKind" value="customize" checked />
+          <span class="wb-modal__radio-text"><strong>仅补充说明</strong><span class="muted">不改变承接状态，主管会收到说明。</span></span>
+        </label>
+        <label data-assist-radio>
+          <input type="radio" name="assistKind" value="request_changes" />
+          <span class="wb-modal__radio-text"><strong>申请调整范围、截止或分工</strong><span class="muted">正式调整诉求，主管可驳回；未接受前可能保持待承接。</span></span>
+        </label>
       </div>
-      <div class="feedback muted" id="progPanelFb" role="status" aria-live="polite"></div>
+      <div class="form-stack">
+        <label>说明（必填）
+          <textarea id="actionNote" rows="4" placeholder="请填写拒绝理由、补充信息或修改诉求"></textarea>
+        </label>
+      </div>
+    </div>
+    <div class="wb-modal__foot">
+      <div class="feedback muted" id="actionFeedback" role="status" aria-live="polite"></div>
+      <button type="button" class="btn btn-secondary" id="cancelActionBtn">取消</button>
+      <button type="button" class="btn btn-primary" id="confirmActionBtn">提交</button>
     </div>
   </div>
 </div>
+
+<!-- 弹窗：填写进度 -->
+<div class="wb-modal-overlay" id="progressModalOverlay" role="dialog" aria-modal="true" aria-labelledby="progressModalTitle">
+  <div class="wb-modal" role="document">
+    <div class="wb-modal__head">
+      <h3 class="wb-modal__title" id="progressModalTitle">填写进度</h3>
+      <button type="button" class="wb-modal__close" id="progressModalClose" aria-label="关闭">×</button>
+    </div>
+    <div class="wb-modal__body">
+      <div class="form-stack">
+        <label>进度状态
+          <select id="progStatus">
+            <option value="IN_PROGRESS">执行中</option>
+            <option value="BLOCKED">阻塞</option>
+            <option value="DONE">已完成</option>
+          </select>
+        </label>
+        <label>说明（必填）
+          <textarea id="progNote" rows="4" placeholder="本阶段进展、风险与下一步计划"></textarea>
+        </label>
+      </div>
+    </div>
+    <div class="wb-modal__foot">
+      <div class="feedback muted" id="progPanelFb" role="status" aria-live="polite"></div>
+      <button type="button" class="btn btn-secondary" id="progCancelBtn">取消</button>
+      <button type="button" class="btn btn-primary" id="progSubmitBtn">提交</button>
+    </div>
+  </div>
+</div>
+
+<!-- 弹窗：查看说明（已处理 · 等主管 卡片用） -->
+<div class="wb-modal-overlay" id="noteModalOverlay" role="dialog" aria-modal="true" aria-labelledby="noteModalTitle">
+  <div class="wb-modal" role="document">
+    <div class="wb-modal__head">
+      <h3 class="wb-modal__title" id="noteModalTitle">说明详情</h3>
+      <button type="button" class="wb-modal__close" id="noteModalClose" aria-label="关闭">×</button>
+    </div>
+    <div class="wb-modal__body">
+      <p id="noteModalBody" style="white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.6;color:#334155;margin:0;">—</p>
+    </div>
+    <div class="wb-modal__foot">
+      <button type="button" class="btn btn-secondary" id="noteModalOkBtn">关闭</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   function newIdempotencyKey() {
@@ -148,6 +195,52 @@ export function renderEmployeeWorkbenchPage(): string {
     el.textContent = msg || '';
     el.className = 'feedback ' + (kind || 'muted');
   }
+
+  /* ---------- 弹窗工具 ---------- */
+  var lastFocus = null;
+  function openModal(id) {
+    var ov = document.getElementById(id);
+    if (!ov) return;
+    lastFocus = document.activeElement;
+    ov.setAttribute('data-open', 'true');
+    var firstFocusable = ov.querySelector('textarea, input, button:not(.wb-modal__close)');
+    if (firstFocusable) {
+      try { firstFocusable.focus(); } catch (e) {}
+    }
+  }
+  function closeModal(id) {
+    var ov = document.getElementById(id);
+    if (!ov) return;
+    ov.removeAttribute('data-open');
+    if (lastFocus && typeof lastFocus.focus === 'function') {
+      try { lastFocus.focus(); } catch (e) {}
+    }
+  }
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') {
+      ['actionModalOverlay', 'progressModalOverlay', 'noteModalOverlay'].forEach(function (id) {
+        var ov = document.getElementById(id);
+        if (ov && ov.getAttribute('data-open') === 'true') closeModal(id);
+      });
+    }
+  });
+  ['actionModalOverlay', 'progressModalOverlay', 'noteModalOverlay'].forEach(function (id) {
+    var ov = document.getElementById(id);
+    if (!ov) return;
+    ov.addEventListener('click', function (ev) {
+      if (ev.target === ov) closeModal(id);
+    });
+  });
+  document.querySelectorAll('[data-assist-radio]').forEach(function (lbl) {
+    lbl.addEventListener('change', function () {
+      document.querySelectorAll('[data-assist-radio]').forEach(function (l) {
+        var input = l.querySelector('input[type="radio"]');
+        l.classList.toggle('is-checked', !!(input && input.checked));
+      });
+    });
+  });
+
+  /* ---------- 视图切换 ---------- */
   function getView() {
     try {
       var v = (new URLSearchParams(location.search).get('view') || 'new').toLowerCase();
@@ -161,8 +254,9 @@ export function renderEmployeeWorkbenchPage(): string {
     showView(view);
   }
   function showView(view) {
-    closeProgress();
-    closePanel();
+    closeModal('actionModalOverlay');
+    closeModal('progressModalOverlay');
+    closeModal('noteModalOverlay');
     document.querySelectorAll('.nav-pills a').forEach(function (a) { a.classList.remove('active'); });
     var map = { new: 'navNew', current: 'navCur', history: 'navHist', profile: 'navProf' };
     var nid = map[view] || 'navNew';
@@ -172,34 +266,20 @@ export function renderEmployeeWorkbenchPage(): string {
     document.getElementById('panelCur').hidden = view !== 'current';
     document.getElementById('panelHist').hidden = view !== 'history';
     document.getElementById('panelProf').hidden = view !== 'profile';
-    var kpis = document.getElementById('empKpis');
-    if (kpis) kpis.style.display = (view === 'new' || view === 'current') ? 'grid' : 'none';
-    var banner = document.getElementById('empInfoBanner');
-    if (banner) {
-      if (view === 'new' || view === 'current') {
-        banner.style.display = 'flex';
-        banner.textContent = view === 'new'
-          ? '提示：请先核对执行要点与截止，再接受或拒绝；需要主管协助时请选协助类型并填写说明。'
-          : '提示：及时更新进度便于主管掌握风险；申请调整后请关注「待主管回复」状态。';
-      } else {
-        banner.style.display = 'none';
-      }
-    }
     var titles = {
-      new: ['待承接', '主管发布后的正式子任务。请在接受前核对下方六项要点；拒绝或需要主管协助时请填写说明。'],
-      current: ['进行中的任务', '执行中或阻塞的子任务。可在卡片上直接填写进度。'],
-      history: ['已完成', '历史已完成的子任务。'],
-      profile: ['能力画像', '补充你的技能与协作偏好，便于主管分配合适任务。']
+      new: '待承接',
+      current: '进行中的任务',
+      history: '已完成',
+      profile: '能力画像'
     };
-    var pair = titles[view] || titles.new;
-    document.getElementById('empPageTitle').textContent = pair[0];
-    document.getElementById('empPageDesc').textContent = pair[1];
+    document.getElementById('empPageTitle').textContent = titles[view] || titles.new;
     if (view === 'new') void loadNew();
     if (view === 'current') void loadCurrent();
     if (view === 'history') void loadHistory();
     if (view === 'profile') void loadProfile();
   }
 
+  /* ---------- 卡片渲染 ---------- */
   function badgeClass(st) {
     if (st === 'BLOCKED') return 'blocked';
     if (st === 'DONE') return 'done';
@@ -231,17 +311,16 @@ export function renderEmployeeWorkbenchPage(): string {
     }
     return '<p class="meta">截止：'+esc(String(t.dueAt).slice(0,10))+'</p>'+bar+'<p class="due-meta muted">'+esc(t.dueLabel||'')+'</p>';
   }
+  function pickEmployeeBadge(t) {
+    var stRaw = String(t.status || '');
+    if (stRaw === 'REJECTED') return '<span class="badge rejected">已拒绝 · 等主管处理</span>';
+    if (t.openSignal === 'changes') return '<span class="badge pending">已申请调整 · 等主管回复</span>';
+    if (t.openSignal === 'rejected') return '<span class="badge rejected">已拒绝 · 等主管处理</span>';
+    return '<span class="badge '+badgeClass(stRaw)+'">'+esc(t.statusLabel||stRaw)+'</span>';
+  }
   function taskCardHtml(t, actionsHtml, extraCardClass) {
     var cardCls = 'task-card' + (extraCardClass ? (' ' + extraCardClass) : '');
-    var stRaw = String(t.status||'');
-    var st = '';
-    if (stRaw === 'REJECTED') {
-      st = '<span class="badge rejected">已拒绝 · 已通知主管</span>';
-    } else if (t.openSignal === 'changes') {
-      st = '<span class="badge pending">待主管回复</span>';
-    } else {
-      st = '<span class="badge '+badgeClass(t.status)+'">'+esc(t.statusLabel||t.status)+'</span>';
-    }
+    var st = pickEmployeeBadge(t);
     var mgr = (t.managerDisplayName || '').trim();
     var mgrLine = mgr ? (' · 主管 ' + esc(mgr)) : '';
     var td = String(t.taskDescription || '').trim();
@@ -251,7 +330,7 @@ export function renderEmployeeWorkbenchPage(): string {
     var detailLink = tn ? ('<p class="meta"><a class="task-detail-readonly-link" href="/workbench/employee/task?taskNo='+encodeURIComponent(tn)+'&fromView='+encodeURIComponent(fromView)+'">完整背景与分工</a></p>') : '';
     var coreLines = subtaskCardCoreLines(t, [t]);
     var actions = actionsHtml || '';
-    return '<article class="'+cardCls+'" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'">'
+    return '<article class="'+cardCls+'" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'" data-search-key="'+esc(((t.title||'')+' '+(t.taskNo||'')+' '+(t.taskDescription||'')).toLowerCase())+'">'
       + '<div class="head"><div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+st+'</div>'
       + '<p class="title">'+esc(t.title||t.taskNo||'子任务')+'</p>'
       + '<p class="meta">业务编号 <code>'+esc(t.taskNo||'—')+'</code>'+mgrLine+'</p>'
@@ -260,31 +339,110 @@ export function renderEmployeeWorkbenchPage(): string {
       + '</div></div>'+actions+'</article>';
   }
 
+  /* ---------- 任务级分组 ---------- */
+  function groupByTaskNo(tasks) {
+    var byNo = {};
+    var orderNo = [];
+    tasks.forEach(function (t) {
+      var key = String(t.taskNo || t.planId || '').trim() || '__unnamed';
+      if (!byNo[key]) {
+        byNo[key] = { taskNo: t.taskNo, planId: t.planId, title: t.title, items: [] };
+        orderNo.push(key);
+      }
+      byNo[key].items.push(t);
+    });
+    return orderNo.map(function (k) { return byNo[k]; });
+  }
+  function shouldGroup(tasks) {
+    if (!tasks || tasks.length < 4) return false;
+    var byNo = {};
+    var maxCnt = 0;
+    tasks.forEach(function (t) {
+      var k = String(t.taskNo || t.planId || '').trim();
+      byNo[k] = (byNo[k] || 0) + 1;
+      if (byNo[k] > maxCnt) maxCnt = byNo[k];
+    });
+    return maxCnt >= 2;
+  }
+  function renderTaskCardList(tasks, renderActions) {
+    if (!tasks.length) return '';
+    if (!shouldGroup(tasks)) {
+      return '<div class="task-cards">' + tasks.map(function (t) {
+        return taskCardHtml(t, renderActions(t), tasks._extraClassFor ? tasks._extraClassFor(t) : '');
+      }).join('') + '</div>';
+    }
+    var groups = groupByTaskNo(tasks);
+    return groups.map(function (g) {
+      var head = '<div class="emp-task-group__head">'
+        + '<span class="emp-task-group__title">'+esc(g.title || g.taskNo || '任务')+'</span>'
+        + '<span class="emp-task-group__no">'+esc(g.taskNo || '—')+'</span>'
+        + '<span class="emp-task-group__count">'+g.items.length+' 个子任务</span>'
+        + '</div>';
+      var body = '<div class="emp-task-group__body">' + g.items.map(function (t) {
+        return taskCardHtml(t, renderActions(t), tasks._extraClassFor ? tasks._extraClassFor(t) : '');
+      }).join('') + '</div>';
+      return '<div class="emp-task-group">'+head+body+'</div>';
+    }).join('');
+  }
+
+  /* ---------- 关键词筛选 ---------- */
+  function bindSearch(inputId, mountId) {
+    var input = document.getElementById(inputId);
+    var mount = document.getElementById(mountId);
+    if (!input || !mount) return;
+    if (input.dataset.bound) return;
+    input.dataset.bound = '1';
+    input.addEventListener('input', function () {
+      var q = String(input.value || '').trim().toLowerCase();
+      mount.querySelectorAll('.task-card').forEach(function (card) {
+        var key = card.getAttribute('data-search-key') || '';
+        card.style.display = (!q || key.indexOf(q) >= 0) ? '' : 'none';
+      });
+    });
+  }
+
+  /* ---------- 待承接（actionable + waiting） ---------- */
   async function loadNew() {
     setFb('fbNew', '加载中…', 'muted');
     try {
       var res = await fetch('/api/workbench/employee/tasks/new', { cache: 'no-store' });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      var tasks = data.tasks || [];
-      document.getElementById('kpiL1').textContent = '待承接';
-      document.getElementById('kpiV1').textContent = String(tasks.length);
-      document.getElementById('kpiL2').textContent = '—';
-      document.getElementById('kpiV2').textContent = '—';
+      var actionable = data.actionable || [];
+      var waiting = data.waiting || [];
+      document.getElementById('kpiNewActionable').textContent = String(actionable.length);
+      document.getElementById('kpiNewWaiting').textContent = String(waiting.length);
       var mount = document.getElementById('cardsNew');
-      if (!tasks.length) {
+      if (!actionable.length && !waiting.length) {
         mount.innerHTML = '<div class="empty-state">暂无新任务。可到「进行中」查看执行中的工作。</div>';
         setFb('fbNew', '', 'muted');
         return;
       }
-      mount.innerHTML = '<div class="task-cards">' + tasks.map(function (t) {
-        var act = '<div class="actions">'
-          +'<button type="button" class="btn btn-primary" data-act="accept">接受</button>'
-          +'<button type="button" class="btn btn-danger" data-act="reject">拒绝</button>'
-          +'<button type="button" class="btn btn-secondary" data-act="assist">需要主管协助</button>'
-          +'</div>';
-        return taskCardHtml(t, act);
-      }).join('') + '</div>';
+      var html = '';
+      if (actionable.length) {
+        html += '<h3 class="emp-section-h">待您处理 <span class="emp-section-count">'+actionable.length+'</span></h3>';
+        html += '<p class="emp-section-hint">主管刚发布的子任务，请尽快接受、拒绝或申请协助。</p>';
+        html += renderTaskCardList(actionable, function (t) {
+          return '<div class="actions">'
+            +'<button type="button" class="btn btn-primary" data-act="accept">接受</button>'
+            +'<button type="button" class="btn btn-danger" data-act="reject">拒绝</button>'
+            +'<button type="button" class="btn btn-secondary" data-act="assist">需要主管协助</button>'
+            +'</div>';
+        });
+      }
+      if (waiting.length) {
+        var wList = waiting.slice();
+        wList._extraClassFor = function () { return 'is-waiting-mgr'; };
+        html += '<h3 class="emp-section-h" style="margin-top:24px;">已处理 · 等主管 <span class="emp-section-count">'+waiting.length+'</span></h3>';
+        html += '<p class="emp-section-hint">已提交您的回复，等待主管处理；可查看说明或主管最新回复。</p>';
+        html += renderTaskCardList(wList, function (t) {
+          var noteRaw = String(t.progressNote || '').trim();
+          var noteAttr = noteRaw ? ' data-note="'+esc(noteRaw)+'"' : '';
+          var btnLabel = t.openSignal === 'changes' ? '查看我的申请' : (String(t.status||'') === 'REJECTED' ? '查看我的拒绝' : '查看说明');
+          return '<div class="actions"><button type="button" class="btn btn-secondary" data-act="view-note"'+noteAttr+'>'+btnLabel+'</button></div>';
+        });
+      }
+      mount.innerHTML = html;
       mount.querySelectorAll('.task-card').forEach(function (card) {
         card.querySelectorAll('button[data-act]').forEach(function (btn) {
           btn.addEventListener('click', function () {
@@ -292,15 +450,24 @@ export function renderEmployeeWorkbenchPage(): string {
             var subtaskId = card.getAttribute('data-subtask-id') || '';
             var act = btn.getAttribute('data-act') || '';
             if (act === 'accept') {
+              btn.disabled = true;
               void submitDirect(planId, subtaskId, 'accept', '', { goView: 'current' }).catch(function (e) {
+                btn.disabled = false;
                 setFb('fbNew', String(e && e.message ? e.message : e), 'err');
               });
               return;
             }
-            openPanel(planId, subtaskId, act);
+            if (act === 'view-note') {
+              var note = btn.getAttribute('data-note') || '（暂无说明记录，可点击「完整背景与分工」查看事件历史。）';
+              document.getElementById('noteModalBody').textContent = note;
+              openModal('noteModalOverlay');
+              return;
+            }
+            openActionModal(planId, subtaskId, act);
           });
         });
       });
+      bindSearch('searchNew', 'cardsNew');
       setFb('fbNew', '已更新', 'ok');
     } catch (e) {
       document.getElementById('cardsNew').innerHTML = '<div class="empty-state">加载失败</div>';
@@ -308,44 +475,35 @@ export function renderEmployeeWorkbenchPage(): string {
     }
   }
 
+  /* ---------- 进行中（不含 REJECTED） ---------- */
   async function loadCurrent() {
     setFb('fbCur', '加载中…', 'muted');
     try {
       var res = await fetch('/api/workbench/employee/tasks/current', { cache: 'no-store' });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      var tasks = data.tasks || [];
+      var tasks = (data.tasks || []).filter(function (t) { return String(t.status || '') !== 'REJECTED'; });
       var blocked = tasks.filter(function (t) { return t.status === 'BLOCKED'; }).length;
       var doing = tasks.filter(function (t) { return t.status === 'IN_PROGRESS'; }).length;
-      var rejected = tasks.filter(function (t) { return t.status === 'REJECTED'; }).length;
-      document.getElementById('kpiL1').textContent = '执行中';
-      document.getElementById('kpiV1').textContent = String(doing);
-      document.getElementById('kpiL1').textContent = '执行中';
-      document.getElementById('kpiV1').textContent = String(doing);
-      document.getElementById('kpiL2').textContent = '阻塞 / 已拒绝';
-      document.getElementById('kpiV2').textContent = String(blocked) + ' / ' + String(rejected);
+      document.getElementById('kpiCurDoing').textContent = String(doing);
+      document.getElementById('kpiCurBlocked').textContent = String(blocked);
       var mount = document.getElementById('cardsCur');
       if (!tasks.length) {
-        mount.innerHTML = '<div class="empty-state">暂无进行中的任务。请先到「新任务」承接分配。</div>';
+        mount.innerHTML = '<div class="empty-state">暂无进行中的任务。请先到「待承接」承接分配。</div>';
         setFb('fbCur', '', 'muted');
         return;
       }
-      mount.innerHTML = '<div class="task-cards">' + tasks.map(function (t) {
-        var act = '';
-        if (t.status === 'REJECTED') {
-          act = '<p class="muted emp-rejected-wait" style="margin:10px 0 0;font-size:13px;">已通知主管，请等待改派或确认。</p>';
-        } else {
-          act = '<div class="actions" style="justify-content:space-between;">'
-            +'<span></span><button type="button" class="btn btn-secondary" data-prog="1">填写进度</button></div>';
-        }
-        return taskCardHtml(t, act, t.status === 'REJECTED' ? 'is-rejected' : '');
-      }).join('') + '</div>';
+      mount.innerHTML = renderTaskCardList(tasks, function (t) {
+        return '<div class="actions" style="justify-content:space-between;">'
+          +'<span></span><button type="button" class="btn btn-secondary" data-prog="1">填写进度</button></div>';
+      });
       mount.querySelectorAll('.task-card').forEach(function (card) {
         var btn = card.querySelector('button[data-prog]');
         if (btn) btn.addEventListener('click', function () {
-          openProgress(card.getAttribute('data-subtask-id') || '');
+          openProgressModal(card.getAttribute('data-subtask-id') || '');
         });
       });
+      bindSearch('searchCur', 'cardsCur');
       setFb('fbCur', '已更新', 'ok');
     } catch (e) {
       document.getElementById('cardsCur').innerHTML = '<div class="empty-state">加载失败</div>';
@@ -353,6 +511,7 @@ export function renderEmployeeWorkbenchPage(): string {
     }
   }
 
+  /* ---------- 已完成 ---------- */
   async function loadHistory() {
     setFb('fbHist', '加载中…', 'muted');
     try {
@@ -366,9 +525,8 @@ export function renderEmployeeWorkbenchPage(): string {
         setFb('fbHist', '', 'muted');
         return;
       }
-      mount.innerHTML = '<div class="task-cards">' + tasks.map(function (t) {
-        return taskCardHtml(t, '');
-      }).join('') + '</div>';
+      mount.innerHTML = renderTaskCardList(tasks, function (t) { return ''; });
+      bindSearch('searchHist', 'cardsHist');
       setFb('fbHist', '已更新', 'ok');
     } catch (e) {
       document.getElementById('cardsHist').innerHTML = '<div class="empty-state">加载失败</div>';
@@ -376,46 +534,42 @@ export function renderEmployeeWorkbenchPage(): string {
     }
   }
 
+  /* ---------- 弹窗：拒绝 / 协助 ---------- */
   var pending = null;
   var progressSubtaskId = '';
-  function openPanel(planId, subtaskId, action) {
+  function openActionModal(planId, subtaskId, action) {
     pending = { planId: planId, subtaskId: subtaskId, action: action };
     document.getElementById('actionNote').value = '';
-    document.getElementById('actionPanel').style.display = 'block';
     var assistRow = document.getElementById('assistKindRow');
     if (action === 'assist') {
-      if (assistRow) assistRow.style.display = 'grid';
-      var ah = document.getElementById('assistHintTop');
-      if (ah) ah.style.display = 'block';
-      document.getElementById('actionTitle').textContent = '需要主管协助';
+      assistRow.style.display = 'grid';
+      document.getElementById('actionModalTitle').textContent = '需要主管协助';
       var r0 = document.querySelector('input[name="assistKind"][value="customize"]');
-      if (r0) r0.checked = true;
+      if (r0) {
+        r0.checked = true;
+        r0.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     } else {
-      var ah2 = document.getElementById('assistHintTop');
-      if (ah2) ah2.style.display = 'none';
-      if (assistRow) assistRow.style.display = 'none';
-      var titles = { reject: '拒绝任务（需填写理由）' };
-      document.getElementById('actionTitle').textContent = titles[action] || '说明';
+      assistRow.style.display = 'none';
+      document.getElementById('actionModalTitle').textContent = action === 'reject' ? '拒绝任务（需填写理由）' : '说明';
     }
     setFb('actionFeedback', '', 'muted');
-    document.getElementById('actionNote').focus();
+    openModal('actionModalOverlay');
   }
-  function closePanel() {
-    pending = null;
-    document.getElementById('actionPanel').style.display = 'none';
-  }
-  function openProgress(subtaskId) {
+  function openProgressModal(subtaskId) {
     progressSubtaskId = subtaskId;
     document.getElementById('progNote').value = '';
     document.getElementById('progStatus').value = 'IN_PROGRESS';
-    document.getElementById('progressPanel').style.display = 'block';
     setFb('progPanelFb', '', 'muted');
-    document.getElementById('progNote').focus();
+    openModal('progressModalOverlay');
   }
-  function closeProgress() {
-    progressSubtaskId = '';
-    document.getElementById('progressPanel').style.display = 'none';
-  }
+
+  document.getElementById('actionModalClose').addEventListener('click', function () { closeModal('actionModalOverlay'); });
+  document.getElementById('cancelActionBtn').addEventListener('click', function () { closeModal('actionModalOverlay'); });
+  document.getElementById('progressModalClose').addEventListener('click', function () { closeModal('progressModalOverlay'); });
+  document.getElementById('progCancelBtn').addEventListener('click', function () { closeModal('progressModalOverlay'); });
+  document.getElementById('noteModalClose').addEventListener('click', function () { closeModal('noteModalOverlay'); });
+  document.getElementById('noteModalOkBtn').addEventListener('click', function () { closeModal('noteModalOverlay'); });
 
   async function submitDirect(planId, subtaskId, action, note, opts) {
     var res = await fetch('/api/workbench/employee/subtasks/action', {
@@ -443,20 +597,18 @@ export function renderEmployeeWorkbenchPage(): string {
       action = sel ? sel.value : 'customize';
     }
     var confirmBtn = document.getElementById('confirmActionBtn');
-    if (confirmBtn) confirmBtn.disabled = true;
+    confirmBtn.disabled = true;
     setFb('actionFeedback', '提交中…', 'muted');
     try {
-      var go = (action === 'reject') ? { goView: 'current' } : undefined;
-      await submitDirect(pending.planId, pending.subtaskId, action, note, go);
-      closePanel();
-      if (!go) await loadNew();
+      await submitDirect(pending.planId, pending.subtaskId, action, note);
+      closeModal('actionModalOverlay');
+      await loadNew();
     } catch (e) {
       setFb('actionFeedback', String(e && e.message ? e.message : e), 'err');
     } finally {
-      if (confirmBtn) confirmBtn.disabled = false;
+      confirmBtn.disabled = false;
     }
   });
-  document.getElementById('cancelActionBtn').addEventListener('click', closePanel);
 
   document.getElementById('progSubmitBtn').addEventListener('click', async function () {
     if (!progressSubtaskId) { setFb('progPanelFb', '缺少子任务', 'err'); return; }
@@ -475,7 +627,7 @@ export function renderEmployeeWorkbenchPage(): string {
       });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      closeProgress();
+      closeModal('progressModalOverlay');
       await loadCurrent();
       setFb('progPanelFb', '', 'muted');
     } catch (e) {
@@ -484,8 +636,8 @@ export function renderEmployeeWorkbenchPage(): string {
       btn.disabled = false;
     }
   });
-  document.getElementById('progCancelBtn').addEventListener('click', closeProgress);
 
+  /* ---------- 能力画像 ---------- */
   function splitTokens(raw) {
     return String(raw || '').split(/[，,\\n]/g).map(function (item) { return item.trim(); }).filter(Boolean);
   }
