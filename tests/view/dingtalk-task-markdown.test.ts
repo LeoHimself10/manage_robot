@@ -8,16 +8,18 @@ import {
 } from "../../src/view/dingtalk-task-markdown";
 
 describe("hasTaskTableInMessage", () => {
-  it("detects structured task list section header", () => {
+  it("detects structured task table section header", () => {
+    expect(hasTaskTableInMessage("### 结构化任务表")).toBe(true);
     expect(hasTaskTableInMessage("### 结构化任务表（列表）")).toBe(true);
     expect(hasTaskTableInMessage("### 任务列表（结构化字段）")).toBe(true);
+    expect(hasTaskTableInMessage("### 更多规划（7 项）")).toBe(true);
   });
 
-  it("does not treat inline pipe table as server-rendered section", () => {
+  it("does not treat inline pipe table alone as server-rendered section", () => {
     expect(hasTaskTableInMessage("| # | 任务 | 目标 | 截止 | 负责人 | 反馈频率 |")).toBe(false);
   });
 
-  it("detects supplement section header", () => {
+  it("detects legacy supplement section header", () => {
     expect(hasTaskTableInMessage("### 任务补充信息")).toBe(true);
   });
 });
@@ -27,6 +29,12 @@ describe("stripBrokenInlineTaskTable", () => {
     const broken =
       "说明文字\n| # | 任务 | 目标 | 截止 | | 1 | A | B | 2026-05-01 |";
     expect(stripBrokenInlineTaskTable(broken)).toBe("说明文字");
+  });
+
+  it("does not remove multi-line server-rendered pipe tables in model message", () => {
+    const multi =
+      "### 结构化任务表\n| # | 任务 | 目标 |\n| --- | --- | --- |\n| 1 | A | B |";
+    expect(stripBrokenInlineTaskTable(multi)).toBe(multi);
   });
 });
 
@@ -56,18 +64,24 @@ const latestAssignment = {
 };
 
 describe("renderDraftSupplementSection", () => {
-  it("renders per-task rich-field cards", () => {
+  it("renders more-planning pipe table", () => {
     const out = renderDraftSupplementSection(baseDraft, latestAssignment);
-    expect(out).toContain("### 任务补充信息");
-    expect(out).toContain("[#1] 检测任务");
-    expect(out).toContain("负责人：张三");
-    expect(out).toContain("- 交付物：报告");
-    expect(out).toContain("- 执行动作：检测");
+    expect(out).toContain("### 更多规划（7 项）");
+    expect(out).toContain("| # | 反馈频率 | 输入材料 | 协作人 | 范围内 | 范围外 | 检查点 | 风险 |");
+    expect(out).toContain("| 1 | 每周 | 样品 | 李四 | A | B | 中期 | 资源不足 |");
+    expect(out).not.toContain("### 任务补充信息");
+  });
+
+  it("omits table when all more-planning fields empty", () => {
+    const sparse = {
+      tasks: [{ id: "task_1", title: "T", objective: "O" }],
+    };
+    expect(renderDraftSupplementSection(sparse)).toBe("");
   });
 });
 
 describe("renderDingtalkTaskMarkdown", () => {
-  it("renders list overview + supplement cards (no pipe table)", () => {
+  it("renders core pipe table + more-planning pipe table", () => {
     const result = renderDingtalkTaskMarkdown({
       modelMessage: "模型回复",
       currentDraft: baseDraft,
@@ -75,15 +89,15 @@ describe("renderDingtalkTaskMarkdown", () => {
       shouldRenderRichSection: true,
       appendStructuredTaskTable: true,
     });
-    expect(result).toContain("### 结构化任务表（列表）");
-    expect(result).toContain("1. 检测任务");
-    expect(result).toContain("目标：完成检测");
-    expect(result).toContain("负责人：张三");
-    expect(result).toContain("### 任务补充信息");
-    expect(result).not.toMatch(/\| # \| 任务 \|/);
+    expect(result).toContain("### 结构化任务表");
+    expect(result).toContain("| # | 任务 | 目标 | 交付物 | 完成标准 | 截止 | 执行动作 | 前置依赖 | 负责人 |");
+    expect(result).toContain("| 1 | 检测任务 | 完成检测 | 报告 | 通过 | 2026-07-01 | 检测 | — | 张三 |");
+    expect(result).toContain("### 更多规划（7 项）");
+    expect(result).not.toContain("### 结构化任务表（列表）");
+    expect(result).not.toContain("### 任务补充信息");
   });
 
-  it("strips model inline table and appends list section", () => {
+  it("strips model single-line inline table and appends server pipe table", () => {
     const result = renderDingtalkTaskMarkdown({
       modelMessage: "| # | 任务 | 目标 | 截止 | | 1 | X | Y | Z |",
       currentDraft: baseDraft,
@@ -91,22 +105,21 @@ describe("renderDingtalkTaskMarkdown", () => {
       shouldRenderRichSection: true,
       appendStructuredTaskTable: true,
     });
-    expect(result).toContain("1. 检测任务");
-    expect(result).not.toMatch(/\| # \| 任务 \|/);
+    expect(result).toContain("| 1 | 检测任务 | 完成检测 |");
+    expect(result).not.toMatch(/\| 1 \| X \| Y \| Z \|/);
   });
 
-  it("shows no assignee line when no assignment", () => {
+  it("shows dash assignee when no assignment", () => {
     const result = renderDingtalkTaskMarkdown({
       modelMessage: "模型回复",
       currentDraft: baseDraft,
       shouldRenderRichSection: true,
       appendStructuredTaskTable: true,
     });
-    expect(result).toContain("1. 检测任务");
-    expect(result).not.toContain("负责人：张三");
+    expect(result).toContain("| 1 | 检测任务 | 完成检测 | 报告 | 通过 | 2026-07-01 | 检测 | — | — |");
   });
 
-  it("assembly order: list BEFORE assignment BEFORE publish", () => {
+  it("assembly order: core table BEFORE more table BEFORE assignment BEFORE publish", () => {
     const result = renderDingtalkTaskMarkdown({
       modelMessage: "消息",
       currentDraft: baseDraft,
@@ -121,12 +134,12 @@ describe("renderDingtalkTaskMarkdown", () => {
         subtasks: [{ assigneeUserId: "u1" }],
       },
     });
-    const listIdx = result.indexOf("### 结构化任务表");
-    const supplementIdx = result.indexOf("### 任务补充信息");
+    const coreIdx = result.indexOf("### 结构化任务表");
+    const moreIdx = result.indexOf("### 更多规划（7 项）");
     const assignIdx = result.indexOf("分配建议");
     const publishIdx = result.indexOf("【已发布】");
-    expect(listIdx).toBeLessThan(supplementIdx);
-    expect(supplementIdx).toBeLessThan(assignIdx);
+    expect(coreIdx).toBeLessThan(moreIdx);
+    expect(moreIdx).toBeLessThan(assignIdx);
     expect(assignIdx).toBeLessThan(publishIdx);
   });
 });

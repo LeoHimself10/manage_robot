@@ -1,8 +1,8 @@
 /**
  * Deterministic rendering layer for DingTalk outbound markdown.
  *
- * DingTalk session webhook does not reliably render GFM pipe tables. The
- * canonical「结构化任务表」is rendered as plain numbered lists (not pipe tables).
+ * Structured task drafts are rendered as GFM pipe tables (validated on DingTalk
+ * mobile + desktop). Numbered-list fallback was removed after format spike.
  */
 
 // ---------------------------------------------------------------------------
@@ -11,14 +11,16 @@
 
 export function hasTaskTableInMessage(markdown: string): boolean {
   return (
+    markdown.includes("### 结构化任务表") ||
     markdown.includes("### 结构化任务表（列表）") ||
     markdown.includes("### 任务列表（结构化字段）") ||
     markdown.includes("### 任务草案（结构化字段）") ||
-    markdown.includes("### 任务补充信息")
+    markdown.includes("### 任务补充信息") ||
+    markdown.includes("### 更多规划（7 项）")
   );
 }
 
-/** Remove single-line pipe-table blobs the model sometimes inlines (DingTalk cannot render them). */
+/** Remove single-line pipe-table blobs the model sometimes inlines. */
 export function stripBrokenInlineTaskTable(message: string): string {
   const lines = message.split("\n");
   const filtered = lines.filter((line) => {
@@ -29,7 +31,9 @@ export function stripBrokenInlineTaskTable(message: string): string {
       trimmed.includes("| # | 任务 |") ||
       trimmed.includes("| 序号 | 任务名称 |") ||
       trimmed.includes("|---|---|");
-    return !(looksLikeTableHeader && pipeCount >= 4);
+    const looksLikeInlineRow = /\|\s*\d+\s*\|/.test(trimmed) || /\|\s*\|\s*\d+\s*\|/.test(trimmed);
+    // Only strip when header + data are crammed onto one line (model glitch).
+    return !(looksLikeTableHeader && looksLikeInlineRow && pipeCount >= 6);
   });
   return filtered.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -37,6 +41,15 @@ export function stripBrokenInlineTaskTable(message: string): string {
 function listField(values: unknown): string {
   if (!Array.isArray(values)) return "";
   return values.map((v) => String(v ?? "").trim()).filter(Boolean).join("；");
+}
+
+function cellOrDash(value: string): string {
+  const s = value.trim();
+  return s || "—";
+}
+
+function escapeTableCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\n/g, "<br>");
 }
 
 function buildAssignmentMaps(latestAssignment: unknown): {
@@ -67,54 +80,22 @@ function buildAssignmentMaps(latestAssignment: unknown): {
   return { assigneeByTaskId, collaboratorsByTaskId };
 }
 
-function renderTaskListSection(draft: unknown, latestAssignment?: unknown): string {
-  if (!draft || typeof draft !== "object") return "";
-  const root = draft as Record<string, unknown>;
-  const description = String(root.description ?? "").trim();
-  const tasks = Array.isArray(root.tasks) ? (root.tasks as Array<Record<string, unknown>>) : [];
-  if (tasks.length === 0) return "";
-
-  const { assigneeByTaskId } = buildAssignmentMaps(latestAssignment);
-
-  const blocks: string[] = ["### 结构化任务表（列表）"];
-  if (description) {
-    blocks.push(
-      `任务背景：${description.length > 500 ? `${description.slice(0, 500)}…` : description}`,
-    );
+function buildTaskTitleById(tasks: Array<Record<string, unknown>>): Map<string, string> {
+  const taskTitleById = new Map<string, string>();
+  for (const t of tasks) {
+    const id = String(t?.id ?? "").trim();
+    const title = String(t?.title ?? "").trim();
+    if (id) taskTitleById.set(id, title || id);
   }
-
-  tasks.forEach((t, idx) => {
-    const taskId = String(t.id ?? "").trim();
-    const timeNode = (t.timeNode ?? {}) as Record<string, unknown>;
-    const title = String(t.title ?? `#${idx + 1}`).trim();
-    const objective = String(t.objective ?? "").trim();
-    const dueAt = String(timeNode.dueAt ?? "").trim() || "待确认";
-    const assignee = assigneeByTaskId.get(taskId) ?? "";
-    const feedback = String(t.feedbackFrequency ?? "").trim() || "待确认";
-
-    const lines: string[] = [`${idx + 1}. ${title}`];
-    if (objective) lines.push(`目标：${objective}`);
-    lines.push(`截止：${dueAt}`);
-    if (assignee) lines.push(`负责人：${assignee}`);
-    lines.push(`反馈频率：${feedback}`);
-    blocks.push(lines.join("\n"));
-  });
-
-  return blocks.join("\n\n");
+  return taskTitleById;
 }
 
-function renderTaskRichCard(
+function renderDependencyCell(
   t: Record<string, unknown>,
-  idx: number,
   taskTitleById: Map<string, string>,
-  assigneeByTaskId: Map<string, string>,
-  collaboratorsByTaskId: Map<string, string>,
 ): string {
-  const taskId = String(t.id ?? "").trim();
-  const timeNode = (t.timeNode ?? {}) as Record<string, unknown>;
-  const scope = (t.scope ?? {}) as Record<string, unknown>;
   const deps = Array.isArray(t.dependencyTaskIds) ? (t.dependencyTaskIds as unknown[]) : [];
-  const depRendered = deps
+  const rendered = deps
     .map((d) => {
       const id = String(d ?? "").trim();
       const tt = taskTitleById.get(id);
@@ -122,43 +103,79 @@ function renderTaskRichCard(
     })
     .filter(Boolean)
     .join("；");
-  const checkpoints = Array.isArray(timeNode.checkpoints)
-    ? timeNode.checkpoints.map((c) => String(c ?? "").trim()).filter(Boolean).join("；")
-    : "";
-  const risks = Array.isArray(t.risksAndOpenQuestions)
-    ? (t.risksAndOpenQuestions as unknown[]).map((r) => String(r ?? "").trim()).filter(Boolean).join("；")
-    : "";
-
-  const assignee = assigneeByTaskId.get(taskId) ?? "";
-  const collab = collaboratorsByTaskId.get(taskId) ?? "";
-  const title = String(t.title ?? (taskId || `#${idx + 1}`)).trim();
-  const header = assignee
-    ? `**[#${idx + 1}] ${title}** — 负责人：${assignee}${collab ? `；协作：${collab}` : ""}`
-    : `**[#${idx + 1}] ${title}**`;
-
-  const bullets: string[] = [header];
-  const objective = String(t.objective ?? "").trim();
-  if (objective) bullets.push(`- 目标：${objective}`);
-  const deliverables = listField(t.deliverables);
-  if (deliverables) bullets.push(`- 交付物：${deliverables}`);
-  const completion = listField(t.completionCriteria);
-  if (completion) bullets.push(`- 完成标准：${completion}`);
-  const actions = listField(t.actions);
-  if (actions) bullets.push(`- 执行动作：${actions}`);
-  const inputs = listField(t.inputMaterials);
-  if (inputs) bullets.push(`- 输入材料：${inputs}`);
-  if (depRendered) bullets.push(`- 前置依赖：${depRendered}`);
-  if (checkpoints) bullets.push(`- 检查点：${checkpoints}`);
-  if (risks) bullets.push(`- 风险：${risks}`);
-  const inScope = listField(scope.inScope);
-  if (inScope) bullets.push(`- 范围内：${inScope}`);
-  const outScope = listField(scope.outOfScope);
-  if (outScope) bullets.push(`- 范围外：${outScope}`);
-
-  return bullets.join("\n");
+  return cellOrDash(rendered);
 }
 
-/** Per-task rich-field cards (DingTalk-friendly). */
+function renderTaskPipeTableSection(draft: unknown, latestAssignment?: unknown): string {
+  if (!draft || typeof draft !== "object") return "";
+  const root = draft as Record<string, unknown>;
+  const description = String(root.description ?? "").trim();
+  const tasks = Array.isArray(root.tasks) ? (root.tasks as Array<Record<string, unknown>>) : [];
+  if (tasks.length === 0) return "";
+
+  const { assigneeByTaskId } = buildAssignmentMaps(latestAssignment);
+  const taskTitleById = buildTaskTitleById(tasks);
+
+  const blocks: string[] = [];
+  if (description) {
+    blocks.push(
+      `任务背景：${description.length > 500 ? `${description.slice(0, 500)}…` : description}`,
+    );
+  }
+
+  const header =
+    "| # | 任务 | 目标 | 交付物 | 完成标准 | 截止 | 执行动作 | 前置依赖 | 负责人 |";
+  const sep = "| --- | --- | --- | --- | --- | --- | --- | --- | --- |";
+  const rows = tasks.map((t, idx) => {
+    const taskId = String(t.id ?? "").trim();
+    const timeNode = (t.timeNode ?? {}) as Record<string, unknown>;
+    const cells = [
+      String(idx + 1),
+      cellOrDash(String(t.title ?? `#${idx + 1}`)),
+      cellOrDash(String(t.objective ?? "")),
+      cellOrDash(listField(t.deliverables)),
+      cellOrDash(listField(t.completionCriteria)),
+      cellOrDash(String(timeNode.dueAt ?? "")),
+      cellOrDash(listField(t.actions)),
+      renderDependencyCell(t, taskTitleById),
+      cellOrDash(assigneeByTaskId.get(taskId) ?? ""),
+    ].map(escapeTableCell);
+    return `| ${cells.join(" | ")} |`;
+  });
+
+  blocks.push(["### 结构化任务表", header, sep, ...rows].join("\n"));
+  return blocks.join("\n\n");
+}
+
+function collectMorePlanningCells(
+  t: Record<string, unknown>,
+  collaboratorsByTaskId: Map<string, string>,
+): string[] {
+  const timeNode = (t.timeNode ?? {}) as Record<string, unknown>;
+  const scope = (t.scope ?? {}) as Record<string, unknown>;
+  const taskId = String(t.id ?? "").trim();
+  const draftCollab = listField(t.collaborators);
+  const collab = cellOrDash(collaboratorsByTaskId.get(taskId) ?? draftCollab);
+  return [
+    cellOrDash(String(t.feedbackFrequency ?? "")),
+    cellOrDash(listField(t.inputMaterials)),
+    collab,
+    cellOrDash(listField(scope.inScope)),
+    cellOrDash(listField(scope.outOfScope)),
+    cellOrDash(
+      Array.isArray(timeNode.checkpoints)
+        ? timeNode.checkpoints.map((c) => String(c ?? "").trim()).filter(Boolean).join("；")
+        : "",
+    ),
+    cellOrDash(listField(t.risksAndOpenQuestions)),
+  ];
+}
+
+function rowHasMorePlanning(values: string[]): boolean {
+  return values.some((v) => v !== "—");
+}
+
+/** Second pipe table: 更多规划 7 项 (+ # column). Omitted when all rows empty. */
 export function renderDraftSupplementSection(
   draft: unknown,
   latestAssignment?: unknown,
@@ -169,18 +186,19 @@ export function renderDraftSupplementSection(
     : [];
   if (tasks.length === 0) return "";
 
-  const { assigneeByTaskId, collaboratorsByTaskId } = buildAssignmentMaps(latestAssignment);
-  const taskTitleById = new Map<string, string>();
-  for (const t of tasks) {
-    const id = String(t?.id ?? "").trim();
-    const title = String(t?.title ?? "").trim();
-    if (id) taskTitleById.set(id, title || id);
+  const { collaboratorsByTaskId } = buildAssignmentMaps(latestAssignment);
+  const rows: string[] = [];
+  for (let idx = 0; idx < tasks.length; idx++) {
+    const cells = collectMorePlanningCells(tasks[idx], collaboratorsByTaskId);
+    if (!rowHasMorePlanning(cells)) continue;
+    const escaped = [String(idx + 1), ...cells].map(escapeTableCell);
+    rows.push(`| ${escaped.join(" | ")} |`);
   }
+  if (rows.length === 0) return "";
 
-  const cards = tasks.map((t, idx) =>
-    renderTaskRichCard(t, idx, taskTitleById, assigneeByTaskId, collaboratorsByTaskId),
-  );
-  return ["### 任务补充信息", ...cards].join("\n\n");
+  const header = "| # | 反馈频率 | 输入材料 | 协作人 | 范围内 | 范围外 | 检查点 | 风险 |";
+  const sep = "| --- | --- | --- | --- | --- | --- | --- | --- |";
+  return ["### 更多规划（7 项）", header, sep, ...rows].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -254,8 +272,8 @@ export function renderDingtalkTaskMarkdown(input: RenderDingtalkTaskMarkdownInpu
       tasks.length > 0 &&
       !hasTaskTableInMessage(outboundMarkdown)
     ) {
-      const taskList = renderTaskListSection(currentDraft, latestAssignment);
-      if (taskList) outboundMarkdown += `\n\n${taskList}`;
+      const taskTable = renderTaskPipeTableSection(currentDraft, latestAssignment);
+      if (taskTable) outboundMarkdown += `\n\n${taskTable}`;
       const supplement = renderDraftSupplementSection(currentDraft, latestAssignment);
       if (supplement) outboundMarkdown += `\n\n${supplement}`;
     } else if (hasTaskTableInMessage(outboundMarkdown)) {
