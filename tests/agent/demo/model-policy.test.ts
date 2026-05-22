@@ -15,7 +15,7 @@ describe("normalizeModelPolicy", () => {
     });
 
     expect(policy.temperature).toBe(1);
-    expect(policy.maxTokens).toBe(8000);
+    expect(policy.maxTokens).toBe(12000);
     expect(policy.timeoutMs).toBe(5000);
     expect(policy.maxRetries).toBe(3);
     expect(policy.requestBudgetTokens).toBe(

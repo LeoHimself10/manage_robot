@@ -172,7 +172,7 @@ export async function runOrchestrator(
       "publishedTasksLookup: 用户问已发布/我管理的任务时，必须调 list_managed_tasks 取库内真实数据；不得用 latestDraft 充数。",
     );
     memoryParts.push(
-      "draftReviseDiscipline: 拆细/扩条/重新拆解→DRAFT 整表输出完整 draft JSON（tasks[] 全量替换）；单点改 task_x 字段→update_draft_task；删一条→remove_draft_subtask；禁止口播拆细无 JSON。",
+      "draftReviseDiscipline: 拆细/扩条/重新拆解/WBS/整表重出 tasks[]→本回合禁止 tool_calls，按 WBS 整表输出完整 draft JSON（tasks[] 全量替换，条数≥旧草案）；单点改 task_x→update_draft_task；删一条→remove_draft_subtask；禁止仅 message 无 draft JSON。",
     );
   }
   if (config.sessionContext?.latestAssignment) {
@@ -232,7 +232,7 @@ export async function runOrchestrator(
       maxIterations: maxToolIterations,
       maxTotalMs: Number(process.env.AGENT_MAX_TOTAL_MS ?? "120000"),
       maxToolCalls: Number(process.env.AGENT_MAX_TOOL_CALLS ?? "12"),
-      maxTotalTokens: Number(process.env.AGENT_MAX_TOTAL_TOKENS ?? "12000"),
+      maxTotalTokens: Number(process.env.AGENT_MAX_TOTAL_TOKENS ?? "24000"),
     });
   } catch (err) {
     if (err instanceof MaxToolIterationsExceededError || err instanceof TokenBudgetExceededError) {
@@ -375,8 +375,8 @@ function looksLikeDraftStyleMessage(message: string): boolean {
 }
 
 function serializeDraftForMemory(draft: Record<string, unknown>): Record<string, unknown> {
-  const maxChars = Number(process.env.ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS ?? "16000");
-  const cap = Number.isFinite(maxChars) && maxChars > 500 ? Math.floor(maxChars) : 16000;
+  const maxChars = Number(process.env.ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS ?? "32000");
+  const cap = Number.isFinite(maxChars) && maxChars > 500 ? Math.floor(maxChars) : 32000;
   const full = JSON.stringify(draft);
   if (full.length <= cap) return draft;
 

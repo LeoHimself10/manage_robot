@@ -377,7 +377,7 @@ export class QwenCompatibleClient {
     const maxTotalMs = request.maxTotalMs ?? Number(process.env.AGENT_MAX_TOTAL_MS ?? "120000");
     const maxToolCalls = request.maxToolCalls ?? Number(process.env.AGENT_MAX_TOOL_CALLS ?? "12");
     const maxTotalTokens =
-      request.maxTotalTokens ?? Number(process.env.AGENT_MAX_TOTAL_TOKENS ?? "12000");
+      request.maxTotalTokens ?? Number(process.env.AGENT_MAX_TOTAL_TOKENS ?? "24000");
 
     let lastError: unknown = null;
     const startedAt = Date.now();

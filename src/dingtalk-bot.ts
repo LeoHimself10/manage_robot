@@ -75,9 +75,9 @@ import type { KnownFactsStore } from "./agent/tools/update-known-facts";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
-const DEFAULT_DINGTALK_MAX_TOKENS = 2200;
+const DEFAULT_DINGTALK_MAX_TOKENS = 8000;
 const DEFAULT_DINGTALK_ORCH_ITERATIONS = 6;
-const DEFAULT_DINGTALK_TIMEOUT_MS = 90000;
+const DEFAULT_DINGTALK_TIMEOUT_MS = 120000;
 const TOOL_NAME_LEAK_FALLBACK = "（系统检测到模型输出异常，已忽略；请重新描述您的需求。）";
 const KNOWN_TOOL_NAME_SET = new Set<string>(KNOWN_TOOL_NAMES);
 

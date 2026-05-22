@@ -5,9 +5,9 @@ import {
 } from "../../../src/agent/demo/qwen-prompt";
 
 describe("buildQwenPlannerSystemPrompt", () => {
-  it("v5.23.6: JSON contract, modes, no PREPARE mode", () => {
+  it("v5.23.8: JSON contract, modes, no PREPARE mode", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.23.6");
+    expect(sys).toContain("orchestrator-agent-v5.23.8");
     expect(sys).toContain("scheme C");
     expect(sys).toContain("## 输出 JSON 契约");
     expect(sys).not.toContain("§1 ");
@@ -46,22 +46,26 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("示例6 PUBLISH");
     expect(sys).not.toContain("FOLLOWUP");
     expect(sys).not.toContain("save_draft");
-    expect(sys.length).toBeLessThanOrEqual(7200);
+    expect(sys).toContain("**WBS 拆解原则**");
+    expect(sys).toContain("勿默认只出少数阶段包");
+    expect(sys).toContain("list_managers");
+    expect(sys.length).toBeLessThanOrEqual(8200);
   });
 
-  it("v5.23.6: latestDraft judgment order and redraft discipline", () => {
+  it("v5.23.8: latestDraft judgment order and redraft discipline", () => {
     const sys = buildQwenPlannerSystemPrompt();
     expect(sys).toContain("已有未发布草案");
     expect(sys).toContain("latestDraft");
     expect(sys).toContain("DRAFT 整表重做");
     expect(sys).toContain("tasks[]` 全量替换");
     expect(sys).toContain("PATCH REVISE");
-    expect(sys).toContain("拆细/细化/扩条/重新拆解");
+    expect(sys).toContain("拆细/细化/扩条/重新拆解/WBS");
     expect(sys).toContain("禁止**为单点改整表重拆");
     expect(sys).toContain("扩成 7 条/拆更细");
+    expect(sys).toContain("整表重出 tasks[]");
   });
 
-  it("v5.23.6: managerFollowup injects FOLLOWUP with continuous step ③", () => {
+  it("v5.23.8: managerFollowup injects FOLLOWUP with continuous step ③", () => {
     const sys = buildQwenPlannerSystemPrompt("planner", { managerFollowup: true });
     expect(sys).toContain("③ 否 → 用户是否要求跟进");
     expect(sys).not.toContain("③ 否 → ④ 否 → 用户是否要求跟进");
@@ -71,7 +75,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("示例7 FOLLOWUP");
   });
 
-  it("v5.23.6: tools and key disciplines", () => {
+  it("v5.23.8: tools and key disciplines", () => {
     const sys = buildQwenPlannerSystemPrompt();
     expect(sys).toContain("search_employees");
     expect(sys).toContain("resolve_roster_names");
@@ -88,7 +92,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
 describe("buildQwenPlannerSystemPrompt employee profile", () => {
   it("requires get_task_detail for overall task background questions", () => {
     const sys = buildQwenPlannerSystemPrompt("employee");
-    expect(sys).toContain("orchestrator-agent-v5.23.6-employee");
+    expect(sys).toContain("orchestrator-agent-v5.23.8-employee");
     expect(sys).toContain("任务整体背景纪律");
     expect(sys).toContain("get_task_detail");
   });

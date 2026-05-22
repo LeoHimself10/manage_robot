@@ -129,7 +129,7 @@ function buildEvalQwenClientConfig(): QwenCompatibleClientConfig | undefined {
     ...base,
     thinking: readEnvBool("DINGTALK_QWEN_THINKING", false),
     timeoutMs: readEnvInt("DINGTALK_QWEN_TIMEOUT_MS", 90_000),
-    maxTokens: Math.min(base.maxTokens, readEnvInt("DINGTALK_QWEN_MAX_TOKENS", 2200)),
+    maxTokens: Math.min(base.maxTokens, readEnvInt("DINGTALK_QWEN_MAX_TOKENS", 8000)),
     stream: readEnvBool("DINGTALK_QWEN_STREAM", true),
   };
 }
@@ -281,7 +281,7 @@ function ensureEvalPublishableDraft(session: PlanSession): void {
         objective: "确认焊点开路根因",
         deliverables: ["拆解记录", "微观图报告"],
         completionCriteria: ["不良点 ≥ 5 个完成显微观察"],
-        timeNode: { dueAt: "2026-05-18" },
+        timeNode: { dueAt: "2026-06-15" },
         feedbackFrequency: "每日同步",
       },
     ],
@@ -415,7 +415,7 @@ const scenarios: ScenarioInput[] = [
     senderStaffId: INITIATOR_STAFF_ID,
     sessionId: PLANNING_SESSION_KEY,
     userMessage:
-      "OCT 客诉：A 产品（型号 A-2026B）批次 2026Q2-04 出现批量焊点开路，已涉及 15 台设备到客户现场，目前已收齐现场日志与失效照片。需要在 5 月 18 日前完成初步原因拆解，给出遏制 + 临时纠正动作建议；缺陷代号 DCT-2026-0512。",
+      "OCT 客诉：A 产品（型号 A-2026B）批次 2026Q2-04 出现批量焊点开路，已涉及 15 台设备到客户现场，目前已收齐现场日志与失效照片。需要在 2026-06-15 前完成初步原因拆解，给出遏制 + 临时纠正动作建议；缺陷代号 DCT-2026-0512。",
     // 线上模型常把拆解写在 Markdown；JSON draft 不作为 eval 硬门槛（发布前 bridge 会兜底 latestDraft）。
     expectDraft: false,
   },
@@ -869,7 +869,7 @@ async function main(): Promise<void> {
     readEnvInt("DINGTALK_ORCHESTRATOR_MAX_ITERATIONS", 6),
     "(eval default=6 unless env set)",
   );
-  console.log("AGENT_MAX_TOTAL_TOKENS =", process.env.AGENT_MAX_TOTAL_TOKENS || "(default 12000)");
+  console.log("AGENT_MAX_TOTAL_TOKENS =", process.env.AGENT_MAX_TOTAL_TOKENS || "(default 24000)");
   console.log(
     "[safety] WORKBENCH_DINGTALK_NOTIFY_ENABLED =",
     process.env.WORKBENCH_DINGTALK_NOTIFY_ENABLED,

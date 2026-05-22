@@ -10,7 +10,7 @@ export interface ModelPolicy {
 export const DEFAULT_MODEL_POLICY: ModelPolicy = {
   model: "qwen3.6-plus",
   temperature: 0.2,
-  maxTokens: 4000,
+  maxTokens: 8000,
   timeoutMs: 60000,
   maxRetries: 1,
   requestBudgetTokens: 16000,
@@ -23,7 +23,7 @@ export function normalizeModelPolicy(
   return {
     model: merged.model,
     temperature: clamp(merged.temperature, 0, 1),
-    maxTokens: Math.round(clamp(merged.maxTokens, 128, 8000)),
+    maxTokens: Math.round(clamp(merged.maxTokens, 128, 12000)),
     timeoutMs: Math.round(clamp(merged.timeoutMs, 5000, 120000)),
     maxRetries: Math.round(clamp(merged.maxRetries, 0, 3)),
     requestBudgetTokens:

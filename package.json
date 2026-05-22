@@ -16,6 +16,8 @@
     "demo:scenarios": "tsx scripts/run-qwen-scenarios.ts",
     "demo:hi-latency": "tsx scripts/qwen-hi-latency.ts",
     "eval:agent": "tsx scripts/run-agent-eval.ts",
+    "eval:wbs-manager": "tsx scripts/run-wbs-manager-eval.ts",
+    "eval:publish-short": "tsx scripts/run-publish-short-confirm-eval.ts",
     "dingtalk-bot": "tsx src/dingtalk-bot.ts",
     "seed:employees": "tsx scripts/seed-employee-profiles.ts",
     "build:workbench-login": "esbuild src/web/workbench-dd-login-entry.ts --bundle --platform=browser --format=iife --legal-comments=none --outfile=dist/workbench-dd-login.js"
