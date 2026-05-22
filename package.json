@@ -17,6 +17,8 @@
     "demo:hi-latency": "tsx scripts/qwen-hi-latency.ts",
     "eval:agent": "tsx scripts/run-agent-eval.ts",
     "eval:wbs-manager": "tsx scripts/run-wbs-manager-eval.ts",
+    "eval:assignment-gate": "vitest run tests/agent/assignment/assignment-gate-invariants.test.ts && tsx scripts/run-assignment-gate-eval.ts",
+    "eval:replay-transport": "tsx scripts/run-replay-transport-eval.ts",
     "eval:publish-short": "tsx scripts/run-publish-short-confirm-eval.ts",
     "dingtalk-bot": "tsx src/dingtalk-bot.ts",
     "seed:employees": "tsx scripts/seed-employee-profiles.ts",

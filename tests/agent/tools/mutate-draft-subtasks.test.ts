@@ -37,6 +37,21 @@ describe("mutate-draft-subtasks", () => {
     expect(String(tasks[1]?.id)).toMatch(/^task_/);
   });
 
+  it("add_draft_subtask inherits dueAt from insertAfter parent when omitted", () => {
+    const session = sessionWithDraft([
+      { id: "task_1", title: "A", objective: "a", timeNode: { dueAt: "2026-06-10" } },
+      { id: "task_2", title: "B", objective: "b" },
+    ]);
+    const out = buildAddDraftSubtaskHandler({ currentSession: session })({
+      title: "A-split",
+      insertAfterSubtaskId: "task_1",
+    }) as Record<string, unknown>;
+    expect(out.ok).toBe(true);
+    const tasks = (session.latestDraft as { tasks: Array<{ id: string; timeNode?: { dueAt?: string } }> }).tasks;
+    expect(tasks).toHaveLength(3);
+    expect(tasks[1]?.timeNode?.dueAt).toBe("2026-06-10");
+  });
+
   it("remove_draft_subtask removes task and assignment row", () => {
     const session = sessionWithDraft([
       { id: "task_1", title: "A", objective: "a", dependencyTaskIds: [] },

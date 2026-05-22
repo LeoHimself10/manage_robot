@@ -25,7 +25,7 @@ function normalizePatchStringList(input: unknown): string[] {
   return out;
 }
 
-function upsertAssignmentRow(
+export function upsertAssignmentRow(
   session: PlanSession,
   taskId: string,
   patch: {
@@ -239,36 +239,47 @@ export function buildUpdateDraftTaskHandler(
     }
 
     let assigneeResolved: { userId: string; displayName: string; department?: string } | undefined;
+    let assigneeError: { reason: string; hint: string; unknown?: Record<string, unknown> } | undefined;
     if (patch.assigneeUserId) {
-      if (!isUserIdAllowedForAssignment(session, patch.assigneeUserId)) {
-        return {
-          ok: false,
+      let resolvedUserId = patch.assigneeUserId;
+      if (!isUserIdAllowedForAssignment(session, resolvedUserId)) {
+        const byToken = resolveCollaboratorToken(session, resolvedUserId);
+        if (byToken) resolvedUserId = byToken.userId;
+      }
+      if (!isUserIdAllowedForAssignment(session, resolvedUserId)) {
+        assigneeError = {
           reason: "assignee_not_from_search",
           unknown: { subtaskId, assigneeUserId: patch.assigneeUserId },
           hint:
             `assigneeUserId=${patch.assigneeUserId} 不在本轮 search_employees 命中或 candidatePool 中。` +
             "请先调 search_employees 拿到真实 userId 再重试；**禁止**编造姓名或从示例抄 ID。",
         };
-      }
-      if (deps.getContact) {
-        const contact = deps.getContact(patch.assigneeUserId);
+      } else if (deps.getContact) {
+        const contact = deps.getContact(resolvedUserId);
         if (!contact || contact.active === false) {
-          return {
-            ok: false,
+          assigneeError = {
             reason: "invalid_assignee_user_id",
             unknown: { subtaskId, assigneeUserId: patch.assigneeUserId },
             hint:
               `assigneeUserId=${patch.assigneeUserId} 不在钉钉通讯录或已离职。` +
               "请先调 search_employees 拿到真实 userId 再重试。",
           };
+        } else {
+          const hit = getEmployeeSearchHit(session, resolvedUserId);
+          assigneeResolved = {
+            userId: resolvedUserId,
+            displayName: hit?.displayName ?? contact.name?.trim() ?? resolvedUserId,
+            department: hit?.department,
+          };
         }
+      } else {
+        const hit = getEmployeeSearchHit(session, resolvedUserId);
+        assigneeResolved = {
+          userId: resolvedUserId,
+          displayName: hit?.displayName ?? resolvedUserId,
+          department: hit?.department,
+        };
       }
-      const hit = getEmployeeSearchHit(session, patch.assigneeUserId);
-      assigneeResolved = {
-        userId: patch.assigneeUserId,
-        displayName: hit?.displayName ?? deps.getContact?.(patch.assigneeUserId)?.name?.trim() ?? patch.assigneeUserId,
-        department: hit?.department,
-      };
     }
 
     let resolvedCollaborators: string[] | undefined;
@@ -298,6 +309,7 @@ export function buildUpdateDraftTaskHandler(
 
     const target = draft.tasks[targetIdx] as Record<string, unknown>;
     const targetTaskId = String(target.id ?? "");
+    const displayIndex = targetIdx + 1;
     const updatedFields: string[] = [];
     if (patch.title) {
       target.title = patch.title;
@@ -375,11 +387,18 @@ export function buildUpdateDraftTaskHandler(
     draft.tasks[targetIdx] = stripPlanningPersonFieldsFromTask(target);
     clearPublishStagingOnDraft(session);
 
+    if (assigneeError && updatedFields.length === 0) {
+      return { ok: false, ...assigneeError };
+    }
+
     return {
       ok: true,
       subtaskId,
+      resolvedTaskId: targetTaskId,
+      displayIndex,
       updatedFields,
       assignee: assigneeResolved,
+      assigneeError: assigneeError?.reason,
       after: target,
       hint:
         `已更新 subtaskId=${subtaskId} 的 ${updatedFields.join(", ")}。` +

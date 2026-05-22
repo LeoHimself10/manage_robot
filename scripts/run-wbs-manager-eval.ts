@@ -20,6 +20,21 @@ import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
 } from "../src/agent/role-routing";
+import { processAssignmentForTurn } from "../src/agent/assignment/process-assignment-turn";
+import {
+  buildAssignRetryUserMessage,
+  buildTaskIndexMap,
+} from "../src/agent/assignment/false-assign";
+import { hasAssigneeIntentInUserMessage } from "../src/agent/orchestrator-turn-hints";
+import {
+  buildPublishRetryUserMessage,
+} from "../src/agent/publish-staging";
+import { publishResultSucceeded } from "../src/agent/publish-helpers";
+import {
+  assertAssignmentFullCoverage,
+  assertEvalNoFakeAssign,
+  assertNoMaxTurnsExceeded,
+} from "./eval-assignment-assertions";
 
 const EVAL_DIR = process.env.EVAL_DATA_DIR?.trim() || join(process.cwd(), ".eval-wbs-manager");
 const INITIATOR = "eval-dd-initiator-001";
@@ -85,6 +100,9 @@ interface ScenarioDef {
   expectToolAny?: string[];
   expectMinFieldCoverage?: number;
   expectPublishOk?: boolean;
+  expectAssignmentFullCoverage?: boolean;
+  expectNoFakeAssignMessage?: boolean;
+  expectMaxToolCalls?: number;
   /** PATCH 场景：允许无新 draft JSON，但须出现指定工具 */
   patchMode?: boolean;
 }
@@ -98,6 +116,7 @@ interface ScenarioRunResult {
   fieldCoverage: number;
   tools: string[];
   publishOk?: boolean;
+  assignmentCoverage?: number;
   failReason?: string;
   preview?: string;
   titles?: string[];
@@ -199,6 +218,7 @@ async function seedDirectory() {
 }
 
 function injectAssignmentAllTasks(session: PlanSession): void {
+  // Deprecated: eval no longer fakes assignment before M1; kept for manual debugging only.
   const draft = session.latestDraft;
   if (!draft || typeof draft !== "object") return;
   const tasks = (draft as { tasks?: Array<{ id?: string }> }).tasks ?? [];
@@ -230,12 +250,13 @@ async function runScenario(
   const { employeeRepo, route } = resolveRouting(def.senderStaffId);
   const publishRecentStore = createRecentPublishStore();
   const t0 = Date.now();
+  const preTurnDraft = session.latestDraft as Record<string, unknown> | undefined;
 
   try {
-    const result = await runOrchestrator(def.userMessage, {
+    let result = await runOrchestrator(def.userMessage, {
       clientConfig,
       employeeRepo,
-      maxToolIterations: Number(process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? 6),
+      maxToolIterations: Number(process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? 10),
       toolProfile: route.toolProfile,
       promptProfile: route.promptProfile,
       trustedActorUserId: route.trustedActorUserId,
@@ -254,15 +275,136 @@ async function runScenario(
       },
     });
 
-    const tools = result.toolInvocationNames ?? [];
+    let tools = result.toolInvocationNames ?? [];
+    const hasPublishOk = publishResultSucceeded(result.publishResult as Record<string, unknown> | undefined);
+
+    const needsPublishRetry =
+      def.expectPublishOk
+      && !hasPublishOk
+      && !tools.includes("publish_task");
+
+    if (needsPublishRetry) {
+      const retryMsg = buildPublishRetryUserMessage(def.userMessage, session.planId);
+      const retryResult = await runOrchestrator(retryMsg, {
+        clientConfig,
+        employeeRepo,
+        maxToolIterations: Number(process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? 10),
+        toolProfile: route.toolProfile,
+        promptProfile: route.promptProfile,
+        trustedActorUserId: route.trustedActorUserId,
+        actorRole: def.senderStaffId === MGR_STAFF_ID ? "manager" : "employee",
+        actorName: def.senderStaffId === MGR_STAFF_ID ? "测评经理" : "发起人",
+        currentSession: session,
+        currentSessionPlanId: session.planId,
+        publishRecentStore,
+        sessionContext: {
+          conversationHistory: session.conversationHistory,
+          planId: session.planId,
+          latestDraft: session.latestDraft as Record<string, unknown> | undefined,
+          latestAssignment: session.latestAssignment,
+          memoryFacts: session.knownFacts,
+          currentTimeIso: new Date().toISOString(),
+        },
+      });
+      result = retryResult;
+      tools = [...tools, ...(retryResult.toolInvocationNames ?? [])];
+    }
+
     const hasDraftJson = result.draft !== undefined;
     if (result.draft) session.latestDraft = result.draft as typeof session.latestDraft;
-    if (result.assignment) session.latestAssignment = result.assignment as typeof session.latestAssignment;
+
+    const taskIds = Array.isArray((session.latestDraft as { tasks?: Array<{ id?: string }> } | undefined)?.tasks)
+      ? ((session.latestDraft as { tasks: Array<{ id?: string }> }).tasks)
+          .map((t) => String(t.id ?? "").trim())
+          .filter(Boolean)
+      : [];
+
+    let assignState = processAssignmentForTurn({
+      preTurnDraft,
+      persistedDraft: session.latestDraft as Record<string, unknown> | undefined,
+      sessionAssignment: session.latestAssignment as Record<string, unknown> | undefined,
+      orchAssignment: result.assignment,
+      draftTouchedThisTurn: hasDraftJson || tools.some((t) =>
+        ["update_draft_task", "add_draft_subtask", "remove_draft_subtask", "save_draft"].includes(t),
+      ),
+      planId: session.planId,
+      traceId: result.traceId,
+      modelName: clientConfig.model,
+      taskIds,
+      employees: employeeRepo.list().map((e) => ({ userId: e.userId, displayName: e.displayName })),
+      requireFullCoverage: true,
+    });
+
+    const needsAssignRetry =
+      def.expectAssignmentFullCoverage
+      && hasAssigneeIntentInUserMessage(def.userMessage)
+      && assignState.coverage.total > 0
+      && assignState.coverage.covered < assignState.coverage.total;
+
+    if (needsAssignRetry) {
+      const retryBackground = buildAssignRetryUserMessage({
+        originalUserMessage: def.userMessage,
+        missingTaskIds: assignState.missingTaskIds,
+        taskIndexMap: buildTaskIndexMap(session.latestDraft as Record<string, unknown> | undefined),
+      });
+      const retryResult = await runOrchestrator(retryBackground, {
+        clientConfig,
+        employeeRepo,
+        maxToolIterations: Number(process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? 10),
+        toolProfile: route.toolProfile,
+        promptProfile: route.promptProfile,
+        trustedActorUserId: route.trustedActorUserId,
+        actorRole: def.senderStaffId === MGR_STAFF_ID ? "manager" : "employee",
+        actorName: def.senderStaffId === MGR_STAFF_ID ? "测评经理" : "发起人",
+        currentSession: session,
+        currentSessionPlanId: session.planId,
+        publishRecentStore,
+        sessionContext: {
+          conversationHistory: session.conversationHistory,
+          planId: session.planId,
+          latestDraft: session.latestDraft as Record<string, unknown> | undefined,
+          latestAssignment: session.latestAssignment,
+          memoryFacts: session.knownFacts,
+          currentTimeIso: new Date().toISOString(),
+        },
+      });
+      result = retryResult;
+      tools = [...tools, ...(retryResult.toolInvocationNames ?? [])];
+      if (retryResult.draft) session.latestDraft = retryResult.draft as typeof session.latestDraft;
+      assignState = processAssignmentForTurn({
+        preTurnDraft,
+        persistedDraft: session.latestDraft as Record<string, unknown> | undefined,
+        sessionAssignment: session.latestAssignment as Record<string, unknown> | undefined,
+        orchAssignment: retryResult.assignment,
+        draftTouchedThisTurn: true,
+        planId: session.planId,
+        traceId: retryResult.traceId,
+        modelName: clientConfig.model,
+        taskIds: Array.isArray((session.latestDraft as { tasks?: Array<{ id?: string }> } | undefined)?.tasks)
+          ? ((session.latestDraft as { tasks: Array<{ id?: string }> }).tasks)
+              .map((t) => String(t.id ?? "").trim())
+              .filter(Boolean)
+          : [],
+        employees: employeeRepo.list().map((e) => ({ userId: e.userId, displayName: e.displayName })),
+        requireFullCoverage: true,
+      });
+    }
+
+    if (assignState.latestAssignment) {
+      session.latestAssignment = assignState.latestAssignment as typeof session.latestAssignment;
+    }
+
+    const outboundMessage = result.messages.join("\n\n");
+
+    const coverage = assertAssignmentFullCoverage(
+      session.latestDraft as Record<string, unknown> | undefined,
+      session.latestAssignment as Record<string, unknown> | undefined,
+    );
 
     session.conversationHistory = [
       ...session.conversationHistory,
       { role: "user" as const, content: def.userMessage },
-      { role: "assistant" as const, content: result.messages.join("\n\n") || "(empty)" },
+      { role: "assistant" as const, content: outboundMessage || "(empty)" },
     ].slice(-12);
     session.updatedAt = new Date().toISOString();
     createPlanSessionStore().save(session);
@@ -308,8 +450,26 @@ async function runScenario(
       }
     }
     if (def.expectPublishOk) {
-      const ok = (result.publishResult as { ok?: boolean } | undefined)?.ok === true;
+      const ok = publishResultSucceeded(result.publishResult as Record<string, unknown> | undefined);
       if (!ok) reasons.push("publishResult.ok !== true");
+    }
+    if (def.expectAssignmentFullCoverage && coverage.ratio < 1) {
+      reasons.push(`assignment ${coverage.covered}/${coverage.total} missing=${coverage.missingTaskIds.join(",")}`);
+    }
+    if (def.expectNoFakeAssignMessage && !assertEvalNoFakeAssign({
+      userMessage: def.userMessage,
+      draft: session.latestDraft as Record<string, unknown> | undefined,
+      assignment: session.latestAssignment as Record<string, unknown> | undefined,
+      message: outboundMessage,
+      extractOk: assignState.extractOk,
+    })) {
+      reasons.push("false assign message with incomplete session assignment");
+    }
+    if (def.expectMaxToolCalls !== undefined && tools.length > def.expectMaxToolCalls) {
+      reasons.push(`toolCalls=${tools.length}>max${def.expectMaxToolCalls}`);
+    }
+    if (!assertNoMaxTurnsExceeded(result)) {
+      reasons.push("max_turns_exceeded");
     }
 
     return {
@@ -321,6 +481,7 @@ async function runScenario(
       fieldCoverage: fc,
       tools,
       publishOk: (result.publishResult as { ok?: boolean } | undefined)?.ok,
+      assignmentCoverage: coverage.ratio,
       failReason: reasons.join("; ") || undefined,
       preview,
       titles,
@@ -466,24 +627,23 @@ function buildScenarios(): ScenarioDef[] {
       sessionKey: "oct_chain",
       senderStaffId: MGR_STAFF_ID,
       userMessage:
-        "这份 OCT 客诉草案请你点将：失效分析/焊接相关子任务优先找质量部有 SMT 经验的人，用 search_employees 查人后直接给 assignment JSON。",
-      expectToolAny: ["search_employees"],
+        "这份客诉草案请你帮忙点将：失效分析和焊接相关的尽量找质量部有SMT经验的同事，其余按能力合理分工，每个子任务都要有明确负责人。",
+      expectAssignmentFullCoverage: true,
+      expectNoFakeAssignMessage: true,
+      expectMaxToolCalls: 14,
     },
     {
       id: "M1_prepare_publish",
       sessionKey: "oct_chain",
       senderStaffId: MGR_STAFF_ID,
-      userMessage:
-        "请只调用一次 prepare_publish_task 做发布前预览（禁止 publish_task）。planId 用会话里的 planId，title 与草案一致。",
+      userMessage: "我先看一下发布前的预览，确认没问题再正式发布。",
       expectTools: ["prepare_publish_task"],
     },
     {
       id: "M2_publish_confirm",
       sessionKey: "oct_chain",
       senderStaffId: MGR_STAFF_ID,
-      userMessage:
-        "我已书面确认：同意按当前草案与分配正式发布。请**必须调用 publish_task**（禁止仅口播已发布），confirmationContext 写：主管 eval 确认发布。",
-      expectTools: ["publish_task"],
+      userMessage: "确认发布",
       expectPublishOk: true,
     },
     {
@@ -531,11 +691,6 @@ async function main() {
     }
 
     const priorTaskCount = taskCount(session.latestDraft);
-
-    if (def.id === "M1_prepare_publish") {
-      injectAssignmentAllTasks(session);
-      store.save(session);
-    }
 
     process.stdout.write(`[${def.id}] ... `);
     const r = await runScenario(session, def, priorTaskCount);

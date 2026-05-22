@@ -51,7 +51,7 @@ export const ADD_DRAFT_SUBTASK_TOOL: ToolDefinition = {
         dueAt: { type: "string", description: "可选。截止日期 ISO 或 yyyy-MM-dd。" },
         insertAfterSubtaskId: {
           type: "string",
-          description: "可选。插入到该 subtaskId 之后；缺省追加到列表末尾。",
+          description: "可选。插入到该 subtaskId 之后；缺省追加到列表末尾。拆分场景常用；未传 dueAt 时继承被插入行的截止日期。",
         },
       },
       required: ["title"],
@@ -106,7 +106,23 @@ export function buildAddDraftSubtaskHandler(
     const used = collectUsedTaskIds(tasks);
     const newId = allocTaskId(tasks.length, used);
     const objective = String(args.objective ?? "").trim() || "待补充";
-    const dueAt = String(args.dueAt ?? "").trim();
+    let dueAt = String(args.dueAt ?? "").trim();
+    const insertAfter = String(args.insertAfterSubtaskId ?? "").trim();
+    let insertIdx = -1;
+    if (insertAfter) {
+      insertIdx = findDraftTaskIndex(tasks, insertAfter);
+      if (insertIdx === -1) {
+        return {
+          ok: false,
+          reason: "subtask_not_found",
+          hint: `未找到 insertAfterSubtaskId=${insertAfter}。`,
+        };
+      }
+      if (!dueAt) {
+        const parentTn = tasks[insertIdx]?.timeNode as { dueAt?: string } | undefined;
+        dueAt = String(parentTn?.dueAt ?? "").trim();
+      }
+    }
     const newTask: Record<string, unknown> = {
       id: newId,
       title,
@@ -116,17 +132,8 @@ export function buildAddDraftSubtaskHandler(
       timeNode: dueAt ? { dueAt } : {},
       feedbackFrequency: "按需同步",
     };
-    const insertAfter = String(args.insertAfterSubtaskId ?? "").trim();
-    if (insertAfter) {
-      const idx = findDraftTaskIndex(tasks, insertAfter);
-      if (idx === -1) {
-        return {
-          ok: false,
-          reason: "subtask_not_found",
-          hint: `未找到 insertAfterSubtaskId=${insertAfter}。`,
-        };
-      }
-      tasks.splice(idx + 1, 0, stripPlanningPersonFieldsFromTask(newTask));
+    if (insertIdx >= 0) {
+      tasks.splice(insertIdx + 1, 0, stripPlanningPersonFieldsFromTask(newTask));
     } else {
       tasks.push(stripPlanningPersonFieldsFromTask(newTask));
     }

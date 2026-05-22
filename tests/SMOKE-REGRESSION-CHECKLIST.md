@@ -1,4 +1,4 @@
-# Smoke 回归清单（v5.23.2）
+# Smoke 回归清单（v5.23.8）
 
 与 [`smoke_test_bug_triage` plan] 验证清单对齐；手工 smoke 时逐项勾选。
 

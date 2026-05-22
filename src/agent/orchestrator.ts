@@ -29,7 +29,8 @@ import {
   formatPublishStagingActionHint,
   formatScopeBoundaryHint,
 } from "./orchestrator-turn-hints";
-import { allocTaskId } from "./draft-task-ids";
+import { stabilizeDraftTaskIds } from "./draft-stabilize";
+import { buildTaskIndexMap } from "./assignment/false-assign";
 
 export { shouldInjectExplicitDraftRequestHint } from "./orchestrator-turn-hints";
 
@@ -165,6 +166,10 @@ export async function runOrchestrator(
     memoryParts.push(`topFacts: ${safeJson(memoryFacts.slice(0, 8))}`);
   }
   if (config.sessionContext?.latestDraft) {
+    const taskIndexMap = buildTaskIndexMap(config.sessionContext.latestDraft);
+    if (taskIndexMap.length > 0) {
+      memoryParts.push(`taskIndexMap (表序号→taskId): ${safeJson(taskIndexMap)}`);
+    }
     memoryParts.push(
       `latestDraft (未发布草案，权威结构；非已发布任务): ${safeJson(serializeDraftForMemory(config.sessionContext.latestDraft))}`,
     );
@@ -418,46 +423,6 @@ function summarizeAssignmentForPrompt(
   };
 }
 
-function stabilizeDraftTaskIds(
-  draft: Record<string, unknown>,
-  previous?: Record<string, unknown>,
-): Record<string, unknown> {
-  const tasks = Array.isArray((draft as { tasks?: unknown[] }).tasks)
-    ? ((draft as { tasks: Array<Record<string, unknown>> }).tasks)
-    : [];
-  if (tasks.length === 0) return draft;
-  const previousTasks = Array.isArray((previous as { tasks?: unknown[] } | undefined)?.tasks)
-    ? ((previous as { tasks: Array<Record<string, unknown>> }).tasks)
-    : [];
-  const byFingerprint = new Map<string, string>();
-  for (const task of previousTasks) {
-    const id = String(task?.id ?? "").trim();
-    if (!id) continue;
-    byFingerprint.set(fingerprintTask(task), id);
-  }
-  const used = new Set<string>();
-  const nextTasks = tasks.map((task, index) => {
-    const cloned = { ...task };
-    let id = String(cloned.id ?? "").trim();
-    if (!id) {
-      const prevAtIndex = previousTasks[index];
-      const prevId = String(prevAtIndex?.id ?? "").trim();
-      if (prevId) {
-        id = prevId;
-      } else {
-        id = byFingerprint.get(fingerprintTask(cloned)) ?? "";
-      }
-    }
-    if (!id || used.has(id)) {
-      id = allocTaskId(index, used);
-    }
-    used.add(id);
-    cloned.id = id;
-    return cloned;
-  });
-  return { ...draft, tasks: nextTasks };
-}
-
 function alignAssignmentTaskIds(
   assignment: Record<string, unknown>,
   draft: Record<string, unknown>,
@@ -478,12 +443,6 @@ function alignAssignmentTaskIds(
     };
   });
   return { ...assignment, assignments: normalized };
-}
-
-function fingerprintTask(task: Record<string, unknown>): string {
-  const title = String(task?.title ?? "").trim().toLowerCase();
-  const objective = String(task?.objective ?? "").trim().toLowerCase();
-  return `${title}::${objective}`;
 }
 
 function normalizeConversationHistoryForModel(

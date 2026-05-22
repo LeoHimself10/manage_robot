@@ -2,156 +2,202 @@
 
 ## 项目目标
 
-本项目用于实现“钉钉任务规划与承接确认机器人”，核心是通过 Agent Harness 将模糊任务转为可承接、可验收、可追溯的任务闭环。
+本项目用于实现「钉钉任务规划与承接确认机器人」，核心是通过 Agent Harness 将模糊任务转为可承接、可验收、可追溯的任务闭环。
+
+**现网主链路**：钉钉 Stream → `src/dingtalk-bot.ts` → `runOrchestrator`（ReAct + tool calling）→ 草案/指派 JSON → 工作台 SQLite 正式任务 → 通知 / 催办 / 进展推送。`createTaskPlanningDemo` 保留给 CLI / demo / eval 回归（`legacy-demo-planner-v1`，与 orchestrator 解耦）。
 
 ## 参考文档
 
 - PRD：`docs/PRD-钉钉任务规划与承接确认机器人.md`
 - 流程图：`docs/PRD-钉钉任务规划与承接确认机器人-场景流程图.md`
-- Demo MVP 设计：`docs/superpowers/specs/2026-05-07-task-planning-demo-mvp-design.md`
-- Demo MVP 实施计划：`docs/superpowers/plans/2026-05-07-task-planning-demo-mvp.md`
 - Harness 设计与计划：`docs/agent-harness-架构与开发计划.md`
 - Qwen 接入与运行：`docs/Qwen-接入实施说明.md`
 - 阿里云部署与钉钉 Stream 机器人：`docs/deploy-aliyun-dingtalk.md`
-- Demo 工程增强清单（审计 / 会话 / 可观测性等）：`docs/harness-next-optimizations.md`
-- Pipeline 薄封装重构设计档案：`docs/harness-pipeline-refactor-plan.md`
+- 工程增强清单（审计 / 会话 / 可观测性）：`docs/harness-next-optimizations.md`
+- 已知遗留问题：`docs/已知遗留问题-backlog.md`
+- 历史设计稿：`docs/superpowers/`（文首标注快照，勿作现网依据）
 
-## 当前实现边界（2026-05-12）
+## 当前实现边界（2026-05-22）
 
-- **Prompt vs backend FSM**：prompt 仅做 intent classify + draft generate + tool suggestion；publish gate / 工具白名单 / staging flag / 假口播重试等 policy 由 backend FSM 强制（见 `publish-staging.ts` / `authoritative-publish.ts` / `tools/registry.ts`）。
-- **主链路**：钉钉消息 → **`runOrchestrator`（ReAct loop + tool calling）**→ 结构化草案补表 + 可选指派推荐 + Plan 快照。`createTaskPlanningDemo` 保留给 CLI/demo/eval 回归链路。
-- **模型**：DashScope OpenAI 兼容接口；仓库默认策略见 `model-policy.ts`。线上可通过 **`QWEN_MODEL`** 切换（例如 **`qwen3.6-flash`** 降低延迟，需自行验证工具调用与草案质量）。钉钉链路默认 **`DINGTALK_QWEN_THINKING=0`**（关闭 thinking 以降低首包时延）；全局 `QWEN_THINKING` 仍可按环境关闭。
-- **提示词**：钉钉 / ReAct 主链路使用 `orchestrator-agent-v5.23.8`（`buildQwenPlannerSystemPrompt`，含 planner / manager / employee profile）；身份定位为约 350 人医疗器械（OCT）公司内部任务规划助手，以质量与研发为主，但可按用户本轮描述扩展到其他业务部门。主管/admin 链路在 `managerFollowup` 注入时增加第六模式 **FOLLOWUP**（催办/逾期跟进）；默认 planner 为 **CLARIFY / QUERY / DRAFT / ASSIGN / PUBLISH** 五类操作模式（**不设 PREPARE 模式**，`prepare_publish_task` 为工具两回合纪律）：模式名是 JSON 输出意图、**不是** tool_calls 函数名；CLARIFY 禁止与其他模式混用；QUERY 用于正式任务查询（`list_managed_tasks` 等，admin 含 `list_managers`/`get_metrics`）；DRAFT / ASSIGN / PUBLISH 可按同句叠加；**DRAFT/REDRAFT 按 WBS 拆解原则**（单一交付物、可验收 completionCriteria，禁止少数阶段大包）；**REDRAFT 须同轮输出完整 draft JSON**（禁止仅 message）；**有未发布草案时**：用户要求拆细/扩条/重新拆解/WBS → **DRAFT 整表重做**（顶层完整 `draft` JSON）；仅 `task_x` 单点改 → `update_draft_task` / `remove_draft_subtask`（PATCH REVISE）。顶层 **`message` 必填**（四段导览），**禁止在 message 中手画任务表**，钉钉侧任务表由服务端根据 JSON `draft` 附加渲染（`renderDingtalkTaskMarkdown`）。orchestrator 对 `draft` 经 `coerceLlmPlanPayload` 后由 `preserveOrchestratorDraftScalars` 保留 `title`/`description`/`summary`。纪律要点：**DRAFT 前必须已有明确截止日期或可执行时间范围**；**DRAFT 必须 JSON 顶层 `draft` 落盘**（避免 `hasDraft=false`）；**任何姓名须先调 `search_employees`**。发布/staging/假口播等 policy 由 backend FSM 执行，prompt 不重复；模型误调模式名工具时 ReAct 层返回 `mode_not_a_tool` 结构化错误。`generateStructuredPlan` 单次 JSON 链路使用独立的 `legacy-demo-planner-v1`，与 orchestrator 解耦。
-- **工具**（`src/agent/tools/`）：按 profile 暴露。ReAct 主链路已改为**最终 JSON 直接输出 `draft`**（不再依赖 `save_draft` 工具回合）；为了兜底「模型只产 Markdown 表格不产结构化 draft」的退化情况，`prepare_publish_task` 在校验通过时**会把规整后的 draft + assignment 直接写入 `currentSession.latestDraft` / `latestAssignment`**，下一轮的 `publish_task` 才能读到结构化数据。`planner` 默认 `search_employees` / `get_employee_details` / `search_similar_plans`（`SEARCH_SIMILAR_PLANS_ENABLED=0` 时关闭该工具及钉钉侧 plan embedding 写入）/ 条件开放 `search_web` / `get_current_time` / `update_known_facts` / `list_known_facts`（共 7 个）；`manager` 在此基础上提供发布与管理工具（共 21 个，含 `list_follow_up_candidates` / `send_subtask_reminder`）；`admin` 再追加管理视角工具（共 25 个）；`employee` 提供 `list_my_tasks` / `submit_employee_response` / `submit_progress_update` / `update_employee_profile` 等员工侧工具。`search_web` 受 `SEARCH_WEB_ENABLED` 与请求语义双重约束。`search_employees` 默认返回 cap 收紧到 **25**（`SEARCH_EMPLOYEES_MAX_CANDIDATES`），并对**单次 orchestrator 内调用次数**设硬上限 **3**（`SEARCH_EMPLOYEES_PER_ORCHESTRATOR_QUOTA`），超过即返回 `ok:false / search_employees_quota_exhausted` 让模型直接转述，防止"反复换参数搜不到 → ReAct 死循环 / token budget 爆栈"。`publish_task` 遇到 empty draft / missing assignee 不再 throw，改为 `ok:false / no_draft_in_session | missing_assignee` 软返回。
-- **钉钉会话与多任务**：同一钉钉会话（`chatKey`）内 `PlanSession` 使用 `taskScopes` 归档；每个 scope 带独立 **`planId`**（与顶层 `session.planId` 在激活时一致）。`start_new_task` 与 **`publish_task` 成功（非 `alreadyPublished` / 非 LRU 去重 / 非 `unknown_assignees`）** 后会自动轮转 **`planId`**，以便同一会话连续发布多条正式任务；旧 scope 保留草案与 `knownFacts`，可用 `switch_back_task` 回切。`**DINGTALK_PLANID_ROTATE_ENABLED=0**` 可关闭发布后自动轮转（默认 `1`）。
-- **钉钉角色路由**：`DINGTALK_ROLE_ROUTING_ENABLED=1` 时，钉钉入口按身份动态路由 `manager/employee/planner` profile；默认关闭时保持固定 `planner`（兼容旧行为）。
-- **短期记忆**：`knownFacts[]`（session-store），模型通过 `update_known_facts` / `list_known_facts` 自主维护；有未发布草案时每轮 `[memory_context]` 注入完整 **`latestDraft`**（`ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS` 默认 32000，可截断）；**拆细/扩条/WBS** 须整表 `draft` JSON，**单点改**用 `update_draft_task` / `remove_draft_subtask`（v5.23.7 WBS 原则 + prompt-first，无新增用户话术正则）。钉钉默认 **`DINGTALK_QWEN_MAX_TOKENS=8000`**、**`AGENT_MAX_TOTAL_TOKENS=24000`**（代码 fallback，env 可覆盖）。
-- **长期记忆**：`plan-index.ts`（embedding + cosine 文件遍历），`search_similar_plans` 工具触发（受 `SEARCH_SIMILAR_PLANS_ENABLED` 与 `PLAN_EMBEDDING_DISABLED` 约束）。
-- **兜底**：自然语言回复自动包装为 `{ message, stopReason: "end_turn" }`；空消息有最终 fallback。
-- **不做**：OA 自动流程、承接三态、电子签名、执行中变更、节点反馈与验收闭环。
-- **运行时数据源约束**：工作台正式任务仅以 SQLite 为权威源；`tasks.json` 不参与运行时查询与回灌迁移。`tasks` 表 **`description`**（TEXT，可选）：任务整体背景，发布时从 `latestDraft.description`（无则回退 `latestDraft.summary`）写入并截断至 `TASK_DESCRIPTION_MAX_DB`，供钉钉通知、工作台与员工工具消费。`subtasks` 表新增 8 个独立富字段列（TEXT，存 JSON 数组字符串）：`depends_on`（对应 `dependencyTaskIds`）、`checkpoints`（对应 `timeNode.checkpoints`）、`risks`（对应 `risksAndOpenQuestions`）、`input_materials`、`actions`、`collaborators`、`in_scope`、`out_of_scope`，发布时从草案直接写入，供详情接口、钉钉发布通知与主管/员工工作台展示；`WorkbenchSubtaskRow` 已扁平化为同名驼峰字段（`dependsOn`、`checkpoints`、`risks`、`inputMaterials`、`actions`、`collaborators`、`inScope`、`outOfScope`）。员工画像与通讯录快照也已落在 SQLite 数据层（`people-directory-store`、`dingtalk_contacts`）。**工作台子任务状态**：员工「接受」后子任务直接为 **`IN_PROGRESS`**（不再落库 **`ACCEPTED`**）；启动时会把历史 **`ACCEPTED`** 行迁移为 **`IN_PROGRESS`**，审计事件名 **`SUBTASK_ACCEPTED`** 仍保留。
-- **钉钉集成**：总开关 `WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`，需配合 `DINGTALK_CONTACT_SYNC_ENABLED=1` 保证 unionId 可用。通知失败不回滚，但在 `warnings` 与任务事件中留痕。
-  - **发布 / 改派**：向员工推送工作通知卡片（corpconversation/asyncsend_v2）+ 机器人 1:1 消息（robot/oToMessages/batchSend）。
-  - **员工 accept（ASSIGNED → IN_PROGRESS）**：通过 `notifyEmployeeTodoOnAccept` 创建钉钉原生待办（`POST /v1.0/todo/users/{unionId}/tasks`）。幂等门禁基于 `previousStatus === "ASSIGNED"`；改派后重置为 ASSIGNED，新员工 accept 可触发新待办。审计事件：`EMPLOYEE_TODO_CREATED` / `EMPLOYEE_TODO_SKIPPED` / `EMPLOYEE_TODO_FAILED`。副作用模块：`src/integrations/dingtalk/employee-todo-on-accept.ts`。
-  - **员工拒绝 / 请求调整 / 标记阻塞 / 标记完成**：在 `WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED` 未关闭（默认开启）时，向主管钉钉 1:1 机器人推送 Markdown（`notifyManagerOfEmployeeAction`）；投递失败写入 `task_events` 类型 `MANAGER_NOTIFY_FAILED`。
-  - **通知静默期**：发布后员工钉钉待办列表无新项属正常——待办在员工工作台「接受」子任务后才创建。如需发布即可见，可考虑额外推送发布卡片提醒（现有卡片 + 1:1 消息已覆盖），或后续为未 accept 的子任务添加超时兜底。
+### 编排与 Policy 分工
 
-## 工作台 UI（主管 / 员工，2026-05）
+- **Prompt**：模式判定（CLARIFY / QUERY / DRAFT / ASSIGN / PUBLISH / FOLLOWUP）、JSON 形态、话术与工具调用纪律。
+- **Backend FSM**：publish gate、staging flag、假口播重试、同轮 prepare+publish 阻断、pre-draft gate、search/update 配额等（见 `publish-staging.ts` / `authoritative-publish.ts` / `registry-pre-draft-gate.ts` / `tools/registry.ts`）。
+- **无硬编码业务状态机**：关键节点靠工具软返回 + 审计事件可观测。
 
-- **主管列表关注状态**（展示层，`src/web/workbench-attention.ts`）：与 DB `aggregateTaskStatus` 解耦。`待您处理` = 拒绝 / 开放修改申请；`待员工承接` = 仅 `ASSIGNED`；`员工执行中` / `阻塞中` / `已完成`。API `GET /api/workbench/manager/tasks` 返回 `attentionLabel`、`attentionBucket`、`subtaskBreakdown`。列表支持筛选、排序与「共 N 条 · 显示 M 条」反馈。
-- **子任务规划字段**（双端一致）：执行要点 6 项（目标、交付物、完成标准、截止、执行动作、前置依赖）+ 更多规划 7 项（`<details>` 折叠）；无值显示 `—`。共享片段 `workbench-subtask-fields-snippet.ts`。
-- **催办按钮**：仅 `IN_PROGRESS` / `BLOCKED` 子任务显示（与 `reminder-send` 一致）。
-- **员工**：Tab「待承接」；列表卡片含 6 项要点；详情默认关键节点最近 8 条，全量事件见 `/workbench/employee/task/events`；`openSignal=changes` 时徽章「待主管回复」。
+### 模型与 Prompt
+
+- **接口**：DashScope OpenAI 兼容；默认策略见 `model-policy.ts`；线上可 `QWEN_MODEL` 切换（如 `qwen3.6-flash` 降延迟，需自行验证工具调用质量）。
+- **Prompt 版本**：`orchestrator-agent-v5.23.9`（`src/agent/demo/qwen-prompt.ts`）。
+- **Prompt profile**（`buildQwenPlannerSystemPrompt`）：仅 **`planner`** 与 **`employee`** 两套正文；主管/admin **共用 planner 正文** + `managerFollowup` 注入第六模式 **FOLLOWUP**（见 qwen-prompt.ts 注释，勿回退独立 manager prompt）。
+- **Tool profile**（`buildToolRegistry`）：`planner` / `manager` / `admin` / `employee` / `full`；与 prompt profile **解耦**——例如 `DINGTALK_ROLE_ROUTING_ENABLED=1` 时主管路由为 `promptProfile=planner` + `toolProfile=manager`。
+- **操作模式**（JSON 输出意图，**不是** tool_calls 函数名）：CLARIFY 禁止与其他模式混用；QUERY 查正式任务（`list_managed_tasks` 等，admin 工具含 `list_managers` / `get_metrics`）；DRAFT / ASSIGN / PUBLISH 可同句叠加；**不设 PREPARE 模式**（`prepare_publish_task` 为工具两回合纪律）。
+- **WBS / REDRAFT**：单一交付物、可验收 `completionCriteria`；用户要求拆细/扩条/WBS → 顶层完整 `draft` JSON；单点改 → `update_draft_task` / `remove_draft_subtask`。
+- **Scheme C 指派**：`draft.tasks[]` **不含** assignee；负责人在 **`latestAssignment.assignments[]`**；批量点将须 **`bulk_assign_tasks` 或顶层 assignment JSON 一次 N/N**（`requireFullCoverage`）；REDRAFT 后 `reconcile-assignment` 迁移 id/截止；钉钉附表负责人列读 assignment。
+- **输出纪律**：顶层 **`message` 必填**（四段导览）；**禁止**在 message 手画任务表（服务端 `renderDingtalkTaskMarkdown` 渲染）；`draft` 经 `coerceLlmPlanPayload` + `preserveOrchestratorDraftScalars` 保留 `title`/`description`/`summary`；任何姓名须先 `search_employees`；模型误调模式名作 tool → `mode_not_a_tool` 软返回。
+
+### 工具（`src/agent/tools/registry.ts`）
+
+ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registry 内保留实现，**不对任何 profile 开放**）。`prepare_publish_task` 校验通过时兜底写入 `latestDraft` / `latestAssignment`。
+
+| Profile | 数量 | 要点 |
+|---------|------|------|
+| `planner` | 12 | 搜人、草案 PATCH、scope 切换、knownFacts |
+| `manager` | 24 | + 发布/改派/催办、`bulk_assign_tasks`、花名册 / candidate pool |
+| `admin` | 28 | + `admin_list_all_tasks` / `get_metrics` / `list_managers` / `set_manager_permission` |
+| `employee` | 9 | `list_my_tasks` / `submit_employee_response` / `submit_progress_update` 等 |
+
+**硬/软配额**：`search_employees` 单次 orchestrator 最多 **3** 次；`update_draft_task` 单次 orchestrator 最多 **4** 次（**第 2 次 assigneeUserId patch 引导 bulk_assign**）；assignment JSON **`requireFullCoverage`** 默认 true（partial 不落库）；`publish_task` 空 draft / 缺 assignee → `ok:false` 软返回。
+
+**Pre-draft gate**（`registry-pre-draft-gate.ts`）：无草案且非点将意图时，阻断 browse 式 `search_employees`、`search_similar_plans`、`update_known_facts`（按姓名 search 仍允许）。
+
+**条件暴露**：`search_similar_plans` ← `SEARCH_SIMILAR_PLANS_ENABLED`；`search_web` ← `SEARCH_WEB_ENABLED` + 用户语义。
+
+### 钉钉角色路由
+
+`DINGTALK_ROLE_ROUTING_ENABLED=1`（默认 `0` 固定 planner）时，按 `resolveWorkbenchRole` + 员工目录匹配：
+
+| 身份 | promptProfile | toolProfile | managerFollowup |
+|------|---------------|-------------|-----------------|
+| admin（`WORKBENCH_ADMIN_USER_IDS` / `_IDS_FILE`） | planner | admin | ✅ |
+| manager（`WORKBENCH_MANAGER_USER_IDS` / `_IDS_FILE`） | planner | manager | ✅ |
+| 员工（在 employee 目录） | employee | employee | — |
+| 其他 | planner | planner | — |
+
+工作台 Session 同样用 `resolveWorkbenchRole` 判定主管/员工页（`/workbench` JSAPI 免登）。
+
+### 记忆
+
+| 层级 | 机制 | 说明 |
+|------|------|------|
+| 会话短期 | `PlanSession.knownFacts[]` | 模型 `update_known_facts` / `list_known_facts`；按 task scope，切换 scope 不串 |
+| 草案中期 | `[memory_context]` 注入 | 有未发布草案时每轮注入完整 **`latestDraft`**（`ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS` 默认 32000，超出 slim 截断） |
+| Plan 中期 | SQLite `memory_facts` / `memory_summaries` | 每轮异步提取（`MEMORY_EXTRACTION_MODEL` 默认 `qwen-doc-turbo`，TTL 默认 14 天）；`loadMemoryContextForPlan` 注入 top 8 facts |
+| 长期 | `plan-index.ts` embedding | `search_similar_plans` 触发；受 `SEARCH_SIMILAR_PLANS_ENABLED` / `PLAN_EMBEDDING_DISABLED` 约束 |
+
+### 钉钉会话与多任务
+
+同一 `chatKey` 内 `PlanSession.taskScopes` 归档；每 scope 独立 **`planId`**。`start_new_task` 与 **`publish_task` 成功**（非 `alreadyPublished` / LRU 去重 / `unknown_assignees`）后自动轮转 `planId`（`DINGTALK_PLANID_ROTATE_ENABLED=0` 可关闭，默认 `1`）；旧 scope 可 `switch_back_task` 回切。
+
+### Token 与迭代
+
+钉钉默认：`DINGTALK_QWEN_MAX_TOKENS=8000`、`DINGTALK_QWEN_TIMEOUT_MS=120000`、`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=6`、`AGENT_MAX_TOTAL_TOKENS=24000`、`DINGTALK_QWEN_THINKING=0`。
+
+### 运行时数据
+
+- 工作台正式任务 **仅以 SQLite 为权威源**；`tasks.json` 不参与运行时。
+- `tasks.description`：发布时从 `latestDraft.description`（无则 `summary`）写入。
+- `subtasks` 8 个富字段列（`depends_on`、`checkpoints`、`risks`、`input_materials`、`actions`、`collaborators`、`in_scope`、`out_of_scope`）发布时从草案写入。
+- 员工画像 + 钉钉通讯录：`people-directory-store`、`dingtalk_contacts`（`DINGTALK_CONTACT_SYNC_ENABLED=1`）。
+- **子任务状态**：员工「接受」后直接 **`IN_PROGRESS`**（不落库 `ACCEPTED`；历史行启动时迁移）。
+
+### 钉钉通知（`WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`）
+
+通知失败不回滚，写 `warnings` / `task_events`。
+
+- **发布 / 改派**：工作通知卡片 + 机器人 1:1。
+- **员工 accept（ASSIGNED → IN_PROGRESS）**：创建钉钉原生待办（需 unionId / 通讯录同步）；审计 `EMPLOYEE_TODO_*`。
+- **员工拒绝 / 请求调整 / 阻塞 / 完成**：默认通知主管机器人 Markdown（`WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED`）。
+- **待办静默期**：发布后员工待办列表无新项正常——待办在 accept 后才创建。
+
+### 产品边界（仍不做 / 部分已有）
+
+| 能力 | 状态 |
+|------|------|
+| 工作台 + 员工 Agent accept/reject/request_changes | ✅ v0.3 协作层 |
+| 钉钉卡片承接三态、OA 自动流程、电子签名 | ❌ |
+| 执行中变更审批、节点反馈问卷、验收闭环 | ❌ |
+| 发起人白名单 `TASK_INITIATOR_USER_IDS` 接入 dingtalk-bot | ❌（函数已有，主链路未调） |
+
+## 工作台 UI（主管 / 员工）
+
+- **主管列表关注状态**（`workbench-attention.ts`，展示层）：`待您处理` / `待员工承接` / `员工执行中` / `阻塞中` / `已完成`；API `GET /api/workbench/manager/tasks` 含 `attentionLabel`、`attentionBucket`、`subtaskBreakdown`。
+- **子任务规划字段**（双端一致）：执行要点 6 项 + 更多规划 7 项（`<details>` 折叠）；共享 `workbench-subtask-fields-snippet.ts`。
+- **催办按钮**：仅 `IN_PROGRESS` / `BLOCKED`（与 `reminder-send` 一致）。
+- **员工**：Tab「待承接」；详情事件 `/workbench/employee/task/events`；`openSignal=changes` →「待主管回复」。
 - **时间格式**：`formatWorkbenchDateTime` → `zh-CN` `yyyy-MM-dd HH:mm`。
 
 ## 催办（Follow-up，v1）
 
-- **范围**：正式库 `IN_PROGRESS` / `BLOCKED` 且 `due_at` 可解析；`ASSIGNED` 承接超时留 Phase 1.5。
-- **截止语义**：纯日期 `YYYY-MM-DD` 视为 **北京时间当天 18:00** 过期（`due-at-parse.ts`）；发布写入时归一化为 ISO。
-- **Scheduler 双轨**（`FOLLOWUP_REMINDER_ENABLED=1`，**仅工作日** `FOLLOWUP_WEEKDAYS_ONLY=1`）：
-  - **T-1 预提醒（员工）**：截止前一日 **10:00–10:05** 北京窗口，机器人 1:1 + 待办；每子任务每日最多 1 次。
-  - **逾期主管提醒**：截止后若仍执行中，向 `manager_user_id` 发 1 次机器人 1:1（每逾期周期 1 次，非每日重复）。
-- **手动催办**：主管对话/工作台 → 仅推**员工**（不占 scheduler 配额，可同日多次）。
-- **工具**：`list_follow_up_candidates`、`send_subtask_reminder`（manager/admin）。
-- **Env**：`FOLLOWUP_*` + `FOLLOWUP_PRE_DUE_HOUR`（默认 10）、`FOLLOWUP_WEEKDAYS_ONLY`（见 `docs/deploy-aliyun-dingtalk.md`）。**切勿水平扩容** `dingtalk-bot`（scheduler 单实例假设）。
+- **范围**：`IN_PROGRESS` / `BLOCKED` 且 `due_at` 可解析；`ASSIGNED` 承接超时 → Phase 1.5。
+- **截止语义**：纯日期 `YYYY-MM-DD` = 北京时间当天 **18:00**（`due-at-parse.ts`）。
+- **Scheduler**（`FOLLOWUP_REMINDER_ENABLED=1`，工作日 `FOLLOWUP_WEEKDAYS_ONLY=1`）：
+  - **T-1 预提醒（员工）**：截止前一日 10:00–10:05 窗口，机器人 1:1 + 待办。
+  - **逾期主管提醒**：截止后向 `manager_user_id` 发 1 次机器人 1:1（每逾期周期 1 次）。
+- **手动催办**：主管对话 / 工作台 → 仅推员工（不占 scheduler 配额）。
+- **工具 / Prompt**：`list_follow_up_candidates`、`send_subtask_reminder`；主管 toolProfile 注入 **FOLLOWUP** 模式。
+- **单实例**：切勿水平扩容 `dingtalk-bot`（scheduler 进程内假设）。Env 见 `docs/deploy-aliyun-dingtalk.md`。
 
 ## 每日进展推送（Progress Digest，v1）
 
-- **范围**：**工作日** 9:00 北京窗口向主管/员工推送；周末不发（`PROGRESS_DIGEST_WEEKDAYS_ONLY=1`）。
-- **内容**：代码渲染 **GFM 表格**（需您处理 / 正常推进 / 昨日动态）；**qwen3.6-flash** 仅生成「今日概览」1–2 句 + 「后续建议」1–3 条（`PROGRESS_DIGEST_LLM_*`）；LLM 失败则仅表格模板。
+- **范围**：工作日 9:00 北京窗口；`PROGRESS_DIGEST_WEEKDAYS_ONLY=1`。
+- **内容**：代码渲染 GFM 表格（需您处理 / 正常推进 / 昨日动态）；`qwen3.6-flash` 生成「今日概览」+「后续建议」（`PROGRESS_DIGEST_LLM_*`，失败仅表格）。
 - **实现**：`src/agent/progress-digest/` + `progress_digest_state` 日去重；与催办 scheduler 并列启动。
-- **Env**：`PROGRESS_DIGEST_*`（见 `docs/deploy-aliyun-dingtalk.md`）。
 
-## 承接指派阶段（v0.2 MVP）
+## 承接指派（v0.2 MVP）
 
-当前承接指派为 v0.2 MVP，**尚未**实现完整 承接三态（accept/modify/reject）；该阶段在草案生成后触发第二次 LLM 推荐，提供人员推荐与指派预览。
+`ASSIGNMENT_PHASE_ENABLED=1` 时，orchestrator **同一次 ReAct 请求**产出 `assignment` JSON → `extractLightAssignment` → 拼入回复 Markdown。**无第二次独立 LLM**（`runAssignmentRecommendation` 仅测试/独立调用）。
 
-### 启用方式
+- **Web 工作台**：HMAC-SHA256 签名 URL（30min TTL）；端口 `ASSIGNMENT_WEB_PORT`（默认 8787）。
+- **Mock 卡片**：`DINGTALK_ASSIGNMENT_MOCK=1`。
+- **花名册点将**：`read_uploaded_roster_text` → `resolve_roster_names` → `set_candidate_pool`，避免逐条 search（见 backlog M-13）。
 
-- **`ASSIGNMENT_PHASE_ENABLED=1`**：开启指派阶段。未设置或为 `0` 时，行为与原有 DRAFT_READY 一致（不触发指派）。
-- **发起人白名单**：`src/security/initiator-whitelist.ts` 已提供函数与测试，但当前 `src/dingtalk-bot.ts` 主链路暂未接入该检查。
+### 运维配置（节选）
 
-### 调用链
-
-1. **先生成草案**：`runOrchestrator` 先返回 `message + draft`。
-2. **同请求内追加分配预览**：当 `ASSIGNMENT_PHASE_ENABLED=1` 且有 `draft` 时，`dingtalk-bot` 从 orchestrator 返回的 `assignment` JSON 做轻量校验（`extractLightAssignment`），成功则把「分配建议」段落拼入同一条 Markdown。
-3. **`runAssignmentRecommendation`**（测试与可选独立调用）：第二次 LLM 调用，**function calling** 暴露 `search_employees` + **`get_employee_details`**；`search_employees` 默认宽名单 + 本部门优先提示，`get_employee_details` 用于写 rationale 前拉全量画像。主链路钉钉侧当前多从 orchestrator 的 `assignment` JSON 取轻量分配表（见 `dingtalk-bot` / `light-assignment`）。
-4. **结构自纠正**：Schema 校验失败时进行 **1 轮重试**（将校验错误反馈给模型要求修正）。若仍失败，放弃本轮推荐。
-5. **签名 Web 工作台**：生成 **HMAC-SHA256** 签名的工作台 URL（**30 分钟 TTL**，**manager 角色**），发起人可点击链接查看并调整推荐。
-6. **Mock 钉钉交互卡片**：在 `DINGTALK_ASSIGNMENT_MOCK=1` 下，使用本地 mock 的钉钉交互卡片进行预览，无需真实钉钉卡片回调。
-
-### 运维配置
-
-| 变量 | 必填 | 说明 |
-|------|------|------|
-| `ASSIGNMENT_PHASE_ENABLED` | 否 | `1` 开启指派阶段 |
-| `TASK_INITIATOR_USER_IDS` | 否 | 发起人白名单（当前主链路暂未生效，保留为后续接入项） |
-| `TASK_INITIATOR_IDS_FILE` | 否 | 发起人白名单文件路径（当前主链路暂未生效） |
-| `WORKBENCH_MANAGER_USER_IDS` | 否 | **主管**工作台身份白名单（与发起人独立）；逗号分隔钉钉 `userId`。供后续钉钉网页应用免登/Session 路由判定；未配置则 `isWorkbenchManager` 恒为 false（见 `src/security/workbench-manager-whitelist.ts`） |
-| `WORKBENCH_MANAGER_IDS_FILE` | 否 | 主管名单 JSON 数组文件（可选；优先级高于 env 列表） |
-| `ASSIGNMENT_WEB_PORT` | 否 | 工作台 Web 端口（默认 `8787`） |
-| `ASSIGNMENT_WEB_PUBLIC_BASE_URL` | 否 | 工作台公网地址（ECS 公网 host） |
-| `ASSIGNMENT_WEB_SECRET` | 否 | HMAC-SHA256 签名密钥 |
-| `DINGTALK_ASSIGNMENT_MOCK` | 否 | `1` 启用 mock 钉钉交互卡片 |
-| `WORKBENCH_MANAGER_PROFILE_VERIFY_ENABLED` | 否 | `1` 预留开启主管核验 API（仍为 501 stub）；默认关闭见 `docs/workbench-manager-profile-verify-deferred.md` |
+| 变量 | 说明 |
+|------|------|
+| `ASSIGNMENT_PHASE_ENABLED` | `1` 开启指派段落 |
+| `WORKBENCH_MANAGER_USER_IDS` / `WORKBENCH_MANAGER_IDS_FILE` | 主管身份（路由 + 工作台） |
+| `WORKBENCH_ADMIN_USER_IDS` / `WORKBENCH_ADMIN_IDS_FILE` | admin 工具 profile |
+| `ASSIGNMENT_WEB_*` | 工作台 URL 签名 |
+| `TASK_INITIATOR_*` | 发起人白名单（**主链路未接入**） |
 
 ## Agent Harness 基线
 
-### 现网架构（2026-05-11）
-
-- **编排方式**：`runOrchestrator`（ReAct loop），模型自主决定调用工具。无硬编码状态机。
-- **工具调用**：`QwenCompatibleClient.callWithTools` 处理 OpenAI compatible tool_calls 协议。默认最多 6 轮工具迭代（可通过 `maxIterations` 覆盖）。
-- **护栏**：PII 脱敏（`content-filter.ts`）、会话限速（`session-store.ts`）；`save_draft` 以“保存优先、结构归一化优先”为主，尽量减少硬门禁阻断模型。
-- **审计**：每次 orchestrator 完成写 `orchestrator_done` 事件（含 traceId/toolCallsTotal/hasDraft/messageChars）。`appendDemoRunAudit` 主要用于 `createTaskPlanningDemo` demo/eval 链路。
-- **会话**：`knownFacts[]` 模型自主维护，TTL 30min。`conversationState` 用于 digest 拼接。
-- **指派**：`ASSIGNMENT_PHASE_ENABLED=1` 时，在同一请求内由 orchestrator 产出 `assignment` JSON，经 `extractLightAssignment` 校验后拼入分配建议段落（`runAssignmentRecommendation` 仍保留给测试/独立调用，含 `search_employees` + `get_employee_details`）。
-
-### 编排方式
-- 单次 `callWithTools`，模型自主决定调多少轮工具（默认 max 6 iterations）。
-- 输出消息仅取最终 `end_turn` 轮的 message。中间 `tool_use` 轮次静默。
-- 审计事件：`orchestrator_done` + `orchestrator_max_turns_exceeded`。
+- **编排**：`runOrchestrator` → `QwenCompatibleClient.callWithTools`；中间 tool 轮静默，最终 `end_turn` 的 message 对用户可见。
+- **审计**：`orchestrator_done` / `orchestrator_max_turns_exceeded`；有草案时 `data/plans/<traceId>.json` 快照；demo 链路另写 `AUDIT_DEMO_JSONL_PATH`。
+- **护栏**：PII 脱敏（`content-filter.ts`）、会话 TTL + 限速（`session-store.ts`）。
+- **会话 TTL**：默认 30min（`CHAT_SESSION_TTL_MS`）。
 
 ### 开发顺序
 
-1. ✅ Demo/MVP 主链路：ReAct orchestrator + 6 tools + function calling
-2. ✅ 短期记忆：knownFacts 模型自主维护
-3. ✅ 长期记忆：embedding + cosine 文件遍历
-4. ✅ 承接指派 v0.2：search_employees + Web 工作台骨架
-5. ✅ 工作台正式任务存储：SQLite 正式任务库 + 员工侧动作工具 + 发布预检
-6. ✅ 钉钉工作台集成：JSAPI 免登、发布后通知（卡片 + 待办）、通讯录同步
-7. 待推进：承接三态、节点反馈、验收闭环、OA 同步
+1. ✅ ReAct orchestrator + profile 分工具
+2. ✅ 短期 / 中期 / 长期记忆
+3. ✅ 承接指派 v0.2 + Web 工作台 + SQLite 正式任务
+4. ✅ 钉钉集成（免登、通知、通讯录、员工侧工具）
+5. ✅ 催办 v1 + 每日进展推送 v1
+6. ⏳ 承接三态（钉钉卡片）、节点反馈、验收闭环、OA 同步
 
 ## 工程约束
 
-- 提示词、模型策略与输出 Schema 必须**可版本化、可配置**；业务编排层禁止写死具体拆解文案替代模型职责。
-- `coerce`/归一化层只能做类型与兼容别名处理（trim、string array、旧字段名映射等），不得把缺失核心字段补成看似可派发的默认文案。
-- Demo 阶段优先保证“模型可写、系统可存”，尽量减少由代码硬门禁导致的阻断。
-- 完整闭环阶段派发门禁默认硬阻止；如开启豁免，必须记录豁免原因与操作者。
-- 完整闭环阶段不允许“沉默承接”：超时提醒后必须升级；工作台侧员工「接受」后子任务直接为 **IN_PROGRESS**（不落库 **ACCEPTED**），避免中间态被误读为已静默承接。
-- 正式 QMS/CAPA 记录不由本系统自动关闭，本系统仅维护协作层状态。
+- 提示词、模型策略与 Schema **可版本化、可配置**；编排层禁止写死拆解文案替代模型。
+- `coerce` 仅做类型/别名归一化，不得补缺失核心字段为看似可派发的默认文案。
+- Demo 阶段优先「模型可写、系统可存」，减少硬门禁阻断。
+- 正式 QMS/CAPA 记录不由本系统关闭；仅维护协作层状态。
 
 ## 测试与可观测
 
-- 单元 / 集成测试：`npm test`（Vitest，`vitest.setup.ts` 默认关闭审计写盘、快照与脱敏侧效应，避免污染 CI）。
-- **分段耗时与 traces**：`DemoGenerationMetadata.timings`、`traces[]`；成功草案可打 `logStructured` 单行 JSON（见 `src/infra/logger.ts`）。
+- **单元 / 集成**：`npm test`（Vitest；`vitest.setup.ts` 默认关闭审计写盘与后台 scheduler）。
+- **类型检查**：`npm run typecheck`。
+- **Eval 脚本**：`npm test` → `npm run eval:assignment-gate`（L2 点将专项）→ `npm run eval:wbs-manager`（L3 全链；W10/M1 无 inject 作弊）→ 可选 `eval:agent` / `eval:publish-short`（需 `QWEN_API_KEY`）。
+- **Demo 回归**：`npm run demo:eval` / `demo:scenarios`。
+- **线上观测**：容器 stdout 结构化事件 + `data/plans` 快照；demo JSONL 主要用于 CLI 回归。
 
 ## 开发工作区
 
-- 执行实现计划时使用项目内 `.worktrees/` 作为默认 Git worktree 目录。
-- `.worktrees/` 必须保持在 `.gitignore` 中，避免误提交隔离工作区内容。
-- 不在 `main` 上直接执行功能实现；新功能使用独立 worktree 分支开发。
+- 新功能使用 `.worktrees/` 独立 worktree 分支；不在 `main` 直接实现。
+- `.worktrees/` 保持在 `.gitignore` 中。
 
 ## 交付定义
 
-每个开发任务最少应包含：
-- 对应 FR 编号与验收标准。
-- 状态机影响说明（新增状态/迁移/守卫条件）。
-- 审计字段影响说明。
-- 测试用例（单元 + 流程）更新。
+每个开发任务最少包含：FR 编号与验收标准、状态机/迁移说明、审计字段影响、测试更新。
 
 ## 里程碑
 
-- Demo/MVP：打通“输入质检 -> Qwen 结构化生成 -> 门禁 -> Markdown/表格输出”（分类与 CAPA 由模型在结构化输出中给出）。
-- V1.1：真实样本回归集、分类模板优化、发起人编辑视图、人岗推荐可信度提示。
-- V2：承接三态、执行中延期/无法完成申请、换人审批、节点反馈、验收闭环。
-- V3：与钉钉 OA/QMS/项目系统联动、电子签名、外部 Agent 链接与管理报表扩展。
+| 阶段 | 范围 | 状态 |
+|------|------|------|
+| Demo/MVP | 输入质检 → Qwen 结构化生成 → 门禁 → Markdown/表格 | ✅ |
+| V1.0 | 钉钉 Stream + ReAct + 工作台 SQLite + 发布/改派/通知 | ✅ |
+| V1.1 | 催办、进展推送、WBS 细拆、Scheme C、角色路由、eval 回归集 | ✅ 主体 |
+| V2 | 钉钉卡片承接三态、执行中变更、节点反馈、验收闭环 | ⏳ |
+| V3 | OA/QMS 联动、电子签名、管理报表 | ⏳ |

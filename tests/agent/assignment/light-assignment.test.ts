@@ -22,6 +22,7 @@ describe("light assignment", () => {
       modelName: "qwen3.6-plus",
       taskIds: ["task_1", "task_2"],
       employees: [{ userId: "emp_qa_001", displayName: "张三" }],
+      requireFullCoverage: false,
     });
 
     expect(result.ok).toBe(true);
@@ -59,8 +60,8 @@ describe("light assignment", () => {
         { userId: "emp_qa_001", displayName: "张三" },
         { userId: "emp_qa_002", displayName: "李四" },
       ],
-      // 候选池只圈了张三 → 李四这条必须被丢弃
       candidatePoolUserIds: ["emp_qa_001"],
+      requireFullCoverage: false,
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -91,6 +92,52 @@ describe("light assignment", () => {
     if (!result.ok) {
       expect(result.reason).toBe("no assignment entry matched candidate pool");
     }
+  });
+
+  it("requireFullCoverage rejects partial assignment", () => {
+    const result = extractLightAssignment({
+      rawAssignment: {
+        assignments: [
+          {
+            taskId: "task_1",
+            primary: { userId: "emp_qa_001", displayName: "张三", rationale: "x" },
+            confidence: "HIGH",
+          },
+        ],
+      },
+      planId: "plan_1",
+      traceId: "trace_1",
+      modelName: "qwen3.6-plus",
+      taskIds: ["task_1", "task_2"],
+      employees: [{ userId: "emp_qa_001", displayName: "张三" }],
+      requireFullCoverage: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("partial_assignment");
+      expect(result.missingTaskIds).toEqual(["task_2"]);
+    }
+  });
+
+  it("accepts partial when requireFullCoverage is false", () => {
+    const result = extractLightAssignment({
+      rawAssignment: {
+        assignments: [
+          {
+            taskId: "task_1",
+            primary: { userId: "emp_qa_001", displayName: "张三", rationale: "x" },
+            confidence: "HIGH",
+          },
+        ],
+      },
+      planId: "plan_1",
+      traceId: "trace_1",
+      modelName: "qwen3.6-plus",
+      taskIds: ["task_1", "task_2"],
+      employees: [{ userId: "emp_qa_001", displayName: "张三" }],
+      requireFullCoverage: false,
+    });
+    expect(result.ok).toBe(true);
   });
 
   it("drops invalid entries and fails when nothing remains", () => {

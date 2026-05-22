@@ -77,6 +77,10 @@ import { START_NEW_TASK_TOOL, buildStartNewTaskHandler } from "./start-new-task"
 import { SWITCH_BACK_TASK_TOOL, buildSwitchBackTaskHandler } from "./switch-back-task";
 import { UPDATE_DRAFT_TASK_TOOL, buildUpdateDraftTaskHandler } from "./update-draft-task";
 import {
+  BULK_ASSIGN_TASKS_TOOL,
+  buildBulkAssignTasksHandler,
+} from "./bulk-assign-tasks";
+import {
   ADD_DRAFT_SUBTASK_TOOL,
   REMOVE_DRAFT_SUBTASK_TOOL,
   buildAddDraftSubtaskHandler,
@@ -234,7 +238,13 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
 
   const searchQuotaState = { exhausted: false };
   let updateDraftTaskCallCount = 0;
-  const UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX = 4;
+  let updateDraftTaskAssigneePatchCount = 0;
+  const UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX = (() => {
+    const raw = Number(
+      String(process.env.UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX ?? "4").trim(),
+    );
+    return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 4;
+  })();
 
   const wrapPreDraftGate = (
     toolName: PreDraftGateTool,
@@ -344,6 +354,21 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       definition: UPDATE_DRAFT_TASK_TOOL,
       handler: (args: Record<string, unknown>) => {
         updateDraftTaskCallCount += 1;
+        const patchRaw = (args.patch ?? {}) as Record<string, unknown>;
+        const hasAssigneePatch =
+          typeof patchRaw.assigneeUserId === "string" && patchRaw.assigneeUserId.trim().length > 0;
+        if (hasAssigneePatch) {
+          updateDraftTaskAssigneePatchCount += 1;
+          if (updateDraftTaskAssigneePatchCount > 1) {
+            return {
+              ok: false,
+              reason: "bulk_assign_required",
+              assigneePatchCount: updateDraftTaskAssigneePatchCount,
+              hint:
+                "多 subtask 指派请改用 **bulk_assign_tasks** 或顶层 **assignment JSON** 一次覆盖全部 taskId；禁止逐条 update_draft_task(assigneeUserId)。",
+            };
+          }
+        }
         if (updateDraftTaskCallCount > UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX) {
           return {
             ok: false,
@@ -351,7 +376,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
             callCount: updateDraftTaskCallCount,
             max: UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX,
             hint:
-              "本轮 update_draft_task 次数过多。多 subtask 指派请改用**顶层 assignment JSON** 一次写完，或先 get_employee_details 再单次 assignment。",
+              "本轮 update_draft_task 次数过多。多 subtask 指派请改用 **bulk_assign_tasks** 或顶层 **assignment JSON** 一次写完。",
           };
         }
         return buildUpdateDraftTaskHandler({
@@ -359,6 +384,13 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
           getContact: (userId) => peopleStore.getContact(userId),
         })(args);
       },
+    },
+    bulk_assign_tasks: {
+      definition: BULK_ASSIGN_TASKS_TOOL,
+      handler: buildBulkAssignTasksHandler({
+        currentSession: deps.currentSession,
+        getContact: (userId) => peopleStore.getContact(userId),
+      }),
     },
     add_draft_subtask: {
       definition: ADD_DRAFT_SUBTASK_TOOL,
@@ -555,6 +587,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "start_new_task",
       "switch_back_task",
       "update_draft_task",
+      "bulk_assign_tasks",
       "add_draft_subtask",
       "remove_draft_subtask",
       "read_uploaded_roster_text",
@@ -585,6 +618,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "start_new_task",
       "switch_back_task",
       "update_draft_task",
+      "bulk_assign_tasks",
       "add_draft_subtask",
       "remove_draft_subtask",
       "read_uploaded_roster_text",

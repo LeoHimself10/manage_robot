@@ -36,11 +36,15 @@ export interface LightAssignmentInput {
    * 仍走通讯录拿真实 unionId，不会被池里残留的离线 ID 污染。
    */
   candidatePoolUserIds?: string[];
+  /** When true (default for DingTalk), every taskId must have an assignment row. */
+  requireFullCoverage?: boolean;
 }
 
 export function extractLightAssignment(
   input: LightAssignmentInput,
-): { ok: true; draft: LightAssignmentDraft } | { ok: false; reason: string } {
+):
+  | { ok: true; draft: LightAssignmentDraft }
+  | { ok: false; reason: string; missingTaskIds?: string[] } {
   if (!isPlainObject(input.rawAssignment)) {
     return { ok: false, reason: "assignment payload is missing or not an object" };
   }
@@ -86,6 +90,19 @@ export function extractLightAssignment(
         ? "no assignment entry matched candidate pool"
         : "no valid assignment entries after lightweight validation",
     };
+  }
+
+  const requireFull = input.requireFullCoverage !== false;
+  if (requireFull && input.taskIds.length > 0) {
+    const assignedIds = new Set(assignments.map((a) => a.taskId));
+    const missingTaskIds = input.taskIds.filter((id) => !assignedIds.has(id));
+    if (missingTaskIds.length > 0) {
+      return {
+        ok: false,
+        reason: "partial_assignment",
+        missingTaskIds,
+      };
+    }
   }
 
   return {

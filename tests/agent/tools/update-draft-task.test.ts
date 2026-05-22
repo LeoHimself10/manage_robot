@@ -101,21 +101,48 @@ describe("update_draft_task tool", () => {
     expect((session.latestDraft as any).tasks[0].assigneeUserId).toBeUndefined();
   });
 
-  it("writes collaborators to latestAssignment not draft", () => {
-    const session = makeSessionWithDraft();
-    session.lastEmployeeSearchHits!.push({
-      userId: "641999999",
-      displayName: "赵六",
-      hitAt: new Date().toISOString(),
-    });
+  it("updates display row 2 when subtaskId is task_2 after split id drift", () => {
+    const now = new Date().toISOString();
+    const session: PlanSession = {
+      chatKeyHash: "h",
+      planId: "p",
+      createdAt: now,
+      updatedAt: now,
+      knownFacts: [],
+      conversationHistory: [],
+      candidatePool: {
+        source: "eval",
+        entries: [{ userId: "u-yang", displayName: "杨贺新" }],
+        unresolved: [],
+      },
+      latestDraft: {
+        tasks: [
+          { id: "task_1", title: "Split A", timeNode: { dueAt: "2026-06-10" } },
+          { id: "task_1b", title: "Split B", timeNode: { dueAt: "2026-06-10" } },
+          { id: "task_2", title: "包装材料准备", timeNode: { dueAt: "2026-06-12" } },
+        ],
+      },
+      latestAssignment: {
+        assignments: [
+          { taskId: "task_1", primary: { userId: "u-yao" } },
+          { taskId: "task_1b", primary: { userId: "u-yao" } },
+          { taskId: "task_2", primary: { userId: "u-yao" } },
+        ],
+      },
+    };
     const handler = buildUpdateDraftTaskHandler({ currentSession: session });
-    const r = handler({
-      subtaskId: "task_1",
-      patch: { collaborators: ["赵六"] },
-    }) as any;
-    expect(r.ok).toBe(true);
-    const row = (session.latestAssignment as any).assignments.find((a: any) => a.taskId === "task_1");
-    expect(row.collaborators).toEqual(["赵六"]);
-    expect((session.latestDraft as any).tasks[0].collaborators).toBeUndefined();
+    const result = handler({
+      subtaskId: "task_2",
+      patch: { dueAt: "2026-05-28", assigneeUserId: "u-yang" },
+    }) as { ok: boolean; displayIndex?: number; resolvedTaskId?: string };
+    expect(result.ok).toBe(true);
+    expect(result.displayIndex).toBe(2);
+    expect(result.resolvedTaskId).toBe("task_1b");
+    const tasks = (session.latestDraft as { tasks: Array<{ id: string; timeNode?: { dueAt?: string } }> }).tasks;
+    expect(tasks[1]!.timeNode?.dueAt).toBe("2026-05-28");
+    expect(tasks[2]!.timeNode?.dueAt).toBe("2026-06-12");
+    const row = (session.latestAssignment as { assignments: Array<{ taskId: string; primary: { userId: string } }> })
+      .assignments.find((a) => a.taskId === "task_1b");
+    expect(row?.primary.userId).toBe("u-yang");
   });
 });

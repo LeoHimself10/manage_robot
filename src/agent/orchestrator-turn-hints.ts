@@ -161,19 +161,29 @@ export function resolveTurnActionHint(
   return undefined;
 }
 
-export function formatAssignActionHint(): string {
+export function formatAssignActionHint(taskCount?: number): string {
+  const nHint = taskCount && taskCount > 1 ? `${taskCount} 条 draft → ${taskCount} 行 assignment；` : "";
   return (
-    "assignAction: 用户要求分派；≤2 次 search_employees + get_employee_details 核对 shortlisted 后，" +
-    "**顶层 assignment JSON 一次写完**所有 subtask 负责人；**禁止**逐 task 循环 search+update_draft_task（>4 次会被拒）。"
+    "assignAction: 用户要求分派；" + nHint +
+    "≤2 次 search_employees + get_employee_details 核对 shortlisted 后，" +
+    "**bulk_assign_tasks 或顶层 assignment JSON 一次覆盖全部 taskId**；" +
+    "**禁止**逐 task 循环 update_draft_task(assigneeUserId)（第 2 次会被拒）。"
   );
 }
 
-export function formatTurnActionHint(hint: TurnActionHint): string {
+export function formatTurnActionHint(
+  hint: TurnActionHint,
+  sessionContext?: TurnHintSessionContext,
+): string {
   switch (hint.kind) {
     case "explicitDraftRequest":
       return "explicitDraftRequest: 用户要求生成草案；本轮须 DRAFT + 顶层 draft JSON（含 title/description/tasks[]）。";
     case "assignAction":
-      return formatAssignActionHint();
+      return formatAssignActionHint(
+        Array.isArray((sessionContext?.latestDraft as { tasks?: unknown[] } | undefined)?.tasks)
+          ? ((sessionContext!.latestDraft as { tasks: unknown[] }).tasks.length)
+          : undefined,
+      );
     case "clarifyAction":
       return "clarifyAction: 缺关键信息（如截止时间）；CLARIFY-only，直接输出 message JSON，禁止 tool_calls。";
     case "postClarifyDraftAction":
@@ -188,7 +198,7 @@ export function buildTurnActionHintLine(
   userMessage: string,
 ): string | undefined {
   const hint = resolveTurnActionHint(sessionContext, userMessage);
-  return hint ? formatTurnActionHint(hint) : undefined;
+  return hint ? formatTurnActionHint(hint, sessionContext) : undefined;
 }
 
 export function formatPublishStagingActionHint(staged: boolean): string {

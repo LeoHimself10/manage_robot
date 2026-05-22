@@ -1,0 +1,67 @@
+{
+  "id": "transport_yaoxuefeng_yanghexin_replay",
+  "description": "Replay of clinical sample transport / post-transport boot failure demo (姚雪峰 + 杨贺新 roster). User messages are natural language only.",
+  "rosterFixture": "fixtures/clinical-transport-姚雪峰-杨贺新-能力花名册.md",
+  "managerStaffId": "eval-mgr-replay-001",
+  "people": {
+    "姚雪峰": "eval-yaoxuefeng-001",
+    "杨贺新": "eval-yanghexin-001"
+  },
+  "turns": [
+    {
+      "id": "R1_problem",
+      "userMessage": "因临床样机会有较频繁运输和多家医院周转试用的情况：在周转运输前，设备在上一家医院还能开机正常使用，但有时候运输周转到下一家医院后，就没办法正常开机正常使用，比如有时候会发生开机蓝屏，或者开机直接黑屏没任何响应，连风扇也未转动等现象。这种问题应该如何分析和解决？"
+    },
+    {
+      "id": "R2_clarify_deadline",
+      "userMessage": "1.具体型号还不确定 2.累计大概10起 3.希望一个月内完成根因分析和改进建议",
+      "expectMinTasks": 4,
+      "expectDraftJson": true
+    },
+    {
+      "id": "R3_roster_assign",
+      "seedPendingRoster": true,
+      "userMessage": "我刚上传了花名册附件，请按名单把子任务分给姚雪峰和杨贺新，每个子任务都要有明确负责人。",
+      "expectAssignmentFull": true,
+      "expectNoFakeAssign": true,
+      "forbidAssigneePatchLoop": true
+    },
+    {
+      "id": "R4_split_first_task",
+      "userMessage": "第一条子任务再拆细一点，拆成两条可以并行推进的工作包，其他行先不动。",
+      "expectTasksIncreaseBy": 1,
+      "expectMinDueAtCoverage": 0.85,
+      "expectSplitDueAtFromRow": 1
+    },
+    {
+      "id": "R5_reassign_after_split",
+      "userMessage": "拆分后还是姚雪峰负责前面硬件排查相关的，杨贺新负责包装运输和签收相关的，请把现在整张表所有子任务的负责人都补齐。",
+      "expectAssignmentFull": true,
+      "expectNoFakeAssign": true,
+      "forbidAssigneePatchLoop": true
+    },
+    {
+      "id": "R6_patch_task2",
+      "userMessage": "任务2改成2026-05-28前完成，负责人换成杨贺新，只改这一行。",
+      "expectOrdinalRow": { "token": "任务2", "displayIndex": 2 },
+      "expectRowPatch": {
+        "displayIndex": 2,
+        "dueAt": "2026-05-28",
+        "assigneeUserId": "eval-yanghexin-001",
+        "assigneeName": "杨贺新"
+      },
+      "allowAssignRetry": false
+    },
+    {
+      "id": "R7_publish_preview",
+      "userMessage": "我先看一下发布前的预览，确认没问题再正式发布。",
+      "expectPublishStaged": true
+    },
+    {
+      "id": "R8_publish_confirm",
+      "userMessage": "确认发布",
+      "expectPublishOk": true,
+      "allowPublishRetry": true
+    }
+  ]
+}

@@ -40,7 +40,14 @@ import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
 } from "./agent/role-routing";
-import { extractLightAssignment, renderLightAssignmentSection } from "./agent/assignment/light-assignment";
+import { processAssignmentForTurn } from "./agent/assignment/process-assignment-turn";
+import {
+  buildAssignRetryUserMessage,
+  buildTaskIndexMap,
+  detectFalseAssign,
+  formatFalseAssignObservedNotice,
+} from "./agent/assignment/false-assign";
+import { hasAssigneeIntentInUserMessage } from "./agent/orchestrator-turn-hints";
 import {
   hasTaskTableInMessage,
   renderDraftSupplementSection,
@@ -771,6 +778,7 @@ async function main(): Promise<void> {
           },
         });
         const preTurnDraft = session.latestDraft;
+        const preTurnAssignment = session.latestAssignment;
         let orchResult = await runOrchestrator(background, buildOrchestratorConfig());
         let orchestratorMs = Date.now() - orchestratorStartedAt;
 
@@ -898,16 +906,130 @@ async function main(): Promise<void> {
 
         const snapshotPlanId = session.planId;
         const postTurnDraft = session.latestDraft;
-        const draftOutbound = resolveDraftForOutbound({
-          preTurnDraft,
-          postTurnDraft,
-          orchResultDraft: orchResult.draft as Record<string, unknown> | undefined,
-          toolInvocationNames: orchResult.toolInvocationNames ?? [],
-        });
-        const { draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound;
-        if (persistedDraft) {
-          session.latestDraft = persistedDraft as PlanSession["latestDraft"];
+
+        const applyDraftFromOrchestrator = (result: typeof orchResult) => {
+          const outbound = resolveDraftForOutbound({
+            preTurnDraft,
+            postTurnDraft: session.latestDraft,
+            orchResultDraft: result.draft as Record<string, unknown> | undefined,
+            toolInvocationNames: result.toolInvocationNames ?? [],
+          });
+          if (outbound.persistedDraft) {
+            session.latestDraft = outbound.persistedDraft as PlanSession["latestDraft"];
+          }
+          return outbound;
+        };
+
+        let draftOutbound = applyDraftFromOrchestrator(orchResult);
+        let { draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound;
+
+        const employeesForAssignment = employeeRepo.list().map((e) => ({
+          userId: e.userId,
+          displayName: e.displayName,
+        }));
+
+        const runAssignmentProcessing = (result: typeof orchResult, outbound: typeof draftOutbound) => {
+          const assignmentDraft = outbound.draftForRender ?? outbound.persistedDraft;
+          const taskIds = Array.isArray((assignmentDraft as { tasks?: unknown[] } | undefined)?.tasks)
+            ? ((assignmentDraft as { tasks: Array<{ id?: string }> }).tasks)
+                .map((t) => (typeof t?.id === "string" ? t.id : ""))
+                .filter((id) => id.length > 0)
+            : [];
+          return processAssignmentForTurn({
+            preTurnDraft: preTurnDraft as Record<string, unknown> | undefined,
+            persistedDraft: outbound.persistedDraft as Record<string, unknown> | undefined,
+            sessionAssignment: session.latestAssignment as Record<string, unknown> | undefined,
+            orchAssignment: result.assignment,
+            draftTouchedThisTurn: outbound.draftTouchedThisTurn,
+            planId: session.planId,
+            traceId: result.traceId,
+            modelName: dingtalkQwenConfig.model,
+            taskIds,
+            employees: employeesForAssignment,
+            candidatePoolUserIds: session.candidatePool?.entries.map((e) => e.userId),
+            requireFullCoverage: true,
+          });
+        };
+
+        const assignmentStartedAt = Date.now();
+        let assignState = runAssignmentProcessing(orchResult, draftOutbound);
+
+        const needsAssignRetry =
+          process.env.ASSIGNMENT_PHASE_ENABLED === "1"
+          && hasAssigneeIntentInUserMessage(background)
+          && assignState.coverage.total > 0
+          && assignState.coverage.covered < assignState.coverage.total;
+
+        if (needsAssignRetry) {
+          logStructured({
+            event: "assign_partial_retry",
+            messageId,
+            traceId: orchResult.traceId,
+            missingTaskIds: assignState.missingTaskIds,
+            covered: assignState.coverage.covered,
+            total: assignState.coverage.total,
+          });
+          const retryStartedAt = Date.now();
+          const retryBackground = buildAssignRetryUserMessage({
+            originalUserMessage: background,
+            missingTaskIds: assignState.missingTaskIds,
+            taskIndexMap: buildTaskIndexMap(persistedDraft as Record<string, unknown> | undefined),
+          });
+          orchResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
+          orchestratorMs += Date.now() - retryStartedAt;
+          draftOutbound = applyDraftFromOrchestrator(orchResult);
+          ({ draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound);
+          assignState = runAssignmentProcessing(orchResult, draftOutbound);
         }
+
+        let latestAssignment = assignState.latestAssignment ?? (preTurnAssignment as Record<string, unknown> | undefined);
+        let assignmentSection = assignState.assignmentSection;
+        if (latestAssignment) {
+          session.latestAssignment = latestAssignment as PlanSession["latestAssignment"];
+        }
+
+        const showAssignment =
+          process.env.ASSIGNMENT_PHASE_ENABLED === "1"
+          && (draftForRender ?? persistedDraft);
+        if (showAssignment && assignState.lightDraft && !isAnonymousSender) {
+          planSessionStore.appendEvent({
+            planId: session.planId,
+            chatKeyHash: session.chatKeyHash,
+            eventType: "ASSIGNMENT_UPDATED",
+            payload: {
+              traceId: orchResult.traceId,
+              assignmentCount: assignState.lightDraft.assignments.length,
+            },
+          });
+          try {
+            await assignmentDraftRepo.save(
+              assignState.lightDraft as unknown as { planId: string; traceId: string; promptVersion: string },
+            );
+            await assignmentEventRepo.append({
+              eventType: "ASSIGNMENT_DRAFT_GENERATED",
+              traceId: orchResult.traceId,
+              planId: assignState.lightDraft.planId,
+              assignmentCount: assignState.lightDraft.assignments.length,
+              promptVersion: assignState.lightDraft.promptVersion,
+              modelName: assignState.lightDraft.modelName,
+              occurredAt: new Date().toISOString(),
+            });
+          } catch (persistErr) {
+            logStructured({
+              event: "dingtalk_assignment_persist_failed",
+              traceId: orchResult.traceId,
+              reason: persistErr instanceof Error ? persistErr.message : String(persistErr),
+            });
+          }
+        } else if (assignState.extractReason && orchResult.assignment !== undefined) {
+          logStructured({
+            event: "dingtalk_assignment_light_validation_failed",
+            traceId: orchResult.traceId,
+            reason: assignState.extractReason,
+            missingTaskIds: assignState.missingTaskIds,
+          });
+        }
+        const assignmentMs = Date.now() - assignmentStartedAt;
 
         // 长期记忆：有草案时自动存快照+embedding
         if (persistedDraft && !isAnonymousSender) {
@@ -949,77 +1071,6 @@ async function main(): Promise<void> {
           });
           outboundMarkdown = sanitizedOutbound.markdown;
         }
-
-        const assignmentStartedAt = Date.now();
-        let latestAssignment: Record<string, unknown> | undefined = session.latestAssignment;
-        let assignmentSection = "";
-        const assignmentDraft = draftForRender ?? persistedDraft;
-        const showAssignment =
-          process.env.ASSIGNMENT_PHASE_ENABLED === "1" &&
-          (draftForRender || orchResult.assignment) &&
-          assignmentDraft;
-        if (showAssignment) {
-          const taskIds = Array.isArray((assignmentDraft as any)?.tasks)
-            ? (assignmentDraft as any).tasks
-                .map((t: any) => (typeof t?.id === "string" ? t.id : ""))
-                .filter((id: string) => id.length > 0)
-            : [];
-          const assignmentResult = extractLightAssignment({
-            rawAssignment: orchResult.assignment,
-            planId: session.planId,
-            traceId: orchResult.traceId,
-            modelName: dingtalkQwenConfig.model,
-            taskIds,
-            employees: employeeRepo.list().map((e) => ({
-              userId: e.userId,
-              displayName: e.displayName,
-            })),
-            candidatePoolUserIds: session.candidatePool?.entries.map((e) => e.userId),
-          });
-          if (assignmentResult.ok) {
-            latestAssignment = assignmentResult.draft as unknown as Record<string, unknown>;
-            assignmentSection = renderLightAssignmentSection(assignmentResult.draft);
-            if (!isAnonymousSender) {
-              planSessionStore.appendEvent({
-                planId: session.planId,
-                chatKeyHash: session.chatKeyHash,
-                eventType: "ASSIGNMENT_UPDATED",
-                payload: {
-                  traceId: orchResult.traceId,
-                  assignmentCount: assignmentResult.draft.assignments.length,
-                },
-              });
-              try {
-                await assignmentDraftRepo.save(assignmentResult.draft as unknown as { planId: string; traceId: string; promptVersion: string });
-                await assignmentEventRepo.append({
-                  eventType: "ASSIGNMENT_DRAFT_GENERATED",
-                  traceId: orchResult.traceId,
-                  planId: assignmentResult.draft.planId,
-                  assignmentCount: assignmentResult.draft.assignments.length,
-                  promptVersion: assignmentResult.draft.promptVersion,
-                  modelName: assignmentResult.draft.modelName,
-                  occurredAt: new Date().toISOString(),
-                });
-              } catch (persistErr) {
-                logStructured({
-                  event: "dingtalk_assignment_persist_failed",
-                  traceId: orchResult.traceId,
-                  reason: persistErr instanceof Error ? persistErr.message : String(persistErr),
-                });
-              }
-            }
-          } else if (orchResult.assignment !== undefined) {
-            logStructured({
-              event: "dingtalk_assignment_light_validation_failed",
-              traceId: orchResult.traceId,
-              reason: assignmentResult.reason,
-            });
-          }
-        }
-        if (!latestAssignment && orchResult.assignment) {
-          latestAssignment = orchResult.assignment;
-        }
-        const assignmentMs = Date.now() - assignmentStartedAt;
 
         let planRotatedAfterPublish = false;
         let rotatePlanHintTail = "";
@@ -1093,6 +1144,25 @@ async function main(): Promise<void> {
             }))
         ) {
           outboundMarkdown = `${outboundMarkdown.trim()}${formatFalsePublishObservedNotice()}`;
+        }
+        if (
+          detectFalseAssign({
+            userMessage: background,
+            latestDraft: persistedDraft as Record<string, unknown> | undefined,
+            latestAssignment,
+            outboundMarkdown,
+            hasFullAssignmentJson: assignState.extractOk,
+          })
+        ) {
+          outboundMarkdown = `${outboundMarkdown.trim()}${formatFalseAssignObservedNotice({
+            missingTaskIds: assignState.missingTaskIds,
+          })}`;
+          logStructured({
+            event: "false_assign_observed",
+            messageId,
+            traceId: orchResult.traceId,
+            missingTaskIds: assignState.missingTaskIds,
+          });
         }
         // 正确拼接顺序（renderDingtalkTaskMarkdown 内部保证）：
         //   富字段段 → 分配建议 → 发布回执 → 轮转提示
