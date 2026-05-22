@@ -311,7 +311,17 @@ export function buildSearchEmployeesHandler(
     if (name.length > 0) {
       const store = createPeopleDirectoryStore();
       try {
-        const contacts = store.searchContacts(name, 10);
+        const resolved = store.resolveContactByName(name);
+        let duplicateNote: string | undefined;
+        let contacts: DingTalkContactRow[];
+        if (resolved.contact) {
+          contacts = [resolved.contact];
+          if (resolved.ambiguous && resolved.candidates && resolved.candidates.length > 1) {
+            duplicateNote = `存在重名，已选 canonical id=${resolved.contact.userId}；另 ${resolved.candidates.length - 1} 条已忽略`;
+          }
+        } else {
+          contacts = store.searchContacts(name, 10);
+        }
         const filtered = poolActive
           ? contacts.filter((c) => poolUserIds.has(c.userId))
           : contacts;
@@ -336,12 +346,16 @@ export function buildSearchEmployeesHandler(
           }
           return baseBlock;
         });
+        const noteParts = [
+          duplicateNote,
+          poolActive ? "name_lookup_in_candidate_pool" : resolved.contact ? "name_lookup_exact" : "name_lookup_sql",
+        ].filter(Boolean);
         return {
           candidates,
           truncated: false,
           total: filtered.length,
           poolConstrained: poolActive || undefined,
-          note: poolActive ? "name_lookup_in_candidate_pool" : "name_lookup_sql",
+          note: noteParts.join(" | "),
         };
       } finally {
         store.close();

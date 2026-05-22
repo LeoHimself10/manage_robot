@@ -102,6 +102,49 @@ describe("workbench-formal-task-store progress digest", () => {
     expect(events.some((e) => e.event_type === "SUBTASK_PROGRESS")).toBe(true);
   });
 
+  it("filters manager events with untilIso upper bound", () => {
+    const { store, subtaskId, taskId } = seedTask();
+    store.appendTaskEvent({
+      taskId,
+      subtaskId,
+      eventType: "SUBTASK_PROGRESS",
+      actorUserId: "emp-1",
+      note: "窗口内",
+      occurredAt: "2026-05-20T02:00:00.000Z",
+    });
+    store.appendTaskEvent({
+      taskId,
+      subtaskId,
+      eventType: "SUBTASK_PROGRESS",
+      actorUserId: "emp-1",
+      note: "窗口外",
+      occurredAt: "2026-05-20T16:00:00.000Z",
+    });
+    const events = store.listTaskEventsForManagerSince({
+      managerUserId: "mgr-1",
+      sinceIso: "2026-05-19T16:00:00.000Z",
+      untilIso: "2026-05-20T16:00:00.000Z",
+      eventTypes: ["SUBTASK_PROGRESS"],
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.note).toBe("窗口内");
+  });
+
+  it("tryClaimProgressDigest uses Shanghai calendar day boundary", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const earlyMorning = new Date("2026-05-18T20:00:00.000Z");
+    const todayStart = startOfDayInTz(earlyMorning, "Asia/Shanghai");
+    expect(todayStart).toBe("2026-05-18T16:00:00.000Z");
+    const first = store.tryClaimProgressDigest({
+      userId: "mgr-1",
+      audience: "manager",
+      nowIso: earlyMorning.toISOString(),
+      todayStartIso: todayStart,
+      sourceId: "progress:digest:mgr-1:manager:20260519",
+    });
+    expect(first.claimed).toBe(true);
+  });
+
   it("tryClaimProgressDigest allows once per user per day", () => {
     const store = createWorkbenchFormalTaskStore();
     const now = new Date("2026-05-18T01:00:00.000Z");

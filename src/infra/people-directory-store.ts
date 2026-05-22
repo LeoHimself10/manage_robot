@@ -453,6 +453,45 @@ export function createPeopleDirectoryStore(dbPath = resolveWorkbenchSqlitePath()
       ).map(mapContactRow);
     },
 
+    listActiveContactsByExactName(name: string): DingTalkContactRow[] {
+      const needle = name.trim();
+      if (!needle) return [];
+      const rows = db
+        .prepare(
+          `SELECT * FROM dingtalk_contacts
+            WHERE active = 1 AND TRIM(name) = ?
+            ORDER BY last_synced_at DESC, user_id ASC`,
+        )
+        .all(needle) as Array<Record<string, unknown>>;
+      return rows.map(mapContactRow);
+    },
+
+    resolveContactByName(name: string): {
+      contact?: DingTalkContactRow;
+      ambiguous?: boolean;
+      candidates?: DingTalkContactRow[];
+    } {
+      const candidates = this.listActiveContactsByExactName(name);
+      if (candidates.length === 0) return {};
+      if (candidates.length === 1) return { contact: candidates[0] };
+
+      const score = (c: DingTalkContactRow): number => {
+        let s = 0;
+        const usedInTasks = db
+          .prepare(
+            `SELECT 1 FROM subtasks WHERE assignee_user_id = ?
+             UNION SELECT 1 FROM tasks WHERE manager_user_id = ? LIMIT 1`,
+          )
+          .get(c.userId, c.userId);
+        if (usedInTasks) s += 100;
+        if (c.unionId) s += 10;
+        if (c.lastSyncedAt) s += 1;
+        return s;
+      };
+      const sorted = [...candidates].sort((a, b) => score(b) - score(a) || a.userId.localeCompare(b.userId));
+      return { contact: sorted[0], ambiguous: true, candidates };
+    },
+
     upsertProfile(input: Omit<EmployeeCapabilityProfileRow, "updatedAt"> & { updatedAt?: string }): void {
       const updatedAt = input.updatedAt ?? nowIso();
       upsertProfileStmt.run(

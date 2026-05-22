@@ -2,9 +2,12 @@ import { logStructured } from "../../infra/logger";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 import { createWorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
-import { listSchedulerEligibleReminders } from "./reminder-eligibility";
+import {
+  listManagerOverdueAlerts,
+  listPreDueEmployeeReminders,
+} from "./reminder-eligibility";
 import { loadReminderPolicy } from "./reminder-policy";
-import { sendSubtaskReminder } from "./reminder-send";
+import { sendManagerOverdueAlert, sendPreDueEmployeeReminder } from "./reminder-send";
 
 export function createReminderScheduler(deps?: {
   taskStore?: ReturnType<typeof createWorkbenchFormalTaskStore>;
@@ -20,38 +23,64 @@ export function createReminderScheduler(deps?: {
     if (scanning) return;
     scanning = true;
     const startedAt = Date.now();
-    let sent = 0;
-    let skipped = 0;
-    let failed = 0;
+    let preDueSent = 0;
+    let preDueSkipped = 0;
+    let preDueFailed = 0;
+    let managerOverdueSent = 0;
+    let managerOverdueSkipped = 0;
+    let managerOverdueFailed = 0;
     try {
-      const eligible = listSchedulerEligibleReminders(taskStore);
+      const now = new Date();
+      const preDueEligible = listPreDueEmployeeReminders(taskStore, now, policy);
       const peopleStore = createPeopleDirectoryStore();
       try {
-        for (const item of eligible) {
-          const result = await sendSubtaskReminder(
+        for (const item of preDueEligible) {
+          const result = await sendPreDueEmployeeReminder(item.subtaskId, {
+            taskStore,
+            notifier,
+            peopleStore,
+            policy,
+          });
+          if (result.ok) preDueSent += 1;
+          else if (result.skipped) preDueSkipped += 1;
+          else preDueFailed += 1;
+        }
+
+        const managerEligible = listManagerOverdueAlerts(
+          taskStore,
+          now,
+          policy,
+          (uid) => peopleStore.getContact(uid)?.name?.trim(),
+        );
+        for (const item of managerEligible) {
+          const result = await sendManagerOverdueAlert(
             {
               subtaskId: item.subtaskId,
-              trigger: "scheduler",
-              actorUserId: item.managerUserId,
-              requestedTier: item.tier,
+              overdueSince: item.overdueSince,
+              assigneeDisplayName: item.assigneeDisplayName,
             },
             { taskStore, notifier, peopleStore, policy },
           );
-          if (result.ok) sent += 1;
-          else if (result.skipped) skipped += 1;
-          else failed += 1;
+          if (result.ok) managerOverdueSent += 1;
+          else if (result.skipped) managerOverdueSkipped += 1;
+          else managerOverdueFailed += 1;
         }
+
+        logStructured({
+          event: "reminder_scan_done",
+          preDueEligible: preDueEligible.length,
+          preDueSent,
+          preDueSkipped,
+          preDueFailed,
+          managerOverdueEligible: managerEligible.length,
+          managerOverdueSent,
+          managerOverdueSkipped,
+          managerOverdueFailed,
+          durationMs: Date.now() - startedAt,
+        });
       } finally {
         peopleStore.close();
       }
-      logStructured({
-        event: "reminder_scan_done",
-        eligible: eligible.length,
-        sent,
-        skipped,
-        failed,
-        durationMs: Date.now() - startedAt,
-      });
     } catch (err) {
       logStructured({
         event: "reminder_scan_failed",

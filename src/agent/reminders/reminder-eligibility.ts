@@ -1,16 +1,21 @@
-import { parseDueAtMs } from "./due-at-parse";
+import { dueAtYmdInTz, parseDueAtMs } from "./due-at-parse";
 import {
+  addDaysToYmd,
   formatDateInTz,
   loadReminderPolicy,
   isInQuietHours,
+  isPreDueSendWindow,
   type ReminderPolicy,
 } from "./reminder-policy";
 import type { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
-import { resolveTierFromOverdueDays } from "./reminder-templates";
 
-export type ReminderTrigger = "scheduler" | "manual_chat" | "manual_workbench";
+export type ReminderTrigger =
+  | "manual_chat"
+  | "manual_workbench"
+  | "scheduler_pre_due"
+  | "scheduler_manager_overdue";
 
-export interface EligibleSubtaskReminder {
+export interface PreDueEmployeeReminder {
   subtaskId: string;
   taskId: string;
   planId: string;
@@ -22,47 +27,53 @@ export interface EligibleSubtaskReminder {
   assigneeUserId: string;
   managerUserId: string;
   status: string;
-  overdueDays: number;
+}
+
+export interface ManagerOverdueAlert {
+  subtaskId: string;
+  taskId: string;
+  planId: string;
+  taskNo: string;
+  taskTitle: string;
+  subtaskTitle: string;
+  dueAt: string;
+  dueAtMs: number;
+  assigneeUserId: string;
+  managerUserId: string;
+  status: string;
   overdueSince: string;
-  tier: "day1" | "day2plus";
+  assigneeDisplayName?: string;
 }
 
 type TaskStore = ReturnType<typeof createWorkbenchFormalTaskStore>;
 
-function overdueDaysBetween(dueMs: number, nowMs: number, timezone: string): number {
-  const dueYmd = formatDateInTz(new Date(dueMs).toISOString(), timezone);
-  const nowYmd = formatDateInTz(new Date(nowMs).toISOString(), timezone);
-  const dueParts = dueYmd.split("-").map(Number);
-  const nowParts = nowYmd.split("-").map(Number);
-  const dueDate = Date.UTC(dueParts[0]!, dueParts[1]! - 1, dueParts[2]!);
-  const nowDate = Date.UTC(nowParts[0]!, nowParts[1]! - 1, nowParts[2]!);
-  const diff = Math.floor((nowDate - dueDate) / (24 * 60 * 60 * 1000));
-  return Math.max(1, diff);
-}
-
-export function listSchedulerEligibleReminders(
+export function listPreDueEmployeeReminders(
   taskStore: TaskStore,
   now: Date = new Date(),
   policy: ReminderPolicy = loadReminderPolicy(),
-): EligibleSubtaskReminder[] {
+): PreDueEmployeeReminder[] {
   if (!policy.enabled) return [];
-  if (isInQuietHours(now, policy.quietHours)) return [];
-  const nowMs = now.getTime();
-  const out: EligibleSubtaskReminder[] = [];
+  if (!isPreDueSendWindow(now, policy)) return [];
+  if (isInQuietHours(now, policy.quietHours, policy.timezone)) return [];
+
+  const todayYmd = formatDateInTz(now.toISOString(), policy.timezone);
+  const tomorrowYmd = addDaysToYmd(todayYmd, 1);
+  const out: PreDueEmployeeReminder[] = [];
+
   for (const row of taskStore.listActiveSubtasksForReminders()) {
-    const dueMs = parseDueAtMs(row.dueAt);
-    if (dueMs === undefined || nowMs <= dueMs) continue;
+    const dueMs = parseDueAtMs(row.dueAt, policy.timezone);
+    if (dueMs === undefined) continue;
+    const dueYmd = dueAtYmdInTz(row.dueAt, policy.timezone);
+    if (dueYmd !== tomorrowYmd) continue;
+
     const state = taskStore.getSubtaskReminderState(row.subtaskId);
-    const todayYmd = formatDateInTz(now.toISOString(), policy.timezone);
     if (
-      state?.lastRemindedAt &&
-      formatDateInTz(state.lastRemindedAt, policy.timezone) === todayYmd
+      state?.lastPreDueRemindedAt &&
+      formatDateInTz(state.lastPreDueRemindedAt, policy.timezone) === todayYmd
     ) {
       continue;
     }
-    const overdueDays = overdueDaysBetween(dueMs, nowMs, policy.timezone);
-    const overdueSince = state?.overdueSince ?? new Date(dueMs).toISOString();
-    const tier = resolveTierFromOverdueDays(overdueDays, policy.tier2AfterOverdueDays);
+
     out.push({
       subtaskId: row.subtaskId,
       taskId: row.taskId,
@@ -75,12 +86,59 @@ export function listSchedulerEligibleReminders(
       assigneeUserId: row.assigneeUserId,
       managerUserId: row.managerUserId,
       status: row.status,
-      overdueDays,
-      overdueSince,
-      tier,
     });
   }
   return out;
+}
+
+export function listManagerOverdueAlerts(
+  taskStore: TaskStore,
+  now: Date = new Date(),
+  policy: ReminderPolicy = loadReminderPolicy(),
+  resolveDisplayName?: (userId: string) => string | undefined,
+): ManagerOverdueAlert[] {
+  if (!policy.enabled) return [];
+  if (isInQuietHours(now, policy.quietHours, policy.timezone)) return [];
+
+  const nowMs = now.getTime();
+  const out: ManagerOverdueAlert[] = [];
+
+  for (const row of taskStore.listActiveSubtasksForReminders()) {
+    const dueMs = parseDueAtMs(row.dueAt, policy.timezone);
+    if (dueMs === undefined || nowMs <= dueMs) continue;
+
+    const overdueSince = new Date(dueMs).toISOString();
+    const state = taskStore.getSubtaskReminderState(row.subtaskId);
+    if (state?.lastManagerOverdueNotifiedAt && state.overdueSince === overdueSince) {
+      continue;
+    }
+
+    out.push({
+      subtaskId: row.subtaskId,
+      taskId: row.taskId,
+      planId: row.planId,
+      taskNo: row.taskNo,
+      taskTitle: row.title,
+      subtaskTitle: row.subtaskTitle,
+      dueAt: row.dueAt!,
+      dueAtMs: dueMs,
+      assigneeUserId: row.assigneeUserId,
+      managerUserId: row.managerUserId,
+      status: row.status,
+      overdueSince,
+      assigneeDisplayName: resolveDisplayName?.(row.assigneeUserId),
+    });
+  }
+  return out;
+}
+
+/** @deprecated Scheduler no longer uses overdue employee auto-remind. */
+export function listSchedulerEligibleReminders(
+  _taskStore: TaskStore,
+  _now: Date = new Date(),
+  _policy: ReminderPolicy = loadReminderPolicy(),
+): never[] {
+  return [];
 }
 
 export type FollowUpBucket = "overdue" | "due_today" | "due_this_week" | "stale";
@@ -125,10 +183,12 @@ export function listFollowUpCandidatesForActor(
 
   const candidates: FollowUpCandidate[] = [];
   for (const row of rows) {
-    const dueMs = parseDueAtMs(row.dueAt);
+    const dueMs = parseDueAtMs(row.dueAt, timezone);
     let bucket: FollowUpBucket = "stale";
     if (dueMs !== undefined) {
-      const dueYmd = formatDateInTz(new Date(dueMs).toISOString(), timezone);
+      const dueYmd =
+        dueAtYmdInTz(row.dueAt, timezone) ??
+        formatDateInTz(new Date(dueMs).toISOString(), timezone);
       if (nowMs > dueMs) bucket = "overdue";
       else if (dueYmd === todayYmd) bucket = "due_today";
       else if (dueMs <= weekEndMs) bucket = "due_this_week";

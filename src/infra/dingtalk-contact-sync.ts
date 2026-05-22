@@ -1,3 +1,4 @@
+import { logStructured } from "./logger";
 import {
   createDingTalkContactClient,
   type DingTalkContactClient,
@@ -92,6 +93,20 @@ export function createDingTalkContactSyncService(deps?: {
         startedAt,
         finishedAt: nowIso(),
       });
+      const dupRows = peopleStore.listContacts().reduce<Map<string, string[]>>((acc, c) => {
+        if (!c.active) return acc;
+        const key = c.name.trim();
+        if (!key) return acc;
+        const list = acc.get(key) ?? [];
+        list.push(c.userId);
+        acc.set(key, list);
+        return acc;
+      }, new Map());
+      for (const [name, userIds] of dupRows) {
+        if (userIds.length > 1) {
+          logStructured({ event: "contact_duplicate_name", name, userIds });
+        }
+      }
       return { totalContacts: contacts.length, upsertedContacts: upserted, deactivatedContacts: 0 };
     } catch (err) {
       peopleStore.appendSyncRun({

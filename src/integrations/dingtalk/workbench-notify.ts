@@ -138,6 +138,20 @@ export interface WorkbenchProgressDigestNotifyInput {
   sourceId: string;
 }
 
+export interface WorkbenchManagerSubtaskOverdueNotifyInput {
+  managerUserId: string;
+  taskNo: string;
+  taskTitle: string;
+  subtaskId: string;
+  subtaskTitle: string;
+  assigneeUserId: string;
+  assigneeDisplayName?: string;
+  subject: string;
+  markdown: string;
+  detailUrl?: string;
+  sourceId: string;
+}
+
 export interface WorkbenchPublishNotifier {
   notifyPublishedTask(input: WorkbenchPublishTaskNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyReassignedAssignee(input: WorkbenchReassignNotifyInput): Promise<WorkbenchNotifyResult>;
@@ -148,6 +162,9 @@ export interface WorkbenchPublishNotifier {
     input: WorkbenchEmployeeManagerActionNotifyInput,
   ): Promise<WorkbenchNotifyResult>;
   notifySubtaskReminder(input: WorkbenchSubtaskReminderNotifyInput): Promise<WorkbenchNotifyResult>;
+  notifyManagerSubtaskOverdue(
+    input: WorkbenchManagerSubtaskOverdueNotifyInput,
+  ): Promise<WorkbenchNotifyResult>;
   notifyProgressDigest(input: WorkbenchProgressDigestNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyEmployeeTodoOnAccept(input: {
     taskNo: string;
@@ -875,6 +892,88 @@ export function createWorkbenchPublishNotifier(
           userId: mgr,
           title: subject,
           markdown,
+          detailUrl,
+        });
+        success.push({ userId: mgr, robotMessageKey });
+      } catch (err) {
+        failed.push({
+          userId: mgr,
+          reason: `robot chat message failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+      return { enabled: true, success, failed };
+    },
+
+    async notifyManagerSubtaskOverdue(
+      input: WorkbenchManagerSubtaskOverdueNotifyInput,
+    ): Promise<WorkbenchNotifyResult> {
+      if (!isNotifyEnabled()) {
+        return {
+          enabled: false,
+          skippedReason: "WORKBENCH_DINGTALK_NOTIFY_ENABLED is off",
+          success: [],
+          failed: [],
+        };
+      }
+      if (!isManagerNotifyEnabled()) {
+        return {
+          enabled: false,
+          skippedReason: "WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED is off",
+          success: [],
+          failed: [],
+        };
+      }
+      const mgr = String(input.managerUserId ?? "").trim();
+      if (!mgr) {
+        return {
+          enabled: false,
+          skippedReason: "managerUserId missing",
+          success: [],
+          failed: [],
+        };
+      }
+      const robotMsgEnabled = isRobotMsgEnabled();
+      const robotCode = resolveRobotCode();
+      const success: WorkbenchNotifyResult["success"] = [];
+      const failed: WorkbenchNotifyResult["failed"] = [];
+      if (!robotMsgEnabled) {
+        failed.push({
+          userId: mgr,
+          reason: "WORKBENCH_DINGTALK_ROBOT_MSG_ENABLED is off (manager notify is robot-only)",
+        });
+        return { enabled: true, success, failed };
+      }
+      if (!robotCode) {
+        failed.push({
+          userId: mgr,
+          reason: "skip robot chat message: DINGTALK_ROBOT_CODE missing",
+        });
+        return { enabled: true, success, failed };
+      }
+      let token: string;
+      try {
+        token = await getAccessToken(fetchImpl);
+      } catch (err) {
+        failed.push({
+          userId: mgr,
+          reason: `getAccessToken failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        return { enabled: true, success, failed };
+      }
+      const detailUrl =
+        String(input.detailUrl ?? "").trim()
+        || resolveManagerTaskDetailUrl(input.taskNo, { subtaskId: input.subtaskId })
+        || (env("ASSIGNMENT_WEB_PUBLIC_BASE_URL")
+          ? `${env("ASSIGNMENT_WEB_PUBLIC_BASE_URL").replace(/\/+$/, "")}/workbench/manager/tasks`
+          : "https://www.dingtalk.com");
+      try {
+        const robotMessageKey = await sendRobotChatMessage({
+          fetchImpl,
+          accessToken: token,
+          robotCode,
+          userId: mgr,
+          title: input.subject,
+          markdown: enforceNotifyMarkdownLimit(input.markdown),
           detailUrl,
         });
         success.push({ userId: mgr, robotMessageKey });

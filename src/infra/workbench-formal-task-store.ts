@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { inferConversationTitleFromSession } from "./conversation-present";
 import type { PlanSession } from "./plan-session-store";
 import { resolveWorkbenchSqlitePath } from "./workbench-db-path";
+import { formatDueAtForStorage } from "../agent/reminders/due-at-parse";
 import { logStructured } from "./logger";
 
 export type WorkbenchTaskStatus =
@@ -114,6 +115,24 @@ function ensureSubtaskRichColumns(db: DatabaseSync): void {
       // SQLite < 3.35 fallback: leave extra_json in place (harmless)
     }
   }
+}
+
+function ensureSubtaskReminderStateColumns(db: DatabaseSync): void {
+  const addColumn = (column: string): void => {
+    const columns = new Set(
+      (db.prepare("PRAGMA table_info(subtask_reminder_state)").all() as Array<{ name?: string }>)
+        .map((row) => String(row.name ?? "")),
+    );
+    if (columns.has(column)) return;
+    try {
+      db.exec(`ALTER TABLE subtask_reminder_state ADD COLUMN ${column} TEXT`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.toLowerCase().includes("duplicate column")) throw err;
+    }
+  };
+  addColumn("last_pre_due_reminded_at");
+  addColumn("last_manager_overdue_notified_at");
 }
 
 function ensureTaskDescriptionColumn(db: DatabaseSync): void {
@@ -363,6 +382,7 @@ export function createWorkbenchFormalTaskStore() {
 
   ensureSubtaskRichColumns(db);
   ensureTaskDescriptionColumn(db);
+  ensureSubtaskReminderStateColumns(db);
 
   const migratedAt = nowIso();
   db.prepare(
@@ -579,7 +599,7 @@ export function createWorkbenchFormalTaskStore() {
           completionCriteria: Array.isArray(draftTask.completionCriteria)
             ? (draftTask.completionCriteria as unknown[]).map((x) => String(x)).join("\n")
             : asString(draftTask.completionCriteria),
-          dueAt: resolveDraftTaskDueAt(draftTask),
+          dueAt: formatDueAtForStorage(resolveDraftTaskDueAt(draftTask)),
           feedbackFrequency: asString(draftTask.feedbackFrequency),
           assigneeUserId,
           dependsOn: encodeRichJsonColumn(normalizeRichStringList(depsRaw)),
@@ -1131,6 +1151,8 @@ export function createWorkbenchFormalTaskStore() {
           lastTier?: string;
           lastManualRemindedAt?: string;
           manualRemindCount: number;
+          lastPreDueRemindedAt?: string;
+          lastManagerOverdueNotifiedAt?: string;
         }
       | undefined {
       const row = db
@@ -1144,7 +1166,57 @@ export function createWorkbenchFormalTaskStore() {
         lastTier: asString(row.last_tier),
         lastManualRemindedAt: asString(row.last_manual_reminded_at),
         manualRemindCount: Number(row.manual_remind_count ?? 0),
+        lastPreDueRemindedAt: asString(row.last_pre_due_reminded_at),
+        lastManagerOverdueNotifiedAt: asString(row.last_manager_overdue_notified_at),
       };
+    },
+
+    tryClaimPreDueReminder(input: {
+      subtaskId: string;
+      nowIso: string;
+      todayStartIso: string;
+      sourceId: string;
+    }): { claimed: boolean; reason?: string } {
+      const changes = db
+        .prepare(
+          `INSERT INTO subtask_reminder_state(
+             subtask_id, overdue_since, last_pre_due_reminded_at
+           ) VALUES(?, ?, ?)
+           ON CONFLICT(subtask_id) DO UPDATE SET
+             last_pre_due_reminded_at = excluded.last_pre_due_reminded_at
+           WHERE subtask_reminder_state.last_pre_due_reminded_at IS NULL
+              OR subtask_reminder_state.last_pre_due_reminded_at < ?`,
+        )
+        .run(
+          input.subtaskId,
+          input.nowIso,
+          input.nowIso,
+          input.todayStartIso,
+        ).changes;
+      return changes === 1 ? { claimed: true } : { claimed: false, reason: "already_sent_today" };
+    },
+
+    tryClaimManagerOverdueAlert(input: {
+      subtaskId: string;
+      overdueSince: string;
+      nowIso: string;
+      sourceId: string;
+    }): { claimed: boolean; reason?: string } {
+      const changes = db
+        .prepare(
+          `INSERT INTO subtask_reminder_state(
+             subtask_id, overdue_since, last_manager_overdue_notified_at
+           ) VALUES(?, ?, ?)
+           ON CONFLICT(subtask_id) DO UPDATE SET
+             overdue_since = excluded.overdue_since,
+             last_manager_overdue_notified_at = excluded.last_manager_overdue_notified_at
+           WHERE subtask_reminder_state.last_manager_overdue_notified_at IS NULL
+              OR subtask_reminder_state.overdue_since <> excluded.overdue_since`,
+        )
+        .run(input.subtaskId, input.overdueSince, input.nowIso).changes;
+      return changes === 1
+        ? { claimed: true }
+        : { claimed: false, reason: "already_notified_this_episode" };
     },
 
     tryClaimSchedulerReminder(input: {
@@ -1239,6 +1311,7 @@ export function createWorkbenchFormalTaskStore() {
     listTaskEventsForManagerSince(input: {
       managerUserId: string;
       sinceIso: string;
+      untilIso?: string;
       eventTypes: string[];
       limit?: number;
     }): Array<Record<string, unknown>> {
@@ -1246,6 +1319,11 @@ export function createWorkbenchFormalTaskStore() {
       if (types.length === 0) return [];
       const placeholders = types.map(() => "?").join(", ");
       const limit = Math.max(1, Math.min(input.limit ?? 50, 200));
+      const untilIso = String(input.untilIso ?? "").trim();
+      const untilClause = untilIso ? " AND e.occurred_at < ?" : "";
+      const params: unknown[] = [input.managerUserId, input.sinceIso];
+      if (untilIso) params.push(untilIso);
+      params.push(...types, limit);
       return db
         .prepare(
           `SELECT e.*, t.task_no, t.title AS task_title, s.title AS subtask_title
@@ -1253,17 +1331,18 @@ export function createWorkbenchFormalTaskStore() {
              JOIN tasks t ON t.task_id = e.task_id
              LEFT JOIN subtasks s ON s.subtask_id = e.subtask_id
             WHERE t.manager_user_id = ?
-              AND e.occurred_at >= ?
+              AND e.occurred_at >= ?${untilClause}
               AND e.event_type IN (${placeholders})
             ORDER BY e.occurred_at DESC
             LIMIT ?`,
         )
-        .all(input.managerUserId, input.sinceIso, ...types, limit) as Array<Record<string, unknown>>;
+        .all(...params) as Array<Record<string, unknown>>;
     },
 
     listTaskEventsForEmployeeSince(input: {
       assigneeUserId: string;
       sinceIso: string;
+      untilIso?: string;
       eventTypes: string[];
       limit?: number;
     }): Array<Record<string, unknown>> {
@@ -1271,6 +1350,11 @@ export function createWorkbenchFormalTaskStore() {
       if (types.length === 0) return [];
       const placeholders = types.map(() => "?").join(", ");
       const limit = Math.max(1, Math.min(input.limit ?? 50, 200));
+      const untilIso = String(input.untilIso ?? "").trim();
+      const untilClause = untilIso ? " AND e.occurred_at < ?" : "";
+      const params: unknown[] = [input.assigneeUserId, input.sinceIso];
+      if (untilIso) params.push(untilIso);
+      params.push(...types, limit);
       return db
         .prepare(
           `SELECT e.*, t.task_no, t.title AS task_title, s.title AS subtask_title
@@ -1278,12 +1362,12 @@ export function createWorkbenchFormalTaskStore() {
              JOIN tasks t ON t.task_id = e.task_id
              JOIN subtasks s ON s.subtask_id = e.subtask_id
             WHERE s.assignee_user_id = ?
-              AND e.occurred_at >= ?
+              AND e.occurred_at >= ?${untilClause}
               AND e.event_type IN (${placeholders})
             ORDER BY e.occurred_at DESC
             LIMIT ?`,
         )
-        .all(input.assigneeUserId, input.sinceIso, ...types, limit) as Array<Record<string, unknown>>;
+        .all(...params) as Array<Record<string, unknown>>;
     },
 
     tryClaimProgressDigest(input: {

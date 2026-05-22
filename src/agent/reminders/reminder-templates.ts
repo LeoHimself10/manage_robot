@@ -51,3 +51,43 @@ export function buildReminderMarkdown(input: ReminderTemplateInput): { subject: 
 export function resolveTierFromOverdueDays(overdueDays: number, tier2After: number): ReminderTier {
   return overdueDays > tier2After ? "day2plus" : "day1";
 }
+
+export function buildPreDueMarkdown(input: {
+  taskNo: string;
+  taskTitle: string;
+  subtaskTitle: string;
+  managerDisplayName?: string;
+  dueDisplay?: string;
+}): { subject: string; markdown: string } {
+  const mgr = input.managerDisplayName?.trim() || "主管";
+  const dueHint = input.dueDisplay ? `（${input.dueDisplay}）` : "";
+  const subject = clip(`[明日截止] ${input.taskNo} · ${input.subtaskTitle}`, 120);
+  const markdown = [
+    `### ${subject}`,
+    `**${mgr}** 提醒您：以下子任务**明日截止**${dueHint}，请提前安排推进。`,
+    `- **任务**：${input.taskTitle}`,
+    `- **子任务**：${input.subtaskTitle}`,
+    `- **任务编号**：${input.taskNo}`,
+  ].join("\n");
+  return { subject, markdown: clip(markdown, 2000) };
+}
+
+export function buildManagerOverdueMarkdown(input: {
+  taskNo: string;
+  taskTitle: string;
+  subtaskTitle: string;
+  assigneeDisplayName?: string;
+  dueDisplay?: string;
+}): { subject: string; markdown: string } {
+  const who = input.assigneeDisplayName?.trim() || "员工";
+  const subject = clip(`[逾期提醒] ${input.taskNo} · ${input.subtaskTitle}`, 120);
+  const markdown = [
+    `### ${subject}`,
+    `**${who}** 负责的执行中子任务已逾期，请关注并协调推进。`,
+    `- **任务**：${input.taskTitle}`,
+    `- **子任务**：${input.subtaskTitle}`,
+    `- **截止**：${input.dueDisplay ?? "—"}`,
+    `- **任务编号**：${input.taskNo}`,
+  ].join("\n");
+  return { subject, markdown: clip(markdown, 2000) };
+}

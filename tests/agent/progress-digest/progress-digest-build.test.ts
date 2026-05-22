@@ -95,7 +95,7 @@ describe("progress-digest-build", () => {
     expect(built.renderSource).toBe("template");
     expect(built.markdown).toContain("今日任务一览");
     expect(built.markdown).toContain("需您处理");
-    expect(built.markdown).toContain("最近更新");
+    expect(built.markdown).toContain("昨日动态");
     expect(built.markdown).not.toContain("状态汇总");
   });
 

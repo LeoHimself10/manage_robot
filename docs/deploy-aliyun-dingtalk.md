@@ -270,10 +270,13 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DINGTALK_ASSIGNMENT_MOCK` | 否 | `1` 使用 mock 钉钉交互卡片（无需真实卡片回调） |
 | `WORKBENCH_MANAGER_USER_IDS` | 否 | 钉钉 **主管** 身份白名单（与 `TASK_INITIATOR_USER_IDS` 独立），逗号分隔 `userId`。供后续工作台网页应用 Session 判定；未配或空则人均按非主管处理（见 `src/security/workbench-manager-whitelist.ts`） |
 | `WORKBENCH_MANAGER_IDS_FILE` | 否 | 主管名单 JSON 数组文件路径（格式同 `TASK_INITIATOR_IDS_FILE`）；存在且为数组时优先于 `WORKBENCH_MANAGER_USER_IDS` |
-| `FOLLOWUP_REMINDER_ENABLED` | 否 | `1` 开启执行中逾期定时催办 scheduler（默认 `0`）；**单实例**假设，多副本需后续 leader lease |
+| `FOLLOWUP_REMINDER_ENABLED` | 否 | `1` 开启催办 scheduler（默认 `0`）；**单实例**假设，**切勿水平扩容** `dingtalk-bot` |
 | `FOLLOWUP_SCAN_INTERVAL_MS` | 否 | scheduler 扫描间隔（默认 `300000`） |
-| `FOLLOWUP_TIMEZONE` | 否 | 自然日与静默时段时区（默认 `Asia/Shanghai`） |
-| `FOLLOWUP_TIER2_AFTER_OVERDUE_DAYS` | 否 | 逾期满 N 天后 day2plus 追加卡片（默认 `1`） |
+| `FOLLOWUP_TIMEZONE` | 否 | 自然日与静默时段时区（默认 `Asia/Shanghai`）；纯日期 `due_at` 默认 **当天 18:00** 过期 |
+| `FOLLOWUP_WEEKDAYS_ONLY` | 否 | 预提醒仅工作日发（默认 `1`） |
+| `FOLLOWUP_PRE_DUE_HOUR` | 否 | T-1 员工预提醒小时（默认 `10`，与 9:00 日报错开） |
+| `FOLLOWUP_PRE_DUE_MINUTE` | 否 | T-1 预提醒分钟（默认 `0`） |
+| `FOLLOWUP_TIER2_AFTER_OVERDUE_DAYS` | 否 | 手动催办逾期满 N 天后 day2plus 追加卡片（默认 `1`） |
 | `FOLLOWUP_QUIET_HOURS` | 否 | 静默时段，如 `22:00-08:00`（默认同左） |
 | `FOLLOWUP_MANUAL_LLM_ENABLED` | 否 | 手动催办是否尝试 LLM 润色（默认 `1`） |
 | `FOLLOWUP_MANUAL_LLM_TIMEOUT_MS` | 否 | 手动催办 LLM 超时毫秒（默认 `5000`） |
@@ -283,9 +286,9 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `PROGRESS_DIGEST_HOUR` | 否 | 发送小时（默认 `9`） |
 | `PROGRESS_DIGEST_MINUTE` | 否 | 发送分钟（默认 `0`） |
 | `PROGRESS_DIGEST_WEEKDAYS_ONLY` | 否 | 仅工作日推送（默认 `1`） |
-| `PROGRESS_DIGEST_LOOKBACK_HOURS` | 否 | 动态回看窗口小时数（默认 `24`） |
+| `PROGRESS_DIGEST_LOOKBACK_HOURS` | 否 | **已废弃**（动态改为 `PROGRESS_DIGEST_TIMEZONE` 前一自然日 00:00–24:00） |
 | `PROGRESS_DIGEST_MAX_TASK_LINES` | 否 | 列表截断行数（默认 `8`） |
-| `PROGRESS_DIGEST_LLM_ENABLED` | 否 | 是否用 qwen3.6-flash 总结 Markdown（默认 `1`） |
+| `PROGRESS_DIGEST_LLM_ENABLED` | 否 | 是否用 qwen3.6-flash 生成概览+后续建议（默认 `1`）；表格由代码渲染 |
 | `PROGRESS_DIGEST_LLM_MODEL` | 否 | 总结模型（默认 `qwen3.6-flash`） |
 | `PROGRESS_DIGEST_LLM_TIMEOUT_MS` | 否 | LLM 超时毫秒，超时走模板 fallback（默认 `8000`） |
 | `PROGRESS_DIGEST_LLM_MAX_TOKENS` | 否 | LLM 输出 token 上限（默认 `800`） |

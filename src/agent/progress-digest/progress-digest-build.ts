@@ -69,6 +69,10 @@ export async function buildProgressDigestMarkdown(input: {
     };
   }
 
+  let headlineOverride: string | undefined;
+  let suggestions: string[] | undefined;
+  let renderSource: "llm" | "template" = "template";
+
   const llmConfig = loadProgressDigestLlmConfig();
   if (llmConfig) {
     const llmOut = await summarizeProgressDigestWithLlm(
@@ -77,27 +81,22 @@ export async function buildProgressDigestMarkdown(input: {
       input.fetchImpl ?? fetch,
     );
     if (llmOut) {
-      let markdown = llmOut.markdown;
-      if (!markdown.includes("工作台")) {
-        markdown = `${markdown}\n\n> 详情请点击下方按钮打开工作台`;
-      }
-      return {
-        mode: "full",
-        subject: llmOut.subject,
-        markdown,
-        detailUrl,
-        renderSource: "llm",
-      };
+      headlineOverride = llmOut.headline;
+      suggestions = llmOut.suggestions;
+      renderSource = "llm";
     }
   }
 
-  const templated = renderProgressDigestTemplate(facts, input.policy.maxTaskLines);
+  const templated = renderProgressDigestTemplate(facts, input.policy.maxTaskLines, {
+    headlineOverride,
+    suggestions,
+  });
   return {
     mode: "full",
     subject: templated.subject,
     markdown: templated.markdown,
     detailUrl,
-    renderSource: "template",
+    renderSource,
   };
 }
 

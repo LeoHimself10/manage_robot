@@ -6,7 +6,7 @@ import {
 } from "../../web/workbench-attention";
 import { formatWorkbenchDateTime } from "../../web/workbench-datetime";
 import { parseDueAtMs } from "../reminders/due-at-parse";
-import { formatDateInTz } from "../reminders/reminder-policy";
+import { formatDateInTz, previousCalendarDayRangeInTz, type CalendarDayRange } from "../reminders/reminder-policy";
 import type { DigestAudience } from "./progress-digest-eligibility";
 import type { ProgressDigestPolicy } from "./progress-digest-policy";
 import { PROGRESS_DIGEST_EVENT_TYPES } from "./progress-digest-shared";
@@ -63,6 +63,7 @@ export type ProgressDigestFacts = {
   recipientDisplayName?: string;
   detailUrl: string;
   isBrief: boolean;
+  activityWindow: CalendarDayRange;
   core: ProgressDigestFactsCore;
   managerCore?: ProgressDigestFactsCore;
   employeeCore?: ProgressDigestFactsCore;
@@ -163,6 +164,7 @@ function buildRecentUpdates(
     userId: string;
     role: "manager" | "employee";
     sinceIso: string;
+    untilIso: string;
     timezone: string;
     limit: number;
     resolveName?: (uid: string) => string | undefined;
@@ -173,12 +175,14 @@ function buildRecentUpdates(
       ? taskStore.listTaskEventsForManagerSince({
           managerUserId: input.userId,
           sinceIso: input.sinceIso,
+          untilIso: input.untilIso,
           eventTypes: [...PROGRESS_DIGEST_EVENT_TYPES],
           limit: input.limit,
         })
       : taskStore.listTaskEventsForEmployeeSince({
           assigneeUserId: input.userId,
           sinceIso: input.sinceIso,
+          untilIso: input.untilIso,
           eventTypes: [...PROGRESS_DIGEST_EVENT_TYPES],
           limit: input.limit,
         });
@@ -202,11 +206,11 @@ function buildManagerCore(
   userId: string,
   policy: ProgressDigestPolicy,
   now: Date,
+  activityWindow: CalendarDayRange,
   resolveName?: (uid: string) => string | undefined,
 ): ProgressDigestFactsCore {
   const nowMs = now.getTime();
   const core = emptyCore();
-  const sinceIso = new Date(now.getTime() - policy.lookbackHours * 60 * 60 * 1000).toISOString();
 
   for (const t of taskStore.listManagerTasks(userId)) {
     const detail = taskStore.getTaskDetail(t.taskNo);
@@ -276,7 +280,8 @@ function buildManagerCore(
   core.recentUpdates = buildRecentUpdates(taskStore, {
     userId,
     role: "manager",
-    sinceIso,
+    sinceIso: activityWindow.sinceIso,
+    untilIso: activityWindow.untilIso,
     timezone: policy.timezone,
     limit: 5,
     resolveName,
@@ -289,11 +294,11 @@ function buildEmployeeCore(
   userId: string,
   policy: ProgressDigestPolicy,
   now: Date,
+  activityWindow: CalendarDayRange,
   resolveName?: (uid: string) => string | undefined,
 ): ProgressDigestFactsCore {
   const nowMs = now.getTime();
   const core = emptyCore();
-  const sinceIso = new Date(now.getTime() - policy.lookbackHours * 60 * 60 * 1000).toISOString();
 
   for (const s of taskStore.listEmployeeSubtasks(userId)) {
     const st = normStatus(String(s.status ?? ""));
@@ -340,7 +345,8 @@ function buildEmployeeCore(
   core.recentUpdates = buildRecentUpdates(taskStore, {
     userId,
     role: "employee",
-    sinceIso,
+    sinceIso: activityWindow.sinceIso,
+    untilIso: activityWindow.untilIso,
     timezone: policy.timezone,
     limit: 5,
     resolveName,
@@ -372,8 +378,17 @@ export function buildProgressDigestFacts(input: {
 }): ProgressDigestFacts {
   const now = input.now ?? new Date();
   const dateYmd = formatDateInTz(now.toISOString(), input.policy.timezone);
+  const activityWindow = previousCalendarDayRangeInTz(now, input.policy.timezone);
   const isBrief = !hasActiveWork(input.taskStore, input.userId, input.audience);
   const recipientDisplayName = input.resolveName?.(input.userId);
+
+  const baseFacts = {
+    dateYmd,
+    dateDisplay: formatDateDisplay(now, input.policy.timezone),
+    recipientDisplayName,
+    detailUrl: input.detailUrl,
+    activityWindow,
+  };
 
   if (input.audience === "combined") {
     const managerCore = buildManagerCore(
@@ -381,6 +396,7 @@ export function buildProgressDigestFacts(input: {
       input.userId,
       input.policy,
       now,
+      activityWindow,
       input.resolveName,
     );
     const employeeCore = buildEmployeeCore(
@@ -388,14 +404,12 @@ export function buildProgressDigestFacts(input: {
       input.userId,
       input.policy,
       now,
+      activityWindow,
       input.resolveName,
     );
     return {
-      dateYmd,
-      dateDisplay: formatDateDisplay(now, input.policy.timezone),
+      ...baseFacts,
       audience: input.audience,
-      recipientDisplayName,
-      detailUrl: input.detailUrl,
       isBrief,
       core: emptyCore(),
       managerCore,
@@ -405,15 +419,26 @@ export function buildProgressDigestFacts(input: {
 
   const core =
     input.audience === "manager"
-      ? buildManagerCore(input.taskStore, input.userId, input.policy, now, input.resolveName)
-      : buildEmployeeCore(input.taskStore, input.userId, input.policy, now, input.resolveName);
+      ? buildManagerCore(
+          input.taskStore,
+          input.userId,
+          input.policy,
+          now,
+          activityWindow,
+          input.resolveName,
+        )
+      : buildEmployeeCore(
+          input.taskStore,
+          input.userId,
+          input.policy,
+          now,
+          activityWindow,
+          input.resolveName,
+        );
 
   return {
-    dateYmd,
-    dateDisplay: formatDateDisplay(now, input.policy.timezone),
+    ...baseFacts,
     audience: input.audience,
-    recipientDisplayName,
-    detailUrl: input.detailUrl,
     isBrief,
     core,
   };

@@ -46,20 +46,21 @@
 
 ## 催办（Follow-up，v1）
 
-- **范围**：仅正式库 `IN_PROGRESS` / `BLOCKED` 且 `due_at` 可解析的子任务执行中逾期；`ASSIGNED` 承接超时留 Phase 1.5。
-- **双轨**：`FOLLOWUP_REMINDER_ENABLED=1` 时 scheduler 每日每子任务最多 1 次（`subtask_reminder_state` + 抢日）；主管对话/工作台手动催办不占 scheduler 配额、可同日多次（独立 `sourceId`）。
-- **工具**：`list_follow_up_candidates`（bucket: overdue/due_today/due_this_week/stale）、`send_subtask_reminder`（manager/admin）。
-- **Prompt**：第六模式 `FOLLOWUP`（`orchestrator-agent-v5.23.1`，`managerFollowup` 注入）；与 `QUERY` 只读查询区分。
-- **工作台**：`POST /api/workbench/manager/subtasks/remind`；主管任务详情子任务行「催办」按钮。
-- **Env**：`FOLLOWUP_REMINDER_ENABLED`、`FOLLOWUP_SCAN_INTERVAL_MS`、`FOLLOWUP_TIMEZONE`、`FOLLOWUP_TIER2_AFTER_OVERDUE_DAYS`、`FOLLOWUP_QUIET_HOURS`、`FOLLOWUP_MANUAL_LLM_*`（见 `docs/deploy-aliyun-dingtalk.md`）。
+- **范围**：正式库 `IN_PROGRESS` / `BLOCKED` 且 `due_at` 可解析；`ASSIGNED` 承接超时留 Phase 1.5。
+- **截止语义**：纯日期 `YYYY-MM-DD` 视为 **北京时间当天 18:00** 过期（`due-at-parse.ts`）；发布写入时归一化为 ISO。
+- **Scheduler 双轨**（`FOLLOWUP_REMINDER_ENABLED=1`，**仅工作日** `FOLLOWUP_WEEKDAYS_ONLY=1`）：
+  - **T-1 预提醒（员工）**：截止前一日 **10:00–10:05** 北京窗口，机器人 1:1 + 待办；每子任务每日最多 1 次。
+  - **逾期主管提醒**：截止后若仍执行中，向 `manager_user_id` 发 1 次机器人 1:1（每逾期周期 1 次，非每日重复）。
+- **手动催办**：主管对话/工作台 → 仅推**员工**（不占 scheduler 配额，可同日多次）。
+- **工具**：`list_follow_up_candidates`、`send_subtask_reminder`（manager/admin）。
+- **Env**：`FOLLOWUP_*` + `FOLLOWUP_PRE_DUE_HOUR`（默认 10）、`FOLLOWUP_WEEKDAYS_ONLY`（见 `docs/deploy-aliyun-dingtalk.md`）。**切勿水平扩容** `dingtalk-bot`（scheduler 单实例假设）。
 
 ## 每日进展推送（Progress Digest，v1）
 
-- **范围**：工作日定时（默认 9:00 `Asia/Shanghai`）向主管（`manager_user_id`）与员工（`assignee_user_id`）推送钉钉机器人 1:1 Markdown；内容含**状态汇总** + **过去 24h 动态**；无活跃任务时发简短确认。
-- **实现**：`src/agent/progress-digest/` + `progress_digest_state` 日去重；`dingtalk-bot` 启动 `createProgressDigestScheduler`（与催办 scheduler 并列，`PROGRESS_DIGEST_ENABLED=1` 时工作日 9:00 窗口扫描）；不写 `PlanSession` / `knownFacts`。
-- **与 FOLLOWUP 区别**：进展日报为全量快照/动态；逾期催办仅针对已逾期子任务且可含 todo/卡片。
-- **可读性**：先抽取结构化事实（`progress-digest-facts`），默认经 **qwen3.6-flash** 生成口语化 Markdown（`PROGRESS_DIGEST_LLM_*`）；失败/关闭时走确定性模板 fallback。LLM **不写** PlanSession。
-- **Env**：`PROGRESS_DIGEST_ENABLED`、`PROGRESS_DIGEST_SCAN_INTERVAL_MS`、`PROGRESS_DIGEST_TIMEZONE`、`PROGRESS_DIGEST_HOUR`、`PROGRESS_DIGEST_MINUTE`、`PROGRESS_DIGEST_WEEKDAYS_ONLY`、`PROGRESS_DIGEST_LOOKBACK_HOURS`、`PROGRESS_DIGEST_MAX_TASK_LINES`、`PROGRESS_DIGEST_LLM_ENABLED`、`PROGRESS_DIGEST_LLM_MODEL`、`PROGRESS_DIGEST_LLM_TIMEOUT_MS`、`PROGRESS_DIGEST_LLM_MAX_TOKENS`（见 `docs/deploy-aliyun-dingtalk.md`）。
+- **范围**：**工作日** 9:00 北京窗口向主管/员工推送；周末不发（`PROGRESS_DIGEST_WEEKDAYS_ONLY=1`）。
+- **内容**：代码渲染 **GFM 表格**（需您处理 / 正常推进 / 昨日动态）；**qwen3.6-flash** 仅生成「今日概览」1–2 句 + 「后续建议」1–3 条（`PROGRESS_DIGEST_LLM_*`）；LLM 失败则仅表格模板。
+- **实现**：`src/agent/progress-digest/` + `progress_digest_state` 日去重；与催办 scheduler 并列启动。
+- **Env**：`PROGRESS_DIGEST_*`（见 `docs/deploy-aliyun-dingtalk.md`）。
 
 ## 承接指派阶段（v0.2 MVP）
 

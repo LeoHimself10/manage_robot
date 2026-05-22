@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProgressDigestFacts } from "../../../src/agent/progress-digest/progress-digest-facts";
 import {
   loadProgressDigestLlmConfig,
+  slimFactsForLlm,
   summarizeProgressDigestWithLlm,
 } from "../../../src/agent/progress-digest/progress-digest-llm";
 
@@ -11,6 +12,12 @@ const sampleFacts: ProgressDigestFacts = {
   audience: "manager",
   detailUrl: "https://example.com/workbench/manager/tasks",
   isBrief: false,
+  activityWindow: {
+    sinceIso: "2026-05-19T16:00:00.000Z",
+    untilIso: "2026-05-20T16:00:00.000Z",
+    labelYmd: "2026-05-20",
+    labelDisplay: "5月20日",
+  },
   core: {
     summary: {
       needsYouCount: 1,
@@ -46,7 +53,12 @@ describe("progress-digest-llm", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns parsed subject and markdown on success", async () => {
+  it("slimFactsForLlm omits userId fields", () => {
+    const slim = slimFactsForLlm(sampleFacts);
+    expect(JSON.stringify(slim)).not.toContain("userId");
+  });
+
+  it("returns parsed headline and suggestions on success", async () => {
     const config = loadProgressDigestLlmConfig()!;
     const fetchImpl = vi.fn(async () =>
       Response.json({
@@ -54,8 +66,8 @@ describe("progress-digest-llm", () => {
           {
             message: {
               content: JSON.stringify({
-                subject: "今日任务 · 1项需您处理",
-                markdown: "### 今日任务一览 · 5月21日\n\n**有 1 项需要您处理。**",
+                headline: "有 1 项需要您处理。",
+                suggestions: ["优先处理已拒绝子任务"],
               }),
             },
           },
@@ -64,12 +76,9 @@ describe("progress-digest-llm", () => {
     ) as unknown as typeof fetch;
 
     const out = await summarizeProgressDigestWithLlm(sampleFacts, config, fetchImpl);
-    expect(out?.subject).toBe("今日任务 · 1项需您处理");
-    expect(out?.markdown).toContain("今日任务一览");
+    expect(out?.headline).toContain("需要您处理");
+    expect(out?.suggestions).toEqual(["优先处理已拒绝子任务"]);
     expect(fetchImpl).toHaveBeenCalledOnce();
-    const body = JSON.parse(String((fetchImpl.mock.calls[0]?.[1] as RequestInit)?.body));
-    expect(body.enable_thinking).toBe(false);
-    expect(body.model).toBe("qwen3.6-flash");
   });
 
   it("returns null on timeout", async () => {

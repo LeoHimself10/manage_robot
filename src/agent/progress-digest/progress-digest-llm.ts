@@ -1,7 +1,6 @@
 import { logStructured } from "../../infra/logger";
-import type { ProgressDigestFacts } from "./progress-digest-facts";
-import { PROGRESS_DIGEST_MARKDOWN_MAX } from "./progress-digest-shared";
-import { buildDigestSubject } from "./progress-digest-templates";
+import type { ProgressDigestFacts, ProgressDigestFactsCore } from "./progress-digest-facts";
+import { buildDigestSubject, renderHeadline } from "./progress-digest-templates";
 
 export interface ProgressDigestLlmConfig {
   enabled: boolean;
@@ -10,6 +9,11 @@ export interface ProgressDigestLlmConfig {
   maxTokens: number;
   baseUrl: string;
   apiKey: string;
+}
+
+export interface ProgressDigestLlmSummary {
+  headline: string;
+  suggestions: string[];
 }
 
 function env(name: string): string {
@@ -40,28 +44,66 @@ export function loadProgressDigestLlmConfig(): ProgressDigestLlmConfig | undefin
   };
 }
 
-const SYSTEM_PROMPT = `你是企业内部任务助手，负责把 JSON 事实包改写成钉钉 ActionCard 可读的 Markdown 日报。
+function slimCore(core: ProgressDigestFactsCore) {
+  return {
+    summary: core.summary,
+    needsAttention: core.needsAttention.slice(0, 8).map((item) => ({
+      taskTitle: item.taskTitle,
+      subtaskTitle: item.subtaskTitle,
+      assigneeNames: item.assigneeNames,
+      assigneeName: item.assigneeName,
+      statusLabel: item.statusLabel,
+      dueLabel: item.dueLabel,
+      reasonHint: item.reasonHint,
+      overdue: item.overdue,
+    })),
+    inProgressCount: core.inProgress.length,
+    recentUpdateCount: core.recentUpdates.length,
+  };
+}
+
+export function slimFactsForLlm(facts: ProgressDigestFacts): Record<string, unknown> {
+  return {
+    dateDisplay: facts.dateDisplay,
+    audience: facts.audience,
+    activityWindow: facts.activityWindow,
+    core: slimCore(facts.core),
+    managerCore: facts.managerCore ? slimCore(facts.managerCore) : undefined,
+    employeeCore: facts.employeeCore ? slimCore(facts.employeeCore) : undefined,
+  };
+}
+
+const SYSTEM_PROMPT = `你是企业内部任务助手。根据 JSON 事实包，只输出一个 JSON 对象：
+{"headline":"...","suggestions":["..."]}
 
 规则：
-- 只输出一个 JSON 对象：{"subject":"...","markdown":"..."}
-- markdown 使用 ### / #### 标题、- 列表、**强调**；禁止 HTML
-- 禁止出现 userId、subtaskId、英文 event 名、TASK- 编号开头的行
-- 任务标题放前面；编号若出现只能放在括号内
-- 必须包含：一句话总结、需您处理（可写暂无）、正常推进（可写暂无）、最近更新（过去 24 小时，可写暂无）
-- 总长不超过 3200 字符
-- 只使用 JSON 里已有事实，禁止编造`;
+- headline：1-2 句中文概览，不超过 120 字
+- suggestions：1-3 条后续工作建议，每条不超过 40 字；须能从 JSON 推出（逾期跟进、待承接、阻塞协调等）
+- 禁止编造 JSON 中不存在的任务/人员
+- 禁止出现 userId、subtaskId、TASK- 编号
+- 只输出 JSON，不要 markdown 表格`;
 
-function parseLlmJson(raw: string): { subject: string; markdown: string } | null {
+function clipSuggestion(raw: string): string {
+  const t = String(raw ?? "").trim();
+  if (t.length <= 40) return t;
+  return `${t.slice(0, 39)}…`;
+}
+
+function parseLlmJson(raw: string): ProgressDigestLlmSummary | null {
   const trimmed = raw.trim();
   const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
   if (!jsonMatch) return null;
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as { subject?: string; markdown?: string };
-    const subject = String(parsed.subject ?? "").trim();
-    const markdown = String(parsed.markdown ?? "").trim();
-    if (!subject || !markdown) return null;
-    if (markdown.length > PROGRESS_DIGEST_MARKDOWN_MAX) return null;
-    return { subject, markdown };
+    const parsed = JSON.parse(jsonMatch[0]) as { headline?: string; suggestions?: unknown };
+    const headline = String(parsed.headline ?? "").trim();
+    if (!headline) return null;
+    const suggestions = Array.isArray(parsed.suggestions)
+      ? parsed.suggestions
+          .map((s) => clipSuggestion(String(s ?? "")))
+          .filter(Boolean)
+          .slice(0, 3)
+      : [];
+    return { headline, suggestions };
   } catch {
     return null;
   }
@@ -71,7 +113,7 @@ export async function summarizeProgressDigestWithLlm(
   facts: ProgressDigestFacts,
   config: ProgressDigestLlmConfig,
   fetchImpl: typeof fetch = fetch,
-): Promise<{ subject: string; markdown: string } | null> {
+): Promise<ProgressDigestLlmSummary | null> {
   if (!config.enabled) return null;
 
   const audienceHint =
@@ -79,9 +121,9 @@ export async function summarizeProgressDigestWithLlm(
       ? "读者是任务主管"
       : facts.audience === "employee"
         ? "读者是任务执行员工"
-        : "读者兼主管与员工，请分「我主管的任务」「我负责的任务」两节";
+        : "读者兼主管与员工";
 
-  const userContent = `${audienceHint}。请基于以下 JSON 生成日报：\n${JSON.stringify(facts)}`;
+  const userContent = `${audienceHint}。请基于以下 JSON 生成 headline 与 suggestions：\n${JSON.stringify(slimFactsForLlm(facts))}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -135,13 +177,12 @@ export async function summarizeProgressDigestWithLlm(
     logStructured({
       event: "progress_digest_llm_ok",
       model: config.model,
-      chars: parsed.markdown.length,
+      suggestionCount: parsed.suggestions.length,
       durationMs: Date.now() - startedAt,
     });
     return parsed;
   } catch (err) {
-    const reason =
-      err instanceof Error && err.name === "AbortError" ? "timeout" : "error";
+    const reason = err instanceof Error && err.name === "AbortError" ? "timeout" : "error";
     logStructured({
       event: "progress_digest_llm_fallback",
       reason,
@@ -154,7 +195,14 @@ export async function summarizeProgressDigestWithLlm(
   }
 }
 
-/** Subject fallback when LLM returns markdown-only (should not happen with JSON contract). */
+export function defaultDigestHeadline(facts: ProgressDigestFacts): string {
+  if (facts.audience === "combined" && facts.managerCore && facts.employeeCore) {
+    return `${renderHeadline(facts.managerCore, "manager")} ${renderHeadline(facts.employeeCore, "employee")}`.trim();
+  }
+  const role = facts.audience === "employee" ? "employee" : "manager";
+  return renderHeadline(facts.core, role);
+}
+
 export function defaultDigestSubject(facts: ProgressDigestFacts): string {
   return buildDigestSubject(facts);
 }

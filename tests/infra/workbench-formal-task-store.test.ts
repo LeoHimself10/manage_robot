@@ -60,7 +60,7 @@ describe("workbench-formal-task-store mapping", () => {
     });
     expect(published.subtasks).toHaveLength(1);
     expect(published.subtasks[0].subtaskId).toContain("draft-task-a");
-    expect(published.subtasks[0].dueAt).toBe("2026-06-01");
+    expect(published.subtasks[0].dueAt).toBe("2026-06-01T10:00:00.000Z");
     expect(published.subtasks[0].sourceTaskKey).toBe("draft-task-a");
   });
 

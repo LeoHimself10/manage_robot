@@ -13,6 +13,12 @@ function sampleFacts(overrides: Partial<ProgressDigestFacts> = {}): ProgressDige
     audience: "manager",
     detailUrl: "https://example.com/workbench/manager/tasks",
     isBrief: false,
+    activityWindow: {
+      sinceIso: "2026-05-19T16:00:00.000Z",
+      untilIso: "2026-05-20T16:00:00.000Z",
+      labelYmd: "2026-05-20",
+      labelDisplay: "5月20日",
+    },
     core: {
       summary: {
         needsYouCount: 1,
@@ -59,15 +65,25 @@ describe("progress-digest-templates", () => {
     expect(buildDigestSubject(sampleFacts())).toBe("今日任务 · 1项需您处理");
   });
 
-  it("renderProgressDigestTemplate uses readable sections not TASK- prefix lines", () => {
+  it("renderProgressDigestTemplate uses pipe tables and section headers", () => {
     const { markdown } = renderProgressDigestTemplate(sampleFacts());
     expect(markdown).toContain("### 今日任务一览");
-    expect(markdown).toContain("**需您处理**");
-    expect(markdown).toContain("**产线异常调查**");
-    expect(markdown).toContain("**正常推进**");
-    expect(markdown).toContain("**最近更新**");
-    expect(markdown).toContain("09:32 杨贺新提交进度");
-    expect(markdown).not.toMatch(/^- \[TASK-/m);
+    expect(markdown).toContain("### 今日概览");
+    expect(markdown).toContain("### 需您处理");
+    expect(markdown).toContain("| 任务 | 子任务 | 负责人 | 状态 | 截止 | 备注 |");
+    expect(markdown).toContain("产线异常调查");
+    expect(markdown).toContain("### 正常推进");
+    expect(markdown).toContain("### 昨日动态（5月20日）");
+    expect(markdown).toContain("| 09:32 | 杨贺新 |");
+    expect(markdown).not.toContain("过去 24 小时");
+  });
+
+  it("includes suggestions section when provided", () => {
+    const { markdown } = renderProgressDigestTemplate(sampleFacts(), 8, {
+      suggestions: ["优先跟进已逾期项"],
+    });
+    expect(markdown).toContain("### 后续建议");
+    expect(markdown).toContain("优先跟进已逾期项");
   });
 
   it("renderBriefDigestTemplate is friendly empty state", () => {

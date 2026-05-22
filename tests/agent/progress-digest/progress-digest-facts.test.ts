@@ -7,6 +7,7 @@ import { createPlanSessionStore } from "../../../src/infra/plan-session-store";
 import { buildProgressDigestFacts } from "../../../src/agent/progress-digest/progress-digest-facts";
 import { loadProgressDigestPolicy } from "../../../src/agent/progress-digest/progress-digest-policy";
 import { resolveDigestDetailUrl } from "../../../src/agent/progress-digest/progress-digest-build";
+import { previousCalendarDayRangeInTz } from "../../../src/agent/reminders/reminder-policy";
 
 describe("progress-digest-facts", () => {
   let sqlitePath = "";
@@ -89,6 +90,7 @@ describe("progress-digest-facts", () => {
     expect(facts.core.summary.waitingAcceptCount).toBe(1);
     expect(facts.core.inProgress.length).toBeGreaterThan(0);
     expect(facts.core.inProgress[0]?.assigneeName).toBe("杨贺新");
+    expect(facts.activityWindow.labelYmd).toBeTruthy();
   });
 
   it("employee facts bucket blocked into needsAttention", () => {
@@ -114,13 +116,15 @@ describe("progress-digest-facts", () => {
 
   it("recentUpdates use actionLabel not event_type", () => {
     const { store, detail, subtaskId, managerUserId, assigneeUserId } = seedTask();
+    const now = new Date("2026-05-21T06:00:00.000Z");
+    const window = previousCalendarDayRangeInTz(now, "Asia/Shanghai");
     store.appendTaskEvent({
       taskId: detail.task.taskId,
       subtaskId,
       eventType: "SUBTASK_PROGRESS",
       actorUserId: assigneeUserId,
       note: "已完成采样",
-      occurredAt: new Date().toISOString(),
+      occurredAt: new Date(new Date(window.sinceIso).getTime() + 3600_000).toISOString(),
     });
     const policy = loadProgressDigestPolicy();
     const facts = buildProgressDigestFacts({
@@ -129,10 +133,44 @@ describe("progress-digest-facts", () => {
       audience: "manager",
       policy,
       detailUrl: resolveDigestDetailUrl("manager"),
+      now,
       resolveName: (uid) => (uid === assigneeUserId ? "杨贺新" : undefined),
     });
     expect(facts.core.recentUpdates[0]?.actionLabel).toBe("提交进度");
     expect(facts.core.recentUpdates[0]?.actorName).toBe("杨贺新");
     expect(JSON.stringify(facts.core.recentUpdates)).not.toContain("SUBTASK_PROGRESS");
+  });
+
+  it("excludes events outside previous calendar day window", () => {
+    const { store, detail, subtaskId, managerUserId, assigneeUserId } = seedTask();
+    const now = new Date("2026-05-21T06:00:00.000Z");
+    const window = previousCalendarDayRangeInTz(now, "Asia/Shanghai");
+    store.appendTaskEvent({
+      taskId: detail.task.taskId,
+      subtaskId,
+      eventType: "SUBTASK_PROGRESS",
+      actorUserId: assigneeUserId,
+      note: "昨日事件",
+      occurredAt: new Date(new Date(window.sinceIso).getTime() + 3600_000).toISOString(),
+    });
+    store.appendTaskEvent({
+      taskId: detail.task.taskId,
+      subtaskId,
+      eventType: "SUBTASK_PROGRESS",
+      actorUserId: assigneeUserId,
+      note: "今日事件",
+      occurredAt: window.untilIso,
+    });
+    const policy = loadProgressDigestPolicy();
+    const facts = buildProgressDigestFacts({
+      taskStore: store,
+      userId: managerUserId,
+      audience: "manager",
+      policy,
+      detailUrl: resolveDigestDetailUrl("manager"),
+      now,
+    });
+    expect(facts.core.recentUpdates).toHaveLength(1);
+    expect(facts.core.recentUpdates[0]?.note).toBe("昨日事件");
   });
 });

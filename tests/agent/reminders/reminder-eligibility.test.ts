@@ -6,7 +6,8 @@ import { createWorkbenchFormalTaskStore } from "../../../src/infra/workbench-for
 import { createPlanSessionStore } from "../../../src/infra/plan-session-store";
 import {
   listFollowUpCandidatesForActor,
-  listSchedulerEligibleReminders,
+  listManagerOverdueAlerts,
+  listPreDueEmployeeReminders,
 } from "../../../src/agent/reminders/reminder-eligibility";
 import { loadReminderPolicy } from "../../../src/agent/reminders/reminder-policy";
 
@@ -22,6 +23,10 @@ describe("reminder-eligibility", () => {
     process.env.PLAN_SESSION_DIR = sessionDir;
     process.env.FOLLOWUP_REMINDER_ENABLED = "1";
     process.env.FOLLOWUP_QUIET_HOURS = "";
+    process.env.FOLLOWUP_WEEKDAYS_ONLY = "1";
+    process.env.FOLLOWUP_PRE_DUE_HOUR = "10";
+    process.env.FOLLOWUP_PRE_DUE_MINUTE = "0";
+    process.env.FOLLOWUP_SCAN_INTERVAL_MS = "300000";
   });
 
   afterEach(() => {
@@ -29,14 +34,17 @@ describe("reminder-eligibility", () => {
     delete process.env.PLAN_SESSION_DIR;
     delete process.env.FOLLOWUP_REMINDER_ENABLED;
     delete process.env.FOLLOWUP_QUIET_HOURS;
+    delete process.env.FOLLOWUP_WEEKDAYS_ONLY;
+    delete process.env.FOLLOWUP_PRE_DUE_HOUR;
+    delete process.env.FOLLOWUP_PRE_DUE_MINUTE;
+    delete process.env.FOLLOWUP_SCAN_INTERVAL_MS;
   });
 
-  function seedPublishedOverdue() {
+  function seedPublishedWithDue(dueAt: string) {
     const planSessionStore = createPlanSessionStore();
     const chatKeyHash = "reminder-seed";
     const now = new Date().toISOString();
     const planId = "plan-reminder-1";
-    const pastDue = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
     planSessionStore.save({
       chatKeyHash,
       planId,
@@ -55,7 +63,7 @@ describe("reminder-eligibility", () => {
             objective: "o",
             deliverables: "d",
             completionCriteria: "c",
-            timeNode: { dueAt: pastDue, checkpoints: [] },
+            timeNode: { dueAt, checkpoints: [] },
             feedbackFrequency: "每日",
           },
         ],
@@ -78,20 +86,46 @@ describe("reminder-eligibility", () => {
     return { store, sid, detail };
   }
 
-  it("lists overdue IN_PROGRESS for scheduler", () => {
-    const { store } = seedPublishedOverdue();
-    const eligible = listSchedulerEligibleReminders(
+  it("lists pre-due reminders on T-1 at 10:00 Beijing window", () => {
+    const { store } = seedPublishedWithDue("2026-05-22");
+    const policy = loadReminderPolicy();
+    const eligible = listPreDueEmployeeReminders(
       store,
-      new Date("2026-05-20T12:00:00.000Z"),
+      new Date("2026-05-21T02:02:00.000Z"),
+      policy,
+    );
+    expect(eligible.length).toBe(1);
+    expect(eligible[0]?.assigneeUserId).toBe("emp-1");
+  });
+
+  it("skips pre-due on weekends", () => {
+    const { store } = seedPublishedWithDue("2026-05-25");
+    const policy = loadReminderPolicy();
+    const eligible = listPreDueEmployeeReminders(
+      store,
+      new Date("2026-05-24T02:02:00.000Z"),
+      policy,
+    );
+    expect(eligible.length).toBe(0);
+  });
+
+  it("lists manager overdue alerts after due instant", () => {
+    const { store } = seedPublishedWithDue("2026-05-20");
+    const eligible = listManagerOverdueAlerts(
+      store,
+      new Date("2026-05-21T12:00:00.000Z"),
       loadReminderPolicy(),
     );
     expect(eligible.length).toBeGreaterThanOrEqual(1);
-    expect(["day1", "day2plus"]).toContain(eligible[0]?.tier);
+    expect(eligible[0]?.managerUserId).toBe("mgr-1");
   });
 
   it("listFollowUpCandidates filters by manager", () => {
-    const { store } = seedPublishedOverdue();
-    const mgr = listFollowUpCandidatesForActor(store, "mgr-1", { bucket: "overdue" });
+    const { store } = seedPublishedWithDue("2026-05-20");
+    const mgr = listFollowUpCandidatesForActor(store, "mgr-1", {
+      bucket: "overdue",
+      now: new Date("2026-05-21T12:00:00.000Z"),
+    });
     expect(mgr.length).toBeGreaterThanOrEqual(1);
     const other = listFollowUpCandidatesForActor(store, "other-mgr", { bucket: "overdue" });
     expect(other.length).toBe(0);

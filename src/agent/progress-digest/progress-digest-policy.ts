@@ -5,6 +5,7 @@ export interface ProgressDigestPolicy {
   digestHour: number;
   digestMinute: number;
   weekdaysOnly: boolean;
+  /** @deprecated No longer used for activity window; dynamic section uses previous calendar day in timezone. */
   lookbackHours: number;
   maxTaskLines: number;
 }
