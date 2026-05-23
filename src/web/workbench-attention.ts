@@ -5,14 +5,16 @@ export type ManagerAttentionBucket =
   | "waiting_employee"
   | "employee_running"
   | "blocked"
-  | "done";
+  | "done"
+  | "stopped";
 
 export type ManagerAttentionLabel =
   | "待您处理"
   | "待员工承接"
   | "员工执行中"
   | "阻塞中"
-  | "已完成";
+  | "已完成"
+  | "已停止";
 
 export type SubtaskBreakdown = {
   needsManager: number;
@@ -21,6 +23,7 @@ export type SubtaskBreakdown = {
   blocked: number;
   done: number;
   rejected: number;
+  stopped: number;
 };
 
 export type SubtaskAttentionInput = {
@@ -50,11 +53,16 @@ export function computeSubtaskBreakdown(subtasks: SubtaskAttentionInput[]): Subt
     blocked: 0,
     done: 0,
     rejected: 0,
+    stopped: 0,
   };
   for (const s of subtasks) {
     const st = normStatus(s.status);
     if (st === "DONE") {
       b.done += 1;
+      continue;
+    }
+    if (st === "STOPPED") {
+      b.stopped += 1;
       continue;
     }
     if (st === "BLOCKED") b.blocked += 1;
@@ -84,6 +92,20 @@ export function deriveManagerAttentionLabel(subtasks: SubtaskAttentionInput[]): 
       breakdown,
       openManagerSubtaskCount,
       attentionHint: "",
+    };
+  }
+
+  if (
+    subtasks.length > 0
+    && breakdown.stopped > 0
+    && breakdown.done + breakdown.stopped === subtasks.length
+  ) {
+    return {
+      attentionLabel: "已停止",
+      attentionBucket: "stopped",
+      breakdown,
+      openManagerSubtaskCount: 0,
+      attentionHint: breakdown.done > 0 ? `已停止 · 已完成 ${breakdown.done}` : "任务已停止",
     };
   }
 
@@ -136,6 +158,7 @@ export function attentionBucketRank(bucket: ManagerAttentionBucket): number {
   if (bucket === "blocked") return 1;
   if (bucket === "waiting_employee") return 2;
   if (bucket === "employee_running") return 3;
+  if (bucket === "stopped") return 5;
   return 4;
 }
 
@@ -144,15 +167,17 @@ export function attentionBadgeClass(bucket: ManagerAttentionBucket): string {
   if (bucket === "blocked") return "blocked";
   if (bucket === "waiting_employee") return "assigned";
   if (bucket === "employee_running") return "progress";
+  if (bucket === "stopped") return "stopped";
   return "done";
 }
 
 /** Manager detail subtask filter chip bucket. */
 export function managerSubtaskFilterBucket(
   s: SubtaskAttentionInput,
-): "needs_manager" | "waiting_employee" | "in_progress" | "done" {
+): "needs_manager" | "waiting_employee" | "in_progress" | "done" | "stopped" {
   const st = normStatus(s.status);
   if (st === "DONE") return "done";
+  if (st === "STOPPED") return "stopped";
   if (subtaskNeedsManagerAction(s)) return "needs_manager";
   if (st === "ASSIGNED") return "waiting_employee";
   return "in_progress";

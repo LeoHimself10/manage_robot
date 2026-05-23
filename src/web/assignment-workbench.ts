@@ -590,7 +590,9 @@ function taskStatusLabel(status: string): string {
   if (s === "IN_PROGRESS") return "进行中";
   if (s === "BLOCKED") return "阻塞中";
   if (s === "DONE") return "已完成";
-  return "已拒绝";
+  if (s === "STOPPED") return "已停止";
+  if (s === "REJECTED") return "已拒绝";
+  return "—";
 }
 
 /** Test-only export for status label mapping (legacy ACCEPTED → 进行中). */
@@ -988,6 +990,34 @@ export function renderTaskDetailPage(params: {
     <h3 style="margin:0 0 10px;">子任务</h3>
     <div id="subtasksMount" class="muted">加载中…</div>
   </div>
+  <div class="card" id="addSubtaskCard" style="display:none;">
+    <h3 style="margin:0 0 8px;">新增子任务</h3>
+    <p class="muted" style="font-size:13px;margin:0 0 12px;">向已发布任务追加子任务并通知新负责人。</p>
+    <div class="form-stack">
+      <label>标题<span class="mgr-req">（必填）</span>
+        <input id="addSubtaskTitle" type="text" maxlength="200" placeholder="子任务做什么" style="width:100%;" />
+      </label>
+      <label>负责人<span class="mgr-req">（必填）</span>
+        <input id="addSubtaskAssigneeInput" type="search" autocomplete="off" placeholder="至少输入 2 个字符" style="width:100%;" />
+        <input id="addSubtaskAssigneeUserId" type="hidden" value="" />
+        <ul id="addSubtaskAssigneeOptions" class="combo-options" hidden></ul>
+      </label>
+      <label>截止日期（可选）
+        <input id="addSubtaskDueAt" type="date" style="width:100%;" />
+      </label>
+      <label>完成标准（可选）
+        <textarea id="addSubtaskCriteria" rows="2" placeholder="如何验收完成"></textarea>
+      </label>
+      <label>目标说明（可选）
+        <textarea id="addSubtaskObjective" rows="2"></textarea>
+      </label>
+      <label id="addSubtaskConfirmWrap" style="display:none;align-items:center;gap:8px;">
+        <input type="checkbox" id="addSubtaskConfirm" /> 确认新增子任务
+      </label>
+      <button type="button" class="btn btn-primary" id="addSubtaskBtn">保存子任务</button>
+      <div class="feedback muted" id="addSubtaskFeedback"></div>
+    </div>
+  </div>
   <div class="card">
     <h3 style="margin:0 0 10px;">${params.roleLabel === "employee" ? "关键节点" : "事件"}</h3>
     <div id="eventsMount" class="muted">加载中…</div>
@@ -1003,7 +1033,9 @@ export function renderTaskDetailPage(params: {
   var KEY_EVENT_TYPES = ${JSON.stringify([...EMPLOYEE_KEY_EVENT_TYPES])};
   var lastLoadedPlanId = '';
   var detailReassignComboBound = false;
+  var addSubtaskComboBound = false;
   var mgrRowHandlersBound = false;
+  var taskActionHandlersBound = false;
   var lastSubsForReassign = [];
   function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   function cssEscAttr(v){
@@ -1019,6 +1051,7 @@ export function renderTaskDetailPage(params: {
   function subBadgeClass(st){
     if (st === 'BLOCKED') return 'blocked';
     if (st === 'DONE') return 'done';
+    if (st === 'STOPPED') return 'stopped';
     if (st === 'ASSIGNED') return 'assigned';
     if (st === 'CHANGES_REQUESTED') return 'pending';
     if (st === 'REJECTED') return 'rejected';
@@ -1058,6 +1091,7 @@ export function renderTaskDetailPage(params: {
     sel.innerHTML = '<option value="">整单未完成子任务（全部改派）</option>';
     (subs || []).forEach(function (s) {
       if (String(s.status || '') === 'DONE') return;
+      if (String(s.status || '') === 'STOPPED') return;
       var o = document.createElement('option');
       o.value = s.subtaskId || '';
       o.textContent = (s.orderIndex ? ('#' + s.orderIndex + ' ') : '') + (s.title || s.subtaskId || '');
@@ -1203,6 +1237,160 @@ export function renderTaskDetailPage(params: {
         });
       }
     }
+  }
+  function setAddSubtaskFb(msg, cls) {
+    var el = document.getElementById('addSubtaskFeedback');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.className = 'feedback ' + (cls || 'muted');
+  }
+  function initAddSubtaskForm() {
+    var cw = document.getElementById('addSubtaskConfirmWrap');
+    var confirmCb = document.getElementById('addSubtaskConfirm');
+    if (ENFORCE_GUARDS) {
+      if (cw) cw.style.display = 'flex';
+      if (confirmCb) confirmCb.checked = false;
+    } else if (cw) {
+      cw.style.display = 'none';
+    }
+    setAddSubtaskFb('', 'muted');
+    if (addSubtaskComboBound) return;
+    addSubtaskComboBound = true;
+    var inp = document.getElementById('addSubtaskAssigneeInput');
+    var hid = document.getElementById('addSubtaskAssigneeUserId');
+    var ul = document.getElementById('addSubtaskAssigneeOptions');
+    var btn = document.getElementById('addSubtaskBtn');
+    if (inp && ul) {
+      inp.addEventListener('input', function () {
+        if (hid) hid.value = '';
+        var q = String(inp.value || '').trim();
+        if (q.length < 2) { ul.hidden = true; ul.innerHTML = ''; return; }
+        var path = ROLE === 'admin'
+          ? '/api/workbench/admin/employees?keyword=' + encodeURIComponent(q)
+          : '/api/workbench/manager/contacts?keyword=' + encodeURIComponent(q);
+        void fetch(path, { cache: 'no-store' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var items = ROLE === 'admin' ? (data && data.employees) || [] : (data && data.contacts) || [];
+            if (!items.length) { ul.hidden = true; ul.innerHTML = ''; return; }
+            ul.innerHTML = items.map(function (c) {
+              return '<li data-uid="' + esc(c.userId || '') + '" data-name="' + esc(c.name || c.userId || '') + '">' + esc(c.name || c.userId || '') + '</li>';
+            }).join('');
+            ul.hidden = false;
+          })
+          .catch(function () { ul.hidden = true; });
+      });
+      ul.addEventListener('click', function (ev) {
+        var li = ev.target && ev.target.closest ? ev.target.closest('li[data-uid]') : null;
+        if (!li) return;
+        if (inp) inp.value = String(li.getAttribute('data-name') || '');
+        if (hid) hid.value = String(li.getAttribute('data-uid') || '');
+        ul.hidden = true;
+      });
+    }
+    if (btn) {
+      btn.addEventListener('click', function () {
+        void (async function () {
+          var title = String(document.getElementById('addSubtaskTitle')?.value || '').trim();
+          var assigneeUserId = String(document.getElementById('addSubtaskAssigneeUserId')?.value || '').trim();
+          var dueAt = String(document.getElementById('addSubtaskDueAt')?.value || '').trim();
+          var completionCriteria = String(document.getElementById('addSubtaskCriteria')?.value || '').trim();
+          var objective = String(document.getElementById('addSubtaskObjective')?.value || '').trim();
+          if (!lastLoadedPlanId) { setAddSubtaskFb('缺少 planId', 'err'); return; }
+          if (!title) { setAddSubtaskFb('请填写标题', 'err'); return; }
+          if (!assigneeUserId) { setAddSubtaskFb('请选择负责人', 'err'); return; }
+          if (ENFORCE_GUARDS && !document.getElementById('addSubtaskConfirm')?.checked) {
+            setAddSubtaskFb('请勾选确认', 'err'); return;
+          }
+          var payload = { planId: lastLoadedPlanId, title: title, assigneeUserId: assigneeUserId };
+          if (dueAt) payload.dueAt = dueAt;
+          if (completionCriteria) payload.completionCriteria = completionCriteria;
+          if (objective) payload.objective = objective;
+          if (ENFORCE_GUARDS) { payload.confirm = true; payload.idempotencyKey = newMgrIdem(); }
+          btn.disabled = true;
+          setAddSubtaskFb('提交中…', 'muted');
+          try {
+            var res = await fetch('/api/workbench/manager/subtasks', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            var data = await res.json().catch(function () { return {}; });
+            if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+            setAddSubtaskFb('子任务已添加，正在刷新…', 'ok');
+            await load();
+          } catch (eAdd) {
+            setAddSubtaskFb(String(eAdd && eAdd.message ? eAdd.message : eAdd), 'err');
+          } finally {
+            btn.disabled = false;
+          }
+        })();
+      });
+    }
+  }
+  function ensureTaskActionHandlers() {
+    if (taskActionHandlersBound) return;
+    taskActionHandlersBound = true;
+    document.body.addEventListener('click', function (ev) {
+      var el = ev.target;
+      if (!el || !el.closest) return;
+      var stopToggle = el.closest('[data-task-stop-toggle]');
+      if (stopToggle) {
+        ev.preventDefault();
+        var panel = document.querySelector('[data-task-panel="stop"]');
+        if (panel) panel.hidden = !panel.hidden;
+        return;
+      }
+      var stopCancel = el.closest('[data-task-stop-cancel]');
+      if (stopCancel) {
+        ev.preventDefault();
+        var panelC = document.querySelector('[data-task-panel="stop"]');
+        if (panelC) panelC.hidden = true;
+        return;
+      }
+      var stopSubmit = el.closest('[data-task-stop-submit]');
+      if (stopSubmit) {
+        ev.preventDefault();
+        void (async function () {
+          if (!lastLoadedPlanId) return;
+          var noteEl = document.querySelector('[data-task-field="stop-note"]');
+          var note = noteEl ? String(noteEl.value || '').trim() : '';
+          if (!note) {
+            var fb = document.querySelector('[data-task-fb="stop"]');
+            if (fb) { fb.textContent = '请填写停止原因'; fb.className = 'feedback err'; }
+            return;
+          }
+          if (ENFORCE_GUARDS) {
+            var cb = document.querySelector('[data-task-field="stop-confirm"]');
+            if (cb && !cb.checked) {
+              var fb2 = document.querySelector('[data-task-fb="stop"]');
+              if (fb2) { fb2.textContent = '请勾选确认'; fb2.className = 'feedback err'; }
+              return;
+            }
+          }
+          stopSubmit.disabled = true;
+          var fb3 = document.querySelector('[data-task-fb="stop"]');
+          if (fb3) { fb3.textContent = '提交中…'; fb3.className = 'feedback muted'; }
+          try {
+            var payload = { planId: lastLoadedPlanId, note: note };
+            if (ENFORCE_GUARDS) { payload.confirm = true; payload.idempotencyKey = newMgrIdem(); }
+            var res = await fetch('/api/workbench/manager/tasks/stop', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            var data = await res.json().catch(function () { return {}; });
+            if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+            if (fb3) { fb3.textContent = data.alreadyStopped ? '任务已无进行中的子任务' : '任务已停止'; fb3.className = 'feedback ok'; }
+            await load();
+          } catch (eStop) {
+            if (fb3) { fb3.textContent = String(eStop && eStop.message ? eStop.message : eStop); fb3.className = 'feedback err'; }
+          } finally {
+            stopSubmit.disabled = false;
+          }
+        })();
+      }
+    });
   }
   function newMgrIdem() {
     try {
@@ -1443,6 +1631,7 @@ export function renderTaskDetailPage(params: {
   function rowBucketForSubtask(s) {
     var st = normSubStatus(s.status);
     if (st === 'DONE') return 'done';
+    if (st === 'STOPPED') return 'stopped';
     var dk = String(s.openDeclineKind || '').trim();
     if (st === 'REJECTED' || dk === 'changes' || dk === 'rejected') return 'needs_manager';
     if (st === 'ASSIGNED') return 'waiting_employee';
@@ -1512,6 +1701,11 @@ export function renderTaskDetailPage(params: {
         if (b === 'done') done++;
       });
       if (total > 0 && done === total) return { label: '已完成', cls: 'done' };
+      var stoppedOnly = subList.length > 0 && subList.every(function(s) {
+        var st = normSubStatus(s.status);
+        return st === 'DONE' || st === 'STOPPED';
+      }) && subList.some(function(s) { return normSubStatus(s.status) === 'STOPPED'; });
+      if (stoppedOnly) return { label: '已停止', cls: 'stopped' };
       if (blocked > 0 || subList.some(function(s){ return String(s.status||'')==='BLOCKED'; })) return { label: '阻塞中', cls: 'blocked' };
       if (needs > 0) return { label: '待您处理', cls: 'pending' };
       if (wait > 0) return { label: '待员工承接', cls: 'assigned' };
@@ -1536,12 +1730,37 @@ export function renderTaskDetailPage(params: {
             + '<button type="button" class="btn btn-secondary btn-sm" data-admin-open-reassign>打开改派</button>'
             + ' <span class="muted">使用本页下方改派卡片</span></p>'
           : '';
+    function canStopTask(subList) {
+      return subList.some(function (s) {
+        var st = normSubStatus(s.status);
+        return st !== 'DONE' && st !== 'STOPPED';
+      });
+    }
+    var stopBlock = '';
+    if ((ROLE === 'manager' || ROLE === 'admin') && canStopTask(subsEarly)) {
+      stopBlock =
+        '<div class="mgr-stop-wrap" style="margin:12px 0 0;">'
+        + '<button type="button" class="btn btn-danger btn-sm" data-task-stop-toggle>停止任务</button>'
+        + '<p class="muted" style="margin:6px 0 0;font-size:12px;">将停止所有未完成的子任务（已完成子任务保留）；员工会收到通知。</p>'
+        + '<div class="mgr-inline-panel mgr-inline-panel--danger" hidden data-task-panel="stop" style="margin-top:10px;">'
+        + '<h4 class="mgr-inline-h">确认停止任务</h4>'
+        + '<label class="mgr-inline-label">停止原因<span class="mgr-req">（必填）</span>'
+        + '<textarea data-task-field="stop-note" rows="3" maxlength="800" placeholder="简述停止原因，便于审计与通知员工。"></textarea></label>'
+        + (ENFORCE_GUARDS
+          ? '<label class="mgr-inline-confirm"><input type="checkbox" data-task-field="stop-confirm" /> 确认停止任务</label>'
+          : '')
+        + '<div class="mgr-inline-actions">'
+        + '<button type="button" class="btn btn-ghost btn-sm" data-task-stop-cancel>取消</button>'
+        + '<button type="button" class="btn btn-danger btn-sm" data-task-stop-submit>确认停止</button></div>'
+        + '<div class="feedback muted" data-task-fb="stop"></div></div></div>';
+    }
     document.getElementById('taskMount').innerHTML =
       '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">'
       +'<h2 style="margin:0;font-size:20px;flex:1 1 200px;">'+esc(t.title||'—')+'</h2>'
       +'<span class="badge '+stBadgeCls+'">'+stLabel+'</span></div>'
       +'<p class="muted" style="margin:8px 0 0;">业务编号 <code>'+esc(t.taskNo||taskNo)+'</code></p>'
       + mgrTop
+      + stopBlock
       + descBlock
       +'<details'+planOpen+' style="margin-top:10px;"><summary>内部编号（排障）</summary>'
       +'<p class="muted" style="margin:6px 0 0;">planId <code>'+esc(t.planId||'—')+'</code></p></details>';
@@ -1585,6 +1804,7 @@ export function renderTaskDetailPage(params: {
     }
     lastSubsForReassign = subs;
     ensureMgrRowHandlers();
+    ensureTaskActionHandlers();
     if(!subs.length){ document.getElementById('subtasksMount').textContent='暂无子任务'; }
     else if (ROLE === 'employee') {
       function empBucketFor(s) {
@@ -1673,6 +1893,7 @@ export function renderTaskDetailPage(params: {
           if (f === 'waiting_employee') return bucket === 'waiting_employee';
           if (f === 'in_progress') return bucket === 'in_progress';
           if (f === 'done') return bucket === 'done';
+          if (f === 'stopped') return bucket === 'stopped';
           return true;
         }).length;
       }
@@ -1714,6 +1935,7 @@ export function renderTaskDetailPage(params: {
         chipHtml('waiting_employee', '待员工承接', countByFilter('waiting_employee'), false) +
         chipHtml('in_progress', '进行中', countByFilter('in_progress'), false) +
         chipHtml('done', '已完成', countByFilter('done'), false) +
+        chipHtml('stopped', '已停止', countByFilter('stopped'), false) +
         chipHtml('all', '全部', subs.length, false) +
         '</div>';
       var rowParts = subs.map(function (s) {
@@ -1735,6 +1957,7 @@ export function renderTaskDetailPage(params: {
           dkSrv === 'changes' || dkSrv === 'rejected' ? dkSrv : getOpenDeclineKindForSubtask(rawId);
         var bucketSrc = { status: st, openDeclineKind: declineKind || null };
         var declineBtnLabel = declineKind === 'rejected' ? '驳回拒绝' : declineKind === 'changes' ? '驳回申请' : '';
+        if (st !== 'STOPPED') {
         if (declineKind) {
           actions.push(
             '<button type="button" class="btn btn-danger btn-sm" data-mgr-toggle="decline">' +
@@ -1760,12 +1983,13 @@ export function renderTaskDetailPage(params: {
               esc(reassignListHrefBase + '&subtaskId=' + encodeURIComponent(rawId)) +
               '">改派页</a>',
           );
-        } else if (st !== 'DONE') {
+        } else if (st !== 'DONE' && st !== 'STOPPED') {
           actions.push(
             '<button type="button" class="btn btn-secondary btn-sm" data-mgr-open-reassign-sub="' +
               sid +
               '">改派</button>',
           );
+        }
         }
         var actionButtons = actions.join('');
         var summaryActionsRow = actionButtons
@@ -2023,6 +2247,15 @@ export function renderTaskDetailPage(params: {
     }
     var rc = document.getElementById('reassignCard');
     if (rc && (ROLE !== 'manager' && ROLE !== 'admin')) rc.style.display = 'none';
+    var asc = document.getElementById('addSubtaskCard');
+    if (asc) {
+      if ((ROLE === 'manager' || ROLE === 'admin') && String(t.status || '') !== 'STOPPED') {
+        asc.style.display = 'block';
+        initAddSubtaskForm();
+      } else {
+        asc.style.display = 'none';
+      }
+    }
     if ((ROLE === 'manager' || ROLE === 'admin') && urlFocus === 'reassign' && lastLoadedPlanId) {
       initDetailReassign(subs, urlSubtaskId);
     } else if (rc) {
@@ -2726,7 +2959,7 @@ export function handleAssignmentHttp(
     if (!session) return true;
     const tasks = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
-      .filter((t) => t.status === "DONE");
+      .filter((t) => t.status === "DONE" || t.status === "STOPPED");
     writeJson(
       res,
       200,
@@ -3152,6 +3385,258 @@ export function handleAssignmentHttp(
         writeJson(res, 400, {
           ok: false,
           error: err instanceof Error ? err.message : "invalid request body",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/tasks/stop") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res);
+        if (!session) return;
+        if (session.role !== "manager" && session.role !== "admin") {
+          writeJson(res, 403, { ok: false, error: "manager or admin role required" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        if (shouldEnforceActionGuards()) {
+          const confirmed = body.confirm === true;
+          if (!confirmed) {
+            writeJson(res, 400, { ok: false, error: "confirm=true is required" });
+            return;
+          }
+          const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+          if (!idempotencyKey) {
+            writeJson(res, 400, { ok: false, error: "idempotencyKey is required" });
+            return;
+          }
+          if (!rememberActionKey("manager_stop_task", idempotencyKey)) {
+            writeJson(res, 200, { ok: true, duplicated: true, alreadyHandled: true });
+            return;
+          }
+        }
+        const planId = String(body.planId ?? "").trim();
+        const note = String(body.note ?? "").trim();
+        if (!planId) {
+          writeJson(res, 400, { ok: false, error: "planId is required" });
+          return;
+        }
+        if (!note) {
+          writeJson(res, 400, { ok: false, error: "note is required" });
+          return;
+        }
+        const store = getFormalTaskStore();
+        const detailForAuth = store.getTaskDetail(planId);
+        if (!detailForAuth) {
+          writeJson(res, 404, { ok: false, error: "Task not found for planId" });
+          return;
+        }
+        let managerUserId = session.userId;
+        if (session.role === "manager") {
+          if (detailForAuth.task.managerUserId !== session.userId) {
+            writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
+            return;
+          }
+        } else {
+          managerUserId = detailForAuth.task.managerUserId;
+        }
+        const result = store.stopTask({
+          planId,
+          managerUserId,
+          note,
+          actorName: session.dingUser?.name,
+        });
+        if (!result.alreadyStopped && result.stoppedSubtaskIds.length > 0) {
+          const assigneeMap = new Map<string, string[]>();
+          for (const sub of result.subtasks) {
+            if (!result.stoppedSubtaskIds.includes(sub.subtaskId)) continue;
+            const uid = sub.assigneeUserId;
+            const titles = assigneeMap.get(uid) ?? [];
+            titles.push(sub.title);
+            assigneeMap.set(uid, titles);
+          }
+          void (async () => {
+            try {
+              const notifyResult = await workbenchPublishNotifier.notifyTaskStopped({
+                taskNo: result.task.taskNo,
+                taskTitle: result.task.title,
+                managerUserId,
+                managerDisplayName: withPeopleDirectoryStore((s) =>
+                  s.getContact(managerUserId)?.name?.trim(),
+                ),
+                note,
+                assignees: [...assigneeMap.entries()].map(([userId, subtaskTitles]) => ({
+                  userId,
+                  displayName: withPeopleDirectoryStore((s) => s.getContact(userId)?.name?.trim()),
+                  subtaskTitles,
+                })),
+              });
+              store.appendTaskEvent({
+                taskId: result.task.taskId,
+                eventType: "TASK_STOP_NOTIFY_OK",
+                actorUserId: managerUserId,
+                payload: {
+                  enabled: notifyResult.enabled,
+                  skippedReason: notifyResult.skippedReason,
+                  success: notifyResult.success,
+                  failed: notifyResult.failed,
+                },
+              });
+            } catch (err) {
+              store.appendTaskEvent({
+                taskId: result.task.taskId,
+                eventType: "TASK_STOP_NOTIFY_FAILED",
+                actorUserId: managerUserId,
+                note: err instanceof Error ? err.message : String(err),
+              });
+            }
+          })();
+        }
+        writeJson(res, 200, {
+          ok: true,
+          planId: result.task.planId,
+          taskNo: result.task.taskNo,
+          status: result.task.status,
+          stoppedSubtaskIds: result.stoppedSubtaskIds,
+          alreadyStopped: result.alreadyStopped,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "stop task failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/subtasks") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res);
+        if (!session) return;
+        if (session.role !== "manager" && session.role !== "admin") {
+          writeJson(res, 403, { ok: false, error: "manager or admin role required" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        if (shouldEnforceActionGuards()) {
+          const confirmed = body.confirm === true;
+          if (!confirmed) {
+            writeJson(res, 400, { ok: false, error: "confirm=true is required" });
+            return;
+          }
+          const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+          if (!idempotencyKey) {
+            writeJson(res, 400, { ok: false, error: "idempotencyKey is required" });
+            return;
+          }
+          if (!rememberActionKey("manager_add_subtask", idempotencyKey)) {
+            writeJson(res, 200, { ok: true, duplicated: true, alreadyHandled: true });
+            return;
+          }
+        }
+        const planId = String(body.planId ?? "").trim();
+        const title = String(body.title ?? "").trim();
+        const assigneeUserId = String(body.assigneeUserId ?? "").trim();
+        const note = String(body.note ?? "").trim();
+        if (!planId) {
+          writeJson(res, 400, { ok: false, error: "planId is required" });
+          return;
+        }
+        if (!title) {
+          writeJson(res, 400, { ok: false, error: "title is required" });
+          return;
+        }
+        if (!assigneeUserId) {
+          writeJson(res, 400, { ok: false, error: "assigneeUserId is required" });
+          return;
+        }
+        const store = getFormalTaskStore();
+        const detailForAuth = store.getTaskDetail(planId);
+        if (!detailForAuth) {
+          writeJson(res, 404, { ok: false, error: "Task not found for planId" });
+          return;
+        }
+        let managerUserId = session.userId;
+        if (session.role === "manager") {
+          if (detailForAuth.task.managerUserId !== session.userId) {
+            writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
+            return;
+          }
+        } else {
+          managerUserId = detailForAuth.task.managerUserId;
+        }
+        const dueAtRaw = String(body.dueAt ?? "").trim();
+        const completionCriteria = String(body.completionCriteria ?? "").trim();
+        const objective = String(body.objective ?? "").trim();
+        const { task, subtask } = store.appendSubtask({
+          planId,
+          managerUserId,
+          title,
+          assigneeUserId,
+          dueAt: dueAtRaw || undefined,
+          completionCriteria: completionCriteria || undefined,
+          objective: objective || undefined,
+          note: note || undefined,
+          actorName: session.dingUser?.name,
+        });
+        void (async () => {
+          try {
+            const notifyResult = await workbenchPublishNotifier.notifyPublishedTask({
+              taskNo: task.taskNo,
+              title: task.title,
+              managerUserId,
+              managerDisplayName: withPeopleDirectoryStore((s) =>
+                s.getContact(managerUserId)?.name?.trim(),
+              ),
+              taskDescription: task.description,
+              assignees: [
+                {
+                  userId: assigneeUserId,
+                  displayName: withPeopleDirectoryStore((s) =>
+                    s.getContact(assigneeUserId)?.name?.trim(),
+                  ),
+                  subtasks: [{ title: subtask.title }],
+                },
+              ],
+            });
+            store.appendTaskEvent({
+              taskId: task.taskId,
+              subtaskId: subtask.subtaskId,
+              eventType: "SUBTASK_ADD_NOTIFY_OK",
+              actorUserId: managerUserId,
+              payload: {
+                enabled: notifyResult.enabled,
+                skippedReason: notifyResult.skippedReason,
+                success: notifyResult.success,
+                failed: notifyResult.failed,
+              },
+            });
+          } catch (err) {
+            store.appendTaskEvent({
+              taskId: task.taskId,
+              subtaskId: subtask.subtaskId,
+              eventType: "SUBTASK_ADD_NOTIFY_FAILED",
+              actorUserId: managerUserId,
+              note: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
+        writeJson(res, 200, {
+          ok: true,
+          planId: task.planId,
+          taskNo: task.taskNo,
+          subtaskId: subtask.subtaskId,
+          sourceTaskKey: subtask.sourceTaskKey,
+          status: subtask.status,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "add subtask failed",
         });
       }
     })();

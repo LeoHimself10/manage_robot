@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -13,7 +14,16 @@ export type WorkbenchTaskStatus =
   | "IN_PROGRESS"
   | "BLOCKED"
   | "DONE"
-  | "REJECTED";
+  | "REJECTED"
+  | "STOPPED";
+
+const STOPPABLE_SUBTASK_STATUSES = new Set([
+  "ASSIGNED",
+  "CHANGES_REQUESTED",
+  "IN_PROGRESS",
+  "BLOCKED",
+  "REJECTED",
+]);
 
 /** 发布时写入 `tasks.description`（面向员工的任务整体背景），最大长度见 `TASK_DESCRIPTION_MAX_DB`。 */
 export const TASK_DESCRIPTION_MAX_DB = 2000;
@@ -172,12 +182,14 @@ function normalizeStatus(raw: string): WorkbenchTaskStatus {
   /** Product semantics: "待修改" merged into "待处理" (ASSIGNED). */
   if (raw === "CHANGES_REQUESTED") return "ASSIGNED";
   if (raw === "REJECTED") return "REJECTED";
+  if (raw === "STOPPED") return "STOPPED";
   return "ASSIGNED";
 }
 
 export function aggregateTaskStatus(statuses: WorkbenchTaskStatus[]): WorkbenchTaskStatus {
-  if (statuses.some((s) => s === "BLOCKED")) return "BLOCKED";
   if (statuses.length > 0 && statuses.every((s) => s === "DONE")) return "DONE";
+  if (statuses.some((s) => s === "STOPPED")) return "STOPPED";
+  if (statuses.some((s) => s === "BLOCKED")) return "BLOCKED";
   if (statuses.some((s) => s === "IN_PROGRESS")) return "IN_PROGRESS";
   if (statuses.some((s) => s === "REJECTED")) return "REJECTED";
   return "ASSIGNED";
@@ -816,6 +828,9 @@ export function createWorkbenchFormalTaskStore() {
         throw new Error("Subtask does not belong to current employee");
       }
       const previousStatus = normalizeStatus(String(subtask.status ?? "ASSIGNED"));
+      if (previousStatus === "STOPPED") {
+        throw new Error("Subtask has been stopped by manager");
+      }
       let nextStatus: WorkbenchTaskStatus;
       let eventType = "EMPLOYEE_ACTION";
       if (input.action === "accept") {
@@ -956,6 +971,178 @@ export function createWorkbenchFormalTaskStore() {
       );
     },
 
+    stopTask(input: {
+      planId: string;
+      managerUserId: string;
+      note?: string;
+      actorName?: string;
+    }): {
+      task: WorkbenchTaskRow;
+      subtasks: WorkbenchSubtaskRow[];
+      stoppedSubtaskIds: string[];
+      alreadyStopped: boolean;
+    } {
+      const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
+      if (!taskRow) throw new Error("Task not found for planId");
+      const task = mapTaskRow(taskRow);
+      if (task.managerUserId !== input.managerUserId) {
+        throw new Error("Task does not belong to current manager");
+      }
+      const subtaskRows = qTaskSubtasks.all(task.taskId) as Array<Record<string, unknown>>;
+      const toStop = subtaskRows.filter((row) =>
+        STOPPABLE_SUBTASK_STATUSES.has(String(row.status ?? "")),
+      );
+      if (toStop.length === 0) {
+        const subtasks = subtaskRows.map((row) => mapSubtaskRow({ ...row, plan_id: task.planId }));
+        return { task, subtasks, stoppedSubtaskIds: [], alreadyStopped: true };
+      }
+      const now = nowIso();
+      const stoppedSubtaskIds: string[] = [];
+      runInTransaction(() => {
+        for (const row of toStop) {
+          const subtaskId = String(row.subtask_id ?? "");
+          db.prepare("UPDATE subtasks SET status = 'STOPPED', updated_at = ? WHERE subtask_id = ?").run(
+            now,
+            subtaskId,
+          );
+          stoppedSubtaskIds.push(subtaskId);
+          db.prepare(
+            "INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id, note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)",
+          ).run(
+            task.taskId,
+            subtaskId,
+            "SUBTASK_STOPPED",
+            input.managerUserId,
+            input.note?.trim() || null,
+            stringify({ actorName: input.actorName }),
+            now,
+          );
+        }
+        db.prepare(
+          "INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id, note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)",
+        ).run(
+          task.taskId,
+          null,
+          "TASK_STOPPED",
+          input.managerUserId,
+          input.note?.trim() || null,
+          stringify({ stoppedSubtaskIds, actorName: input.actorName }),
+          now,
+        );
+        updateTaskStatus(task.taskId);
+      });
+      const updatedTaskRow = qTaskById.get(task.taskId) as Record<string, unknown> | undefined;
+      if (!updatedTaskRow) throw new Error("Task not found after stop");
+      const subtasks = (qTaskSubtasks.all(task.taskId) as Array<Record<string, unknown>>).map((row) =>
+        mapSubtaskRow({ ...row, plan_id: task.planId }),
+      );
+      return {
+        task: mapTaskRow(updatedTaskRow),
+        subtasks,
+        stoppedSubtaskIds,
+        alreadyStopped: false,
+      };
+    },
+
+    appendSubtask(input: {
+      planId: string;
+      managerUserId: string;
+      title: string;
+      assigneeUserId: string;
+      objective?: string;
+      deliverables?: string;
+      completionCriteria?: string;
+      dueAt?: string;
+      feedbackFrequency?: string;
+      dependsOn?: string[];
+      checkpoints?: string[];
+      risks?: string[];
+      inputMaterials?: string[];
+      actions?: string[];
+      collaborators?: string[];
+      inScope?: string[];
+      outOfScope?: string[];
+      note?: string;
+      actorName?: string;
+    }): { task: WorkbenchTaskRow; subtask: WorkbenchSubtaskRow } {
+      const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
+      if (!taskRow) throw new Error("Task not found for planId");
+      const task = mapTaskRow(taskRow);
+      if (task.managerUserId !== input.managerUserId) {
+        throw new Error("Task does not belong to current manager");
+      }
+      if (task.status === "STOPPED") {
+        throw new Error("Cannot append subtask to a stopped task");
+      }
+      const title = input.title.trim();
+      if (!title) throw new Error("title is required");
+      const assigneeUserId = input.assigneeUserId.trim();
+      if (!assigneeUserId) throw new Error("assigneeUserId is required");
+
+      const sourceTaskKey = `manual-${randomUUID().slice(0, 8)}`;
+      const subtaskId = `${task.taskId}:${sourceTaskKey}`;
+      const now = nowIso();
+      const dueAt = input.dueAt ? formatDueAtForStorage(input.dueAt) : undefined;
+
+      runInTransaction(() => {
+        db.prepare(
+          `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at, depends_on, checkpoints, risks, input_materials, actions, collaborators, in_scope, out_of_scope)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ).run(
+          subtaskId,
+          task.taskId,
+          sourceTaskKey,
+          title,
+          input.objective?.trim() || null,
+          input.deliverables?.trim() || null,
+          input.completionCriteria?.trim() || null,
+          dueAt || null,
+          input.feedbackFrequency?.trim() || null,
+          assigneeUserId,
+          "ASSIGNED",
+          null,
+          now,
+          now,
+          encodeRichJsonColumn(normalizeRichStringList(input.dependsOn)),
+          encodeRichJsonColumn(normalizeRichStringList(input.checkpoints)),
+          encodeRichJsonColumn(normalizeRichStringList(input.risks)),
+          encodeRichJsonColumn(normalizeRichStringList(input.inputMaterials)),
+          encodeRichJsonColumn(normalizeRichStringList(input.actions)),
+          encodeRichJsonColumn(normalizeRichStringList(input.collaborators)),
+          encodeRichJsonColumn(normalizeRichStringList(input.inScope)),
+          encodeRichJsonColumn(normalizeRichStringList(input.outOfScope)),
+        );
+        db.prepare(
+          "INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id, note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)",
+        ).run(
+          task.taskId,
+          subtaskId,
+          "SUBTASK_ADDED",
+          input.managerUserId,
+          input.note?.trim() || null,
+          stringify({
+            assigneeUserId,
+            sourceTaskKey,
+            actorName: input.actorName,
+          }),
+          now,
+        );
+        updateTaskStatus(task.taskId);
+      });
+
+      const updatedTaskRow = qTaskById.get(task.taskId) as Record<string, unknown> | undefined;
+      const subtaskRow = db
+        .prepare("SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?")
+        .get(subtaskId) as Record<string, unknown> | undefined;
+      if (!updatedTaskRow || !subtaskRow) {
+        throw new Error("Failed to reload rows after append subtask");
+      }
+      return {
+        task: mapTaskRow(updatedTaskRow),
+        subtask: mapSubtaskRow(subtaskRow),
+      };
+    },
+
     reassignTask(input: {
       planId: string;
       managerUserId: string;
@@ -1000,17 +1187,22 @@ export function createWorkbenchFormalTaskStore() {
             `subtask already DONE; cannot reassign: ${normalizedSubtaskId}`,
           );
         }
+        if (probe.status === "STOPPED") {
+          throw new Error(
+            `subtask already STOPPED; cannot reassign: ${normalizedSubtaskId}`,
+          );
+        }
       }
 
       const now = nowIso();
       runInTransaction(() => {
         if (normalizedSubtaskId) {
           db.prepare(
-            "UPDATE subtasks SET assignee_user_id = ?, status = 'ASSIGNED', updated_at = ? WHERE task_id = ? AND subtask_id = ? AND status <> 'DONE'",
+            "UPDATE subtasks SET assignee_user_id = ?, status = 'ASSIGNED', updated_at = ? WHERE task_id = ? AND subtask_id = ? AND status NOT IN ('DONE','STOPPED')",
           ).run(input.assigneeUserId, now, task.taskId, normalizedSubtaskId);
         } else {
           db.prepare(
-            "UPDATE subtasks SET assignee_user_id = ?, status = 'ASSIGNED', updated_at = ? WHERE task_id = ? AND status <> 'DONE'",
+            "UPDATE subtasks SET assignee_user_id = ?, status = 'ASSIGNED', updated_at = ? WHERE task_id = ? AND status NOT IN ('DONE','STOPPED')",
           ).run(input.assigneeUserId, now, task.taskId);
         }
         db.prepare(
@@ -1292,7 +1484,7 @@ export function createWorkbenchFormalTaskStore() {
         .prepare(
           `SELECT 1 AS ok FROM tasks t
              JOIN subtasks s ON s.task_id = t.task_id
-            WHERE t.manager_user_id = ? AND s.status <> 'DONE'
+            WHERE t.manager_user_id = ? AND s.status NOT IN ('DONE','STOPPED')
             LIMIT 1`,
         )
         .get(managerUserId) as { ok?: number } | undefined;
@@ -1302,7 +1494,7 @@ export function createWorkbenchFormalTaskStore() {
     hasActiveSubtasksAsEmployee(assigneeUserId: string): boolean {
       const row = db
         .prepare(
-          "SELECT 1 AS ok FROM subtasks WHERE assignee_user_id = ? AND status <> 'DONE' LIMIT 1",
+          "SELECT 1 AS ok FROM subtasks WHERE assignee_user_id = ? AND status NOT IN ('DONE','STOPPED') LIMIT 1",
         )
         .get(assigneeUserId) as { ok?: number } | undefined;
       return Boolean(row?.ok);

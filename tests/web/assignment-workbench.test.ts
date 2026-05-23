@@ -382,6 +382,11 @@ describe("assignment-workbench HTTP handler", () => {
         failed: [],
       })),
       notifyReassignedAssignee,
+      notifyTaskStopped: vi.fn(async () => ({
+        enabled: false,
+        success: [],
+        failed: [],
+      })),
       notifyManagerOfEmployeeAction: vi.fn(async () => ({
         enabled: false,
         success: [],
@@ -446,6 +451,109 @@ describe("assignment-workbench HTTP handler", () => {
     expect(arg.scope).toBe("plan");
     expect(arg.managerUserId).toBe("manager-1");
     expect(String(arg.taskNo || "")).toMatch(/^TASK-/);
+  });
+
+  it("manager can stop task via API", async () => {
+    await seedPublishedTask({
+      planId: "plan-stop-api",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-1",
+    });
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const req = stubReq({
+      url: "/api/workbench/manager/tasks/stop",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ planId: "plan-stop-api", note: "项目终止" }),
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(c.body).toContain('"ok":true');
+    expect(c.body).toContain('"status":"STOPPED"');
+    const store = createWorkbenchFormalTaskStore();
+    expect(store.getTaskDetail("plan-stop-api")?.task.status).toBe("STOPPED");
+  });
+
+  it("manager can append subtask via API", async () => {
+    seedContact("emp-3", "执行部", "Engineer");
+    await seedPublishedTask({
+      planId: "plan-add-api",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-1",
+    });
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const req = stubReq({
+      url: "/api/workbench/manager/subtasks",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        planId: "plan-add-api",
+        title: "补增子任务",
+        assigneeUserId: "emp-3",
+        completionCriteria: "通过评审",
+      }),
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(c.body).toContain('"ok":true');
+    expect(c.body).toContain('"status":"ASSIGNED"');
+    const store = createWorkbenchFormalTaskStore();
+    expect(store.getTaskDetail("plan-add-api")?.subtasks).toHaveLength(2);
+  });
+
+  it("stop task API requires note", async () => {
+    await seedPublishedTask({
+      planId: "plan-stop-note",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-1",
+    });
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+    const req = stubReq({
+      url: "/api/workbench/manager/tasks/stop",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ planId: "plan-stop-note" }),
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    expect(captured().statusCode).toBe(400);
+    expect(captured().body).toContain("note is required");
   });
 
   it("employee tasks/new GET sets Cache-Control no-store", async () => {
@@ -935,6 +1043,7 @@ describe("assignment-workbench HTTP handler", () => {
     __setWorkbenchPublishNotifierForTest({
       notifyPublishedTask: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
       notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyTaskStopped: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
       notifyManagerOfEmployeeAction,
       notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
       notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),

@@ -86,6 +86,7 @@ describe("reminder-send", () => {
   const mockNotifier: WorkbenchPublishNotifier = {
     notifyPublishedTask: async () => ({ enabled: true, success: [], failed: [] }),
     notifyReassignedAssignee: async () => ({ enabled: true, success: [], failed: [] }),
+    notifyTaskStopped: async () => ({ enabled: true, success: [], failed: [] }),
     notifyManagerOfEmployeeAction: async () => ({ enabled: true, success: [], failed: [] }),
     notifyEmployeeOfManagerAction: async () => ({ enabled: true, success: [], failed: [] }),
     notifySubtaskReminder: async () => ({

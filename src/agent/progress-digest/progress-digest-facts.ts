@@ -84,6 +84,7 @@ function employeeStatusLabel(status: string): string {
   if (st === "BLOCKED") return "阻塞中";
   if (st === "IN_PROGRESS") return "执行中";
   if (st === "REJECTED") return "已拒绝";
+  if (st === "STOPPED") return "已停止";
   return st;
 }
 
@@ -220,11 +221,11 @@ function buildManagerCore(
       openDeclineKind: taskStore.getSubtaskOpenDeclineKind(s.subtaskId),
     }));
     const attn = deriveManagerAttentionLabel(subInputs);
-    if (attn.attentionLabel === "已完成") continue;
+    if (attn.attentionLabel === "已完成" || attn.attentionLabel === "已停止") continue;
 
     for (const s of detail.subtasks) {
       const st = normStatus(String(s.status ?? ""));
-      if (st === "DONE") continue;
+      if (st === "DONE" || st === "STOPPED") continue;
       const overdue = isOverdue(s.dueAt, nowMs);
       const assigneeName = resolveName?.(s.assigneeUserId) || s.assigneeUserId;
       const dueLabel = formatDueLabel(s.dueAt, policy.timezone);
@@ -302,7 +303,7 @@ function buildEmployeeCore(
 
   for (const s of taskStore.listEmployeeSubtasks(userId)) {
     const st = normStatus(String(s.status ?? ""));
-    if (st === "DONE") continue;
+    if (st === "DONE" || st === "STOPPED") continue;
     const overdue = isOverdue(s.dueAt, nowMs);
     const dueLabel = formatDueLabel(s.dueAt, policy.timezone);
     const taskTitle = s.taskTitle || s.title;

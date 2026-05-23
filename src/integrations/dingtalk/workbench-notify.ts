@@ -71,6 +71,20 @@ export interface WorkbenchReassignNotifyInput {
   scope: "subtask" | "plan";
 }
 
+/** 主管停止任务后，通知被停止子任务的负责人。 */
+export interface WorkbenchTaskStoppedNotifyInput {
+  taskNo: string;
+  taskTitle: string;
+  managerUserId: string;
+  managerDisplayName?: string;
+  note?: string;
+  assignees: Array<{
+    userId: string;
+    displayName?: string;
+    subtaskTitles: string[];
+  }>;
+}
+
 /** 员工动作触发的主管 1:1 通知类型（不含普通 IN_PROGRESS 进度，避免噪音）。 */
 export type ManagerEmployeeNotifyKind =
   | "rejected"
@@ -155,6 +169,7 @@ export interface WorkbenchManagerSubtaskOverdueNotifyInput {
 export interface WorkbenchPublishNotifier {
   notifyPublishedTask(input: WorkbenchPublishTaskNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyReassignedAssignee(input: WorkbenchReassignNotifyInput): Promise<WorkbenchNotifyResult>;
+  notifyTaskStopped(input: WorkbenchTaskStoppedNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyManagerOfEmployeeAction(
     input: WorkbenchManagerEmployeeActionNotifyInput,
   ): Promise<WorkbenchNotifyResult>;
@@ -801,6 +816,100 @@ export function createWorkbenchPublishNotifier(
       if (anyChannelOk) {
         success.push(userOutcome);
       }
+      return { enabled: true, success, failed };
+    },
+
+    async notifyTaskStopped(
+      input: WorkbenchTaskStoppedNotifyInput,
+    ): Promise<WorkbenchNotifyResult> {
+      if (!isNotifyEnabled()) {
+        return {
+          enabled: false,
+          skippedReason: "WORKBENCH_DINGTALK_NOTIFY_ENABLED is off",
+          success: [],
+          failed: [],
+        };
+      }
+      const agentId = env("DINGTALK_AGENT_ID") || env("WORKBENCH_DINGTALK_NOTIFY_AGENT_ID");
+      const baseUrl = resolveNotifyBaseUrl();
+      if (!agentId || !baseUrl) {
+        return {
+          enabled: false,
+          skippedReason: "missing DINGTALK_AGENT_ID or WORKBENCH_NOTIFY_DETAIL_URL_BASE",
+          success: [],
+          failed: [],
+        };
+      }
+      const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}`;
+      const mgrLabel = workbenchNotifyPersonLabel(input.managerUserId, input.managerDisplayName);
+      const robotMsgEnabled = isRobotMsgEnabled();
+      const robotCode = resolveRobotCode();
+      const token = await getAccessToken(fetchImpl);
+      const success: WorkbenchNotifyResult["success"] = [];
+      const failed: WorkbenchNotifyResult["failed"] = [];
+
+      for (const assignee of input.assignees) {
+        const stLines = assignee.subtaskTitles.map((t) => `- ${t}`).join("\n");
+        const subject = `[已停止] ${input.taskNo} · ${input.taskTitle}`;
+        const markdown =
+          `### ${subject}\n- **说明**：主管已停止以下子任务，无需继续执行。\n${stLines}\n- **主管**：${mgrLabel}`
+          + (input.note?.trim() ? `\n- **原因**：${input.note.trim()}` : "");
+
+        const userOutcome: WorkbenchNotifyResult["success"][number] = { userId: assignee.userId };
+        let anyChannelOk = false;
+
+        try {
+          const cardMessageId = await sendCard({
+            fetchImpl,
+            accessToken: token,
+            agentId,
+            userId: assignee.userId,
+            title: subject,
+            markdown,
+            detailUrl,
+          });
+          userOutcome.cardMessageId = cardMessageId;
+          anyChannelOk = true;
+        } catch (err) {
+          failed.push({
+            userId: assignee.userId,
+            reason: `send card failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+
+        if (robotMsgEnabled) {
+          if (!robotCode) {
+            failed.push({
+              userId: assignee.userId,
+              reason: "skip robot chat message: DINGTALK_ROBOT_CODE missing",
+            });
+          } else {
+            try {
+              const robotMessageKey = await sendRobotChatMessage({
+                fetchImpl,
+                accessToken: token,
+                robotCode,
+                userId: assignee.userId,
+                title: subject,
+                markdown,
+                detailUrl,
+              });
+              userOutcome.robotMessageKey = robotMessageKey;
+              anyChannelOk = true;
+            } catch (err) {
+              failed.push({
+                userId: assignee.userId,
+                reason: `robot chat message failed: ${err instanceof Error ? err.message : String(err)}`,
+              });
+            }
+          }
+        }
+
+        if (anyChannelOk) {
+          success.push(userOutcome);
+        }
+      }
+
       return { enabled: true, success, failed };
     },
 

@@ -875,6 +875,199 @@ describe("employee / manager subtask flows", () => {
     expect(store.listEmployeeSubtasks("emp-new")).toHaveLength(1);
     expect(store.listEmployeeSubtasks("emp-new")[0]!.subtaskId).toBe(sid);
   });
+
+  it("stopTask stops non-DONE subtasks and preserves DONE", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-stop",
+      planId: "plan-stop",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "停止测试",
+        tasks: [
+          { id: "t_done", title: "已完成" },
+          { id: "t_run", title: "进行中" },
+        ],
+      },
+      latestAssignment: {
+        assignments: [
+          { taskId: "t_done", primary: { userId: "emp-a" } },
+          { taskId: "t_run", primary: { userId: "emp-b" } },
+        ],
+      },
+    };
+    store.publishFromSession({
+      planId: "plan-stop",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const detailBefore = store.getTaskDetail("plan-stop")!;
+    const doneSub = detailBefore.subtasks.find((s) => s.sourceTaskKey === "t_done")!;
+    const runSub = detailBefore.subtasks.find((s) => s.sourceTaskKey === "t_run")!;
+    store.updateSubtaskStatus({
+      subtaskId: doneSub.subtaskId,
+      actorUserId: "emp-a",
+      action: "accept",
+    });
+    store.updateSubtaskStatus({
+      subtaskId: doneSub.subtaskId,
+      actorUserId: "emp-a",
+      action: "progress",
+      progressStatus: "DONE",
+      note: "完成",
+    });
+    store.updateSubtaskStatus({
+      subtaskId: runSub.subtaskId,
+      actorUserId: "emp-b",
+      action: "accept",
+    });
+    const stopped = store.stopTask({
+      planId: "plan-stop",
+      managerUserId: "manager-1",
+      note: "项目取消",
+    });
+    expect(stopped.alreadyStopped).toBe(false);
+    expect(stopped.stoppedSubtaskIds).toContain(runSub.subtaskId);
+    const doneAfter = stopped.subtasks.find((s) => s.subtaskId === doneSub.subtaskId)!;
+    const runAfter = stopped.subtasks.find((s) => s.subtaskId === runSub.subtaskId)!;
+    expect(doneAfter.status).toBe("DONE");
+    expect(runAfter.status).toBe("STOPPED");
+    expect(stopped.task.status).toBe("STOPPED");
+  });
+
+  it("stopTask is idempotent when nothing left to stop", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-stop2",
+      planId: "plan-stop2",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "全完成",
+        tasks: [{ id: "t1", title: "唯一" }],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t1", primary: { userId: "emp-a" } }],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-stop2",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const sid = published.subtasks[0]!.subtaskId;
+    store.updateSubtaskStatus({ subtaskId: sid, actorUserId: "emp-a", action: "accept" });
+    store.updateSubtaskStatus({
+      subtaskId: sid,
+      actorUserId: "emp-a",
+      action: "progress",
+      progressStatus: "DONE",
+      note: "ok",
+    });
+    const again = store.stopTask({
+      planId: "plan-stop2",
+      managerUserId: "manager-1",
+      note: "noop",
+    });
+    expect(again.alreadyStopped).toBe(true);
+    expect(again.stoppedSubtaskIds).toEqual([]);
+    expect(again.task.status).toBe("DONE");
+  });
+
+  it("appendSubtask adds row and rejects on stopped task", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-add",
+      planId: "plan-add",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "追加测试",
+        tasks: [{ id: "t1", title: "原任务" }],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t1", primary: { userId: "emp-a" } }],
+      },
+    };
+    store.publishFromSession({
+      planId: "plan-add",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const added = store.appendSubtask({
+      planId: "plan-add",
+      managerUserId: "manager-1",
+      title: "手动新增",
+      assigneeUserId: "emp-b",
+      completionCriteria: "验收通过",
+    });
+    expect(added.subtask.title).toBe("手动新增");
+    expect(added.subtask.status).toBe("ASSIGNED");
+    expect(added.subtask.sourceTaskKey).toMatch(/^manual-/);
+    expect(store.getTaskDetail("plan-add")?.subtasks).toHaveLength(2);
+
+    store.stopTask({ planId: "plan-add", managerUserId: "manager-1", note: "停" });
+    expect(() =>
+      store.appendSubtask({
+        planId: "plan-add",
+        managerUserId: "manager-1",
+        title: "不应成功",
+        assigneeUserId: "emp-c",
+      }),
+    ).toThrow(/stopped/i);
+  });
+
+  it("updateSubtaskStatus rejects STOPPED subtask", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-emp-stop",
+      planId: "plan-emp-stop",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "员工门禁",
+        tasks: [{ id: "t1", title: "子" }],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t1", primary: { userId: "emp-a" } }],
+      },
+    };
+    const published = store.publishFromSession({
+      planId: "plan-emp-stop",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const sid = published.subtasks[0]!.subtaskId;
+    store.stopTask({ planId: "plan-emp-stop", managerUserId: "manager-1", note: "停" });
+    expect(() =>
+      store.updateSubtaskStatus({
+        subtaskId: sid,
+        actorUserId: "emp-a",
+        action: "accept",
+      }),
+    ).toThrow(/stopped/i);
+  });
 });
 
 describe("aggregateTaskStatus", () => {
@@ -884,5 +1077,14 @@ describe("aggregateTaskStatus", () => {
 
   it("still prioritizes IN_PROGRESS over REJECTED", () => {
     expect(aggregateTaskStatus(["IN_PROGRESS", "REJECTED"])).toBe("IN_PROGRESS");
+  });
+
+  it("returns STOPPED when any subtask stopped and not all done", () => {
+    expect(aggregateTaskStatus(["DONE", "STOPPED"])).toBe("STOPPED");
+    expect(aggregateTaskStatus(["IN_PROGRESS", "STOPPED"])).toBe("STOPPED");
+  });
+
+  it("returns DONE when all subtasks done", () => {
+    expect(aggregateTaskStatus(["DONE", "DONE"])).toBe("DONE");
   });
 });

@@ -212,6 +212,7 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
 .badge.progress { color:#1d4ed8; background:#dbeafe; border:1px solid #93c5fd; }
 .badge.done { color:#15803d; background:#dcfce7; border:1px solid #86efac; }
 .badge.rejected { color:#475569; background:#f1f5f9; border:1px solid #cbd5e1; }
+.badge.stopped { color:#64748b; background:#e2e8f0; border:1px solid #94a3b8; }
 .combo-options {
   position:absolute;
   top:calc(100% + 4px);

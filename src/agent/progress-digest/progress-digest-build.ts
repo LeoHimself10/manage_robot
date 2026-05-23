@@ -112,6 +112,7 @@ export function summarizeManagerBuckets(
     blocked: 0,
     done: 0,
     rejected: 0,
+    stopped: 0,
   };
   for (const t of taskStore.listManagerTasks(managerUserId)) {
     const detail = taskStore.getTaskDetail(t.taskNo);
@@ -127,6 +128,7 @@ export function summarizeManagerBuckets(
     agg.blocked += b.blocked;
     agg.done += b.done;
     agg.rejected += b.rejected;
+    agg.stopped += b.stopped;
   }
   return agg;
 }

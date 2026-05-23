@@ -175,6 +175,33 @@ export function presentWorkbenchTaskEvent(
             ? JSON.stringify(payload, null, 0)
             : undefined,
       };
+    case "TASK_STOPPED":
+      return {
+        occurredAt,
+        type,
+        severity: "warn",
+        title: "任务已停止",
+        summary: shortNote || `${actor} 停止了任务`,
+        detail: note || undefined,
+      };
+    case "SUBTASK_STOPPED":
+      return {
+        occurredAt,
+        type,
+        severity: "warn",
+        title: "子任务已停止",
+        summary: withSubtaskCtx(shortNote || `${actor} 停止了子任务`),
+        detail: note || undefined,
+      };
+    case "SUBTASK_ADDED":
+      return {
+        occurredAt,
+        type,
+        severity: "info",
+        title: "新增子任务",
+        summary: withSubtaskCtx(shortNote || `${actor} 手动添加了子任务`),
+        detail: note || undefined,
+      };
     case "MANAGER_REASSIGN_SAVED":
     case "manager_reassign_saved":
       return {

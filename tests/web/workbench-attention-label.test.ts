@@ -51,6 +51,15 @@ describe("deriveManagerAttentionLabel", () => {
     expect(r.attentionLabel).toBe("员工执行中");
     expect(r.attentionBucket).toBe("employee_running");
   });
+
+  it("returns 已停止 when only done and stopped remain", () => {
+    const r = deriveManagerAttentionLabel([
+      { status: "DONE" },
+      { status: "STOPPED" },
+    ]);
+    expect(r.attentionLabel).toBe("已停止");
+    expect(r.attentionBucket).toBe("stopped");
+  });
 });
 
 describe("subtaskNeedsManagerAction", () => {
@@ -64,6 +73,11 @@ describe("managerSubtaskFilterMatches", () => {
     expect(managerSubtaskFilterMatches({ status: "IN_PROGRESS" }, "in_progress")).toBe(true);
     expect(managerSubtaskFilterMatches({ status: "BLOCKED" }, "in_progress")).toBe(true);
     expect(managerSubtaskFilterMatches({ status: "ACCEPTED" }, "in_progress")).toBe(true);
+  });
+
+  it("managerSubtaskFilterMatches stopped bucket", () => {
+    expect(managerSubtaskFilterMatches({ status: "STOPPED" }, "stopped")).toBe(true);
+    expect(managerSubtaskFilterMatches({ status: "STOPPED" }, "in_progress")).toBe(false);
   });
 
   it("hides waiting and manager-action rows from 进行中", () => {
