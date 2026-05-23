@@ -1015,7 +1015,10 @@ describe("employee / manager subtask flows", () => {
       managerUserId: "manager-1",
       title: "手动新增",
       assigneeUserId: "emp-b",
+      objective: "完成补增工作",
+      deliverables: "补增交付物",
       completionCriteria: "验收通过",
+      dueAt: "2026-06-01",
     });
     expect(added.subtask.title).toBe("手动新增");
     expect(added.subtask.status).toBe("ASSIGNED");
@@ -1029,8 +1032,70 @@ describe("employee / manager subtask flows", () => {
         managerUserId: "manager-1",
         title: "不应成功",
         assigneeUserId: "emp-c",
+        objective: "x",
+        deliverables: "y",
+        completionCriteria: "z",
+        dueAt: "2026-06-02",
       }),
     ).toThrow(/stopped/i);
+  });
+
+  it("stopSubtask stops one row and keeps task active when others in progress", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-partial-stop",
+      planId: "plan-partial-stop",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "部分停止",
+        tasks: [
+          { id: "t_a", title: "A" },
+          { id: "t_b", title: "B" },
+        ],
+      },
+      latestAssignment: {
+        assignments: [
+          { taskId: "t_a", primary: { userId: "emp-a" } },
+          { taskId: "t_b", primary: { userId: "emp-b" } },
+        ],
+      },
+    };
+    store.publishFromSession({
+      planId: "plan-partial-stop",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const detail = store.getTaskDetail("plan-partial-stop")!;
+    const subA = detail.subtasks.find((s) => s.sourceTaskKey === "t_a")!;
+    const subB = detail.subtasks.find((s) => s.sourceTaskKey === "t_b")!;
+    store.updateSubtaskStatus({ subtaskId: subB.subtaskId, actorUserId: "emp-b", action: "accept" });
+    const stopped = store.stopSubtask({
+      planId: "plan-partial-stop",
+      subtaskId: subA.subtaskId,
+      managerUserId: "manager-1",
+      note: "A 取消",
+    });
+    expect(stopped.alreadyStopped).toBe(false);
+    expect(stopped.subtask.status).toBe("STOPPED");
+    expect(stopped.task.status).toBe("IN_PROGRESS");
+    const appended = store.appendSubtask({
+      planId: "plan-partial-stop",
+      managerUserId: "manager-1",
+      title: "补增 C",
+      assigneeUserId: "emp-c",
+      objective: "继续推进",
+      deliverables: "C 交付",
+      completionCriteria: "完成 C",
+      dueAt: "2026-07-01",
+    });
+    expect(appended.subtask.title).toBe("补增 C");
+    expect(store.getTaskDetail("plan-partial-stop")?.subtasks).toHaveLength(3);
   });
 
   it("updateSubtaskStatus rejects STOPPED subtask", () => {
@@ -1079,9 +1144,10 @@ describe("aggregateTaskStatus", () => {
     expect(aggregateTaskStatus(["IN_PROGRESS", "REJECTED"])).toBe("IN_PROGRESS");
   });
 
-  it("returns STOPPED when any subtask stopped and not all done", () => {
+  it("returns STOPPED only when no active subtasks remain", () => {
     expect(aggregateTaskStatus(["DONE", "STOPPED"])).toBe("STOPPED");
-    expect(aggregateTaskStatus(["IN_PROGRESS", "STOPPED"])).toBe("STOPPED");
+    expect(aggregateTaskStatus(["IN_PROGRESS", "STOPPED"])).toBe("IN_PROGRESS");
+    expect(aggregateTaskStatus(["STOPPED", "STOPPED"])).toBe("STOPPED");
   });
 
   it("returns DONE when all subtasks done", () => {

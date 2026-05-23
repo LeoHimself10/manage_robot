@@ -513,7 +513,10 @@ describe("assignment-workbench HTTP handler", () => {
         planId: "plan-add-api",
         title: "补增子任务",
         assigneeUserId: "emp-3",
+        objective: "完成补增",
+        deliverables: "补增交付物",
         completionCriteria: "通过评审",
+        dueAt: "2026-06-15",
       }),
     });
     const { res, captured } = stubRes();
@@ -525,6 +528,87 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).toContain('"status":"ASSIGNED"');
     const store = createWorkbenchFormalTaskStore();
     expect(store.getTaskDetail("plan-add-api")?.subtasks).toHaveLength(2);
+  });
+
+  it("append subtask API requires deliverables", async () => {
+    await seedPublishedTask({
+      planId: "plan-add-req",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-1",
+    });
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const req = stubReq({
+      url: "/api/workbench/manager/subtasks",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        planId: "plan-add-req",
+        title: "缺字段",
+        assigneeUserId: "emp-1",
+        objective: "目标",
+        completionCriteria: "标准",
+        dueAt: "2026-06-01",
+      }),
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    expect(captured().statusCode).toBe(400);
+    expect(captured().body).toContain("deliverables is required");
+  });
+
+  it("manager can stop single subtask via API", async () => {
+    const store = createWorkbenchFormalTaskStore();
+    await seedPublishedTask({
+      planId: "plan-stop-sub-api",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-1",
+      secondAssignee: { userId: "emp-2", title: "子2" },
+    });
+    const detail = store.getTaskDetail("plan-stop-sub-api")!;
+    const sub1 = detail.subtasks.find((s) => s.sourceTaskKey === "task-1")!;
+    const sub2 = detail.subtasks.find((s) => s.sourceTaskKey === "task-2")!;
+    store.updateSubtaskStatus({ subtaskId: sub2.subtaskId, actorUserId: "emp-2", action: "accept" });
+
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const req = stubReq({
+      url: "/api/workbench/manager/subtasks/stop",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        planId: "plan-stop-sub-api",
+        subtaskId: sub1.subtaskId,
+        note: "单条停止",
+      }),
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(c.body).toContain('"ok":true');
+    expect(c.body).toContain('"status":"STOPPED"');
+    expect(store.getTaskDetail("plan-stop-sub-api")?.task.status).toBe("IN_PROGRESS");
   });
 
   it("stop task API requires note", async () => {

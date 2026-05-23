@@ -773,6 +773,21 @@ function shouldEnforceActionGuards(): boolean {
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
+function parseRichStringListFromBody(value: unknown): string[] | undefined {
+  if (value == null) return undefined;
+  if (Array.isArray(value)) {
+    const items = value.map((x) => String(x ?? "").trim()).filter(Boolean);
+    return items.length > 0 ? items : undefined;
+  }
+  const text = String(value).trim();
+  if (!text) return undefined;
+  const items = text
+    .split(/[\n;；]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  return items.length > 0 ? items : undefined;
+}
+
 function isWorkbenchTestLoginEnabled(): boolean {
   const raw = String(process.env.WORKBENCH_TEST_LOGIN_ENABLED ?? "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
@@ -992,7 +1007,7 @@ export function renderTaskDetailPage(params: {
   </div>
   <div class="card" id="addSubtaskCard" style="display:none;">
     <h3 style="margin:0 0 8px;">新增子任务</h3>
-    <p class="muted" style="font-size:13px;margin:0 0 12px;">向已发布任务追加子任务并通知新负责人。</p>
+    <p class="muted" style="font-size:13px;margin:0 0 12px;">向已发布任务追加子任务并通知新负责人。执行要点与发布草案字段一致。</p>
     <div class="form-stack">
       <label>标题<span class="mgr-req">（必填）</span>
         <input id="addSubtaskTitle" type="text" maxlength="200" placeholder="子任务做什么" style="width:100%;" />
@@ -1002,15 +1017,51 @@ export function renderTaskDetailPage(params: {
         <input id="addSubtaskAssigneeUserId" type="hidden" value="" />
         <ul id="addSubtaskAssigneeOptions" class="combo-options" hidden></ul>
       </label>
-      <label>截止日期（可选）
-        <input id="addSubtaskDueAt" type="date" style="width:100%;" />
+      <h4 class="subs-section-h" style="margin:12px 0 6px;font-size:13px;">执行要点</h4>
+      <label>目标<span class="mgr-req">（必填）</span>
+        <textarea id="addSubtaskObjective" rows="2" placeholder="这条子任务要达成什么"></textarea>
       </label>
-      <label>完成标准（可选）
+      <label>交付物<span class="mgr-req">（必填）</span>
+        <textarea id="addSubtaskDeliverables" rows="2" placeholder="产出什么文件/结果"></textarea>
+      </label>
+      <label>完成标准<span class="mgr-req">（必填）</span>
         <textarea id="addSubtaskCriteria" rows="2" placeholder="如何验收完成"></textarea>
       </label>
-      <label>目标说明（可选）
-        <textarea id="addSubtaskObjective" rows="2"></textarea>
+      <label>截止日期<span class="mgr-req">（必填）</span>
+        <input id="addSubtaskDueAt" type="date" style="width:100%;" />
       </label>
+      <label>执行动作（可选，每行一条或分号分隔）
+        <textarea id="addSubtaskActions" rows="2" placeholder="具体执行步骤"></textarea>
+      </label>
+      <label>前置依赖（可选，多选已有子任务）
+        <select id="addSubtaskDependsOn" multiple size="3" style="width:100%;"></select>
+      </label>
+      <details class="subtask-more-details" style="margin-top:8px;">
+        <summary>更多规划（7 项，可选）</summary>
+        <div class="form-stack" style="margin-top:10px;">
+          <label>反馈频率
+            <input id="addSubtaskFeedbackFrequency" type="text" maxlength="120" placeholder="例如：每日 17:00" style="width:100%;" />
+          </label>
+          <label>输入材料（每行一条）
+            <textarea id="addSubtaskInputMaterials" rows="2"></textarea>
+          </label>
+          <label>协作人（每行一条）
+            <textarea id="addSubtaskCollaborators" rows="2"></textarea>
+          </label>
+          <label>范围内（每行一条）
+            <textarea id="addSubtaskInScope" rows="2"></textarea>
+          </label>
+          <label>范围外（每行一条）
+            <textarea id="addSubtaskOutOfScope" rows="2"></textarea>
+          </label>
+          <label>检查点（每行一条）
+            <textarea id="addSubtaskCheckpoints" rows="2"></textarea>
+          </label>
+          <label>风险与待澄清（每行一条）
+            <textarea id="addSubtaskRisks" rows="2"></textarea>
+          </label>
+        </div>
+      </details>
       <label id="addSubtaskConfirmWrap" style="display:none;align-items:center;gap:8px;">
         <input type="checkbox" id="addSubtaskConfirm" /> 确认新增子任务
       </label>
@@ -1244,7 +1295,21 @@ export function renderTaskDetailPage(params: {
     el.textContent = msg || '';
     el.className = 'feedback ' + (cls || 'muted');
   }
-  function initAddSubtaskForm() {
+  function parseLinesToArray(raw) {
+    return String(raw || '').split(/[\\n;；]/).map(function (x) { return String(x || '').trim(); }).filter(Boolean);
+  }
+  function populateAddSubtaskDependsOn(subs) {
+    var sel = document.getElementById('addSubtaskDependsOn');
+    if (!sel) return;
+    var list = subs || [];
+    sel.innerHTML = list.map(function (s) {
+      var key = String(s.sourceTaskKey || s.source_task_key || '').trim();
+      if (!key) return '';
+      var label = String(s.title || key);
+      return '<option value="' + esc(key) + '">' + esc(label) + '</option>';
+    }).join('');
+  }
+  function initAddSubtaskForm(subs) {
     var cw = document.getElementById('addSubtaskConfirmWrap');
     var confirmCb = document.getElementById('addSubtaskConfirm');
     if (ENFORCE_GUARDS) {
@@ -1254,6 +1319,7 @@ export function renderTaskDetailPage(params: {
       cw.style.display = 'none';
     }
     setAddSubtaskFb('', 'muted');
+    populateAddSubtaskDependsOn(subs || []);
     if (addSubtaskComboBound) return;
     addSubtaskComboBound = true;
     var inp = document.getElementById('addSubtaskAssigneeInput');
@@ -1296,16 +1362,50 @@ export function renderTaskDetailPage(params: {
           var dueAt = String(document.getElementById('addSubtaskDueAt')?.value || '').trim();
           var completionCriteria = String(document.getElementById('addSubtaskCriteria')?.value || '').trim();
           var objective = String(document.getElementById('addSubtaskObjective')?.value || '').trim();
+          var deliverables = String(document.getElementById('addSubtaskDeliverables')?.value || '').trim();
           if (!lastLoadedPlanId) { setAddSubtaskFb('缺少 planId', 'err'); return; }
           if (!title) { setAddSubtaskFb('请填写标题', 'err'); return; }
           if (!assigneeUserId) { setAddSubtaskFb('请选择负责人', 'err'); return; }
+          if (!objective) { setAddSubtaskFb('请填写目标', 'err'); return; }
+          if (!deliverables) { setAddSubtaskFb('请填写交付物', 'err'); return; }
+          if (!completionCriteria) { setAddSubtaskFb('请填写完成标准', 'err'); return; }
+          if (!dueAt) { setAddSubtaskFb('请选择截止日期', 'err'); return; }
           if (ENFORCE_GUARDS && !document.getElementById('addSubtaskConfirm')?.checked) {
             setAddSubtaskFb('请勾选确认', 'err'); return;
           }
-          var payload = { planId: lastLoadedPlanId, title: title, assigneeUserId: assigneeUserId };
-          if (dueAt) payload.dueAt = dueAt;
-          if (completionCriteria) payload.completionCriteria = completionCriteria;
-          if (objective) payload.objective = objective;
+          var payload = {
+            planId: lastLoadedPlanId,
+            title: title,
+            assigneeUserId: assigneeUserId,
+            objective: objective,
+            deliverables: deliverables,
+            completionCriteria: completionCriteria,
+            dueAt: dueAt,
+          };
+          var actions = parseLinesToArray(document.getElementById('addSubtaskActions')?.value);
+          if (actions.length) payload.actions = actions;
+          var depSel = document.getElementById('addSubtaskDependsOn');
+          if (depSel) {
+            var deps = [];
+            for (var di = 0; di < depSel.options.length; di++) {
+              if (depSel.options[di].selected) deps.push(depSel.options[di].value);
+            }
+            if (deps.length) payload.dependsOn = deps;
+          }
+          var ff = String(document.getElementById('addSubtaskFeedbackFrequency')?.value || '').trim();
+          if (ff) payload.feedbackFrequency = ff;
+          var im = parseLinesToArray(document.getElementById('addSubtaskInputMaterials')?.value);
+          if (im.length) payload.inputMaterials = im;
+          var col = parseLinesToArray(document.getElementById('addSubtaskCollaborators')?.value);
+          if (col.length) payload.collaborators = col;
+          var ins = parseLinesToArray(document.getElementById('addSubtaskInScope')?.value);
+          if (ins.length) payload.inScope = ins;
+          var outs = parseLinesToArray(document.getElementById('addSubtaskOutOfScope')?.value);
+          if (outs.length) payload.outOfScope = outs;
+          var cps = parseLinesToArray(document.getElementById('addSubtaskCheckpoints')?.value);
+          if (cps.length) payload.checkpoints = cps;
+          var risks = parseLinesToArray(document.getElementById('addSubtaskRisks')?.value);
+          if (risks.length) payload.risks = risks;
           if (ENFORCE_GUARDS) { payload.confirm = true; payload.idempotencyKey = newMgrIdem(); }
           btn.disabled = true;
           setAddSubtaskFb('提交中…', 'muted');
@@ -1468,10 +1568,12 @@ export function renderTaskDetailPage(params: {
         var pDecl = row.querySelector('[data-mgr-panel="decline"]');
         var pAck = row.querySelector('[data-mgr-panel="ack"]');
         var pAckRej = row.querySelector('[data-mgr-panel="ack-rejection"]');
+        var pStop = row.querySelector('[data-mgr-panel="stop"]');
         if (kind === 'decline' && pDecl) {
           var showD = pDecl.hidden;
           if (pAck) pAck.hidden = true;
           if (pAckRej) pAckRej.hidden = true;
+          if (pStop) pStop.hidden = true;
           pDecl.hidden = !showD;
           if (showD) {
             row.open = true;
@@ -1481,6 +1583,7 @@ export function renderTaskDetailPage(params: {
           var showA = pAck.hidden;
           if (pDecl) pDecl.hidden = true;
           if (pAckRej) pAckRej.hidden = true;
+          if (pStop) pStop.hidden = true;
           pAck.hidden = !showA;
           if (showA) {
             row.open = true;
@@ -1490,10 +1593,21 @@ export function renderTaskDetailPage(params: {
           var showR = pAckRej.hidden;
           if (pDecl) pDecl.hidden = true;
           if (pAck) pAck.hidden = true;
+          if (pStop) pStop.hidden = true;
           pAckRej.hidden = !showR;
           if (showR) {
             row.open = true;
             setRowMgrFb(row, 'ack-rejection', '', 'muted');
+          }
+        } else if (kind === 'stop' && pStop) {
+          var showS = pStop.hidden;
+          if (pDecl) pDecl.hidden = true;
+          if (pAck) pAck.hidden = true;
+          if (pAckRej) pAckRej.hidden = true;
+          pStop.hidden = !showS;
+          if (showS) {
+            row.open = true;
+            setRowMgrFb(row, 'stop', '', 'muted');
           }
         }
         return;
@@ -1615,6 +1729,49 @@ export function renderTaskDetailPage(params: {
             await load();
           } catch (er3) {
             setRowMgrFb(row3, 'ack-rejection', String(er3 && er3.message ? er3.message : er3), 'err');
+          } finally {
+            subm.disabled = false;
+          }
+        } else if (submitKind === 'stop') {
+          var pnlS = row3.querySelector('[data-mgr-panel="stop"]');
+          var noteElS = pnlS ? pnlS.querySelector('textarea[data-field="stop-note"]') : null;
+          var noteS = noteElS ? String(noteElS.value || '').trim() : '';
+          if (!sid) {
+            setRowMgrFb(row3, 'stop', '缺少子任务', 'err');
+            return;
+          }
+          if (!noteS) {
+            setRowMgrFb(row3, 'stop', '请填写停止原因', 'err');
+            return;
+          }
+          if (ENFORCE_GUARDS) {
+            var cxS = pnlS ? pnlS.querySelector('input[data-field="stop-confirm"]') : null;
+            if (!cxS || !cxS.checked) {
+              setRowMgrFb(row3, 'stop', '请勾选确认停止', 'err');
+              return;
+            }
+          }
+          var payloadS = { planId: planId, subtaskId: sid, note: noteS };
+          if (ENFORCE_GUARDS) {
+            payloadS.confirm = true;
+            payloadS.idempotencyKey = newMgrIdem();
+          }
+          subm.disabled = true;
+          setRowMgrFb(row3, 'stop', '提交中…', 'muted');
+          try {
+            var resS = await fetch('/api/workbench/manager/subtasks/stop', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payloadS),
+            });
+            var dataS = await resS.json().catch(function () { return {}; });
+            if (!resS.ok || !dataS.ok) throw new Error(dataS.error || ('HTTP ' + resS.status));
+            setRowMgrFb(row3, 'stop', dataS.alreadyStopped ? '子任务已停止' : '已停止', 'ok');
+            if (noteElS) noteElS.value = '';
+            if (pnlS) pnlS.hidden = true;
+            await load();
+          } catch (erS) {
+            setRowMgrFb(row3, 'stop', String(erS && erS.message ? erS.message : erS), 'err');
           } finally {
             subm.disabled = false;
           }
@@ -1740,14 +1897,14 @@ export function renderTaskDetailPage(params: {
     if ((ROLE === 'manager' || ROLE === 'admin') && canStopTask(subsEarly)) {
       stopBlock =
         '<div class="mgr-stop-wrap" style="margin:12px 0 0;">'
-        + '<button type="button" class="btn btn-danger btn-sm" data-task-stop-toggle>停止任务</button>'
-        + '<p class="muted" style="margin:6px 0 0;font-size:12px;">将停止所有未完成的子任务（已完成子任务保留）；员工会收到通知。</p>'
+        + '<button type="button" class="btn btn-danger btn-sm" data-task-stop-toggle>停止全部未完成</button>'
+        + '<p class="muted" style="margin:6px 0 0;font-size:12px;">将停止所有未完成的子任务（已完成子任务保留）；也可在下方对单条子任务停止。员工会收到通知。</p>'
         + '<div class="mgr-inline-panel mgr-inline-panel--danger" hidden data-task-panel="stop" style="margin-top:10px;">'
-        + '<h4 class="mgr-inline-h">确认停止任务</h4>'
+        + '<h4 class="mgr-inline-h">确认停止全部未完成</h4>'
         + '<label class="mgr-inline-label">停止原因<span class="mgr-req">（必填）</span>'
         + '<textarea data-task-field="stop-note" rows="3" maxlength="800" placeholder="简述停止原因，便于审计与通知员工。"></textarea></label>'
         + (ENFORCE_GUARDS
-          ? '<label class="mgr-inline-confirm"><input type="checkbox" data-task-field="stop-confirm" /> 确认停止任务</label>'
+          ? '<label class="mgr-inline-confirm"><input type="checkbox" data-task-field="stop-confirm" /> 确认停止全部未完成</label>'
           : '')
         + '<div class="mgr-inline-actions">'
         + '<button type="button" class="btn btn-ghost btn-sm" data-task-stop-cancel>取消</button>'
@@ -1990,6 +2147,11 @@ export function renderTaskDetailPage(params: {
               '">改派</button>',
           );
         }
+        if (st !== 'DONE' && st !== 'STOPPED' && (ROLE === 'manager' || ROLE === 'admin')) {
+          actions.push(
+            '<button type="button" class="btn btn-danger btn-sm" data-mgr-toggle="stop">停止</button>',
+          );
+        }
         }
         var actionButtons = actions.join('');
         var summaryActionsRow = actionButtons
@@ -2101,6 +2263,21 @@ export function renderTaskDetailPage(params: {
               '</div>' +
               '<div class="feedback muted" data-mgr-fb="ack-rejection"></div></div>'
             : '';
+        var stopPanel =
+          st !== 'DONE' && st !== 'STOPPED' && (ROLE === 'manager' || ROLE === 'admin')
+            ? '<div class="mgr-inline-panel mgr-inline-panel--danger" hidden data-mgr-panel="stop">' +
+              '<h4 class="mgr-inline-h">停止本子任务</h4>' +
+              '<p class="muted" style="margin:0 0 8px;font-size:13px;">停止后负责人会收到通知，该子任务不可再改派或执行。</p>' +
+              '<label class="mgr-inline-label">停止原因<span class="mgr-req">（必填）</span>' +
+              '<textarea data-field="stop-note" rows="3" maxlength="800" placeholder="简述停止原因。"></textarea></label>' +
+              (ENFORCE_GUARDS
+                ? '<label class="mgr-inline-confirm"><input type="checkbox" data-field="stop-confirm" /> 确认停止本子任务</label>'
+                : '') +
+              '<div class="mgr-inline-actions">' +
+              '<button type="button" class="btn btn-ghost btn-sm" data-mgr-cancel="stop">取消</button>' +
+              '<button type="button" class="btn btn-danger btn-sm" data-mgr-submit="stop">确认停止</button></div>' +
+              '<div class="feedback muted" data-mgr-fb="stop"></div></div>'
+            : '';
         return (
           '<details class="sub-row-mgr"' +
           openAttr +
@@ -2151,6 +2328,7 @@ export function renderTaskDetailPage(params: {
           declinePanel +
           ackPanel +
           ackRejectionPanel +
+          stopPanel +
           '</div></details>'
         );
       });
@@ -2251,7 +2429,7 @@ export function renderTaskDetailPage(params: {
     if (asc) {
       if ((ROLE === 'manager' || ROLE === 'admin') && String(t.status || '') !== 'STOPPED') {
         asc.style.display = 'block';
-        initAddSubtaskForm();
+        initAddSubtaskForm(subs);
       } else {
         asc.style.display = 'none';
       }
@@ -3572,14 +3750,41 @@ export function handleAssignmentHttp(
         const dueAtRaw = String(body.dueAt ?? "").trim();
         const completionCriteria = String(body.completionCriteria ?? "").trim();
         const objective = String(body.objective ?? "").trim();
+        const deliverables = String(body.deliverables ?? "").trim();
+        if (!objective) {
+          writeJson(res, 400, { ok: false, error: "objective is required" });
+          return;
+        }
+        if (!deliverables) {
+          writeJson(res, 400, { ok: false, error: "deliverables is required" });
+          return;
+        }
+        if (!completionCriteria) {
+          writeJson(res, 400, { ok: false, error: "completionCriteria is required" });
+          return;
+        }
+        if (!dueAtRaw) {
+          writeJson(res, 400, { ok: false, error: "dueAt is required" });
+          return;
+        }
         const { task, subtask } = store.appendSubtask({
           planId,
           managerUserId,
           title,
           assigneeUserId,
-          dueAt: dueAtRaw || undefined,
-          completionCriteria: completionCriteria || undefined,
-          objective: objective || undefined,
+          dueAt: dueAtRaw,
+          completionCriteria,
+          objective,
+          deliverables,
+          feedbackFrequency: String(body.feedbackFrequency ?? "").trim() || undefined,
+          dependsOn: parseRichStringListFromBody(body.dependsOn),
+          checkpoints: parseRichStringListFromBody(body.checkpoints),
+          risks: parseRichStringListFromBody(body.risks),
+          inputMaterials: parseRichStringListFromBody(body.inputMaterials),
+          actions: parseRichStringListFromBody(body.actions),
+          collaborators: parseRichStringListFromBody(body.collaborators),
+          inScope: parseRichStringListFromBody(body.inScope),
+          outOfScope: parseRichStringListFromBody(body.outOfScope),
           note: note || undefined,
           actorName: session.dingUser?.name,
         });
@@ -3637,6 +3842,128 @@ export function handleAssignmentHttp(
         writeJson(res, 400, {
           ok: false,
           error: err instanceof Error ? err.message : "add subtask failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/subtasks/stop") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res);
+        if (!session) return;
+        if (session.role !== "manager" && session.role !== "admin") {
+          writeJson(res, 403, { ok: false, error: "manager or admin role required" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        if (shouldEnforceActionGuards()) {
+          const confirmed = body.confirm === true;
+          if (!confirmed) {
+            writeJson(res, 400, { ok: false, error: "confirm=true is required" });
+            return;
+          }
+          const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+          if (!idempotencyKey) {
+            writeJson(res, 400, { ok: false, error: "idempotencyKey is required" });
+            return;
+          }
+          if (!rememberActionKey("manager_stop_subtask", idempotencyKey)) {
+            writeJson(res, 200, { ok: true, duplicated: true, alreadyHandled: true });
+            return;
+          }
+        }
+        const planId = String(body.planId ?? "").trim();
+        const subtaskId = String(body.subtaskId ?? "").trim();
+        const note = String(body.note ?? "").trim();
+        if (!planId) {
+          writeJson(res, 400, { ok: false, error: "planId is required" });
+          return;
+        }
+        if (!subtaskId) {
+          writeJson(res, 400, { ok: false, error: "subtaskId is required" });
+          return;
+        }
+        if (!note) {
+          writeJson(res, 400, { ok: false, error: "note is required" });
+          return;
+        }
+        const store = getFormalTaskStore();
+        const detailForAuth = store.getTaskDetail(planId);
+        if (!detailForAuth) {
+          writeJson(res, 404, { ok: false, error: "Task not found for planId" });
+          return;
+        }
+        let managerUserId = session.userId;
+        if (session.role === "manager") {
+          if (detailForAuth.task.managerUserId !== session.userId) {
+            writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
+            return;
+          }
+        } else {
+          managerUserId = detailForAuth.task.managerUserId;
+        }
+        const result = store.stopSubtask({
+          planId,
+          subtaskId,
+          managerUserId,
+          note,
+          actorName: session.dingUser?.name,
+        });
+        if (!result.alreadyStopped) {
+          void (async () => {
+            try {
+              const notifyResult = await workbenchPublishNotifier.notifyTaskStopped({
+                taskNo: result.task.taskNo,
+                taskTitle: result.task.title,
+                managerUserId,
+                managerDisplayName: withPeopleDirectoryStore((s) =>
+                  s.getContact(managerUserId)?.name?.trim(),
+                ),
+                note,
+                assignees: [
+                  {
+                    userId: result.subtask.assigneeUserId,
+                    subtaskTitles: [result.subtask.title],
+                  },
+                ],
+              });
+              store.appendTaskEvent({
+                taskId: result.task.taskId,
+                subtaskId: result.subtask.subtaskId,
+                eventType: "SUBTASK_STOP_NOTIFY_OK",
+                actorUserId: managerUserId,
+                payload: {
+                  enabled: notifyResult.enabled,
+                  skippedReason: notifyResult.skippedReason,
+                  success: notifyResult.success,
+                  failed: notifyResult.failed,
+                },
+              });
+            } catch (err) {
+              store.appendTaskEvent({
+                taskId: result.task.taskId,
+                subtaskId: result.subtask.subtaskId,
+                eventType: "SUBTASK_STOP_NOTIFY_FAILED",
+                actorUserId: managerUserId,
+                note: err instanceof Error ? err.message : String(err),
+              });
+            }
+          })();
+        }
+        writeJson(res, 200, {
+          ok: true,
+          planId: result.task.planId,
+          taskNo: result.task.taskNo,
+          subtaskId: result.subtask.subtaskId,
+          status: result.subtask.status,
+          alreadyStopped: result.alreadyStopped,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "stop subtask failed",
         });
       }
     })();

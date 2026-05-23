@@ -186,12 +186,29 @@ function normalizeStatus(raw: string): WorkbenchTaskStatus {
   return "ASSIGNED";
 }
 
+export function isActiveSubtaskStatus(status: WorkbenchTaskStatus): boolean {
+  return status !== "DONE" && status !== "STOPPED";
+}
+
+/** True when no subtask is in flight and at least one was stopped (task terminated). */
+export function taskClosedForAppend(statuses: WorkbenchTaskStatus[]): boolean {
+  if (statuses.length === 0) return false;
+  const active = statuses.filter(isActiveSubtaskStatus);
+  if (active.length > 0) return false;
+  return statuses.some((s) => s === "STOPPED");
+}
+
 export function aggregateTaskStatus(statuses: WorkbenchTaskStatus[]): WorkbenchTaskStatus {
-  if (statuses.length > 0 && statuses.every((s) => s === "DONE")) return "DONE";
-  if (statuses.some((s) => s === "STOPPED")) return "STOPPED";
-  if (statuses.some((s) => s === "BLOCKED")) return "BLOCKED";
-  if (statuses.some((s) => s === "IN_PROGRESS")) return "IN_PROGRESS";
-  if (statuses.some((s) => s === "REJECTED")) return "REJECTED";
+  if (statuses.length === 0) return "ASSIGNED";
+  if (statuses.every((s) => s === "DONE")) return "DONE";
+  const active = statuses.filter(isActiveSubtaskStatus);
+  if (active.length === 0) {
+    if (statuses.some((s) => s === "STOPPED")) return "STOPPED";
+    return "DONE";
+  }
+  if (active.some((s) => s === "BLOCKED")) return "BLOCKED";
+  if (active.some((s) => s === "IN_PROGRESS")) return "IN_PROGRESS";
+  if (active.some((s) => s === "REJECTED")) return "REJECTED";
   return "ASSIGNED";
 }
 
@@ -971,6 +988,71 @@ export function createWorkbenchFormalTaskStore() {
       );
     },
 
+    stopSubtask(input: {
+      planId: string;
+      subtaskId: string;
+      managerUserId: string;
+      note?: string;
+      actorName?: string;
+    }): {
+      task: WorkbenchTaskRow;
+      subtask: WorkbenchSubtaskRow;
+      alreadyStopped: boolean;
+    } {
+      const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
+      if (!taskRow) throw new Error("Task not found for planId");
+      const task = mapTaskRow(taskRow);
+      if (task.managerUserId !== input.managerUserId) {
+        throw new Error("Task does not belong to current manager");
+      }
+      const subtaskRow = db
+        .prepare("SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ? AND s.task_id = ?")
+        .get(input.subtaskId, task.taskId) as Record<string, unknown> | undefined;
+      if (!subtaskRow) throw new Error(`subtask not found: ${input.subtaskId}`);
+      const currentStatus = String(subtaskRow.status ?? "");
+      if (currentStatus === "STOPPED") {
+        return {
+          task,
+          subtask: mapSubtaskRow(subtaskRow),
+          alreadyStopped: true,
+        };
+      }
+      if (!STOPPABLE_SUBTASK_STATUSES.has(currentStatus)) {
+        throw new Error(`subtask cannot be stopped in status ${currentStatus}`);
+      }
+      const now = nowIso();
+      runInTransaction(() => {
+        db.prepare("UPDATE subtasks SET status = 'STOPPED', updated_at = ? WHERE subtask_id = ?").run(
+          now,
+          input.subtaskId,
+        );
+        db.prepare(
+          "INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id, note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)",
+        ).run(
+          task.taskId,
+          input.subtaskId,
+          "SUBTASK_STOPPED",
+          input.managerUserId,
+          input.note?.trim() || null,
+          stringify({ actorName: input.actorName }),
+          now,
+        );
+        updateTaskStatus(task.taskId);
+      });
+      const updatedTaskRow = qTaskById.get(task.taskId) as Record<string, unknown> | undefined;
+      const updatedSubtaskRow = db
+        .prepare("SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?")
+        .get(input.subtaskId) as Record<string, unknown> | undefined;
+      if (!updatedTaskRow || !updatedSubtaskRow) {
+        throw new Error("Failed to reload rows after stop subtask");
+      }
+      return {
+        task: mapTaskRow(updatedTaskRow),
+        subtask: mapSubtaskRow(updatedSubtaskRow),
+        alreadyStopped: false,
+      };
+    },
+
     stopTask(input: {
       planId: string;
       managerUserId: string;
@@ -1071,13 +1153,24 @@ export function createWorkbenchFormalTaskStore() {
       if (task.managerUserId !== input.managerUserId) {
         throw new Error("Task does not belong to current manager");
       }
-      if (task.status === "STOPPED") {
+      const existingSubtaskRows = qTaskSubtasks.all(task.taskId) as Array<Record<string, unknown>>;
+      const existingStatuses = existingSubtaskRows.map((row) =>
+        normalizeStatus(String(row.status ?? "ASSIGNED")),
+      );
+      if (taskClosedForAppend(existingStatuses)) {
         throw new Error("Cannot append subtask to a stopped task");
       }
       const title = input.title.trim();
       if (!title) throw new Error("title is required");
       const assigneeUserId = input.assigneeUserId.trim();
       if (!assigneeUserId) throw new Error("assigneeUserId is required");
+      const objective = input.objective?.trim();
+      if (!objective) throw new Error("objective is required");
+      const deliverables = input.deliverables?.trim();
+      if (!deliverables) throw new Error("deliverables is required");
+      const completionCriteria = input.completionCriteria?.trim();
+      if (!completionCriteria) throw new Error("completionCriteria is required");
+      if (!input.dueAt?.trim()) throw new Error("dueAt is required");
 
       const sourceTaskKey = `manual-${randomUUID().slice(0, 8)}`;
       const subtaskId = `${task.taskId}:${sourceTaskKey}`;
@@ -1093,9 +1186,9 @@ export function createWorkbenchFormalTaskStore() {
           task.taskId,
           sourceTaskKey,
           title,
-          input.objective?.trim() || null,
-          input.deliverables?.trim() || null,
-          input.completionCriteria?.trim() || null,
+          objective,
+          deliverables,
+          completionCriteria,
           dueAt || null,
           input.feedbackFrequency?.trim() || null,
           assigneeUserId,
