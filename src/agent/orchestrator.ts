@@ -177,7 +177,7 @@ export async function runOrchestrator(
       "publishedTasksLookup: 用户问已发布/我管理的任务时，必须调 list_managed_tasks 取库内真实数据；不得用 latestDraft 充数。",
     );
     memoryParts.push(
-      "draftReviseDiscipline: 拆细/扩条/重新拆解/WBS/整表重出 tasks[]→本回合禁止 tool_calls，按 WBS 整表输出完整 draft JSON（tasks[] 全量替换，条数≥旧草案）；单点改 task_x→update_draft_task；删一条→remove_draft_subtask；禁止仅 message 无 draft JSON。",
+      "draftReviseDiscipline: TABLE REDRAFT（整表/WBS/扩成N条，无单一task锚点）→禁止 tool_calls，顶层完整 draft JSON；ROW_SPLIT（任务N拆成M条）→update_draft_task+add_draft_subtask(insertAfterSubtaskId) 增行；PATCH（单点改不增行）→update_draft_task/remove_draft_subtask；禁止仅 message 口播拆分而无增行或整表 JSON。",
     );
   }
   if (config.sessionContext?.latestAssignment) {

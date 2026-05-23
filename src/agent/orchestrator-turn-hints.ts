@@ -2,6 +2,10 @@
  * Per-turn [memory_context] action hints (CLARIFY / DRAFT / publish staging).
  * Kept separate from orchestrator.ts to keep hint logic testable.
  */
+import {
+  hasRowSplitIntent,
+  hasWholeTableRedraftIntent,
+} from "./draft-mutation/false-split";
 
 export interface TurnHintSessionContext {
   conversationHistory?: Array<{ role: string; content: string }>;
@@ -55,11 +59,30 @@ export function hasAssigneeIntentInUserMessage(userMessage: string): boolean {
   return ASSIGN_INTENT_RE.test(String(userMessage ?? "").trim());
 }
 
+export function hasRowSplitIntentInUserMessage(userMessage: string): boolean {
+  return hasRowSplitIntent(userMessage);
+}
+
+export function hasWholeTableRedraftIntentInUserMessage(userMessage: string): boolean {
+  return hasWholeTableRedraftIntent(userMessage);
+}
+
 function hasDraftTasks(sessionContext: TurnHintSessionContext | undefined): boolean {
   const draft = sessionContext?.latestDraft;
   if (!draft || typeof draft !== "object") return false;
   const tasks = (draft as { tasks?: unknown }).tasks;
   return Array.isArray(tasks) && tasks.length > 0;
+}
+
+/** 已有草案且用户要求单行拆分 → ROW_SPLIT 工具纪律注入。 */
+export function shouldInjectSplitActionHint(
+  sessionContext: TurnHintSessionContext | undefined,
+  userMessage: string,
+): boolean {
+  if (!hasDraftTasks(sessionContext)) return false;
+  if (!hasRowSplitIntentInUserMessage(userMessage)) return false;
+  if (hasWholeTableRedraftIntentInUserMessage(userMessage)) return false;
+  return true;
 }
 
 /** 已有草案且用户要求分派/点将 → ASSIGN 批量纪律注入。 */
@@ -135,10 +158,11 @@ export function shouldInjectClarifyActionHint(
 export type TurnActionHint =
   | { kind: "explicitDraftRequest" }
   | { kind: "assignAction" }
+  | { kind: "splitAction" }
   | { kind: "clarifyAction" }
   | { kind: "postClarifyDraftAction" };
 
-/** 互斥优先级：explicit → assign（有草案）→ clarify → postClarify */
+/** 互斥优先级：explicit → assign（有草案）→ split（有草案）→ clarify → postClarify */
 export function resolveTurnActionHint(
   sessionContext: TurnHintSessionContext | undefined,
   userMessage: string,
@@ -151,6 +175,9 @@ export function resolveTurnActionHint(
   }
   if (shouldInjectAssignActionHint(sessionContext, userMessage)) {
     return { kind: "assignAction" };
+  }
+  if (shouldInjectSplitActionHint(sessionContext, userMessage)) {
+    return { kind: "splitAction" };
   }
   if (shouldInjectClarifyActionHint(sessionContext, userMessage)) {
     return { kind: "clarifyAction" };
@@ -171,6 +198,14 @@ export function formatAssignActionHint(taskCount?: number): string {
   );
 }
 
+export function formatSplitActionHint(): string {
+  return (
+    "splitAction: 用户要求单行拆分（任务N拆成M条）；须 update_draft_task 改原行 + " +
+    "add_draft_subtask(insertAfterSubtaskId=该行 taskId) 使 tasks.length 增加；" +
+    "禁止仅在 message 用 1.2. 列表口播。"
+  );
+}
+
 export function formatTurnActionHint(
   hint: TurnActionHint,
   sessionContext?: TurnHintSessionContext,
@@ -184,6 +219,8 @@ export function formatTurnActionHint(
           ? ((sessionContext!.latestDraft as { tasks: unknown[] }).tasks.length)
           : undefined,
       );
+    case "splitAction":
+      return formatSplitActionHint();
     case "clarifyAction":
       return "clarifyAction: 缺关键信息（如截止时间）；CLARIFY-only，直接输出 message JSON，禁止 tool_calls。";
     case "postClarifyDraftAction":

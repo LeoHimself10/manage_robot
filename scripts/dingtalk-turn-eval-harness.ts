@@ -13,6 +13,10 @@ import {
   buildAssignRetryUserMessage,
   buildTaskIndexMap,
 } from "../src/agent/assignment/false-assign";
+import {
+  buildSplitRetryUserMessage,
+  detectFalseSplit,
+} from "../src/agent/draft-mutation/false-split";
 import { hasAssigneeIntentInUserMessage } from "../src/agent/orchestrator-turn-hints";
 import { resolveDraftForOutbound } from "../src/view/draft-outbound";
 import {
@@ -36,6 +40,8 @@ export interface DingtalkTurnEvalOptions {
   actorName?: string;
   maxToolIterations?: number;
   allowAssignRetry?: boolean;
+  /** Eval-only: retry once when row split did not increase tasks[].length. */
+  allowSplitRetry?: boolean;
   /** Eval-only: retry once when publish confirm did not invoke publish_task. */
   allowPublishRetry?: boolean;
   managerFollowup?: boolean;
@@ -197,7 +203,38 @@ export async function runDingtalkLikeTurn(
   if (draftOutbound.persistedDraft) {
     session.latestDraft = draftOutbound.persistedDraft as PlanSession["latestDraft"];
   }
-  const { draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound;
+  let { draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound;
+
+  if (opts.allowSplitRetry !== false) {
+    const needsSplitRetry = detectFalseSplit({
+      userMessage,
+      preTurnDraft: preTurnDraft as Record<string, unknown> | undefined,
+      postTurnDraft: persistedDraft as Record<string, unknown> | undefined,
+      outboundMarkdown: orchResult.messages.join("\n\n"),
+      toolInvocationNames: orchResult.toolInvocationNames ?? [],
+      orchResultHasDraftJson: orchResult.draft !== undefined,
+    });
+    if (needsSplitRetry) {
+      await retryOrchestrator(
+        buildSplitRetryUserMessage({
+          originalUserMessage: userMessage,
+          taskIndexMap: buildTaskIndexMap(persistedDraft as Record<string, unknown> | undefined),
+        }),
+      );
+      const retryOutbound = resolveDraftForOutbound({
+        preTurnDraft,
+        postTurnDraft: session.latestDraft,
+        orchResultDraft: orchResult.draft as Record<string, unknown> | undefined,
+        toolInvocationNames: orchResult.toolInvocationNames ?? [],
+      });
+      if (retryOutbound.persistedDraft) {
+        session.latestDraft = retryOutbound.persistedDraft as PlanSession["latestDraft"];
+      }
+      draftTouchedThisTurn = retryOutbound.draftTouchedThisTurn;
+      draftForRender = retryOutbound.draftForRender;
+      persistedDraft = retryOutbound.persistedDraft;
+    }
+  }
 
   const taskIds = Array.isArray((persistedDraft as { tasks?: Array<{ id?: string }> } | undefined)?.tasks)
     ? ((persistedDraft as { tasks: Array<{ id?: string }> }).tasks)

@@ -47,6 +47,10 @@ import {
   detectFalseAssign,
   formatFalseAssignObservedNotice,
 } from "./agent/assignment/false-assign";
+import {
+  buildSplitRetryUserMessage,
+  detectFalseSplit,
+} from "./agent/draft-mutation/false-split";
 import { hasAssigneeIntentInUserMessage } from "./agent/orchestrator-turn-hints";
 import {
   hasTaskTableInMessage,
@@ -922,6 +926,38 @@ async function main(): Promise<void> {
 
         let draftOutbound = applyDraftFromOrchestrator(orchResult);
         let { draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound;
+
+        const needsSplitRetry = detectFalseSplit({
+          userMessage: background,
+          preTurnDraft: preTurnDraft as Record<string, unknown> | undefined,
+          postTurnDraft: persistedDraft as Record<string, unknown> | undefined,
+          outboundMarkdown: orchResult.messages.join("\n\n"),
+          toolInvocationNames: orchResult.toolInvocationNames ?? [],
+          orchResultHasDraftJson: orchResult.draft !== undefined,
+        });
+        if (needsSplitRetry) {
+          logStructured({
+            event: "false_split_observed",
+            messageId,
+            traceId: orchResult.traceId,
+            planId: session.planId,
+          });
+          const splitRetryStartedAt = Date.now();
+          const splitRetryBackground = buildSplitRetryUserMessage({
+            originalUserMessage: background,
+            taskIndexMap: buildTaskIndexMap(persistedDraft as Record<string, unknown> | undefined),
+          });
+          orchResult = await runOrchestrator(splitRetryBackground, buildOrchestratorConfig());
+          orchestratorMs += Date.now() - splitRetryStartedAt;
+          logStructured({
+            event: "split_retry_done",
+            messageId,
+            traceId: orchResult.traceId,
+            retriedToolNames: [...(orchResult.toolInvocationNames ?? [])],
+          });
+          draftOutbound = applyDraftFromOrchestrator(orchResult);
+          ({ draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound);
+        }
 
         const employeesForAssignment = employeeRepo.list().map((e) => ({
           userId: e.userId,

@@ -34,6 +34,12 @@
       "expectSplitDueAtFromRow": 1
     },
     {
+      "id": "R4b_prod_split_task2",
+      "userMessage": "把任务2拆成2个小任务",
+      "expectTasksIncreaseBy": 1,
+      "expectSplitDueAtFromRow": 2
+    },
+    {
       "id": "R5_reassign_after_split",
       "userMessage": "拆分后还是姚雪峰负责前面硬件排查相关的，杨贺新负责包装运输和签收相关的，请把现在整张表所有子任务的负责人都补齐。",
       "expectAssignmentFull": true,

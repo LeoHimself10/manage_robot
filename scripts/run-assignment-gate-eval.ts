@@ -125,6 +125,14 @@ function buildScenarios(): ScenarioDef[] {
       allowAssignRetry: false,
     },
     {
+      id: "A4_prod_split_task2",
+      preSeedDraft: TRANSPORT_DRAFT_6,
+      userMessage: "把任务2拆成2个小任务",
+      expectTasksIncreaseBy: 1,
+      expectSplitDueAtFromRow: 2,
+      allowAssignRetry: false,
+    },
+    {
       id: "A4b_assign_after_split",
       userMessage:
         "拆分后还是姚雪峰负责前面硬件排查相关的，杨贺新负责包装运输和签收相关的，请把现在所有子任务的负责人都补齐。",

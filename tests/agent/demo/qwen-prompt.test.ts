@@ -5,9 +5,9 @@ import {
 } from "../../../src/agent/demo/qwen-prompt";
 
 describe("buildQwenPlannerSystemPrompt", () => {
-  it("v5.23.9: JSON contract, modes, no PREPARE mode", () => {
+  it("v5.23.10: JSON contract, modes, no PREPARE mode", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.23.9");
+    expect(sys).toContain("orchestrator-agent-v5.23.10");
     expect(sys).toContain("scheme C");
     expect(sys).toContain("## 输出 JSON 契约");
     expect(sys).not.toContain("§1 ");
@@ -21,7 +21,8 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("DRAFT");
     expect(sys).toContain("ASSIGN");
     expect(sys).toContain("PUBLISH");
-    expect(sys).toContain("**REDRAFT");
+    expect(sys).toContain("**TABLE REDRAFT");
+    expect(sys).toContain("**ROW_SPLIT");
     expect(sys).toContain("**PATCH REVISE");
     expect(sys).not.toContain("**REVISE**：");
     expect(sys).toContain("prepare_publish_task");
@@ -41,7 +42,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("本回合剩余禁止 tool_calls");
     expect(sys).not.toContain("服务端兜底落库");
     expect(sys).toContain("示例2 CLARIFY→DRAFT");
-    expect(sys).toContain("示例4 REDRAFT");
+    expect(sys).toContain("示例4 TABLE REDRAFT");
     expect(sys).toContain("示例5 ASSIGN");
     expect(sys).toContain("示例6 PUBLISH");
     expect(sys).not.toContain("FOLLOWUP");
@@ -52,17 +53,18 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys.length).toBeLessThanOrEqual(8200);
   });
 
-  it("v5.23.8: latestDraft judgment order and redraft discipline", () => {
+  it("v5.23.10: latestDraft judgment order and split taxonomy", () => {
     const sys = buildQwenPlannerSystemPrompt();
     expect(sys).toContain("已有未发布草案");
     expect(sys).toContain("latestDraft");
-    expect(sys).toContain("DRAFT 整表重做");
+    expect(sys).toContain("ROW_SPLIT");
+    expect(sys).toContain("TABLE REDRAFT");
     expect(sys).toContain("tasks[]` 全量替换");
     expect(sys).toContain("PATCH REVISE");
-    expect(sys).toContain("拆细/细化/扩条/重新拆解/WBS");
+    expect(sys).toContain("add_draft_subtask(insertAfterSubtaskId");
     expect(sys).toContain("禁止**为单点改整表重拆");
     expect(sys).toContain("扩成 7 条/拆更细");
-    expect(sys).toContain("整表重出 tasks[]");
+    expect(sys).toContain("任务2拆成2条");
   });
 
   it("v5.23.8: managerFollowup injects FOLLOWUP with continuous step ③", () => {
@@ -92,7 +94,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
 describe("buildQwenPlannerSystemPrompt employee profile", () => {
   it("requires get_task_detail for overall task background questions", () => {
     const sys = buildQwenPlannerSystemPrompt("employee");
-    expect(sys).toContain("orchestrator-agent-v5.23.9-employee");
+    expect(sys).toContain("orchestrator-agent-v5.23.10-employee");
     expect(sys).toContain("任务整体背景纪律");
     expect(sys).toContain("get_task_detail");
   });

@@ -7,6 +7,7 @@ import {
   shouldInjectAssignActionHint,
   shouldInjectClarifyActionHint,
   shouldInjectPostClarifyDraftHint,
+  shouldInjectSplitActionHint,
 } from "../../src/agent/orchestrator-turn-hints";
 
 const START_WELCOME =
@@ -64,5 +65,17 @@ describe("postClarify hint tightening", () => {
     expect(shouldInjectAssignActionHint(ctx, "可以，由你为我分派")).toBe(true);
     expect(resolveTurnActionHint(ctx, "可以，由你为我分派")).toEqual({ kind: "assignAction" });
     expect(buildTurnActionHintLine(ctx, "可以，由你为我分派")).toContain("assignAction");
+  });
+
+  it("inject splitAction when draft exists and user asks to split one row", () => {
+    const ctx = {
+      latestDraft: { tasks: [{ id: "task_1", title: "A" }, { id: "task_2", title: "B" }] },
+      conversationHistory: [],
+      memoryFacts: [],
+    };
+    expect(shouldInjectSplitActionHint(ctx, "把任务2拆成2个小任务")).toBe(true);
+    expect(resolveTurnActionHint(ctx, "把任务2拆成2个小任务")).toEqual({ kind: "splitAction" });
+    expect(buildTurnActionHintLine(ctx, "把任务2拆成2个小任务")).toContain("splitAction");
+    expect(shouldInjectSplitActionHint(ctx, "整表拆更细扩成8条")).toBe(false);
   });
 });
