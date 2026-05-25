@@ -14,3 +14,4 @@
 - `docs/deploy-aliyun-dingtalk.md`
 - `docs/agent-harness-架构与开发计划.md`
 - `docs/已知遗留问题-backlog.md`
+- `docs/eval-natural-full-plan.md`

@@ -1,8 +1,11 @@
 # Harness 继续优化建议（归档 + 进度）
 
 **位置**：原为仓库根目录草案，现收于 `docs/` 与代码变更同步维护。  
-**状态摘要（2026-05-22）**：下文 P0/P1/P2/P3 清单主体已在 `main` 落地。此外：
-- **ReAct Agent v5.23.8**：`runOrchestrator` 为钉钉主链路，`qwen-prompt.ts` 单一提示词来源（planner / manager / employee profile）
+**状态摘要（2026-05-25）**：下文 P0/P1/P2/P3 清单主体已在 `main` 落地。此外：
+- **ReAct Agent v5.23.13**：`runOrchestrator` 为钉钉主链路，`qwen-prompt.ts` 单一提示词来源（planner / employee profile；主管共用 planner + FOLLOWUP）
+- **`read_url`**：公网链接读取 + SSRF guard；钉钉 richText 入站统一 `extractDingtalkMessageText`
+- **花名册 fileNotes（Scheme A）**：候选池技能摘要注入 memory + ASSIGN 优先 fileNotes
+- **natural-full eval**：28 turn 自然语言回归 + `eval-production-parity-env` 对齐 ECS
 - **指派推荐 v0.2 MVP**：orchestrator 同请求内 `assignment` JSON + signed Web 工作台
 - **短期记忆**：knownFacts[] 模型自主维护；有草案时注入完整 latestDraft
 - **长期记忆**：embedding + cosine 文件遍历

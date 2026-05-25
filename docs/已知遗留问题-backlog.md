@@ -3,7 +3,7 @@
 > 记录在 assignee / publish triage 与 prompt v5.23.x 本轮工作中发现、**尚未解决**或**刻意延后**的事项。  
 > 不作为当前迭代的交付范围；按「建议归档去向」独立排期或等 telemetry / 真实反馈后再评估。
 
-**最后更新**：2026-05-22
+**最后更新**：2026-05-25
 
 ---
 
@@ -16,14 +16,15 @@
 | M-3 | C-3 工作台筛选排序 | 主管侧任务列表筛选/排序欠缺 | 与本次 assignee/publish triage 无关 | 工作台 v1.x 独立工单 |
 | M-4 | DISCUSS 模式 / 6 阶段是否够用 | D-5 现有 CLARIFY/QUERY cover 住了，没崩；但模式枚举留有「探索性提问」灰区 | 加新模式会触发 prompt 大改 + eval 全跑；未见实质坏处 | 后续若再观察到模型在「探索/案例咨询」语境表现不稳，重新评估 |
 | M-5 | 工具按模式硬白名单 | 当前靠 prompt + `ok:false` 软约束 | 与 ReAct 单次 `callWithTools` 主循环冲突；模式自报有鸡生蛋；DRAFT+ASSIGN 同句难命中 | 若半年内 prompt 仍守不住编造姓名/越权调用，再考虑按 mode 切 registry |
-| M-6 | `draftLikeMessageWithoutJson` 误警 | message 出现「草案/生成」几个字就告警，但实际未输出 draft（D-5 即此误警） | 不是真问题；本轮 prompt 改完后误警率会变 | 等 v5.23.8 上线后看新一轮 telemetry，再调阈值/移除该项 |
+| M-6 | `draftLikeMessageWithoutJson` 误警 | message 出现「草案/生成」几个字就告警，但实际未输出 draft（D-5 即此误警） | 不是真问题；v5.23.13 上线后仍偶发 | v5.23.13 telemetry 后再调阈值/移除该项 |
 | M-7 | `telemetry.modeOpsInSameTurn = ["clarify","assign"]` 的边界语义 | 同句 DRAFT+ASSIGN 时 telemetry 含 clarify 是否合理未定义 | 不影响行为，仅影响监控分类 | telemetry 重整时一并梳理 |
 | M-8 | prompt 里 ASSIGN 示例的真 userId（641728622 张三） | 直接成了 B-1「抄 ID 配假名」的素材源 | 本轮已在「ASSIGN 示例改用占位符」里覆盖，但整个 prompt 全文 / fixtures / 评测样本还需要 sweep | 计入 prompt-v5232 但单列一项「全仓 grep 真 userId 替换占位符」 |
 | M-9 | publish 后 `session.latestDraft` / `latestAssignment` 是否清空 vs 归档 | 当前是 scope 归档（rotate planId），保留旧 scope 内容 | 与本轮「工作台改派单源 SQLite」决定相容，但归档生命周期没明确 | 后续如果发现 disk 涨太快或归档被误读，再加 TTL |
 | M-10 | 发起人白名单 `TASK_INITIATOR_USER_IDS` 在 dingtalk-bot 主链路未生效 | AGENTS.md 已注明；安全风险低（仅控制谁能发起任务） | 与 assignee/publish triage 不同条线 | 安全工单独立处理 |
 | M-11 | `getContact` 仅验「ID 在不在通讯录」，没验 displayName 一致性 | 本轮通过 search 缓存解决了「假名假 ID」组合，但真名+错 ID 仍可绕过（概率低） | 加 displayName 一致性校验需要 prompt 与 search 返回结构同步改 | 跟进任务：`update_draft_task` 时若 `patch.assigneeDisplayName` 与 contact 不一致 → `ok:false` `displayname_mismatch` |
 | M-12 | `prepare_publish_task` 一直允许模型在参数里传 subtasks | 这是 B-2 prepare 洗字段的入口；本轮改为从 session 组装后该入口「形式存在但被忽略」 | 本轮先让「传了也不生效」；schema 移除参数会破坏既有调用方契约 | 后续 prompt 稳定一段时间后，从 schema 移除 subtasks 参数，让「传了就报错」更显式 |
-| M-13 | ASSIGN 阶段多 subtask **逐条 `search_employees` / `update_draft_task` 循环**（W10） | 有 8–12 条 `latestDraft` 时点将，模型常逐条 patch，4 次上限后仍口播已指派；eval W10 曾仅断言 search 即 PASS | **已修复（2026-05-22）**：`bulk_assign_tasks` + `requireFullCoverage` 全量 gate + reconcile + `eval:assignment-gate` / 收紧 W10·M1（去掉 inject）；prompt v5.23.9 |
+| M-13 | ASSIGN 阶段多 subtask **逐条 `search_employees` / `update_draft_task` 循环**（W10） | 有 8–12 条 `latestDraft` 点时将，模型常逐条 patch，4 次上限后仍口播已指派；eval W10 曾仅断言 search 即 PASS | **已修复（2026-05-22）**：`bulk_assign_tasks` + `requireFullCoverage` 全量 gate + reconcile + `eval:assignment-gate` / 收紧 W10·M1（去掉 inject）；prompt v5.23.9 |
+| M-14 | 用户可见回复**泄露工具函数名**（如 `` `add_draft_subtask` ``） | natural-full **U4** 内网 URL 引导话术正确，但偶发在 message 中写出工具名；`eval-assistant-quality` 会 FAIL | prompt 已有「禁止工具名」总则，执行不稳 | **v5.23.14+**：强化外链/补充子任务场景反例；eval 继续监控 |
 
 ---
 
@@ -56,7 +57,13 @@
 ### M-6 — `draftLikeMessageWithoutJson` 误警
 
 - D-5 类：自然语言含「草案」字样但未落 JSON `draft`。
-- 行动：v5.23.8 telemetry 后再调告警规则。
+- 行动：v5.23.13 telemetry 后再调告警规则。
+
+### M-14 — 口播工具函数名
+
+- **现象**：用户要求「按链接补充子任务」时，模型在引导复制粘贴的同时写出 `` `add_draft_subtask` ``。
+- **eval**：`chain_url_mixed` U4；`assertAssistantMessageQuality` 的 `ASSISTANT_TOOL_BANNED` 列表。
+- **修复方向**：prompt 反例 + 外链/补充场景专用话术模板；非 registry 层硬拦。
 
 ### M-7 — `modeOpsInSameTurn` 语义
 

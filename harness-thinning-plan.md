@@ -1,6 +1,6 @@
 # Harness 减薄建议：删除 LLM 已承担的重叠校验
 
-> **历史文档（2026-05-09 快照）**：下文针对 prompt v2.11 / pipeline 六态分流时代；现网主链路为 `runOrchestrator` + `orchestrator-agent-v5.23.8`。第 1–3 项已在 `main` 落地；其余仅供回溯，勿作现网依据。见 `AGENTS.md`。
+> **历史文档（2026-05-09 快照）**：下文针对 prompt v2.11 / pipeline 六态分流时代；现网主链路为 `runOrchestrator` + **`orchestrator-agent-v5.23.13`**。第 1–3 项已在 `main` 落地；其余仅供回溯，勿作现网依据。见 `AGENTS.md`。
 
 prompt v2.11 已经让 LLM 承担了：
 - 意图分类（NON_TASK / TASK_GAP）与 **`responseIntent`**（聊天 / 追问 / 讨论 / 出稿 / 修订 / 重置等）

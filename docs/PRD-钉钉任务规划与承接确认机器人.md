@@ -4,7 +4,7 @@
 
 **面向对象**：质量部、研发部（及相关协作部门）业务对接  
 **文档用途**：需求对齐、范围确认、评审与排期输入  
-**文档版本**：v1.4.2（产品需求仍以 v1.3 为准；含 2026-05-08 / 2026-05-09 / 2026-05-22 工程对齐说明）  
+**文档版本**：v1.4.3（产品需求仍以 v1.3 为准；含 2026-05-08 / 2026-05-09 / 2026-05-22 / 2026-05-25 工程对齐说明）  
 **整理日期**：2026-05-07  
 
 ---
@@ -24,6 +24,7 @@
 | v1.4 | 2026-05-10 | Leo | **ReAct Agent v4.0**：`runOrchestrator` 替换 `createTaskPlanningDemo` 为钉钉主链路；两阶段 prompt（追问/出稿）；6 tool function calling（search_web/search_employees/save_draft/list_known_facts/update_known_facts/search_similar_plans）；模型自主维护 knownFacts；embedding + cosine 长期记忆；默认模型 `qwen3.6-plus`（支持 tool_calls）；停止使用 responseIntent/assistantMessage 六态分流 |
 | v1.4.1 | 2026-05-11 | Leo | **文档对齐现网实现**：prompt 升级 `orchestrator-agent-v5.2`；钉钉链路取消输入超长硬拦截、降低代码侧强门禁；`ASSIGNMENT_PHASE_ENABLED=1` 时在同一请求内同步追加分配建议；`createTaskPlanningDemo` 保留为 demo/eval 辅助链路 |
 | v1.4.2 | 2026-05-22 | — | **工程对齐（非范围扩张）**：prompt 升至 `orchestrator-agent-v5.23.8`；工作台正式任务 SQLite 权威源 + 员工 accept 直进 `IN_PROGRESS`；催办 v1（T-1 预提醒 + 逾期主管提醒 + 手动催办）；每日进展推送 v1（表格 + 可选 LLM）；WBS 细拆原则与 Scheme C 指派（`latestAssignment`）；角色路由 `DINGTALK_ROLE_ROUTING_ENABLED` |
+| v1.4.3 | 2026-05-25 | — | **工程对齐（非范围扩张）**：prompt 升至 `orchestrator-agent-v5.23.13`；**`read_url`** 外链读取（SSRF 防护 + 钉钉 richText 入站解析）；花名册 **`fileNotes`** 技能匹配（Scheme A）；natural-full eval 回归集（28 turn / 现网 parity）；ECS orchestrator 迭代上限 30 |
 
 
 ---

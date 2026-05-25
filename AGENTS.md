@@ -17,7 +17,7 @@
 - 已知遗留问题：`docs/已知遗留问题-backlog.md`
 - 历史设计稿：`docs/superpowers/`（文首标注快照，勿作现网依据）
 
-## 当前实现边界（2026-05-22）
+## 当前实现边界（2026-05-25）
 
 ### 编排与 Policy 分工
 
@@ -28,13 +28,15 @@
 ### 模型与 Prompt
 
 - **接口**：DashScope OpenAI 兼容；默认策略见 `model-policy.ts`；线上可 `QWEN_MODEL` 切换（如 `qwen3.6-flash` 降延迟，需自行验证工具调用质量）。
-- **Prompt 版本**：`orchestrator-agent-v5.23.9`（`src/agent/demo/qwen-prompt.ts`）。
+- **Prompt 版本**：`orchestrator-agent-v5.23.13`（`src/agent/demo/qwen-prompt.ts`）。
 - **Prompt profile**（`buildQwenPlannerSystemPrompt`）：仅 **`planner`** 与 **`employee`** 两套正文；主管/admin **共用 planner 正文** + `managerFollowup` 注入第六模式 **FOLLOWUP**（见 qwen-prompt.ts 注释，勿回退独立 manager prompt）。
 - **Tool profile**（`buildToolRegistry`）：`planner` / `manager` / `admin` / `employee` / `full`；与 prompt profile **解耦**——例如 `DINGTALK_ROLE_ROUTING_ENABLED=1` 时主管路由为 `promptProfile=planner` + `toolProfile=manager`。
 - **操作模式**（JSON 输出意图，**不是** tool_calls 函数名）：CLARIFY 禁止与其他模式混用；QUERY 查正式任务（`list_managed_tasks` 等，admin 工具含 `list_managers` / `get_metrics`）；DRAFT / ASSIGN / PUBLISH 可同句叠加；**不设 PREPARE 模式**（`prepare_publish_task` 为工具两回合纪律）。
 - **WBS / REDRAFT**：单一交付物、可验收 `completionCriteria`；用户要求拆细/扩条/WBS → 顶层完整 `draft` JSON；单点改 → `update_draft_task` / `remove_draft_subtask`。
 - **Scheme C 指派**：`draft.tasks[]` **不含** assignee；负责人在 **`latestAssignment.assignments[]`**；批量点将须 **`bulk_assign_tasks` 或顶层 assignment JSON 一次 N/N**（`requireFullCoverage`）；REDRAFT 后 `reconcile-assignment` 迁移 id/截止；钉钉附表负责人列读 assignment。
-- **输出纪律**：顶层 **`message` 必填**（四段导览）；**禁止**在 message 手画任务表（服务端 `renderDingtalkTaskMarkdown` 渲染）；`draft` 经 `coerceLlmPlanPayload` + `preserveOrchestratorDraftScalars` 保留 `title`/`description`/`summary`；任何姓名须先 `search_employees`；模型误调模式名作 tool → `mode_not_a_tool` 软返回。
+- **输出纪律**：顶层 **`message` 必填**（四段导览）；**禁止**在 message 手画任务表（服务端 `renderDingtalkTaskMarkdown` 渲染）；**禁止**在用户可见 `message` 中出现工具函数名（如 `` `read_url` `` / `` `add_draft_subtask` ``）；`draft` 经 `coerceLlmPlanPayload` + `preserveOrchestratorDraftScalars` 保留 `title`/`description`/`summary`；任何姓名须先 `search_employees`；模型误调模式名作 tool → `mode_not_a_tool` 软返回。
+- **外链**：用户消息含 http(s) URL → **`read_url`**（`url-fetch-guard` SSRF 防护；内网/localhost/钉钉文档读失败 → 引导复制粘贴，禁止编造）；`extractDingtalkMessageText` 统一解析 text/richText/mixed 入站。
+- **花名册 fileNotes**：`set_candidate_pool` 时 `entries[*].fileNotes` 写入技能/职责摘要；ASSIGN 时 **`get_employee_details` 返回的 fileNotes 优先于空 selfProfile**（`appendPoolFileNotes`）。
 
 ### 工具（`src/agent/tools/registry.ts`）
 
@@ -42,16 +44,16 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 
 | Profile | 数量 | 要点 |
 |---------|------|------|
-| `planner` | 12 | 搜人、草案 PATCH、scope 切换、knownFacts |
-| `manager` | 24 | + 发布/改派/催办、`bulk_assign_tasks`、花名册 / candidate pool |
-| `admin` | 28 | + `admin_list_all_tasks` / `get_metrics` / `list_managers` / `set_manager_permission` |
+| `planner` | 13 | 搜人、草案 PATCH、scope 切换、knownFacts、**`read_url`** |
+| `manager` | 26 | + 发布/改派/催办、`bulk_assign_tasks`、花名册 / candidate pool、**`read_url`** |
+| `admin` | 30 | + `admin_list_all_tasks` / `get_metrics` / `list_managers` / `set_manager_permission`、**`read_url`** |
 | `employee` | 9 | `list_my_tasks` / `submit_employee_response` / `submit_progress_update` 等 |
 
-**硬/软配额**：`search_employees` 单次 orchestrator 最多 **3** 次；`update_draft_task` 单次 orchestrator 最多 **4** 次（**第 2 次 assigneeUserId patch 引导 bulk_assign**）；assignment JSON **`requireFullCoverage`** 默认 true（partial 不落库）；`publish_task` 空 draft / 缺 assignee → `ok:false` 软返回。
+**硬/软配额**：`search_employees` 单次 orchestrator 最多 **3** 次；`update_draft_task` 单次 orchestrator 默认最多 **4** 次（ECS 现网 **`UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12`**；**第 2 次 assigneeUserId patch 引导 bulk_assign**）；`read_url` 单次 orchestrator 最多 **2** 次（`READ_URL_PER_ORCHESTRATOR_MAX`）；assignment JSON **`requireFullCoverage`** 默认 true（partial 不落库）；`publish_task` 空 draft / 缺 assignee → `ok:false` 软返回。
 
 **Pre-draft gate**（`registry-pre-draft-gate.ts`）：无草案且非点将意图时，阻断 browse 式 `search_employees`、`search_similar_plans`、`update_known_facts`（按姓名 search 仍允许）。
 
-**条件暴露**：`search_similar_plans` ← `SEARCH_SIMILAR_PLANS_ENABLED`；`search_web` ← `SEARCH_WEB_ENABLED` + 用户语义。
+**条件暴露**：`search_similar_plans` ← `SEARCH_SIMILAR_PLANS_ENABLED`；`search_web` ← `SEARCH_WEB_ENABLED` + 用户语义；`read_url` ← `READ_URL_ENABLED`（默认 `1`）+ 用户消息含 URL。
 
 ### 钉钉角色路由
 
@@ -71,7 +73,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 | 层级 | 机制 | 说明 |
 |------|------|------|
 | 会话短期 | `PlanSession.knownFacts[]` | 模型 `update_known_facts` / `list_known_facts`；按 task scope，切换 scope 不串 |
-| 草案中期 | `[memory_context]` 注入 | 有未发布草案时每轮注入完整 **`latestDraft`**（`ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS` 默认 32000，超出 slim 截断） |
+| 草案中期 | `[memory_context]` 注入 | 有未发布草案时每轮注入完整 **`latestDraft`**（`ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS` 默认 32000，超出 slim 截断）；候选池 brief 含 **`fileNotes`（截断 200 字）** |
 | Plan 中期 | SQLite `memory_facts` / `memory_summaries` | 每轮异步提取（`MEMORY_EXTRACTION_MODEL` 默认 `qwen-doc-turbo`，TTL 默认 14 天）；`loadMemoryContextForPlan` 注入 top 8 facts |
 | 长期 | `plan-index.ts` embedding | `search_similar_plans` 触发；受 `SEARCH_SIMILAR_PLANS_ENABLED` / `PLAN_EMBEDDING_DISABLED` 约束 |
 
@@ -81,7 +83,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 
 ### Token 与迭代
 
-钉钉默认：`DINGTALK_QWEN_MAX_TOKENS=8000`、`DINGTALK_QWEN_TIMEOUT_MS=120000`、`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=6`、`AGENT_MAX_TOTAL_TOKENS=24000`、`DINGTALK_QWEN_THINKING=0`。
+代码默认：`DINGTALK_QWEN_MAX_TOKENS=8000`、`DINGTALK_QWEN_TIMEOUT_MS=120000`、`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=6`、`AGENT_MAX_TOTAL_TOKENS=24000`、`DINGTALK_QWEN_THINKING=0`。**ECS 现网**（`/etc/manage-robot.env`）：`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=30`、`AGENT_MAX_TOOL_CALLS=16`、`AGENT_MAX_TOTAL_MS=180000`、`UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12`、`DRAFT_FALLBACK_EXTRACT_ENABLED=1`。
 
 ### 运行时数据
 
@@ -140,7 +142,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 
 - **Web 工作台**：HMAC-SHA256 签名 URL（30min TTL）；端口 `ASSIGNMENT_WEB_PORT`（默认 8787）。
 - **Mock 卡片**：`DINGTALK_ASSIGNMENT_MOCK=1`。
-- **花名册点将**：`read_uploaded_roster_text` → `resolve_roster_names` → `set_candidate_pool`，避免逐条 search（见 backlog M-13）。
+- **花名册点将**：`read_uploaded_roster_text` → `resolve_roster_names` → `set_candidate_pool`（**须填 `fileNotes`**），避免逐条 search（见 backlog M-13）。
 
 ### 运维配置（节选）
 
@@ -179,7 +181,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 
 - **单元 / 集成**：`npm test`（Vitest；`vitest.setup.ts` 默认关闭审计写盘与后台 scheduler）。
 - **类型检查**：`npm run typecheck`。
-- **Eval 脚本**：`npm test` → `npm run eval:assignment-gate`（L2 点将专项）→ `npm run eval:wbs-manager`（L3 全链；W10/M1 无 inject 作弊）→ 可选 `eval:agent` / `eval:publish-short`（需 `QWEN_API_KEY`）。
+- **Eval 脚本**：`npm test` → `npm run eval:assignment-gate`（L2 点将）→ `npm run eval:wbs-manager`（L3 全链）→ `npm run eval:natural-full`（28 turn 自然语言 + 现网 parity；见 `docs/eval-natural-full-plan.md`）→ 可选 `eval:read-url` / `eval:agent` / `eval:publish-short`（需 `QWEN_API_KEY`）。Eval 对齐现网见 `scripts/eval-production-parity-env.ts`。
 - **Demo 回归**：`npm run demo:eval` / `demo:scenarios`。
 - **线上观测**：容器 stdout 结构化事件 + `data/plans` 快照；demo JSONL 主要用于 CLI 回归。
 

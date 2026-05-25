@@ -247,6 +247,11 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `READ_URL_MAX_BYTES` | 否 | 响应体最大字节（默认 `524288`，即 512KB） |
 | `READ_URL_MAX_TEXT_CHARS` | 否 | 注入模型的正文最大字符（默认 `12000`） |
 | `READ_URL_PER_ORCHESTRATOR_MAX` | 否 | 单轮 orchestrator 最多调用 `read_url` 次数（默认 `2`） |
+| `DINGTALK_ORCHESTRATOR_MAX_ITERATIONS` | 否 | ReAct 工具循环上限（代码默认 `6`；**ECS 现网推荐 `30`**） |
+| `AGENT_MAX_TOOL_CALLS` | 否 | 单轮 orchestrator 工具调用总次数上限（ECS 现网 `16`） |
+| `AGENT_MAX_TOTAL_MS` | 否 | 单轮 orchestrator 总耗时上限毫秒（ECS 现网 `180000`） |
+| `UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX` | 否 | 单轮 `update_draft_task` 上限（默认 `4`；ECS 现网 `12`） |
+| `DRAFT_FALLBACK_EXTRACT_ENABLED` | 否 | `1` 时 orchestrator 可从仅 message 的 WBS 口播兜底提取 draft（默认 `1`） |
 | `READ_URL_ALLOWED_HOSTS` | 否 | 可选域名白名单（逗号分隔）；未配置则允许公网 host（内网/localhost 仍被 SSRF 防护拒绝）。**钉钉文档/需登录页通常读不到**，应引导用户粘贴正文 |
 | `QWEN_*` | 否 | 模型、超时、重试等；**SSE 流式默认开**（`QWEN_STREAM=0` 关闭），见 `docs/Qwen-接入实施说明.md` |
 | `DEMO_DOMAIN_HINT` | 否 | `QUALITY` 或 `RD`，默认由模型判断 |
