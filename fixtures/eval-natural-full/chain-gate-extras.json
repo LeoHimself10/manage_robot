@@ -1,0 +1,82 @@
+{
+  "id": "chain_gate_extras",
+  "description": "Post-assign: split task2, patch deadline/owner, publish preview+confirm",
+  "managerStaffId": "eval-mgr-assign-001",
+  "people": {
+    "姚雪峰": "eval-yaoxuefeng-001",
+    "杨贺新": "eval-yanghexin-001"
+  },
+  "preSeed": {
+    "candidatePool": {
+      "source": "uploaded:roster.md",
+      "entries": [
+        { "userId": "eval-yaoxuefeng-001", "displayName": "姚雪峰", "fileNotes": "研发部硬件测试；上电时序、蓝屏排查" },
+        { "userId": "eval-yanghexin-001", "displayName": "杨贺新", "fileNotes": "结构工程师；包装固定、运输减震" }
+      ],
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    "latestDraft": {
+      "title": "临床样机运输后开机异常分析与改进",
+      "description": "姚雪峰与杨贺新协作完成运输前后点检、根因分析与改进建议，一个月内闭环。",
+      "tasks": [
+        { "id": "task_1", "title": "运输前现场点检与状态记录", "objective": "建立运输前开机基线", "deliverables": ["点检表"], "completionCriteria": ["记录完整"], "timeNode": { "dueAt": "2026-06-10" } },
+        { "id": "task_2", "title": "运输后首检与现象分级", "objective": "区分无电/蓝屏/黑屏", "deliverables": ["分级记录"], "completionCriteria": ["现象归类"], "timeNode": { "dueAt": "2026-06-12" } },
+        { "id": "task_3", "title": "硬件上电路径排查", "objective": "排查电源与主板", "deliverables": ["排查报告"], "completionCriteria": ["根因假设"], "timeNode": { "dueAt": "2026-06-14" } },
+        { "id": "task_4", "title": "包装固定与减震评估", "objective": "评估结构/包装风险", "deliverables": ["评估报告"], "completionCriteria": ["改进点清单"], "timeNode": { "dueAt": "2026-06-18" } },
+        { "id": "task_5", "title": "运输过程监控与交接", "objective": "监控温湿度与交接", "deliverables": ["监控日志"], "completionCriteria": ["无异常"], "timeNode": { "dueAt": "2026-06-25" } },
+        { "id": "task_6", "title": "改进建议与SOP修订", "objective": "输出防再发措施", "deliverables": ["SOP草案"], "completionCriteria": ["主管认可"], "timeNode": { "dueAt": "2026-06-30" } }
+      ]
+    },
+    "latestAssignment": {
+      "assignments": [
+        { "taskId": "task_1", "primary": { "userId": "eval-yaoxuefeng-001", "displayName": "姚雪峰" } },
+        { "taskId": "task_2", "primary": { "userId": "eval-yaoxuefeng-001", "displayName": "姚雪峰" } },
+        { "taskId": "task_3", "primary": { "userId": "eval-yaoxuefeng-001", "displayName": "姚雪峰" } },
+        { "taskId": "task_4", "primary": { "userId": "eval-yanghexin-001", "displayName": "杨贺新" } },
+        { "taskId": "task_5", "primary": { "userId": "eval-yanghexin-001", "displayName": "杨贺新" } },
+        { "taskId": "task_6", "primary": { "userId": "eval-yaoxuefeng-001", "displayName": "姚雪峰" } }
+      ]
+    }
+  },
+  "turns": [
+    {
+      "id": "G1_split_task2",
+      "userMessage": "把任务2拆成2个小任务，其他行先别动。",
+      "expectTasksIncreaseBy": 1,
+      "expectSplitDueAtFromRow": 2,
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true
+    },
+    {
+      "id": "G2_patch_task2",
+      "userMessage": "任务2改成2026-05-28前完成，负责人换成杨贺新，只改这一行。另外整张表每条子任务都要有负责人，缺的几条一并补齐。",
+      "expectOrdinalRow": { "token": "任务2", "displayIndex": 2 },
+      "expectRowPatch": {
+        "displayIndex": 2,
+        "dueAt": "2026-05-28",
+        "assigneeUserId": "eval-yanghexin-001",
+        "assigneeName": "杨贺新"
+      },
+      "expectAssignmentFull": true,
+      "allowAssignRetry": true,
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true
+    },
+    {
+      "id": "G3_publish_preview",
+      "userMessage": "生成发布预览我看一下。",
+      "expectPublishStaged": true,
+      "allowAssignRetry": true,
+      "expectAssistantQuality": true,
+      "assistantMinLength": 15
+    },
+    {
+      "id": "G4_publish_confirm",
+      "userMessage": "没问题，确认发布。",
+      "expectPublishOk": true,
+      "allowPublishRetry": true,
+      "allowAssignRetry": true,
+      "expectAssistantQuality": true
+    }
+  ]
+}

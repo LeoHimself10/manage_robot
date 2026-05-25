@@ -26,6 +26,8 @@
 - **`QWEN_STREAM`**：默认为 **开启**（OpenAI 兼容 **SSE**，服务端拼装完整 `content` 后再 `JSON.parse`）。设为 **`0` / `false` / `no`** 时使用单次整包响应。钉钉机器人 **仅推送一条终稿 Markdown**，不在会话中发送「处理中」或流式进度类气泡（与 `QWEN_STREAM` 是否开启无关）。
 - **`DEMO_LLM_CORRECTION`**：默认**开启**（未设置或 `1` / `true` / `yes`）。设为 **`0` / `false` / `no`** 时，`createTaskPlanningDemo` **不进行**校验失败后的第二轮自纠正（`enableLlmCorrection: false`）。该变量主要影响 CLI demo/eval/pipeline 路径，不是钉钉 `runOrchestrator` 主链路的关键开关。
 - **`SESSION_DIGEST_MAX_CHARS`**：钉钉多轮会话里，上轮摘要注入 Qwen user prompt 的**最大字符数**（默认 `2000`，有效范围 `200`–`8000`；非法或未解析的数字回退默认）。仅影响**同会话第二轮及以后**的 prompt 体积，对首条消息无影响。
+- **`DINGTALK_QWEN_MAX_TOKENS`** / **`AGENT_MAX_TOTAL_TOKENS`**：钉钉 orchestrator 单次输出与整轮 ReAct token 预算（默认 `8000` / `24000`）。
+- **`ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS`**：有未发布草案时 `[memory_context]` 注入完整 `latestDraft` 的字符上限（默认 `32000`）。
 
 本地可将变量写在项目根目录 `**.env`**，CLI 已 `import "dotenv/config"` 自动加载。可参考 `.env.example`。
 
@@ -49,8 +51,8 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 
 1. **钉钉主链路**：`src/dingtalk-bot.ts` 调 `runOrchestrator`，由 `QwenCompatibleClient.callWithTools` 驱动 ReAct（tool_calls 循环）生成最终 `message + draft`。
 2. **工具循环**：`callWithTools` 默认最多 6 轮；每轮都可继续使用工具，直到模型不再返回 `tool_calls`（不会在“最后一轮”被代码强制关工具）。
-3. **prompt 版本**：当前 `QWEN_PLANNER_PROMPT_VERSION` 为 `orchestrator-agent-v5.16.1`（见 `src/agent/demo/qwen-prompt.ts`）；`runOrchestrator` 使用 `buildQwenPlannerSystemPrompt`，`generateStructuredPlan`（demo/eval）使用 `buildLegacyDemoPlannerSystemPrompt`，二者解耦。
-4. **`save_draft` 行为**：当前偏“保存优先”，主要做 `coerceLlmPlanPayload` 归一化，不再依赖强门禁去阻断模型保存。
+3. **prompt 版本**：当前 `QWEN_PLANNER_PROMPT_VERSION` 为 `orchestrator-agent-v5.23.8`（见 `src/agent/demo/qwen-prompt.ts`）；`runOrchestrator` 使用 `buildQwenPlannerSystemPrompt`，`generateStructuredPlan`（demo/eval）使用 `buildLegacyDemoPlannerSystemPrompt`，二者解耦。
+4. **草案落盘**：主链路由模型在最终 JSON 顶层输出 `draft`；`save_draft` 工具仍保留于 registry 实现但**不对任何 profile 开放**。`prepare_publish_task` 在校验通过时会兜底写入 `latestDraft` / `latestAssignment`。
 5. **会话记忆**：`knownFacts` 通过 `list_known_facts` / `update_known_facts` 在同会话内持续累积，`conversationHistory` 参与后续轮次上下文。
 6. **输出补齐**：钉钉端拿到 `draft` 后会补充结构化字段表（含 `feedbackFrequency`），避免模型自由 Markdown 漏字段。
 7. **可观测**：主链路关注 `orchestrator_done`、assignment 事件与 `data/plans` 快照；`createTaskPlanningDemo` 的 `DemoGenerationMetadata`/JSONL 主要用于 demo/eval 路径。

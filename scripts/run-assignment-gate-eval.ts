@@ -27,6 +27,11 @@ import {
   assertSplitRowsInheritDueAt,
   assertTasksIncreasedBy,
 } from "./eval-assignment-assertions";
+import {
+  applyEvalProductionParityEnv,
+  buildEvalDingtalkClientConfig,
+  formatEvalProductionParitySummary,
+} from "./eval-production-parity-env";
 
 const EVAL_DIR = process.env.EVAL_DATA_DIR?.trim() || join(process.cwd(), ".eval-assignment-gate");
 const MGR = "eval-mgr-assign-001";
@@ -64,12 +69,9 @@ interface ScenarioDef {
 function bootstrap() {
   if (existsSync(EVAL_DIR)) rmSync(EVAL_DIR, { recursive: true, force: true });
   mkdirSync(EVAL_DIR, { recursive: true });
+  applyEvalProductionParityEnv();
   process.env.PLAN_SESSION_DIR = join(EVAL_DIR, "sessions");
   process.env.WORKBENCH_SQLITE_PATH = join(EVAL_DIR, "workbench.sqlite");
-  process.env.WORKBENCH_DINGTALK_NOTIFY_ENABLED = "0";
-  process.env.ASSIGNMENT_PHASE_ENABLED = "1";
-  process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS = process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? "10";
-  process.env.DINGTALK_ROLE_ROUTING_ENABLED = "1";
   process.env.WORKBENCH_MANAGER_USER_IDS = MGR;
   mkdirSync(process.env.PLAN_SESSION_DIR, { recursive: true });
 }
@@ -91,9 +93,8 @@ async function seedDirectory() {
 }
 
 function buildClient() {
-  const base = loadQwenPlannerConfigFromEnv();
-  if (!base) throw new Error("missing QWEN_API_KEY");
-  return { ...base, thinking: false, timeoutMs: 120_000, stream: true };
+  applyEvalProductionParityEnv({ respectExisting: true });
+  return buildEvalDingtalkClientConfig();
 }
 
 function buildScenarios(): ScenarioDef[] {
@@ -274,6 +275,7 @@ async function main() {
 
   console.log("=== Assignment Gate Eval (natural language) ===");
   console.log(`prompt: ${QWEN_PLANNER_PROMPT_VERSION}`);
+  console.log(`parity: ${formatEvalProductionParitySummary()}`);
   console.log(`maxIterations: ${process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS}`);
   console.log("");
 

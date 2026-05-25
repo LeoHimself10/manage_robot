@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>主管周度 Dashboard · 交互原型</title>
+<style>
+:root {
+  --bg: #eef2f6;
+  --surface: #fff;
+  --surface-2: #f8fafc;
+  --border: #dde3ea;
+  --text: #0f172a;
+  --muted: #64748b;
+  --primary: #2563eb;
+  --primary-soft: #eff6ff;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --success: #059669;
+  --success-soft: #ecfdf5;
+  --warn: #d97706;
+  --warn-soft: #fffbeb;
+  --purple: #7c3aed;
+  --purple-soft: #f5f3ff;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --shadow: 0 1px 3px rgba(15,23,42,.06);
+  --shadow-lg: 0 8px 24px rgba(15,23,42,.08);
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.5; }
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ===== App shell ===== */
+.app { display: grid; grid-template-columns: 1fr 340px; min-height: 100vh; }
+@media (max-width: 1100px) { .app { grid-template-columns: 1fr; } .bot-panel { order: -1; border-left: none !important; border-bottom: 1px solid var(--border); } }
+
+.main { padding: 20px 22px 48px; max-width: 980px; }
+.bot-panel {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  padding: 20px 18px 32px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+
+.topbar { display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+.brand { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.page-title { margin: 4px 0 0; font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
+.page-desc { margin: 6px 0 0; font-size: 13px; color: var(--muted); max-width: 520px; }
+.nav-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.nav-pills a {
+  padding: 7px 13px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-size: 13px; font-weight: 500;
+}
+.nav-pills a.active { background: var(--primary-soft); border-color: #93c5fd; color: #1d4ed8; }
+
+/* ===== Time control ===== */
+.time-bar {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 16px; box-shadow: var(--shadow);
+}
+.time-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.week-nav { display: flex; align-items: center; gap: 8px; }
+.week-nav button {
+  width: 34px; height: 34px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--surface-2); cursor: pointer; font-size: 16px; color: var(--text);
+}
+.week-nav button:hover { border-color: #93c5fd; background: var(--primary-soft); }
+.week-label { font-size: 16px; font-weight: 700; min-width: 210px; text-align: center; }
+.week-label small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-top: 2px; }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  font-size: 12px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface-2); cursor: pointer; color: var(--muted); font-weight: 600;
+}
+.chip.on { background: var(--primary-soft); border-color: #93c5fd; color: #1d4ed8; }
+.range-hint {
+  margin-top: 10px; font-size: 12px; color: var(--muted);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.range-hint .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.dot-past { background: #94a3b8; }
+.dot-current { background: var(--primary); }
+.dot-future { background: #c4b5fd; }
+
+/* ===== KPI ===== */
+.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 16px; }
+@media (max-width: 900px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
+.kpi {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 14px; box-shadow: var(--shadow);
+}
+.kpi .lbl { font-size: 11px; color: var(--muted); font-weight: 600; }
+.kpi .val { font-size: 22px; font-weight: 800; margin-top: 4px; letter-spacing: -.02em; }
+.kpi .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.kpi.warn .val { color: var(--warn); }
+.kpi.danger .val { color: var(--danger); }
+.kpi.ok .val { color: var(--success); }
+
+/* ===== View toggle + filters ===== */
+.toolbar {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+}
+.seg {
+  display: inline-flex; padding: 3px; background: #e2e8f0; border-radius: 10px; gap: 2px;
+}
+.seg button {
+  border: none; background: transparent; padding: 8px 14px; border-radius: 8px;
+  font-size: 13px; font-weight: 650; cursor: pointer; color: var(--muted); font-family: inherit;
+}
+.seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.filters select, .filters input {
+  font-size: 12px; padding: 7px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface); font-family: inherit;
+}
+
+/* ===== Timeline strip ===== */
+.timeline-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow);
+}
+.timeline-card h3 { margin: 0 0 4px; font-size: 15px; }
+.timeline-card .hint { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.timeline-grid { display: grid; grid-template-columns: 120px 1fr; gap: 0; font-size: 11px; }
+.tl-head { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 6px; padding-left: 120px; }
+.tl-day { text-align: center; color: var(--muted); font-weight: 600; padding: 4px 0; }
+.tl-day.today { color: var(--primary); background: var(--primary-soft); border-radius: 6px; }
+.tl-day.weekend { opacity: .55; }
+.tl-row { display: contents; }
+.tl-label { padding: 8px 8px 8px 0; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-track { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; min-height: 28px; position: relative; }
+.tl-cell { background: var(--surface-2); border-radius: 4px; border: 1px dashed #e2e8f0; min-height: 28px; }
+.tl-bar {
+  position: absolute; height: 22px; top: 3px; border-radius: 5px; font-size: 10px;
+  color: #fff; padding: 0 6px; display: flex; align-items: center; overflow: hidden;
+  white-space: nowrap; font-weight: 600; cursor: pointer;
+}
+.tl-bar.past { opacity: .75; }
+.tl-bar.future { background-image: repeating-linear-gradient(-45deg, transparent, transparent 4px, rgba(255,255,255,.15) 4px, rgba(255,255,255,.15) 8px); }
+.tl-bar.done { background: var(--success); }
+.tl-bar.progress { background: var(--primary); }
+.tl-bar.blocked { background: var(--danger); }
+.tl-bar.planned { background: #8b5cf6; }
+.tl-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 11px; color: var(--muted); }
+.tl-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+/* ===== Task view ===== */
+.panel { display: none; }
+.panel.on { display: block; }
+.task-group {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  margin-bottom: 12px; overflow: hidden; box-shadow: var(--shadow);
+}
+.task-head {
+  padding: 14px 16px; cursor: pointer; display: grid;
+  grid-template-columns: 1fr auto; gap: 10px; align-items: center;
+  background: linear-gradient(180deg, #fff, #fafbfc);
+}
+.task-head:hover { background: #f8fafc; }
+.task-title { font-size: 15px; font-weight: 700; margin: 0; }
+.task-meta { font-size: 12px; color: var(--muted); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 10px; }
+.progress-ring {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: conic-gradient(var(--success) var(--pct, 0%), #e2e8f0 0);
+  display: grid; place-items: center; position: relative;
+}
+.progress-ring::after {
+  content: attr(data-pct); font-size: 11px; font-weight: 800;
+  width: 38px; height: 38px; border-radius: 50%; background: #fff;
+  display: grid; place-items: center;
+}
+.task-body { border-top: 1px solid var(--border); display: none; }
+.task-group.open .task-body { display: block; }
+.subtable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.subtable th {
+  text-align: left; padding: 10px 12px; background: var(--surface-2);
+  color: var(--muted); font-weight: 700; font-size: 11px; border-bottom: 1px solid var(--border);
+}
+.subtable td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+.subtable tr:last-child td { border-bottom: none; }
+.subtable tr:hover td { background: #fafbfc; }
+.badge {
+  display: inline-block; font-size: 10px; font-weight: 700; padding: 3px 8px;
+  border-radius: 999px; white-space: nowrap;
+}
+.badge.done { background: var(--success-soft); color: var(--success); }
+.badge.progress { background: var(--primary-soft); color: #1d4ed8; }
+.badge.blocked { background: var(--danger-soft); color: var(--danger); }
+.badge.wait { background: var(--warn-soft); color: var(--warn); }
+.badge.planned { background: var(--purple-soft); color: var(--purple); }
+.event-mini { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.45; }
+.event-mini strong { color: var(--text); font-weight: 600; }
+.delta { font-size: 11px; font-weight: 700; }
+.delta.up { color: var(--success); }
+.delta.flat { color: var(--muted); }
+
+/* ===== Person view ===== */
+.person-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+@media (max-width: 760px) { .person-grid { grid-template-columns: 1fr; } }
+.person-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; box-shadow: var(--shadow);
+}
+.person-head {
+  padding: 14px 16px; display: flex; gap: 12px; align-items: center;
+  border-bottom: 1px solid var(--border); background: var(--surface-2);
+}
+.avatar {
+  width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: #fff; font-weight: 800; font-size: 14px; display: grid; place-items: center; flex-shrink: 0;
+}
+.person-name { font-weight: 700; font-size: 14px; }
+.person-dept { font-size: 11px; color: var(--muted); }
+.person-stats { margin-left: auto; text-align: right; font-size: 11px; color: var(--muted); }
+.person-stats b { display: block; font-size: 18px; color: var(--text); }
+.person-items { padding: 8px 0; }
+.person-item {
+  padding: 10px 16px; border-bottom: 1px solid #f1f5f9; font-size: 12px;
+}
+.person-item:last-child { border-bottom: none; }
+.person-item .t { font-weight: 650; margin-bottom: 3px; }
+.person-item .m { color: var(--muted); font-size: 11px; }
+
+/* ===== Activity feed ===== */
+.activity {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px 16px; margin-top: 16px; box-shadow: var(--shadow);
+}
+.activity h3 { margin: 0 0 12px; font-size: 15px; }
+.feed { list-style: none; margin: 0; padding: 0; }
+.feed li {
+  display: grid; grid-template-columns: 72px 1fr; gap: 12px; padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9; font-size: 12px;
+}
+.feed li:last-child { border-bottom: none; }
+.feed time { color: var(--muted); font-size: 11px; font-weight: 600; }
+.feed .who { font-weight: 700; }
+.feed .act { color: var(--muted); }
+
+/* ===== Bot panel ===== */
+.bot-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.bot-icon {
+  width: 42px; height: 42px; border-radius: 12px;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  display: grid; place-items: center; color: #fff; font-size: 20px;
+}
+.bot-title { font-size: 16px; font-weight: 800; margin: 0; }
+.bot-sub { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
+.bot-card {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 14px; margin-bottom: 10px; font-size: 12px;
+}
+.bot-card h4 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.bot-card ul { margin: 0; padding-left: 18px; }
+.bot-card li { margin-bottom: 6px; line-height: 1.45; }
+.bot-card li:last-child { margin-bottom: 0; }
+.bot-card.priority-high { border-left: 3px solid var(--danger); }
+.bot-card.priority-mid { border-left: 3px solid var(--warn); }
+.bot-card.priority-low { border-left: 3px solid var(--success); }
+.bot-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 14px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 650;
+  cursor: pointer; border: 1px solid var(--border); background: var(--surface); font-family: inherit;
+}
+.btn-primary { background: var(--primary); color: #fff; border-color: #1d4ed8; }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-ghost:hover { border-color: #93c5fd; background: var(--primary-soft); }
+.bot-meta { font-size: 11px; color: var(--muted); margin-top: 12px; line-height: 1.5; }
+.bot-chat {
+  margin-top: 14px; border-top: 1px solid var(--border); padding-top: 14px;
+}
+.bot-chat .bubble {
+  background: var(--primary-soft); border: 1px solid #bfdbfe; border-radius: 12px 12px 12px 4px;
+  padding: 10px 12px; font-size: 12px; margin-bottom: 8px;
+}
+.bot-chat .bubble.user {
+  background: var(--surface-2); border-color: var(--border); border-radius: 12px 12px 4px 12px; margin-left: 24px;
+}
+.bot-input {
+  display: flex; gap: 6px; margin-top: 8px;
+}
+.bot-input input {
+  flex: 1; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 12px;
+}
+
+/* ===== Design notes footer ===== */
+.design-notes {
+  max-width: 980px; margin: 0 auto 48px; padding: 0 22px;
+}
+.design-notes details {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px 18px; box-shadow: var(--shadow);
+}
+.design-notes summary { cursor: pointer; font-weight: 700; font-size: 14px; }
+.design-notes .body { margin-top: 12px; font-size: 13px; color: var(--muted); line-height: 1.65; }
+.design-notes h4 { color: var(--text); margin: 14px 0 6px; font-size: 13px; }
+.design-notes code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <div class="brand">主管工作台</div>
+        <h1 class="page-title">周度进展 Dashboard</h1>
+        <p class="page-desc">以自然周为默认粒度，纵览任务与子任务进展；支持按任务 / 按人员双维聚合，时间轴可回看历史、预览未来计划。</p>
+      </div>
+      <nav class="nav-pills" aria-label="主导航">
+        <a href="#">周度 Dashboard</a>
+        <a href="#">历史任务</a>
+        <a href="#">智能规划助手</a>
+      </nav>
+    </header>
+
+    <!-- Time control -->
+    <section class="time-bar" aria-label="时间范围">
+      <div class="time-row">
+        <div class="week-nav">
+          <button type="button" id="prevWeek" title="上一周">‹</button>
+          <div class="week-label" id="weekLabel">
+            2026-W21 · 5/19 – 5/25
+            <small>北京时间 · 含周末标记</small>
+          </div>
+          <button type="button" id="nextWeek" title="下一周">›</button>
+        </div>
+        <div class="presets" role="group" aria-label="快捷范围">
+          <span class="chip" data-preset="last">上周</span>
+          <span class="chip on" data-preset="this">本周</span>
+          <span class="chip" data-preset="4w">近 4 周</span>
+          <span class="chip" data-preset="custom">自定义区间</span>
+        </div>
+      </div>
+      <div class="range-hint">
+        <span><i class="dot dot-past"></i> 已发生（事件 + 状态变更）</span>
+        <span><i class="dot dot-current"></i> 当前选中周</span>
+        <span><i class="dot dot-future"></i> 计划区间（due_at / 里程碑）</span>
+        <span style="margin-left:auto;">展开至 <strong id="rangeSpan">±3 周</strong> · <button type="button" class="chip" id="extendRange" style="margin-left:4px;">拉长至 ±6 周</button></span>
+      </div>
+    </section>
+
+    <!-- KPI -->
+    <section class="kpis" aria-label="本周摘要">
+      <div class="kpi ok"><div class="lbl">子任务完成</div><div class="val">7</div><div class="sub">较上周 +2</div></div>
+      <div class="kpi"><div class="lbl">正常推进</div><div class="val">12</div><div class="sub">IN_PROGRESS</div></div>
+      <div class="kpi warn"><div class="lbl">待承接</div><div class="val">3</div><div class="sub">ASSIGNED</div></div>
+      <div class="kpi danger"><div class="lbl">阻塞 / 逾期</div><div class="val">2</div><div class="sub">需会上重点</div></div>
+      <div class="kpi"><div class="lbl">本周动态</div><div class="val">18</div><div class="sub">事件条数</div></div>
+      <div class="kpi"><div class="lbl">下周到期</div><div class="val">5</div><div class="sub">T+7 内</div></div>
+    </section>
+
+    <!-- Timeline -->
+    <section class="timeline-card">
+      <h3>时间轴 · 任务 × 自然周</h3>
+      <p class="hint">左列任务/人员，横轴为 Mon–Sun。实色条=本周已发生或进行中；虚纹=未来计划。点击条可下钻子任务详情。</p>
+      <div class="tl-head" id="tlHead"></div>
+      <div class="timeline-grid" id="timelineRows"></div>
+      <div class="tl-legend">
+        <span><i class="swatch" style="background:var(--success)"></i> 本周已完成</span>
+        <span><i class="swatch" style="background:var(--primary)"></i> 执行中</span>
+        <span><i class="swatch" style="background:var(--danger)"></i> 阻塞/逾期</span>
+        <span><i class="swatch" style="background:#8b5cf6"></i> 未来计划</span>
+      </div>
+    </section>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="seg" role="tablist">
+        <button type="button" class="on" data-view="task" role="tab" aria-selected="true">按任务聚合</button>
+        <button type="button" data-view="person" role="tab" aria-selected="false">按人员聚合</button>
+      </div>
+      <div class="filters">
+        <select aria-label="状态筛选">
+          <option>全部状态</option>
+          <option>阻塞 / 逾期</option>
+          <option>待您处理</option>
+          <option>执行中</option>
+          <option>已完成</option>
+        </select>
+        <input type="search" placeholder="搜索任务 / 人员" aria-label="搜索" />
+      </div>
+    </div>
+
+    <!-- Task view -->
+    <div class="panel on" id="panelTask" role="tabpanel">
+      <article class="task-group open">
+        <div class="task-head" onclick="this.parentElement.classList.toggle('open')">
+          <div>
+            <h2 class="task-title">TASK-2026-014 · Q2 产线良率提升专项</h2>
+            <div class="task-meta">
+              <span>子任务 8 · 完成 3 · 阻塞 1</span>
+              <span>本周动态 6 条</span>
+              <span class="delta up">完成率 +12%</span>
+            </div>
+          </div>
+          <div class="progress-ring" style="--pct: 38%" data-pct="38%"></div>
+        </div>
+        <div class="task-body">
+          <table class="subtable">
+            <thead>
+              <tr>
+                <th>子任务</th><th>负责人</th><th>状态</th><th>截止</th><th>本周进展</th><th>下周</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1.1 SPC 数据清洗脚本</td>
+                <td>张三</td>
+                <td><span class="badge done">已完成</span></td>
+                <td>5/22</td>
+                <td><div class="event-mini"><strong>5/21</strong> 提交进度：脚本已跑通 3 条产线<br><strong>5/22</strong> 标记完成</div></td>
+                <td><span class="badge planned">—</span></td>
+              </tr>
+              <tr>
+                <td>1.2 异常批次根因分析</td>
+                <td>李四</td>
+                <td><span class="badge blocked">阻塞</span></td>
+                <td>5/24</td>
+                <td><div class="event-mini"><strong>5/23</strong> 上报阻塞：缺来料检验报告<br><strong>5/24</strong> 逾期</div></td>
+                <td><span class="badge wait">需协调质检</span></td>
+              </tr>
+              <tr>
+                <td>1.3 工艺参数 DOE 试验</td>
+                <td>王五</td>
+                <td><span class="badge progress">执行中</span></td>
+                <td>5/30</td>
+                <td><div class="event-mini"><strong>5/20</strong> 接受任务<br><strong>5/24</strong> 进度 40%，第一轮试验完成</div></td>
+                <td><span class="badge planned">计划完成 R1</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="task-group">
+        <div class="task-head" onclick="this.parentElement.classList.toggle('open')">
+          <div>
+            <h2 class="task-title">TASK-2026-011 · 新版作业指导书 rollout</h2>
+            <div class="task-meta">
+              <span>子任务 5 · 完成 2 · 待承接 1</span>
+              <span>本周动态 4 条</span>
+              <span class="delta flat">完成率持平</span>
+            </div>
+          </div>
+          <div class="progress-ring" style="--pct: 40%" data-pct="40%"></div>
+        </div>
+        <div class="task-body">
+          <table class="subtable">
+            <thead><tr><th>子任务</th><th>负责人</th><th>状态</th><th>截止</th><th>本周进展</th><th>下周</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>2.1 产线 A 培训与签收</td><td>赵六</td><td><span class="badge wait">待承接</span></td>
+                <td>5/28</td><td><div class="event-mini">尚未 accept · 已发通知 5/23</div></td>
+                <td><span class="badge planned">催承接</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+
+    <!-- Person view -->
+    <div class="panel" id="panelPerson" role="tabpanel">
+      <div class="person-grid">
+        <article class="person-card">
+          <div class="person-head">
+            <div class="avatar">张</div>
+            <div><div class="person-name">张三</div><div class="person-dept">工艺工程 · 3 项子任务</div></div>
+            <div class="person-stats"><b>2/3</b>本周完成</div>
+          </div>
+          <div class="person-items">
+            <div class="person-item"><div class="t">SPC 数据清洗脚本 <span class="badge done">已完成</span></div><div class="m">TASK-014 · 5/22 完成 · 本周 2 条动态</div></div>
+            <div class="person-item"><div class="t">参数复核 checklist <span class="badge progress">执行中</span></div><div class="m">TASK-011 · 截止 5/29 · 进度 60%</div></div>
+          </div>
+        </article>
+        <article class="person-card">
+          <div class="person-head">
+            <div class="avatar" style="background:linear-gradient(135deg,#dc2626,#f97316)">李</div>
+            <div><div class="person-name">李四</div><div class="person-dept">质量分析 · 2 项子任务</div></div>
+            <div class="person-stats"><b style="color:var(--danger)">0/2</b>阻塞 1</div>
+          </div>
+          <div class="person-items">
+            <div class="person-item"><div class="t">异常批次根因分析 <span class="badge blocked">阻塞</span></div><div class="m">TASK-014 · 逾期 · 缺来料报告</div></div>
+            <div class="person-item"><div class="t">CAPA 建议初稿 <span class="badge progress">执行中</span></div><div class="m">TASK-009 · 下周三截止</div></div>
+          </div>
+        </article>
+        <article class="person-card">
+          <div class="person-head">
+            <div class="avatar" style="background:linear-gradient(135deg,#059669,#14b8a6)">王</div>
+            <div><div class="person-name">王五</div><div class="person-dept">工艺工程 · 1 项子任务</div></div>
+            <div class="person-stats"><b>0/1</b>推进中</div>
+          </div>
+          <div class="person-items">
+            <div class="person-item"><div class="t">工艺参数 DOE 试验 <span class="badge progress">执行中</span></div><div class="m">TASK-014 · 5/24 更新 40% · 计划 5/30 完成 R1</div></div>
+          </div>
+        </article>
+        <article class="person-card">
+          <div class="person-head">
+            <div class="avatar" style="background:linear-gradient(135deg,#7c3aed,#a855f7)">赵</div>
+            <div><div class="person-name">赵六</div><div class="person-dept">生产 · 1 项子任务</div></div>
+            <div class="person-stats"><b style="color:var(--warn)">待承接</b></div>
+          </div>
+          <div class="person-items">
+            <div class="person-item"><div class="t">产线 A 培训与签收 <span class="badge wait">待承接</span></div><div class="m">TASK-011 · 5/23 已通知 · 建议周一催办</div></div>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <!-- Activity -->
+    <section class="activity">
+      <h3>本周动态时间线</h3>
+      <ul class="feed">
+        <li><time>5/24 16:20</time><div><span class="who">王五</span> 更新进度 · TASK-014/1.3 · <span class="act">DOE 第一轮完成 40%</span></div></li>
+        <li><time>5/24 09:10</time><div><span class="who">李四</span> 上报阻塞 · TASK-014/1.2 · <span class="act">缺来料检验报告</span></div></li>
+        <li><time>5/22 18:00</time><div><span class="who">张三</span> 完成子任务 · TASK-014/1.1 · <span class="act">SPC 脚本验收通过</span></div></li>
+        <li><time>5/20 11:30</time><div><span class="who">王五</span> 接受任务 · TASK-014/1.3</div></li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- Weekly advisor bot -->
+  <aside class="bot-panel" aria-label="周度建议助手">
+    <div class="bot-head">
+      <div class="bot-icon">◎</div>
+      <div>
+        <h2 class="bot-title">周度建议助手</h2>
+        <p class="bot-sub">基于本周事实数据 · 非编造</p>
+      </div>
+    </div>
+
+    <div class="bot-card priority-high">
+      <h4>🔴 会上必谈（2 项）</h4>
+      <ul>
+        <li><strong>李四 · 异常批次根因</strong>：已阻塞且逾期，根因是缺来料检验报告。建议会上指定协调人，或改派给能拿到资料的人。</li>
+        <li><strong>赵六 · 产线 A 培训</strong>：发布 2 天未 accept，影响 rollout 节奏。建议周一 10:00 前手动催办。</li>
+      </ul>
+    </div>
+
+    <div class="bot-card priority-mid">
+      <h4>🟡 下周关注（3 项）</h4>
+      <ul>
+        <li><strong>王五 · DOE 试验</strong>：进度 40%，按截止 5/30 需本周再更新一次；否则下周会进入逾期风险区。</li>
+        <li><strong>TASK-011 整体</strong>：5 个子任务仅完成 2，待承接 1；建议周会按子任务逐条过，不要只报任务级百分比。</li>
+        <li><strong>产能负载</strong>：张三下周仍有 1 项执行中 + 1 项 5/29 截止，不宜再叠加高优先级派工。</li>
+      </ul>
+    </div>
+
+    <div class="bot-card priority-low">
+      <h4>🟢 可表扬 / 闭环（1 项）</h4>
+      <ul>
+        <li><strong>张三 · SPC 脚本</strong>：提前 1 天完成且附验收说明，可在会上点名，强化「带 note 的进度更新」示范。</li>
+      </ul>
+    </div>
+
+    <div class="bot-card">
+      <h4>📋 建议的下周议程（30 分钟）</h4>
+      <ul>
+        <li>0–5 min · KPI + 阻塞清单（2 项）</li>
+        <li>5–20 min · 按人员过执行中子任务（重点：李四、王五）</li>
+        <li>20–25 min · 下周到期预览（5 项）</li>
+        <li>25–30 min · 决议：协调人 / 催办 / 改派</li>
+      </ul>
+    </div>
+
+    <div class="bot-actions">
+      <button type="button" class="btn btn-primary">推送到钉钉（主管群）</button>
+      <button type="button" class="btn btn-ghost">复制为会议议程</button>
+      <button type="button" class="btn btn-ghost">一键催办待处理项</button>
+    </div>
+
+    <div class="bot-chat">
+      <div class="bubble">已读取 W21 数据：18 条事件、12 项执行中、2 项阻塞。需要我按「任务维度」还是「人员维度」展开下周建议？</div>
+      <div class="bubble user">人员维度，重点看谁 overloaded</div>
+      <div class="bubble">张三、王五下周各 2 项截止；李四 1 项阻塞未解。赵六待承接。建议暂缓给张三加新单，优先 unblock 李四。</div>
+      <div class="bot-input">
+        <input type="text" placeholder="追问：例如「只看过期项」" />
+        <button type="button" class="btn btn-sm btn-primary" style="padding:8px 12px;font-size:12px;">发送</button>
+      </div>
+    </div>
+
+    <p class="bot-meta">
+      实现建议：独立 <code>weekly-advisor</code> 工具链，输入为 <code>ProgressDigestFacts</code> + 周区间聚合 API 的结构化 JSON；LLM 只写「建议/议程」，数字必须来自工具。默认周五 17:00 推送，周会前可手动触发。
+    </p>
+  </aside>
+</div>
+
+<section class="design-notes">
+  <details open>
+    <summary>设计说明 · 最佳实践与实现要点（给研发）</summary>
+    <div class="body">
+      <h4>1. 信息架构（三层）</h4>
+      <p><strong>周摘要 KPI</strong> → <strong>时间轴（任务×周 / 可选人员×周）</strong> → <strong>双维明细表</strong>（任务展开子任务 / 人员卡片列子任务）+ <strong>事件 feed</strong>。主管开会路径：KPI → 时间轴看冲突 → 切人员维度问负载 → 切任务维度过 WBS。</p>
+
+      <h4>2. 时间维度</h4>
+      <p>默认 <strong>ISO 自然周（Asia/Shanghai，周一 00:00 起）</strong>，与现有 <code>PROGRESS_DIGEST_TIMEZONE</code>、截止日 18:00 语义一致。支持：上一周/本周/近 N 周/自定义区间；时间轴左右各扩展 N 周展示<strong>历史事件条</strong>与<strong>未来 due_at 计划条</strong>（未来不用 LLM 猜，只读截止与状态）。</p>
+
+      <h4>3. 数据来源（复用现网，不另造状态）</h4>
+      <ul>
+        <li>正式任务 / 子任务：<code>workbench-formal-task-store</code></li>
+        <li>本周动态：<code>task_events</code>（已有 SUBTASK_PROGRESS / ACCEPT / BLOCK 等）</li>
+        <li>聚合逻辑：复用 <code>workbench-attention</code>、<code>progress-digest-facts</code>，新增 <code>GET /api/workbench/manager/weekly-dashboard?week=2026-W21&span=3</code></li>
+      </ul>
+
+      <h4>4. 双维聚合</h4>
+      <p><strong>按任务</strong>：顶层 task → 子任务行 → 列「本周进展」（事件摘要）+「下周」（due 落在 T+7 或计划状态）。<strong>按人员</strong>：assignee 分组 → 嵌套其负责的子任务；附带负载指标（进行中数、下周到期数、阻塞数）。两视图同一 API，<code>groupBy=task|person</code>。</p>
+
+      <h4>5. 周度建议助手（新机器人能力）</h4>
+      <p>建议<strong>不要</strong>塞进编排主链路，而是：</p>
+      <ul>
+        <li><strong>Backend</strong>：<code>buildWeeklyReviewFacts()</code> 输出结构化 facts（与 progress digest 同模式）</li>
+        <li><strong>LLM</strong>：仅生成「必谈 / 关注 / 表扬 / 议程 / 负载建议」，禁止输出未在 facts 中出现的任务号或数字</li>
+        <li><strong>触发</strong>：① 定时周五 17:00；② Dashboard 按钮；③ 钉钉对话 <code>WEEKLY_REVIEW</code> 模式（QUERY 子集）</li>
+        <li><strong>落点</strong>：右侧栏 + 可选推送 Markdown 到主管单聊/群</li>
+      </ul>
+
+      <h4>6. 与现有能力关系</h4>
+      <p>每日进展推送 = <strong>日粒度收件箱</strong>；本 Dashboard = <strong>周粒度指挥舱</strong>；历史任务页 = <strong>操作台</strong>（改派/催办）。三处共用 SQLite 权威源，避免双写。</p>
+
+      <h4>7. 分期建议</h4>
+      <p><strong>P0</strong>：周 API + Dashboard 页（任务/人员双视图 + 事件 feed）。<strong>P1</strong>：时间轴 ±N 周 + 未来 due 预览。<strong>P2</strong>：周度建议助手 + 定时推送 + 钉钉 QUERY。<strong>P3</strong>：导出会议议程 PDF / 与日历集成。</p>
+    </div>
+  </details>
+</section>
+
+<script>
+(function () {
+  const weeks = [
+    { id: "2026-W20", label: "2026-W20 · 5/12 – 5/18", offset: -1 },
+    { id: "2026-W21", label: "2026-W21 · 5/19 – 5/25", offset: 0 },
+    { id: "2026-W22", label: "2026-W22 · 5/26 – 6/1", offset: 1 },
+  ];
+  let wi = 1;
+  const weekLabel = document.getElementById("weekLabel");
+  const days = ["一", "二", "三", "四", "五", "六", "日"];
+
+  function renderTimeline() {
+    const head = document.getElementById("tlHead");
+    const rows = document.getElementById("timelineRows");
+    head.innerHTML = days.map((d, i) =>
+      `<div class="tl-day${i === 4 ? " today" : ""}${i >= 5 ? " weekend" : ""}">周${d}<br>5/${19 + i}</div>`
+    ).join("");
+    const bars = [
+      { label: "TASK-014 良率", cls: "progress", start: 0, span: 5, text: "执行中" },
+      { label: "TASK-014/1.2", cls: "blocked", start: 3, span: 2, text: "阻塞" },
+      { label: "TASK-011 rollout", cls: "planned", start: 5, span: 2, text: "计划" },
+      { label: "TASK-009 CAPA", cls: "done", start: 1, span: 2, text: "完成" },
+    ];
+    rows.innerHTML = bars.map(b => {
+      const left = (b.start / 7) * 100;
+      const width = (b.span / 7) * 100;
+      return `<div class="tl-row">
+        <div class="tl-label">${b.label}</div>
+        <div class="tl-track">
+          ${days.map(() => `<div class="tl-cell"></div>`).join("")}
+          <div class="tl-bar ${b.cls}${b.cls === "planned" ? " future" : ""}" style="left:calc(${left}% + 2px);width:calc(${width}% - 4px)" title="${b.text}">${b.text}</div>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  function setWeek(i) {
+    wi = Math.max(0, Math.min(weeks.length - 1, i));
+    weekLabel.innerHTML = weeks[wi].label + "<small>北京时间 · 含周末标记</small>";
+    renderTimeline();
+  }
+
+  document.getElementById("prevWeek").onclick = () => setWeek(wi - 1);
+  document.getElementById("nextWeek").onclick = () => setWeek(wi + 1);
+
+  document.querySelectorAll(".presets .chip").forEach(el => {
+    el.onclick = () => {
+      document.querySelectorAll(".presets .chip").forEach(c => c.classList.remove("on"));
+      el.classList.add("on");
+      if (el.dataset.preset === "last") setWeek(0);
+      if (el.dataset.preset === "this") setWeek(1);
+    };
+  });
+
+  document.querySelectorAll(".seg button").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll(".seg button").forEach(b => { b.classList.remove("on"); b.setAttribute("aria-selected", "false"); });
+      btn.classList.add("on");
+      btn.setAttribute("aria-selected", "true");
+      const v = btn.dataset.view;
+      document.getElementById("panelTask").classList.toggle("on", v === "task");
+      document.getElementById("panelPerson").classList.toggle("on", v === "person");
+    };
+  });
+
+  document.getElementById("extendRange").onclick = () => {
+    document.getElementById("rangeSpan").textContent = "±6 周";
+  };
+
+  renderTimeline();
+})();
+</script>
+</body>
+</html>

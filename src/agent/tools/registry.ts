@@ -8,6 +8,11 @@ import {
 } from "../assignment/tools/search-employees";
 import type { EmployeeProfileRecord } from "../../integrations/repos/employee-profile-repo";
 import { SEARCH_WEB_TOOL, buildSearchWebHandler } from "./search-web";
+import {
+  READ_URL_TOOL,
+  buildReadUrlHandler,
+  readUrlEnabled,
+} from "./read-url";
 import { SAVE_DRAFT_TOOL, buildSaveDraftHandler } from "./save-draft";
 import {
   SEARCH_SIMILAR_PLANS_TOOL,
@@ -189,6 +194,7 @@ export const KNOWN_TOOL_NAMES = [
   "update_known_facts",
   "list_known_facts",
   "search_web",
+  "read_url",
   "search_similar_plans",
 ] as const;
 
@@ -237,6 +243,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   };
 
   const searchQuotaState = { exhausted: false };
+  let readUrlCallCount = 0;
   let updateDraftTaskCallCount = 0;
   let updateDraftTaskAssigneePatchCount = 0;
   const UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX = (() => {
@@ -302,7 +309,9 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     },
     get_employee_details: {
       definition: GET_EMPLOYEE_DETAILS_TOOL,
-      handler: buildGetEmployeeDetailsHandler(employeeRepoResolved),
+      handler: buildGetEmployeeDetailsHandler(employeeRepoResolved, {
+        candidatePool: candidatePoolReader,
+      }),
     },
     read_uploaded_roster_text: {
       definition: READ_UPLOADED_ROSTER_TEXT_TOOL,
@@ -511,6 +520,18 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     };
   }
 
+  if (readUrlEnabled()) {
+    all.read_url = {
+      definition: READ_URL_TOOL,
+      handler: buildReadUrlHandler({
+        getCallCount: () => readUrlCallCount,
+        incrementCallCount: () => {
+          readUrlCallCount += 1;
+        },
+      }),
+    };
+  }
+
   if (searchSimilarPlansEnabled) {
     all.search_similar_plans = {
       definition: SEARCH_SIMILAR_PLANS_TOOL,
@@ -560,6 +581,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "get_employee_details",
       "search_similar_plans",
       "search_web",
+      "read_url",
       "get_current_time",
       "update_known_facts",
       "list_known_facts",
@@ -581,6 +603,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "get_employee_details",
       "search_similar_plans",
       "search_web",
+      "read_url",
       "get_current_time",
       "update_known_facts",
       "list_known_facts",
@@ -612,6 +635,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "get_employee_details",
       "search_similar_plans",
       "search_web",
+      "read_url",
       "get_current_time",
       "update_known_facts",
       "list_known_facts",

@@ -37,6 +37,10 @@ import { createRecentPublishStore } from "../src/agent/tools/publish-task";
 import type { PlanSession } from "../src/infra/plan-session-store";
 import type { KnownFactsStore } from "../src/agent/tools/update-known-facts";
 import { savePlanSnapshot } from "../src/infra/plan-store";
+import {
+  applyEvalProductionParityEnv,
+  formatEvalProductionParitySummary,
+} from "./eval-production-parity-env";
 
 const EVAL_DATA_DIR =
   process.env.EVAL_DATA_DIR?.trim() || "/tmp/manage-robot-eval";
@@ -101,9 +105,7 @@ const MGR_PUBLISH_SESSION_KEY = "mgr_publish";
   process.env.WORKBENCH_DINGTALK_NOTIFY_ENABLED = "0";
   process.env.DINGTALK_CONTACT_SYNC_ENABLED = "0";
 
-  // planner 首轮常需 3–4 轮工具；线上钉钉默认 3 可能截断。eval 默认放宽到 6，可用环境变量对齐生产。
-  process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS =
-    process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? "6";
+  applyEvalProductionParityEnv({ respectExisting: true });
 })();
 
 function readEnvBool(name: string, fallback: boolean): boolean {
@@ -644,7 +646,7 @@ async function runOne(
     },
   };
 
-  const maxToolIterations = readEnvInt("DINGTALK_ORCHESTRATOR_MAX_ITERATIONS", 6);
+  const maxToolIterations = readEnvInt("DINGTALK_ORCHESTRATOR_MAX_ITERATIONS", 30);
 
   const startedAt = Date.now();
   let result;
@@ -866,7 +868,7 @@ async function main(): Promise<void> {
   );
   console.log(
     "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS =",
-    readEnvInt("DINGTALK_ORCHESTRATOR_MAX_ITERATIONS", 6),
+    readEnvInt("DINGTALK_ORCHESTRATOR_MAX_ITERATIONS", 30),
     "(eval default=6 unless env set)",
   );
   console.log("AGENT_MAX_TOTAL_TOKENS =", process.env.AGENT_MAX_TOTAL_TOKENS || "(default 24000)");

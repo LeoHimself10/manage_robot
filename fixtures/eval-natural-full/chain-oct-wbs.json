@@ -1,0 +1,32 @@
+{
+  "id": "chain_oct_wbs",
+  "description": "OCT solder joint: problem → WBS expand → formal table (no publish)",
+  "managerStaffId": "eval-mgr-natural-001",
+  "people": {},
+  "turns": [
+    {
+      "id": "O1_problem",
+      "userMessage": "A产品型号A-2026B，批次2026Q2-04出现批量焊点开路，涉及15台设备，缺陷代号DCT-2026-0512。请帮我拆成可派发的子任务，要在6月15日前完成根因和CAPA闭环。"
+    },
+    {
+      "id": "O2_wbs_expand",
+      "userMessage": "截止日期就按6月15日。围堵、失效分析、纠正措施、文件更新、CAPA验证都要各自单独一条，请把草案扩成至少5条可派发子任务。这轮先不要发布，也不要点将。",
+      "expectMinTasks": 5,
+      "expectDraftJson": true,
+      "expectPublishForbidden": true,
+      "forbidTools": ["publish_task", "prepare_publish_task"],
+      "expectAssistantQuality": true,
+      "assistantMinLength": 0,
+      "draftAlreadyExists": true
+    },
+    {
+      "id": "O3_formal_table_no_publish",
+      "userMessage": "好，就按这版更新正式任务表给我看一下，还是不要发布。",
+      "expectMinTasks": 5,
+      "expectPublishForbidden": true,
+      "forbidTools": ["publish_task"],
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true
+    }
+  ]
+}

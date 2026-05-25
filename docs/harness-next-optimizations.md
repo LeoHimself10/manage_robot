@@ -1,12 +1,13 @@
 # Harness 继续优化建议（归档 + 进度）
 
 **位置**：原为仓库根目录草案，现收于 `docs/` 与代码变更同步维护。  
-**状态摘要（2026-05-11）**：下文 P0/P1/P2/P3 清单主体已在 `main` 落地。此外：
-- **ReAct Agent v5.2**：`runOrchestrator` 为钉钉主链路，`qwen-prompt.ts` 单一提示词来源
-- **指派推荐 v0.2 MVP**：search_employees + signed URL + mock 卡片（当前主链路为同请求内拼接分配建议）
-- **短期记忆**：knownFacts[] 模型自主维护
+**状态摘要（2026-05-22）**：下文 P0/P1/P2/P3 清单主体已在 `main` 落地。此外：
+- **ReAct Agent v5.23.8**：`runOrchestrator` 为钉钉主链路，`qwen-prompt.ts` 单一提示词来源（planner / manager / employee profile）
+- **指派推荐 v0.2 MVP**：orchestrator 同请求内 `assignment` JSON + signed Web 工作台
+- **短期记忆**：knownFacts[] 模型自主维护；有草案时注入完整 latestDraft
 - **长期记忆**：embedding + cosine 文件遍历
-- **模型**：`qwen3.6-plus`（默认），支持 function calling，thinking 默认开（可通过 `QWEN_THINKING=0` 关闭）
+- **催办 v1** / **每日进展推送 v1**：scheduler 与 `dingtalk-bot` 并列启动
+- **模型**：`qwen3.6-plus`（默认），支持 function calling；钉钉链路默认 `DINGTALK_QWEN_THINKING=0`
 - 多副本 Redis、OA 闭环等仍为长期项。
 
 ## 当前状态（评分表仍为历史快照，仅供参考）
@@ -109,8 +110,7 @@
 
 ## 不在此次范围的长期事项
 
-- 多工具注册表与 function calling 级 Planner
+- 多工具注册表与 function calling 级 Planner（部分已通过 profile 分工具实现）
 - HR 人岗推荐集成（外部 API）
-- 定时提醒与升级调度（cron / job queue）
 - 钉钉卡片承接三态、验收闭环
-- 向量数据库长期记忆（embedding +）
+- 向量数据库长期记忆（当前为文件 embedding + cosine）

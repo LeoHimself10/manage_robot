@@ -1,0 +1,59 @@
+{
+  "id": "chain_roster15",
+  "description": "15-person roster × 12+ subtasks CAPA — complex skill-based assign",
+  "rosterFixture": "fixtures/eval-natural-full/roster-15-multidept.md",
+  "managerStaffId": "eval-mgr-natural-001",
+  "people": {
+    "杨楚榛": "eval-r15-yangchuzhen",
+    "杨贺新": "eval-r15-yanghexin",
+    "陈哲治": "eval-r15-chenzhezhi",
+    "陈浩": "eval-r15-chenhao",
+    "陈佳": "eval-r15-chenjia",
+    "毕鹏": "eval-r15-bipeng",
+    "曹杰": "eval-r15-caojie",
+    "曾娜": "eval-r15-zengna",
+    "程晓阳": "eval-r15-chengxiaoyang",
+    "崔枭": "eval-r15-cuixiao",
+    "李明": "eval-r15-liming",
+    "王芳": "eval-r15-wangfang",
+    "赵强": "eval-r15-zhaoqiang",
+    "孙丽": "eval-r15-sunli",
+    "周杰": "eval-r15-zhoujie"
+  },
+  "turns": [
+    {
+      "id": "R15_1_capa_draft",
+      "userMessage": "CAPA-2026-088：导管头端脱胶导致临床取样失败2起，涉及生产、质量、供应链、注册四条线。7月1日前要完成根因、纠正、验证和注册沟通。请按WBS拆成至少12条单一交付物的子任务，不要只出阶段大包。"
+    },
+    {
+      "id": "R15_2_deadline_confirm",
+      "userMessage": "就按7月1日截止，围堵、来料追溯、粘接工艺验证、注册评估、文件更新都要在现有12条里体现清楚。请确认这版草案完整即可，不要发布，也不要点将。",
+      "expectMinTasks": 12,
+      "expectPublishForbidden": true,
+      "forbidTools": ["publish_task", "prepare_publish_task", "search_employees"],
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true
+    },
+    {
+      "id": "R15_3_roster15",
+      "seedPendingRoster": true,
+      "userMessage": "附件是15人的候选名单，技能和部门都写在里面了。请先把名单建好，后面所有指派只能从这15人里挑。",
+      "expectPoolBuilt": true,
+      "expectFileNotesMinRatio": 0.6,
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true
+    },
+    {
+      "id": "R15_4_assign_all",
+      "userMessage": "请根据名单里每个人的技能标签和部门，把12条子任务逐一派给最合适的人，生产相关的给生产、注册相关的给注册，不要所有人都堆在同一个人身上。",
+      "expectAssignmentFull": true,
+      "expectNoFakeAssign": true,
+      "forbidAssigneePatchLoop": true,
+      "expectAssigneesFromPool": true,
+      "expectDistinctAssigneesMin": 8,
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true,
+      "allowAssignRetry": true
+    }
+  ]
+}

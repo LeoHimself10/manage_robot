@@ -77,7 +77,7 @@ export interface OrchestratorConfig {
     /** 已生效的候选池 brief，供模型自查"我现在能挑哪些人"。 */
     candidatePool?: {
       source: string;
-      entries: Array<{ userId: string; displayName: string }>;
+      entries: Array<{ userId: string; displayName: string; fileNotes?: string }>;
       unresolvedCount?: number;
     };
     /**

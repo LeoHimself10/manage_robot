@@ -256,6 +256,6 @@ export function formatScopeBoundaryHint(input: {
 export function formatPendingRosterHint(roster: { sourceLabel: string; chars: number }): string {
   return (
     `pendingRoster: ${JSON.stringify(roster)} → read_uploaded_roster_text → resolve_roster_names → set_candidate_pool；` +
-    "禁止逐一 search_employees(name=...)。"
+    "禁止逐一 search_employees(name=...)；set_candidate_pool 时 entries[*].fileNotes 须含文档技能摘要。"
   );
 }

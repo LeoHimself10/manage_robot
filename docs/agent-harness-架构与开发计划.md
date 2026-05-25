@@ -70,7 +70,7 @@ V1 聚焦：
 
 ### 4.4 Planner（输入质检 + 模型生成草案）
 
-- **当前 Demo 实现**：钉钉主链路使用 `src/agent/orchestrator.ts`（ReAct + tool calling），`src/agent/demo/pipeline.ts` 保留给 CLI demo/eval。提示词版本见 `src/agent/demo/qwen-prompt.ts`（当前 `orchestrator-agent-v5.16.1`），关键词分类 / 模板骨架 WBS / 语义默认补全已移除。主链路草案输出已采用**最终 JSON 直出 `draft`**，不再依赖 `save_draft` 工具回合。
+- **当前 Demo 实现**：钉钉主链路使用 `src/agent/orchestrator.ts`（ReAct + tool calling），`src/agent/demo/pipeline.ts` 保留给 CLI demo/eval。提示词版本见 `src/agent/demo/qwen-prompt.ts`（当前 `orchestrator-agent-v5.23.8`），关键词分类 / 模板骨架 WBS / 语义默认补全已移除。主链路草案输出已采用**最终 JSON 直出 `draft`**，不再依赖 `save_draft` 工具回合。
 - **完整 Harness 愿景**：编排层仍可聚合「输入质检 → Model Gateway → 门禁 → 人工审阅」；Planner 与提示词模板版本长期对齐 PRD。
 
 ### 4.5 Assignment Recommender（人岗推荐）— v0.2 已实现
@@ -98,7 +98,8 @@ V1 聚焦：
 
 ### 4.7 Reminder & Escalation Scheduler（提醒升级）
 
-- **v1（已实现）**：执行中逾期催办——`IN_PROGRESS` / `BLOCKED` 且 `due_at` 可解析；`src/agent/reminders/` + `FOLLOWUP_REMINDER_ENABLED` scheduler；主管对话 `list_follow_up_candidates` / `send_subtask_reminder` 与工作台 `POST /api/workbench/manager/subtasks/remind`；钉钉通知经 `WorkbenchPublishNotifier.notifySubtaskReminder`（day1: todo+robot；day2plus: +card）。
+- **v1（已实现）**：执行中逾期催办 + T-1 预提醒——`IN_PROGRESS` / `BLOCKED` 且 `due_at` 可解析；`src/agent/reminders/` + `FOLLOWUP_REMINDER_ENABLED` scheduler；主管对话 `list_follow_up_candidates` / `send_subtask_reminder` 与工作台 `POST /api/workbench/manager/subtasks/remind`；钉钉通知经 `WorkbenchPublishNotifier.notifySubtaskReminder`（day1: todo+robot；day2plus: +card）。
+- **每日进展推送 v1（已实现）**：`src/agent/progress-digest/` + `PROGRESS_DIGEST_ENABLED` scheduler；工作日 9:00 向主管/员工推送 GFM 表格 + 可选 LLM 概览/建议（`PROGRESS_DIGEST_LLM_*`）。
 - **Phase 1.5（待做）**：承接超时（`ASSIGNED`）提醒、二次超时升级（FR-07）。
 - 节点到期提醒与阻塞通知。
 - 策略配置化：时长阈值、升级路径、静默时段（`FOLLOWUP_*` env）。

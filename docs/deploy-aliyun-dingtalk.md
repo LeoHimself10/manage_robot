@@ -242,6 +242,12 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `SEARCH_WEB_MODEL` | 否 | 搜索补充调用模型（默认 `qwen-turbo`） |
 | `SEARCH_WEB_TIMEOUT_MS` | 否 | 搜索调用超时（毫秒，默认 `8000`） |
 | `SEARCH_WEB_STRATEGY` | 否 | `turbo`/`quality`/`adaptive`；默认 `turbo` |
+| `READ_URL_ENABLED` | 否 | `0` 关闭 `read_url` 工具；默认 `1`（模型按需读取用户提供的公网 http(s) 链接） |
+| `READ_URL_TIMEOUT_MS` | 否 | 单链抓取超时（毫秒，默认 `12000`） |
+| `READ_URL_MAX_BYTES` | 否 | 响应体最大字节（默认 `524288`，即 512KB） |
+| `READ_URL_MAX_TEXT_CHARS` | 否 | 注入模型的正文最大字符（默认 `12000`） |
+| `READ_URL_PER_ORCHESTRATOR_MAX` | 否 | 单轮 orchestrator 最多调用 `read_url` 次数（默认 `2`） |
+| `READ_URL_ALLOWED_HOSTS` | 否 | 可选域名白名单（逗号分隔）；未配置则允许公网 host（内网/localhost 仍被 SSRF 防护拒绝）。**钉钉文档/需登录页通常读不到**，应引导用户粘贴正文 |
 | `QWEN_*` | 否 | 模型、超时、重试等；**SSE 流式默认开**（`QWEN_STREAM=0` 关闭），见 `docs/Qwen-接入实施说明.md` |
 | `DEMO_DOMAIN_HINT` | 否 | `QUALITY` 或 `RD`，默认由模型判断 |
 | `DEMO_LLM_CORRECTION` | 否 | 默认开；`0`/`false`/`no` 关闭校验失败后的第二轮模型自纠正（更快，失败率可能升），见 `docs/Qwen-接入实施说明.md` |

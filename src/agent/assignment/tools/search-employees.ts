@@ -168,6 +168,27 @@ export function compressProfileBrief(p: EmployeeProfileRecord, local: boolean): 
 /** @deprecated Use compressProfileFull; kept for tests and external imports */
 export const compressProfile = compressProfileFull;
 
+export type CandidatePoolEntryRef = {
+  userId: string;
+  displayName: string;
+  fileNotes?: string;
+};
+
+/** Append roster fileNotes when candidate pool is active (search + get_employee_details share this). */
+export function appendPoolFileNotes(
+  block: string,
+  fileNotes: string | undefined,
+  poolActive: boolean,
+): string {
+  if (!poolActive) return block;
+  const note = String(fileNotes ?? "").trim();
+  return note ? `${block}\nfileNotes: ${note}` : `${block}\nfileNotes: (无)`;
+}
+
+export interface GetEmployeeDetailsHandlerContext {
+  candidatePool?: () => CandidatePoolEntryRef[];
+}
+
 export const SEARCH_EMPLOYEES_TOOL: ToolDefinition = {
   type: "function",
   function: {
@@ -210,7 +231,7 @@ export const GET_EMPLOYEE_DETAILS_TOOL: ToolDefinition = {
   function: {
     name: "get_employee_details",
     description:
-      "按 userId 拉取完整能力画像（含 cases 正文、background）。在确定拟推荐人之后调用，用于写 rationale；一次最多 8 人。",
+      "按 userId 拉取完整能力画像（含 cases 正文、background）。在确定拟推荐人之后调用，用于写 rationale；一次最多 8 人。候选池生效时返回块含 fileNotes（花名册上传的技能/职责摘要）；花名册场景下技能匹配以 fileNotes 为准，selfProfile 为空不阻断指派。",
     parameters: {
       type: "object",
       properties: {
@@ -250,9 +271,12 @@ function recordFromContactOnly(row: DingTalkContactRow): EmployeeProfileRecord {
   };
 }
 
-export function buildGetEmployeeDetailsHandler(repo: {
-  get(userId: string): EmployeeProfileRecord | undefined;
-}): ToolHandler {
+export function buildGetEmployeeDetailsHandler(
+  repo: {
+    get(userId: string): EmployeeProfileRecord | undefined;
+  },
+  ctx: GetEmployeeDetailsHandlerContext = {},
+): ToolHandler {
   return (args: Record<string, unknown>) => {
     const raw = args.userIds;
     const userIds = Array.isArray(raw)
@@ -261,11 +285,25 @@ export function buildGetEmployeeDetailsHandler(repo: {
     if (userIds.length === 0) {
       return { employees: [] as string[], note: "userIds required" };
     }
+    const poolEntries = ctx.candidatePool?.() ?? [];
+    const poolActive = poolEntries.length > 0;
+    const poolNotesByUserId = new Map(
+      poolEntries.map((e) => [e.userId, e.fileNotes] as const),
+    );
     const employees = userIds.map((id) => {
       const rec = repo.get(id);
-      if (!rec) return `userId: ${id}\n(displayName missing — not in directory snapshot)`;
-      return compressProfileFull(rec);
+      const base = !rec
+        ? `userId: ${id}\n(displayName missing — not in directory snapshot)`
+        : compressProfileFull(rec);
+      return appendPoolFileNotes(base, poolNotesByUserId.get(id), poolActive);
     });
+    const hasRosterNotes = poolActive && poolEntries.some((e) => String(e.fileNotes ?? "").trim());
+    if (hasRosterNotes) {
+      return {
+        employees,
+        note: "roster_skill_match: fileNotes 优先于 selfProfile（候选池来自花名册）",
+      };
+    }
     return { employees };
   };
 }
@@ -340,11 +378,8 @@ export function buildSearchEmployeesHandler(
         const candidates = limited.map((c) => {
           const rec = (repo.get?.(c.userId) ?? repo.list().find((p) => p.userId === c.userId)) ?? recordFromContactOnly(c);
           const baseBlock = compressProfileFull(rec);
-          if (poolActive) {
-            const note = poolEntries.find((e) => e.userId === c.userId)?.fileNotes;
-            return note ? `${baseBlock}\nfileNotes: ${note}` : `${baseBlock}\nfileNotes: (无)`;
-          }
-          return baseBlock;
+          const note = poolEntries.find((e) => e.userId === c.userId)?.fileNotes;
+          return appendPoolFileNotes(baseBlock, note, poolActive);
         });
         const noteParts = [
           duplicateNote,
@@ -368,7 +403,7 @@ export function buildSearchEmployeesHandler(
         const block = rec
           ? compressProfileBrief(rec, false)
           : `id=${entry.userId} | name=${entry.displayName}\n(画像缺失，仅来自候选池)`;
-        return entry.fileNotes ? `${block}\nfileNotes: ${entry.fileNotes}` : block;
+        return appendPoolFileNotes(block, entry.fileNotes, true);
       });
       return {
         candidates,

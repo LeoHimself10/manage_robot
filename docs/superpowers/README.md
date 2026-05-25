@@ -13,3 +13,4 @@
 - `docs/Qwen-接入实施说明.md`
 - `docs/deploy-aliyun-dingtalk.md`
 - `docs/agent-harness-架构与开发计划.md`
+- `docs/已知遗留问题-backlog.md`

@@ -1,0 +1,70 @@
+{
+  "id": "chain_url_mixed",
+  "description": "read_url + multi-turn DRAFT + roster assign (mixed tools)",
+  "rosterFixture": "fixtures/clinical-transport-姚雪峰-杨贺新-能力花名册.md",
+  "managerStaffId": "eval-mgr-urlmix-001",
+  "people": {
+    "姚雪峰": "eval-urlmix-yxf-001",
+    "杨贺新": "eval-urlmix-yhx-001"
+  },
+  "turns": [
+    {
+      "id": "U1_link_background_only",
+      "userMessage": "先把背景备查：域名说明见 https://example.com/ ，项目简称 DNS-宣贯，对接人小王。这周先消化资料，不用出任务表。",
+      "expectToolsInclude": ["read_url"],
+      "expectToolsExclude": ["search_web"],
+      "expectNoDraftJson": true,
+      "expectPublishForbidden": true,
+      "expectOutboundAny": ["DNS", "宣贯", "小王", "消化", "暂不", "告知"],
+      "expectAssistantQuality": true,
+      "assistantMinLength": 20
+    },
+    {
+      "id": "U2_link_draft_plan",
+      "userMessage": "前面链接你已经看过了。现在请结合 Example Domain 那条说明，规划一条内部 Reserved TLD 宣贯任务，拆成 3 条左右子任务，6月30日前完成。",
+      "expectMinTasks": 3,
+      "expectDraftJson": true,
+      "expectPublishForbidden": true,
+      "expectOutboundAny": ["Example", "Reserved", "宣贯", "域名", "6", "30"],
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": false
+    },
+    {
+      "id": "U3_dingtalk_doc_guidance",
+      "userMessage": "详细需求在这份钉钉文档里：https://alidocs.dingtalk.com/i/docs/eval-read-url-natural ，请帮我拆解成可执行子任务。",
+      "expectToolsInclude": ["read_url"],
+      "expectToolsExclude": ["search_web"],
+      "forbidOutboundAny": ["已完成.{0,6}拆解", "子任务.{0,8}共\\s*\\d+\\s*条"],
+      "expectOutboundAny": ["复制", "粘贴", "导出", "登录", "无法", "钉钉", "文档", "权限", "PDF", "Word"],
+      "expectPublishForbidden": true,
+      "expectAssistantQuality": true,
+      "assistantMinLength": 20,
+      "draftAlreadyExists": true
+    },
+    {
+      "id": "U4_internal_url_no_hallucinate",
+      "userMessage": "内网规范在这：http://127.0.0.1:8080/internal-spec ，请按链接补充一条子任务到现有草案里。",
+      "expectToolsExclude": ["search_web", "read_url"],
+      "forbidOutboundAny": ["task_\\d+", "已完成.{0,6}补充"],
+      "expectOutboundAny": ["内网", "无法", "127", "复制", "粘贴"],
+      "expectPublishForbidden": true,
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true
+    },
+    {
+      "id": "U5_roster_assign_after_link",
+      "seedPendingRoster": true,
+      "userMessage": "我刚传了花名册附件。请结合前面域名宣贯的背景，把现有子任务分给姚雪峰和杨贺新，每条都要有人。",
+      "expectAssignmentFull": true,
+      "expectNoFakeAssign": true,
+      "forbidAssigneePatchLoop": true,
+      "expectPoolBuilt": true,
+      "expectFileNotesMinRatio": 0.5,
+      "expectAssigneesFromPool": true,
+      "expectPublishForbidden": true,
+      "expectAssistantQuality": true,
+      "allowAssignRetry": true,
+      "draftAlreadyExists": true
+    }
+  ]
+}

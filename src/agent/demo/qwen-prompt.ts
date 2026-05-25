@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.10";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.13";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -31,7 +31,7 @@ function buildManagerFollowupDiscipline(): string[] {
 
 function buildPlannerToolCheatsheet(opts?: QwenPlannerPromptOpts): string {
   const common =
-    "通用：search_employees / get_employee_details / search_similar_plans / search_web / get_current_time / update_known_facts / list_known_facts / start_new_task / switch_back_task / update_draft_task / add_draft_subtask / remove_draft_subtask。";
+    "通用：search_employees / get_employee_details / search_similar_plans / search_web / read_url / get_current_time / update_known_facts / list_known_facts / start_new_task / switch_back_task / update_draft_task / add_draft_subtask / remove_draft_subtask。";
   const manager = opts?.managerFollowup
     ? "主管：list_managed_tasks / get_task_detail / reassign_task / list_follow_up_candidates / send_subtask_reminder / prepare_publish_task / publish_task / bulk_assign_tasks / read_uploaded_roster_text / resolve_roster_names / set_candidate_pool / clear_candidate_pool / list_candidate_pool。"
     : "主管：list_managed_tasks / get_task_detail / reassign_task / prepare_publish_task / publish_task / bulk_assign_tasks / read_uploaded_roster_text / resolve_roster_names / set_candidate_pool / clear_candidate_pool / list_candidate_pool。";
@@ -73,6 +73,7 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "- **责任人必须**（每个 subtask 发布前须有 primary）；**协作人非必须**（子任务≥3 或跨部门动作时可加）。",
     "- **搜人前提**：仅当用户**本轮已提到具体姓名/岗位**或明确要求**点将/指派/改派/由你分派**，且处于 **ASSIGN 或 DRAFT+ASSIGN** 时 → 先 `search_employees`（`department`/`role` 为硬过滤）；browse 后 shortlisted 须 `get_employee_details` 再写入 assignment；无命中 → CLARIFY 换关键词/上传花名册。**CLARIFY / QUERY / 纯 DRAFT（无点将）** → 禁止 `search_employees`、`get_employee_details`。",
     "- **多 subtask 分派**：N 条 draft → **bulk_assign_tasks 或顶层 assignment JSON 一次覆盖全部 taskId**；≤2 次 search + 1 次 get_employee_details；**禁止**花名册 resolve 后多次 update_draft_task(assigneeUserId)（第 2 次会被拒）。",
+    "- **花名册候选池技能匹配**：候选池生效（尤其 source 为 uploaded:*）时，子任务技能/职责匹配**以 `get_employee_details` 返回的 `fileNotes` 为准**；`selfProfile` 为空**不阻断**指派；与 fileNotes 冲突时**以 fileNotes 为准**。",
     "- message 提到的负责人/协作人**必须**已写入 latestAssignment（工具 ok）；禁止口播指派。",
     "- prepare_publish_task 只传 planId/title/description；subtasks 由服务端从 session 读取。",
     "- publish 返回 stale_staging 时：同轮自动 prepare → 再 publish。",
@@ -107,8 +108,9 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "3. 搜人纪律见 scheme C；**CLARIFY / 纯 DRAFT（无点将）不适用**搜人规则。",
     "4. 主题切换：新话题与 latestDraft 无关 → **必须先** `start_new_task` ok；**禁止**未归档时输出 `draft.tasks[]`；旧 scope 人名/task_x 不得引用。",
     "5. userId 不入 message；只写「姓名（部门）」。",
-    "6. 花名册：pendingRoster → read_uploaded_roster_text → **resolve_roster_names**（一次批量，禁止逐一 search_employees(name=...)）→ set_candidate_pool；已有 draft.tasks 时**严禁**反问上传名单。",
-    "7. reassign：子任务改派须 subtaskId（先 get_task_detail）。",
+    "6. 花名册：pendingRoster → read_uploaded_roster_text → **resolve_roster_names**（一次批量，禁止逐一 search_employees(name=...)）→ set_candidate_pool（**须**为每人填 entries[*].fileNotes：部门/岗位/技能原文摘要）；已有 draft.tasks 时**严禁**反问上传名单。",
+    "7. 外链：用户消息含 **http(s) URL** → **先** `read_url`，与用户同条文字**合并理解**（链接可仅作背景）。用户**明确仅提供背景/先不拆/不用出表** → 确认已读 + 追问后续意图，**禁止**同轮 output draft；用户要求规划 → 结合已读内容与文字 CLARIFY/DRAFT。**禁止**用 `search_web` 读指定 URL。读失败（内网/登录墙/钉钉文档）→ 引导复制正文或导出文件；**禁止编造**未读到的页面内容。",
+    "8. reassign：子任务改派须 subtaskId（先 get_task_detail）。",
     "",
     "## 行为示例",
     "示例1 CLARIFY：用户「导管断了帮我拆」→ {\"message\":\"请补充型号批次、例数、期望完成时间？\"}（无 draft）。",

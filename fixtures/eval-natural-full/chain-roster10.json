@@ -1,0 +1,44 @@
+{
+  "id": "chain_roster10",
+  "description": "10-person roster upload → skill-aware assign (fileNotes path)",
+  "rosterFixture": "fixtures/test-roster-10-real-employees.md",
+  "managerStaffId": "eval-mgr-natural-001",
+  "people": {
+    "杨楚榛": "eval-r10-yangchuzhen",
+    "杨贺新": "eval-r10-yanghexin",
+    "陈哲治": "eval-r10-chenzhezhi",
+    "陈浩": "eval-r10-chenhao",
+    "陈佳": "eval-r10-chenjia",
+    "毕鹏": "eval-r10-bipeng",
+    "曹杰": "eval-r10-caojie",
+    "曾娜": "eval-r10-zengna",
+    "程晓阳": "eval-r10-chengxiaoyang",
+    "崔枭": "eval-r10-cuixiao"
+  },
+  "turns": [
+    {
+      "id": "R10_1_draft",
+      "userMessage": "导管头端脱胶导致临床取样失败，涉及生产、质量、供应链三条线，7月1日前要闭环。请拆成至少8条可执行子任务，每条要有验收标准。"
+    },
+    {
+      "id": "R10_2_roster_upload",
+      "seedPendingRoster": true,
+      "userMessage": "我刚在对话里传了一份10人花名册附件，后面指派只能从这10个人里选。先帮我把名单收进系统。",
+      "expectPoolBuilt": true,
+      "expectFileNotesMinRatio": 0.5,
+      "expectAssistantQuality": true,
+      "assistantMinLength": 20
+    },
+    {
+      "id": "R10_3_assign",
+      "userMessage": "现在请你根据名单里每个人的部门和技能，把8条子任务都派给最合适的人，每条必须有人负责。",
+      "expectAssignmentFull": true,
+      "expectNoFakeAssign": true,
+      "forbidAssigneePatchLoop": true,
+      "expectAssigneesFromPool": true,
+      "expectDistinctAssigneesMin": 4,
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true
+    }
+  ]
+}

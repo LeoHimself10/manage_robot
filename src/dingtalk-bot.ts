@@ -61,6 +61,7 @@ import {
 import { resolveDraftForOutbound } from "./view/draft-outbound";
 import { parseRosterFile } from "./agent/assignment/roster-parser";
 import { DingTalkFileDownloadError, fetchDingTalkFile } from "./integrations/dingtalk/dingtalk-file-download";
+import { extractDingtalkMessageText } from "./integrations/dingtalk/extract-message-text";
 import { savePlanSnapshot } from "./infra/plan-store";
 import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
 import {
@@ -365,26 +366,7 @@ async function main(): Promise<void> {
       try {
         const payload = JSON.parse(res.data) as Record<string, unknown>;
 
-        // 提取文本内容：支持 text / paragraph / richText / mixed 等格式
-        const raw = payload as Record<string, unknown>;
-        const textObj = raw.text as Record<string, unknown> | undefined;
-        let content = "";
-        if (typeof textObj?.content === "string" && textObj.content.trim()) {
-          content = textObj.content.trim();
-        } else if (typeof raw.content === "string" && raw.content.trim()) {
-          content = raw.content.trim();
-        } else if (Array.isArray((raw as any)?.richText)) {
-          // DingTalk richText message — extract text from array of segments
-          content = (raw as any).richText.map((s: any) => s.text ?? "").join("").trim();
-        } else if (typeof raw === "object") {
-          // Fallback: try JSON stringify and strip to detect if it's [object Object]
-          const fallback = JSON.stringify(raw);
-          if (!fallback.includes("[object Object]")) {
-            content = String(textObj?.content ?? "").replace(/^\[object Object\]$/, "").trim();
-          }
-        }
-
-        const background = content;
+        const background = extractDingtalkMessageText(payload);
         const senderStaffId = String(payload.senderStaffId ?? "");
         const isAnonymousSender = shouldUseAnonymousSession(senderStaffId);
         const anonymousChatKey = `anon:${messageId || Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
@@ -665,6 +647,20 @@ async function main(): Promise<void> {
           return;
         }
 
+        if (!background.trim()) {
+          dingtalkResponse = await sendMarkdownReply({
+            client,
+            sessionWebhook,
+            messageId,
+            senderStaffId,
+            title: "请发送文字或链接",
+            markdownText:
+              "我目前主要理解**文字描述**或**公网 http(s) 链接**。\n\n"
+              + "请用文字说明任务背景，或粘贴可公开访问的链接；钉钉文档链接通常需登录，读不到时请**复制正文**或**导出文件**后发送。",
+          });
+          return;
+        }
+
         const selectedProfile = routing.selectedProfile;
         const previousProfile = session.lastAgentProfile;
         if (previousProfile && previousProfile !== selectedProfile) {
@@ -774,6 +770,9 @@ async function main(): Promise<void> {
                   entries: session.candidatePool.entries.map((e) => ({
                     userId: e.userId,
                     displayName: e.displayName,
+                    ...(e.fileNotes?.trim()
+                      ? { fileNotes: e.fileNotes.trim().slice(0, 200) }
+                      : {}),
                   })),
                   unresolvedCount: session.candidatePool.unresolved?.length,
                 }

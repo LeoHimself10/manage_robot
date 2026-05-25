@@ -1,0 +1,28 @@
+{
+  "plain_text_with_url": {
+    "msgtype": "text",
+    "text": {
+      "content": "请按这个链接规划 https://example.com/spec 两周内完成"
+    },
+    "sessionWebhook": "https://oapi.dingtalk.com/robot/sendBySession?session=abc"
+  },
+  "rich_text_href_only": {
+    "msgtype": "richText",
+    "content": {
+      "richText": [
+        { "text": "需求文档：" },
+        { "href": "https://example.com/requirements" }
+      ]
+    }
+  },
+  "picture_only": {
+    "msgtype": "picture",
+    "content": {
+      "downloadCode": "fake-code-not-used-in-extract-test"
+    }
+  },
+  "text_no_url": {
+    "msgtype": "text",
+    "text": { "content": "帮我规划 OCT 主机升级任务" }
+  }
+}

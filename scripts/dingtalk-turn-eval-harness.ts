@@ -89,7 +89,7 @@ export async function runDingtalkLikeTurn(
   const buildConfig = () => ({
     clientConfig: opts.clientConfig,
     employeeRepo,
-    maxToolIterations: opts.maxToolIterations ?? Number(process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? 10),
+    maxToolIterations: opts.maxToolIterations ?? Number(process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? 30),
     toolProfile: route.toolProfile,
     promptProfile: route.promptProfile,
     managerFollowup:
@@ -128,6 +128,9 @@ export async function runDingtalkLikeTurn(
             entries: session.candidatePool.entries.map((e) => ({
               userId: e.userId,
               displayName: e.displayName,
+              ...(e.fileNotes?.trim()
+                ? { fileNotes: e.fileNotes.trim().slice(0, 200) }
+                : {}),
             })),
             unresolvedCount: session.candidatePool.unresolved?.length,
           }

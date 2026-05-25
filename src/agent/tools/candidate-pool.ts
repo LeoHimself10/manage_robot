@@ -45,7 +45,7 @@ export const READ_UPLOADED_ROSTER_TEXT_TOOL: ToolDefinition = {
   function: {
     name: "read_uploaded_roster_text",
     description:
-      "读取主管刚上传但尚未处理的花名册原文（md/docx/pdf 提取出的纯文本）。仅在 [memory_context] 出现 pendingRosterSource 时调用一次；调用后该文本会被消费（再调返回 ok:false / no_pending_roster）。读到后请抽取全部姓名 → **一次**调用 resolve_roster_names({ names: [...] }) → 再用 set_candidate_pool 落库；**禁止**对每个姓名单独 search_employees(name=...)。",
+      "读取主管刚上传但尚未处理的花名册原文（md/docx/pdf 提取出的纯文本）。仅在 [memory_context] 出现 pendingRosterSource 时调用一次；调用后该文本会被消费（再调返回 ok:false / no_pending_roster）。读到后请抽取全部姓名 → **一次**调用 resolve_roster_names({ names: [...] }) → 再用 set_candidate_pool 落库；**禁止**对每个姓名单独 search_employees(name=...)。除姓名外须从原文提取每人「部门/岗位/技能标签/职责」片段，写入 set_candidate_pool 的 entries[*].fileNotes。",
     parameters: { type: "object", properties: {}, required: [] },
   },
 };
@@ -197,7 +197,7 @@ export const SET_CANDIDATE_POOL_TOOL: ToolDefinition = {
   function: {
     name: "set_candidate_pool",
     description:
-      "把【硬约束候选池】写入当前 plan：本 plan 之后所有指派只能从 entries[*].userId 中选。一次提交覆盖整个池。entries[*].userId 须来自 resolve_roster_names 或 search_employees 命中的真实通讯录 ID（数字串）；非通讯录 ID 会被丢弃。unresolved 用于让自己/主管下一轮交互核对（写入后 search_employees 会带出来提醒）。",
+      "把【硬约束候选池】写入当前 plan：本 plan 之后所有指派只能从 entries[*].userId 中选。一次提交覆盖整个池。entries[*].userId 须来自 resolve_roster_names 或 search_employees 命中的真实通讯录 ID（数字串）；非通讯录 ID 会被丢弃。entries[*].fileNotes **应**写入花名册原文中该员工的部门/岗位/技能/职责摘要（≤400 字）；来源为上传花名册时 ASSIGN 将**优先**用 fileNotes 做技能匹配。unresolved 用于让自己/主管下一轮交互核对（写入后 search_employees 会带出来提醒）。",
     parameters: {
       type: "object",
       properties: {

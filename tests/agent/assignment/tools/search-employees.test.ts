@@ -130,6 +130,29 @@ describe("buildGetEmployeeDetailsHandler", () => {
     expect(out.employees).toHaveLength(2);
     expect(out.employees[0]).toContain("emp_qa_001");
     expect(out.employees[1]).toContain("missing");
+    expect(out.employees[0]).not.toContain("fileNotes:");
+  });
+
+  it("merges candidate pool fileNotes when pool is active", () => {
+    const handler = buildGetEmployeeDetailsHandler(repoWithGet(PROFILES), {
+      candidatePool: () => [
+        { userId: "emp_qa_001", displayName: "Test User", fileNotes: "QA 主力" },
+      ],
+    });
+    const out = handler({ userIds: ["emp_qa_001"] }) as { employees: string[]; note?: string };
+    expect(out.employees[0]).toContain("fileNotes: QA 主力");
+    expect(out.note).toContain("roster_skill_match");
+  });
+
+  it("shows fileNotes placeholder when pool active but entry has no notes", () => {
+    const handler = buildGetEmployeeDetailsHandler(repoWithGet(PROFILES), {
+      candidatePool: () => [
+        { userId: "emp_qa_001", displayName: "Test User" },
+      ],
+    });
+    const out = handler({ userIds: ["emp_qa_001"] }) as { employees: string[]; note?: string };
+    expect(out.employees[0]).toContain("fileNotes: (无)");
+    expect(out.note).toBeUndefined();
   });
 });
 
@@ -239,6 +262,7 @@ describe("buildSearchEmployeesHandler", () => {
     expect(result.candidates).toHaveLength(2);
     expect(result.candidates[0]).toContain("emp_qa_001");
     expect(result.candidates[0]).toContain("fileNotes: QA 主力");
+    expect(result.candidates[1]).toContain("fileNotes: (无)");
     // 不在池里的 emp_qa_002 / emp_rd_002 / emp_qa_003 都不应出现
     const joined = result.candidates.join("\n");
     expect(joined).not.toContain("emp_qa_002");

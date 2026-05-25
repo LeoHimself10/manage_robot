@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>主管使用指南 · 任务规划机器人</title>
+  <style>
+    :root {
+      --bg: #f1f5f9;
+      --surface: #fff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --radius: 12px;
+      --font: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.55; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+    header { margin-bottom: 20px; }
+    h1 { margin: 0 0 6px; font-size: 1.55rem; letter-spacing: -0.02em; }
+    .meta { color: var(--muted); font-size: 0.9rem; }
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      margin-bottom: 12px;
+    }
+    h2 { margin: 0 0 10px; font-size: 1.02rem; }
+    p { margin: 0 0 8px; font-size: 0.94rem; }
+    p:last-child { margin-bottom: 0; }
+    ul, ol { margin: 0 0 8px; padding-left: 1.2rem; font-size: 0.94rem; }
+    li { margin: 3px 0; }
+    .flow {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      font-size: 0.86rem; margin: 10px 0;
+    }
+    .flow span {
+      background: #eff6ff; border: 1px solid #bfdbfe;
+      border-radius: 999px; padding: 4px 10px;
+    }
+    .flow .arrow { color: var(--muted); border: none; background: none; padding: 0 2px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; margin: 8px 0; }
+    th, td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; vertical-align: top; }
+    th { background: #f8fafc; font-weight: 600; }
+    .badge {
+      display: inline-block; font-size: 0.74rem; font-weight: 600;
+      padding: 2px 8px; border-radius: 999px; margin: 0 4px 4px 0;
+    }
+    .b-pending { background: #fef3c7; color: #92400e; }
+    .b-wait { background: #e0e7ff; color: #3730a3; }
+    .b-run { background: #dbeafe; color: #1e40af; }
+    .b-block { background: #fee2e2; color: #991b1b; }
+    .b-done { background: #d1fae5; color: #065f46; }
+    .tip {
+      background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;
+      padding: 10px 12px; font-size: 0.86rem; color: #166534; margin-top: 8px;
+    }
+    .warn {
+      background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+      padding: 10px 12px; font-size: 0.86rem; color: #92400e; margin-top: 8px;
+    }
+    .muted { color: var(--muted); font-size: 0.86rem; }
+    details { font-size: 0.9rem; margin-top: 6px; }
+    summary { cursor: pointer; font-weight: 600; color: var(--primary); }
+    footer { margin-top: 16px; text-align: center; color: var(--muted); font-size: 0.82rem; }
+    @media print { body { background: #fff; } section { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>任务规划机器人 · 主管使用指南</h1>
+      <p class="meta">适用于任务主管 / 项目经理 · 2026-05</p>
+    </header>
+
+    <section>
+      <h2>能帮您做什么</h2>
+      <ul>
+        <li><strong>规划</strong>：把目标拆成可执行的子任务（交付物、完成标准、截止、依赖等）</li>
+        <li><strong>发布</strong>：指定负责人，确认后正式派发给员工</li>
+        <li><strong>跟踪</strong>：在工作台查看进度，处理员工拒绝、修改申请、阻塞等</li>
+        <li><strong>干预</strong>：改派、手动催办、驳回员工申请</li>
+        <li><strong>查询</strong>：问机器人「我管理的任务有哪些逾期」等</li>
+        <li><strong>日报</strong>：工作日推送任务概览（需您处理 / 正常推进 / 昨日动态）</li>
+      </ul>
+      <p class="muted">当前不做 OA 审批、电子签名、验收闭环；仅维护协作层任务状态。钉钉通知、日报、自动催办需公司已部署并开启。</p>
+    </section>
+
+    <section>
+      <h2>从哪里进入</h2>
+      <table>
+        <tr><th>入口</th><th>适合做什么</th></tr>
+        <tr>
+          <td><strong>钉钉 · 任务规划机器人</strong><br><span class="muted">建议单聊</span></td>
+          <td>发起新任务、修订草案、指派、发布、查询、催办（须识别为主管身份，见下）</td>
+        </tr>
+        <tr>
+          <td><strong>钉钉 · 任务规划工作台</strong><br><span class="muted">网页应用</span></td>
+          <td>历史任务列表、任务详情、改派、催办、处理员工反馈</td>
+        </tr>
+        <tr>
+          <td><strong>工作台 · 智能规划助手</strong></td>
+          <td>与钉钉同一会话续聊；可修订草案、指派、发布；可上传花名册批量点将</td>
+        </tr>
+      </table>
+      <div class="warn">
+        <strong>身份怎么区分？</strong>（主管名单由管理员维护）
+        <ul style="margin:8px 0 0;">
+          <li><strong>在主管名单</strong> → 工作台进主管页（历史任务等）；钉钉识别为主管后，可规划、发布、查您管理的任务、催办</li>
+          <li><strong>不在主管名单</strong> → 工作台进<strong>员工页</strong>；钉钉走<strong>员工助手</strong>（查本人任务、接受/拒绝、更新进度），<strong>不能</strong>给别人派发任务</li>
+        </ul>
+        岗位是主管但进了员工界面，或钉钉只能查本人任务 → 联系管理员把您的钉钉账号加入主管名单。
+      </div>
+    </section>
+
+    <section>
+      <h2>发布一条任务</h2>
+      <div class="flow">
+        <span>说清背景+截止</span><span class="arrow">→</span>
+        <span>回答追问</span><span class="arrow">→</span>
+        <span>审阅任务表</span><span class="arrow">→</span>
+        <span>指定负责人</span><span class="arrow">→</span>
+        <span>看发布预览</span><span class="arrow">→</span>
+        <span>确认发布</span>
+      </div>
+      <p><strong>示例：</strong>「下周五前完成 XX 项目上线联调，涉及 A、B 两个小组。」</p>
+      <table>
+        <tr><th>您想…</th><th>可以这样说</th></tr>
+        <tr><td>改一条子任务</td><td>「task_2 的截止改到 5 月 30 日」</td></tr>
+        <tr><td>整表重拆</td><td>「子任务太粗，再拆细一版」</td></tr>
+        <tr><td>指派</td><td>「task_1 给张三，task_2 给李四」</td></tr>
+        <tr><td>正式发布</td><td>「确认发布」（须先看到发布预览）</td></tr>
+        <tr><td>查任务</td><td>「我管理的任务里哪些逾期了？」</td></tr>
+        <tr><td>催办</td><td>「帮催一下张三负责的 XX 子任务」</td></tr>
+        <tr><td>开新任务</td><td>「这是一个新任务：……」</td></tr>
+      </table>
+      <div class="tip">
+        <strong>两点注意：</strong>① 请尽量一次说清<strong>截止日期</strong>（只写日期如 2026-05-30 时，截止时刻为当天 18:00）；② 发布分两步——先出<strong>发布预览</strong>（系统暂存），您明确说「确认发布」后才会写入正式任务库并通知员工。只说「好的」通常不算发布。
+      </div>
+    </section>
+
+    <section>
+      <h2>工作台 · 任务列表</h2>
+      <p>打开「历史任务」，顶部数字和列表上的<strong>关注状态</strong>帮助您优先处理：</p>
+      <p>
+        <span class="badge b-pending">待您处理</span> 员工拒绝，或申请修改等您回复<br>
+        <span class="badge b-wait">待员工承接</span> 已发布，员工尚未接受<br>
+        <span class="badge b-run">员工执行中</span> 有子任务在执行<br>
+        <span class="badge b-block">阻塞中</span> 有子任务被员工标记阻塞<br>
+        <span class="badge b-done">已完成</span> 全部子任务已完成
+      </p>
+      <p class="muted">列表可按关注状态、标题、负责人筛选排序。「调整分配」Tab 支持整单或单条子任务改派。</p>
+    </section>
+
+    <section>
+      <h2>任务详情 · 常见操作</h2>
+      <table>
+        <tr><th>情况</th><th>您可做的</th></tr>
+        <tr><td>员工<strong>申请修改</strong></td><td>点「驳回申请」，或沟通后改派</td></tr>
+        <tr><td>员工<strong>拒绝</strong>承接</td><td>点「接受拒绝」，再通过「改派页」换负责人</td></tr>
+        <tr><td>员工<strong>标记阻塞</strong></td><td>了解原因后协调；可「催办」或改派</td></tr>
+        <tr><td>员工<strong>标记完成</strong></td><td>钉钉会通知您；详情可点「已知悉」</td></tr>
+        <tr><td>需跟进执行</td><td>子任务为执行中 / 阻塞且有截止日期时，可点「催办」</td></tr>
+        <tr><td>需换人</td><td>「改派页」或详情内改派</td></tr>
+      </table>
+      <p class="muted">改派后新员工会收到通知；未完成子任务状态回到「待承接」。</p>
+    </section>
+
+    <section>
+      <h2>员工侧（帮您理解通知）</h2>
+      <ol>
+        <li>发布后：员工收到<strong>工作通知</strong>和<strong>机器人消息</strong>（含工作台链接）</li>
+        <li>员工在工作台「待承接」点<strong>接受</strong> → 子任务变为<strong>执行中</strong></li>
+        <li><strong>钉钉待办</strong>在员工接受后才创建——发布当下待办里没有，属正常</li>
+        <li>拒绝 / 申请修改 → 钉钉通知您，列表进「待您处理」</li>
+        <li>阻塞 → 钉钉通知您，列表优先显示「阻塞中」</li>
+        <li>完成 → 钉钉通知您，可点「已知悉」；不会进「待您处理」</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>自动提醒（公司开启后）</h2>
+      <ul>
+        <li><strong>进展日报</strong>：工作日约 9:00，推送需您处理、正常推进、昨日动态</li>
+        <li><strong>截止前提醒</strong>：截止前一日约 10:00 提醒<strong>员工</strong>（工作日）</li>
+        <li><strong>逾期提醒</strong>：子任务逾期后，系统通知<strong>您</strong>（同一逾期周期一次）</li>
+      </ul>
+      <p class="muted">您在工作台或钉钉里手动「催办」只推送给员工，可随时操作，不占自动提醒次数。手动催办适用于执行中 / 阻塞且有截止日期的子任务。</p>
+    </section>
+
+    <section>
+      <h2>批量分配（可选）</h2>
+      <p>一次派给多人时，可在「智能规划助手」上传<strong>花名册</strong>（md / txt / docx / pdf），上传后在对话框说明分配意图。须已有规划会话（通常先在钉钉发第一条消息）。</p>
+      <p class="muted">也可在钉钉直接说负责人姓名；系统会先查通讯录再写入分配方案。</p>
+    </section>
+
+    <section>
+      <h2>常见问题</h2>
+      <details>
+        <summary>机器人一直追问、不出任务表？</summary>
+        <p>通常缺<strong>截止日期</strong>或目标不清楚。请补充：什么时候要、怎样算完成、涉及哪些人。</p>
+      </details>
+      <details>
+        <summary>说了「确认发布」，员工没收到？</summary>
+        <p>请确认已看到<strong>发布预览</strong>后再说「确认发布」。到工作台「历史任务」核对是否已有该任务。若仍不行，可在「智能规划助手」重试，或联系管理员。</p>
+      </details>
+      <details>
+        <summary>新任务必须从钉钉开始吗？</summary>
+        <p>建议先在<strong>钉钉机器人</strong>发第一条消息（系统据此建立规划会话）。之后可在工作台「智能规划助手」续聊、上传花名册或完成发布。</p>
+      </details>
+      <details>
+        <summary>进了员工界面，或钉钉只能查本人任务？</summary>
+        <p>说明当前账号<strong>不在主管名单</strong>，走的是员工助手。请联系管理员加入主管名单后，重新打开工作台或再发钉钉消息。</p>
+      </details>
+      <details>
+        <summary>日报、自动催办和手动催办有什么区别？</summary>
+        <p><strong>日报</strong>：每天任务全景。<strong>自动催办</strong>：截止前提醒员工、逾期后提醒主管（公司开启后）。<strong>手动催办</strong>：您主动对某条执行中 / 阻塞子任务发起，只通知员工。</p>
+      </details>
+    </section>
+
+    <footer>遇到问题请联系管理员 · 本说明对应当前系统版本</footer>
+  </div>
+</body>
+</html>

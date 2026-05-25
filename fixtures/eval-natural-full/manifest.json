@@ -1,0 +1,12 @@
+{
+  "id": "natural_full_v2",
+  "description": "Natural-language multi-chain eval v2: production parity, O2 split, read_url mixed tools.",
+  "chains": [
+    { "file": "chain-oct-wbs.json" },
+    { "file": "chain-url-mixed.json" },
+    { "file": "chain-roster10.json" },
+    { "file": "chain-transport.json" },
+    { "file": "chain-roster15.json" },
+    { "file": "chain-gate-extras.json" }
+  ]
+}
