@@ -1,5 +1,6 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { buildSubtaskPlanningFieldsClientJs } from "./workbench-subtask-fields-snippet";
+import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 
 /** Single-page employee workbench: `?view=new|current|history|profile` */
 export function renderEmployeeWorkbenchPage(): string {
@@ -20,6 +21,7 @@ export function renderEmployeeWorkbenchPage(): string {
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="员工导航">
+        <a id="navManager" href="/workbench/manager/tasks" hidden>主管工作台</a>
         <a id="navNew" href="/workbench/employee?view=new">待承接</a>
         <a id="navCur" href="/workbench/employee?view=current">进行中</a>
         <a id="navHist" href="/workbench/employee?view=history">已完成</a>
@@ -173,6 +175,18 @@ export function renderEmployeeWorkbenchPage(): string {
 
 <script>
 (function () {
+  ${buildWorkbenchViewSwitchClientJs()}
+  void fetch('/api/workbench/me', { cache: 'no-store' }).then(function (res) {
+    return res.json();
+  }).then(function (data) {
+    if (data && data.ok && data.canExecuteAsManager) {
+      var mgrNav = document.getElementById('navManager');
+      if (mgrNav) {
+        mgrNav.hidden = false;
+        wbBindViewSwitchLink('navManager', 'manager', '/workbench/manager/tasks');
+      }
+    }
+  }).catch(function () {});
   function newIdempotencyKey() {
     try {
       if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {

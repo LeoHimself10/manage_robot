@@ -1,5 +1,6 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { buildWorkbenchFmtTimeClientJs } from "./workbench-datetime";
+import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 
 function escapeHtml(v: string): string {
   return v
@@ -50,6 +51,7 @@ export function renderManagerTasksPage(params: {
       <nav class="nav-pills" aria-label="主管导航">
         <a class="active" href="/workbench/manager/tasks">历史任务</a>
         <a href="/workbench/manager/chat">智能规划助手</a>
+        <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
       </nav>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
@@ -144,6 +146,8 @@ export function renderManagerTasksPage(params: {
 </div>
 <script>
 (function () {
+  ${buildWorkbenchViewSwitchClientJs()}
+  wbBindViewSwitchLink('navMyTasks', 'employee', '/workbench/employee?view=new');
   var WB_ENFORCE_ACTION_GUARDS = ${workbenchEnforceActionGuards() ? "true" : "false"};
   if (WB_ENFORCE_ACTION_GUARDS) {
     var mgrWrap = document.getElementById('mgrReassignConfirmWrap');
@@ -595,6 +599,7 @@ export function renderManagerChatPage(params: {
       <nav class="nav-pills" aria-label="主管导航">
         <a href="/workbench/manager/tasks">历史任务</a>
         <a class="active" href="/workbench/manager/chat">智能规划助手</a>
+        <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
       </nav>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
@@ -625,6 +630,8 @@ export function renderManagerChatPage(params: {
 
 <script>
 (function () {
+  ${buildWorkbenchViewSwitchClientJs()}
+  wbBindViewSwitchLink('navMyTasks', 'employee', '/workbench/employee?view=new');
   var activePlanId = ${JSON.stringify(params.planId ?? "")};
 
   function escapeHtml(s) {

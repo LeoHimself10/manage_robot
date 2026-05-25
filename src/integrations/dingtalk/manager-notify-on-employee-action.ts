@@ -27,6 +27,7 @@ export async function notifyManagerOfEmployeeActionAfterUpdate(input: {
   if (!pair) return;
   const managerUserId = pair.task.managerUserId?.trim();
   if (!managerUserId) return;
+  if (managerUserId === input.actorUserId.trim()) return;
 
   const employeeDisplayName =
     input.getDisplayName?.(input.actorUserId)?.trim() || input.actorUserId;

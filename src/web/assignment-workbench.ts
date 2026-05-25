@@ -53,6 +53,14 @@ import {
 } from "../infra/workbench-memory-store";
 import { listDynamicWorkbenchManagers, setDynamicWorkbenchManager } from "../security/workbench-manager-directory";
 import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
+import {
+  allowsEmployeeSession,
+  allowsManagerSession,
+  defaultRedirectForView,
+  normalizeWorkbenchSession,
+  refreshSessionFromWhitelist,
+  resolveWorkbenchCapabilities,
+} from "../security/workbench-capabilities";
 import { resolveWorkbenchRole, type WorkbenchRole } from "../security/workbench-role-resolver";
 import { verifyAssignmentEntry } from "../security/web-entry-token";
 import { parseRosterFile } from "../agent/assignment/roster-parser";
@@ -140,7 +148,10 @@ interface SessionSummary {
 interface WorkbenchSession {
   sid: string;
   userId: string;
+  /** Current workbench view (manager vs employee for dual-capable users). */
   role: WorkbenchRole;
+  /** Immutable identity from whitelist; omitted on legacy cookies. */
+  primaryRole?: WorkbenchRole;
   loginSource: "entry" | "signed_link" | "dingtalk_authcode";
   dingUser?: {
     userId: string;
@@ -278,12 +289,35 @@ function resolveRoleForUser(userId: string): WorkbenchRole {
   return resolveWorkbenchRole(userId);
 }
 
+function syncSessionCookieIfChanged(
+  req: IncomingMessage,
+  res: ServerResponse,
+  before: WorkbenchSession,
+  after: WorkbenchSession,
+): void {
+  if (
+    before.role === after.role
+    && before.primaryRole === after.primaryRole
+    && before.primaryRole !== undefined
+  ) {
+    return;
+  }
+  appendSetCookie(res, buildSessionCookie(after));
+  logStructured({
+    event: "workbench_session_role_refreshed",
+    path: req.url ?? "",
+    userId: before.userId,
+    fromRole: before.role,
+    toRole: after.role,
+    fromPrimaryRole: before.primaryRole,
+    toPrimaryRole: after.primaryRole,
+    loginSource: before.loginSource,
+  });
+}
+
 /**
- * Read session cookie and self-heal `role` against runtime resolution.
- * If the cookie role is stale (e.g. user was promoted/demoted after login),
- * we transparently issue a refreshed cookie and return a session whose role
- * already matches the runtime answer. Returns `undefined` when no valid
- * session cookie is present.
+ * Read session cookie and refresh primaryRole from whitelist.
+ * Preserves manager employee-view (`role=employee`) when still whitelisted.
  */
 function resolveEffectiveSession(
   req: IncomingMessage,
@@ -292,20 +326,12 @@ function resolveEffectiveSession(
   const session = getSessionFromRequest(req);
   if (!session) return undefined;
   if (isWorkbenchTestEntrySession(session)) {
-    return session;
+    return normalizeWorkbenchSession(session);
   }
-  const runtimeRole = resolveRoleForUser(session.userId);
-  if (runtimeRole === session.role) return session;
-  const refreshed: WorkbenchSession = { ...session, role: runtimeRole };
-  appendSetCookie(res, buildSessionCookie(refreshed));
-  logStructured({
-    event: "workbench_session_role_refreshed",
-    path: req.url ?? "",
-    userId: session.userId,
-    fromRole: session.role,
-    toRole: runtimeRole,
-    loginSource: session.loginSource,
-  });
+  const { session: refreshed, changed } = refreshSessionFromWhitelist(session);
+  if (changed) {
+    syncSessionCookieIfChanged(req, res, session, refreshed);
+  }
   return refreshed;
 }
 
@@ -316,15 +342,57 @@ function createWorkbenchSession(params: {
   dingUser?: WorkbenchSession["dingUser"];
 }): WorkbenchSession {
   const now = Math.floor(Date.now() / 1000);
-  return {
+  const primaryRole = resolveRoleForUser(params.userId);
+  let role = params.role;
+  if (primaryRole === "manager") {
+    role = params.role === "employee" ? "employee" : "manager";
+  } else {
+    role = primaryRole;
+  }
+  return normalizeWorkbenchSession({
     sid: randomBytes(8).toString("hex"),
     userId: params.userId,
-    role: params.role,
+    role,
+    primaryRole,
     loginSource: params.loginSource,
     dingUser: params.dingUser,
     iat: now,
     exp: now + WORKBENCH_SESSION_TTL_SECONDS,
+  });
+}
+
+function sessionSatisfiesExpectedRole(
+  session: WorkbenchSession,
+  expectedRole: WorkbenchRole,
+): boolean {
+  if (expectedRole === "admin") {
+    return resolveRoleForUser(session.userId) === "admin" && session.role === "admin";
+  }
+  if (expectedRole === "manager") {
+    return allowsManagerSession(session);
+  }
+  if (expectedRole === "employee") {
+    return allowsEmployeeSession(session);
+  }
+  return false;
+}
+
+function ensureManagerEmployeeViewForDeepLink(
+  req: IncomingMessage,
+  res: ServerResponse,
+  session: WorkbenchSession,
+): WorkbenchSession {
+  const caps = resolveWorkbenchCapabilities(session.userId);
+  if (!caps.canExecuteAsManager || session.role === "employee") {
+    return session;
+  }
+  const switched: WorkbenchSession = {
+    ...normalizeWorkbenchSession(session),
+    primaryRole: "manager",
+    role: "employee",
   };
+  syncSessionCookieIfChanged(req, res, session, switched);
+  return switched;
 }
 
 type WorkbenchView =
@@ -749,9 +817,7 @@ function patchLatestAssignmentAssignee(
 }
 
 function defaultPathForRole(role: WorkbenchRole): string {
-  if (role === "admin") return "/workbench/admin";
-  if (role === "manager") return "/workbench/manager/tasks";
-  return "/workbench/employee?view=new";
+  return defaultRedirectForView(role);
 }
 
 function rememberActionKey(action: string, key: string): boolean {
@@ -2501,49 +2567,25 @@ function requireSession(
     writeAuthError(res, 401, "Session required");
     return undefined;
   }
-  if (isWorkbenchTestEntrySession(session)) {
-    if (expectedRole && session.role !== expectedRole) {
-      logStructured({
-        event: "workbench_role_forbidden",
-        path: req.url ?? "",
-        expectedRole,
-        runtimeRole: session.role,
-        sessionRole: session.role,
-        userId: session.userId,
-        loginSource: session.loginSource,
-      });
-      writeAuthError(res, 403, "Role forbidden");
-      return undefined;
-    }
-    return session;
-  }
-  const runtimeRole = resolveRoleForUser(session.userId);
-  const cookieStale = runtimeRole !== session.role;
-  if (cookieStale) {
-    appendSetCookie(res, buildSessionCookie({ ...session, role: runtimeRole }));
-    logStructured({
-      event: "workbench_session_role_refreshed",
-      path: req.url ?? "",
-      userId: session.userId,
-      fromRole: session.role,
-      toRole: runtimeRole,
-      loginSource: session.loginSource,
-    });
-  }
-  if (expectedRole && runtimeRole !== expectedRole) {
+  const normalized = isWorkbenchTestEntrySession(session)
+    ? normalizeWorkbenchSession(session)
+    : resolveEffectiveSession(req, res) ?? normalizeWorkbenchSession(session);
+
+  if (expectedRole && !sessionSatisfiesExpectedRole(normalized, expectedRole)) {
     logStructured({
       event: "workbench_role_forbidden",
       path: req.url ?? "",
       expectedRole,
-      runtimeRole,
-      sessionRole: session.role,
-      userId: session.userId,
-      loginSource: session.loginSource,
+      runtimeRole: normalized.role,
+      sessionRole: normalized.role,
+      primaryRole: normalized.primaryRole,
+      userId: normalized.userId,
+      loginSource: normalized.loginSource,
     });
     writeAuthError(res, 403, "Role forbidden");
     return undefined;
   }
-  return cookieStale ? { ...session, role: runtimeRole } : session;
+  return normalized;
 }
 
 async function readJsonBody(
@@ -2814,14 +2856,73 @@ export function handleAssignmentHttp(
       writeAuthError(res, 401, "Session required");
       return true;
     }
+    const caps = resolveWorkbenchCapabilities(session.userId);
     writeJson(res, 200, {
       ok: true,
       userId: session.userId,
       role: session.role,
+      primaryRole: session.primaryRole ?? caps.primaryRole,
+      canExecuteAsManager: caps.canExecuteAsManager,
+      canSwitchView: caps.canExecuteAsManager,
       loginSource: session.loginSource,
       dingUser: session.dingUser ?? null,
       exp: session.exp,
     });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/switch-view") {
+    void (async () => {
+      try {
+        const session = resolveEffectiveSession(req, res);
+        if (!session) {
+          writeAuthError(res, 401, "Session required");
+          return;
+        }
+        const body = await readJsonBody(req);
+        const view = String(body.view ?? "").trim();
+        if (view !== "manager" && view !== "employee") {
+          writeJson(res, 400, { ok: false, error: "view must be manager or employee" });
+          return;
+        }
+        const caps = resolveWorkbenchCapabilities(session.userId);
+        if (view === "manager" && !caps.canManage) {
+          writeJson(res, 403, { ok: false, error: "User is not a manager" });
+          return;
+        }
+        if (view === "employee") {
+          const canEmployee =
+            caps.primaryRole === "employee" || caps.canExecuteAsManager;
+          if (!canEmployee) {
+            writeJson(res, 403, { ok: false, error: "Employee view not available" });
+            return;
+          }
+        }
+        const nextRole: WorkbenchRole = view === "manager" ? "manager" : "employee";
+        const refreshed = normalizeWorkbenchSession({
+          ...session,
+          primaryRole: caps.primaryRole,
+          role: nextRole,
+        });
+        res.writeHead(200, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Set-Cookie": buildSessionCookie(refreshed),
+        });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            role: refreshed.role,
+            primaryRole: refreshed.primaryRole,
+            redirectTo: defaultPathForRole(refreshed.role),
+          }),
+        );
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request body",
+        });
+      }
+    })();
     return true;
   }
 
@@ -4637,7 +4738,7 @@ export function handleAssignmentHttp(
 
     const legacyTarget = LEGACY_WORKBENCH_REDIRECTS[url.pathname];
     if (legacyTarget) {
-      if (legacyRedirectRequiresManager(url.pathname) && session.role !== "manager") {
+      if (legacyRedirectRequiresManager(url.pathname) && !allowsManagerSession(session)) {
         redirect(res, defaultPathForRole(session.role));
         return true;
       }
@@ -4646,7 +4747,7 @@ export function handleAssignmentHttp(
     }
 
     if (MANAGER_WORKBENCH_PAGE_PATHS.has(url.pathname)) {
-      if (session.role !== "manager") {
+      if (!allowsManagerSession(session)) {
         redirect(res, defaultPathForRole(session.role));
         return true;
       }
@@ -4713,8 +4814,9 @@ export function handleAssignmentHttp(
     }
 
     if (EMPLOYEE_WORKBENCH_PAGE_PATHS.has(url.pathname)) {
-      if (session.role !== "employee") {
-        redirect(res, defaultPathForRole(session.role));
+      let employeeSession = ensureManagerEmployeeViewForDeepLink(req, res, session);
+      if (!allowsEmployeeSession(employeeSession)) {
+        redirect(res, defaultPathForRole(employeeSession.role));
         return true;
       }
       if (url.pathname === "/workbench/employee/new") {

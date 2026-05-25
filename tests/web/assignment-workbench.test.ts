@@ -50,10 +50,21 @@ function stubRes(): { res: ServerResponse; captured: () => CapturedResponse } {
     headers: {},
     body: "",
   };
+  const liveHeaders: Record<string, string | string[] | undefined> = {};
   const res = {
     writeHead(statusCode: number, headers: Record<string, string>): void {
       state.statusCode = statusCode;
-      state.headers = headers ?? {};
+      state.headers = { ...state.headers, ...(headers ?? {}) };
+      for (const [k, v] of Object.entries(headers ?? {})) {
+        liveHeaders[k] = v;
+      }
+    },
+    setHeader(name: string, value: string | string[]): void {
+      liveHeaders[name] = value;
+      state.headers[name] = value;
+    },
+    getHeader(name: string): string | string[] | undefined {
+      return liveHeaders[name];
     },
     end(chunk: string): void {
       state.body = chunk ?? "";
@@ -692,6 +703,115 @@ describe("assignment-workbench HTTP handler", () => {
     const body = JSON.parse(c.body) as { ok?: boolean; tasks?: unknown[] };
     expect(body.ok).toBe(true);
     expect(Array.isArray(body.tasks)).toBe(true);
+  });
+
+  describe("manager executor workbench view", () => {
+    async function loginCookie(userId: string, role: "manager" | "employee"): Promise<string> {
+      const loginReq = stubReq({
+        url: "/api/workbench/login",
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId, role }),
+      });
+      const loginRes = stubRes();
+      handleAssignmentHttp(loginReq, loginRes.res);
+      await flushAsync();
+      return String(loginRes.captured().headers["Set-Cookie"] ?? "");
+    }
+
+    it("manager in manager view cannot access employee tasks API", async () => {
+      const cookie = await loginCookie("manager-1", "manager");
+      const req = stubReq({
+        url: "/api/workbench/employee/tasks/new",
+        method: "GET",
+        headers: { cookie },
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      expect(captured().statusCode).toBe(403);
+    });
+
+    it("switch-view to employee allows employee tasks API", async () => {
+      const cookie = await loginCookie("manager-1", "manager");
+      const switchReq = stubReq({
+        url: "/api/workbench/switch-view",
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ view: "employee" }),
+      });
+      const switchRes = stubRes();
+      handleAssignmentHttp(switchReq, switchRes.res);
+      await flushAsync();
+      const switchedCookie = String(switchRes.captured().headers["Set-Cookie"] ?? "");
+      expect(switchRes.captured().statusCode).toBe(200);
+      const switchBody = JSON.parse(switchRes.captured().body) as { ok?: boolean; role?: string };
+      expect(switchBody.ok).toBe(true);
+      expect(switchBody.role).toBe("employee");
+
+      const req = stubReq({
+        url: "/api/workbench/employee/tasks/new",
+        method: "GET",
+        headers: { cookie: switchedCookie },
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      expect(captured().statusCode).toBe(200);
+    });
+
+    it("manager visiting employee HTML auto-switches view for deep links", async () => {
+      const cookie = await loginCookie("manager-1", "manager");
+      const req = stubReq({
+        url: "/workbench/employee?view=new",
+        method: "GET",
+        headers: { cookie },
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      expect(captured().statusCode).toBe(200);
+      expect(captured().body).toContain("员工工作台");
+      expect(String(captured().headers["Set-Cookie"] ?? "")).toContain("wb_session=");
+    });
+
+    it("/api/workbench/me exposes canExecuteAsManager for managers", async () => {
+      const cookie = await loginCookie("manager-1", "manager");
+      const req = stubReq({
+        url: "/api/workbench/me",
+        method: "GET",
+        headers: { cookie },
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      const body = JSON.parse(captured().body) as {
+        ok?: boolean;
+        primaryRole?: string;
+        canExecuteAsManager?: boolean;
+      };
+      expect(captured().statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.primaryRole).toBe("manager");
+      expect(body.canExecuteAsManager).toBe(true);
+    });
+
+    it("manager in employee view can accept assigned subtask", async () => {
+      await seedPublishedTask({
+        planId: "plan-mgr-exec",
+        managerUserId: "manager-2",
+        assigneeUserId: "manager-1",
+      });
+      vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "manager-1,manager-2");
+      const cookie = await loginCookie("manager-1", "employee");
+      const req = stubReq({
+        url: "/api/workbench/employee/action",
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ planId: "plan-mgr-exec", action: "accept" }),
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      await flushAsync();
+      expect(captured().statusCode).toBe(200);
+      expect(captured().body).toContain('"status":"IN_PROGRESS"');
+    });
   });
 
   it("employee can accept task via action API", async () => {
