@@ -197,7 +197,18 @@ docker run -d --name manage-robot-dingtalk --restart unless-stopped \
 .\scripts\ecs-deploy-dingtalk.ps1 -PublicIp 你的ECS公网IP -PemPath "$env:USERPROFILE\Downloads\你的密钥.pem"
 ```
 
-可选参数：`-RepoDir`、`-EnvFile`、`-PublishPort`（默认 `8080`）。等价于远端 `git pull --ff-only` → `docker build` → 用 env-file **重建** `manage-robot-dingtalk` 容器。
+可选参数：`-RepoDir`、`-EnvFile`、`-PublishPort`（默认 `8080`）。远端顺序为 **`git pull` → `docker build`（此阶段旧容器仍在服务）→ `stop/rm` → `docker run` → `/health` 探活**；脚本失败时会尝试用已有镜像拉起容器，避免「只拆不装」。
+
+**部署后必查**（在 ECS 上或脚本成功输出中确认）：
+
+```bash
+docker ps --filter name=manage-robot-dingtalk   # 必须为 Up
+curl -sf http://127.0.0.1:8080/health          # 必须返回 ok
+```
+
+若 SSH 在 `docker build` 进行中意外断开：旧容器在 **build 完成前不会被 stop**（2026-05-25 起）；若在 `stop` 之后、`run` 之前中断，需手动 `docker run` 恢复（镜像 `manage-robot:dingtalk` 仍在）。
+
+**勿短时间连续部署两次**；若仅更新文档且代码未变，不必重建容器。
 
 ### 2.8 暂不配钉钉，只想在云上验证 Qwen
 
