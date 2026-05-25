@@ -1,3 +1,5 @@
+import { isExternalContact } from "../../infra/external-contact";
+
 interface AccessTokenResp {
   accessToken?: string;
   access_token?: string;
@@ -55,6 +57,7 @@ export interface WorkbenchNotifyResult {
     todoId?: string;
   }>;
   failed: Array<{ userId: string; reason: string }>;
+  skippedExternal?: Array<{ userId: string; displayName?: string }>;
 }
 
 /** 子任务（或整单）改派成功后，通知新负责人（卡片 + 机器人）。 */
@@ -648,7 +651,15 @@ export function createWorkbenchPublishNotifier(
       const token = await getAccessToken(fetchImpl);
       const success: WorkbenchNotifyResult["success"] = [];
       const failed: WorkbenchNotifyResult["failed"] = [];
+      const skippedExternal: NonNullable<WorkbenchNotifyResult["skippedExternal"]> = [];
       for (const assignee of input.assignees) {
+        if (isExternalContact(assignee.userId)) {
+          skippedExternal.push({
+            userId: assignee.userId,
+            displayName: assignee.displayName,
+          });
+          continue;
+        }
         const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}`;
         const subject = `[${input.taskNo}] ${input.title}`;
         const titleMap = input.subtaskTitleBySourceKey ?? {};
@@ -718,7 +729,7 @@ export function createWorkbenchPublishNotifier(
           success.push(userOutcome);
         }
       }
-      return { enabled: true, success, failed };
+      return { enabled: true, success, failed, skippedExternal };
     },
 
     async notifyReassignedAssignee(
@@ -760,9 +771,17 @@ export function createWorkbenchPublishNotifier(
       const robotMsgEnabled = isRobotMsgEnabled();
       const robotCode = resolveRobotCode();
       const token = await getAccessToken(fetchImpl);
+      const uid = input.assigneeUserId;
+      if (isExternalContact(uid)) {
+        return {
+          enabled: true,
+          success: [],
+          failed: [],
+          skippedExternal: [{ userId: uid }],
+        };
+      }
       const success: WorkbenchNotifyResult["success"] = [];
       const failed: WorkbenchNotifyResult["failed"] = [];
-      const uid = input.assigneeUserId;
       const userOutcome: WorkbenchNotifyResult["success"][number] = { userId: uid };
       let anyChannelOk = false;
 

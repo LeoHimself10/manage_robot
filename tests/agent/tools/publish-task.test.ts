@@ -341,4 +341,47 @@ describe("publish_task handler", () => {
       expect.objectContaining({ ok: false, reason: "unknown_assignees" }),
     );
   });
+
+  it("records external executor skip warnings without treating them as notify failures", async () => {
+    const notifySpy = vi.fn(async () => ({
+      enabled: true,
+      success: [{ userId: "emp-1" }],
+      failed: [],
+      skippedExternal: [{ userId: "ext_wuchuanbin", displayName: "武传宾" }],
+    }));
+    const appendTaskEvent = vi.fn();
+    const handler = buildPublishTaskHandler({
+      trustedActorUserId: "manager-1",
+      currentSessionPlanId: "plan-1",
+      currentSession: baseSession(),
+      initiatorDepartment: "质量部",
+      publishFromSession: () => ({
+        task: { taskId: "task:plan-1", taskNo: "W20260513002", title: "测试任务" },
+        subtasks: [
+          { assigneeUserId: "emp-1", title: "内部", sourceTaskKey: "task-1" },
+          { assigneeUserId: "ext_wuchuanbin", title: "外部", sourceTaskKey: "task-1" },
+        ],
+        alreadyPublished: false,
+      }),
+      appendTaskEvent,
+      getContact: (uid) => ({ active: true, name: uid === "ext_wuchuanbin" ? "武传宾" : "内部员工" }),
+      notifier: {
+        notifyPublishedTask: notifySpy,
+        notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+        notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+        notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+        notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+        notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
+      },
+      recentPublished: createRecentPublishStore(),
+    });
+    const res = (await handler({ planId: "plan-1" })) as Record<string, unknown>;
+    expect(res.ok).toBe(true);
+    expect(res.notifyStats).toEqual({ internalNotified: 1, externalSkipped: 1, failed: 0 });
+    expect(res.warnings).toEqual(["外部执行者 武传宾 请登录网页工作台查看任务"]);
+    const skippedEvents = appendTaskEvent.mock.calls
+      .map((call) => call[0])
+      .filter((e: { eventType?: string }) => e.eventType === "EMPLOYEE_NOTIFY_SKIPPED");
+    expect(skippedEvents.some((e: { note?: string }) => e.note === "external_executor_web_only")).toBe(true);
+  });
 });

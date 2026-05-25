@@ -1,8 +1,9 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { buildSubtaskPlanningFieldsClientJs } from "./workbench-subtask-fields-snippet";
+import { buildWorkbenchEmployeeAuthClientJs } from "./workbench-employee-auth-snippet";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 
-/** Single-page employee workbench: `?view=new|current|history|profile` */
+/** Single-page employee workbench: `?view=new|current|history|profile|security` */
 export function renderEmployeeWorkbenchPage(): string {
   return `<!DOCTYPE html>
 <html lang="zh">
@@ -26,6 +27,7 @@ export function renderEmployeeWorkbenchPage(): string {
         <a id="navCur" href="/workbench/employee?view=current">进行中</a>
         <a id="navHist" href="/workbench/employee?view=history">已完成</a>
         <a id="navProf" href="/workbench/employee?view=profile">能力画像</a>
+        <a id="navSecurity" href="/workbench/employee?view=security" hidden>账号安全</a>
       </nav>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
@@ -92,6 +94,50 @@ export function renderEmployeeWorkbenchPage(): string {
         <button type="button" class="btn btn-secondary" id="saveProfileBtn">保存能力画像</button>
         <div class="feedback muted" id="profileFeedback"></div>
       </div>
+    </div>
+  </div>
+
+  <div id="panelSecurity" hidden>
+    <p class="page-desc">在这里修改你的登录密码。</p>
+    <div class="account-strip account-strip--loading" id="secAccountStrip" aria-label="当前账号" aria-busy="true">
+      <div>
+        <div class="account-strip__who" id="secAccountWho">加载账号信息…</div>
+        <div class="account-strip__meta" id="secAccountMeta">&nbsp;</div>
+      </div>
+    </div>
+    <div class="status-banner status-banner--success" id="pwdSuccessBanner" hidden role="status">
+      <span>密码已更新。下次请用<strong>新密码</strong>从 <a href="/workbench/external/login">外部登录页</a> 登录。</span>
+      <button type="button" class="status-banner__close" id="pwdSuccessDismiss" aria-label="关闭提示">关闭</button>
+    </div>
+    <div class="info-banner" role="note">提示：修改成功后请用新密码从 <a href="/workbench/external/login">外部登录页</a> 登录；当前会话不会自动退出。</div>
+    <div class="card security-form-card">
+      <div class="form-stack security-form">
+        <label id="pwdCurrentLabel">当前密码
+          <div class="pwd-field">
+            <input id="pwdCurrent" type="password" autocomplete="current-password" placeholder="请输入当前密码" aria-describedby="pwdRules passwordFeedback" />
+            <button type="button" class="pwd-field__toggle" id="pwdCurrentToggle" aria-pressed="false" aria-label="显示当前密码">显示</button>
+          </div>
+        </label>
+        <label id="pwdNewLabel">新密码
+          <div class="pwd-field">
+            <input id="pwdNew" type="password" autocomplete="new-password" placeholder="至少 8 位，建议字母与数字组合" aria-describedby="pwdRules" />
+            <button type="button" class="pwd-field__toggle" id="pwdNewToggle" aria-pressed="false" aria-label="显示新密码">显示</button>
+          </div>
+        </label>
+        <label id="pwdConfirmLabel">确认新密码
+          <div class="pwd-field">
+            <input id="pwdConfirm" type="password" autocomplete="new-password" placeholder="再次输入新密码" aria-describedby="pwdRules" />
+            <button type="button" class="pwd-field__toggle" id="pwdConfirmToggle" aria-pressed="false" aria-label="显示确认密码">显示</button>
+          </div>
+        </label>
+      </div>
+      <div class="pwd-rules" id="pwdRules" aria-live="polite">
+        <div id="pwdRuleLen">○ 至少 8 个字符</div>
+        <div id="pwdRuleMatch">○ 两次输入一致</div>
+        <div id="pwdRuleDiff">○ 新密码不能与当前密码相同</div>
+      </div>
+      <button type="button" class="btn btn-primary" id="changePasswordBtn">确认修改密码</button>
+      <div class="feedback muted" id="passwordFeedback" role="alert"></div>
     </div>
   </div>
 </div>
@@ -175,17 +221,112 @@ export function renderEmployeeWorkbenchPage(): string {
 
 <script>
 (function () {
+  ${buildWorkbenchEmployeeAuthClientJs()}
   ${buildWorkbenchViewSwitchClientJs()}
+  function applyExternalSecurityUi(data) {
+    if (!data || !data.ok || data.loginSource !== 'external_password') {
+      if (getView() === 'security') navTo('new');
+      return;
+    }
+    var nav = document.getElementById('navSecurity');
+    if (nav) nav.hidden = false;
+    var strip = document.getElementById('secAccountStrip');
+    if (strip) {
+      strip.classList.remove('account-strip--loading');
+      strip.removeAttribute('aria-busy');
+    }
+    var who = document.getElementById('secAccountWho');
+    var meta = document.getElementById('secAccountMeta');
+    var displayName = (data.dingUser && data.dingUser.name) || (data.externalAccount && data.externalAccount.displayName) || data.userId || '外部用户';
+    var username = (data.externalAccount && data.externalAccount.username) || data.userId || '—';
+    if (who) who.textContent = displayName;
+    if (meta) meta.textContent = '登录名 ' + username + ' · 账号密码登录';
+  }
+  function mapPasswordChangeError(msg) {
+    var m = String(msg || '').trim();
+    if (m === 'Current password is incorrect' || m === '当前密码不正确') return '当前密码不正确，请重新输入';
+    if (m === '新密码不能与当前密码相同') return m;
+    if (m === '新密码至少 8 位') return m;
+    if (m === 'currentPassword and newPassword are required') return '请填写当前密码和新密码';
+    if (m === 'newPassword must be at least 8 characters') return '新密码至少 8 位';
+    return m || '修改失败，请稍后重试';
+  }
+  function clearPasswordFieldErrors() {
+    ['pwdCurrentLabel', 'pwdNewLabel', 'pwdConfirmLabel'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.remove('is-field-error');
+    });
+  }
+  function setPasswordFieldError(labelId) {
+    clearPasswordFieldErrors();
+    var el = document.getElementById(labelId);
+    if (el) el.classList.add('is-field-error');
+    var input = el && el.querySelector('input');
+    if (input) {
+      try { input.focus(); } catch (e) {}
+    }
+  }
+  function bindPasswordToggle(toggleId, inputId) {
+    var btn = document.getElementById(toggleId);
+    var input = document.getElementById(inputId);
+    if (!btn || !input) return;
+    btn.addEventListener('click', function () {
+      var show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.textContent = show ? '隐藏' : '显示';
+      btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+      btn.setAttribute('aria-label', (show ? '隐藏' : '显示') + input.getAttribute('placeholder'));
+    });
+  }
+  function hidePasswordSuccessBanner() {
+    var banner = document.getElementById('pwdSuccessBanner');
+    if (banner) banner.hidden = true;
+  }
+  function showPasswordSuccessBanner() {
+    var banner = document.getElementById('pwdSuccessBanner');
+    if (banner) banner.hidden = false;
+  }
+  function updatePwdRules() {
+    var cur = (document.getElementById('pwdCurrent').value || '');
+    var np = (document.getElementById('pwdNew').value || '').trim();
+    var cp = (document.getElementById('pwdConfirm').value || '').trim();
+    var lenEl = document.getElementById('pwdRuleLen');
+    var matchEl = document.getElementById('pwdRuleMatch');
+    var diffEl = document.getElementById('pwdRuleDiff');
+    if (lenEl) {
+      lenEl.textContent = (np.length >= 8 ? '✓' : '○') + ' 至少 8 个字符';
+      lenEl.className = np.length >= 8 ? 'is-ok' : '';
+    }
+    if (matchEl) {
+      var matched = !!(np && cp && np === cp);
+      matchEl.textContent = (matched ? '✓' : '○') + ' 两次输入一致';
+      matchEl.className = matched ? 'is-ok' : '';
+    }
+    if (diffEl) {
+      var diffOk = !cur || !np || cur !== np;
+      diffEl.textContent = (diffOk && np ? '✓' : '○') + ' 新密码不能与当前密码相同';
+      if (cur && np && cur === np) diffEl.className = 'is-invalid';
+      else if (diffOk && np) diffEl.className = 'is-ok';
+      else diffEl.className = '';
+    }
+  }
   void fetch('/api/workbench/me', { cache: 'no-store' }).then(function (res) {
-    return res.json();
-  }).then(function (data) {
-    if (data && data.ok && data.canExecuteAsManager) {
+    return res.json().catch(function () { return {}; }).then(function (data) {
+      return { res: res, data: data };
+    });
+  }).then(function (payload) {
+    if (!payload) return;
+    if (wbCheckAuthResponse(payload.res, payload.data)) return;
+    var data = payload.data;
+    wbRememberLoginSource(data);
+    if (data.ok && data.canExecuteAsManager) {
       var mgrNav = document.getElementById('navManager');
       if (mgrNav) {
         mgrNav.hidden = false;
         wbBindViewSwitchLink('navManager', 'manager', '/workbench/manager/tasks');
       }
     }
+    applyExternalSecurityUi(data);
   }).catch(function () {});
   function newIdempotencyKey() {
     try {
@@ -258,7 +399,7 @@ export function renderEmployeeWorkbenchPage(): string {
   function getView() {
     try {
       var v = (new URLSearchParams(location.search).get('view') || 'new').toLowerCase();
-      if (v === 'current' || v === 'history' || v === 'profile') return v;
+      if (v === 'current' || v === 'history' || v === 'profile' || v === 'security') return v;
       return 'new';
     } catch (e) { return 'new'; }
   }
@@ -271,8 +412,12 @@ export function renderEmployeeWorkbenchPage(): string {
     closeModal('actionModalOverlay');
     closeModal('progressModalOverlay');
     closeModal('noteModalOverlay');
+    if (view === 'security') {
+      var navSec = document.getElementById('navSecurity');
+      if (navSec && navSec.hidden) view = 'new';
+    }
     document.querySelectorAll('.nav-pills a').forEach(function (a) { a.classList.remove('active'); });
-    var map = { new: 'navNew', current: 'navCur', history: 'navHist', profile: 'navProf' };
+    var map = { new: 'navNew', current: 'navCur', history: 'navHist', profile: 'navProf', security: 'navSecurity' };
     var nid = map[view] || 'navNew';
     var na = document.getElementById(nid);
     if (na) na.classList.add('active');
@@ -280,11 +425,13 @@ export function renderEmployeeWorkbenchPage(): string {
     document.getElementById('panelCur').hidden = view !== 'current';
     document.getElementById('panelHist').hidden = view !== 'history';
     document.getElementById('panelProf').hidden = view !== 'profile';
+    document.getElementById('panelSecurity').hidden = view !== 'security';
     var titles = {
       new: '待承接',
       current: '进行中的任务',
       history: '已完成',
-      profile: '能力画像'
+      profile: '能力画像',
+      security: '账号安全'
     };
     document.getElementById('empPageTitle').textContent = titles[view] || titles.new;
     if (view === 'new') void loadNew();
@@ -421,6 +568,7 @@ export function renderEmployeeWorkbenchPage(): string {
     try {
       var res = await fetch('/api/workbench/employee/tasks/new', { cache: 'no-store' });
       var data = await res.json().catch(function () { return {}; });
+      if (wbCheckAuthResponse(res, data)) return;
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var actionable = data.actionable || [];
       var waiting = data.waiting || [];
@@ -495,6 +643,7 @@ export function renderEmployeeWorkbenchPage(): string {
     try {
       var res = await fetch('/api/workbench/employee/tasks/current', { cache: 'no-store' });
       var data = await res.json().catch(function () { return {}; });
+      if (wbCheckAuthResponse(res, data)) return;
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var tasks = (data.tasks || []).filter(function (t) { return String(t.status || '') !== 'REJECTED'; });
       var blocked = tasks.filter(function (t) { return t.status === 'BLOCKED'; }).length;
@@ -531,6 +680,7 @@ export function renderEmployeeWorkbenchPage(): string {
     try {
       var res = await fetch('/api/workbench/employee/tasks/history', { cache: 'no-store' });
       var data = await res.json().catch(function () { return {}; });
+      if (wbCheckAuthResponse(res, data)) return;
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var tasks = data.tasks || [];
       var mount = document.getElementById('cardsHist');
@@ -593,6 +743,7 @@ export function renderEmployeeWorkbenchPage(): string {
       body: JSON.stringify({ planId: planId, subtaskId: subtaskId, action: action, note: note, idempotencyKey: newIdempotencyKey() })
     });
     var data = await res.json().catch(function () { return {}; });
+    if (wbCheckAuthResponse(res, data)) return;
     if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
     if (opts && opts.goView === 'current') {
       location.href = '/workbench/employee?view=current&_=' + Date.now();
@@ -640,6 +791,7 @@ export function renderEmployeeWorkbenchPage(): string {
         body: JSON.stringify({ subtaskId: progressSubtaskId, progressStatus: progressStatus, note: note, idempotencyKey: newIdempotencyKey() })
       });
       var data = await res.json().catch(function () { return {}; });
+      if (wbCheckAuthResponse(res, data)) return;
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       closeModal('progressModalOverlay');
       await loadCurrent();
@@ -659,6 +811,7 @@ export function renderEmployeeWorkbenchPage(): string {
     try {
       var res = await fetch('/api/workbench/employee/profile', { cache: 'no-store' });
       var data = await res.json().catch(function () { return {}; });
+      if (wbCheckAuthResponse(res, data)) return;
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var profile = data.profile || {};
       document.getElementById('pfSkillTags').value = (profile.skillTags || []).join(', ');
@@ -689,6 +842,7 @@ export function renderEmployeeWorkbenchPage(): string {
         body: JSON.stringify(payload)
       });
       var data = await res.json().catch(function () { return {}; });
+      if (wbCheckAuthResponse(res, data)) return;
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       setFb('profileFeedback', '已保存', 'ok');
     } catch (e) {
@@ -698,9 +852,91 @@ export function renderEmployeeWorkbenchPage(): string {
     }
   });
 
+  document.getElementById('changePasswordBtn').addEventListener('click', async function () {
+    var btn = document.getElementById('changePasswordBtn');
+    var btnLabel = btn.textContent || '确认修改密码';
+    var currentPassword = (document.getElementById('pwdCurrent').value || '');
+    var newPassword = (document.getElementById('pwdNew').value || '').trim();
+    var confirmPassword = (document.getElementById('pwdConfirm').value || '').trim();
+    hidePasswordSuccessBanner();
+    clearPasswordFieldErrors();
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setFb('passwordFeedback', '请填写全部密码字段', 'err');
+      if (!currentPassword) setPasswordFieldError('pwdCurrentLabel');
+      else if (!newPassword) setPasswordFieldError('pwdNewLabel');
+      else setPasswordFieldError('pwdConfirmLabel');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setFb('passwordFeedback', '新密码至少 8 位', 'err');
+      setPasswordFieldError('pwdNewLabel');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setFb('passwordFeedback', '两次输入的新密码不一致', 'err');
+      setPasswordFieldError('pwdConfirmLabel');
+      return;
+    }
+    if (currentPassword === newPassword) {
+      setFb('passwordFeedback', '新密码不能与当前密码相同', 'err');
+      setPasswordFieldError('pwdNewLabel');
+      return;
+    }
+    if (!window.confirm('确认修改登录密码？修改后下次登录需使用新密码。')) return;
+    btn.disabled = true;
+    btn.textContent = '提交中…';
+    btn.setAttribute('aria-busy', 'true');
+    setFb('passwordFeedback', '', 'muted');
+    try {
+      var res = await fetch('/api/workbench/external/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ currentPassword: currentPassword, newPassword: newPassword })
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (wbCheckAuthResponse(res, data)) return;
+      if (!res.ok || !data.ok) {
+        var errText = mapPasswordChangeError(data.error || ('HTTP ' + res.status));
+        if (String(data.error || '').indexOf('当前密码') >= 0 || data.error === 'Current password is incorrect') {
+          setPasswordFieldError('pwdCurrentLabel');
+        } else if (String(data.error || '').indexOf('不能与当前') >= 0) {
+          setPasswordFieldError('pwdNewLabel');
+        }
+        throw new Error(errText);
+      }
+      document.getElementById('pwdCurrent').value = '';
+      document.getElementById('pwdNew').value = '';
+      document.getElementById('pwdConfirm').value = '';
+      updatePwdRules();
+      showPasswordSuccessBanner();
+      setFb('passwordFeedback', '', 'muted');
+    } catch (e) {
+      setFb('passwordFeedback', mapPasswordChangeError(e && e.message ? e.message : e), 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = btnLabel;
+      btn.removeAttribute('aria-busy');
+    }
+  });
+
+  var pwdCurrentEl = document.getElementById('pwdCurrent');
+  var pwdNewEl = document.getElementById('pwdNew');
+  var pwdConfirmEl = document.getElementById('pwdConfirm');
+  if (pwdCurrentEl) pwdCurrentEl.addEventListener('input', function () { hidePasswordSuccessBanner(); clearPasswordFieldErrors(); updatePwdRules(); });
+  if (pwdNewEl) pwdNewEl.addEventListener('input', function () { hidePasswordSuccessBanner(); updatePwdRules(); });
+  if (pwdConfirmEl) pwdConfirmEl.addEventListener('input', function () { hidePasswordSuccessBanner(); updatePwdRules(); });
+  bindPasswordToggle('pwdCurrentToggle', 'pwdCurrent');
+  bindPasswordToggle('pwdNewToggle', 'pwdNew');
+  bindPasswordToggle('pwdConfirmToggle', 'pwdConfirm');
+  var pwdSuccessDismiss = document.getElementById('pwdSuccessDismiss');
+  if (pwdSuccessDismiss) pwdSuccessDismiss.addEventListener('click', hidePasswordSuccessBanner);
+
   document.getElementById('logoutBtn').addEventListener('click', async function () {
-    await fetch('/api/workbench/logout', { method: 'POST', cache: 'no-store' });
-    window.location.href = '/workbench';
+    var res = await fetch('/api/workbench/logout', { method: 'POST', cache: 'no-store' });
+    var data = {};
+    try { data = await res.json(); } catch (e) {}
+    window.location.href = (data && data.redirectTo) ? data.redirectTo : '/workbench';
   });
 
   document.querySelectorAll('.nav-pills a[href*="view="]').forEach(function (a) {

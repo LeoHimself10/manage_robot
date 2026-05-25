@@ -1,4 +1,5 @@
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
+import { isExternalContact } from "../../infra/external-contact";
 import { logStructured } from "../../infra/logger";
 import type { WorkbenchPublishNotifier } from "./workbench-notify";
 import type { WorkbenchTaskStatus } from "../../infra/workbench-formal-task-store";
@@ -27,8 +28,17 @@ export async function notifyEmployeeTodoOnAcceptAfterUpdate(input: {
   if (
     input.action !== "accept" ||
     input.previousStatus !== "ASSIGNED" ||
-    !input.notifier
+    !input.notifier ||
+    isExternalContact(input.actorUserId)
   ) {
+    if (input.action === "accept" && isExternalContact(input.actorUserId)) {
+      logStructured({
+        event: "employee_todo_create_skipped",
+        reason: "external_executor_web_only",
+        subtaskId: input.subtaskId,
+        userId: input.actorUserId,
+      });
+    }
     return;
   }
 

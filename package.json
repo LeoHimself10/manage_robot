@@ -22,6 +22,8 @@
     "eval:publish-short": "tsx scripts/run-publish-short-confirm-eval.ts",
     "dingtalk-bot": "tsx src/dingtalk-bot.ts",
     "seed:employees": "tsx scripts/seed-employee-profiles.ts",
+    "seed:external-executors": "tsx scripts/seed-external-executors.ts",
+    "dev:external-workbench": "tsx scripts/local-external-workbench-dev.ts",
     "build:workbench-login": "esbuild src/web/workbench-dd-login-entry.ts --bundle --platform=browser --format=iife --legal-comments=none --outfile=dist/workbench-dd-login.js"
   },
   "devDependencies": {

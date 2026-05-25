@@ -28,7 +28,7 @@ describe("dingtalk bot helpers", () => {
       warnings: [],
     });
     expect(output).toContain("【已发布】任务编号 W20260513001");
-    expect(output).toContain("子任务 2 个 → 已通知 2 名员工");
+    expect(output).toContain("子任务 2 个 → 已钉钉通知 2 名内部员工");
   });
 
   it("appends already published summary when publish is duplicated", () => {

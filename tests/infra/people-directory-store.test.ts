@@ -101,4 +101,30 @@ describe("people-directory-store", () => {
     expect(hits).not.toContain("fiber-1");
     store.close();
   });
+
+  it("stores external workbench accounts with password verification", () => {
+    const store = createStore();
+    store.upsertContact({
+      userId: "ext_demo",
+      name: "外部演示",
+      departmentIds: ["外部"],
+      departmentNames: ["外部"],
+      active: true,
+      isAdmin: false,
+      isBoss: false,
+      isSenior: false,
+      rawJson: { source: "external_manual" },
+    });
+    store.upsertExternalAccount({
+      userId: "ext_demo",
+      username: "demo_user",
+      password: "password-1234",
+      displayName: "外部演示",
+    });
+    expect(store.verifyExternalAccountLogin("demo_user", "password-1234")?.userId).toBe("ext_demo");
+    expect(store.verifyExternalAccountLogin("demo_user", "bad")).toBeUndefined();
+    expect(store.updateExternalAccountPassword("ext_demo", "new-pass-5678")).toBe(true);
+    expect(store.verifyExternalAccountLogin("demo_user", "new-pass-5678")?.userId).toBe("ext_demo");
+    store.close();
+  });
 });

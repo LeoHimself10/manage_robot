@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台整体 UI/UX 改造建议</title>
+<style>
+:root {
+  --bg: #eef2f6; --surface: #fff; --border: #dde3ea; --text: #0f172a; --muted: #64748b;
+  --primary: #2563eb; --danger: #dc2626; --success: #059669; --warn: #d97706;
+  --radius: 12px; --font: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); background: #dfe6ee; color: var(--text); line-height: 1.55; }
+.hero {
+  background: linear-gradient(145deg, #0f172a, #334155 55%, #1e3a8a);
+  color: #f8fafc; padding: 36px 24px 40px;
+}
+.hero h1 { margin: 0 0 10px; font-size: 28px; letter-spacing: -0.03em; }
+.hero p { margin: 0; max-width: 780px; color: #cbd5e1; font-size: 15px; }
+.hero-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.hero-nav a {
+  color: #e2e8f0; text-decoration: none; font-size: 13px; padding: 7px 13px;
+  border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06);
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 24px 18px 72px; }
+.section {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(15,23,42,.05); margin-bottom: 28px; overflow: hidden;
+}
+.section-head { padding: 18px 22px; border-bottom: 1px solid var(--border); background: #f8fafc; }
+.section-head h2 { margin: 0 0 6px; font-size: 19px; }
+.section-head p { margin: 0; font-size: 13px; color: var(--muted); }
+.section-body { padding: 22px; }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; margin-right: 6px; }
+.tag-bad { background: #fee2e2; color: #991b1b; }
+.tag-mid { background: #fef3c7; color: #92400e; }
+.tag-ok { background: #dbeafe; color: #1e40af; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 900px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+.issue-list { margin: 0; padding: 0; list-style: none; }
+.issue-list li {
+  padding: 12px 0; border-bottom: 1px solid #eef2f6; font-size: 14px;
+}
+.issue-list li:last-child { border-bottom: none; }
+.issue-list strong { display: block; margin-bottom: 4px; }
+
+/* ===== mock: CURRENT (ugly) ===== */
+.mock-frame { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #f1f5f9; }
+.mock-label {
+  font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.mock-label.bad { color: #b91c1c; }
+.mock-label.good { color: #047857; }
+.mock-top {
+  background: #fff; border-bottom: 1px solid var(--border); padding: 12px 14px;
+  display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: flex-start;
+}
+.mock-brand { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
+.mock-title { font-size: 17px; font-weight: 700; margin: 2px 0 0; }
+.mock-desc { font-size: 11px; color: #64748b; margin: 4px 0 0; max-width: 280px; }
+.pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.pill {
+  font-size: 10px; padding: 5px 9px; border-radius: 999px; border: 1px solid #e2e8f0;
+  background: #fff; color: #475569;
+}
+.pill.on { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+.mock-body { padding: 12px; }
+.banner-gray {
+  font-size: 11px; padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0;
+  border-radius: 6px; color: #64748b; margin-bottom: 8px;
+}
+.kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 8px; }
+.kpi {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px;
+}
+.kpi .l { font-size: 9px; color: #94a3b8; }
+.kpi .v { font-size: 18px; font-weight: 800; margin-top: 2px; }
+.toolbar {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px;
+}
+.toolbar .f { height: 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; }
+.card-m {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 6px;
+}
+.card-m .t { font-size: 12px; font-weight: 650; margin-bottom: 4px; }
+.card-m .m { font-size: 10px; color: #94a3b8; line-height: 1.4; }
+.card-m .acts { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+.btn-xs {
+  font-size: 10px; padding: 4px 8px; border-radius: 5px; border: 1px solid #e2e8f0; background: #fff;
+}
+.btn-xs.primary { background: #2563eb; color: #fff; border-color: #1d4ed8; }
+
+/* ===== mock: PROPOSED shells ===== */
+.shell-a { display: grid; grid-template-columns: 200px 1fr; min-height: 280px; }
+.shell-a .side {
+  background: #0f172a; color: #cbd5e1; padding: 14px 12px;
+}
+.shell-a .side .logo { font-size: 13px; font-weight: 700; color: #f8fafc; margin-bottom: 16px; }
+.shell-a .side a {
+  display: block; font-size: 12px; padding: 8px 10px; border-radius: 8px; color: #cbd5e1;
+  text-decoration: none; margin-bottom: 4px;
+}
+.shell-a .side a.on { background: rgba(255,255,255,.1); color: #fff; }
+.shell-a .main { padding: 12px; }
+.shell-a .main-head {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+}
+.shell-a .main-head h3 { margin: 0; font-size: 16px; }
+.chip { font-size: 10px; padding: 3px 8px; border-radius: 999px; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+
+.shell-b .mock-top { background: #fff; border: 1px solid #dbeafe; box-shadow: 0 1px 0 #eff6ff inset; }
+.shell-b .seg-nav {
+  display: inline-flex; padding: 3px; background: #f1f5f9; border-radius: 10px; gap: 2px;
+}
+.shell-b .seg-nav span {
+  font-size: 11px; padding: 6px 12px; border-radius: 8px; color: #64748b;
+}
+.shell-b .seg-nav span.on { background: #fff; color: #0f172a; box-shadow: 0 1px 2px rgba(15,23,42,.08); font-weight: 650; }
+.shell-b .kpi-row { grid-template-columns: repeat(4, 1fr); }
+.shell-b .kpi { border-color: #e0e7ff; background: linear-gradient(180deg, #fff, #f8fafc); }
+.shell-b .card-m { border-left: 3px solid #2563eb; }
+
+.shell-c { background: #f2f2f6; }
+.shell-c .dd-header {
+  background: #fff; padding: 10px 12px; border-bottom: 1px solid #ebebeb;
+  display: flex; align-items: center; gap: 8px;
+}
+.shell-c .dd-back { font-size: 18px; color: #1677ff; }
+.shell-c .dd-title { font-size: 15px; font-weight: 600; }
+.shell-c .mock-body { padding: 10px; }
+.shell-c .card-m { border: none; box-shadow: 0 1px 4px rgba(0,0,0,.06); border-radius: 10px; }
+
+.plan-phase {
+  border-left: 4px solid var(--primary); padding-left: 16px; margin-bottom: 22px;
+}
+.plan-phase h3 { margin: 0 0 6px; font-size: 16px; }
+.plan-phase p.meta { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+.plan-phase ul { margin: 0; padding-left: 18px; font-size: 14px; }
+.plan-phase li { margin: 5px 0; }
+
+.pick-box {
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 16px 18px;
+}
+.pick-box h3 { margin: 0 0 8px; font-size: 16px; }
+.compare-card {
+  border: 2px solid var(--border); border-radius: 10px; padding: 16px; height: 100%;
+}
+.compare-card.rec { border-color: #86efac; background: #f0fdf4; }
+.compare-card h3 { margin: 0 0 8px; font-size: 16px; }
+.compare-card ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+.login-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 700px) { .login-row { grid-template-columns: 1fr; } }
+.login-box {
+  border: 1px solid var(--border); border-radius: 10px; padding: 16px; background: #fafafa;
+}
+.login-box h4 { margin: 0 0 10px; font-size: 14px; }
+.login-box.bad { border-style: dashed; border-color: #fca5a5; }
+.login-box.good { border-color: #86efac; background: #f0fdf4; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>工作台整体 UI · 诊断与改造方向</h1>
+  <p>基于现有 <code>workbench-app-styles.ts</code> + 员工/主管/Admin/登录页的实现。结论：不是「缺组件」，而是<strong>缺少统一产品壳、视觉层级和 DingTalk 场景适配</strong>——像内部工具原型，不像可交付的企业工作台。</p>
+  <nav class="hero-nav">
+    <a href="#why">为什么丑</a>
+    <a href="#areas">分区问题</a>
+    <a href="#compare">三档方案对比</a>
+    <a href="#plan">改造路线</a>
+    <a href="#pick">请你选型</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<!-- WHY -->
+<section class="section" id="why">
+  <div class="section-head">
+    <h2>核心诊断：丑在哪（6 条）</h2>
+    <p>不是单一页面问题，是全局设计语言缺失。</p>
+  </div>
+  <div class="section-body grid-2">
+    <ul class="issue-list">
+      <li><strong>1. 没有「应用壳」</strong>每页各自为战：顶栏 + 一堆 pill + 退出，像网页合集，不像一个 App。</li>
+      <li><strong>2. 导航形态过时</strong>5～6 个圆角 pill 横排；小屏等分后像按钮墙，主次不清。</li>
+      <li><strong>3. 视觉层级扁平</strong>灰底 + 白 card + 浅蓝 active，全是同一权重；KPI、筛选、卡片、提示条长一个样。</li>
+      <li><strong>4. 信息密度失控</strong>任务卡片塞 6+ 规划字段 + 多按钮；主管页 KPI×5 + 筛选×6 格，首屏像 Excel。</li>
+      <li><strong>5. 风格分裂</strong>工作台 SSR 一套 CSS；外部登录/站点首页/钉钉登录页各写各的 inline style，像三个产品拼盘。</li>
+      <li><strong>6. 「工程文档感」</strong>landing 页是路径列表 README；brand 用 UPPERCASE 英文「员工工作台」，缺少品牌与角色感。</li>
+    </ul>
+    <div>
+      <div class="mock-label bad">现状缩影（主管历史任务首屏）</div>
+      <div class="mock-frame">
+        <div class="mock-top">
+          <div>
+            <div class="mock-brand">主管工作台</div>
+            <div class="mock-title">历史任务管理</div>
+            <div class="mock-desc">查看已发布任务的进度与负责人，必要时调整…（长描述占一行）</div>
+          </div>
+          <div class="pills">
+            <span class="pill on">历史任务</span><span class="pill">智能规划</span><span class="pill">我负责的</span><span class="pill" style="opacity:.5">退出</span>
+          </div>
+        </div>
+        <div class="mock-body">
+          <div class="kpi-row">
+            <div class="kpi"><div class="l">任务总数</div><div class="v">12</div></div>
+            <div class="kpi"><div class="l">待您处理</div><div class="v">3</div></div>
+            <div class="kpi"><div class="l">待承接</div><div class="v">2</div></div>
+            <div class="kpi"><div class="l">执行中</div><div class="v">5</div></div>
+            <div class="kpi"><div class="l">已完成</div><div class="v">2</div></div>
+          </div>
+          <div class="toolbar"><div class="f"></div><div class="f"></div><div class="f"></div></div>
+          <div class="banner-gray">提示：列表优先突出阻塞与待处理事项…</div>
+          <div class="card-m">
+            <div class="t">TASK-20260525-0001 · 子任务标题很长很长…</div>
+            <div class="m">截止 / 负责人 / 状态 / 六项要点 / 更多规划… 全堆在卡片里</div>
+            <div class="acts"><span class="btn-xs primary">催办</span><span class="btn-xs">详情</span><span class="btn-xs">改派</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BY AREA -->
+<section class="section" id="areas">
+  <div class="section-head">
+    <h2>分区改造要点（不改业务，只改呈现）</h2>
+  </div>
+  <div class="section-body grid-3">
+    <div>
+      <h3 style="margin:0 0 10px;font-size:15px;">员工端</h3>
+      <ul class="issue-list">
+        <li><span class="tag tag-mid">导航</span> Tab 过多；待承接/进行中/画像/安全平级竞争</li>
+        <li><span class="tag tag-mid">卡片</span> 接受/拒绝/协助按钮同级，缺「主行动」强调</li>
+        <li><span class="tag tag-ok">可做</span> 卡片分「摘要区 + 折叠规划区」；状态色 + 文字标签</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="margin:0 0 10px;font-size:15px;">主管端</h3>
+      <ul class="issue-list">
+        <li><span class="tag tag-bad">KPI</span> 5 块数字墙；与下方表格信息重复</li>
+        <li><span class="tag tag-mid">筛选</span> 6 格表单像后台 CRUD，不像「待办 inbox」</li>
+        <li><span class="tag tag-ok">可做</span> 默认「待您处理」视图；KPI 缩为 2～3 个 + 其余进摘要</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="margin:0 0 10px;font-size:15px;">登录 & 入口</h3>
+      <ul class="issue-list">
+        <li><span class="tag tag-bad">分裂</span> 钉钉免登 / 外部登录 / 首页三套 UI</li>
+        <li><span class="tag tag-mid">首页</span> 纯文档列表，无产品感</li>
+        <li><span class="tag tag-ok">可做</span> 统一 Login Shell + 角色分流卡片</li>
+      </ul>
+    </div>
+  </div>
+  <div class="section-body" style="padding-top:0;">
+    <div class="login-row">
+      <div class="login-box bad">
+        <h4>现状：外部登录（孤立样式）</h4>
+        <div style="max-width:220px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-size:11px;">
+          <strong>外部执行者登录</strong><br><br>
+          [账号____]<br>[密码____]<br>
+          <div style="margin-top:8px;background:#2563eb;color:#fff;text-align:center;padding:6px;border-radius:6px;">登录</div>
+        </div>
+        <p style="font-size:12px;color:#64748b;margin:10px 0 0;">与工作台内页视觉无关</p>
+      </div>
+      <div class="login-box good">
+        <h4>建议：统一认证壳</h4>
+        <div style="max-width:240px;margin:0 auto;background:#f8fafc;border:1px solid #dbeafe;border-radius:12px;padding:14px;font-size:11px;">
+          <div style="font-weight:700;margin-bottom:8px;">任务规划工作台</div>
+          <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px;margin-bottom:6px;">钉钉用户 · 免登进入</div>
+          <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px;">外部执行者 · 账号登录</div>
+        </div>
+        <p style="font-size:12px;color:#047857;margin:10px 0 0;">同一品牌、同一圆角/色板/按钮</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- THREE DIRECTIONS -->
+<section class="section" id="compare">
+  <div class="section-head">
+    <h2>三档视觉方向（选一档作为 v2 设计系统基准）</h2>
+    <p>下面三个 mock 都是「主管任务列表」同一数据，不同壳层。</p>
+  </div>
+  <div class="section-body grid-3">
+
+    <div>
+      <div class="mock-label good">方向 A · 侧边栏 App Shell（推荐）</div>
+      <div class="mock-frame shell-a">
+        <div class="side">
+          <div class="logo">任务工作台</div>
+          <a class="on" href="#">历史任务</a>
+          <a href="#">规划助手</a>
+          <a href="#">我负责的</a>
+          <a href="#" style="margin-top:20px;opacity:.7">退出</a>
+        </div>
+        <div class="main">
+          <div class="main-head">
+            <h3>待您处理 <span style="font-weight:500;color:#64748b;font-size:12px">3</span></h3>
+            <span class="chip">武传宾 · 主管</span>
+          </div>
+          <div class="card-m" style="border-left:3px solid #dc2626">
+            <div class="t">阻塞 · TASK-001</div>
+            <div class="m">只显示：标题 / 负责人 / 截止 / 一条摘要</div>
+            <div class="acts"><span class="btn-xs primary">处理</span><span class="btn-xs">详情</span></div>
+          </div>
+          <div class="card-m">
+            <div class="t">待承接 · TASK-002</div>
+            <div class="m">次要信息折叠，首屏干净</div>
+          </div>
+        </div>
+      </div>
+      <ul style="font-size:13px;color:#475569;padding-left:18px;margin:10px 0 0;">
+        <li>最适合多 Tab 场景</li>
+        <li>导航不再挤在顶栏</li>
+        <li>改动大，但一劳永逸</li>
+      </ul>
+    </div>
+
+    <div>
+      <div class="mock-label">方向 B · 轻量刷新（保留现结构）</div>
+      <div class="mock-frame shell-b">
+        <div class="mock-top">
+          <div>
+            <div class="mock-brand">任务工作台</div>
+            <div class="mock-title">历史任务</div>
+          </div>
+          <div class="seg-nav">
+            <span class="on">列表</span><span>改派</span><span>助手</span>
+          </div>
+        </div>
+        <div class="mock-body">
+          <div class="kpi-row">
+            <div class="kpi"><div class="l">待处理</div><div class="v">3</div></div>
+            <div class="kpi"><div class="l">执行中</div><div class="v">5</div></div>
+            <div class="kpi"><div class="l">待承接</div><div class="v">2</div></div>
+            <div class="kpi"><div class="l">已完成</div><div class="v">2</div></div>
+          </div>
+          <div class="card-m">
+            <div class="t">TASK-001 · 子任务</div>
+            <div class="m">Segment 导航 + 精简 KPI + 卡片左边线表状态</div>
+          </div>
+        </div>
+      </div>
+      <ul style="font-size:13px;color:#475569;padding-left:18px;margin:10px 0 0;">
+        <li>主要改 design tokens + 组件</li>
+        <li>风险低、上线快</li>
+        <li>顶栏仍可能挤</li>
+      </ul>
+    </div>
+
+    <div>
+      <div class="mock-label">方向 C · 钉钉微应用风</div>
+      <div class="mock-frame shell-c">
+        <div class="dd-header">
+          <span class="dd-back">‹</span>
+          <span class="dd-title">待办任务</span>
+        </div>
+        <div class="mock-body">
+          <div class="card-m">
+            <div class="t">TASK-001</div>
+            <div class="m">大留白 · 少边框 · 阴影卡片 · 底部主按钮</div>
+            <div class="acts"><span class="btn-xs primary" style="flex:1;text-align:center">去处理</span></div>
+          </div>
+          <div class="card-m">
+            <div class="t">TASK-002</div>
+            <div class="m">贴近钉钉 H5 习惯</div>
+          </div>
+        </div>
+      </div>
+      <ul style="font-size:13px;color:#475569;padding-left:18px;margin:10px 0 0;">
+        <li>钉钉内体验最顺</li>
+        <li>外部浏览器略「像 DD」</li>
+        <li>需单独规范外部页</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- PLAN -->
+<section class="section" id="plan">
+  <div class="section-head">
+    <h2>推荐改造路线（只规划，不动代码）</h2>
+    <p>假设选 <strong>方向 A 或 B</strong>，分 4 步滚动交付，每步可独立上线。</p>
+  </div>
+  <div class="section-body">
+    <div class="plan-phase">
+      <h3>Step 0 · 设计系统基线（1～2 天）</h3>
+      <p class="meta">产出 Figma/HTML token 页，不碰业务逻辑</p>
+      <ul>
+        <li>统一色板、圆角、阴影、字号阶梯（替换散落 inline style）</li>
+        <li>组件清单：AppShell、SegNav、KpiStrip、TaskCard、StatusBadge、EmptyState、Banner</li>
+        <li>状态色规范：待处理 / 进行中 / 阻塞 / 完成（色+文字，不单靠颜色）</li>
+      </ul>
+    </div>
+    <div class="plan-phase">
+      <h3>Step 1 · 壳层 + 导航（2～3 天）</h3>
+      <ul>
+        <li>抽 <code>renderWorkbenchShell()</code>：侧栏或顶栏 SegNav，员工/主管/Admin 共用</li>
+        <li>员工端：合并「能力画像 + 账号安全」→「我的」（你之前 9A 方案，仍建议做）</li>
+        <li>登录页 / 首页纳入同一 Shell</li>
+      </ul>
+    </div>
+    <div class="plan-phase">
+      <h3>Step 2 · 任务卡片 & 列表 inbox 化（3～4 天）</h3>
+      <ul>
+        <li>TaskCard v2：首屏仅 标题 + 状态 + 负责人 + 截止 + 主按钮</li>
+        <li>规划 6 项 + 更多规划 → <code>&lt;details&gt;</code> 或「查看要点」抽屉</li>
+        <li>主管列表：默认筛「待您处理」；KPI 从 5 减到 3</li>
+      </ul>
+    </div>
+    <div class="plan-phase">
+      <h3>Step 3 ·  polish + 移动端（2 天）</h3>
+      <ul>
+        <li>空状态插画/文案；加载 skeleton 统一</li>
+        <li>钉钉 webview 安全区、字体缩放、触控热区 ≥ 44px</li>
+        <li>外部执行者页保持同一 token，仅文案区分</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- PICK -->
+<section class="section" id="pick">
+  <div class="section-head">
+    <h2>请你选型（回复即可，我不会直接改代码）</h2>
+  </div>
+  <div class="section-body">
+    <div class="grid-2" style="margin-bottom:18px;">
+      <div class="compare-card rec">
+        <h3>推荐组合 ⭐</h3>
+        <ul>
+          <li><strong>视觉方向 A</strong>（侧边栏 App Shell）</li>
+          <li><strong>Step 0 → 1 → 2</strong> 分三期交付</li>
+          <li>员工「我的」合并 Tab（9A）</li>
+          <li>主管默认 inbox 视图</li>
+        </ul>
+      </div>
+      <div class="compare-card">
+        <h3>保守组合</h3>
+        <ul>
+          <li><strong>视觉方向 B</strong>（轻量刷新，不动布局）</li>
+          <li>仅 Step 0 + 任务卡片 v2</li>
+          <li>适合「先能看」、投入最小</li>
+        </ul>
+      </div>
+    </div>
+    <div class="pick-box">
+      <h3>你回复模板</h3>
+      <p style="margin:0;font-size:14px;">
+        例如：<strong>「方向 A + 推荐组合，先做 Step 0/1 的 HTML 原型」</strong><br>
+        或：<strong>「方向 B 保守组合，先只改员工卡片和登录页」</strong><br>
+        或：<strong>「方向 C，主要给钉钉里用」</strong>
+      </p>
+      <p style="margin:10px 0 0;font-size:12px;color:#92400e;">
+        本文件路径：<code>docs/mockups/workbench-ui-v2-proposal.html</code> — 用浏览器打开即可
+      </p>
+    </div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>

@@ -138,6 +138,29 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(calls.some((c) => c.url.includes("/v1.0/todo/"))).toBe(false);
   });
 
+  it("skips DingTalk API for external executor assignees", async () => {
+    const { fetch: fetchImpl, calls } = buildFetchMock([
+      () => jsonRes({ accessToken: "tok-1" }),
+      () => jsonRes({ errcode: 0, task_id: "card-task-1" }),
+      () => jsonRes({ processQueryKey: "robot-msg-1" }),
+    ]);
+    const notifier = createWorkbenchPublishNotifier(fetchImpl);
+    const result = await notifier.notifyPublishedTask({
+      ...baseInput,
+      assignees: [
+        { userId: "emp-1", unionId: "uni-emp-1", subtaskTitles: ["内部"] },
+        { userId: "ext_wuchuanbin", displayName: "武传宾", subtaskTitles: ["外部"] },
+      ],
+    });
+    expect(result.success).toHaveLength(1);
+    expect(result.success[0]?.userId).toBe("emp-1");
+    expect(result.skippedExternal).toEqual([
+      { userId: "ext_wuchuanbin", displayName: "武传宾" },
+    ]);
+    expect(result.failed).toHaveLength(0);
+    expect(calls).toHaveLength(3);
+  });
+
   it("falls back to DINGTALK_CLIENT_ID as robotCode when DINGTALK_ROBOT_CODE is unset", async () => {
     delete process.env.DINGTALK_ROBOT_CODE;
     const { fetch: fetchImpl, calls } = buildFetchMock([

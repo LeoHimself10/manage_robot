@@ -558,8 +558,10 @@ export function renderManagerTasksPage(params: {
   });
 
   document.getElementById('logoutBtn').addEventListener('click', async function () {
-    await fetch('/api/workbench/logout', { method: 'POST' });
-    window.location.href = '/workbench';
+    var res = await fetch('/api/workbench/logout', { method: 'POST' });
+    var data = {};
+    try { data = await res.json(); } catch (e) {}
+    window.location.href = (data && data.redirectTo) ? data.redirectTo : '/workbench';
   });
 
   var filterApplyBtn = document.getElementById('filterApplyBtn');
@@ -790,8 +792,10 @@ export function renderManagerChatPage(params: {
   }
 
   document.getElementById('logoutBtn').addEventListener('click', async function () {
-    await fetch('/api/workbench/logout', { method: 'POST' });
-    window.location.href = '/workbench';
+    var res = await fetch('/api/workbench/logout', { method: 'POST' });
+    var data = {};
+    try { data = await res.json(); } catch (e) {}
+    window.location.href = (data && data.redirectTo) ? data.redirectTo : '/workbench';
   });
 
   if (activePlanId) {

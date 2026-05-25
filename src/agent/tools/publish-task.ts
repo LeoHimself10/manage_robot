@@ -300,6 +300,21 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
           },
         });
       });
+      (notifyResult.skippedExternal ?? []).forEach((item) => {
+        const label = item.displayName?.trim() || item.userId;
+        warnings.push(`外部执行者 ${label} 请登录网页工作台查看任务`);
+        deps.appendTaskEvent({
+          taskId: published.task.taskId,
+          eventType: "EMPLOYEE_NOTIFY_SKIPPED",
+          actorUserId: trustedActor,
+          note: "external_executor_web_only",
+          payload: {
+            userId: item.userId,
+            displayName: item.displayName,
+            taskNo: published.task.taskNo,
+          },
+        });
+      });
     }
     deps.onAudit?.({
       event: "publish_task_invoked",
@@ -316,6 +331,12 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
       task: published.task,
       subtasks: published.subtasks,
       warnings,
+      notifyStats: {
+        internalNotified: notifyResult.success.length,
+        externalSkipped: notifyResult.skippedExternal?.length ?? 0,
+        failed: notifyResult.failed.length,
+      },
+      skippedExternal: notifyResult.skippedExternal ?? [],
     };
     deps.onPublishResult?.(result);
     return result;

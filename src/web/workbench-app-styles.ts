@@ -143,6 +143,98 @@ a:hover { text-decoration: underline; }
   font-size: 13px;
   color: var(--muted);
 }
+.info-banner.info-banner--note {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e3a8a;
+}
+.account-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.account-strip__who { font-size: 14px; font-weight: 650; color: var(--text); }
+.account-strip__meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.badge-soft {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pwd-rules {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pwd-rules .is-ok { color: var(--success); font-weight: 600; }
+.pwd-rules .is-invalid { color: var(--danger); font-weight: 600; }
+.security-form-card { max-width: 520px; }
+.pwd-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pwd-field input { flex: 1; min-width: 0; }
+.pwd-field__toggle {
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pwd-field__toggle:hover { background: #f8fafc; color: var(--text); }
+.form-stack label.is-field-error { color: var(--danger); }
+.form-stack label.is-field-error input { border-color: #fca5a5; background: #fef2f2; }
+.status-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.status-banner[hidden] { display: none !important; }
+.status-banner--success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+.status-banner__close {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-family: inherit;
+}
+.account-strip--loading .account-strip__who { color: var(--muted); font-weight: 500; }
 .task-card-field { margin: 4px 0 0; line-height: 1.45; }
 .task-card-lbl { font-weight: 600; color: #475569; margin-right: 4px; }
 .subtask-more-details { margin-top: 10px; }

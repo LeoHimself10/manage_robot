@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>账号安全 Tab · UI/UX 问题与修改计划</title>
+<style>
+:root {
+  --bg: #f1f5f9; --surface: #fff; --border: #e2e8f0; --text: #0f172a; --muted: #64748b;
+  --primary: #2563eb; --danger: #dc2626; --success: #059669; --warn: #d97706;
+  --radius: 12px; --radius-sm: 8px; --font: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); background: #e2e8f0; color: var(--text); line-height: 1.55; }
+.hero {
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+  color: #f8fafc; padding: 32px 24px 36px;
+}
+.hero h1 { margin: 0 0 10px; font-size: 26px; letter-spacing: -0.02em; }
+.hero p { margin: 0; color: #cbd5e1; max-width: 720px; font-size: 15px; }
+.hero-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.hero-nav a {
+  color: #e2e8f0; text-decoration: none; font-size: 13px; padding: 6px 12px;
+  border: 1px solid rgba(255,255,255,.15); border-radius: 999px; background: rgba(255,255,255,.06);
+}
+.hero-nav a:hover { background: rgba(255,255,255,.12); }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 24px 18px 64px; }
+.section {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 1px 3px rgba(15,23,42,.06); margin-bottom: 24px; overflow: hidden;
+}
+.section-head { padding: 16px 20px; border-bottom: 1px solid var(--border); background: #f8fafc; }
+.section-head h2 { margin: 0 0 4px; font-size: 18px; }
+.section-head p { margin: 0; font-size: 13px; color: var(--muted); }
+.section-body { padding: 20px; }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; margin-right: 6px; vertical-align: middle; }
+.tag-p0 { background: #fee2e2; color: #991b1b; }
+.tag-p1 { background: #fef3c7; color: #92400e; }
+.tag-p2 { background: #e0e7ff; color: #3730a3; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+.issue {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px;
+  background: #fafafa; height: 100%;
+}
+.issue h3 { margin: 0 0 8px; font-size: 15px; display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.issue p { margin: 0; font-size: 13px; color: #475569; }
+.issue .now { margin-top: 10px; padding: 10px 12px; background: #fff; border: 1px dashed #fca5a5; border-radius: 6px; font-size: 12px; color: #7f1d1d; }
+
+/* mock current page */
+.mock { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.mock-nav { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.mock-nav span {
+  font-size: 11px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--muted);
+}
+.mock-nav span.on { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; font-weight: 600; }
+.mock-nav span.new-tab { border-color: #fcd34d; background: #fffbeb; }
+.mock-title { font-size: 18px; font-weight: 700; margin: 0 0 4px; }
+.mock-desc { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+.strip { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 10px 12px; background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; margin-bottom: 8px; }
+.strip.bad { border-color: #fca5a5; background: #fef2f2; }
+.banner-blue { font-size: 12px; padding: 10px 12px; background: #eff6fb; border: 1px solid #bfdbfe; color: #1e3a8a; border-radius: 6px; margin-bottom: 8px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; max-width: 100%; }
+.card h4 { margin: 0 0 10px; font-size: 14px; }
+.field { height: 32px; background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; }
+.field.err { border-color: var(--danger); background: #fef2f2; }
+.rules { font-size: 11px; color: var(--muted); margin: 8px 0; }
+.btn { display: inline-block; padding: 8px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.btn-primary { background: var(--primary); color: #fff; }
+.feedback { font-size: 11px; color: var(--muted); margin-top: 8px; }
+.feedback.err { color: var(--danger); }
+.callout { font-size: 12px; color: #64748b; margin-top: 8px; }
+
+/* plan phases */
+.phase { border-left: 4px solid var(--primary); padding: 0 0 0 16px; margin-bottom: 20px; }
+.phase:last-child { margin-bottom: 0; }
+.phase h3 { margin: 0 0 6px; font-size: 16px; }
+.phase .meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.phase ol { margin: 0; padding-left: 20px; font-size: 14px; }
+.phase li { margin: 6px 0; }
+.phase li strong { color: var(--text); }
+.accept { margin-top: 12px; padding: 10px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; font-size: 13px; color: #065f46; }
+
+/* packages */
+.pkg { border: 2px solid var(--border); border-radius: var(--radius); padding: 16px 18px; height: 100%; }
+.pkg.rec { border-color: #86efac; background: #f0fdf4; }
+.pkg h3 { margin: 0 0 6px; font-size: 16px; }
+.pkg p { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.pkg ul { margin: 0; padding-left: 18px; font-size: 13px; }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 700px) { .compare { grid-template-columns: 1fr; } }
+.opt { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.opt-head { padding: 12px 14px; background: #f8fafc; border-bottom: 1px solid var(--border); font-weight: 650; font-size: 14px; }
+.opt-body { padding: 14px; font-size: 13px; color: #475569; }
+.opt-body ul { margin: 8px 0 0; padding-left: 18px; }
+.pick { background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius); padding: 16px 18px; }
+.pick h3 { margin: 0 0 8px; font-size: 16px; }
+.pick p { margin: 0; font-size: 14px; }
+.arrow-label { font-size: 11px; font-weight: 700; color: var(--danger); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.good-label { font-size: 11px; font-weight: 700; color: var(--success); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>「账号安全」Tab · UI/UX 审计与修改计划</h1>
+  <p>功能已可用，但当前页面在<strong>反馈、文案、层次、导航</strong>上问题较多。下面用「现状示意 → 问题清单 → 分阶段改法 → 请你选型」结构汇报。</p>
+  <nav class="hero-nav">
+    <a href="#now">现状示意</a>
+    <a href="#issues">问题清单</a>
+    <a href="#plan">修改计划</a>
+    <a href="#nav">导航方案</a>
+    <a href="#pick">请你选型</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<!-- CURRENT STATE MOCK -->
+<section class="section" id="now">
+  <div class="section-head">
+    <h2>现状示意（你现在看到的）</h2>
+    <p>左侧：页面结构。右侧：用户最容易困惑的点。</p>
+  </div>
+  <div class="section-body">
+    <div class="grid-2">
+      <div>
+        <div class="arrow-label">当前实现</div>
+        <div class="mock">
+          <div class="mock-nav">
+            <span>待承接</span><span>进行中</span><span>已完成</span><span>能力画像</span><span class="on new-tab">账号安全</span>
+          </div>
+          <div class="mock-title">账号安全</div>
+          <p class="mock-desc">管理外部执行者网页登录密码。</p>
+          <div class="strip bad">
+            <div><strong>—</strong><br><span style="color:var(--muted)">—</span></div>
+            <span style="font-size:11px;color:var(--muted)">仅本人可改密码</span>
+          </div>
+          <div class="banner-blue">修改成功后，请使用<strong>新密码</strong>从外部登录页重新登录。当前会话不会自动退出。</div>
+          <div class="card">
+            <h4>修改登录密码</h4>
+            <div class="field"></div>
+            <div class="field"></div>
+            <div class="field err"></div>
+            <div class="rules">○ 至少 8 个字符 · ○ 两次输入一致</div>
+            <span class="btn btn-primary">确认修改密码</span>
+            <div class="feedback err">Current password is incorrect</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="good-label">用户感受（问题浓缩）</div>
+        <div class="issue" style="margin-bottom:12px;">
+          <h3><span class="tag tag-p0">P0</span>像 bug，不像产品</h3>
+          <p>账号显示「—」、错误是英文、成功只有一行小字 → 用户不确定有没有改成功。</p>
+        </div>
+        <div class="issue" style="margin-bottom:12px;">
+          <h3><span class="tag tag-p1">P1</span>信息说三遍</h3>
+          <p>标题、描述、蓝条、卡片标题都在讲改密码，没有重点。</p>
+        </div>
+        <div class="issue">
+          <h3><span class="tag tag-p2">P2</span>顶栏越来越挤</h3>
+          <p>外部用户 5 个 Tab + 退出；手机上「账号安全」和其他 Tab 挤在一行。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ISSUES -->
+<section class="section" id="issues">
+  <div class="section-head">
+    <h2>问题清单（完整）</h2>
+    <p>P0 必须先修；P1 影响专业感；P2 可和导航一并处理。</p>
+  </div>
+  <div class="section-body">
+    <div class="grid-2">
+      <div class="issue">
+        <h3><span class="tag tag-p0">P0-1</span>错误提示英文</h3>
+        <p>当前密码错时显示 API 英文，和全中文界面冲突。</p>
+        <div class="now">现状：<code>Current password is incorrect</code></div>
+      </div>
+      <div class="issue">
+        <h3><span class="tag tag-p0">P0-2</span>成功反馈太弱</h3>
+        <p>只有按钮下小字；表单清空后像「被重置了」而非「改成功了」。</p>
+      </div>
+      <div class="issue">
+        <h3><span class="tag tag-p0">P0-3</span>改完去哪登录</h3>
+        <p>文案写「外部登录页」但没有可点链接。</p>
+      </div>
+      <div class="issue">
+        <h3><span class="tag tag-p0">P0-4</span>账号信息闪「—」</h3>
+        <p><code>/api/workbench/me</code> 返回前账号条是空的，像页面坏了。</p>
+      </div>
+      <div class="issue">
+        <h3><span class="tag tag-p1">P1-5</span>层级重复</h3>
+        <p>页标题 + 描述 + 账号条 + 蓝条 + 卡片 h2，信息堆叠。</p>
+      </div>
+      <div class="issue">
+        <h3><span class="tag tag-p1">P1-6</span>文案偏内部</h3>
+        <p>「外部执行者」「网页密码登录」——用户只关心「我的账号」。</p>
+      </div>
+      <div class="issue">
+        <h3><span class="tag tag-p1">P1-7</span>表单体验不足</h3>
+        <p>无显示/隐藏密码；当前密码错时不标红字段；规则不全。</p>
+      </div>
+      <div class="issue">
+        <h3><span class="tag tag-p1">P1-8</span>和其他 Tab 风格分裂</h3>
+        <p>任务 Tab 有 KPI + 「提示：」banner；安全页是另一套蓝条/灰条。</p>
+      </div>
+      <div class="issue">
+        <h3><span class="tag tag-p2">P2-9</span>导航 Tab 过多</h3>
+        <p>5 个 Tab 在小屏等分，扫读困难。</p>
+      </div>
+      <div class="issue">
+        <h3><span class="tag tag-p2">P2-10</span>Tab 晚出现</h3>
+        <p>「账号安全」等接口返回才显示，书签直达时会闪一下。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PLAN -->
+<section class="section" id="plan">
+  <div class="section-head">
+    <h2>修改计划（三阶段）</h2>
+    <p>按投入从小到大；推荐至少做阶段 1 + 2。</p>
+  </div>
+  <div class="section-body">
+
+    <div class="phase">
+      <h3>阶段 1 · 信任与反馈 <span class="tag tag-p0">优先</span></h3>
+      <div class="meta">约 0.5 天 · 解决「像 bug / 像没改成功」</div>
+      <ol>
+        <li><strong>错误中文化</strong>：服务端 + 前端统一 →「当前密码不正确」等</li>
+        <li><strong>成功 banner</strong>：表单上方绿色条「密码已更新，下次请用新密码登录」</li>
+        <li><strong>账号条 loading</strong>：接口返回前显示骨架，禁止长期「—」</li>
+        <li><strong>补登录链接</strong>：提示条加 <code>/workbench/external/login</code> 可点击</li>
+      </ol>
+      <div class="accept">验收：错密码 → 中文红字、不跳页；成功 → 明显绿条；无「—」闪烁。</div>
+    </div>
+
+    <div class="phase">
+      <h3>阶段 2 · 表单与层次 <span class="tag tag-p1">推荐</span></h3>
+      <div class="meta">约 0.5～1 天 · 达到常见「账号安全」页水准</div>
+      <ol>
+        <li><strong>精简层级</strong>：去掉重复标题/描述，保留「账号摘要 + 一条提示 + 表单」</li>
+        <li><strong>密码框增强</strong>：显示/隐藏；当前密码错时字段标红</li>
+        <li><strong>规则补全</strong>：新密码不能与当前相同；实时 ✓/○</li>
+        <li><strong>提交态</strong>：按钮「提交中…」+ <code>aria-busy</code>；可选二次确认</li>
+        <li><strong>表单限宽</strong>：max-width ~480px，宽屏不散</li>
+        <li><strong>文案用户化</strong>：「登录名 wuchuanbin · 账号密码登录」</li>
+      </ol>
+      <div class="accept">验收：手机可核对密码；错误能定位到字段；视觉不空、不挤。</div>
+    </div>
+
+    <div class="phase">
+      <h3>阶段 3 · 导航与统一 <span class="tag tag-p2">可选</span></h3>
+      <div class="meta">约 0.5 天 · 需你选 9A 或 9B（见下）</div>
+      <ol>
+        <li><strong>导航收纳</strong>：9A 合并「我的」或 9B 小屏滚动/更多</li>
+        <li><strong>Tab 预渲染</strong>：避免外部 Tab 突然出现</li>
+        <li><strong>样式统一</strong>：提示条与任务 Tab 同一套 info-banner</li>
+        <li><strong>无障碍</strong>：aria-describedby、错误后 focus 到字段</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- NAV OPTIONS -->
+<section class="section" id="nav">
+  <div class="section-head">
+    <h2>导航方案（阶段 3 需你拍板）</h2>
+    <p>外部用户 Tab 太多是结构性问题，两种改法：</p>
+  </div>
+  <div class="section-body compare">
+    <div class="opt">
+      <div class="opt-head">9A · 合并为「我的」Tab（推荐）</div>
+      <div class="opt-body">
+        <div class="mock-nav" style="margin-bottom:10px;">
+          <span>待承接</span><span>进行中</span><span>已完成</span><span class="on">我的 ▾</span>
+        </div>
+        「我的」内部分段：<strong>能力画像 | 账号安全</strong>
+        <ul>
+          <li>Tab 从 5 个减到 4 个</li>
+          <li>长期扩展（通知设置等）有地方放</li>
+          <li>改动中等：子 Tab 或分段锚点</li>
+        </ul>
+      </div>
+    </div>
+    <div class="opt">
+      <div class="opt-head">9B · 保留独立 Tab + 小屏收纳</div>
+      <div class="opt-body">
+        <div class="mock-nav" style="margin-bottom:10px;">
+          <span>待承接</span><span>进行中</span><span>…</span><span class="on new-tab">账号安全</span>
+        </div>
+        640px 以下：横向滚动 或 「更多 ▾」下拉
+        <ul>
+          <li>改动最小</li>
+          <li>Tab 仍然偏多</li>
+          <li>「账号安全」发现性依赖用户自己找</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PACKAGES -->
+<section class="section" id="pick">
+  <div class="section-head">
+    <h2>请你选型（回复即可）</h2>
+    <p>直接说：例如「推荐包 + 9A」或「只做阶段 1」。</p>
+  </div>
+  <div class="section-body">
+    <div class="grid-2" style="margin-bottom:20px;">
+      <div class="pkg">
+        <h3>最小包</h3>
+        <p>只修「像 bug」的部分</p>
+        <ul>
+          <li>阶段 1 全部</li>
+          <li>不动导航、不做显示密码</li>
+        </ul>
+      </div>
+      <div class="pkg rec">
+        <h3>推荐包 ⭐</h3>
+        <p>可以给武传宾 / 曲绍志正式用</p>
+        <ul>
+          <li>阶段 1 + 阶段 2 全部</li>
+          <li>导航暂不动（或仅 9B 小改）</li>
+        </ul>
+      </div>
+    </div>
+    <div class="pick">
+      <h3>我的建议</h3>
+      <p><strong>推荐包 + 9A（合并「我的」）</strong> — 先让改密页「能用且可信」，再把 Tab 收成 4 个，小屏会舒服很多。</p>
+      <p style="margin-top:10px;font-size:13px;color:#92400e;">本地打开本文件路径：<code>docs/mockups/employee-security-tab-ux-audit.html</code></p>
+    </div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>

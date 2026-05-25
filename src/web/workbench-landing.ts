@@ -2,7 +2,12 @@
  * Root URL (`/`) landing for browsers and DingTalk webviews.
  * `/health` stays plain `ok` for probes; do not use `/` as the only health check if you need strict plain text.
  */
+import { isWorkbenchExternalLoginEnabled } from "./external-workbench-login";
+
 export function renderWorkbenchRootLandingHtml(): string {
+  const externalLoginItem = isWorkbenchExternalLoginEnabled()
+    ? `    <li><code>/workbench/external/login</code> — 外部执行者 · 账号密码登录</li>\n`
+    : "";
   return `<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -30,7 +35,7 @@ export function renderWorkbenchRootLandingHtml(): string {
   <h2>可用路径（支持固定 URL 直达）</h2>
   <ul>
     <li><code>/workbench</code> — 登录入口（已登录将跳转对应角色首页）</li>
-    <li><code>/workbench/manager/tasks</code> — 主管 · 历史任务与改派</li>
+${externalLoginItem}    <li><code>/workbench/manager/tasks</code> — 主管 · 历史任务与改派</li>
     <li><code>/workbench/manager/chat</code> — 主管 · 智能规划助手</li>
     <li><code>/workbench/admin</code> — 管理员 · 全公司任务与权限配置</li>
     <li><code>/workbench/employee?view=new</code> — 员工 · 新任务承接</li>

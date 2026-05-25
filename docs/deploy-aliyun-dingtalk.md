@@ -267,6 +267,9 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `ASSIGNMENT_WEB_PORT` | 否 | 指派工作台 HTTP 端口（默认 `8787`；需安全组放行） |
 | `ASSIGNMENT_WEB_PUBLIC_BASE_URL` | 否 | 指派工作台公网地址（例如 `http://你的ECS公网IP:8787`） |
 | `ASSIGNMENT_WEB_SECRET` | 否 | 指派工作台 URL 的 HMAC-SHA256 签名密钥（防止篡改） |
+| `WORKBENCH_EXTERNAL_LOGIN_ENABLED` | 否 | `1` 开启外部执行者账号密码登录（`/workbench/external/login`） |
+| `WORKBENCH_COOKIE_SECURE` | 否 | `1` 时为 session cookie 加 `Secure`（HTTPS 环境推荐） |
+| `EXTERNAL_EXECUTOR_INITIAL_PASSWORD` | 否 | 运行 `npm run seed:external-executors` 时的初始密码（≥8 位，勿写入仓库） |
 | `DINGTALK_ASSIGNMENT_MOCK` | 否 | `1` 使用 mock 钉钉交互卡片（无需真实卡片回调） |
 | `WORKBENCH_MANAGER_USER_IDS` | 否 | 钉钉 **主管** 身份白名单（与 `TASK_INITIATOR_USER_IDS` 独立），逗号分隔 `userId`。供后续工作台网页应用 Session 判定；未配或空则人均按非主管处理（见 `src/security/workbench-manager-whitelist.ts`） |
 | `WORKBENCH_MANAGER_IDS_FILE` | 否 | 主管名单 JSON 数组文件路径（格式同 `TASK_INITIATOR_IDS_FILE`）；存在且为数组时优先于 `WORKBENCH_MANAGER_USER_IDS` |
@@ -318,6 +321,11 @@ npm run dingtalk-bot
 - **高可用**：多实例部署需注意钉钉 Stream 连接模型与机器人会话幂等；试点阶段建议 **单实例**。
 - **集中式审计 / 网关限流**：进程内已实现 Demo JSONL、Harness 可选 FileSink 及会话限速；若要跨实例报表或网关级配额，可再接入集中日志或 API 网关。
 - **发布后员工通知**：若启用 `WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`，`publish_task` 成功后向员工发送钉钉卡片 + 机器人 1:1 消息（**不在发布时创建待办**）。员工在工作台 **accept** 子任务后才创建钉钉原生待办（需 `DINGTALK_CONTACT_SYNC_ENABLED=1` 以解析 unionId）。通知失败不会回滚发布，在 `warnings` 与 `task_events` 中留痕（`EMPLOYEE_NOTIFY_FAILED` / `EMPLOYEE_TODO_*`）。
+- **外部执行者网页登录**（无法加入钉钉组织的影子账号）：
+  - 环境变量：`WORKBENCH_EXTERNAL_LOGIN_ENABLED=1`；生产 HTTPS 建议同时设 `WORKBENCH_COOKIE_SECURE=1` 或使用 `https://` 开头的 `ASSIGNMENT_WEB_PUBLIC_BASE_URL`。
+  - 初始化：`EXTERNAL_EXECUTOR_INITIAL_PASSWORD='你的初始密码' npm run seed:external-executors`（写入武传宾 `ext_wuchuanbin` / 曲绍志 `ext_qu_shaozhi` 影子联系人与登录账号）。
+  - 登录入口：`{ASSIGNMENT_WEB_PUBLIC_BASE_URL}/workbench/external/login`（账号示例：`wuchuanbin` / `qushaozhi`）。
+  - 发布/改派时，影子账号**不会**走钉钉 notify；主管侧会提示「外部执行者请登录网页工作台查看」。内部员工通知行为不变。
 
 ## 六、上线前清库（纯 SQLite 模式）
 

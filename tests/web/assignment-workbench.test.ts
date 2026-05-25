@@ -14,6 +14,7 @@ import { createPeopleDirectoryStore } from "../../src/infra/people-directory-sto
 import { createWorkbenchFormalTaskStore } from "../../src/infra/workbench-formal-task-store";
 import type { PlanSession } from "../../src/infra/plan-session-store";
 import { signAssignmentEntry } from "../../src/security/web-entry-token";
+import { __resetExternalLoginRateLimitsForTest } from "../../src/web/external-workbench-login";
 import { DingTalkAuthError, type DingTalkAuthClient } from "../../src/integrations/dingtalk/dingtalk-auth";
 import type { WorkbenchPublishNotifier } from "../../src/integrations/dingtalk/workbench-notify";
 
@@ -216,6 +217,7 @@ describe("assignment-workbench HTTP handler", () => {
 
   afterEach(() => {
     __resetWorkbenchStoresForTest();
+    __resetExternalLoginRateLimitsForTest();
     __setDingTalkAuthClientForTest();
     __setWorkbenchPublishNotifierForTest();
     vi.unstubAllEnvs();
@@ -1639,5 +1641,294 @@ describe("assignment-workbench HTTP handler", () => {
     await flushAsync();
     expect(reassignRes.captured().statusCode).toBe(200);
     expect(reassignRes.captured().body).toContain('"assigneeUserId":"emp-3"');
+  });
+
+  it("external login creates employee session and blocks manager API", async () => {
+    vi.stubEnv("WORKBENCH_EXTERNAL_LOGIN_ENABLED", "1");
+    const people = createPeopleDirectoryStore();
+    people.upsertContact({
+      userId: "ext_demo",
+      name: "外部演示",
+      departmentIds: ["外部"],
+      departmentNames: ["外部"],
+      active: true,
+      isAdmin: false,
+      isBoss: false,
+      isSenior: false,
+      rawJson: { source: "external_manual" },
+    });
+    people.upsertExternalAccount({
+      userId: "ext_demo",
+      username: "demo_user",
+      password: "password-1234",
+      displayName: "外部演示",
+    });
+    people.close();
+
+    const loginReq = stubReq({
+      url: "/api/workbench/external/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "demo_user", password: "password-1234" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    expect(loginRes.captured().statusCode).toBe(200);
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+    expect(cookie).toContain("wb_session=");
+
+    const managerReq = stubReq({
+      url: "/api/workbench/manager/tasks",
+      method: "GET",
+      headers: { cookie },
+    });
+    const managerRes = stubRes();
+    handleAssignmentHttp(managerReq, managerRes.res);
+    expect(managerRes.captured().statusCode).toBe(403);
+
+    const logoutReq = stubReq({
+      url: "/api/workbench/logout",
+      method: "POST",
+      headers: { cookie },
+    });
+    const logoutRes = stubRes();
+    handleAssignmentHttp(logoutReq, logoutRes.res);
+    expect(logoutRes.captured().statusCode).toBe(200);
+    expect(JSON.parse(logoutRes.captured().body)).toEqual({
+      ok: true,
+      redirectTo: "/workbench/external/login",
+    });
+  });
+
+  it("external login page is available when enabled", () => {
+    vi.stubEnv("WORKBENCH_EXTERNAL_LOGIN_ENABLED", "1");
+    const req = stubReq({ url: "/workbench/external/login", method: "GET" });
+    const { res, captured } = stubRes();
+    expect(handleAssignmentHttp(req, res)).toBe(true);
+    expect(captured().statusCode).toBe(200);
+    expect(captured().body).toContain("外部执行者登录");
+    expect(captured().body).toContain("钉钉用户请");
+  });
+
+  it("unauthenticated employee HTML redirects to external login with next when enabled", () => {
+    vi.stubEnv("WORKBENCH_EXTERNAL_LOGIN_ENABLED", "1");
+    const req = stubReq({ url: "/workbench/employee?view=current", method: "GET" });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    expect(captured().statusCode).toBe(302);
+    expect(String(captured().headers.Location ?? "")).toBe(
+      "/workbench/external/login?next=%2Fworkbench%2Femployee%3Fview%3Dcurrent",
+    );
+  });
+
+  it("logged-in external user visiting login page redirects to employee home", async () => {
+    vi.stubEnv("WORKBENCH_EXTERNAL_LOGIN_ENABLED", "1");
+    const people = createPeopleDirectoryStore();
+    people.upsertContact({
+      userId: "ext_demo2",
+      name: "外部演示2",
+      departmentIds: ["外部"],
+      departmentNames: ["外部"],
+      active: true,
+      isAdmin: false,
+      isBoss: false,
+      isSenior: false,
+      rawJson: { source: "external_manual" },
+    });
+    people.upsertExternalAccount({
+      userId: "ext_demo2",
+      username: "demo_user2",
+      password: "password-1234",
+      displayName: "外部演示2",
+    });
+    people.close();
+
+    const loginReq = stubReq({
+      url: "/api/workbench/external/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        username: "demo_user2",
+        password: "password-1234",
+        next: "/workbench/employee?view=history",
+      }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+    expect(JSON.parse(loginRes.captured().body).redirectTo).toBe("/workbench/employee?view=history");
+
+    const pageReq = stubReq({
+      url: "/workbench/external/login?next=%2Fworkbench%2Femployee%3Fview%3Dhistory",
+      method: "GET",
+      headers: { cookie },
+    });
+    const pageRes = stubRes();
+    handleAssignmentHttp(pageReq, pageRes.res);
+    expect(pageRes.captured().statusCode).toBe(302);
+    expect(String(pageRes.captured().headers.Location ?? "")).toBe("/workbench/employee?view=history");
+  });
+
+  it("external user can change password via API", async () => {
+    vi.stubEnv("WORKBENCH_EXTERNAL_LOGIN_ENABLED", "1");
+    const people = createPeopleDirectoryStore();
+    people.upsertContact({
+      userId: "ext_pwd",
+      name: "外部改密",
+      departmentIds: ["外部"],
+      departmentNames: ["外部"],
+      active: true,
+      isAdmin: false,
+      isBoss: false,
+      isSenior: false,
+      rawJson: { source: "external_manual" },
+    });
+    people.upsertExternalAccount({
+      userId: "ext_pwd",
+      username: "pwd_user",
+      password: "password-1234",
+      displayName: "外部改密",
+    });
+    people.close();
+
+    const loginReq = stubReq({
+      url: "/api/workbench/external/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "pwd_user", password: "password-1234" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const changeReq = stubReq({
+      url: "/api/workbench/external/change-password",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        currentPassword: "password-1234",
+        newPassword: "new-password-99",
+      }),
+    });
+    const changeRes = stubRes();
+    handleAssignmentHttp(changeReq, changeRes.res);
+    await flushAsync();
+    expect(changeRes.captured().statusCode).toBe(200);
+
+    const reloginReq = stubReq({
+      url: "/api/workbench/external/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "pwd_user", password: "new-password-99" }),
+    });
+    const reloginRes = stubRes();
+    handleAssignmentHttp(reloginReq, reloginRes.res);
+    await flushAsync();
+    expect(reloginRes.captured().statusCode).toBe(200);
+
+    const badChangeReq = stubReq({
+      url: "/api/workbench/external/change-password",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        currentPassword: "wrong-current-password",
+        newPassword: "another-password-99",
+      }),
+    });
+    const badChangeRes = stubRes();
+    handleAssignmentHttp(badChangeReq, badChangeRes.res);
+    await flushAsync();
+    expect(badChangeRes.captured().statusCode).toBe(400);
+    expect(badChangeRes.captured().body).toContain("当前密码不正确");
+
+    const reloginOldReq = stubReq({
+      url: "/api/workbench/external/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "pwd_user", password: "new-password-99" }),
+    });
+    const reloginOldRes = stubRes();
+    handleAssignmentHttp(reloginOldReq, reloginOldRes.res);
+    await flushAsync();
+    expect(reloginOldRes.captured().statusCode).toBe(200);
+
+    const samePwdReq = stubReq({
+      url: "/api/workbench/external/change-password",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        currentPassword: "new-password-99",
+        newPassword: "new-password-99",
+      }),
+    });
+    const samePwdRes = stubRes();
+    handleAssignmentHttp(samePwdReq, samePwdRes.res);
+    await flushAsync();
+    expect(samePwdRes.captured().statusCode).toBe(400);
+    expect(samePwdRes.captured().body).toContain("新密码不能与当前密码相同");
+  });
+
+  it("external employee HTML exposes security tab and account metadata", async () => {
+    vi.stubEnv("WORKBENCH_EXTERNAL_LOGIN_ENABLED", "1");
+    const people = createPeopleDirectoryStore();
+    people.upsertContact({
+      userId: "ext_ui",
+      name: "武传宾",
+      departmentIds: ["外部"],
+      departmentNames: ["外部"],
+      active: true,
+      isAdmin: false,
+      isBoss: false,
+      isSenior: false,
+      rawJson: { source: "external_manual" },
+    });
+    people.upsertExternalAccount({
+      userId: "ext_ui",
+      username: "wuchuanbin",
+      password: "password-1234",
+      displayName: "武传宾",
+    });
+    people.close();
+
+    const loginReq = stubReq({
+      url: "/api/workbench/external/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "wuchuanbin", password: "password-1234" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const meReq = stubReq({
+      url: "/api/workbench/me",
+      method: "GET",
+      headers: { cookie },
+    });
+    const meRes = stubRes();
+    handleAssignmentHttp(meReq, meRes.res);
+    const meBody = JSON.parse(meRes.captured().body) as {
+      externalAccount?: { username?: string; displayName?: string };
+    };
+    expect(meBody.externalAccount?.username).toBe("wuchuanbin");
+
+    const pageReq = stubReq({
+      url: "/workbench/employee?view=security",
+      method: "GET",
+      headers: { cookie },
+    });
+    const pageRes = stubRes();
+    handleAssignmentHttp(pageReq, pageRes.res);
+    expect(pageRes.captured().statusCode).toBe(200);
+    expect(pageRes.captured().body).toContain("账号安全");
+    expect(pageRes.captured().body).toContain('id="panelSecurity"');
+    expect(pageRes.captured().body).toContain('id="navSecurity"');
+    expect(pageRes.captured().body).toContain('id="pwdSuccessBanner"');
+    expect(pageRes.captured().body).toContain("/workbench/external/login");
+    expect(pageRes.captured().body).not.toContain('id="externalPasswordCard"');
   });
 });

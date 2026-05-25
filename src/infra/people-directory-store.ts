@@ -1,7 +1,18 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { hashExternalAccountPassword, verifyExternalAccountPassword } from "./external-account-password";
 import { resolveWorkbenchSqlitePath } from "./workbench-db-path";
+
+export interface ExternalWorkbenchAccountRow {
+  userId: string;
+  username: string;
+  passwordHash: string;
+  displayName: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface DingTalkContactRow {
   userId: string;
@@ -199,7 +210,52 @@ export function createPeopleDirectoryStore(dbPath = resolveWorkbenchSqlitePath()
       started_at TEXT NOT NULL,
       finished_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS external_workbench_accounts (
+      user_id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_external_workbench_accounts_username
+      ON external_workbench_accounts(username);
   `);
+
+  const upsertExternalAccountStmt = db.prepare(`
+    INSERT INTO external_workbench_accounts(
+      user_id, username, password_hash, display_name, enabled, created_at, updated_at
+    ) VALUES(?,?,?,?,?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      username=excluded.username,
+      password_hash=excluded.password_hash,
+      display_name=excluded.display_name,
+      enabled=excluded.enabled,
+      updated_at=excluded.updated_at
+  `);
+  const findExternalAccountByUsernameStmt = db.prepare(
+    "SELECT * FROM external_workbench_accounts WHERE username = ? LIMIT 1",
+  );
+  const findExternalAccountByUserIdStmt = db.prepare(
+    "SELECT * FROM external_workbench_accounts WHERE user_id = ? LIMIT 1",
+  );
+  const updateExternalAccountPasswordStmt = db.prepare(
+    "UPDATE external_workbench_accounts SET password_hash = ?, updated_at = ? WHERE user_id = ?",
+  );
+
+  function mapExternalAccountRow(row: Record<string, unknown>): ExternalWorkbenchAccountRow {
+    return {
+      userId: String(row.user_id ?? ""),
+      username: String(row.username ?? ""),
+      passwordHash: String(row.password_hash ?? ""),
+      displayName: String(row.display_name ?? ""),
+      enabled: Number(row.enabled ?? 0) === 1,
+      createdAt: String(row.created_at ?? ""),
+      updatedAt: String(row.updated_at ?? ""),
+    };
+  }
 
   const upsertContactStmt = db.prepare(`
     INSERT INTO dingtalk_contacts(
@@ -684,6 +740,78 @@ export function createPeopleDirectoryStore(dbPath = resolveWorkbenchSqlitePath()
       const stats = buildTaskStatsMap().get(userId);
       if (stats) snapshot.taskHistory = stats;
       return snapshot;
+    },
+
+    upsertExternalAccount(input: {
+      userId: string;
+      username: string;
+      password?: string;
+      passwordHash?: string;
+      displayName: string;
+      enabled?: boolean;
+      createdAt?: string;
+      updatedAt?: string;
+    }): void {
+      const userId = String(input.userId ?? "").trim();
+      const username = String(input.username ?? "").trim();
+      const displayName = String(input.displayName ?? "").trim() || userId;
+      if (!userId || !username) {
+        throw new Error("userId and username are required");
+      }
+      const passwordHash = input.passwordHash
+        ?? (input.password ? hashExternalAccountPassword(input.password) : "");
+      if (!passwordHash) {
+        throw new Error("password or passwordHash is required");
+      }
+      const now = nowIso();
+      const createdAt = input.createdAt ?? now;
+      const updatedAt = input.updatedAt ?? now;
+      upsertExternalAccountStmt.run(
+        userId,
+        username,
+        passwordHash,
+        displayName,
+        input.enabled === false ? 0 : 1,
+        createdAt,
+        updatedAt,
+      );
+    },
+
+    getExternalAccountByUsername(username: string): ExternalWorkbenchAccountRow | undefined {
+      const row = findExternalAccountByUsernameStmt.get(String(username ?? "").trim()) as
+        | Record<string, unknown>
+        | undefined;
+      return row ? mapExternalAccountRow(row) : undefined;
+    },
+
+    getExternalAccountByUserId(userId: string): ExternalWorkbenchAccountRow | undefined {
+      const row = findExternalAccountByUserIdStmt.get(String(userId ?? "").trim()) as
+        | Record<string, unknown>
+        | undefined;
+      return row ? mapExternalAccountRow(row) : undefined;
+    },
+
+    verifyExternalAccountLogin(
+      username: string,
+      password: string,
+    ): ExternalWorkbenchAccountRow | undefined {
+      const account = this.getExternalAccountByUsername(username);
+      if (!account || !account.enabled) return undefined;
+      if (!verifyExternalAccountPassword(password, account.passwordHash)) return undefined;
+      return account;
+    },
+
+    updateExternalAccountPassword(userId: string, newPassword: string): boolean {
+      const normalized = String(userId ?? "").trim();
+      if (!normalized) return false;
+      const existing = this.getExternalAccountByUserId(normalized);
+      if (!existing) return false;
+      updateExternalAccountPasswordStmt.run(
+        hashExternalAccountPassword(newPassword),
+        nowIso(),
+        normalized,
+      );
+      return true;
     },
 
     close(): void {

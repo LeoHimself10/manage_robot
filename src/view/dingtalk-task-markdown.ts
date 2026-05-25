@@ -220,15 +220,30 @@ export function appendPublishSummaryMarkdown(
   const subtaskCount = Array.isArray((publishResult as any).subtasks)
     ? (publishResult as any).subtasks.length
     : 0;
-  const assignees = new Set<string>(
-    Array.isArray((publishResult as any).subtasks)
-      ? (publishResult as any).subtasks.map((s: any) => String(s?.assigneeUserId ?? "").trim()).filter(Boolean)
-      : [],
-  );
   const warningText = Array.isArray((publishResult as any).warnings)
     ? (publishResult as any).warnings.join("；")
     : "";
-  let next = `${outboundMarkdown}\n\n【已发布】任务编号 ${publishTaskNo || "未知"}\n标题：${String((publishResult as any)?.task?.title ?? "未命名任务")}\n子任务 ${subtaskCount} 个 → 已通知 ${assignees.size} 名员工`;
+  const notifyStats = (publishResult as any).notifyStats as
+    | { internalNotified?: number; externalSkipped?: number; failed?: number }
+    | undefined;
+  const assigneeCount = new Set<string>(
+    Array.isArray((publishResult as any).subtasks)
+      ? (publishResult as any).subtasks.map((s: any) => String(s?.assigneeUserId ?? "").trim()).filter(Boolean)
+      : [],
+  ).size;
+  const internalNotified = notifyStats
+    ? Number(notifyStats.internalNotified ?? 0)
+    : assigneeCount;
+  const externalSkipped = Number(notifyStats?.externalSkipped ?? 0);
+  const failedCount = Number(notifyStats?.failed ?? 0);
+  let notifyLine = `子任务 ${subtaskCount} 个 → 已钉钉通知 ${internalNotified} 名内部员工`;
+  if (externalSkipped > 0) {
+    notifyLine += `；${externalSkipped} 名外部执行者请登录网页工作台查看`;
+  }
+  if (failedCount > 0) {
+    notifyLine += `；${failedCount} 人通知失败`;
+  }
+  let next = `${outboundMarkdown}\n\n【已发布】任务编号 ${publishTaskNo || "未知"}\n标题：${String((publishResult as any)?.task?.title ?? "未命名任务")}\n${notifyLine}`;
   if (warningText) next += `\n${warningText}`;
   return next;
 }

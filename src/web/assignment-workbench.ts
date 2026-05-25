@@ -82,6 +82,21 @@ import {
 } from "./workbench-attention";
 import { buildWorkbenchFmtTimeClientJs } from "./workbench-datetime";
 import { buildSubtaskPlanningFieldsClientJs } from "./workbench-subtask-fields-snippet";
+import type { WorkbenchSession } from "./assignment-workbench-session-types";
+import {
+  checkExternalLoginRateLimit,
+  EXTERNAL_WORKBENCH_LOGIN_PATH,
+  buildExternalLoginUrl,
+  externalLoginRateLimitKey,
+  isExternalPasswordSession,
+  isWorkbenchExternalLoginEnabled,
+  readExternalLoginNextFromUrl,
+  renderExternalLoginHtml,
+  resetExternalLoginRateLimit,
+  resolveWorkbenchLogoutRedirect,
+  sanitizeWorkbenchNextPath,
+  shouldUseSecureWorkbenchCookies,
+} from "./external-workbench-login";
 
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
@@ -129,6 +144,20 @@ function isWorkbenchHtmlPath(pathname: string): boolean {
   );
 }
 
+function isEmployeeWorkbenchHtmlPath(pathname: string): boolean {
+  return EMPLOYEE_WORKBENCH_PAGE_PATHS.has(pathname);
+}
+
+function resolveUnauthenticatedWorkbenchLoginRedirect(
+  pathname: string,
+  search: string,
+): string {
+  if (isEmployeeWorkbenchHtmlPath(pathname) && isWorkbenchExternalLoginEnabled()) {
+    return buildExternalLoginUrl(`${pathname}${search}`);
+  }
+  return WORKBENCH_LOGIN_PATH;
+}
+
 interface PlanSummary {
   planId: string;
   generatedAt?: string;
@@ -143,24 +172,6 @@ interface SessionSummary {
   senderStaffId?: string;
   knownFactsCount: number;
   conversationTurns: number;
-}
-
-interface WorkbenchSession {
-  sid: string;
-  userId: string;
-  /** Current workbench view (manager vs employee for dual-capable users). */
-  role: WorkbenchRole;
-  /** Immutable identity from whitelist; omitted on legacy cookies. */
-  primaryRole?: WorkbenchRole;
-  loginSource: "entry" | "signed_link" | "dingtalk_authcode";
-  dingUser?: {
-    userId: string;
-    name?: string;
-    unionId?: string;
-    loginAt: string;
-  };
-  iat: number;
-  exp: number;
 }
 
 const WORKBENCH_COOKIE_NAME = "wb_session";
@@ -233,11 +244,13 @@ function buildSessionCookie(session: WorkbenchSession): string {
   const payloadB64 = toBase64Url(JSON.stringify(session));
   const sig = signPayload(payloadB64);
   const token = `${payloadB64}.${sig}`;
-  return `${WORKBENCH_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${WORKBENCH_SESSION_TTL_SECONDS}`;
+  const secure = shouldUseSecureWorkbenchCookies() ? "; Secure" : "";
+  return `${WORKBENCH_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${WORKBENCH_SESSION_TTL_SECONDS}${secure}`;
 }
 
 function clearSessionCookie(): string {
-  return `${WORKBENCH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+  const secure = shouldUseSecureWorkbenchCookies() ? "; Secure" : "";
+  return `${WORKBENCH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
 }
 
 function appendSetCookie(res: ServerResponse, cookie: string): void {
@@ -328,6 +341,13 @@ function resolveEffectiveSession(
   if (isWorkbenchTestEntrySession(session)) {
     return normalizeWorkbenchSession(session);
   }
+  if (isExternalPasswordSession(session)) {
+    return normalizeWorkbenchSession({
+      ...session,
+      role: "employee",
+      primaryRole: "employee",
+    });
+  }
   const { session: refreshed, changed } = refreshSessionFromWhitelist(session);
   if (changed) {
     syncSessionCookieIfChanged(req, res, session, refreshed);
@@ -338,10 +358,22 @@ function resolveEffectiveSession(
 function createWorkbenchSession(params: {
   userId: string;
   role: WorkbenchRole;
-  loginSource: "entry" | "signed_link" | "dingtalk_authcode";
+  loginSource: WorkbenchSession["loginSource"];
   dingUser?: WorkbenchSession["dingUser"];
 }): WorkbenchSession {
   const now = Math.floor(Date.now() / 1000);
+  if (params.loginSource === "external_password") {
+    return normalizeWorkbenchSession({
+      sid: randomBytes(8).toString("hex"),
+      userId: params.userId,
+      role: "employee",
+      primaryRole: "employee",
+      loginSource: "external_password",
+      dingUser: params.dingUser,
+      iat: now,
+      exp: now + WORKBENCH_SESSION_TTL_SECONDS,
+    });
+  }
   const primaryRole = resolveRoleForUser(params.userId);
   let role = params.role;
   if (primaryRole === "manager") {
@@ -852,6 +884,11 @@ function parseRichStringListFromBody(value: unknown): string[] | undefined {
     .map((x) => x.trim())
     .filter(Boolean);
   return items.length > 0 ? items : undefined;
+}
+
+function resolveClientIp(req: IncomingMessage): string {
+  const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",")[0]?.trim();
+  return forwarded || req.socket?.remoteAddress || "unknown";
 }
 
 function isWorkbenchTestLoginEnabled(): boolean {
@@ -2569,7 +2606,29 @@ function requireSession(
   }
   const normalized = isWorkbenchTestEntrySession(session)
     ? normalizeWorkbenchSession(session)
+    : isExternalPasswordSession(session)
+      ? normalizeWorkbenchSession({
+        ...session,
+        role: "employee",
+        primaryRole: "employee",
+      })
     : resolveEffectiveSession(req, res) ?? normalizeWorkbenchSession(session);
+
+  if (expectedRole && isExternalPasswordSession(normalized) && expectedRole !== "employee") {
+    logStructured({
+      event: "workbench_role_forbidden",
+      path: req.url ?? "",
+      expectedRole,
+      runtimeRole: normalized.role,
+      sessionRole: normalized.role,
+      primaryRole: normalized.primaryRole,
+      userId: normalized.userId,
+      loginSource: normalized.loginSource,
+      reason: "external_password_session",
+    });
+    writeAuthError(res, 403, "Role forbidden");
+    return undefined;
+  }
 
   if (expectedRole && !sessionSatisfiesExpectedRole(normalized, expectedRole)) {
     logStructured({
@@ -2841,12 +2900,147 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (isGetOrHead && url.pathname === EXTERNAL_WORKBENCH_LOGIN_PATH) {
+    if (!isWorkbenchExternalLoginEnabled()) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("External login is disabled");
+      return true;
+    }
+    const session = getSessionFromRequest(req);
+    if (session && isExternalPasswordSession(session)) {
+      redirect(res, readExternalLoginNextFromUrl(url.search));
+      return true;
+    }
+    res.writeHead(200, WORKBENCH_HTML_NO_STORE);
+    if (req.method === "HEAD") res.end();
+    else res.end(renderExternalLoginHtml());
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/external/login") {
+    void (async () => {
+      try {
+        if (!isWorkbenchExternalLoginEnabled()) {
+          writeJson(res, 403, {
+            ok: false,
+            error: "External login is disabled in this environment",
+          });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const username = String(body.username ?? "").trim();
+        const password = String(body.password ?? "");
+        if (!username || !password) {
+          writeJson(res, 400, { ok: false, error: "username and password are required" });
+          return;
+        }
+        const rateKey = externalLoginRateLimitKey(username, resolveClientIp(req));
+        if (!checkExternalLoginRateLimit(rateKey)) {
+          writeJson(res, 429, { ok: false, error: "Too many login attempts, try again later" });
+          return;
+        }
+        const account = withPeopleDirectoryStore((store) =>
+          store.verifyExternalAccountLogin(username, password),
+        );
+        if (!account) {
+          writeJson(res, 401, { ok: false, error: "Invalid username or password" });
+          return;
+        }
+        resetExternalLoginRateLimit(rateKey);
+        const next = sanitizeWorkbenchNextPath(String(body.next ?? "").trim())
+          ?? defaultPathForRole("employee");
+        const session = createWorkbenchSession({
+          userId: account.userId,
+          role: "employee",
+          loginSource: "external_password",
+          dingUser: {
+            userId: account.userId,
+            name: account.displayName,
+            loginAt: new Date().toISOString(),
+          },
+        });
+        logStructured({
+          event: "workbench_external_login_ok",
+          userId: account.userId,
+          username: account.username,
+        });
+        res.writeHead(200, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Set-Cookie": buildSessionCookie(session),
+        });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            role: "employee",
+            redirectTo: next,
+          }),
+        );
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request body",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/external/change-password") {
+    void (async () => {
+      try {
+        if (!isWorkbenchExternalLoginEnabled()) {
+          writeJson(res, 403, { ok: false, error: "External login is disabled" });
+          return;
+        }
+        const session = getSessionFromRequest(req);
+        if (!session || !isExternalPasswordSession(session)) {
+          writeAuthError(res, 401, "External session required");
+          return;
+        }
+        const body = await readJsonBody(req);
+        const currentPassword = String(body.currentPassword ?? "");
+        const newPassword = String(body.newPassword ?? "").trim();
+        if (!currentPassword || !newPassword) {
+          writeJson(res, 400, { ok: false, error: "currentPassword and newPassword are required" });
+          return;
+        }
+        if (newPassword.length < 8) {
+          writeJson(res, 400, { ok: false, error: "新密码至少 8 位" });
+          return;
+        }
+        if (currentPassword === newPassword) {
+          writeJson(res, 400, { ok: false, error: "新密码不能与当前密码相同" });
+          return;
+        }
+        const verified = withPeopleDirectoryStore((store) => {
+          const account = store.getExternalAccountByUserId(session.userId);
+          if (!account) return false;
+          if (!store.verifyExternalAccountLogin(account.username, currentPassword)) return false;
+          return store.updateExternalAccountPassword(session.userId, newPassword);
+        });
+        if (!verified) {
+          writeJson(res, 400, { ok: false, error: "当前密码不正确" });
+          return;
+        }
+        writeJson(res, 200, { ok: true });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request body",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/workbench/logout") {
+    const session = getSessionFromRequest(req);
+    const redirectTo = resolveWorkbenchLogoutRedirect(session?.loginSource);
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
       "Set-Cookie": clearSessionCookie(),
     });
-    res.end(JSON.stringify({ ok: true }));
+    res.end(JSON.stringify({ ok: true, redirectTo }));
     return true;
   }
 
@@ -2857,6 +3051,18 @@ export function handleAssignmentHttp(
       return true;
     }
     const caps = resolveWorkbenchCapabilities(session.userId);
+    let externalAccount: { username: string; displayName: string } | undefined;
+    if (isExternalPasswordSession(session)) {
+      const account = withPeopleDirectoryStore((store) =>
+        store.getExternalAccountByUserId(session.userId),
+      );
+      if (account) {
+        externalAccount = {
+          username: account.username,
+          displayName: account.displayName,
+        };
+      }
+    }
     writeJson(res, 200, {
       ok: true,
       userId: session.userId,
@@ -2866,6 +3072,7 @@ export function handleAssignmentHttp(
       canSwitchView: caps.canExecuteAsManager,
       loginSource: session.loginSource,
       dingUser: session.dingUser ?? null,
+      externalAccount: externalAccount ?? null,
       exp: session.exp,
     });
     return true;
@@ -2888,6 +3095,10 @@ export function handleAssignmentHttp(
         const caps = resolveWorkbenchCapabilities(session.userId);
         if (view === "manager" && !caps.canManage) {
           writeJson(res, 403, { ok: false, error: "User is not a manager" });
+          return;
+        }
+        if (isExternalPasswordSession(session)) {
+          writeJson(res, 403, { ok: false, error: "External accounts cannot switch view" });
           return;
         }
         if (view === "employee") {
@@ -4620,6 +4831,9 @@ export function handleAssignmentHttp(
               entries: target.candidatePool.entries.map((e) => ({
                 userId: e.userId,
                 displayName: e.displayName,
+                ...(e.fileNotes?.trim()
+                  ? { fileNotes: e.fileNotes.trim().slice(0, 200) }
+                  : {}),
               })),
               unresolvedCount: target.candidatePool.unresolved?.length,
             }
@@ -4732,7 +4946,7 @@ export function handleAssignmentHttp(
   if (isGetOrHead && isWorkbenchHtmlPath(url.pathname)) {
     const session = resolveEffectiveSession(req, res);
     if (!session) {
-      redirect(res, WORKBENCH_LOGIN_PATH);
+      redirect(res, resolveUnauthenticatedWorkbenchLoginRedirect(url.pathname, url.search));
       return true;
     }
 
@@ -4747,6 +4961,10 @@ export function handleAssignmentHttp(
     }
 
     if (MANAGER_WORKBENCH_PAGE_PATHS.has(url.pathname)) {
+      if (isExternalPasswordSession(session)) {
+        redirect(res, defaultPathForRole("employee"));
+        return true;
+      }
       if (!allowsManagerSession(session)) {
         redirect(res, defaultPathForRole(session.role));
         return true;
@@ -4786,6 +5004,10 @@ export function handleAssignmentHttp(
     }
 
     if (ADMIN_WORKBENCH_PAGE_PATHS.has(url.pathname)) {
+      if (isExternalPasswordSession(session)) {
+        redirect(res, defaultPathForRole("employee"));
+        return true;
+      }
       if (session.role !== "admin") {
         redirect(res, defaultPathForRole(session.role));
         return true;
