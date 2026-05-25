@@ -13,6 +13,7 @@
   - **Harness 编排层**：`createHarness` 可选 `AUDIT_SINK=file` + `AUDIT_JSONL_PATH`，与上者独立。
 - **会话与限流**：首版为 **单实例进程内** `Map` + TTL；多副本需后续外置存储（如 Redis），参见 `AGENTS.md`。
 - **用户可见回复**：钉钉链路单次返回一条 Markdown（草案/追问/错误），并在有 `draft` 时自动补充“结构化字段任务表”。`ASSIGNMENT_PHASE_ENABLED=1` 时，会在同一条回复中追加“分配建议”表（推荐成功时）。
+- **公网访问（试点）**：浏览器 → **Caddy**（`manage-robot-caddy`，如 `https://managebot.vivolightsales.com`）→ 反代 **`127.0.0.1:8080`** → `manage-robot-dingtalk`。Caddy 与 bot 容器独立；**bot 挂掉时 Caddy 仍在，站点会 404/连不上**，但 **`/opt/manage_robot/data` 挂载卷与任务库不受影响**。
 
 ## 一、钉钉开放平台配置
 
@@ -173,21 +174,24 @@ docker logs -f manage-robot-dingtalk
 
 ### 2.6 更新版本（重新部署）
 
+**推荐**：本机执行 `scripts/ecs-deploy-dingtalk.ps1`（见 2.7），顺序已优化为 **先 build、再 swap**。
+
+若必须手工在 ECS 上操作，**不要**先 `stop/rm` 再 `build`（会在 build 数分钟内完全断服）。应：
+
 ```bash
 cd /opt/manage_robot
-git pull
-docker stop manage-robot-dingtalk && docker rm manage-robot-dingtalk
-docker build -t manage-robot:dingtalk .
+git pull --ff-only
+docker build -t manage-robot:dingtalk .    # ① 旧容器仍在服务
+docker stop manage-robot-dingtalk && docker rm manage-robot-dingtalk   # ② 仅 build 成功后 swap
 docker run -d --name manage-robot-dingtalk --restart unless-stopped \
-  -e QWEN_API_KEY="你的DashScopeKey" \
-  -e DINGTALK_CLIENT_ID="钉钉ClientID" \
-  -e DINGTALK_CLIENT_SECRET="钉钉ClientSecret" \
-  -e HEALTH_CHECK_PORT=8080 \
+  --env-file /etc/manage-robot.env \
+  -v /opt/manage_robot/data:/app/data \
   -p 8080:8080 \
   manage-robot:dingtalk
+curl -sf http://127.0.0.1:8080/health    # ③ 必须 ok
 ```
 
-推荐使用 **`--env-file /etc/manage-robot.env`** 的等价写法，便于与文档 2.4 对齐并避免冗长 `-e`。
+密钥也可改用 **`--env-file /etc/manage-robot.env`**，与 2.4 对齐。
 
 ### 2.7 Windows 一键拉代码并重建容器（本机脚本）
 
@@ -197,18 +201,80 @@ docker run -d --name manage-robot-dingtalk --restart unless-stopped \
 .\scripts\ecs-deploy-dingtalk.ps1 -PublicIp 你的ECS公网IP -PemPath "$env:USERPROFILE\Downloads\你的密钥.pem"
 ```
 
-可选参数：`-RepoDir`、`-EnvFile`、`-PublishPort`（默认 `8080`）。远端顺序为 **`git pull` → `docker build`（此阶段旧容器仍在服务）→ `stop/rm` → `docker run` → `/health` 探活**；脚本失败时会尝试用已有镜像拉起容器，避免「只拆不装」。
+可选参数：`-RepoDir`、`-EnvFile`、`-PublishPort`（默认 `8080`）。
 
-**部署后必查**（在 ECS 上或脚本成功输出中确认）：
+远端顺序（`ecs-deploy-dingtalk.ps1`，2026-05-25 起）：
+
+1. `git pull --ff-only`
+2. **`docker build`**（此阶段 **旧容器仍在服务**）
+3. `docker stop` / `docker rm`
+4. `docker run -d …`
+5. 轮询 **`curl http://127.0.0.1:8080/health`** 直至 `ok`
+
+脚本含 **`trap`**：若在 `run` 失败且容器不在跑，会尝试用已有镜像 **`manage-robot:dingtalk`** 做一次 recovery run。SSH 使用 `ServerAliveInterval` 降低长 build 期间静默断连概率。
+
+#### 部署后必查（每次都要做）
 
 ```bash
 docker ps --filter name=manage-robot-dingtalk   # 必须为 Up
 curl -sf http://127.0.0.1:8080/health          # 必须返回 ok
+# 若有 Caddy 反代，再验公网域名
+curl -sf https://managebot.vivolightsales.com/health
 ```
 
-若 SSH 在 `docker build` 进行中意外断开：旧容器在 **build 完成前不会被 stop**（2026-05-25 起）；若在 `stop` 之后、`run` 之前中断，需手动 `docker run` 恢复（镜像 `manage-robot:dingtalk` 仍在）。
+**只有脚本/命令打印 `health ok` 或上述 curl 成功，才算部署完成。** 不要只看本地 PowerShell 是否打印 `Done.`——SSH 中途断开时，本地也可能误报。
 
-**勿短时间连续部署两次**；若仅更新文档且代码未变，不必重建容器。
+#### 运维纪律
+
+| 纪律 | 说明 |
+|------|------|
+| **勿短时间连 deploy 两次** | 第一次刚起来又 deploy，第二次若中断极易「只拆不装」 |
+| **纯文档 / 纯 eval 变更** | 不必重建容器；`git pull` 到 ECS 仅为了留档时，**不要**跑 stop/rm |
+| **中断后先救活再查因** | 见下文「事故复盘」手动 `docker run` |
+| **数据** | 任务库在 **`-v /opt/manage_robot/data:/app/data`**；容器删了数据不丢 |
+
+#### 事故复盘：「只拆不装」（2026-05-25）
+
+**现象**：工作台 `https://managebot…` 404 或连不上约 1 小时；钉钉 bot 也可能无响应。**不是代码或 SQLite 损坏**，是 **8080 上已无进程**，Caddy 反代到空地址。
+
+**Docker 事件摘要（CST）**：
+
+| 时间 | 事件 |
+|------|------|
+| 16:28:39 | 部署成功，`manage-robot-dingtalk` 启动 |
+| 16:33:11 | **同一容器** kill → stop → destroy |
+| 16:33 ~ 17:31 | **无** 新的 `docker build` 完成 / `container create` |
+| 17:31:55 | 人工 `docker run` 恢复 |
+
+**根因**：约 16:28 完整部署后，**5 分钟内又为仅文档 commit 重复执行部署**；旧版脚本在 `git pull` 后 **立即 `stop/rm`**，随后 `docker build` 需数分钟。第二次部署 **SSH 连接在 build/run 完成前断开**（`set -e` 退出，未执行 `docker run`），形成 **只拆掉旧容器、未装回新容器**。
+
+**为何 Caddy 还在但站点挂了**：Caddy 容器独立运行；后端 `127.0.0.1:8080` 无人监听即失败。
+
+**旧版危险顺序（勿再用）**：
+
+```text
+git pull → stop → rm → build（数分钟空窗）→ run
+```
+
+**现版顺序**：
+
+```text
+git pull → build（旧容器仍服务）→ stop → rm → run → /health
+```
+
+**应急恢复**（部署中断、容器不在跑时，在 ECS 上执行；镜像通常仍在）：
+
+```bash
+docker rm -f manage-robot-dingtalk 2>/dev/null || true
+docker run -d --name manage-robot-dingtalk --restart unless-stopped \
+  --env-file /etc/manage-robot.env \
+  -v /opt/manage_robot/data:/app/data \
+  -p 8080:8080 \
+  manage-robot:dingtalk
+curl -sf http://127.0.0.1:8080/health && echo OK
+```
+
+恢复后再查：`docker logs --tail 50 manage-robot-dingtalk`（应见 Stream 已连接），并排查本次 deploy 为何中断（SSH 超时、`git pull` 冲突、`docker build` 报错等）。
 
 ### 2.8 暂不配钉钉，只想在云上验证 Qwen
 
