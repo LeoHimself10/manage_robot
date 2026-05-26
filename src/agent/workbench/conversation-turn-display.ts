@@ -42,10 +42,15 @@ export function buildWorkbenchTurnDisplay(
         .filter((id) => id.length > 0)
     : [];
 
+  // Use post-tool session assignment (bulk_assign / prepare_publish_task in this turn).
+  // preTurnAssignment is stale when assign + prepare happen in one orchestrator turn.
+  const sessionAssignment = (input.session.latestAssignment
+    ?? input.preTurnAssignment) as Record<string, unknown> | undefined;
+
   const assignState = processAssignmentForTurn({
     preTurnDraft: input.preTurnDraft as Record<string, unknown> | undefined,
     persistedDraft: draftOutbound.persistedDraft as Record<string, unknown> | undefined,
-    sessionAssignment: input.preTurnAssignment as Record<string, unknown> | undefined,
+    sessionAssignment,
     orchAssignment: input.orchResult.assignment,
     draftTouchedThisTurn: draftOutbound.draftTouchedThisTurn,
     planId: input.session.planId,

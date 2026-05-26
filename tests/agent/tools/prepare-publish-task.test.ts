@@ -17,7 +17,7 @@ function makeSession(overrides: Partial<PlanSession> = {}): PlanSession {
       tasks: [{ id: "task_1", title: "任务1", objective: "目标1" }],
     },
     latestAssignment: {
-      assignments: [{ taskId: "task_1", primary: { userId: "emp-1" }, confidence: "HIGH" }],
+      assignments: [{ taskId: "task_1", primary: { userId: "emp-1", displayName: "张三" }, confidence: "HIGH" }],
     },
     ...overrides,
   };
@@ -73,8 +73,42 @@ describe("prepare_publish_task tool", () => {
     const assignments = (assignment?.assignments ?? []) as Array<Record<string, unknown>>;
     expect(assignments[0]).toMatchObject({
       taskId: "task_1",
-      primary: { userId: "emp-1" },
+      primary: { userId: "emp-1", displayName: "张三" },
     });
+  });
+
+  it("fills displayName from search hit when assignment row lacks it", () => {
+    const now = new Date().toISOString();
+    const session = makeSession({
+      lastEmployeeSearchHits: [{ userId: "emp-1", displayName: "张三", hitAt: now }],
+      latestAssignment: {
+        assignments: [{ taskId: "task_1", primary: { userId: "emp-1" }, confidence: "HIGH" }],
+      },
+    });
+    const handler = buildPreparePublishTaskHandler({ currentSession: session });
+    const result = handler({ planId: "plan-1" }) as { ok: boolean };
+    expect(result.ok).toBe(true);
+    const assignments = (session.latestAssignment as { assignments: Array<{ primary: Record<string, unknown> }> })
+      .assignments;
+    expect(assignments[0]?.primary.displayName).toBe("张三");
+  });
+
+  it("fills displayName from getContact when assignment and search hit lack it", () => {
+    const session = makeSession({
+      latestAssignment: {
+        assignments: [{ taskId: "task_1", primary: { userId: "emp-1" }, confidence: "HIGH" }],
+      },
+    });
+    const handler = buildPreparePublishTaskHandler({
+      currentSession: session,
+      getContact: (userId) =>
+        userId === "emp-1" ? { active: true, name: "通讯录张三" } : undefined,
+    });
+    const result = handler({ planId: "plan-1" }) as { ok: boolean };
+    expect(result.ok).toBe(true);
+    const assignments = (session.latestAssignment as { assignments: Array<{ primary: Record<string, unknown> }> })
+      .assignments;
+    expect(assignments[0]?.primary.displayName).toBe("通讯录张三");
   });
 
   it("preserves rich task fields when staging from existing latestDraft", () => {

@@ -41,6 +41,8 @@ import {
   applyEvalProductionParityEnv,
   formatEvalProductionParitySummary,
 } from "./eval-production-parity-env";
+import { isDraftStagedForPublish } from "../src/agent/publish-staging";
+import { renderDingtalkTaskMarkdown } from "../src/view/dingtalk-task-markdown";
 
 const EVAL_DATA_DIR =
   process.env.EVAL_DATA_DIR?.trim() || "/tmp/manage-robot-eval";
@@ -51,6 +53,10 @@ const EMP_STAFF_ID = "eval-emp-001";
 const ADMIN_STAFF_ID = "eval-admin-001";
 const PLANNING_SESSION_KEY = "planning";
 const MGR_PUBLISH_SESSION_KEY = "mgr_publish";
+const MICROCATHER_SESSION_KEY = "mgr_microcatheter";
+/** ECS parity: numeric-looking DingTalk userId */
+const EMP_LIJIANNAN_ID = "02573051084320";
+const EMP_LIJIANNAN_NAME = "李嘉男";
 
 (function bootstrapIsolatedDataPaths() {
   if (existsSync(EVAL_DATA_DIR)) {
@@ -189,6 +195,11 @@ interface ScenarioInput {
   expectPublishOk?: boolean;
   /** 期待回复中包含的片段；可依赖前序运行时产物 */
   expectMessageIncludes?: Array<string | ((rt: EvalRuntime) => string)>;
+  /** orchestrator 回合结束后对 session / 出站渲染做额外断言；返回非空字符串即 FAIL */
+  postRunChecks?: (ctx: {
+    session: PlanSession;
+    orchestratorMessages: string[];
+  }) => string | undefined;
 }
 
 interface ScenarioResult {
@@ -320,6 +331,106 @@ function bridgePlanningToManagerPublishSession(
   ctx.sessions.set(MGR_PUBLISH_SESSION_KEY, next);
 }
 
+function seedMicrocatheterDraftSession(
+  ctx: { sessions: Map<string, PlanSession> },
+): void {
+  const store = createPlanSessionStore();
+  const session = store.loadOrCreate(`eval:${MICROCATHER_SESSION_KEY}`);
+  session.latestDraft = {
+    title: "微导管供应商与双管线决策",
+    description:
+      "获取苏州迈拓Pro18仿制可行性反馈，评估签约可行性；同步定义激光光纤微导管需求边界，形成明确决策。",
+    tasks: [
+      {
+        id: "task_1",
+        title: "获取并评估Pro18仿制可行性",
+        objective: "从苏州迈拓获取Pro18仿制的技术反馈，评估技术路径、周期与风险。",
+        deliverables: ["《Pro18仿制可行性评估》"],
+        completionCriteria: [
+          "获得供应商书面或会议反馈记录",
+          "完成技术可行性分析报告并通过内部评审",
+        ],
+        feedbackFrequency: "每周",
+        timeNode: { dueAt: "", checkpoints: [] },
+      },
+      {
+        id: "task_2",
+        title: "定义激光光纤微导管需求边界",
+        objective: "明确激光光纤微导管的技术指标、应用场景及验收标准。",
+        deliverables: ["《激光光纤微导管需求要点》"],
+        completionCriteria: ["完成需求调研与内部讨论", "输出经确认的需求要点文档"],
+        feedbackFrequency: "每周",
+        timeNode: { dueAt: "", checkpoints: [] },
+      },
+      {
+        id: "task_3",
+        title: "综合评估与签约决策",
+        objective: "结合可行性评估与需求定义，与李强、曹杰共同决策是否签约及下单。",
+        deliverables: ["签约/下单决策建议"],
+        completionCriteria: [
+          "召开决策会议并形成会议纪要",
+          "输出明确的决策结论（签约/补充验证/暂停）",
+          "明确激光微导管是否同步下单",
+        ],
+        feedbackFrequency: "每周",
+        dependencyTaskIds: ["task_1", "task_2"],
+        timeNode: { dueAt: "", checkpoints: [] },
+      },
+    ],
+  };
+  session.latestAssignment = undefined;
+  session.senderStaffId = MGR_STAFF_ID;
+  session.conversationHistory = [];
+  session.updatedAt = new Date().toISOString();
+  store.save(session);
+  ctx.sessions.set(MICROCATHER_SESSION_KEY, session);
+}
+
+function checkMicroAssignPrepareDisplay(ctx: {
+  session: PlanSession;
+  orchestratorMessages: string[];
+}): string | undefined {
+  if (!isDraftStagedForPublish(ctx.session.latestDraft)) {
+    return "draft not staged by prepare_publish_task";
+  }
+  const assignment = ctx.session.latestAssignment as
+    | { assignments?: Array<{ taskId?: string; primary?: { userId?: string; displayName?: string } }> }
+    | undefined;
+  const rows = assignment?.assignments ?? [];
+  if (rows.length < 3) {
+    return `expected 3 assignment rows, got ${rows.length}`;
+  }
+  for (const row of rows) {
+    const primary = row.primary ?? {};
+    const displayName = String(primary.displayName ?? "").trim();
+    const userId = String(primary.userId ?? "").trim();
+    if (displayName !== EMP_LIJIANNAN_NAME) {
+      return `task ${row.taskId}: expected displayName ${EMP_LIJIANNAN_NAME}, got "${displayName}"`;
+    }
+    if (displayName === userId || displayName === EMP_LIJIANNAN_ID) {
+      return `task ${row.taskId}: displayName must not equal userId`;
+    }
+  }
+
+  const outbound = renderDingtalkTaskMarkdown({
+    modelMessage: ctx.orchestratorMessages.join("\n\n") || "发布预览",
+    currentDraft: ctx.session.latestDraft,
+    latestAssignment: ctx.session.latestAssignment,
+    shouldRenderRichSection: true,
+    appendStructuredTaskTable: true,
+  });
+  const tableStart = outbound.indexOf("### 结构化任务表");
+  if (tableStart < 0) return "outbound missing structured task table";
+  const tablePart = outbound.slice(tableStart);
+  if (!tablePart.includes(EMP_LIJIANNAN_NAME)) {
+    return "structured table missing assignee display name";
+  }
+  if (tablePart.includes(EMP_LIJIANNAN_ID)) {
+    return "structured table exposes raw userId in assignee column";
+  }
+  return undefined;
+}
+
 async function seedDirectory(): Promise<void> {
   const peopleStore = createPeopleDirectoryStore();
   try {
@@ -362,6 +473,16 @@ async function seedDirectory(): Promise<void> {
       position: "硬件工程师",
       jobNumber: "EMP002",
     });
+    peopleStore.upsertContact({
+      ...baseContact,
+      userId: EMP_LIJIANNAN_ID,
+      name: EMP_LIJIANNAN_NAME,
+      unionId: "eval-union-lijiannan-001",
+      departmentIds: ["1003"],
+      departmentNames: ["售后服务部"],
+      position: "技术总监",
+      jobNumber: "LJN001",
+    });
     peopleStore.upsertProfile({
       userId: MGR_STAFF_ID,
       skillTags: ["质量策划", "CAPA"],
@@ -397,6 +518,16 @@ async function seedDirectory(): Promise<void> {
       cases: [],
       tools: [],
       availability: { capacityHint: "本周容量较紧" },
+      source: "eval-seed",
+    });
+    peopleStore.upsertProfile({
+      userId: EMP_LIJIANNAN_ID,
+      skillTags: ["供应商调研", "微导管", "售后服务"],
+      strengths: ["合作商调研确认", "技术评估"],
+      boundaries: [],
+      cases: [],
+      tools: [],
+      availability: { capacityHint: "本周可承接" },
       source: "eval-seed",
     });
   } finally {
@@ -453,6 +584,16 @@ const scenarios: ScenarioInput[] = [
       "我要把这个计划按当前草案发布给员工。请只调用一次 prepare_publish_task 做发布前预览（禁止 publish_task）。参数：planId 用会话里的 planId；title 与草案主标题一致；subtasks 仅一条：taskId=task_1，title=现场样品拆解与微观分析，assigneeUserId=eval-emp-001。不要调用 search_similar_plans / list_known_facts；不要向用户索要 userId。预览要点用一段话说明。",
     expectDraft: false,
     expectToolNames: ["prepare_publish_task"],
+  },
+  {
+    id: "M_micro_assign_prepare",
+    senderStaffId: MGR_STAFF_ID,
+    sessionId: MICROCATHER_SESSION_KEY,
+    userMessage:
+      "新任务负责人李嘉男。请把当前草案全部子任务点将给李嘉男，并调用 prepare_publish_task 做发布预览，不要 publish_task。",
+    expectDraft: false,
+    expectToolNames: ["prepare_publish_task"],
+    postRunChecks: checkMicroAssignPrepareDisplay,
   },
   {
     id: "M2_publish_confirm",
@@ -770,6 +911,17 @@ async function runOne(
     }
   }
 
+  if (ok && scenario.postRunChecks) {
+    const postErr = scenario.postRunChecks({
+      session: updatedSession,
+      orchestratorMessages: result.messages,
+    });
+    if (postErr) {
+      ok = false;
+      errMsg = postErr;
+    }
+  }
+
   return {
     id: scenario.id,
     senderStaffId: scenario.senderStaffId,
@@ -791,6 +943,7 @@ async function runOne(
 async function verifyDataSync(
   ctx: { sessions: Map<string, PlanSession>; knownFacts: Map<string, string[]> },
   rt: EvalRuntime,
+  options: { filteredOnly?: boolean } = {},
 ): Promise<Array<{ name: string; ok: boolean; detail?: string }>> {
   const checks: Array<{ name: string; ok: boolean; detail?: string }> = [];
   const sessionStore = createPlanSessionStore();
@@ -804,6 +957,10 @@ async function verifyDataSync(
         ? `planId=${reloaded.planId} historyTurns=${reloaded.conversationHistory.length}`
         : "未找到落盘文件",
     });
+  }
+
+  if (options.filteredOnly) {
+    return checks;
   }
 
   const facts = ctx.knownFacts.get(PLANNING_SESSION_KEY) ?? [];
@@ -889,12 +1046,35 @@ async function main(): Promise<void> {
   };
   const rt: EvalRuntime = {};
 
+  const filterRaw = process.env.EVAL_AGENT_FILTER?.trim();
+  const filterSet = filterRaw
+    ? new Set(filterRaw.split(",").map((s) => s.trim()).filter(Boolean))
+    : null;
+  const runScenarios = filterSet?.size
+    ? scenarios.filter((s) => filterSet.has(s.id))
+    : scenarios;
+  if (filterSet?.size && runScenarios.length === 0) {
+    console.error(`EVAL_AGENT_FILTER matched no scenarios: ${filterRaw}`);
+    process.exit(1);
+  }
+  if (filterSet?.size) {
+    console.log(`[filter] running ${runScenarios.length} scenario(s): ${[...filterSet].join(", ")}`);
+    console.log("");
+  }
+
   const results: ScenarioResult[] = [];
 
-  for (const scenario of scenarios) {
+  for (const scenario of runScenarios) {
     if (scenario.id === "M1_prepare_publish") {
       bridgePlanningToManagerPublishSession(ctx);
       console.log("[bridge] planning -> mgr_publish planId=", ctx.sessions.get(MGR_PUBLISH_SESSION_KEY)?.planId);
+    }
+    if (scenario.id === "M_micro_assign_prepare") {
+      seedMicrocatheterDraftSession(ctx);
+      console.log(
+        "[seed] microcatheter draft session planId=",
+        ctx.sessions.get(MICROCATHER_SESSION_KEY)?.planId,
+      );
     }
 
     process.stdout.write(`[run] ${scenario.id} (${scenario.senderStaffId}) ... `);
@@ -913,7 +1093,7 @@ async function main(): Promise<void> {
   }
 
   console.log("\n=== 数据同步校验 ===");
-  const checks = await verifyDataSync(ctx, rt);
+  const checks = await verifyDataSync(ctx, rt, { filteredOnly: Boolean(filterSet?.size) });
   let checksFailed = 0;
   for (const c of checks) {
     if (!c.ok) checksFailed += 1;

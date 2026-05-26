@@ -9,6 +9,7 @@ import {
   hasPublishableDraftInSession,
 } from "../publish-helpers";
 import { isDraftStagedForPublish } from "../publish-staging";
+import { getEmployeeSearchHit } from "../employee-search-cache";
 
 export const PREPARE_PUBLISH_TASK_TOOL: ToolDefinition = {
   type: "function",
@@ -41,7 +42,7 @@ export const PREPARE_PUBLISH_TASK_TOOL: ToolDefinition = {
 export interface BuildPreparePublishTaskHandlerDeps {
   currentSession?: PlanSession;
   searchEmployeesQuotaExhausted?: () => boolean;
-  getContact?: (userId: string) => { active?: boolean; unionId?: string } | undefined;
+  getContact?: (userId: string) => { active?: boolean; unionId?: string; name?: string } | undefined;
 }
 
 function asPlainObject(input: unknown): Record<string, unknown> | undefined {
@@ -113,6 +114,33 @@ function mergeSubtaskPatch(
   }
 
   return next;
+}
+
+function resolveAssigneeDisplayName(
+  session: PlanSession,
+  taskId: string,
+  assigneeUserId: string,
+  deps: BuildPreparePublishTaskHandlerDeps,
+): string {
+  const assignment = session.latestAssignment;
+  if (assignment && typeof assignment === "object" && !Array.isArray(assignment)) {
+    const rows = (assignment as { assignments?: unknown }).assignments;
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        const r = row as Record<string, unknown>;
+        if (String(r.taskId ?? "").trim() !== taskId) continue;
+        const primary = r.primary as Record<string, unknown> | undefined;
+        const fromAssignment = String(primary?.displayName ?? "").trim();
+        if (fromAssignment) return fromAssignment;
+        break;
+      }
+    }
+  }
+  const hit = getEmployeeSearchHit(session, assigneeUserId);
+  if (hit?.displayName?.trim()) return hit.displayName.trim();
+  const fromContact = deps.getContact?.(assigneeUserId)?.name?.trim();
+  if (fromContact) return fromContact;
+  return assigneeUserId;
 }
 
 export function buildPreparePublishTaskHandler(
@@ -273,7 +301,15 @@ export function buildPreparePublishTaskHandler(
     const stagedAssignment: Record<string, unknown> = {
       assignments: subtasks.map((s) => ({
         taskId: s.taskId,
-        primary: { userId: s.assigneeUserId },
+        primary: {
+          userId: s.assigneeUserId,
+          displayName: resolveAssigneeDisplayName(
+            deps.currentSession!,
+            s.taskId,
+            s.assigneeUserId,
+            deps,
+          ),
+        },
         ...(s.collaborators?.length ? { collaborators: s.collaborators } : {}),
         confidence: "HIGH",
       })),
