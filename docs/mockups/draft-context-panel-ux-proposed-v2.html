@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>草案侧栏布局 v2（拟）</title>
+  <style>
+    :root {
+      --bg: #e8ecf2;
+      --canvas: #f4f6f9;
+      --surface: #ffffff;
+      --text: #111827;
+      --text-secondary: #4b5563;
+      --muted: #9ca3af;
+      --border: #e5e7eb;
+      --border-subtle: #f0f1f3;
+      --primary: #2563eb;
+      --primary-soft: #eff6ff;
+      --primary-hover: #1d4ed8;
+      --ok: #059669;
+      --ok-soft: #ecfdf5;
+      --warn: #d97706;
+      --warn-soft: #fffbeb;
+      --panel-w: 272px;
+      --shadow-panel: 0 0 0 1px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.06);
+      --radius: 10px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .doc { max-width: 1080px; margin: 0 auto; padding: 32px 20px 72px; }
+    h1 { font-size: 1.5rem; font-weight: 650; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .sub { color: var(--text-secondary); margin: 0 0 28px; max-width: 62ch; }
+    h2 { font-size: 1.05rem; font-weight: 650; margin: 36px 0 14px; color: var(--text); }
+    p { margin: 8px 0; color: var(--text-secondary); }
+
+    .pill-note {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 14px 16px;
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-panel);
+      margin-bottom: 24px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+    .pill-note strong { color: var(--text); }
+
+    /* —— 状态切换 —— */
+    .state-tabs {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--surface);
+      border-radius: 999px;
+      box-shadow: var(--shadow-panel);
+      margin-bottom: 16px;
+    }
+    .state-tabs button {
+      border: none;
+      background: transparent;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+    .state-tabs button[aria-selected="true"] {
+      background: var(--primary);
+      color: #fff;
+    }
+    .state-tabs button:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    /* —— 聊天页框架 —— */
+    .workbench-preview {
+      background: var(--canvas);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: var(--shadow-panel);
+    }
+    .workbench-grid {
+      display: grid;
+      grid-template-columns: 200px 1fr minmax(240px, var(--panel-w));
+      gap: 10px;
+      min-height: 480px;
+    }
+    @media (max-width: 900px) {
+      .workbench-grid { grid-template-columns: 1fr; }
+      .nav-rail, .chat-main { display: none; }
+    }
+    .nav-rail {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .nav-rail .fake-item {
+      height: 28px;
+      border-radius: 6px;
+      background: var(--border-subtle);
+      margin-bottom: 6px;
+    }
+    .nav-rail .fake-item.active { background: var(--primary-soft); }
+
+    .chat-main {
+      background: var(--surface);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .chat-main__bar {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .chat-main__body {
+      flex: 1;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .bubble {
+      max-width: 78%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .bubble--user {
+      align-self: flex-end;
+      background: var(--primary-soft);
+      color: var(--text);
+    }
+    .bubble--bot {
+      align-self: flex-start;
+      background: #f9fafb;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+    }
+
+    /* —— v2 侧栏核心 —— */
+    .draft-panel {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-panel);
+      display: flex;
+      flex-direction: column;
+      min-height: 456px;
+      overflow: hidden;
+      position: relative;
+    }
+    .draft-panel::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--accent, var(--primary));
+    }
+    .draft-panel[data-state="ready"] { --accent: var(--ok); }
+    .draft-panel[data-state="warn"] { --accent: var(--warn); }
+    .draft-panel[data-state="empty"] { --accent: var(--border); }
+
+    .draft-panel__head {
+      padding: 16px 16px 12px;
+    }
+    .draft-panel__title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .draft-panel__title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .count-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 22px;
+      height: 22px;
+      padding: 0 6px;
+      border-radius: 6px;
+      background: #f3f4f6;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-secondary);
+    }
+    .btn-edit-table {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 4px;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fafbfc;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color .12s, background .12s, color .12s, box-shadow .12s;
+    }
+    .btn-edit-table:hover {
+      border-color: #93c5fd;
+      background: var(--primary-soft);
+      color: var(--primary);
+      box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+    }
+    .btn-edit-table:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+    .btn-edit-table svg { width: 16px; height: 16px; flex-shrink: 0; opacity: .85; }
+
+    .draft-panel__meta {
+      display: grid;
+      gap: 8px;
+    }
+    .assign-progress {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .assign-progress__bar {
+      flex: 1;
+      height: 6px;
+      border-radius: 999px;
+      background: #f3f4f6;
+      overflow: hidden;
+    }
+    .assign-progress__fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--ok);
+      transition: width .2s;
+    }
+    .draft-panel[data-state="warn"] .assign-progress__fill {
+      background: linear-gradient(90deg, var(--ok) 0%, var(--ok) var(--pct, 60%), #e5e7eb var(--pct, 60%));
+    }
+    .assign-progress__label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+    .assign-progress__label em {
+      font-style: normal;
+      color: var(--text);
+    }
+    .due-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .due-row svg { width: 14px; height: 14px; opacity: .7; }
+    .due-row strong { color: var(--text-secondary); font-weight: 600; }
+
+    .draft-panel__list {
+      flex: 1;
+      overflow: auto;
+      padding: 4px 8px 8px;
+      min-height: 0;
+    }
+    .task-row {
+      display: grid;
+      grid-template-columns: 8px 1fr auto;
+      gap: 10px;
+      align-items: start;
+      padding: 10px 8px;
+      border-radius: 8px;
+      cursor: default;
+      transition: background .12s;
+    }
+    .task-row:hover { background: #fafafa; }
+    .task-row + .task-row { border-top: 1px solid var(--border-subtle); margin-top: 0; }
+    .task-row__dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-top: 5px;
+      background: var(--ok);
+    }
+    .task-row--pending .task-row__dot {
+      background: #fbbf24;
+      box-shadow: 0 0 0 3px var(--warn-soft);
+    }
+    .task-row__body { min-width: 0; }
+    .task-row__title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1.45;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .task-row--pending .task-row__title { color: var(--text-secondary); }
+    .task-row__sub {
+      margin-top: 3px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .assignee {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      min-width: 36px;
+    }
+    .assignee__avatar {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      background: #6366f1;
+    }
+    .assignee__avatar--a { background: #6366f1; }
+    .assignee__avatar--b { background: #0ea5e9; }
+    .assignee__avatar--c { background: #10b981; }
+    .assignee__avatar--pending {
+      background: #f3f4f6;
+      color: var(--muted);
+      border: 1px dashed #d1d5db;
+      font-size: 14px;
+      font-weight: 400;
+    }
+    .assignee__name {
+      font-size: 10px;
+      color: var(--muted);
+      max-width: 40px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .draft-panel__foot {
+      padding: 12px 16px 16px;
+      border-top: 1px solid var(--border-subtle);
+      background: linear-gradient(to top, #fafbfc 0%, var(--surface) 100%);
+    }
+    .btn-publish {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 11px 16px;
+      border: none;
+      border-radius: 8px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 650;
+      cursor: pointer;
+      transition: background .12s, transform .08s;
+    }
+    .btn-publish:hover:not(:disabled) { background: var(--primary-hover); }
+    .btn-publish:active:not(:disabled) { transform: translateY(1px); }
+    .btn-publish:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .btn-publish:disabled {
+      background: #e5e7eb;
+      color: #9ca3af;
+      cursor: not-allowed;
+    }
+    .btn-publish svg { width: 16px; height: 16px; }
+    .foot-caption {
+      margin: 8px 0 0;
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    /* —— 空态 —— */
+    .draft-panel--empty {
+      justify-content: center;
+      text-align: center;
+      padding: 32px 20px;
+      min-height: 456px;
+    }
+    .draft-panel--empty::before { display: none; }
+    .empty-icon {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 14px;
+      border-radius: 12px;
+      background: #f3f4f6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+    }
+    .empty-icon svg { width: 24px; height: 24px; }
+    .draft-panel--empty h3 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      font-weight: 650;
+    }
+    .draft-panel--empty p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+      max-width: 20ch;
+      margin-inline: auto;
+    }
+
+    /* —— 对比区 —— */
+    .compare-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 12px;
+    }
+    @media (max-width: 760px) { .compare-row { grid-template-columns: 1fr; } }
+    .compare-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      box-shadow: var(--shadow-panel);
+    }
+    .compare-card h3 {
+      margin: 0 0 10px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+    .compare-card ul {
+      margin: 0;
+      padding-left: 1.1rem;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+    .compare-card li { margin: 6px 0; }
+    .compare-card li strong { color: var(--text); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin: 12px 0;
+      background: var(--surface);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow-panel);
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    th { background: #fafafa; font-weight: 650; color: var(--text); }
+    tr:last-child td { border-bottom: none; }
+
+    footer {
+      margin-top: 48px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="doc">
+    <h1>草案侧栏布局 v2（拟）</h1>
+    <p class="sub">在 v1 基础上进一步收敛视觉噪音：去掉序号/check 符号、用<strong>指派进度条 + 负责人头像</strong>表达状态，底栏主按钮更明确。交互仍为「编辑表格 + 双 Popup 发放」，不改 API。</p>
+
+    <div class="pill-note">
+      <span aria-hidden="true">💡</span>
+      <div>
+        <strong>v1 仍显「丑」的原因：</strong>摘要 chip、序号方块、✓ 符号叠在一起仍像临时拼装；顶部分割线 + 底部分割线把 280px 切成四段。v2 改为<strong>一条顶色带 + 一块可滚动列表 + 固定底栏</strong>，统计信息用细进度条，列表用<strong>状态点 + 负责人圆头像</strong>，减少边框与标签数量。
+      </div>
+    </div>
+
+    <h2>一、可交互预览（点标签切换状态）</h2>
+    <div class="state-tabs" role="tablist" aria-label="草案侧栏状态">
+      <button type="button" role="tab" id="tab-ready" aria-selected="true" aria-controls="panel-ready">可发放</button>
+      <button type="button" role="tab" id="tab-warn" aria-selected="false" aria-controls="panel-warn">有未指派</button>
+      <button type="button" role="tab" id="tab-empty" aria-selected="false" aria-controls="panel-empty">空态</button>
+    </div>
+
+    <div class="workbench-preview">
+      <div class="workbench-grid">
+        <div class="nav-rail" aria-hidden="true">
+          <div class="fake-item active"></div>
+          <div class="fake-item"></div>
+          <div class="fake-item"></div>
+          <div style="margin-top:24px;font-size:11px;">线程列表占位</div>
+        </div>
+        <div class="chat-main">
+          <div class="chat-main__bar">智能规划助手 · 主线程</div>
+          <div class="chat-main__body">
+            <div class="bubble bubble--user">帮我把客诉根因分析拆成 4 个子任务并指派给相关同事</div>
+            <div class="bubble bubble--bot">已生成草案，共 4 条子任务。您可在右侧查看摘要，确认后点击「发放任务」。</div>
+          </div>
+        </div>
+
+        <!-- 可发放 -->
+        <aside class="draft-panel" id="panel-ready" data-state="ready" role="tabpanel" aria-labelledby="tab-ready">
+          <div class="draft-panel__head">
+            <div class="draft-panel__title-row">
+              <h2 class="draft-panel__title">草案 <span class="count-badge">4</span></h2>
+            </div>
+            <div class="draft-panel__meta">
+              <div class="assign-progress">
+                <div class="assign-progress__bar"><div class="assign-progress__fill" style="width:100%"></div></div>
+                <span class="assign-progress__label"><em>4/4</em> 已指派</span>
+              </div>
+              <div class="due-row">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                最近截止 <strong>2026-06-02</strong>
+              </div>
+              <button type="button" class="btn-edit-table" title="在弹窗中编辑 16 列草案表格">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+                编辑草案表格
+              </button>
+            </div>
+          </div>
+          <div class="draft-panel__list">
+            <div class="task-row">
+              <span class="task-row__dot"></span>
+              <div class="task-row__body">
+                <div class="task-row__title">技术标准与测量数据复核</div>
+              </div>
+              <div class="assignee">
+                <span class="assignee__avatar assignee__avatar--a">张</span>
+                <span class="assignee__name">张伟</span>
+              </div>
+            </div>
+            <div class="task-row">
+              <span class="task-row__dot"></span>
+              <div class="task-row__body">
+                <div class="task-row__title">物理干涉模拟与失效复现实验</div>
+              </div>
+              <div class="assignee">
+                <span class="assignee__avatar assignee__avatar--b">李</span>
+                <span class="assignee__name">李敏</span>
+              </div>
+            </div>
+            <div class="task-row">
+              <span class="task-row__dot"></span>
+              <div class="task-row__body">
+                <div class="task-row__title">根因判定与责任归属分析</div>
+              </div>
+              <div class="assignee">
+                <span class="assignee__avatar assignee__avatar--c">王</span>
+                <span class="assignee__name">王磊</span>
+              </div>
+            </div>
+            <div class="task-row">
+              <span class="task-row__dot"></span>
+              <div class="task-row__body">
+                <div class="task-row__title">解决方案制定与长期措施落地</div>
+              </div>
+              <div class="assignee">
+                <span class="assignee__avatar assignee__avatar--a">陈</span>
+                <span class="assignee__name">陈静</span>
+              </div>
+            </div>
+          </div>
+          <div class="draft-panel__foot">
+            <button type="button" class="btn-publish">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>
+              发放任务
+            </button>
+            <p class="foot-caption">将弹窗确认，预检与预览在对话区展示</p>
+          </div>
+        </aside>
+
+        <!-- 有未指派 -->
+        <aside class="draft-panel hidden" id="panel-warn" data-state="warn" role="tabpanel" aria-labelledby="tab-warn" style="--pct: 60%;">
+          <div class="draft-panel__head">
+            <div class="draft-panel__title-row">
+              <h2 class="draft-panel__title">草案 <span class="count-badge">5</span></h2>
+            </div>
+            <div class="draft-panel__meta">
+              <div class="assign-progress">
+                <div class="assign-progress__bar"><div class="assign-progress__fill" style="width:60%"></div></div>
+                <span class="assign-progress__label"><em>3/5</em> 已指派</span>
+              </div>
+              <div class="due-row">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                最近截止 <strong>2026-06-25</strong>
+              </div>
+              <button type="button" class="btn-edit-table">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+                编辑草案表格
+              </button>
+            </div>
+          </div>
+          <div class="draft-panel__list">
+            <div class="task-row">
+              <span class="task-row__dot"></span>
+              <div class="task-row__body">
+                <div class="task-row__title">现场样本采集与封存</div>
+              </div>
+              <div class="assignee">
+                <span class="assignee__avatar assignee__avatar--b">赵</span>
+                <span class="assignee__name">赵强</span>
+              </div>
+            </div>
+            <div class="task-row task-row--pending">
+              <span class="task-row__dot"></span>
+              <div class="task-row__body">
+                <div class="task-row__title">供应商质量追溯与批次比对</div>
+                <div class="task-row__sub">待指派</div>
+              </div>
+              <div class="assignee">
+                <span class="assignee__avatar assignee__avatar--pending">?</span>
+              </div>
+            </div>
+            <div class="task-row">
+              <span class="task-row__dot"></span>
+              <div class="task-row__body">
+                <div class="task-row__title">客户沟通与临时处置方案</div>
+              </div>
+              <div class="assignee">
+                <span class="assignee__avatar assignee__avatar--c">刘</span>
+                <span class="assignee__name">刘洋</span>
+              </div>
+            </div>
+            <div class="task-row task-row--pending">
+              <span class="task-row__dot"></span>
+              <div class="task-row__body">
+                <div class="task-row__title">8D 报告初稿撰写</div>
+                <div class="task-row__sub">待指派</div>
+              </div>
+              <div class="assignee">
+                <span class="assignee__avatar assignee__avatar--pending">?</span>
+              </div>
+            </div>
+            <div class="task-row">
+              <span class="task-row__dot"></span>
+              <div class="task-row__body">
+                <div class="task-row__title">复盘会议组织与结论归档</div>
+              </div>
+              <div class="assignee">
+                <span class="assignee__avatar assignee__avatar--a">周</span>
+                <span class="assignee__name">周婷</span>
+              </div>
+            </div>
+          </div>
+          <div class="draft-panel__foot">
+            <button type="button" class="btn-publish">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>
+              发放任务
+            </button>
+            <p class="foot-caption">仍有 2 条未指派，预检时会提示补全</p>
+          </div>
+        </aside>
+
+        <!-- 空态 -->
+        <aside class="draft-panel draft-panel--empty hidden" id="panel-empty" data-state="empty" role="tabpanel" aria-labelledby="tab-empty">
+          <div class="empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+          </div>
+          <h3>暂无草案</h3>
+          <p>在下方输入任务需求，助手将在此展示摘要</p>
+        </aside>
+      </div>
+    </div>
+
+    <h2>二、v1 → v2 关键变化</h2>
+    <div class="compare-row">
+      <div class="compare-card">
+        <h3>v1 拟改（仍偏碎）</h3>
+        <ul>
+          <li>摘要行 + chip 标签，信息重复</li>
+          <li>序号方块 + ✓ 符号，像 checklist 而非任务板</li>
+          <li>头/摘要/列表/底栏 四道横线切分</li>
+          <li>「编辑表格」文字链与标题抢视线</li>
+        </ul>
+      </div>
+      <div class="compare-card">
+        <h3>v2 拟改（推荐）</h3>
+        <ul>
+          <li><strong>顶色带</strong>：绿=可发、橙=有缺口，一眼看状态</li>
+          <li><strong>进度条</strong>替代统计卡片与 chip</li>
+          <li><strong>负责人头像</strong>替代「已指派」文字</li>
+          <li><strong>全宽「编辑草案表格」</strong>：摘要下方独立 secondary 按钮，带表格图标</li>
+          <li>列表仅<strong>细分隔线</strong>，无额外灰框</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>三、信息架构（不变的业务逻辑）</h2>
+    <table>
+      <thead>
+        <tr><th>区域</th><th>内容来源</th><th>交互</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>标题 + 数量徽章</td>
+          <td><code>computeDraftSummary().count</code></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>指派进度</td>
+          <td>count − unassigned / count</td>
+          <td>未指派 &gt; 0 时顶色带与进度条为 warn 色</td>
+        </tr>
+        <tr>
+          <td>最近截止</td>
+          <td><code>draftStatDue</code>，格式 yyyy-MM-dd</td>
+          <td>无截止时隐藏该行</td>
+        </tr>
+        <tr>
+          <td>子任务行</td>
+          <td>preview 列表 + assignment 映射</td>
+          <td>有 assignee 显示姓氏头像；无则「?」+ 待指派</td>
+        </tr>
+        <tr>
+          <td>编辑表格</td>
+          <td>—</td>
+          <td>摘要区下方<strong>全宽 secondary 按钮</strong>，打开现有 Excel 弹窗（<code>openDraftEditor</code>）</td>
+        </tr>
+        <tr>
+          <td>底栏</td>
+          <td>—</td>
+          <td>「发放任务」→ 现有双 Popup + agent 消息；空态隐藏底栏与编辑按钮</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>四、实现注意（后续改代码时）</h2>
+    <ul>
+      <li>侧栏宽度仍约 <strong>260–280px</strong>；头像可用姓氏首字，颜色可按 userId hash 固定</li>
+      <li>长标题保持 <strong>2 行截断</strong>；列表区域 <code>max-height</code> + 滚动，底栏 sticky</li>
+      <li>移动端侧栏在聊天下方时，底栏按钮仍全宽；顶色带与进度条保留</li>
+      <li>动文件：<code>manager-workbench-pages.ts</code>（DOM + <code>updateDraftContext</code>）、<code>workbench-app-styles.ts</code>（新 class 替换 <code>draft-stat-*</code>）</li>
+    </ul>
+
+    <footer>
+      文档：<code>docs/mockups/draft-context-panel-ux-proposed-v2.html</code> · 仅方案稿，未改现网代码 · 在浏览器中打开可切换三种状态
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var tabs = document.querySelectorAll('.state-tabs [role="tab"]');
+      var panels = {
+        ready: document.getElementById('panel-ready'),
+        warn: document.getElementById('panel-warn'),
+        empty: document.getElementById('panel-empty')
+      };
+      tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          var key = tab.id.replace('tab-', '');
+          tabs.forEach(function (t) { t.setAttribute('aria-selected', t === tab ? 'true' : 'false'); });
+          Object.keys(panels).forEach(function (k) {
+            panels[k].classList.toggle('hidden', k !== key);
+          });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -25,12 +25,57 @@ function workbenchEnforceActionGuards(): boolean {
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
+function buildManagerTasksPortfolioClientJs(initialProjectId: string): string {
+  return `
+  var WB_FILTER_PROJECT_ID = '${initialProjectId.replace(/'/g, "")}';
+  async function loadProjectFilterOptions() {
+    var sel = document.getElementById('filterProject');
+    if (!sel) return;
+    try {
+      var res = await fetch('/api/workbench/manager/projects');
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) return;
+      var cards = data.cards || [];
+      sel.innerHTML = '<option value="">全部项目</option>' + cards.map(function (c) {
+        return '<option value="' + escapeHtml(c.projectId) + '">' + escapeHtml(c.name) + '</option>';
+      }).join('');
+      if (WB_FILTER_PROJECT_ID) sel.value = WB_FILTER_PROJECT_ID;
+    } catch (e) {}
+  }
+  var filterProjectEl = document.getElementById('filterProject');
+  if (filterProjectEl) {
+    filterProjectEl.addEventListener('change', async function () {
+      WB_FILTER_PROJECT_ID = String(filterProjectEl.value || '').trim();
+      await loadTasks();
+    });
+  }
+  void (async function () {
+    await loadProjectFilterOptions();
+    await loadTasks();
+  })();
+  `;
+}
+
 export function renderManagerTasksPage(params: {
   planId?: string;
   planTitle?: string;
   userLabel?: string;
+  projectPortfolioEnabled?: boolean;
+  initialProjectId?: string;
 }): string {
   const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
+  const portfolio = Boolean(params.projectPortfolioEnabled);
+  const initialProjectId = escapeHtml(params.initialProjectId ?? "");
+  const portfolioNav = portfolio
+    ? '<a href="/workbench/manager/projects">项目总览</a>\n        '
+    : "";
+  const projectFilter = portfolio
+    ? `<label>大项目
+          <select id="filterProject">
+            <option value="">全部项目</option>
+          </select>
+        </label>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="zh">
@@ -50,7 +95,7 @@ export function renderManagerTasksPage(params: {
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="主管导航">
-        <a class="active" href="/workbench/manager/tasks">历史任务</a>
+        ${portfolioNav}<a class="active" href="/workbench/manager/tasks">历史任务</a>
         <a href="/workbench/manager/chat">智能规划助手</a>
         <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
       </nav>
@@ -89,6 +134,7 @@ export function renderManagerTasksPage(params: {
         <label>负责人
           <input id="filterAssignee" type="search" placeholder="姓名关键词" autocomplete="off" />
         </label>
+        ${projectFilter}
         <label>排序
           <select id="filterSort">
             <option value="updated_desc">更新时间 ↓</option>
@@ -337,7 +383,11 @@ export function renderManagerTasksPage(params: {
   async function loadTasks() {
     setFb('tableFeedback', '加载中…', 'muted');
     try {
-      var res = await fetch('/api/workbench/manager/tasks');
+      var tasksUrl = '/api/workbench/manager/tasks';
+      if (WB_PORTFOLIO && WB_FILTER_PROJECT_ID) {
+        tasksUrl += '?projectId=' + encodeURIComponent(WB_FILTER_PROJECT_ID);
+      }
+      var res = await fetch(tasksUrl);
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       allTasksCache = data.tasks || [];
@@ -481,8 +531,7 @@ export function renderManagerTasksPage(params: {
   var filterClearBtn = document.getElementById('filterClearBtn');
   if (filterApplyBtn) filterApplyBtn.addEventListener('click', applyFiltersAndSort);
   if (filterClearBtn) filterClearBtn.addEventListener('click', clearFilters);
-
-  void loadTasks();
+  ${portfolio ? buildManagerTasksPortfolioClientJs(initialProjectId) : "void loadTasks();"}
 })();
 </script>
 </body>
@@ -495,11 +544,26 @@ export function renderManagerChatPage(params: {
   planTitle?: string;
   userLabel?: string;
   openDraftEditor?: boolean;
+  projectPortfolioEnabled?: boolean;
 }): string {
   const initialThreadId = params.threadId ?? "main";
   const initialKind = params.threadKind ?? "main";
   const initialTitle = params.planTitle ?? (initialKind === "main" ? "钉钉规划助手" : "新规划会话");
   const initialOpenDraftEditor = Boolean(params.openDraftEditor);
+  const portfolio = Boolean(params.projectPortfolioEnabled);
+  const portfolioNav = portfolio
+    ? '<a href="/workbench/manager/projects">项目总览</a>\n        '
+    : "";
+  const projectChipBar = portfolio
+    ? `<div class="draft-context-bar" id="projectChipBar" style="margin:0 0 8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <span class="muted" style="font-size:13px;">当前大项目</span>
+        <select id="activeProjectSelect" class="btn btn-ghost btn-sm" style="max-width:240px;">
+          <option value="">未选择</option>
+        </select>
+        <button type="button" class="btn btn-ghost btn-sm" id="clearActiveProjectBtn">清除</button>
+        <span class="muted" id="activeProjectHint" style="font-size:12px;"></span>
+      </div>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="zh">
@@ -518,13 +582,14 @@ export function renderManagerChatPage(params: {
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="主管导航">
-        <a href="/workbench/manager/tasks">历史任务</a>
+        ${portfolioNav}<a href="/workbench/manager/tasks">历史任务</a>
         <a class="active" href="/workbench/manager/chat?thread=main">智能规划助手</a>
         <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
       </nav>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
   </header>
+  ${projectChipBar}
 
   <div class="chat-main">
     <aside class="chat-sidebar" aria-label="会话列表">
@@ -569,20 +634,42 @@ export function renderManagerChatPage(params: {
       </section>
     </div>
 
-    <aside class="draft-context-panel draft-context-panel--empty" id="draftContextPanel" aria-label="草案上下文">
-      <h3>本会话草案</h3>
-      <p class="draft-panel-empty" id="draftPanelEmpty">本会话暂无草案，在下方输入任务开始规划。</p>
-      <div class="draft-panel-body" id="draftPanelBody">
-        <div class="draft-stat-grid">
-          <div class="draft-stat"><div class="lbl">子任务</div><div class="val" id="draftStatCount">0</div></div>
-          <div class="draft-stat"><div class="lbl">未指派</div><div class="val warn" id="draftStatUnassigned">0</div></div>
+    <aside class="draft-context-panel draft-context-panel--empty" id="draftContextPanel" aria-label="草案上下文" data-state="empty">
+      <div class="draft-panel-empty-wrap" id="draftPanelEmptyWrap">
+        <div class="draft-panel-empty-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
         </div>
-        <div class="draft-stat"><div class="lbl">最近截止</div><div class="val" id="draftStatDue" style="font-size:16px;">—</div></div>
-        <ul class="draft-preview-list" id="draftPreviewList"></ul>
+        <h3 class="draft-panel-empty-title">暂无草案</h3>
+        <p class="draft-panel-empty" id="draftPanelEmpty">本会话暂无草案，在下方输入任务开始规划。</p>
       </div>
-      <div class="draft-panel-actions">
-        <button type="button" class="btn btn-ghost btn-sm" id="editDraftBtnPanel" hidden>编辑草案表格</button>
-        <button type="button" class="btn btn-primary btn-sm" id="publishDraftBtnPanel" hidden>发放任务</button>
+      <div class="draft-panel-body" id="draftPanelBody" hidden>
+        <div class="draft-panel__head">
+          <div class="draft-panel__title-row">
+            <h3 class="draft-panel__title">草案 <span class="draft-count-badge" id="draftStatCount">0</span></h3>
+          </div>
+          <div class="draft-panel__meta">
+            <div class="draft-assign-progress">
+              <div class="draft-assign-progress__bar"><div class="draft-assign-progress__fill" id="draftProgressFill" style="width:0%"></div></div>
+              <span class="draft-assign-progress__label" id="draftProgressLabel"><em>0/0</em> 已指派</span>
+            </div>
+            <div class="draft-due-row" id="draftDueRow" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              最近截止 <strong id="draftStatDue">—</strong>
+            </div>
+            <button type="button" class="btn-draft-edit-table" id="editDraftBtnPanel" hidden title="在弹窗中编辑 16 列草案表格">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+              编辑草案表格
+            </button>
+          </div>
+        </div>
+        <div class="draft-panel__list" id="draftPreviewList" role="list"></div>
+        <div class="draft-panel__foot">
+          <button type="button" class="btn-draft-publish" id="publishDraftBtnPanel" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>
+            发放任务
+          </button>
+          <p class="draft-foot-caption" id="draftFootCaption">将弹窗确认，预检与预览在对话区展示</p>
+        </div>
       </div>
     </aside>
   </div>
@@ -627,6 +714,55 @@ export function renderManagerChatPage(params: {
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}
   wbBindViewSwitchLink('navMyTasks', 'employee', '/workbench/employee?view=new');
+  var WB_PORTFOLIO_CHAT = ${portfolio ? "true" : "false"};
+
+  async function loadActiveProjectSelect(selectedId) {
+    if (!WB_PORTFOLIO_CHAT) return;
+    var sel = document.getElementById('activeProjectSelect');
+    if (!sel) return;
+    try {
+      var res = await fetch('/api/workbench/manager/projects');
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) return;
+      var cards = (data.cards || []).filter(function (c) {
+        return String(c.projectId || '') !== '__unassigned__';
+      });
+      var cur = String(selectedId || sel.value || '').trim();
+      sel.innerHTML = '<option value="">未选择</option>' + cards.map(function (c) {
+        return '<option value="' + escapeHtml(c.projectId) + '">' + escapeHtml(c.name) + '</option>';
+      }).join('');
+      if (cur) sel.value = cur;
+      var hint = document.getElementById('activeProjectHint');
+      if (hint) {
+        var opt = sel.selectedOptions && sel.selectedOptions[0];
+        hint.textContent = opt && opt.value ? ('规划默认归属：' + opt.textContent) : '';
+      }
+    } catch (e) {}
+  }
+  async function saveActiveProject(projectId) {
+    if (!WB_PORTFOLIO_CHAT) return;
+    await fetch('/api/workbench/manager/active-project', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: projectId || '' })
+    });
+    await loadActiveProjectSelect(projectId);
+  }
+  if (WB_PORTFOLIO_CHAT) {
+    var activeProjectSelect = document.getElementById('activeProjectSelect');
+    if (activeProjectSelect) {
+      activeProjectSelect.addEventListener('change', function () {
+        void saveActiveProject(String(activeProjectSelect.value || '').trim());
+      });
+    }
+    var clearActiveProjectBtn = document.getElementById('clearActiveProjectBtn');
+    if (clearActiveProjectBtn) {
+      clearActiveProjectBtn.addEventListener('click', function () {
+        void saveActiveProject('');
+      });
+    }
+    void loadActiveProjectSelect('');
+  }
 
   var activeThreadId = ${JSON.stringify(initialThreadId)};
   var activeThreadKind = ${JSON.stringify(initialKind)};
@@ -744,11 +880,8 @@ export function renderManagerChatPage(params: {
     var btn = document.getElementById('publishDraftBtnPanel');
     if (!btn) return;
     btn.disabled = sendInFlight || !activeHasDraft;
-    if (sendInFlight && publishFlowState === 'preparing') {
-      btn.textContent = '预检中…';
-    } else {
-      btn.textContent = '发放任务';
-    }
+    var label = (sendInFlight && publishFlowState === 'preparing') ? '预检中…' : '发放任务';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>' + label;
   }
   function openPublishPrepareModal() {
     if (!activeHasDraft || sendInFlight) return;
@@ -768,10 +901,15 @@ export function renderManagerChatPage(params: {
     if (btn) btn.hidden = !hasDraft;
     if (pubBtn) pubBtn.hidden = !hasDraft;
     var panel = document.getElementById('draftContextPanel');
+    var emptyWrap = document.getElementById('draftPanelEmptyWrap');
     var emptyHint = document.getElementById('draftPanelEmpty');
     var body = document.getElementById('draftPanelBody');
-    if (panel) panel.classList.toggle('draft-context-panel--empty', !hasDraft);
-    if (emptyHint) emptyHint.hidden = hasDraft;
+    if (panel) {
+      panel.classList.toggle('draft-context-panel--empty', !hasDraft);
+      if (!hasDraft) panel.setAttribute('data-state', 'empty');
+    }
+    if (emptyWrap) emptyWrap.hidden = hasDraft;
+    if (emptyHint) emptyHint.hidden = false;
     if (body) body.hidden = !hasDraft;
     if (!hasDraft) resetPublishFlow();
     updatePublishBtnUi();
@@ -779,7 +917,45 @@ export function renderManagerChatPage(params: {
   function resetDraftPanelForThreadSwitch() {
     resetPublishFlow();
     applyDraftPanelUi(false);
-    updateDraftContext({ count: 0, unassigned: 0, nearestDue: '', preview: [] }, false);
+    updateDraftContext({ count: 0, unassigned: 0, assigned: 0, nearestDue: '', preview: [] }, false);
+  }
+  function parseAssigneeCell(raw) {
+    var s = String(raw || '').trim();
+    if (!s) return '';
+    var m = s.match(/^(.+?)\\s*\\([^)]+\\)\\s*$/);
+    return m ? m[1].trim() : s;
+  }
+  function assigneeInitial(name) {
+    var n = String(name || '').trim();
+    if (!n) return '?';
+    return n.charAt(0);
+  }
+  function avatarTone(userId) {
+    var h = 0;
+    var s = String(userId || 'x');
+    for (var i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return 'draft-avatar--tone-' + (Math.abs(h) % 4);
+  }
+  function renderDraftTaskRow(item) {
+    var pending = !item.assigned;
+    var rowClass = 'draft-task-row' + (pending ? ' draft-task-row--pending' : '');
+    var assigneeHtml;
+    if (pending) {
+      assigneeHtml = '<div class="draft-assignee"><span class="draft-avatar draft-avatar--pending">?</span></div>';
+    } else {
+      var init = escapeHtml(assigneeInitial(item.assigneeName));
+      var tone = avatarTone(item.userId || item.assigneeName);
+      var nameHtml = item.assigneeName
+        ? '<span class="draft-assignee__name">' + escapeHtml(item.assigneeName) + '</span>'
+        : '';
+      assigneeHtml = '<div class="draft-assignee"><span class="draft-avatar ' + tone + '">' + init + '</span>' + nameHtml + '</div>';
+    }
+    var subHtml = pending ? '<div class="draft-task-row__sub">待指派</div>' : '';
+    return '<div class="' + rowClass + '" role="listitem">'
+      + '<span class="draft-task-row__dot" aria-hidden="true"></span>'
+      + '<div class="draft-task-row__body"><div class="draft-task-row__title">' + escapeHtml(item.title) + '</div>' + subHtml + '</div>'
+      + assigneeHtml
+      + '</div>';
   }
   function computeDraftSummary(draftData) {
     var rows = draftData.rows || [];
@@ -787,10 +963,16 @@ export function renderManagerChatPage(params: {
     var count = rows.length || tasks.length;
     var assignments = (draftData.assignment && draftData.assignment.assignments) || [];
     var byTask = {};
+    var nameByTask = {};
     assignments.forEach(function (a) {
       var tid = String(a.taskId || '').trim();
-      var uid = a.primary && String(a.primary.userId || '').trim();
-      if (tid && uid) byTask[tid] = uid;
+      var primary = a.primary || {};
+      var uid = primary && String(primary.userId || '').trim();
+      var name = primary && String(primary.displayName || '').trim();
+      if (tid && uid) {
+        byTask[tid] = uid;
+        if (name) nameByTask[tid] = name;
+      }
     });
     var unassigned = 0;
     var items = rows.length ? rows : tasks.map(function (t, i) {
@@ -806,12 +988,55 @@ export function renderManagerChatPage(params: {
       if (d && d !== '待确认' && /^\\d{4}-\\d{2}-\\d{2}/.test(d)) dues.push(d.slice(0, 10));
     });
     dues.sort();
-    var preview = items.slice(0, 5).map(function (r, idx) {
+    var preview = items.slice(0, 8).map(function (r, idx) {
       var tid = String(r.taskId || r.id || ('task_' + (idx + 1))).trim();
       var title = String(r.title || tid || '子任务').trim();
-      return title + (byTask[tid] ? ' · 已指派' : ' · 未指派');
+      var assigned = Boolean(byTask[tid]);
+      var assigneeName = nameByTask[tid] || '';
+      if (!assigneeName && assigned && r.assignee) assigneeName = parseAssigneeCell(r.assignee);
+      return {
+        title: title,
+        assigned: assigned,
+        assigneeName: assigneeName,
+        userId: byTask[tid] || ''
+      };
     });
-    return { count: count, unassigned: unassigned, nearestDue: dues[0] || '', preview: preview };
+    return {
+      count: count,
+      unassigned: unassigned,
+      assigned: count - unassigned,
+      nearestDue: dues[0] || '',
+      preview: preview
+    };
+  }
+  function paintDraftPanelSummary(summary, hasDraft) {
+    var panel = document.getElementById('draftContextPanel');
+    var fill = document.getElementById('draftProgressFill');
+    var label = document.getElementById('draftProgressLabel');
+    var dueRow = document.getElementById('draftDueRow');
+    var d = document.getElementById('draftStatDue');
+    var c = document.getElementById('draftStatCount');
+    var list = document.getElementById('draftPreviewList');
+    var cap = document.getElementById('draftFootCaption');
+    var assigned = summary.assigned != null ? summary.assigned : Math.max(0, summary.count - summary.unassigned);
+    var pct = summary.count > 0 ? Math.round((assigned / summary.count) * 100) : 0;
+    if (panel && hasDraft) {
+      panel.setAttribute('data-state', summary.unassigned > 0 ? 'warn' : 'ready');
+      panel.style.setProperty('--draft-pct', pct + '%');
+    }
+    if (c) c.textContent = String(summary.count);
+    if (fill) fill.style.width = pct + '%';
+    if (label) label.innerHTML = '<em>' + assigned + '/' + summary.count + '</em> 已指派';
+    if (dueRow) dueRow.hidden = !summary.nearestDue;
+    if (d) d.textContent = summary.nearestDue || '—';
+    if (list) {
+      list.innerHTML = (summary.preview || []).map(renderDraftTaskRow).join('');
+    }
+    if (cap) {
+      cap.textContent = summary.unassigned > 0
+        ? '仍有 ' + summary.unassigned + ' 条未指派，预检时会提示补全'
+        : '将弹窗确认，预检与预览在对话区展示';
+    }
   }
   function updateDraftContext(summary, hasDraft) {
     var bar = document.getElementById('draftContextBar');
@@ -819,14 +1044,7 @@ export function renderManagerChatPage(params: {
     if (!hasDraft) {
       if (bar) { bar.classList.add('is-muted'); bar.hidden = false; }
       if (text) text.textContent = '暂无草案';
-      var c0 = document.getElementById('draftStatCount');
-      var u0 = document.getElementById('draftStatUnassigned');
-      var d0 = document.getElementById('draftStatDue');
-      var list0 = document.getElementById('draftPreviewList');
-      if (c0) c0.textContent = '0';
-      if (u0) u0.textContent = '0';
-      if (d0) d0.textContent = '—';
-      if (list0) list0.innerHTML = '';
+      paintDraftPanelSummary({ count: 0, unassigned: 0, assigned: 0, nearestDue: '', preview: [] }, false);
       var emptyHint = document.getElementById('draftPanelEmpty');
       if (emptyHint) {
         emptyHint.textContent = activeThreadKind === 'side'
@@ -842,14 +1060,7 @@ export function renderManagerChatPage(params: {
     if (summary.nearestDue) line += ' · 最近截止 ' + summary.nearestDue;
     if (bar) { bar.classList.remove('is-muted'); bar.hidden = false; }
     if (text) text.textContent = line;
-    var c = document.getElementById('draftStatCount');
-    var u = document.getElementById('draftStatUnassigned');
-    var d = document.getElementById('draftStatDue');
-    var list = document.getElementById('draftPreviewList');
-    if (c) c.textContent = String(summary.count);
-    if (u) u.textContent = String(summary.unassigned);
-    if (d) d.textContent = summary.nearestDue || '—';
-    if (list) list.innerHTML = summary.preview.map(function (p) { return '<li>' + escapeHtml(p) + '</li>'; }).join('');
+    paintDraftPanelSummary(summary, true);
   }
   function renderSkeleton() {
     var box = document.getElementById('msgList');
@@ -998,7 +1209,7 @@ export function renderManagerChatPage(params: {
     var threadAtStart = activeThreadId;
     if (!activeHasDraft) {
       if (expectedSeq === loadSeq) {
-        updateDraftContext({ count: 0, unassigned: 0, nearestDue: '', preview: [] }, false);
+        updateDraftContext({ count: 0, unassigned: 0, assigned: 0, nearestDue: '', preview: [] }, false);
       }
       return;
     }
@@ -1158,6 +1369,9 @@ export function renderManagerChatPage(params: {
       updatePaneHeader({ title: data.title, badge: data.badge, kind: data.kind, hasDraft: hasDraft });
       applyDraftPanelUi(hasDraft);
       renderMessageRows(data.messages || []);
+      if (WB_PORTFOLIO_CHAT) {
+        await loadActiveProjectSelect(data.activeProjectId || '');
+      }
       await loadDraftSummary(expectedSeq);
       if (expectedSeq !== loadSeq) return;
       maybeOpenDraftEditorFromUrl();
