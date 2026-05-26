@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>现网四 Bug 修复说明 — 要做什么、达成什么效果</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --card: #fff;
+      --text: #1a1d26;
+      --muted: #5c6370;
+      --border: #e2e5eb;
+      --primary: #2563eb;
+      --ok: #059669;
+      --warn: #d97706;
+      --no: #dc2626;
+      --code: #f1f3f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 15px;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 1.75rem; margin: 0 0 8px; font-weight: 700; }
+    .subtitle { color: var(--muted); margin: 0 0 28px; font-size: 0.95rem; }
+    h2 {
+      font-size: 1.2rem;
+      margin: 36px 0 14px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--primary);
+    }
+    h3 { font-size: 1.05rem; margin: 20px 0 10px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 22px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.04);
+    }
+    .card.bug { border-left: 4px solid var(--no); }
+    .card.bug.done-plan { border-left-color: var(--primary); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: var(--code); font-weight: 600; }
+    .flow {
+      background: var(--code);
+      border-radius: 10px;
+      padding: 16px 18px;
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      border: 1px solid var(--border);
+    }
+    .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0; }
+    @media (max-width: 700px) { .compare { grid-template-columns: 1fr; } }
+    .box { border-radius: 10px; padding: 14px 16px; border: 1px solid var(--border); }
+    .box.bad { background: #fef2f2; border-color: #fecaca; }
+    .box.good { background: #ecfdf5; border-color: #a7f3d0; }
+    .box.neutral { background: #eff6ff; border-color: #bfdbfe; }
+    .tag {
+      display: inline-block;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: var(--code);
+      margin-right: 6px;
+      font-weight: 600;
+    }
+    .tag.b1 { background: #fee2e2; color: #991b1b; }
+    .tag.b2 { background: #fef3c7; color: #92400e; }
+    .tag.b3 { background: #dbeafe; color: #1e40af; }
+    .tag.b4 { background: #fce7f3; color: #9d174d; }
+    ul { margin: 8px 0; padding-left: 1.25rem; }
+    li { margin: 6px 0; }
+    .mock-bar {
+      display: flex;
+      gap: 10px;
+      padding: 14px 16px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin: 12px 0;
+      flex-wrap: wrap;
+    }
+    .mock-btn {
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: #fff;
+    }
+    .mock-btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .mock-btn.secondary { background: #fff; color: var(--text); }
+    .mock-btn.ghost { background: transparent; color: var(--muted); font-weight: 500; }
+    .mock-btn.danger-outline { color: var(--no); border-color: #fecaca; }
+    .arrow { text-align: center; color: var(--muted); font-size: 20px; margin: 6px 0; }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+    }
+    .summary-item {
+      background: var(--code);
+      border-radius: 10px;
+      padding: 14px;
+      border: 1px solid var(--border);
+    }
+    .summary-item strong { display: block; font-size: 1.1rem; margin-bottom: 4px; }
+    .summary-item span { font-size: 13px; color: var(--muted); }
+    footer { margin-top: 40px; font-size: 13px; color: var(--muted); }
+    code {
+      background: var(--code);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+    .steps { counter-reset: step; list-style: none; padding: 0; margin: 12px 0; }
+    .steps li {
+      counter-increment: step;
+      padding: 10px 12px 10px 44px;
+      position: relative;
+      margin: 8px 0;
+      background: var(--code);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 12px;
+      top: 10px;
+      width: 22px; height: 22px;
+      background: var(--primary);
+      color: #fff;
+      border-radius: 50%;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>现网四 Bug 修复说明</h1>
+    <p class="subtitle">2026-05-26 · 说明本次要改什么、改完用户侧会看到什么 · 对应开发计划「现网四 Bug 修复」</p>
+
+    <div class="card">
+      <h3 style="margin-top:0;">一句话</h3>
+      <p style="margin:0;font-size:1.05rem;">
+        让员工在<strong>钉钉内</strong>就能打开任务、登录页不再像测试页、主管在草案侧栏能<strong>带确认的一键发放</strong>、员工详情页底部按钮不再用「返回列表 · 接受任务」这种迷惑文案。
+      </p>
+    </div>
+
+    <h2>总览：四个问题 → 四个效果</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>现网问题</th>
+          <th>要做什么</th>
+          <th>达成效果（用户侧）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="tag b1">Bug 1</span></td>
+          <td>钉钉机器人发的任务链接跳到<strong>外部浏览器</strong>，免登失效</td>
+          <td>通知卡片 URL 包一层钉钉 applink；链接带上 <code>fromView=new</code></td>
+          <td>点「打开任务详情」在<strong>钉钉内</strong>打开工作台，自动登录</td>
+        </tr>
+        <tr>
+          <td><span class="tag b2">Bug 2</span></td>
+          <td>工作台登录页仍像<strong>测试登录页</strong>，文案矛盾</td>
+          <td>生产环境隐藏测试表单；统一用户向文案；更新根路径说明</td>
+          <td>打开 <code>/workbench</code> 看到正式产品页：「正在连接钉钉…」</td>
+        </tr>
+        <tr>
+          <td><span class="tag b3">Bug 3</span></td>
+          <td>主管聊天右侧草案区<strong>没有发放入口</strong>，只能打字说「发放」</td>
+          <td>侧栏仅「发放任务」一个按钮；<strong>两步确认都用 popup</strong>，走 agent prepare → 确认 → publish</td>
+          <td>点按钮 → 弹窗预检 → 聊天看预览 → <strong>再弹窗</strong>确认 → 任务下发；侧栏不会冒出第二个按钮</td>
+        </tr>
+        <tr>
+          <td><span class="tag b4">Bug 4</span></td>
+          <td>员工改派详情页蓝按钮写「返回列表 · 接受任务」，<strong>其实不会接受</strong>，还常跳错 Tab</td>
+          <td>详情页保持只读；按钮改为清晰的「前往待承接」导航</td>
+          <td>用户明白：详情只看背景，接受要在「待承接」列表点「接受」</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Bug 1 -->
+    <h2><span class="tag b1">Bug 1</span> 员工通知链接 · 钉钉内打开</h2>
+    <div class="card bug">
+      <div class="compare">
+        <div class="box bad">
+          <strong>改之前</strong>
+          <ul>
+            <li>通知里是裸 HTTPS 链接，如 <code>https://域名/workbench/employee/task?taskNo=TK-001</code></li>
+            <li>钉钉可能用系统浏览器打开 → 没有 JSAPI → 无法免登</li>
+            <li>只有主管 chat 深链做了 applink 包装，员工通知没有</li>
+          </ul>
+        </div>
+        <div class="box good">
+          <strong>改之后</strong>
+          <ul>
+            <li>链接经 <code>applink.dingtalk.com/page/link?url=…</code> 包装</li>
+            <li>在钉钉客户端内打开微应用 webview</li>
+            <li>URL 带 <code>fromView=new</code>，与「新任务 / 待承接」一致</li>
+          </ul>
+        </div>
+      </div>
+      <h3>改动位置</h3>
+      <p><code>src/integrations/dingtalk/workbench-notify.ts</code> · 复用 <code>src/view/workbench-chat-link.ts</code> 的 <code>wrapUrlForDingtalkClient</code></p>
+      <h3>影响范围</h3>
+      <p>任务发布、改派、停止、催办提醒、待办、进展推送等所有发给员工的 ActionCard / 机器人 1:1 链接。</p>
+    </div>
+
+    <!-- Bug 2 -->
+    <h2><span class="tag b2">Bug 2</span> 工作台登录页 · 去测试感</h2>
+    <div class="card bug">
+      <div class="compare">
+        <div class="box bad">
+          <strong>改之前</strong>
+          <ul>
+            <li>标题「任务规划工作台<strong>登录</strong>」</li>
+            <li>非钉钉环境提示「可用下方<strong>测试登录</strong>…」但生产已关闭测试表单 → 矛盾</li>
+            <li>根路径 <code>/</code> 仍写「后续接入钉钉免登」（早已接入）</li>
+          </ul>
+        </div>
+        <div class="box good">
+          <strong>改之后</strong>
+          <ul>
+            <li>标题「任务规划工作台」</li>
+            <li>生产：「正在连接钉钉账号，请稍候…」+ 加载动画</li>
+            <li>非钉钉：「请在钉钉工作台中打开本应用」（不提测试登录）</li>
+            <li>本地开发仍可用 <code>WORKBENCH_TEST_LOGIN_ENABLED=1</code> 保留测试表单</li>
+          </ul>
+        </div>
+      </div>
+      <h3>改动位置</h3>
+      <ul>
+        <li><code>src/web/assignment-workbench.ts</code> — 登录页 HTML</li>
+        <li><code>src/web/workbench-dd-login-entry.ts</code> — 前端免登脚本文案分支</li>
+        <li><code>src/web/workbench-landing.ts</code> — 站点首页说明</li>
+      </ul>
+    </div>
+
+    <!-- Bug 3 -->
+    <h2><span class="tag b3">Bug 3</span> 草案侧栏 · 一键发放（带确认）</h2>
+    <div class="card bug done-plan">
+      <p><strong>为什么走 agent 发消息，而不是直接调发布 API？</strong></p>
+      <ul>
+        <li>沿用现网 <strong>prepare → 用户确认 → publish</strong> 两回合，<code>latestDraft</code> / 暂存状态与聊天一致</li>
+        <li>对话里留下预览表和确认记录，可审计、可回溯</li>
+        <li>不旁路 orchestrator 门禁（未指派、缺标题等仍由工具软返回）</li>
+      </ul>
+
+      <h3>交互流程（主管在「智能规划助手」右侧草案面板）</h3>
+      <ol class="steps">
+        <li>点击侧栏 <strong>「发放任务」</strong>（有草案时出现；未指派 &gt; 0 时 modal 内警告）</li>
+        <li>第一步确认框 → 自动向 agent 发送：<em>「请对当前草案做发放预检并展示预览」</em></li>
+        <li>聊天区出现发放预览表（与口头说「可以发放了」效果相同）</li>
+        <li>侧栏出现 <strong>「确认发放」</strong> → 再弹确认 → 发送：<em>「确认发放」</em></li>
+        <li>任务写入 SQLite，员工收到通知（Bug 1 修复后链接在钉钉内可开）</li>
+      </ol>
+
+      <div class="flow">[草案侧栏]                    [聊天区]
+ 子任务 5 · 未指派 0          （用户此前规划对话…）
+ [编辑草案表格]  [发放任务] ← 新增
+        │
+        ▼ 第一步 modal
+ 「将发起发放预检并在对话中展示预览」 [取消] [继续]
+        │
+        ▼ agent: prepare_publish_task
+  ……                           助手：预览表 + 发放说明
+        │
+        ▼ 第二步
+ [确认发放] ← 侧栏出现          （用户可见完整预览）
+        │
+        ▼ 发送「确认发放」
+ agent: publish_task            助手：已发放 TK-xxx</div>
+
+      <h3>侧栏按钮示意</h3>
+      <div class="mock-bar" style="flex-direction:column;align-items:flex-start;max-width:240px;">
+        <div style="font-weight:600;font-size:14px;margin-bottom:4px;">本会话草案</div>
+        <div style="font-size:13px;color:var(--muted);">子任务 5 · 未指派 0</div>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+          <span class="mock-btn ghost" style="font-size:13px;padding:8px 12px;">编辑草案表格</span>
+          <span class="mock-btn primary" style="font-size:13px;padding:8px 12px;">发放任务</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:8px;">预览出现后 ↓</div>
+        <span class="mock-btn primary" style="font-size:13px;padding:8px 12px;background:var(--ok);border-color:var(--ok);">确认发放</span>
+      </div>
+
+      <h3>改动位置</h3>
+      <p><code>src/web/manager-workbench-pages.ts</code> · 复用现有 <code>POST /api/workbench/conversation/send</code>，不新增发布 API。</p>
+    </div>
+
+    <!-- Bug 4 -->
+    <h2><span class="tag b4">Bug 4</span> 员工详情页底部 · 去掉迷惑按钮</h2>
+    <div class="card bug">
+      <p>你已确认方案：<strong>详情页保持只读</strong>，接受/拒绝仍在「待承接」列表卡片上操作。</p>
+
+      <div class="compare">
+        <div class="box bad">
+          <strong>改之前（迷惑）</strong>
+          <div class="mock-bar">
+            <span class="mock-btn secondary">返回列表继续操作</span>
+            <span class="mock-btn primary">返回列表 · 接受任务</span>
+          </div>
+          <ul>
+            <li>蓝色主按钮看起来像「一点就接受」</li>
+            <li>实际只是跳回列表，且常落到「进行中」Tab</li>
+            <li>ASSIGNED 任务的「接受」在「待承接」里，用户找不到</li>
+          </ul>
+        </div>
+        <div class="box good">
+          <strong>改之后（清晰）</strong>
+          <div class="mock-bar">
+            <span class="mock-btn secondary">返回列表继续操作</span>
+            <span class="mock-btn primary">前往待承接</span>
+          </div>
+          <ul>
+            <li>主按钮只做导航，文案不再假装「接受任务」</li>
+            <li>ASSIGNED → 固定跳 <code>view=new</code>（待承接）</li>
+            <li>进行中类 → 跳 <code>view=current</code></li>
+            <li>配合 Bug 1：通知链接也带 <code>fromView=new</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="box neutral" style="margin-top:14px;">
+        <strong>页面说明（保留）</strong><br />
+        「接受、拒绝、进度等操作请在『待承接 / 进行中』列表卡片上完成；本页查看完整背景与分工。」
+      </div>
+
+      <h3>改动位置</h3>
+      <p><code>src/web/assignment-workbench.ts</code> — 员工详情页 footer 文案与 <code>listHref</code> 逻辑</p>
+    </div>
+
+    <h2>改完后的整体体验</h2>
+    <div class="summary-grid">
+      <div class="summary-item">
+        <strong>员工</strong>
+        <span>钉钉点通知 → 应用内打开 → 看详情 → 「前往待承接」→ 列表点「接受」</span>
+      </div>
+      <div class="summary-item">
+        <strong>主管</strong>
+        <span>聊天规划 → 右侧看草案摘要 → 「发放任务」→ 预览 → 「确认发放」</span>
+      </div>
+      <div class="summary-item">
+        <strong>登录</strong>
+        <span>钉钉内打开工作台 → 正式加载页 → 自动跳转主管/员工首页</span>
+      </div>
+      <div class="summary-item">
+        <strong>运维</strong>
+        <span>无需新 env；确认 <code>ASSIGNMENT_WEB_PUBLIC_BASE_URL</code> 与微应用首页一致即可</span>
+      </div>
+    </div>
+
+    <h2>验证方式（开发自测）</h2>
+    <div class="card">
+      <ul>
+        <li><code>npm test</code> — 尤其 <code>workbench-notify.test.ts</code>（applink + fromView=new）</li>
+        <li><code>npm run build:workbench-login</code> 后打开 <code>/workbench</code>（生产 env）看文案</li>
+        <li>主管 chat：有 draft → 侧栏发放两步骤 → 对话有预览 → 确认后任务入库</li>
+        <li>员工：mock 通知 URL 进详情 → 底部「前往待承接」→ <code>view=new</code> 且有「接受」按钮</li>
+      </ul>
+    </div>
+
+    <h2>不在本次范围</h2>
+    <div class="card">
+      <ul>
+        <li>详情页内联「接受任务」按钮（你选了保持列表操作）</li>
+        <li>直接绕过 agent 的新发布 REST API</li>
+        <li>数据库 schema 变更</li>
+      </ul>
+    </div>
+
+    <footer>
+      文档路径：<code>docs/现网四Bug修复说明.html</code> · 与 Cursor 计划「现网四 Bug 修复」一致 · 实现完成后可在此页勾选验收项
+    </footer>
+  </div>
+</body>
+</html>

@@ -643,6 +643,12 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   font-weight: 700;
 }
 .draft-context-panel--empty .draft-panel-body { display: none; }
+.draft-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
 .draft-panel-empty {
   margin: 0;
   padding: 10px 12px;

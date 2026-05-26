@@ -9,6 +9,7 @@ import {
   __setWorkbenchPublishNotifierForTest,
   __taskStatusLabelForTest,
   handleAssignmentHttp,
+  renderTaskDetailPage,
 } from "../../src/web/assignment-workbench";
 import { createPeopleDirectoryStore } from "../../src/infra/people-directory-store";
 import { createWorkbenchFormalTaskStore } from "../../src/infra/workbench-formal-task-store";
@@ -249,6 +250,29 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.statusCode).toBe(200);
     expect(c.body).toContain('/static/workbench-dd-login.js');
     expect(c.body).toContain("__WB_CONFIGURED_CORP_ID");
+  });
+
+  it("GET /workbench login page hides test login copy when WORKBENCH_TEST_LOGIN_ENABLED=0", () => {
+    vi.stubEnv("WORKBENCH_TEST_LOGIN_ENABLED", "0");
+    const req = stubReq({ url: "/workbench", method: "GET" });
+    const { res, captured } = stubRes();
+    expect(handleAssignmentHttp(req, res)).toBe(true);
+    const c = captured();
+    expect(c.body).toContain("任务规划工作台");
+    expect(c.body).toContain("__WB_TEST_LOGIN_ENABLED = false");
+    expect(c.body).not.toContain("测试登录");
+    expect(c.body).not.toContain("任务规划工作台登录");
+  });
+
+  it("employee task detail page JS uses 前往待承接 footer copy", () => {
+    const html = renderTaskDetailPage({
+      roleLabel: "employee",
+      backPath: "/workbench/employee?view=new",
+      enforceActionGuards: false,
+    });
+    expect(html).toContain("前往待承接");
+    expect(html).toContain("前往进行中");
+    expect(html).not.toContain("返回列表 · 接受任务");
   });
 
   it("GET without token redirects to /workbench", () => {

@@ -943,13 +943,13 @@ function renderWorkbenchEntryLoginHtml(): string {
     </select>
   </label>
   <button id="loginBtn" type="button">测试登录（非钉钉环境）</button>`
-    : `<div class="muted">当前环境已关闭测试登录。请在钉钉工作台中打开本页面完成免登。</div>`;
+    : `<div class="muted">请在钉钉工作台中打开本应用，将自动完成登录。</div>`;
   return `<!DOCTYPE html>
 <html lang="zh">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>工作台登录</title>
+<title>任务规划工作台</title>
 <style>
 body { font-family: system-ui, sans-serif; background: #f5f7fb; color: #0f172a; }
 .wrap { max-width: 520px; margin: 48px auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; }
@@ -959,18 +959,22 @@ label { display: grid; gap: 6px; margin: 10px 0; font-size: 14px; }
 input, select { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font: inherit; }
 button { margin-top: 10px; border: 1px solid #1d4ed8; background: #2563eb; color: #fff; border-radius: 8px; padding: 9px 12px; font-weight: 600; cursor: pointer; }
 .muted { color: #64748b; font-size: 13px; margin-top: 10px; }
+.wb-login-spinner { width: 28px; height: 28px; border: 3px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%; animation: wb-spin 0.8s linear infinite; margin: 12px 0; }
+@keyframes wb-spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
 <main class="wrap">
-  <h1>任务规划工作台登录</h1>
-  <p>优先尝试钉钉免登。登录后按身份自动跳转到对应界面。</p>
+  <h1>任务规划工作台</h1>
+  <p>${testLoginEnabled ? "优先尝试钉钉免登。登录后按身份自动跳转到对应界面。" : "正在连接钉钉账号，请稍候…"}</p>
+  <div class="wb-login-spinner" id="loginSpinner" aria-hidden="true"></div>
   <div class="muted" id="ssoHint"></div>
   ${loginFormHtml}
-  <div class="muted" id="result">正在尝试钉钉免登...</div>
+  <div class="muted" id="result">${testLoginEnabled ? "正在尝试钉钉免登…" : "正在为您连接钉钉账号…"}</div>
 </main>
 <script>
 window.__WB_CONFIGURED_CORP_ID = ${JSON.stringify(corpId)};
+window.__WB_TEST_LOGIN_ENABLED = ${testLoginEnabled ? "true" : "false"};
 </script>
 <script src="/static/workbench-dd-login.js"></script>
 <script>
@@ -2458,15 +2462,24 @@ export function renderTaskDetailPage(params: {
       var backL = document.getElementById('empBackListLink');
       var prim = document.getElementById('empPrimaryActionLink');
       var fromView = pageQs.get('fromView') || 'current';
-      var listHref = '/workbench/employee?view=' + encodeURIComponent(fromView === 'new' ? 'new' : 'current');
+      var listHref;
+      if (fromView === 'history') {
+        listHref = '/workbench/employee?view=history';
+      } else if (mineSub && String(mineSub.status || '') === 'ASSIGNED') {
+        listHref = '/workbench/employee?view=new';
+      } else if (fromView === 'new') {
+        listHref = '/workbench/employee?view=new';
+      } else {
+        listHref = '/workbench/employee?view=current';
+      }
       if (backL) backL.href = listHref;
       if (prim && mineSub) {
         prim.style.display = 'inline-flex';
         if (String(mineSub.status||'') === 'ASSIGNED') {
-          prim.textContent = '返回列表 · 接受任务';
+          prim.textContent = '前往待承接';
           prim.href = listHref;
         } else if (String(mineSub.status||'') !== 'DONE' && String(mineSub.status||'') !== 'REJECTED') {
-          prim.textContent = '返回列表 · 填写进度';
+          prim.textContent = '前往进行中';
           prim.href = listHref;
         } else {
           prim.style.display = 'none';

@@ -31,7 +31,7 @@ export function renderWorkbenchRootLandingHtml(): string {
 <body>
   <h1>任务规划工作台</h1>
   <p>这是站点<strong>首页</strong>，可直接作为钉钉网页应用首页 URL 使用。</p>
-  <p class="muted">当前先提供可直达的工作台壳页面；后续接入钉钉免登后，将自动识别主管/员工并加载真实数据。</p>
+  <p class="muted">在钉钉内打开将自动登录，并按主管/员工身份进入对应工作台。</p>
   <h2>可用路径（支持固定 URL 直达）</h2>
   <ul>
     <li><code>/workbench</code> — 登录入口（已登录将跳转对应角色首页）</li>

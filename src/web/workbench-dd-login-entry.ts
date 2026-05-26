@@ -7,6 +7,7 @@ import * as dd from "dingtalk-jsapi";
 declare global {
   interface Window {
     __WB_CONFIGURED_CORP_ID?: string;
+    __WB_TEST_LOGIN_ENABLED?: boolean;
     __wbTryDingTalkLogin?: () => Promise<void>;
     /** Legacy DingTalk container global; older webviews may expose this API surface. */
     dd?: legacyDingTalkContainer & Record<string, unknown>;
@@ -255,9 +256,15 @@ async function resolveAuthCode(corpId: string): Promise<string> {
 }
 
 async function tryDingTalkLogin(): Promise<void> {
+  const testLoginEnabled = window.__WB_TEST_LOGIN_ENABLED === true;
   if (!isLikelyDingTalkWebview()) {
-    setSsoHint("当前不是钉钉容器，已跳过自动免登。可用下方测试登录验证员工/主管页面。");
-    setResult("在钉钉工作台打开 /workbench 后会自动免登。");
+    if (testLoginEnabled) {
+      setSsoHint("当前不是钉钉容器，已跳过自动免登。可用下方测试登录验证员工/主管页面。");
+      setResult("在钉钉工作台打开 /workbench 后会自动免登。");
+    } else {
+      setSsoHint("请在钉钉工作台中打开本应用。");
+      setResult("当前页面需在钉钉内访问以完成自动登录。");
+    }
     return;
   }
 
@@ -271,11 +278,15 @@ async function tryDingTalkLogin(): Promise<void> {
     serverJsapiHint = serverError;
     if (payload) {
       try {
-        setSsoHint("正在进行钉钉 JSAPI 鉴权（dd.config）...");
+        setSsoHint(testLoginEnabled ? "正在进行钉钉 JSAPI 鉴权（dd.config）…" : "正在验证钉钉身份…");
         await applyDdConfig(payload);
         corpId = payload.corpId;
       } catch (err) {
-        setSsoHint(`JSAPI 鉴权失败：${errMsg(err)}。将尝试兼容免登路径。`);
+        setSsoHint(
+          testLoginEnabled
+            ? `JSAPI 鉴权失败：${errMsg(err)}。将尝试兼容免登路径。`
+            : "身份验证遇到问题，正在尝试其他方式…",
+        );
       }
     }
   }
@@ -284,20 +295,27 @@ async function tryDingTalkLogin(): Promise<void> {
 
   if (!corpId) {
     const extra =
-      serverJsapiHint && !serverJsapiHint.includes("fetch") && serverJsapiHint.length < 220
+      testLoginEnabled &&
+      serverJsapiHint &&
+      !serverJsapiHint.includes("fetch") &&
+      serverJsapiHint.length < 220
         ? ` 服务端返回：${serverJsapiHint}`
         : "";
     setSsoHint(
-      "未获取到 corpId。请配置 DINGTALK_CORP_ID 和 DINGTALK_AGENT_ID，或临时用 /workbench?corpId=dingxxxx 兜底。" +
-        extra,
+      testLoginEnabled
+        ? "未获取到 corpId。请配置 DINGTALK_CORP_ID 和 DINGTALK_AGENT_ID，或临时用 /workbench?corpId=dingxxxx 兜底。" +
+            extra
+        : "暂时无法连接钉钉账号，请稍后重试或联系管理员。",
     );
     setResult(
-      "若在钉钉内仍失败：请核对微应用 AgentId、应用首页 URL 与当前页面 URL 一致，并确认已开通免登/JSAPI 权限。",
+      testLoginEnabled
+        ? "若在钉钉内仍失败：请核对微应用 AgentId、应用首页 URL 与当前页面 URL 一致，并确认已开通免登/JSAPI 权限。"
+        : "请确认您从钉钉工作台打开本应用，且网络连接正常。",
     );
     return;
   }
 
-  setSsoHint("检测到钉钉环境，正在自动免登...");
+  setSsoHint("正在登录…");
   let authCode = "";
   try {
     authCode = await resolveAuthCode(corpId);
@@ -323,7 +341,7 @@ async function tryDingTalkLogin(): Promise<void> {
       redirectTo?: string;
     };
     if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    setResult("免登成功，正在跳转...");
+    setResult("登录成功，正在跳转…");
     window.location.href = data.redirectTo || "/workbench";
   } catch (err) {
     setResult(`免登失败：${errMsg(err)}`);

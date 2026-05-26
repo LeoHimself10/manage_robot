@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildEmployeeTaskPageUrl,
   buildManagerEmployeeActionMarkdown,
   buildPublishTaskNotifyMarkdown,
   createWorkbenchPublishNotifier,
@@ -7,6 +8,17 @@ import {
   resolveManagerTaskDetailUrl,
   type WorkbenchPublishTaskNotifyInput,
 } from "../../../src/integrations/dingtalk/workbench-notify";
+
+/** 解码 ActionCard applink 包装后的 singleURL，便于断言内层 HTTPS。 */
+function decodeNotifySingleUrl(wrapped: string): string {
+  if (!wrapped.includes("applink.dingtalk.com/page/link?")) return wrapped;
+  try {
+    const u = new URL(wrapped);
+    return decodeURIComponent(u.searchParams.get("url") ?? wrapped);
+  } catch {
+    return wrapped;
+  }
+}
 
 interface CapturedRequest {
   url: string;
@@ -129,7 +141,9 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(robotMsgParam.text).toContain("排查日志");
     expect(robotMsgParam.text).toContain("- **负责人**：emp-1");
     expect(robotMsgParam.text).toContain("- **发布人**：mgr-1");
-    expect(robotMsgParam.singleURL).toContain("taskNo=TK-001");
+    expect(decodeNotifySingleUrl(robotMsgParam.singleURL)).toContain("taskNo=TK-001");
+    expect(decodeNotifySingleUrl(robotMsgParam.singleURL)).toContain("fromView=new");
+    expect(robotMsgParam.singleURL).toContain("applink.dingtalk.com/page/link");
     expect(robotCall?.init?.headers).toMatchObject({
       "x-acs-dingtalk-access-token": "tok-1",
     });
@@ -284,8 +298,9 @@ describe("createWorkbenchPublishNotifier", () => {
     };
     expect(msgParam.text).toContain("拒绝子任务");
     expect(msgParam.text).toContain("TK-777");
-    expect(msgParam.singleURL).toContain("/workbench/manager/task?taskNo=TK-777");
-    expect(msgParam.singleURL).toContain("focus=reassign");
+    expect(decodeNotifySingleUrl(msgParam.singleURL)).toContain("/workbench/manager/task?taskNo=TK-777");
+    expect(decodeNotifySingleUrl(msgParam.singleURL)).toContain("focus=reassign");
+    expect(msgParam.singleURL).toContain("applink.dingtalk.com/page/link");
   });
 
   it("notifyManagerOfEmployeeAction uses focus=review for done (not reassign)", async () => {
@@ -310,8 +325,8 @@ describe("createWorkbenchPublishNotifier", () => {
     const msgParam = JSON.parse(String((robot?.body as { msgParam: string }).msgParam ?? "{}")) as {
       singleURL: string;
     };
-    expect(msgParam.singleURL).toContain("focus=review");
-    expect(msgParam.singleURL).not.toContain("focus=reassign");
+    expect(decodeNotifySingleUrl(msgParam.singleURL)).toContain("focus=review");
+    expect(decodeNotifySingleUrl(msgParam.singleURL)).not.toContain("focus=reassign");
   });
 
   it("notifyManagerOfEmployeeAction skips when WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED=0", async () => {
@@ -403,6 +418,56 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(result.success[0]?.robotMessageKey).toBe("robot-digest-1");
     expect(calls.some((c) => c.url.includes("/robot/oToMessages/batchSend"))).toBe(true);
     expect(calls.some((c) => c.url.includes("/todo/"))).toBe(false);
+  });
+
+  it("notifySubtaskReminder todo detailUrl is raw HTTPS without applink", async () => {
+    const { fetch: fetchImpl, calls } = buildFetchMock([
+      () => jsonRes({ accessToken: "tok-1" }),
+      () => jsonRes({ id: "todo-raw" }),
+      () => jsonRes({ processQueryKey: "robot-remind-raw" }),
+    ]);
+    const notifier = createWorkbenchPublishNotifier(fetchImpl);
+    await notifier.notifySubtaskReminder({
+      taskNo: "TK-R",
+      taskTitle: "T",
+      subtaskId: "sub-r",
+      subtaskTitle: "子",
+      assigneeUserId: "emp-1",
+      unionId: "uni-emp-1",
+      managerUserId: "mgr-1",
+      subject: "催办",
+      markdown: "请尽快完成",
+      tier: "day1",
+      sourceId: "followup:test:sub-r:1",
+    });
+    const todoCall = calls.find((c) => c.url.includes("/v1.0/todo/"));
+    const todoBody = todoCall?.body as { detailUrl?: { appUrl?: string; pcUrl?: string } };
+    expect(todoBody.detailUrl?.appUrl).toContain("taskNo=TK-R");
+    expect(todoBody.detailUrl?.appUrl).toContain("subtaskId=sub-r");
+    expect(todoBody.detailUrl?.appUrl).toContain("fromView=current");
+    expect(todoBody.detailUrl?.appUrl).not.toContain("applink.dingtalk.com");
+    const robotCall = calls.find((c) => c.url.includes("/robot/oToMessages/batchSend"));
+    const robotMsgParam = JSON.parse(String((robotCall?.body as { msgParam: string }).msgParam ?? "{}")) as {
+      singleURL: string;
+    };
+    expect(robotMsgParam.singleURL).toContain("applink.dingtalk.com/page/link");
+  });
+
+  it("publish notify uses raw URL when DINGTALK_WORKBENCH_APPLINK=0", async () => {
+    process.env.DINGTALK_WORKBENCH_APPLINK = "0";
+    const { fetch: fetchImpl, calls } = buildFetchMock([
+      () => jsonRes({ accessToken: "tok-1" }),
+      () => jsonRes({ errcode: 0, task_id: "card-task-1" }),
+      () => jsonRes({ processQueryKey: "robot-msg-1" }),
+    ]);
+    const notifier = createWorkbenchPublishNotifier(fetchImpl);
+    await notifier.notifyPublishedTask(baseInput);
+    const robotCall = calls.find((c) => c.url.includes("/robot/oToMessages/batchSend"));
+    const robotMsgParam = JSON.parse(String((robotCall?.body as { msgParam: string }).msgParam ?? "{}")) as {
+      singleURL: string;
+    };
+    expect(robotMsgParam.singleURL).toContain("https://example.com/workbench/employee/task");
+    expect(robotMsgParam.singleURL).not.toContain("applink.dingtalk.com");
   });
 });
 
@@ -550,6 +615,44 @@ describe("buildPublishTaskNotifyMarkdown", () => {
     expect(md).toContain("- **发布人**：张三");
     expect(md).not.toContain("641001");
     expect(md).not.toContain("641002");
+  });
+});
+
+describe("buildEmployeeTaskPageUrl", () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it("builds fromView=new and wraps for DingTalk client", () => {
+    process.env.WORKBENCH_NOTIFY_DETAIL_URL_BASE = "https://example.com/workbench/employee/task";
+    const wrapped = buildEmployeeTaskPageUrl({
+      taskNo: "TK-1",
+      fromView: "new",
+      forDingtalkClient: true,
+    });
+    expect(wrapped).toContain("applink.dingtalk.com/page/link");
+    const inner = decodeNotifySingleUrl(wrapped!);
+    expect(inner).toContain("fromView=new");
+    expect(inner).toContain("taskNo=TK-1");
+  });
+
+  it("returns raw HTTPS for todo when forDingtalkClient=false", () => {
+    process.env.WORKBENCH_NOTIFY_DETAIL_URL_BASE = "https://example.com/workbench/employee/task";
+    const raw = buildEmployeeTaskPageUrl({
+      taskNo: "TK-2",
+      subtaskId: "sub-1",
+      fromView: "current",
+      forDingtalkClient: false,
+    });
+    expect(raw).toBe(
+      "https://example.com/workbench/employee/task?taskNo=TK-2&subtaskId=sub-1&fromView=current",
+    );
+    expect(raw).not.toContain("applink");
   });
 });
 

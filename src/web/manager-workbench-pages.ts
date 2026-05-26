@@ -580,8 +580,45 @@ export function renderManagerChatPage(params: {
         <div class="draft-stat"><div class="lbl">最近截止</div><div class="val" id="draftStatDue" style="font-size:16px;">—</div></div>
         <ul class="draft-preview-list" id="draftPreviewList"></ul>
       </div>
-      <button type="button" class="btn btn-primary btn-sm" id="editDraftBtnPanel" hidden>编辑草案表格</button>
+      <div class="draft-panel-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="editDraftBtnPanel" hidden>编辑草案表格</button>
+        <button type="button" class="btn btn-primary btn-sm" id="publishDraftBtnPanel" hidden>发放任务</button>
+      </div>
     </aside>
+  </div>
+</div>
+
+<div class="wb-modal-overlay" id="publishPrepareModalOverlay" role="dialog" aria-modal="true" aria-labelledby="publishPrepareModalTitle">
+  <div class="wb-modal" role="document">
+    <div class="wb-modal__head">
+      <h3 class="wb-modal__title" id="publishPrepareModalTitle">发放预检</h3>
+      <button type="button" class="wb-modal__close" id="publishPrepareModalClose" aria-label="关闭">×</button>
+    </div>
+    <div class="wb-modal__body">
+      <p id="publishPrepareSummary" style="margin:0 0 10px;font-size:14px;line-height:1.6;color:#334155;">—</p>
+      <p id="publishPrepareWarn" class="muted" style="display:none;margin:0;font-size:13px;color:#b45309;">仍有未指派子任务，预检可能提示需先完成点将。</p>
+      <p class="muted" style="margin:10px 0 0;font-size:13px;">将在对话中展示发放预览，确认后再正式下发。</p>
+    </div>
+    <div class="wb-modal__foot">
+      <button type="button" class="btn btn-secondary" id="publishPrepareCancelBtn">取消</button>
+      <button type="button" class="btn btn-primary" id="publishPrepareContinueBtn">继续预检</button>
+    </div>
+  </div>
+</div>
+
+<div class="wb-modal-overlay" id="publishConfirmModalOverlay" role="dialog" aria-modal="true" aria-labelledby="publishConfirmModalTitle">
+  <div class="wb-modal" role="document">
+    <div class="wb-modal__head">
+      <h3 class="wb-modal__title" id="publishConfirmModalTitle">确认发放</h3>
+      <button type="button" class="wb-modal__close" id="publishConfirmModalClose" aria-label="关闭">×</button>
+    </div>
+    <div class="wb-modal__body">
+      <p style="margin:0;font-size:14px;line-height:1.6;color:#334155;">预览已在左侧对话中展示。确认后将正式发放给员工，此操作不可从本页撤销。</p>
+    </div>
+    <div class="wb-modal__foot">
+      <button type="button" class="btn btn-secondary" id="publishConfirmCancelBtn">取消</button>
+      <button type="button" class="btn btn-primary" id="publishConfirmOkBtn">确认发放</button>
+    </div>
   </div>
 </div>
 
@@ -598,6 +635,10 @@ export function renderManagerChatPage(params: {
   var sendInFlight = false;
   var loadSeq = 0;
   var pendingElapsedTimer = null;
+  var publishFlowState = 'idle';
+  var cachedDraftSummary = { count: 0, unassigned: 0, nearestDue: '' };
+  var PUBLISH_PREPARE_MSG = '请对当前草案做发放预检并展示预览';
+  var PUBLISH_CONFIRM_MSG = '确认发放';
 
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -682,18 +723,61 @@ export function renderManagerChatPage(params: {
       }
     }
   }
+  function openPublishModal(overlayId) {
+    var el = document.getElementById(overlayId);
+    if (el) el.setAttribute('data-open', 'true');
+  }
+  function closePublishModal(overlayId) {
+    var el = document.getElementById(overlayId);
+    if (el) el.setAttribute('data-open', 'false');
+  }
+  function closeAllPublishModals() {
+    closePublishModal('publishPrepareModalOverlay');
+    closePublishModal('publishConfirmModalOverlay');
+  }
+  function resetPublishFlow() {
+    publishFlowState = 'idle';
+    closeAllPublishModals();
+    updatePublishBtnUi();
+  }
+  function updatePublishBtnUi() {
+    var btn = document.getElementById('publishDraftBtnPanel');
+    if (!btn) return;
+    btn.disabled = sendInFlight || !activeHasDraft;
+    if (sendInFlight && publishFlowState === 'preparing') {
+      btn.textContent = '预检中…';
+    } else {
+      btn.textContent = '发放任务';
+    }
+  }
+  function openPublishPrepareModal() {
+    if (!activeHasDraft || sendInFlight) return;
+    var sumEl = document.getElementById('publishPrepareSummary');
+    var warnEl = document.getElementById('publishPrepareWarn');
+    var s = cachedDraftSummary;
+    var line = s.count + ' 条子任务 · ' + s.unassigned + ' 条未指派';
+    if (s.nearestDue) line += ' · 最近截止 ' + s.nearestDue;
+    if (sumEl) sumEl.textContent = line;
+    if (warnEl) warnEl.style.display = s.unassigned > 0 ? 'block' : 'none';
+    openPublishModal('publishPrepareModalOverlay');
+  }
   function applyDraftPanelUi(hasDraft) {
     activeHasDraft = hasDraft;
     var btn = document.getElementById('editDraftBtnPanel');
+    var pubBtn = document.getElementById('publishDraftBtnPanel');
     if (btn) btn.hidden = !hasDraft;
+    if (pubBtn) pubBtn.hidden = !hasDraft;
     var panel = document.getElementById('draftContextPanel');
     var emptyHint = document.getElementById('draftPanelEmpty');
     var body = document.getElementById('draftPanelBody');
     if (panel) panel.classList.toggle('draft-context-panel--empty', !hasDraft);
     if (emptyHint) emptyHint.hidden = hasDraft;
     if (body) body.hidden = !hasDraft;
+    if (!hasDraft) resetPublishFlow();
+    updatePublishBtnUi();
   }
   function resetDraftPanelForThreadSwitch() {
+    resetPublishFlow();
     applyDraftPanelUi(false);
     updateDraftContext({ count: 0, unassigned: 0, nearestDue: '', preview: [] }, false);
   }
@@ -753,6 +837,7 @@ export function renderManagerChatPage(params: {
       return;
     }
     applyDraftPanelUi(true);
+    cachedDraftSummary = summary;
     var line = summary.count + ' 条子任务 · ' + summary.unassigned + ' 条未指派';
     if (summary.nearestDue) line += ' · 最近截止 ' + summary.nearestDue;
     if (bar) { bar.classList.remove('is-muted'); bar.hidden = false; }
@@ -1093,14 +1178,23 @@ export function renderManagerChatPage(params: {
       if (stream) stream.setAttribute('aria-busy', 'false');
     }
   }
-  async function sendChatMessage() {
-    if (sendInFlight) return;
+  async function sendChatMessage(opts) {
+    opts = opts || {};
+    if (sendInFlight) return { ok: false, reason: 'busy' };
     var sendBtn = document.getElementById('sendBtn');
-    var message = (document.getElementById('msgInput').value || '').trim();
-    if (!message) { setComposerStatus('请输入消息内容', 'err'); return; }
+    var inputEl = document.getElementById('msgInput');
+    var fromComposer = opts.fromComposer !== false && opts.message == null;
+    var message = String(opts.message != null ? opts.message : (inputEl ? inputEl.value : '') || '').trim();
+    if (!message) {
+      if (fromComposer) setComposerStatus('请输入消息内容', 'err');
+      return { ok: false, reason: 'empty' };
+    }
     sendInFlight = true;
-    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '发送中…'; }
-    setComposerStatus('处理中，请稍候…', 'busy');
+    updatePublishBtnUi();
+    if (fromComposer) {
+      if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '发送中…'; }
+      setComposerStatus('处理中，请稍候…', 'busy');
+    }
     var startedAt = Date.now();
     var box = document.getElementById('msgList');
     if (box) {
@@ -1112,7 +1206,8 @@ export function renderManagerChatPage(params: {
       box.appendChild(userLi);
     }
     appendPendingBubble(startedAt);
-    document.getElementById('msgInput').value = '';
+    if (fromComposer && inputEl) inputEl.value = '';
+    var prepareAfter = publishFlowState === 'preparing';
     try {
       var res = await fetch('/api/workbench/conversation/send', {
         method: 'POST',
@@ -1125,36 +1220,90 @@ export function renderManagerChatPage(params: {
       });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      setComposerStatus('', 'muted');
+      if (fromComposer) setComposerStatus('', 'muted');
       if (data.threadId) activeThreadId = data.threadId;
       if (data.kind) activeThreadKind = data.kind;
       clearPendingBubble();
       await loadThreads(activeThreadId);
-      sendInFlight = false;
       await loadMessages();
-      focusComposer();
+      if (fromComposer) focusComposer();
+      if (prepareAfter) {
+        publishFlowState = 'awaitConfirmPopup';
+        openPublishModal('publishConfirmModalOverlay');
+      }
+      return { ok: true };
     } catch (e) {
       clearPendingBubble();
       var errLi = document.createElement('li');
       errLi.className = 'msg-row msg-row--assistant';
       errLi.innerHTML = '<div class="msg-bubble msg-bubble--error"><div class="msg-meta">系统</div><div class="msg-body">发送失败：' + escapeHtml(String(e && e.message ? e.message : e)) + '。请重试。</div></div>';
       if (box) box.appendChild(errLi);
-      setComposerStatus('发送失败，请重试', 'err');
+      if (fromComposer) setComposerStatus('发送失败，请重试', 'err');
+      else setComposerStatus(String(e && e.message ? e.message : e), 'err');
       scrollMessageStreamToBottom();
+      if (prepareAfter) resetPublishFlow();
+      return { ok: false, reason: 'error' };
     } finally {
       sendInFlight = false;
-      if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '发送'; }
+      if (fromComposer && sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '发送'; }
+      updatePublishBtnUi();
     }
   }
   var sendBtn = document.getElementById('sendBtn');
   if (sendBtn) {
-    sendBtn.addEventListener('click', function () { void sendChatMessage(); });
+    sendBtn.addEventListener('click', function () { void sendChatMessage({ fromComposer: true }); });
   }
   if (msgInput) {
     msgInput.addEventListener('keydown', function (ev) {
       if (ev.key !== 'Enter' || ev.shiftKey || ev.isComposing) return;
       ev.preventDefault();
-      void sendChatMessage();
+      void sendChatMessage({ fromComposer: true });
+    });
+  }
+  var publishDraftBtn = document.getElementById('publishDraftBtnPanel');
+  if (publishDraftBtn) {
+    publishDraftBtn.addEventListener('click', function () { openPublishPrepareModal(); });
+  }
+  function bindPublishModalDismiss(overlayId, onDismiss) {
+    var overlay = document.getElementById(overlayId);
+    if (!overlay) return;
+    overlay.querySelectorAll('.wb-modal__close, .btn-secondary[id$="CancelBtn"]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        closePublishModal(overlayId);
+        if (onDismiss) onDismiss();
+      });
+    });
+    overlay.addEventListener('click', function (ev) {
+      if (ev.target === overlay) {
+        closePublishModal(overlayId);
+        if (onDismiss) onDismiss();
+      }
+    });
+  }
+  bindPublishModalDismiss('publishPrepareModalOverlay', function () { if (publishFlowState === 'idle') resetPublishFlow(); });
+  bindPublishModalDismiss('publishConfirmModalOverlay', function () {
+    if (publishFlowState === 'awaitConfirmPopup') publishFlowState = 'idle';
+    updatePublishBtnUi();
+  });
+  var publishPrepareContinueBtn = document.getElementById('publishPrepareContinueBtn');
+  if (publishPrepareContinueBtn) {
+    publishPrepareContinueBtn.addEventListener('click', function () {
+      if (!activeHasDraft || sendInFlight) return;
+      closePublishModal('publishPrepareModalOverlay');
+      publishFlowState = 'preparing';
+      updatePublishBtnUi();
+      void sendChatMessage({ message: PUBLISH_PREPARE_MSG, fromComposer: false });
+    });
+  }
+  var publishConfirmOkBtn = document.getElementById('publishConfirmOkBtn');
+  if (publishConfirmOkBtn) {
+    publishConfirmOkBtn.addEventListener('click', function () {
+      if (sendInFlight) return;
+      closePublishModal('publishConfirmModalOverlay');
+      publishFlowState = 'idle';
+      void sendChatMessage({ message: PUBLISH_CONFIRM_MSG, fromComposer: false }).then(function () {
+        resetPublishFlow();
+      });
     });
   }
   var newThreadBtn = document.getElementById('newThreadBtn');

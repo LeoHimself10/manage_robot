@@ -1,4 +1,5 @@
 import { isExternalContact } from "../../infra/external-contact";
+import { normalizePublicPageUrl, wrapUrlForDingtalkClient } from "../../view/workbench-chat-link";
 
 interface AccessTokenResp {
   accessToken?: string;
@@ -337,6 +338,36 @@ function resolveNotifyBaseUrl(): string {
   );
 }
 
+export type BuildEmployeeTaskPageUrlOpts = {
+  taskNo: string;
+  subtaskId?: string;
+  fromView?: "new" | "current";
+  /** ActionCard / robot 1:1 用 applink；钉钉原生 Todo 须为裸 HTTPS */
+  forDingtalkClient?: boolean;
+};
+
+/** 员工任务详情页 URL（发布/改派/提醒/Todo 等统一入口）。 */
+export function buildEmployeeTaskPageUrl(opts: BuildEmployeeTaskPageUrlOpts): string | undefined {
+  const base = resolveNotifyBaseUrl();
+  if (!base) return undefined;
+  const url = new URL(base);
+  url.searchParams.set("taskNo", opts.taskNo);
+  const sid = String(opts.subtaskId ?? "").trim();
+  if (sid) url.searchParams.set("subtaskId", sid);
+  if (opts.fromView) url.searchParams.set("fromView", opts.fromView);
+  const normalized = normalizePublicPageUrl(url.toString());
+  if (opts.forDingtalkClient) {
+    return wrapUrlForDingtalkClient(normalized);
+  }
+  return normalized;
+}
+
+function wrapNotifyUrlForDingtalkClient(url: string): string {
+  const trimmed = String(url ?? "").trim();
+  if (!trimmed || trimmed === "https://www.dingtalk.com") return trimmed || "https://www.dingtalk.com";
+  return wrapUrlForDingtalkClient(normalizePublicPageUrl(trimmed));
+}
+
 export type ResolveManagerTaskDetailUrlOpts = {
   subtaskId?: string;
   focus?: string;
@@ -660,7 +691,12 @@ export function createWorkbenchPublishNotifier(
           });
           continue;
         }
-        const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}`;
+        const detailUrl =
+          buildEmployeeTaskPageUrl({
+            taskNo: input.taskNo,
+            fromView: "new",
+            forDingtalkClient: true,
+          }) ?? `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}&fromView=new`;
         const subject = `[${input.taskNo}] ${input.title}`;
         const titleMap = input.subtaskTitleBySourceKey ?? {};
         const markdown = buildPublishTaskNotifyMarkdown({
@@ -753,7 +789,12 @@ export function createWorkbenchPublishNotifier(
           failed: [],
         };
       }
-      const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}`;
+      const detailUrl =
+        buildEmployeeTaskPageUrl({
+          taskNo: input.taskNo,
+          fromView: "new",
+          forDingtalkClient: true,
+        }) ?? `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}&fromView=new`;
       const stTitle =
         input.scope === "subtask"
           ? (input.subtaskTitle?.trim() || "子任务")
@@ -859,7 +900,12 @@ export function createWorkbenchPublishNotifier(
           failed: [],
         };
       }
-      const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}`;
+      const detailUrl =
+        buildEmployeeTaskPageUrl({
+          taskNo: input.taskNo,
+          fromView: "new",
+          forDingtalkClient: true,
+        }) ?? `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}&fromView=new`;
       const mgrLabel = workbenchNotifyPersonLabel(input.managerUserId, input.managerDisplayName);
       const robotMsgEnabled = isRobotMsgEnabled();
       const robotCode = resolveRobotCode();
@@ -1009,9 +1055,10 @@ export function createWorkbenchPublishNotifier(
       const subject = `员工动作 · ${input.taskNo}`;
       const rawBase = env("ASSIGNMENT_WEB_PUBLIC_BASE_URL");
       const base = rawBase.replace(/\/+$/, "");
-      const detailUrl =
+      const detailUrl = wrapNotifyUrlForDingtalkClient(
         workbenchTaskUrl
-        || (rawBase ? `${base}/workbench/manager/tasks` : "https://www.dingtalk.com");
+        || (rawBase ? `${base}/workbench/manager/tasks` : "https://www.dingtalk.com"),
+      );
       try {
         const robotMessageKey = await sendRobotChatMessage({
           fetchImpl,
@@ -1088,12 +1135,13 @@ export function createWorkbenchPublishNotifier(
         });
         return { enabled: true, success, failed };
       }
-      const detailUrl =
+      const detailUrl = wrapNotifyUrlForDingtalkClient(
         String(input.detailUrl ?? "").trim()
         || resolveManagerTaskDetailUrl(input.taskNo, { subtaskId: input.subtaskId })
         || (env("ASSIGNMENT_WEB_PUBLIC_BASE_URL")
           ? `${env("ASSIGNMENT_WEB_PUBLIC_BASE_URL").replace(/\/+$/, "")}/workbench/manager/tasks`
-          : "https://www.dingtalk.com");
+          : "https://www.dingtalk.com"),
+      );
       try {
         const robotMessageKey = await sendRobotChatMessage({
           fetchImpl,
@@ -1165,9 +1213,12 @@ export function createWorkbenchPublishNotifier(
       const rawBase = env("ASSIGNMENT_WEB_PUBLIC_BASE_URL").replace(/\/+$/, "");
       const workbenchTaskUrl =
         String(input.workbenchTaskUrl ?? "").trim()
-        || (rawBase
-          ? `${rawBase}/workbench/employee/task?taskNo=${encodeURIComponent(input.taskNo)}&fromView=current`
-          : "");
+        || buildEmployeeTaskPageUrl({
+          taskNo: input.taskNo,
+          fromView: "current",
+          forDingtalkClient: false,
+        })
+        || "";
       const markdown = buildEmployeeManagerActionMarkdown({
         managerDisplayName: input.managerDisplayName,
         managerUserId: input.managerUserId,
@@ -1179,7 +1230,9 @@ export function createWorkbenchPublishNotifier(
         workbenchTaskUrl: workbenchTaskUrl || undefined,
       });
       const subject = `主管反馈 · ${input.taskNo}`;
-      const detailUrl = workbenchTaskUrl || (rawBase ? `${rawBase}/workbench/employee` : "https://www.dingtalk.com");
+      const detailUrl = wrapNotifyUrlForDingtalkClient(
+        workbenchTaskUrl || (rawBase ? `${rawBase}/workbench/employee` : "https://www.dingtalk.com"),
+      );
       try {
         const robotMessageKey = await sendRobotChatMessage({
           fetchImpl,
@@ -1224,7 +1277,20 @@ export function createWorkbenchPublishNotifier(
       const robotMsgEnabled = isRobotMsgEnabled();
       const robotCode = resolveRobotCode();
       const uid = input.assigneeUserId;
-      const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}&subtaskId=${encodeURIComponent(input.subtaskId)}`;
+      const todoDetailUrl =
+        buildEmployeeTaskPageUrl({
+          taskNo: input.taskNo,
+          subtaskId: input.subtaskId,
+          fromView: "current",
+          forDingtalkClient: false,
+        }) ?? `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}&subtaskId=${encodeURIComponent(input.subtaskId)}&fromView=current`;
+      const clientDetailUrl =
+        buildEmployeeTaskPageUrl({
+          taskNo: input.taskNo,
+          subtaskId: input.subtaskId,
+          fromView: "current",
+          forDingtalkClient: true,
+        }) ?? todoDetailUrl;
       const success: WorkbenchNotifyResult["success"] = [];
       const failed: WorkbenchNotifyResult["failed"] = [];
       const userOutcome: WorkbenchNotifyResult["success"][number] = { userId: uid };
@@ -1250,7 +1316,7 @@ export function createWorkbenchPublishNotifier(
             sourceId: input.sourceId,
             subject: input.subject,
             description: input.markdown,
-            detailUrl,
+            detailUrl: todoDetailUrl,
           });
           userOutcome.todoId = todoId;
           anyChannelOk = true;
@@ -1282,7 +1348,7 @@ export function createWorkbenchPublishNotifier(
               userId: uid,
               title: input.subject,
               markdown: input.markdown,
-              detailUrl,
+              detailUrl: clientDetailUrl,
             });
             userOutcome.robotMessageKey = robotMessageKey;
             anyChannelOk = true;
@@ -1304,7 +1370,7 @@ export function createWorkbenchPublishNotifier(
             userId: uid,
             title: input.subject,
             markdown: input.markdown,
-            detailUrl,
+            detailUrl: clientDetailUrl,
           });
           userOutcome.cardMessageId = cardMessageId;
           anyChannelOk = true;
@@ -1368,11 +1434,12 @@ export function createWorkbenchPublishNotifier(
         });
         return { enabled: true, success, failed };
       }
-      const detailUrl =
+      const detailUrl = wrapNotifyUrlForDingtalkClient(
         String(input.detailUrl ?? "").trim()
         || (env("ASSIGNMENT_WEB_PUBLIC_BASE_URL")
           ? `${env("ASSIGNMENT_WEB_PUBLIC_BASE_URL").replace(/\/+$/, "")}/workbench/manager/tasks`
-          : "https://www.dingtalk.com");
+          : "https://www.dingtalk.com"),
+      );
       try {
         const robotMessageKey = await sendRobotChatMessage({
           fetchImpl,
@@ -1419,7 +1486,13 @@ export function createWorkbenchPublishNotifier(
           failedReason: `unionId missing for ${input.assigneeUserId} — enable DINGTALK_CONTACT_SYNC_ENABLED to populate unionId`,
         };
       }
-      const detailUrl = `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}&subtaskId=${encodeURIComponent(input.subtaskId)}`;
+      const todoDetailUrl =
+        buildEmployeeTaskPageUrl({
+          taskNo: input.taskNo,
+          subtaskId: input.subtaskId,
+          fromView: "current",
+          forDingtalkClient: false,
+        }) ?? `${baseUrl}?taskNo=${encodeURIComponent(input.taskNo)}&subtaskId=${encodeURIComponent(input.subtaskId)}&fromView=current`;
       const subject = `[${input.taskNo}] ${input.subtaskTitle}`;
       const sourceId = `workbench:accepted:${input.taskNo}:${input.subtaskId.replace(/:/g, "-")}`;
       try {
@@ -1431,7 +1504,7 @@ export function createWorkbenchPublishNotifier(
           sourceId,
           subject,
           description: `任务「${input.taskTitle}」子任务：${input.subtaskTitle}`,
-          detailUrl,
+          detailUrl: todoDetailUrl,
         });
         return { enabled: true, todoId };
       } catch (err) {
