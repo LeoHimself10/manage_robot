@@ -5,13 +5,16 @@ import { tmpdir } from "node:os";
 
 import {
   createSideThreadSession,
+  deleteSideThreadSession,
   findMainThreadSession,
   healSideThreadSession,
   markSessionAsMainThread,
   preserveThreadIdentityOnSave,
+  renameSideThreadSession,
   resolveConversationThread,
   sideThreadChatKey,
 } from "../../src/web/conversation-thread-resolver";
+import { buildThreadListItem } from "../../src/infra/conversation-present";
 import { hashChatKey } from "../../src/infra/plan-session-store";
 
 describe("manager side thread persistence", () => {
@@ -92,5 +95,23 @@ describe("manager side thread persistence", () => {
     expect(side.chatKeyHash).toBe(
       hashChatKey(sideThreadChatKey("mgr-e", side.threadId!)),
     );
+  });
+
+  it("renameSideThreadSession updates list title", () => {
+    const side = createSideThreadSession("mgr-f");
+    const renamed = renameSideThreadSession("mgr-f", side.threadId!, "Q2 复盘专项");
+    expect(renamed?.threadLabel).toBe("Q2 复盘专项");
+    const item = buildThreadListItem(renamed!);
+    expect(item.title).toBe("Q2 复盘专项");
+  });
+
+  it("deleteSideThreadSession removes session file", () => {
+    const side = createSideThreadSession("mgr-g");
+    const tid = side.threadId!;
+    expect(deleteSideThreadSession("mgr-g", tid)).toBe(true);
+    expect(
+      resolveConversationThread("mgr-g", { threadKind: "side", threadId: tid }),
+    ).toBeUndefined();
+    expect(deleteSideThreadSession("mgr-g", "main")).toBe(false);
   });
 });

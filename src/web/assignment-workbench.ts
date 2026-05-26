@@ -22,6 +22,8 @@ import { presentDueBarState, presentDueLabel, presentDueProgress } from "../infr
 import { buildSubtaskLabelResolver, presentWorkbenchTaskEvent } from "../infra/workbench-event-present";
 import {
   buildThreadListItem,
+  draftHasTasks,
+  planSessionHasDraft,
   inferConversationTitleFromSession,
   truncateConversationPreview,
 } from "../infra/conversation-present";
@@ -36,11 +38,13 @@ import { resolveMessageDisplayContent } from "../view/resolve-message-display-co
 import { buildManagerChatDeepLink } from "../view/workbench-chat-link";
 import {
   createSideThreadSession,
+  deleteSideThreadSession,
   findMainThreadSession,
   listManagerConversationSessions,
   loadAllPlanSessions,
   isSideThreadSession,
   preserveThreadIdentityOnSave,
+  renameSideThreadSession,
   resolveConversationThread,
 } from "./conversation-thread-resolver";
 import { formatWorkbenchAssistantHtml } from "./workbench-markdown-lite";
@@ -4611,6 +4615,63 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (req.method === "PATCH" && url.pathname === "/api/workbench/conversation/thread") {
+    void (async () => {
+      const session = requireSession(req, res, "manager");
+      if (!session) return;
+      try {
+        const body = (await readJsonBody(req)) as Record<string, unknown>;
+        const threadId = String(body.threadId ?? "").trim();
+        const threadKind = String(body.threadKind ?? "").trim().toLowerCase();
+        if (threadKind !== "side" || !threadId) {
+          writeJson(res, 400, { ok: false, error: "only side threads can be renamed" });
+          return;
+        }
+        const label = String(body.threadLabel ?? "").trim();
+        const updated = renameSideThreadSession(session.userId, threadId, label);
+        if (!updated) {
+          writeJson(res, 404, { ok: false, error: "No session found for thread" });
+          return;
+        }
+        const item = buildThreadListItem(updated);
+        writeJson(res, 200, {
+          ok: true,
+          threadId: item.threadId,
+          title: item.title,
+          kind: item.kind,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "failed to rename thread",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "DELETE" && url.pathname === "/api/workbench/conversation/thread") {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    const query = parseConversationThreadQuery(url);
+    if (query.threadKind !== "side" || !query.threadId) {
+      writeJson(res, 400, { ok: false, error: "only side threads can be deleted" });
+      return true;
+    }
+    const target = resolveConversationThread(session.userId, query);
+    if (!target || !isSideThreadSession(target)) {
+      writeJson(res, 404, { ok: false, error: "No session found for thread" });
+      return true;
+    }
+    const deleted = deleteSideThreadSession(session.userId, query.threadId);
+    if (!deleted) {
+      writeJson(res, 404, { ok: false, error: "No session found for thread" });
+      return true;
+    }
+    writeJson(res, 200, { ok: true, threadId: query.threadId });
+    return true;
+  }
+
   if (isGetOrHead && url.pathname === "/api/workbench/conversation/messages") {
     const session = requireSession(req, res, "manager");
     if (!session) return true;
@@ -4647,7 +4708,7 @@ export function handleAssignmentHttp(
       badge: threadMeta.badge,
       messages,
       knownFacts: target.knownFacts ?? [],
-      hasDraft: Boolean(target.latestDraft),
+      hasDraft: planSessionHasDraft(target),
       updatedAt: target.updatedAt,
     });
     return true;
@@ -4855,7 +4916,7 @@ export function handleAssignmentHttp(
           threadId: threadMeta.threadId,
           message: turnDisplay.pureAssistantMessage,
           displayContent: turnDisplay.displayContent,
-          hasDraft: Boolean(turnDisplay.persistedDraft ?? revised.prevalidatedDraft),
+          hasDraft: draftHasTasks(turnDisplay.persistedDraft ?? revised.prevalidatedDraft),
         });
       } catch (err) {
         writeJson(res, 500, {
@@ -5110,7 +5171,7 @@ export function handleAssignmentHttp(
           title: threadMeta.title,
           traceId: orch.traceId,
           assistantMessage: turnDisplay.displayContent,
-          hasDraft: Boolean(turnDisplay.persistedDraft ?? mutableTarget.latestDraft),
+          hasDraft: draftHasTasks(turnDisplay.persistedDraft ?? mutableTarget.latestDraft),
           hasAssignment: Boolean(turnDisplay.latestAssignment ?? mutableTarget.latestAssignment),
         });
       } catch (err) {

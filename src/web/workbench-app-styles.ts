@@ -475,11 +475,72 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   color: var(--danger);
 }
 .chat-thread-item {
+  position: relative;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
+  padding: 8px 28px 8px 10px;
   cursor: pointer;
   background: #fff;
+}
+.chat-thread-menu-btn {
+  position: absolute;
+  top: 6px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.chat-thread-item:hover .chat-thread-menu-btn,
+.chat-thread-item.menu-open .chat-thread-menu-btn {
+  opacity: 1;
+}
+.chat-thread-menu-btn:hover {
+  background: #e2e8f0;
+  color: var(--text);
+}
+.chat-thread-dropdown {
+  position: absolute;
+  top: 28px;
+  right: 4px;
+  z-index: 30;
+  min-width: 108px;
+  padding: 4px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.chat-thread-dropdown[hidden] {
+  display: none;
+}
+.chat-thread-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text);
+}
+.chat-thread-dropdown-item:hover {
+  background: #f1f5f9;
+}
+.chat-thread-dropdown-item--danger {
+  color: var(--danger);
+}
+.chat-thread-dropdown-item--danger:hover {
+  background: #fef2f2;
 }
 .chat-thread-item:hover { background: #f8fafc; }
 .chat-thread-item.active {
@@ -530,30 +591,33 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   overflow: hidden;
 }
 .chat-pane-head {
-  padding: 12px 14px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 0;
   flex-wrap: wrap;
 }
 .chat-pane-sub {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
-  margin-top: 2px;
+  margin-top: 1px;
+}
+.chat-pane-sub--hidden {
+  display: none;
 }
 .draft-context-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 8px 14px;
+  gap: 8px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--border);
   background: #f0fdf4;
-  font-size: 12px;
+  font-size: 11px;
   flex-shrink: 0;
   flex-wrap: wrap;
 }
@@ -561,7 +625,6 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   background: #f8fafc;
   color: var(--muted);
 }
-.draft-context-bar--mobile { display: none; }
 .draft-context-panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -579,6 +642,18 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   font-size: 13px;
   font-weight: 700;
 }
+.draft-context-panel--empty .draft-panel-body { display: none; }
+.draft-panel-empty {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  background: #f8fafc;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+.draft-panel-empty[hidden] { display: none; }
 .draft-stat-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -611,7 +686,7 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
 .draft-preview-list li { margin-bottom: 4px; }
 .chat-pane-title {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 650;
 }
 .chat-edit-chips {
@@ -633,12 +708,32 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
 @media (max-width: 959px) {
   .chat-main {
     grid-template-columns: 1fr;
+    gap: 10px;
   }
-  .draft-context-panel { display: none !important; }
-  .draft-context-bar--mobile { display: flex !important; }
   .chat-sidebar {
     width: 100%;
-    max-height: min(40vh, 280px);
+    max-height: min(36vh, 240px);
+  }
+  .chat-pane {
+    min-height: min(52vh, 520px);
+  }
+  .draft-context-bar {
+    display: none !important;
+  }
+  .draft-context-panel {
+    display: flex !important;
+    max-height: min(40vh, 300px);
+    width: 100%;
+  }
+  .draft-context-panel .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .chat-thread-menu-btn {
+    opacity: 1;
+  }
+  .chat-pane-head-actions {
+    flex-wrap: nowrap;
   }
 }
 @media (max-width: 860px) {
@@ -670,75 +765,97 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   list-style: none;
   display: flex;
   justify-content: center;
-  padding: 8px 0 16px;
+  padding: 4px 0 8px;
 }
 .chat-welcome {
-  max-width: 400px;
+  max-width: 420px;
   width: 100%;
   text-align: center;
-  padding: 8px 12px 4px;
+  padding: 4px 12px 0;
 }
 .chat-welcome__icon {
-  width: 56px;
-  height: 56px;
-  margin: 0 auto 16px;
-  border-radius: 16px;
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 10px;
+  border-radius: 12px;
   background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 50%, #f0fdf4 100%);
   border: 1px solid #bfdbfe;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 26px;
+  font-size: 20px;
   line-height: 1;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.12);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
 }
 .chat-welcome__title {
-  margin: 0 0 8px;
-  font-size: 17px;
+  margin: 0 0 6px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 .chat-welcome__lead {
-  margin: 0 0 20px;
-  font-size: 13px;
+  margin: 0 0 14px;
+  font-size: 12px;
   color: var(--muted);
-  line-height: 1.6;
+  line-height: 1.55;
 }
 .chat-welcome__steps {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin: 0 auto 12px;
+  max-width: 360px;
   text-align: left;
-  margin: 0 auto;
-  max-width: 320px;
+}
+@media (min-width: 520px) {
+  .chat-welcome { max-width: 520px; }
+  .chat-welcome__steps {
+    grid-template-columns: repeat(3, 1fr);
+    max-width: none;
+    gap: 10px;
+  }
 }
 .chat-welcome__step {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  gap: 8px;
+  padding: 10px 10px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid #e2e8f0;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: 11px;
   color: #334155;
-  box-shadow: var(--shadow);
+  line-height: 1.45;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+@media (min-width: 520px) {
+  .chat-welcome__step {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 12px 8px;
+  }
 }
 .chat-welcome__step-num {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
-  border-radius: 6px;
-  background: #eff6ff;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #dbeafe, #eff6ff);
   color: var(--primary);
   font-size: 11px;
   font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
+  border: 1px solid #bfdbfe;
+}
+.chat-welcome__step-text {
+  flex: 1;
+  min-width: 0;
 }
 .chat-welcome__hint {
-  margin: 18px 0 0;
+  margin: 0;
   font-size: 11px;
   color: #94a3b8;
 }
@@ -833,7 +950,7 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
 }
 .msg-elapsed { font-size: 11px; color: #94a3b8; margin-top: 4px; }
 .chat-composer-wrap {
-  padding: 12px 14px;
+  padding: 8px 12px;
   border-top: 1px solid var(--border);
   background: #fafbfc;
   flex-shrink: 0;
@@ -842,12 +959,12 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px 12px;
+  padding: 8px 10px;
   box-shadow: var(--shadow);
 }
 .chat-composer-card textarea {
   width: 100%;
-  min-height: 72px;
+  min-height: 54px;
   border: none;
   outline: none;
   resize: vertical;

@@ -1167,7 +1167,8 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).toContain('id="threadList"');
     expect(c.body).toContain("新规划会话");
     expect(c.body).not.toContain('id="editChips"');
-    expect(c.body).toContain('id="editDraftBtn"');
+    expect(c.body).toContain('id="editDraftBtnPanel"');
+    expect(c.body).not.toContain('id="editDraftBtn"');
     expect(c.body).toContain("/static/workbench-draft-grid.js");
   });
 

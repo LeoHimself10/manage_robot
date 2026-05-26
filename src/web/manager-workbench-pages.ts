@@ -538,19 +538,14 @@ export function renderManagerChatPage(params: {
       <div class="chat-pane-head">
         <div>
           <h2 class="chat-pane-title" id="paneTitle">${escapeHtml(initialTitle)}</h2>
-          <div class="chat-pane-sub" id="paneSub">与规划助手协作</div>
+          <div class="chat-pane-sub chat-pane-sub--hidden" id="paneSub">与规划助手协作</div>
         </div>
         <div class="chat-pane-head-actions">
           <span class="chat-thread-badge" id="paneBadge">${initialKind === "main" ? "主线程" : "侧会话"}</span>
-          <button type="button" class="btn btn-primary btn-sm" id="editDraftBtn" hidden>编辑草案表格</button>
         </div>
       </div>
       <div class="draft-context-bar is-muted" id="draftContextBar">
-        <span id="draftContextText">暂无草案 — 在下方描述任务开始规划</span>
-      </div>
-      <div class="draft-context-bar draft-context-bar--mobile is-muted" id="draftContextBarMobile" hidden>
-        <span id="draftContextTextMobile">暂无草案</span>
-        <button type="button" class="btn btn-primary btn-sm" id="editDraftBtnMobile" hidden>编辑表格</button>
+        <span id="draftContextText">暂无草案</span>
       </div>
       <section class="chat-message-pane">
         <div class="chat-stream" id="chatStream" aria-live="polite">
@@ -573,14 +568,17 @@ export function renderManagerChatPage(params: {
       </section>
     </div>
 
-    <aside class="draft-context-panel" id="draftContextPanel" hidden aria-label="草案上下文">
-      <h3>当前草案</h3>
-      <div class="draft-stat-grid">
-        <div class="draft-stat"><div class="lbl">子任务</div><div class="val" id="draftStatCount">0</div></div>
-        <div class="draft-stat"><div class="lbl">未指派</div><div class="val warn" id="draftStatUnassigned">0</div></div>
+    <aside class="draft-context-panel draft-context-panel--empty" id="draftContextPanel" aria-label="草案上下文">
+      <h3>本会话草案</h3>
+      <p class="draft-panel-empty" id="draftPanelEmpty">本会话暂无草案，在下方输入任务开始规划。</p>
+      <div class="draft-panel-body" id="draftPanelBody">
+        <div class="draft-stat-grid">
+          <div class="draft-stat"><div class="lbl">子任务</div><div class="val" id="draftStatCount">0</div></div>
+          <div class="draft-stat"><div class="lbl">未指派</div><div class="val warn" id="draftStatUnassigned">0</div></div>
+        </div>
+        <div class="draft-stat"><div class="lbl">最近截止</div><div class="val" id="draftStatDue" style="font-size:16px;">—</div></div>
+        <ul class="draft-preview-list" id="draftPreviewList"></ul>
       </div>
-      <div class="draft-stat"><div class="lbl">最近截止</div><div class="val" id="draftStatDue" style="font-size:16px;">—</div></div>
-      <ul class="draft-preview-list" id="draftPreviewList"></ul>
       <button type="button" class="btn btn-primary btn-sm" id="editDraftBtnPanel" hidden>编辑草案表格</button>
     </aside>
   </div>
@@ -597,6 +595,7 @@ export function renderManagerChatPage(params: {
   var activeHasDraft = false;
   var pendingOpenDraftEditor = ${JSON.stringify(initialOpenDraftEditor)};
   var sendInFlight = false;
+  var loadSeq = 0;
   var pendingElapsedTimer = null;
 
   function escapeHtml(s) {
@@ -673,15 +672,29 @@ export function renderManagerChatPage(params: {
     document.getElementById('paneTitle').textContent = meta.title || '智能规划助手';
     document.getElementById('paneBadge').textContent = meta.badge || (meta.kind === 'main' ? '主线程' : '侧会话');
     var sub = document.getElementById('paneSub');
-    if (sub) sub.textContent = meta.hasDraft ? '草案未发布 · 可继续对话或编辑表格' : '与规划助手协作';
+    if (sub) {
+      if (meta.hasDraft) {
+        sub.textContent = '草案未发布 · 可继续对话或编辑表格';
+        sub.classList.remove('chat-pane-sub--hidden');
+      } else {
+        sub.classList.add('chat-pane-sub--hidden');
+      }
+    }
   }
-  function updateEditDraftButtons(hasDraft) {
-    ['editDraftBtn', 'editDraftBtnMobile', 'editDraftBtnPanel'].forEach(function (id) {
-      var btn = document.getElementById(id);
-      if (btn) btn.hidden = !hasDraft;
-    });
+  function applyDraftPanelUi(hasDraft) {
+    activeHasDraft = hasDraft;
+    var btn = document.getElementById('editDraftBtnPanel');
+    if (btn) btn.hidden = !hasDraft;
     var panel = document.getElementById('draftContextPanel');
-    if (panel) panel.hidden = !hasDraft;
+    var emptyHint = document.getElementById('draftPanelEmpty');
+    var body = document.getElementById('draftPanelBody');
+    if (panel) panel.classList.toggle('draft-context-panel--empty', !hasDraft);
+    if (emptyHint) emptyHint.hidden = hasDraft;
+    if (body) body.hidden = !hasDraft;
+  }
+  function resetDraftPanelForThreadSwitch() {
+    applyDraftPanelUi(false);
+    updateDraftContext({ count: 0, unassigned: 0, nearestDue: '', preview: [] }, false);
   }
   function computeDraftSummary(draftData) {
     var rows = draftData.rows || [];
@@ -717,22 +730,32 @@ export function renderManagerChatPage(params: {
   }
   function updateDraftContext(summary, hasDraft) {
     var bar = document.getElementById('draftContextBar');
-    var barM = document.getElementById('draftContextBarMobile');
     var text = document.getElementById('draftContextText');
-    var textM = document.getElementById('draftContextTextMobile');
     if (!hasDraft) {
       if (bar) { bar.classList.add('is-muted'); bar.hidden = false; }
-      if (barM) { barM.classList.add('is-muted'); barM.hidden = false; }
-      if (text) text.textContent = '暂无草案 — 在下方描述任务开始规划';
-      if (textM) textM.textContent = '暂无草案';
+      if (text) text.textContent = '暂无草案';
+      var c0 = document.getElementById('draftStatCount');
+      var u0 = document.getElementById('draftStatUnassigned');
+      var d0 = document.getElementById('draftStatDue');
+      var list0 = document.getElementById('draftPreviewList');
+      if (c0) c0.textContent = '0';
+      if (u0) u0.textContent = '0';
+      if (d0) d0.textContent = '—';
+      if (list0) list0.innerHTML = '';
+      var emptyHint = document.getElementById('draftPanelEmpty');
+      if (emptyHint) {
+        emptyHint.textContent = activeThreadKind === 'side'
+          ? '本侧会话暂无草案，在下方输入任务开始规划。'
+          : '本会话暂无草案，在下方输入任务开始规划。';
+      }
+      applyDraftPanelUi(false);
       return;
     }
+    applyDraftPanelUi(true);
     var line = summary.count + ' 条子任务 · ' + summary.unassigned + ' 条未指派';
     if (summary.nearestDue) line += ' · 最近截止 ' + summary.nearestDue;
     if (bar) { bar.classList.remove('is-muted'); bar.hidden = false; }
-    if (barM) { barM.classList.remove('is-muted'); barM.hidden = false; }
     if (text) text.textContent = line;
-    if (textM) textM.textContent = line;
     var c = document.getElementById('draftStatCount');
     var u = document.getElementById('draftStatUnassigned');
     var d = document.getElementById('draftStatDue');
@@ -756,11 +779,11 @@ export function renderManagerChatPage(params: {
     box.innerHTML = '<li class="chat-welcome-wrap"><div class="chat-welcome">'
       + '<div class="chat-welcome__icon" aria-hidden="true">✦</div>'
       + '<h3 class="chat-welcome__title">开始规划</h3>'
-      + '<p class="chat-welcome__lead">在下方输入任务目标或粘贴需求，助手将协助拆解 WBS、点将与发布预览。</p>'
+      + '<p class="chat-welcome__lead">在下方描述任务目标或粘贴需求，助手将协助拆解 WBS、点将与发布预览。</p>'
       + '<div class="chat-welcome__steps">'
-      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">1</span><span>说清楚背景、对象、时间与交付物</span></div>'
-      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">2</span><span>确认草案后，用「编辑草案表格」批量改字段</span></div>'
-      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">3</span><span>点将齐全后再发布到工作台</span></div>'
+      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">1</span><span class="chat-welcome__step-text">说清楚背景、对象、时间与交付物</span></div>'
+      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">2</span><span class="chat-welcome__step-text">确认草案后用「编辑草案表格」批量改字段</span></div>'
+      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">3</span><span class="chat-welcome__step-text">点将齐全后再发布到工作台</span></div>'
       + '</div>'
       + '<p class="chat-welcome__hint"><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</p>'
       + '</div></li>';
@@ -789,9 +812,12 @@ export function renderManagerChatPage(params: {
     return msg.indexOf('No session found for thread') >= 0;
   }
   async function switchToMainThread() {
+    loadSeq += 1;
+    var mySeq = loadSeq;
     activeThreadId = 'main';
     activeThreadKind = 'main';
     history.replaceState(null, '', threadUrl('main', 'main'));
+    resetDraftPanelForThreadSwitch();
     var list = document.getElementById('threadList');
     if (list) {
       list.querySelectorAll('.chat-thread-item').forEach(function (x) {
@@ -800,7 +826,7 @@ export function renderManagerChatPage(params: {
     }
     setComposerStatus('', 'muted');
     await loadThreads('main');
-    await loadMessages();
+    await loadMessages(mySeq);
     focusComposer();
   }
   function renderMessageRows(msgs) {
@@ -881,17 +907,80 @@ export function renderManagerChatPage(params: {
     stripOpenDraftEditorParam();
     openDraftEditorModal();
   }
-  async function loadDraftSummary() {
+  async function loadDraftSummary(expectedSeq) {
+    if (expectedSeq === undefined) expectedSeq = loadSeq;
+    var threadAtStart = activeThreadId;
     if (!activeHasDraft) {
-      updateDraftContext({ count: 0, unassigned: 0, nearestDue: '', preview: [] }, false);
+      if (expectedSeq === loadSeq) {
+        updateDraftContext({ count: 0, unassigned: 0, nearestDue: '', preview: [] }, false);
+      }
       return;
     }
     try {
       var res = await fetch(draftQuery());
       var data = await res.json().catch(function () { return {}; });
+      if (expectedSeq !== loadSeq || activeThreadId !== threadAtStart) return;
       if (!res.ok || !data.ok) return;
       updateDraftContext(computeDraftSummary(data), true);
     } catch (e) { /* ignore */ }
+  }
+  function closeAllThreadMenus() {
+    document.querySelectorAll('.chat-thread-item.menu-open').forEach(function (el) {
+      el.classList.remove('menu-open');
+      var dd = el.querySelector('.chat-thread-dropdown');
+      if (dd) dd.hidden = true;
+    });
+  }
+  async function renameSideThread(threadId, currentTitle) {
+    var next = window.prompt('重命名会话（1–40 字）', currentTitle || '');
+    if (next === null) return;
+    next = String(next).trim();
+    if (!next) {
+      setComposerStatus('名称不能为空', 'err');
+      return;
+    }
+    if (next.length > 40) {
+      setComposerStatus('名称最多 40 字', 'err');
+      return;
+    }
+    try {
+      var res = await fetch('/api/workbench/conversation/thread', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId: threadId, threadKind: 'side', threadLabel: next })
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      setComposerStatus('', 'muted');
+      await loadThreads(activeThreadId);
+      if (String(activeThreadId) === String(threadId) && data.title) {
+        document.getElementById('paneTitle').textContent = data.title;
+      }
+    } catch (e) {
+      setComposerStatus(String(e && e.message ? e.message : e), 'err');
+    }
+  }
+  async function deleteSideThread(threadId, hasDraft) {
+    var msg = hasDraft
+      ? '确定删除该侧会话？未发布草案将一并丢失，且不可恢复。'
+      : '确定删除该侧会话？不可恢复。';
+    if (!window.confirm(msg)) return;
+    try {
+      var res = await fetch(
+        '/api/workbench/conversation/thread?thread=side&threadId=' + encodeURIComponent(threadId),
+        { method: 'DELETE' }
+      );
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      setComposerStatus('', 'muted');
+      if (String(activeThreadId) === String(threadId)) {
+        await switchToMainThread();
+      } else {
+        await loadThreads(activeThreadId);
+      }
+    } catch (e) {
+      setComposerStatus(String(e && e.message ? e.message : e), 'err');
+    }
   }
   async function loadThreads(selectId) {
     var list = document.getElementById('threadList');
@@ -907,21 +996,60 @@ export function renderManagerChatPage(params: {
       var pick = selectId || activeThreadId;
       list.innerHTML = threads.map(function (t) {
         var cls = 'chat-thread-item' + (t.pinned ? ' pinned' : '') + (String(t.threadId) === String(pick) ? ' active' : '');
+        var menuBtn = t.kind === 'side'
+          ? '<button type="button" class="chat-thread-menu-btn" aria-label="会话操作" data-thread-id="' + escapeHtml(t.threadId) + '" data-thread-title="' + escapeHtml(t.title) + '" data-has-draft="' + (t.hasDraft ? '1' : '0') + '">⋯</button>'
+          + '<div class="chat-thread-dropdown" hidden role="menu">'
+          + '<button type="button" class="chat-thread-dropdown-item" data-action="rename">重命名</button>'
+          + '<button type="button" class="chat-thread-dropdown-item chat-thread-dropdown-item--danger" data-action="delete">删除</button>'
+          + '</div>'
+          : '';
         return '<li class="' + cls + '" data-thread-id="' + escapeHtml(t.threadId) + '" data-kind="' + escapeHtml(t.kind) + '">'
           + '<div class="chat-thread-title-row"><span class="chat-thread-title">' + (t.pinned ? '📌 ' : '') + escapeHtml(t.title) + '</span>'
           + '<span class="chat-thread-badge">' + escapeHtml(t.badge || '') + '</span></div>'
-          + '<div class="chat-thread-preview">' + escapeHtml(t.preview || '') + '</div></li>';
+          + '<div class="chat-thread-preview">' + escapeHtml(t.preview || '') + '</div>'
+          + menuBtn + '</li>';
       }).join('');
       list.querySelectorAll('.chat-thread-item').forEach(function (el) {
-        el.addEventListener('click', function () {
+        el.addEventListener('click', function (ev) {
+          if (ev.target.closest('.chat-thread-menu-btn, .chat-thread-dropdown')) return;
+          closeAllThreadMenus();
           var tid = el.getAttribute('data-thread-id') || 'main';
           var kind = el.getAttribute('data-kind') || 'main';
+          if (tid === activeThreadId && kind === activeThreadKind) return;
+          loadSeq += 1;
+          var mySeq = loadSeq;
           activeThreadId = tid;
           activeThreadKind = kind;
           history.replaceState(null, '', threadUrl(tid, kind));
           list.querySelectorAll('.chat-thread-item').forEach(function (x) { x.classList.remove('active'); });
           el.classList.add('active');
-          void loadMessages();
+          resetDraftPanelForThreadSwitch();
+          void loadMessages(mySeq);
+        });
+        var menuBtn = el.querySelector('.chat-thread-menu-btn');
+        if (menuBtn) {
+          menuBtn.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            var wasOpen = el.classList.contains('menu-open');
+            closeAllThreadMenus();
+            if (!wasOpen) {
+              el.classList.add('menu-open');
+              var dd = el.querySelector('.chat-thread-dropdown');
+              if (dd) dd.hidden = false;
+            }
+          });
+        }
+        el.querySelectorAll('.chat-thread-dropdown-item').forEach(function (btn) {
+          btn.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            closeAllThreadMenus();
+            var tid = el.getAttribute('data-thread-id') || '';
+            var action = btn.getAttribute('data-action');
+            var title = menuBtn ? (menuBtn.getAttribute('data-thread-title') || '') : '';
+            var hasDraft = menuBtn && menuBtn.getAttribute('data-has-draft') === '1';
+            if (action === 'rename') void renameSideThread(tid, title);
+            else if (action === 'delete') void deleteSideThread(tid, hasDraft);
+          });
         });
       });
     } catch (e) {
@@ -931,22 +1059,25 @@ export function renderManagerChatPage(params: {
       if (retry) retry.addEventListener('click', function () { void loadThreads(selectId); });
     }
   }
-  async function loadMessages() {
-    if (sendInFlight) return;
+  async function loadMessages(expectedSeq) {
+    if (expectedSeq === undefined) expectedSeq = loadSeq;
     renderSkeleton();
     var stream = document.getElementById('chatStream');
     try {
       var res = await fetch(messagesQuery());
       var data = await res.json().catch(function () { return {}; });
+      if (expectedSeq !== loadSeq) return;
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      updatePaneHeader({ title: data.title, badge: data.badge, kind: data.kind, hasDraft: !!data.hasDraft });
-      activeHasDraft = !!data.hasDraft;
-      updateEditDraftButtons(activeHasDraft);
+      var hasDraft = !!data.hasDraft;
+      updatePaneHeader({ title: data.title, badge: data.badge, kind: data.kind, hasDraft: hasDraft });
+      applyDraftPanelUi(hasDraft);
       renderMessageRows(data.messages || []);
-      await loadDraftSummary();
+      await loadDraftSummary(expectedSeq);
+      if (expectedSeq !== loadSeq) return;
       maybeOpenDraftEditorFromUrl();
       scrollMessageStreamToBottom();
     } catch (e) {
+      if (expectedSeq !== loadSeq) return;
       if (activeThreadKind === 'side' && isThreadNotFoundError(e)) {
         renderThreadLostState();
         setComposerStatus('会话不存在或已过期', 'err');
@@ -993,7 +1124,7 @@ export function renderManagerChatPage(params: {
       });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      setComposerStatus('已同步最新回复', 'ok');
+      setComposerStatus('', 'muted');
       if (data.threadId) activeThreadId = data.threadId;
       if (data.kind) activeThreadKind = data.kind;
       clearPendingBubble();
@@ -1033,11 +1164,20 @@ export function renderManagerChatPage(params: {
         var res = await fetch('/api/workbench/conversation/new', { method: 'POST' });
         var data = await res.json().catch(function () { return {}; });
         if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        loadSeq += 1;
+        var mySeq = loadSeq;
         activeThreadId = data.threadId;
         activeThreadKind = 'side';
         history.replaceState(null, '', threadUrl(activeThreadId, 'side'));
+        resetDraftPanelForThreadSwitch();
+        updatePaneHeader({
+          title: data.title || '新规划会话',
+          badge: data.badge || '侧会话',
+          kind: 'side',
+          hasDraft: false
+        });
         await loadThreads(activeThreadId);
-        await loadMessages();
+        await loadMessages(mySeq);
         focusComposer();
       } catch (e) {
         setComposerStatus(String(e && e.message ? e.message : e), 'err');
@@ -1074,16 +1214,17 @@ export function renderManagerChatPage(params: {
       }
     });
   }
-  ['editDraftBtn', 'editDraftBtnMobile', 'editDraftBtnPanel'].forEach(function (id) {
-    var btn = document.getElementById(id);
-    if (btn) btn.addEventListener('click', openDraftEditorModal);
-  });
+  var editDraftPanelBtn = document.getElementById('editDraftBtnPanel');
+  if (editDraftPanelBtn) editDraftPanelBtn.addEventListener('click', openDraftEditorModal);
 
   document.getElementById('logoutBtn').addEventListener('click', async function () {
     var res = await fetch('/api/workbench/logout', { method: 'POST' });
     var data = {};
     try { data = await res.json(); } catch (e) {}
     window.location.href = (data && data.redirectTo) ? data.redirectTo : '/workbench';
+  });
+  document.addEventListener('click', function (ev) {
+    if (!ev.target.closest('.chat-thread-item')) closeAllThreadMenus();
   });
   void loadThreads(activeThreadId).then(function () { return loadMessages(); });
 })();

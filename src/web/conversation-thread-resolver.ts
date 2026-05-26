@@ -91,6 +91,35 @@ export function findMainThreadSession(userId: string): PlanSessionRow {
   return resolveCanonicalMainSession(userId);
 }
 
+export function renameSideThreadSession(
+  userId: string,
+  threadId: string,
+  threadLabel: string,
+): PlanSessionRow | undefined {
+  const label = threadLabel.trim();
+  if (!label || label.length > 40) {
+    throw new Error("threadLabel must be 1-40 characters");
+  }
+  const target = resolveConversationThread(userId, { threadKind: "side", threadId });
+  if (!target || !isSideThreadSession(target)) return undefined;
+  const updated: PlanSessionRow = {
+    ...target,
+    threadLabel: label,
+    updatedAt: new Date().toISOString(),
+  };
+  planSessionStore.save(updated);
+  return updated;
+}
+
+export function deleteSideThreadSession(userId: string, threadId: string): boolean {
+  const tid = threadId.trim();
+  if (!tid || tid === "main") return false;
+  const target = resolveConversationThread(userId, { threadKind: "side", threadId: tid });
+  if (!target || !isSideThreadSession(target)) return false;
+  planSessionStore.deleteByChatKeyHash(target.chatKeyHash);
+  return true;
+}
+
 export function createSideThreadSession(userId: string): PlanSessionRow {
   const threadId = randomUUID();
   const chatKey = sideThreadChatKey(userId, threadId);

@@ -56,4 +56,26 @@ describe("conversation-present thread titles", () => {
     expect(item.title).toBe(label);
     expect(item.badge).toBe("侧会话");
   });
+
+  it("inferSideThreadTitle prefers user-renamed label over first message", () => {
+    const title = inferSideThreadTitle(
+      baseSession({
+        threadKind: "side",
+        threadLabel: "我的专项规划",
+        conversationHistory: [{ role: "user", content: "帮我规划 Q2 质量复盘" }],
+      }),
+    );
+    expect(title).toBe("我的专项规划");
+  });
+
+  it("buildThreadListItem exposes hasDraft when latestDraft has tasks", () => {
+    const item = buildThreadListItem(
+      baseSession({
+        threadKind: "side",
+        threadId: "side-2",
+        latestDraft: { tasks: [{ id: "t1", title: "子任务" }] },
+      }),
+    );
+    expect(item.hasDraft).toBe(true);
+  });
 });

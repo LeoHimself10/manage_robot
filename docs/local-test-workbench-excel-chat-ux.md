@@ -70,17 +70,22 @@ npm run dev:manager-chat:keep
 
 | ID | 检查项 | 操作 | 预期 |
 |----|--------|------|------|
-| C1 | 三栏布局（宽屏） | 浏览器宽度 ≥ 960px | 左：会话列表；中：对话；右：**当前草案** 面板 |
-| C2 | 紧凑顶栏 | 看页面顶部 | 仅标题 + 导航，无长说明段落 |
-| C3 | 草案摘要条 | 进入主线程 | 显示类似「5 条子任务 · 3 条未指派 · 最近截止 2026-06-10」 |
+| C1 | 三栏布局（宽屏） | 浏览器宽度 ≥ 960px | 左：会话列表；中：对话；右：**本会话草案** 面板 |
+| C2 | 压缩上下栏 | 看 pane 顶栏 + 底部输入区 | 顶栏更矮；无草案时副标题隐藏；输入框约 54px 高；消息区纵向空间更大 |
+| C3 | 草案摘要条 | 进入主线程 | 有草案：「N 条子任务 · …」；无草案：「暂无草案」 |
 | C4 | 右栏统计 | 看右侧草案面板 | 子任务 5、未指派 3、最近截止、前 5 条预览列表 |
 | C5 | 唯一编辑按钮 | 搜索页面内「编辑草案表格」 | **仅 1 处 Primary**（PaneHead 或右栏；窄屏 mobile 条上 1 个） |
+| C5b | 发送成功无绿条 | 发送成功一轮 | Composer **不**出现绿色「已同步」；仅 busy/错误有提示 |
+| C5c | 草案随会话 | 主线程有草案 → 新建侧会话 | 右栏/摘要条先清空；切回主线程后恢复主线程草案，不串台 |
 
 ### 3.2 新侧会话空状态与侧会话恢复
 
 | ID | 检查项 | 操作 | 预期 |
 |----|--------|------|------|
-| C6 | 新侧会话空状态 | 点「+ 新规划会话」 | 居中欢迎区（图标 + 三步引导），**无**快捷 chip；不出现红色 404 |
+| C6 | 新侧会话空状态 | 点「+ 新规划会话」 | 居中紧凑欢迎（图标 + 一行说明 + 快捷键），**无**快捷 chip；不出现红色 404 |
+| C6d | 侧会话重命名 | 侧会话项 hover → **⋯** → 重命名 | 列表与 pane 标题更新；主线程无 ⋯ 菜单 |
+| C6e | 侧会话删除 | ⋯ → 删除 → 确认 | 列表移除；删当前会话则回 `?thread=main` 且可继续对话 |
+| C6f | 删有草案侧会话 | 侧会话有未发布草案时删除 | 确认文案提示草案将丢失 |
 | C6b | 侧会话发消息后刷新 | 新侧会话发一条消息后 F5 | 消息仍可加载；URL `thread=side&threadId=…` 有效 |
 | C6c | 失效侧会话 | 重启 `dev:manager-chat`（清库）后打开旧侧会话 URL | 显示「找不到该会话」卡片；可点「返回主线程」 |
 | C7 | 输入引导 | 看空状态底部 | 显示 `Enter` 发送 / `Shift+Enter` 换行提示 |
@@ -142,7 +147,7 @@ npm run dev:manager-chat:keep
 ```powershell
 npm run build:workbench-draft-grid
 npm run lint:inline-pages
-npx vitest run tests/web/workbench-contact-combo.test.ts tests/web/draft-excel-grid.test.ts
+npx vitest run tests/web/workbench-contact-combo.test.ts tests/web/draft-excel-grid.test.ts tests/web/manager-conversation-side-thread.test.ts tests/infra/conversation-present.test.ts
 ```
 
 全量：

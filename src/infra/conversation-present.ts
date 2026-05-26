@@ -58,10 +58,28 @@ export function formatSideThreadDefaultTitle(at: Date = new Date()): string {
   return `新规划会话 · ${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")}`;
 }
 
+/** True when a draft payload has at least one subtask in tasks[]. */
+export function draftHasTasks(draft: unknown): boolean {
+  const tasks = (draft as { tasks?: unknown[] } | undefined)?.tasks;
+  return Array.isArray(tasks) && tasks.length > 0;
+}
+
+/** True when session has at least one subtask in latestDraft.tasks. */
+export function planSessionHasDraft(session: PlanSession): boolean {
+  return draftHasTasks(session.latestDraft);
+}
+
+function sessionHasDraft(session: PlanSession): boolean {
+  return planSessionHasDraft(session);
+}
+
 export function inferSideThreadTitle(session: PlanSession): string {
+  const label = String(session.threadLabel ?? "").trim();
+  if (label && !label.startsWith("新规划会话 ·")) {
+    return truncateConversationPreview(label, 56);
+  }
   const firstUser = firstUserMessageContent(session);
   if (firstUser) return truncateConversationPreview(firstUser, 56);
-  const label = String(session.threadLabel ?? "").trim();
   if (label) return label;
   const createdAt = session.createdAt ? Date.parse(session.createdAt) : NaN;
   if (Number.isFinite(createdAt)) {
@@ -81,6 +99,7 @@ export interface ThreadListItem {
   updatedAt?: string;
   turns: number;
   knownFacts: number;
+  hasDraft: boolean;
 }
 
 export function buildThreadListItem(session: PlanSession): ThreadListItem {
@@ -111,6 +130,7 @@ export function buildThreadListItem(session: PlanSession): ThreadListItem {
       updatedAt: session.updatedAt,
       turns,
       knownFacts,
+      hasDraft: sessionHasDraft(session),
     };
   }
 
@@ -125,6 +145,7 @@ export function buildThreadListItem(session: PlanSession): ThreadListItem {
     updatedAt: session.updatedAt,
     turns,
     knownFacts,
+    hasDraft: sessionHasDraft(session),
   };
 }
 
