@@ -27,7 +27,7 @@ function workbenchEnforceActionGuards(): boolean {
 
 function buildManagerTasksPortfolioClientJs(initialProjectId: string): string {
   return `
-  var WB_FILTER_PROJECT_ID = '${initialProjectId.replace(/'/g, "")}';
+  WB_FILTER_PROJECT_ID = '${initialProjectId.replace(/'/g, "")}';
   async function loadProjectFilterOptions() {
     var sel = document.getElementById('filterProject');
     if (!sel) return;
@@ -197,6 +197,8 @@ export function renderManagerTasksPage(params: {
   ${buildWorkbenchContactComboClientJs()}
   wbBindViewSwitchLink('navMyTasks', 'employee', '/workbench/employee?view=new');
   var WB_ENFORCE_ACTION_GUARDS = ${workbenchEnforceActionGuards() ? "true" : "false"};
+  var WB_PORTFOLIO = ${portfolio ? "true" : "false"};
+  var WB_FILTER_PROJECT_ID = '';
   if (WB_ENFORCE_ACTION_GUARDS) {
     var mgrWrap = document.getElementById('mgrReassignConfirmWrap');
     if (mgrWrap) mgrWrap.style.display = 'flex';
