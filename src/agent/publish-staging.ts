@@ -36,7 +36,7 @@ export function isPublishConfirmUserMessage(userMessage: string): boolean {
 }
 
 const FALSE_PUBLISH_CLAIM =
-  /(任务|本任务|该任务)?(已|已成功|已正式)?(发布|派发|下发)(成功|完成|了)?[。！!]?/;
+  /(任务|本任务|该任务)?(已|已成功|已正式)?(发布|派发|下发|发放)(成功|完成|了)?[。！!]?/;
 
 /**
  * 模型输出是否疑似在「自称已发布」。只在调用方已知 `publish_task` 实际未被调用时使用。
