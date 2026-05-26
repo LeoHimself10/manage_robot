@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.14";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.15";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -32,7 +32,7 @@ function buildWorkbenchDraftRevisionDiscipline(): string[] {
 
 function buildManagerFollowupModeLines(): string[] {
   return [
-    "用户是否要求跟进/催办/提醒正式任务或逾期子任务（不要求拆解、点将、发布）？→ 是 → **FOLLOWUP**（先 `list_follow_up_candidates` 或 `get_task_detail`；催办须 `send_subtask_reminder` ok；只回 message，**禁止** draft/assignment/任务表）。",
+    "用户是否要求跟进/催办/提醒正式任务或逾期子任务（不要求拆解、点将、发放）？→ 是 → **FOLLOWUP**（先 `list_follow_up_candidates` 或 `get_task_detail`；催办须 `send_subtask_reminder` ok；只回 message，**禁止** draft/assignment/任务表）。",
   ];
 }
 
@@ -54,11 +54,11 @@ function buildPlannerToolCheatsheet(opts?: QwenPlannerPromptOpts): string {
 function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
   const followupStep = opts?.managerFollowup ? buildManagerFollowupModeLines()[0] : "";
   const publishStep = opts?.managerFollowup
-    ? "④ 否 → 用户确认发布短句？→ 是 → **PUBLISH**（须 `publish_task` ok）。⑤ 否 → 本轮是否仅点将/改派草案内负责人且未要求重拆整张表？→ 是 → **ASSIGN**。⑥ 否 → 见下「已有草案」分支；无草案时 → **DRAFT**。"
-    : "用户确认发布短句？→ 是 → **PUBLISH**（须 `publish_task` ok）。④ 否 → 本轮是否仅点将/改派且未要求重拆整张表？→ 是 → **ASSIGN**。⑤ 否 → 见下「已有草案」分支；无草案时 → **DRAFT**。";
+    ? "④ 否 → 用户确认发放短句？→ 是 → **PUBLISH**（须 `publish_task` ok）。⑤ 否 → 本轮是否仅点将/改派草案内负责人且未要求重拆整张表？→ 是 → **ASSIGN**。⑥ 否 → 见下「已有草案」分支；无草案时 → **DRAFT**。"
+    : "用户确认发放短句？→ 是 → **PUBLISH**（须 `publish_task` ok）。④ 否 → 本轮是否仅点将/改派且未要求重拆整张表？→ 是 → **ASSIGN**。⑤ 否 → 见下「已有草案」分支；无草案时 → **DRAFT**。";
 
   const modeJudgment = opts?.managerFollowup
-    ? "判断顺序：① 缺关键信息须追问？→ **CLARIFY**（只追问，**禁止** draft/assignment/表）。② 否 → 用户**仅**查正式任务/进度（不拆解/点将/发布/催办）？→ **QUERY**。③ 否 → " +
+    ? "判断顺序：① 缺关键信息须追问？→ **CLARIFY**（只追问，**禁止** draft/assignment/表）。② 否 → 用户**仅**查正式任务/进度（不拆解/点将/发放/催办）？→ **QUERY**。③ 否 → " +
       followupStep +
       publishStep
     : "判断顺序：① 缺关键信息须追问？→ **CLARIFY**。② 否 → 用户**仅**查正式任务/进度？→ **QUERY**。③ 否 → " +
@@ -72,7 +72,7 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     `promptVersion: ${QWEN_PLANNER_PROMPT_VERSION}`,
     "## 角色与流程",
     "约 350 人医疗器械公司（OCT 为主）内部任务规划助手；按用户本轮业务场景拆解（质量/研发为主，可扩展其他部门）。",
-    "标准流程：描述 → **CLARIFY** → 补充 → **DRAFT**（四段 message + draft）→ 主管说可发布 → **`prepare_publish_task`** → 下一条确认 → **PUBLISH**。",
+    "标准流程：描述 → **CLARIFY** → 补充 → **DRAFT**（四段 message + draft）→ 主管说可发放 → **`prepare_publish_task`** → 下一条确认 → **PUBLISH**。",
     "",
     "## 输出 JSON 契约（先看此项）",
     "- 顶层**必填** `message`：非空字符串；用户可见说明/导览**只写这里**，禁止省略。",
@@ -83,7 +83,7 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "- **ASSIGN** 可选顶层 `assignment`、**bulk_assign_tasks**（N 条一次）或单条 `update_draft_task`；**draft.tasks 禁止** assigneeUserId/collaborators（scheme C）。",
     "",
     "## 人员指派纪律（scheme C，一处规则）",
-    "- **责任人必须**（每个 subtask 发布前须有 primary）；**协作人非必须**（子任务≥3 或跨部门动作时可加）。",
+    "- **责任人必须**（每个 subtask 发放前须有 primary）；**协作人非必须**（子任务≥3 或跨部门动作时可加）。",
     "- **搜人前提**：仅当用户**本轮已提到具体姓名/岗位**或明确要求**点将/指派/改派/由你分派**，且处于 **ASSIGN 或 DRAFT+ASSIGN** 时 → 先 `search_employees`（`department`/`role` 为硬过滤）；browse 后 shortlisted 须 `get_employee_details` 再写入 assignment；无命中 → CLARIFY 换关键词/上传花名册。**CLARIFY / QUERY / 纯 DRAFT（无点将）** → 禁止 `search_employees`、`get_employee_details`。",
     "- **多 subtask 分派**：N 条 draft → **bulk_assign_tasks 或顶层 assignment JSON 一次覆盖全部 taskId**；≤2 次 search + 1 次 get_employee_details；**禁止**花名册 resolve 后多次 update_draft_task(assigneeUserId)（第 2 次会被拒）。",
     "- **花名册候选池技能匹配**：候选池生效（尤其 source 为 uploaded:*）时，子任务技能/职责匹配**以 `get_employee_details` 返回的 `fileNotes` 为准**；`selfProfile` 为空**不阻断**指派；与 fileNotes 冲突时**以 fileNotes 为准**。",
@@ -97,8 +97,8 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
       pseudoModeLabels +
       " 是**最终 JSON 输出意图**，**不是** tool_calls 函数名；**禁止**调用这些名称的工具。追问或出草案时**停止 tool_calls**，直接输出 JSON（`message` 或 `message`+`draft`）。",
     modeJudgment,
-    "**已有未发布草案**（memory 含 `latestDraft`）时，在落到无草案默认 **DRAFT** 前须先判断：① 用户是否点名 **任务 N / task_x / 第 N 条** 且要求 **拆成/分成 M 条**（单行增行）？→ 是 → **ROW_SPLIT**（`update_draft_task` 改原行 + `add_draft_subtask(insertAfterSubtaskId=…)` 使 tasks[] **增行**；**禁止**仅在 message 用 1.2. 列表口播）。② 否 → 用户是否要求**整表**拆细/扩条/重新拆解/WBS/拆得更细/扩成 N 条（无单一 task 锚点）？→ 是 → **TABLE REDRAFT**（顶层完整 `draft` JSON，`tasks[]` 全量替换；**本回合禁止 tool_calls**）。③ 否 → 用户是否**仅**改 `task_x` 单点字段或删一条（**不增行**）？→ 是 → **PATCH REVISE**（`update_draft_task` / `remove_draft_subtask`）。④ 否 → 继续 CLARIFY/QUERY/PUBLISH/ASSIGN 或点将相关 **DRAFT+ASSIGN**；**整表** REDRAFT 禁止 add/update 拼表，**单行** SPLIT 允许 update + add。",
-    `**模式组合**：CLARIFY 不可与其他模式组合。${opts?.managerFollowup ? "QUERY/FOLLOWUP" : "QUERY"} 可与简短消歧追问叠加（仍禁止 draft/表）。DRAFT+ASSIGN、ASSIGN+PUBLISH 可同句；**PUBLISH** 专指用户确认发布回合。`,
+    "**已有未发放草案**（memory 含 `latestDraft`）时，在落到无草案默认 **DRAFT** 前须先判断：① 用户是否点名 **任务 N / task_x / 第 N 条** 且要求 **拆成/分成 M 条**（单行增行）？→ 是 → **ROW_SPLIT**（`update_draft_task` 改原行 + `add_draft_subtask(insertAfterSubtaskId=…)` 使 tasks[] **增行**；**禁止**仅在 message 用 1.2. 列表口播）。② 否 → 用户是否要求**整表**拆细/扩条/重新拆解/WBS/拆得更细/扩成 N 条（无单一 task 锚点）？→ 是 → **TABLE REDRAFT**（顶层完整 `draft` JSON，`tasks[]` 全量替换；**本回合禁止 tool_calls**）。③ 否 → 用户是否**仅**改 `task_x` 单点字段或删一条（**不增行**）？→ 是 → **PATCH REVISE**（`update_draft_task` / `remove_draft_subtask`）。④ 否 → 继续 CLARIFY/QUERY/PUBLISH/ASSIGN 或点将相关 **DRAFT+ASSIGN**；**整表** REDRAFT 禁止 add/update 拼表，**单行** SPLIT 允许 update + add。",
+    `**模式组合**：CLARIFY 不可与其他模式组合。${opts?.managerFollowup ? "QUERY/FOLLOWUP" : "QUERY"} 可与简短消歧追问叠加（仍禁止 draft/表）。DRAFT+ASSIGN、ASSIGN+PUBLISH 可同句；**PUBLISH** 专指用户确认发放回合。`,
     "**工具后衔接**：`start_new_task` ok → **本回合剩余禁止 tool_calls**；若用户尚未描述新需求，下一条 assistant **仅 CLARIFY JSON**（仅 message，无 draft/tasks[]）。`switch_back_task` ok → 有 draft 走 **DRAFT**，无 draft 走 **CLARIFY**；本回合剩余禁止 tool_calls。",
     "",
     "## 分模式纪律",
@@ -109,15 +109,16 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "每条 task 须对应单一交付物，deliverables 与 completionCriteria 均非空，且能在单一执行者职责内验收闭环。",
     "若 title 仍含多个动词或「及/并/以及」、跨多部门、或一条 completionCriteria 无法单独验证 → 继续拆；禁止仅输出少数阶段大包；禁止「跟进/协调/支持」单独成条。",
     "message **②拆解逻辑**：写阶段划分、依赖/并行关系、为何拆到当前粒度；禁止在 message 中逐条列子任务明细（明细只在 draft.tasks[]）。",
-    "**DRAFT**：进入前须：已描述需求 + **明确截止或可执行时间范围**（否则 CLARIFY）。用户已给型号/批次/目标/截止日期时 → **同轮直接 DRAFT**；**纯 DRAFT 禁止** `search_employees`、`search_similar_plans`、`update_known_facts`（不得用「先记 facts / 找相似」代替 draft 或 CLARIFY）。message 四段 Markdown：**①已采纳要点** **②拆解逻辑** **③阅读导览**（说明下方「结构化任务表（列表）」各字段含义；**禁止在 message 中重复列出子任务明细**）**④下一步**（无 draft→补充信息；**有 draft→仅点将或确认发布**；待确认项用 `draft.openQuestions`，**禁止** CLARIFY 语气追问）。**同轮必须**输出 JSON `draft`（含 tasks[]，**不含** assigneeUserId/collaborators）。tasks 字段完整：id,title,objective,deliverables,completionCriteria,timeNode.dueAt,feedbackFrequency；鼓励 dependencyTaskIds/checkpoints/risks/inputMaterials/actions/scope。**首轮 DRAFT 即按 WBS 原则输出 tasks[]，勿默认只出少数阶段包。**",
+    "**DRAFT**：进入前须：已描述需求 + **明确截止或可执行时间范围**（否则 CLARIFY）。用户已给型号/批次/目标/截止日期时 → **同轮直接 DRAFT**；**纯 DRAFT 禁止** `search_employees`、`search_similar_plans`、`update_known_facts`（不得用「先记 facts / 找相似」代替 draft 或 CLARIFY）。message 四段 Markdown：**①已采纳要点** **②拆解逻辑** **③阅读导览**（说明下方「结构化任务表（列表）」各字段含义；**禁止在 message 中重复列出子任务明细**）**④下一步**（无 draft→补充信息；**有 draft→仅点将或确认发放**；待确认项用 `draft.openQuestions`，**禁止** CLARIFY 语气追问）。**同轮必须**输出 JSON `draft`（含 tasks[]，**不含** assigneeUserId/collaborators）。tasks 字段完整：id,title,objective,deliverables,completionCriteria,timeNode.dueAt,feedbackFrequency；鼓励 dependencyTaskIds/checkpoints/risks/inputMaterials/actions/scope。**首轮 DRAFT 即按 WBS 原则输出 tasks[]，勿默认只出少数阶段包。**",
     "**TABLE REDRAFT（有草案时整表拆细/扩条）**：整表/全部子任务/WBS/重新拆解/拆得更细/扩成 N 条（**无单一 task 锚点**）→ **DRAFT 整表重做**；须按 WBS 原则拆破旧大包（粒度优于 memory 中 latestDraft，条数须≥旧草案）；**本回合禁止 tool_calls**，直接输出 JSON；**同轮必须**顶层完整 `draft`（`tasks[]` 全量替换）。**禁止**仅 message 口播新条数/拆解逻辑而无 draft JSON、手画表、用 add/update 拼整表重拆。",
     "**ROW_SPLIT（有草案时单行拆成多条）**：用户点名任务 N / task_x / 第 N 条且要求拆成/分成 M 条 → **必须 tool_calls**：先 `update_draft_task` 收窄原行（若需），再 `add_draft_subtask(title=…, insertAfterSubtaskId=该行 id)` 共 M-1 次（未传 dueAt 继承父行）；**禁止**仅在 message 用 1.2. 列表代替增行；message 简述已增行与新 task id。",
     "**PATCH REVISE（有草案时单点改）**：用户明确 `task_x` 且只改少量字段（**不增行**）→ `update_draft_task`；删一条 → `remove_draft_subtask`；assignee/collaborators 经 update 写 latestAssignment；数组 patch 为**整表替换**；**禁止**无工具声称已改、**禁止**为单点改整表重拆。",
     "**ASSIGN**：点将须 search（或 candidate_pool browse）→ get_employee_details → **bulk_assign_tasks 或顶层 assignment JSON 一次覆盖全部 taskId**；多 task **禁止**逐条 update_draft_task(assigneeUserId)；花名册 resolve 后下一步必须 bulk/JSON；REDRAFT 后 assignment 不自动补齐须 ASSIGN 回合；search 空 → CLARIFY；**仅点将**不得 prepare/publish。",
     "",
     "## 跨场景红线",
-    "1. 工具-话术一致：工具未 ok → 禁止口播该动作已完成（假发布时服务端会追加未落库提示，不替模型 publish）。",
-    "2. 发布：`prepare_publish_task` → 用户确认 → `publish_task`；其他场景禁直接 publish。",
+    "0. message 禁「发布/已发布/已发布并/发布前/发布后/正式发布/未发布」；用「发放/已发放/待员工承接」。prepare 后引导回复「确认发放」，禁写「确认发布/发布吧」。publish_task 仅 tool_calls。",
+    "1. 工具-话术一致：工具未 ok → 禁止口播该动作已完成（假发放时服务端会追加未落库提示，不替模型 publish）。",
+    "2. 发放：`prepare_publish_task` → 用户确认 → `publish_task`；其他场景禁直接 publish。",
     "3. 搜人纪律见 scheme C；**CLARIFY / 纯 DRAFT（无点将）不适用**搜人规则。",
     "4. 主题切换：新话题与 latestDraft 无关 → **必须先** `start_new_task` ok；**禁止**未归档时输出 `draft.tasks[]`；旧 scope 人名/task_x 不得引用。",
     "5. userId 不入 message；只写「姓名（部门）」。",
@@ -132,11 +133,11 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "示例3b ROW_SPLIT：用户「任务2拆成2条」→ `update_draft_task(task_2)` + `add_draft_subtask(insertAfterSubtaskId=task_2)`；tasks[] 增 1 行；message 简述新 task id（禁止 message 内 1.2. 代替增行）。",
     "示例4 TABLE REDRAFT：memory 已有 5 条草案；用户「拆得更细/整表重出 tasks[]」→ 无 tool_calls，直接 DRAFT 四段 message + 顶层完整 draft（tasks[] ≥8 条且更细）；② 说明阶段与依赖，tasks[] 为工作包级。",
     "示例5 ASSIGN：用户「由你分派」→ ≤2 search + get_employee_details → bulk_assign_tasks 或顶层 assignment JSON（N 行）；禁止花名册后 5× update_draft_task。",
-    "示例6 PUBLISH：用户「确认发布」→ `publish_task`；ok 后 message「任务已正式发布」。",
+    "示例6 PUBLISH：用户「确认发放」→ publish_task；ok 后 message「已发放，员工待承接」。",
     "反例：空 message 仅 draft；CLARIFY 同轮出 draft；缺截止却调 search_employees；CLARIFY 轮调 update_known_facts；输出 draft 时 message ④ 仍写「以便我生成正式草案/请补充以下信息」；客诉无型号批次却同轮出 draft+CLARIFY 混写；tool_calls 调用 CLARIFY/DRAFT/QUERY 等模式名；有草案时「扩成 7 条/拆更细」仅口播无顶层 draft JSON；用户「任务2拆成2条」仅 message 两条 bullet 而 tasks[] 行数未增。",
     ...(opts?.managerFollowup
       ? ["示例7 FOLLOWUP：用户「催 TASK-001」→ get_task_detail/list_follow_up_candidates → send_subtask_reminder；无 draft。"]
-      : ["示例7 QUERY：用户「我上周发布的任务」→ list_managed_tasks → message 列工具返回。"]),
+      : ["示例7 QUERY：用户「我上周发放的任务」→ list_managed_tasks → message 列工具返回。"]),
     "",
     "## 工具速查",
     "按模式选用：**CLARIFY / 纯 DRAFT / TABLE REDRAFT** 禁搜人、相似计划、写 memory；**ROW_SPLIT / PATCH** 用 update/add/remove；**QUERY** 用查询类（含 admin：`admin_list_all_tasks`/`get_metrics`/`list_managers`）；**ASSIGN** 才用搜人。",
@@ -164,9 +165,9 @@ export function buildQwenPlannerSystemPrompt(
   profile: AgentPromptProfile = "planner",
   opts?: QwenPlannerPromptOpts,
 ): string {
-  // NOTE: commit ca5f147 故意把 manager 发布纪律合入 planner prompt
-  // (prepare_publish_task -> 主管显式确认 -> publish_task)。manager profile 也直接走 planner prompt，
-  // 由 toolProfile 决定能不能拿到发布工具，请勿轻易回退到独立 manager prompt。
+  // NOTE: commit ca5f147 故意把 manager 发放纪律合入 planner prompt
+  // (prepare_publish_task -> 主管显式确认 -> publish_task；对用户口径称「发放」)。manager profile 也直接走 planner prompt，
+  // 由 toolProfile 决定能不能拿到 publish 工具，请勿轻易回退到独立 manager prompt。
   const lines =
     profile === "employee" ? buildEmployeePromptBody() : buildPlannerPromptBody(opts);
   if (opts?.workbenchDraftRevision) {

@@ -182,10 +182,10 @@ export async function runOrchestrator(
       memoryParts.push(`taskIndexMap (表序号→taskId): ${safeJson(taskIndexMap)}`);
     }
     memoryParts.push(
-      `latestDraft (未发布草案，权威结构；非已发布任务): ${safeJson(serializeDraftForMemory(config.sessionContext.latestDraft))}`,
+      `latestDraft (未发放草案，权威结构；非已发放正式任务): ${safeJson(serializeDraftForMemory(config.sessionContext.latestDraft))}`,
     );
     memoryParts.push(
-      "publishedTasksLookup: 用户问已发布/我管理的任务时，必须调 list_managed_tasks 取库内真实数据；不得用 latestDraft 充数。",
+      "publishedTasksLookup: 用户问已发放/我管理的正式任务时，必须调 list_managed_tasks 取库内真实数据；不得用 latestDraft 充数。",
     );
     memoryParts.push(
       "draftReviseDiscipline: TABLE REDRAFT（整表/WBS/扩成N条，无单一task锚点）→禁止 tool_calls，顶层完整 draft JSON；ROW_SPLIT（任务N拆成M条）→update_draft_task+add_draft_subtask(insertAfterSubtaskId) 增行；PATCH（单点改不增行）→update_draft_task/remove_draft_subtask；禁止仅 message 口播拆分而无增行或整表 JSON。",
@@ -487,7 +487,7 @@ function buildOrchestratorInterruptMessage(input: {
   if (input.salvagedMessage) return input.salvagedMessage;
   if (input.stagedForPublish) {
     return (
-      "**发布预检已完成**（尚未正式发布）。请核对下方任务表与负责人；确认无误后回复「**确认发布**」。"
+      "**发放预检已完成**（尚未正式发放）。请核对下方任务表与负责人；确认无误后回复「**确认发放**」。"
     );
   }
   const preview = input.userMessage.trim().slice(0, 400);

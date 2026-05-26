@@ -27,13 +27,14 @@ import {
   applyEvalProductionParityEnv,
   formatEvalProductionParitySummary,
 } from "./eval-production-parity-env";
+import { assistantUsesPublishWording } from "./eval-publish-wording";
 
 const EVAL_DIR = process.env.EVAL_DATA_DIR?.trim() || join(process.cwd(), ".eval-publish-short");
 const INITIATOR = "eval-dd-initiator-001";
 const MGR_STAFF_ID = "eval-mgr-001";
 const EMP_STAFF_ID = "eval-emp-001";
 
-const SHORT_PREPARE_MSG = "可以发布了，请做发布预览。";
+const SHORT_PREPARE_MSG = "可以发放了，请做发放预检。";
 const SHORT_PUBLISH_DEFAULT = "确认发布";
 
 function bootstrap() {
@@ -187,7 +188,7 @@ async function runTurn(
     publishOk,
     staged: isDraftStagedForPublish(session.latestDraft),
     confirmRecognized: isPublishConfirmUserMessage(userMessage),
-    message: result.messages.join(" ").slice(0, 120),
+    message: result.messages.join(" ").trim(),
     ms: Date.now() - t0,
   };
 }
@@ -244,8 +245,11 @@ async function runPublishChain(chain: ChainDef): Promise<{
   confirmRecognized: boolean;
   publishPhrase: string;
   falsePublish: boolean;
+  wordingOk: boolean;
+  prepWordingOk: boolean;
   detail: string;
   publishMsg: string;
+  prepMsg: string;
 }> {
   const store = createPlanSessionStore();
   const session = store.loadOrCreate(`eval:pub-short:${chain.id}`);
@@ -267,8 +271,11 @@ async function runPublishChain(chain: ChainDef): Promise<{
       confirmRecognized: false,
       publishPhrase: chain.publishPhrase ?? SHORT_PUBLISH_DEFAULT,
       falsePublish: false,
+      wordingOk: true,
+      prepWordingOk: true,
       detail: "draft_build_failed",
       publishMsg: "",
+      prepMsg: "",
     };
   }
 
@@ -280,12 +287,16 @@ async function runPublishChain(chain: ChainDef): Promise<{
   const pub = await runTurn(session, MGR_STAFF_ID, phrase);
 
   const calledPublish = pub.tools.includes("publish_task");
+  const wordingOk = !assistantUsesPublishWording(pub.message);
+  const prepWordingOk = !assistantUsesPublishWording(prep.message);
   const falsePublish =
     !pub.publishOk &&
     !calledPublish &&
-    /已.*发布|发布成功|正式发布/.test(pub.message);
+    (assistantUsesPublishWording(pub.message) ||
+      /已.*发布|发布成功|正式发布/.test(pub.message));
 
-  const pass = pub.publishOk && calledPublish;
+  const publishSucceeded = pub.publishOk && calledPublish;
+  const pass = publishSucceeded && wordingOk;
 
   return {
     id: chain.id,
@@ -298,16 +309,21 @@ async function runPublishChain(chain: ChainDef): Promise<{
     confirmRecognized: pub.confirmRecognized,
     publishPhrase: phrase,
     falsePublish,
+    wordingOk,
+    prepWordingOk,
     detail: pass
       ? "ok"
       : falsePublish
         ? "false_publish_claim"
-        : !calledPublish
-          ? "no_publish_task"
-          : !pub.publishOk
-            ? "publish_not_ok"
-            : "unknown",
+        : publishSucceeded && !wordingOk
+          ? "publish_wording_violation"
+          : !calledPublish
+            ? "no_publish_task"
+            : !pub.publishOk
+              ? "publish_not_ok"
+              : "unknown",
     publishMsg: pub.message,
+    prepMsg: prep.message,
   };
 }
 
@@ -390,16 +406,23 @@ async function main() {
     console.log(
       `${r.pass ? "PASS" : "FAIL"} tasks=${r.tasks} staged=${r.stagedBeforePublish} ` +
         `prep=${r.prepareTools.join(">") || "-"} pub=${r.publishTools.join(">") || "-"} ` +
-        `phrase="${r.publishPhrase}" confirmDetect=${r.confirmRecognized} :: ${r.detail}` +
+        `phrase="${r.publishPhrase}" confirmDetect=${r.confirmRecognized} wordingOk=${r.wordingOk} ` +
+        `prepWordingOk=${r.prepWordingOk} :: ${r.detail}` +
         (r.falsePublish ? " [FALSE_PUBLISH]" : ""),
     );
-    if (r.publishMsg) console.log(`  msg: ${r.publishMsg}`);
+    if (r.prepMsg) console.log(`  prep: ${r.prepMsg.slice(0, 200)}`);
+    if (r.publishMsg) console.log(`  pub: ${r.publishMsg.slice(0, 200)}`);
   }
 
   const passed = results.filter((r) => r.pass).length;
   const falsePublishes = results.filter((r) => r.falsePublish).length;
+  const wordingViolations = results.filter((r) => r.publishOk && !r.wordingOk).length;
+  const prepWordingViolations = results.filter((r) => !r.prepWordingOk).length;
   console.log("");
-  console.log(`=== Summary: ${passed}/${results.length} passed, false_publish=${falsePublishes} ===`);
+  console.log(
+    `=== Summary: ${passed}/${results.length} passed, false_publish=${falsePublishes}, ` +
+      `publish_wording_violations=${wordingViolations}, prep_wording_violations=${prepWordingViolations} ===`,
+  );
   if (passed < results.length) {
     console.log("Failures:");
     for (const r of results.filter((x) => !x.pass)) {

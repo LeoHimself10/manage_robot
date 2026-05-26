@@ -400,7 +400,7 @@ export async function runManagerOrchestratorTurn(
     const taskRow = pr.task as { taskNo?: string } | undefined;
     const rotRes = markPublishedAndRotatePlanSession(session, {
       taskNo: String(taskRow?.taskNo ?? "").trim(),
-      scopeLabel: "（发布后新规划）",
+      scopeLabel: "（发放后新规划）",
       reason: "auto_rotate_after_publish",
     });
     if (!("skipped" in rotRes)) {

@@ -240,8 +240,8 @@ export function buildTurnActionHintLine(
 
 export function formatPublishStagingActionHint(staged: boolean): string {
   return staged
-    ? "publishStagingAction: 用户确认发布 → 调用 publish_task(planId=当前 planId)。"
-    : "publishStagingAction: 用户确认发布 → 先 prepare_publish_task，再 publish_task。";
+    ? "publishStagingAction: 用户确认发放 → 调用 publish_task(planId=当前 planId)。"
+    : "publishStagingAction: 用户确认发放 → 先 prepare_publish_task，再 publish_task。";
 }
 
 export function formatScopeBoundaryHint(input: {

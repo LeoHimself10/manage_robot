@@ -5,9 +5,9 @@ import {
 } from "../../../src/agent/demo/qwen-prompt";
 
 describe("buildQwenPlannerSystemPrompt", () => {
-  it("v5.23.14: JSON contract, modes, no PREPARE mode", () => {
+  it("v5.23.15: JSON contract, modes, no PREPARE mode", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.23.14");
+    expect(sys).toContain("orchestrator-agent-v5.23.15");
     expect(sys).toContain("scheme C");
     expect(sys).toContain("## 输出 JSON 契约");
     expect(sys).not.toContain("§1 ");
@@ -50,7 +50,17 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("**WBS 拆解原则**");
     expect(sys).toContain("勿默认只出少数阶段包");
     expect(sys).toContain("list_managers");
-    expect(sys.length).toBeLessThanOrEqual(8600);
+    expect(sys.length).toBeLessThanOrEqual(8620);
+  });
+
+  it("v5.23.15: dispatch wording discipline (no 发布 in user message)", () => {
+    const sys = buildQwenPlannerSystemPrompt();
+    expect(sys).toContain("message 禁「发布");
+    expect(sys).toContain("确认发放");
+    expect(sys).toContain("已发放，员工待承接");
+    expect(sys).toContain("主管说可发放");
+    expect(sys).not.toMatch(/专指用户确认发布/);
+    expect(sys).not.toMatch(/已有未发布草案/);
   });
 
   it("v5.23.11: roster fileNotes skill match discipline", () => {
@@ -62,7 +72,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
 
   it("v5.23.10: latestDraft judgment order and split taxonomy", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("已有未发布草案");
+    expect(sys).toContain("已有未发放草案");
     expect(sys).toContain("latestDraft");
     expect(sys).toContain("ROW_SPLIT");
     expect(sys).toContain("TABLE REDRAFT");
@@ -101,7 +111,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
 describe("buildQwenPlannerSystemPrompt employee profile", () => {
   it("requires get_task_detail for overall task background questions", () => {
     const sys = buildQwenPlannerSystemPrompt("employee");
-    expect(sys).toContain("orchestrator-agent-v5.23.14-employee");
+    expect(sys).toContain("orchestrator-agent-v5.23.15-employee");
     expect(sys).toContain("任务整体背景纪律");
     expect(sys).toContain("get_task_detail");
   });
