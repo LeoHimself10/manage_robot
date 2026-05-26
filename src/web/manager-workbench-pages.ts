@@ -458,7 +458,8 @@ export function renderManagerTasksPage(params: {
       }
       document.getElementById('reassignAssigneeInput').value = '';
       document.getElementById('reassignAssigneeUserId').value = '';
-      closeAssigneeCombo();
+      var reassignOpts = document.getElementById('reassignAssigneeOptions');
+      if (reassignOpts) { reassignOpts.hidden = true; reassignOpts.innerHTML = ''; }
       document.getElementById('reassignNote').value = '';
       if (subPick) subPick.value = '';
       await loadTasks();
