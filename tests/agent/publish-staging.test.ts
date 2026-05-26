@@ -55,6 +55,7 @@ describe("publish-staging", () => {
   describe("looksLikeFalsePublishClaim", () => {
     it("true when model claims published", () => {
       expect(looksLikeFalsePublishClaim("任务已发布。")).toBe(true);
+      expect(looksLikeFalsePublishClaim("任务已发放，员工待承接。")).toBe(true);
       expect(looksLikeFalsePublishClaim("已正式发布给员工。")).toBe(true);
       expect(looksLikeFalsePublishClaim("已派发到员工待办。")).toBe(true);
     });
