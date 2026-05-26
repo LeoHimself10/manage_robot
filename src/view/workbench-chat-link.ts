@@ -35,6 +35,30 @@ export function buildManagerChatDeepLink(input: ManagerChatDeepLinkInput = {}): 
   return appendOpenDraftEditorParam(url, input.openDraftEditor);
 }
 
+/** Micro-app homepage path in DingTalk (应用首页), default /workbench. */
+function readWorkbenchH5AppHomePath(): string {
+  const raw = process.env.WORKBENCH_H5_APP_HOME_PATH?.trim() || "/workbench";
+  const withSlash = raw.startsWith("/") ? raw : `/${raw}`;
+  return withSlash.replace(/\/+$/, "") || "/workbench";
+}
+
+/**
+ * h5_app_open `path` is joined against the micro-app homepage URL. A leading `/workbench/...`
+ * on a homepage ending with `/` yields `//workbench/...` (ERR_HTTP_RESPONSE_CODE_FAILURE).
+ * Pass a path relative to the configured app home (e.g. `manager/chat?thread=main`).
+ */
+export function toH5AppOpenPath(pageUrl: string): string {
+  const parsed = new URL(pageUrl);
+  const homePath = readWorkbenchH5AppHomePath();
+  let rel = parsed.pathname;
+  if (homePath !== "/" && rel.startsWith(`${homePath}/`)) {
+    rel = rel.slice(homePath.length + 1);
+  } else if (rel.startsWith("/")) {
+    rel = rel.slice(1);
+  }
+  return rel ? `${rel}${parsed.search}` : parsed.search.replace(/^\?/, "") || "manager/chat";
+}
+
 /**
  * Wrap a HTTPS workbench URL so DingTalk opens it inside the client (H5 微应用 / 工作台容器),
  * not the system external browser.
@@ -51,13 +75,11 @@ export function wrapUrlForDingtalkClient(pageUrl: string): string {
 
   if (corpId && agentId) {
     try {
-      const parsed = new URL(pageUrl);
-      const pathWithQuery = `${parsed.pathname}${parsed.search}`;
       const params = new URLSearchParams({
         appId: agentId,
         corpId,
         appType: "2",
-        path: pathWithQuery,
+        path: toH5AppOpenPath(pageUrl),
       });
       return `https://applink.dingtalk.com/page/h5_app_open?${params.toString()}`;
     } catch {

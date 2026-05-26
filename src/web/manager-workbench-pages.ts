@@ -642,7 +642,7 @@ export function renderManagerChatPage(params: {
         </div>
         <div class="chat-composer">
           <div class="form-stack">
-            <textarea id="msgInput" placeholder="Enter 发送，Shift+Enter 换行。例如：把 task_2 截止改到 6/30…"></textarea>
+            <textarea id="msgInput"></textarea>
             <div class="roster-upload-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;">
               <label class="btn btn-secondary" for="rosterFileInput" style="margin:0;cursor:pointer;">上传花名册</label>
               <input id="rosterFileInput" type="file" accept=".md,.markdown,.txt,.docx,.pdf" style="display:none;" />
