@@ -577,10 +577,17 @@ export function renderManagerTasksPage(params: {
 }
 
 export function renderManagerChatPage(params: {
-  planId?: string;
+  threadId?: string;
+  threadKind?: "main" | "side";
   planTitle?: string;
   userLabel?: string;
+  openDraftEditor?: boolean;
 }): string {
+  const initialThreadId = params.threadId ?? "main";
+  const initialKind = params.threadKind ?? "main";
+  const initialTitle = params.planTitle ?? (initialKind === "main" ? "钉钉规划助手" : "新规划会话");
+  const initialOpenDraftEditor = Boolean(params.openDraftEditor);
+
   return `<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -595,12 +602,12 @@ export function renderManagerChatPage(params: {
     <div>
       <div class="brand">主管工作台</div>
       <h1 class="page-title">智能规划助手</h1>
-      <p class="page-desc">用自然语言补充背景、调整诉求或追问草案；回复会写入会话记录便于追溯。</p>
+      <p class="page-desc">主线程与钉钉机器人同步；可另开侧会话做独立规划，互不影响。</p>
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="主管导航">
         <a href="/workbench/manager/tasks">历史任务</a>
-        <a class="active" href="/workbench/manager/chat">智能规划助手</a>
+        <a class="active" href="/workbench/manager/chat?thread=main">智能规划助手</a>
         <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
       </nav>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
@@ -608,33 +615,60 @@ export function renderManagerChatPage(params: {
   </header>
 
   <div class="chat-main">
-    <section class="chat-message-pane">
-      <div class="chat-stream" aria-live="polite">
-        <ul class="msg-list" id="msgList"><li class="muted" style="border-style:dashed;">加载中…</li></ul>
+    <aside class="chat-sidebar" aria-label="会话列表">
+      <div class="chat-sidebar-head">
+        <button type="button" class="btn btn-secondary btn-sm" id="newThreadBtn" style="width:100%;">+ 新规划会话</button>
       </div>
-      <div class="chat-composer">
-        <div class="form-stack">
-          <textarea id="msgInput" placeholder="补充背景、调整诉求或追问草案…"></textarea>
-          <div class="roster-upload-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;">
-            <label class="btn btn-secondary" for="rosterFileInput" style="margin:0;cursor:pointer;">上传花名册</label>
-            <input id="rosterFileInput" type="file" accept=".md,.markdown,.txt,.docx,.pdf" style="display:none;" />
-            <span class="muted" id="rosterStatus"></span>
-          </div>
-          <div class="chat-composer-actions">
-            <button type="button" class="btn btn-primary" id="sendBtn">发送</button>
-          </div>
-          <div class="feedback muted" id="sendFeedback"></div>
+      <ul class="chat-thread-list" id="threadList"><li class="muted" style="padding:8px;">加载中…</li></ul>
+    </aside>
+
+    <div class="chat-pane">
+      <div class="chat-pane-head">
+        <div>
+          <h2 class="chat-pane-title" id="paneTitle">${escapeHtml(initialTitle)}</h2>
+          <div class="muted" id="panePreview" style="font-size:12px;margin-top:2px;"></div>
+        </div>
+        <div class="chat-pane-head-actions">
+          <button type="button" class="btn btn-secondary btn-sm" id="editDraftBtnHead" hidden>编辑草案表格</button>
+          <span class="chat-thread-badge" id="paneBadge">${initialKind === "main" ? "主线程" : "侧会话"}</span>
         </div>
       </div>
-    </section>
+      <section class="chat-message-pane" style="border-radius:0 0 var(--radius) var(--radius);border-top:none;flex:1;">
+        <div class="chat-stream" aria-live="polite">
+          <ul class="msg-list" id="msgList"><li class="muted" style="border-style:dashed;">加载中…</li></ul>
+        </div>
+        <div class="chat-draft-toolbar">
+          <button type="button" class="btn btn-secondary btn-sm" id="editDraftBtn" hidden>编辑草案表格</button>
+        </div>
+        <div class="chat-composer">
+          <div class="form-stack">
+            <textarea id="msgInput" placeholder="例如：把 task_2 截止改到 6/30，或补充背景与诉求…"></textarea>
+            <div class="roster-upload-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;">
+              <label class="btn btn-secondary" for="rosterFileInput" style="margin:0;cursor:pointer;">上传花名册</label>
+              <input id="rosterFileInput" type="file" accept=".md,.markdown,.txt,.docx,.pdf" style="display:none;" />
+              <span class="muted" id="rosterStatus"></span>
+            </div>
+            <div class="chat-composer-actions">
+              <button type="button" class="btn btn-primary" id="sendBtn">发送</button>
+            </div>
+            <div class="feedback muted" id="sendFeedback"></div>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 </div>
 
+<script src="/static/workbench-draft-grid.js"></script>
 <script>
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}
   wbBindViewSwitchLink('navMyTasks', 'employee', '/workbench/employee?view=new');
-  var activePlanId = ${JSON.stringify(params.planId ?? "")};
+
+  var activeThreadId = ${JSON.stringify(initialThreadId)};
+  var activeThreadKind = ${JSON.stringify(initialKind)};
+  var activeHasDraft = false;
+  var pendingOpenDraftEditor = ${JSON.stringify(initialOpenDraftEditor)};
 
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -669,7 +703,6 @@ export function renderManagerChatPage(params: {
       }
     });
   }
-
   function roleLabel(role) {
     var r = String(role || '').toLowerCase();
     if (r === 'user') return '我';
@@ -684,18 +717,108 @@ export function renderManagerChatPage(params: {
       return d.toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     } catch (e) { return ''; }
   }
-
-  async function loadMessages(planId) {
-    var box = document.getElementById('msgList');
-    if (!planId) {
-      box.innerHTML = '<li class="muted" style="border-style:dashed;">暂无规划会话。请到钉钉与机器人发起一条规划，发布后再回来查看。</li>';
+  function messagesQuery() {
+    if (activeThreadKind === 'side' && activeThreadId && activeThreadId !== 'main') {
+      return '/api/workbench/conversation/messages?thread=side&threadId=' + encodeURIComponent(activeThreadId);
+    }
+    return '/api/workbench/conversation/messages?thread=main';
+  }
+  function threadUrl(threadId, kind) {
+    if (kind === 'side' && threadId && threadId !== 'main') {
+      return '/workbench/manager/chat?thread=side&threadId=' + encodeURIComponent(threadId);
+    }
+    return '/workbench/manager/chat?thread=main';
+  }
+  function updatePaneHeader(meta) {
+    document.getElementById('paneTitle').textContent = meta.title || '智能规划助手';
+    document.getElementById('paneBadge').textContent = meta.badge || (meta.kind === 'main' ? '主线程' : '侧会话');
+    document.getElementById('panePreview').textContent = meta.preview || '';
+  }
+  function updateEditDraftButtons(hasDraft) {
+    ['editDraftBtnHead', 'editDraftBtn'].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (btn) btn.hidden = !hasDraft;
+    });
+  }
+  function openDraftEditorModal() {
+    if (!activeHasDraft) {
+      setFb('sendFeedback', '当前会话没有可编辑的草案', 'err');
       return;
     }
-    box.innerHTML = '<li class="muted" style="border-style:dashed;">加载中…</li>';
+    var grid = window.WorkbenchDraftGrid;
+    if (!grid || typeof grid.openDraftExcelModal !== 'function') {
+      setFb('sendFeedback', '表格编辑器未加载，请刷新页面或联系管理员', 'err');
+      return;
+    }
+    setFb('sendFeedback', '', 'muted');
+    grid.openDraftExcelModal({
+      threadId: activeThreadId,
+      threadKind: activeThreadKind,
+      onRevised: function () { return loadMessages(); }
+    }).catch(function (e) {
+      setFb('sendFeedback', String(e && e.message ? e.message : e), 'err');
+    });
+  }
+  function stripOpenDraftEditorParam() {
     try {
-      var res = await fetch('/api/workbench/conversation/messages?planId=' + encodeURIComponent(planId));
+      var u = new URL(window.location.href);
+      if (!u.searchParams.has('openDraftEditor')) return;
+      u.searchParams.delete('openDraftEditor');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch (e) { /* ignore */ }
+  }
+  function maybeOpenDraftEditorFromUrl() {
+    if (!pendingOpenDraftEditor || !activeHasDraft) return;
+    pendingOpenDraftEditor = false;
+    stripOpenDraftEditorParam();
+    openDraftEditorModal();
+  }
+  async function loadThreads(selectId) {
+    var list = document.getElementById('threadList');
+    try {
+      var res = await fetch('/api/workbench/conversation/threads');
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      var threads = data.threads || [];
+      if (!threads.length) {
+        list.innerHTML = '<li class="muted" style="padding:8px;">暂无会话</li>';
+        return;
+      }
+      var pick = selectId || activeThreadId;
+      list.innerHTML = threads.map(function (t) {
+        var cls = 'chat-thread-item' + (t.pinned ? ' pinned' : '') + (String(t.threadId) === String(pick) ? ' active' : '');
+        return '<li class="' + cls + '" data-thread-id="' + escapeHtml(t.threadId) + '" data-kind="' + escapeHtml(t.kind) + '">'
+          + '<div class="chat-thread-title-row"><span class="chat-thread-title">' + (t.pinned ? '📌 ' : '') + escapeHtml(t.title) + '</span>'
+          + '<span class="chat-thread-badge">' + escapeHtml(t.badge || '') + '</span></div>'
+          + '<div class="chat-thread-preview">' + escapeHtml(t.preview || '') + '</div></li>';
+      }).join('');
+      list.querySelectorAll('.chat-thread-item').forEach(function (el) {
+        el.addEventListener('click', function () {
+          var tid = el.getAttribute('data-thread-id') || 'main';
+          var kind = el.getAttribute('data-kind') || 'main';
+          activeThreadId = tid;
+          activeThreadKind = kind;
+          history.replaceState(null, '', threadUrl(tid, kind));
+          list.querySelectorAll('.chat-thread-item').forEach(function (x) { x.classList.remove('active'); });
+          el.classList.add('active');
+          void loadMessages();
+        });
+      });
+    } catch (e) {
+      list.innerHTML = '<li style="color:#dc2626;padding:8px;">加载会话失败</li>';
+    }
+  }
+  async function loadMessages() {
+    var box = document.getElementById('msgList');
+    box.innerHTML = '<li class="muted" style="border-style:dashed;">加载中…</li>';
+    try {
+      var res = await fetch(messagesQuery());
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      updatePaneHeader({ title: data.title, badge: data.badge, kind: data.kind, preview: '' });
+      activeHasDraft = !!data.hasDraft;
+      updateEditDraftButtons(activeHasDraft);
+      maybeOpenDraftEditorFromUrl();
       var msgs = data.messages || [];
       if (!msgs.length) {
         box.innerHTML = '<li class="muted" style="border-style:dashed;">暂无消息，请在下方发送第一条。</li>';
@@ -704,16 +827,13 @@ export function renderManagerChatPage(params: {
       box.innerHTML = msgs.map(function (m) {
         var role = String(m.role || 'system');
         var rl = roleLabel(role);
-        var rowClass = role === 'user' ? 'msg-row msg-row--user' : (role === 'assistant' ? 'msg-row msg-row--assistant' : 'msg-row msg-row--assistant');
+        var rowClass = role === 'user' ? 'msg-row msg-row--user' : 'msg-row msg-row--assistant';
         var bubbleClass = 'msg-bubble ' + roleClass(role);
         var tm = formatMsgTime(m.at);
         var metaLine = '<div class="msg-meta">' + escapeHtml(rl) + (tm ? ' · ' + escapeHtml(tm) : '') + '</div>';
-        var body;
-        if (role === 'assistant' && m.html) {
-          body = '<div class="msg-body msg-body--assistant">' + m.html + '</div>';
-        } else {
-          body = '<div class="msg-body">' + escapeHtml(m.content || '') + '</div>';
-        }
+        var body = (role === 'assistant' && m.html)
+          ? '<div class="msg-body msg-body--assistant">' + m.html + '</div>'
+          : '<div class="msg-body">' + escapeHtml(m.content || '') + '</div>';
         return '<li class="' + rowClass + '"><div class="' + bubbleClass + '">' + metaLine + body + '</div></li>';
       }).join('');
       scrollMessageStreamToBottom();
@@ -721,13 +841,10 @@ export function renderManagerChatPage(params: {
       box.innerHTML = '<li style="color:#dc2626;">加载消息失败</li>';
     }
   }
-
   var sendBtn = document.getElementById('sendBtn');
   if (sendBtn) {
     sendBtn.addEventListener('click', async function () {
-      var planId = String(activePlanId || '').trim();
       var message = (document.getElementById('msgInput').value || '').trim();
-      if (!planId) { setFb('sendFeedback', '暂无规划会话，请先在钉钉发起。', 'err'); return; }
       if (!message) { setFb('sendFeedback', '请输入消息内容', 'err'); return; }
       sendBtn.disabled = true;
       setFb('sendFeedback', '发送中…', 'muted');
@@ -735,13 +852,20 @@ export function renderManagerChatPage(params: {
         var res = await fetch('/api/workbench/conversation/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ planId: planId, message: message })
+          body: JSON.stringify({
+            threadId: activeThreadId,
+            threadKind: activeThreadKind,
+            message: message
+          })
         });
         var data = await res.json().catch(function () { return {}; });
         if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
         document.getElementById('msgInput').value = '';
         setFb('sendFeedback', '已发送', 'ok');
-        await loadMessages(planId);
+        if (data.threadId) activeThreadId = data.threadId;
+        if (data.kind) activeThreadKind = data.kind;
+        await loadThreads(activeThreadId);
+        await loadMessages();
         scrollMessageStreamToBottom();
         focusComposer();
       } catch (e) {
@@ -751,36 +875,46 @@ export function renderManagerChatPage(params: {
       }
     });
   }
-
+  var newThreadBtn = document.getElementById('newThreadBtn');
+  if (newThreadBtn) {
+    newThreadBtn.addEventListener('click', async function () {
+      newThreadBtn.disabled = true;
+      try {
+        var res = await fetch('/api/workbench/conversation/new', { method: 'POST' });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        activeThreadId = data.threadId;
+        activeThreadKind = 'side';
+        history.replaceState(null, '', threadUrl(activeThreadId, 'side'));
+        await loadThreads(activeThreadId);
+        await loadMessages();
+        focusComposer();
+      } catch (e) {
+        setFb('sendFeedback', String(e && e.message ? e.message : e), 'err');
+      } finally {
+        newThreadBtn.disabled = false;
+      }
+    });
+  }
   var rosterInput = document.getElementById('rosterFileInput');
   var rosterStatusEl = document.getElementById('rosterStatus');
   if (rosterInput) {
     rosterInput.addEventListener('change', async function () {
       var file = rosterInput.files && rosterInput.files[0];
       if (!file) return;
-      var planId = String(activePlanId || '').trim();
-      if (!planId) {
-        rosterStatusEl.textContent = '请先在钉钉发起规划后再上传花名册';
-        rosterStatusEl.style.color = '#dc2626';
-        rosterInput.value = '';
-        return;
-      }
       rosterStatusEl.textContent = '上传中…';
       rosterStatusEl.style.color = '';
       try {
         var fd = new FormData();
-        fd.append('planId', planId);
+        fd.append('threadId', activeThreadId);
+        fd.append('threadKind', activeThreadKind);
         fd.append('file', file, file.name);
-        var res = await fetch('/api/workbench/manager/upload-roster', {
-          method: 'POST',
-          body: fd,
-        });
+        var res = await fetch('/api/workbench/manager/upload-roster', { method: 'POST', body: fd });
         var data = await res.json().catch(function () { return {}; });
         if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
         rosterStatusEl.textContent =
           '已上传 ' + escapeHtml(data.filename || file.name) +
-          '（' + (data.kind || '') + '，' + (data.chars || 0) + ' 字符）。' +
-          '请在下方说明你想分配的任务与要求。';
+          '（' + (data.kind || '') + '，' + (data.chars || 0) + ' 字符）。请在下方说明分配诉求。';
         rosterStatusEl.style.color = '#0f766e';
       } catch (err) {
         rosterStatusEl.textContent = '上传失败：' + (err && err.message ? err.message : err);
@@ -790,6 +924,10 @@ export function renderManagerChatPage(params: {
       }
     });
   }
+  var editDraftBtnHead = document.getElementById('editDraftBtnHead');
+  var editDraftBtn = document.getElementById('editDraftBtn');
+  if (editDraftBtnHead) editDraftBtnHead.addEventListener('click', openDraftEditorModal);
+  if (editDraftBtn) editDraftBtn.addEventListener('click', openDraftEditorModal);
 
   document.getElementById('logoutBtn').addEventListener('click', async function () {
     var res = await fetch('/api/workbench/logout', { method: 'POST' });
@@ -797,14 +935,7 @@ export function renderManagerChatPage(params: {
     try { data = await res.json(); } catch (e) {}
     window.location.href = (data && data.redirectTo) ? data.redirectTo : '/workbench';
   });
-
-  if (activePlanId) {
-    void loadMessages(activePlanId);
-  } else {
-    document.getElementById('msgList').innerHTML =
-      '<li class="muted" style="border-style:dashed;">暂无规划会话。请到钉钉与机器人发起一条规划，发布后再回来查看。</li>';
-    if (sendBtn) sendBtn.disabled = true;
-  }
+  void loadThreads(activeThreadId).then(function () { return loadMessages(); });
 })();
 </script>
 </body>

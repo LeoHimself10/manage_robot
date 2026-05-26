@@ -28,7 +28,7 @@
 ### 模型与 Prompt
 
 - **接口**：DashScope OpenAI 兼容；默认策略见 `model-policy.ts`；线上可 `QWEN_MODEL` 切换（如 `qwen3.6-flash` 降延迟，需自行验证工具调用质量）。
-- **Prompt 版本**：`orchestrator-agent-v5.23.13`（`src/agent/demo/qwen-prompt.ts`）。
+- **Prompt 版本**：`orchestrator-agent-v5.23.14`（`src/agent/demo/qwen-prompt.ts`）。
 - **Prompt profile**（`buildQwenPlannerSystemPrompt`）：仅 **`planner`** 与 **`employee`** 两套正文；主管/admin **共用 planner 正文** + `managerFollowup` 注入第六模式 **FOLLOWUP**（见 qwen-prompt.ts 注释，勿回退独立 manager prompt）。
 - **Tool profile**（`buildToolRegistry`）：`planner` / `manager` / `admin` / `employee` / `full`；与 prompt profile **解耦**——例如 `DINGTALK_ROLE_ROUTING_ENABLED=1` 时主管路由为 `promptProfile=planner` + `toolProfile=manager`。
 - **操作模式**（JSON 输出意图，**不是** tool_calls 函数名）：CLARIFY 禁止与其他模式混用；QUERY 查正式任务（`list_managed_tasks` 等，admin 工具含 `list_managers` / `get_metrics`）；DRAFT / ASSIGN / PUBLISH 可同句叠加；**不设 PREPARE 模式**（`prepare_publish_task` 为工具两回合纪律）。
@@ -113,11 +113,20 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 
 ## 工作台 UI（主管 / 员工）
 
+- **草案 Excel 弹窗编辑**（主管 `/workbench/manager/chat`）：有 `latestDraft` 时显示「编辑草案表格」；大弹窗（92vw×88vh）单张 **16 列**宽表（主表 9 + 规划 7，一行一条子任务）；`GET/POST /api/workbench/conversation/draft` + `runWorkbenchDraftRevision`（`workbenchDraftRevision` 条件 prompt、`disableTools`、max 2 轮）；`conversationHistory` 仅写 `[工作台] 已提交草案表格编辑`，不写整表 JSON；深链 `?openDraftEditor=1`；bundle `npm run build:workbench-draft-grid` → `/static/workbench-draft-grid.js`。
 - **主管列表关注状态**（`workbench-attention.ts`，展示层）：`待您处理` / `待员工承接` / `员工执行中` / `阻塞中` / `已完成`；API `GET /api/workbench/manager/tasks` 含 `attentionLabel`、`attentionBucket`、`subtaskBreakdown`。
 - **子任务规划字段**（双端一致）：执行要点 6 项 + 更多规划 7 项（`<details>` 折叠）；共享 `workbench-subtask-fields-snippet.ts`。
 - **催办按钮**：仅 `IN_PROGRESS` / `BLOCKED`（与 `reminder-send` 一致）。
 - **员工**：Tab「待承接」；详情事件 `/workbench/employee/task/events`；`openSignal=changes` →「待主管回复」。
 - **时间格式**：`formatWorkbenchDateTime` → `zh-CN` `yyyy-MM-dd HH:mm`。
+- **智能规划助手（主管 chat）**（`/workbench/manager/chat`）：
+  - **线程模型**：**主线程**（canonical `workbench:main:{userId}`，钉钉与工作台共用）+ **侧会话**（`thread=side&threadId=`；新 `planId`，不动主线程草案）。
+  - **Canonical 会话**：`canonical-main-session.ts` 的 `resolveCanonicalMainSession` 合并钉钉 `chatKey` 与 `workbench:main` 占位文件（`mergeMainSessions`，审计 `MAIN_SESSION_MERGE`）；钉钉入站、`POST .../send`、`GET/POST .../draft` 均经此解析；`findMainThreadSession` 为薄封装。
+  - **共享编排回合**：`manager-orchestrator-turn.ts` 的 `runManagerOrchestratorTurn`（`DINGTALK_QWEN_*`、FSM 重试、`sharedPublishRecentStore`、发布后 `planId` 轮转）；钉钉 Stream 与工作台 `send` 同管线；Excel `draft/revise` 仍走 `runWorkbenchDraftRevision` 旁路。
+  - **API**：`GET /api/workbench/conversation/threads`；`POST /api/workbench/conversation/new`（仅侧会话）；`GET/POST .../messages|send` 支持 `threadId`/`threadKind`（legacy `planId` 仍可读）。
+  - **展示**：`conversationHistory[].displayContent` 为完整助手 Markdown（含结构化表）；`content` 仍为 orchestrator 纯模型文本。渲染链：`buildAssistantDisplayMarkdown` → `formatWorkbenchAssistantHtml`。
+  - **钉钉深链**：主线程有未发布 `latestDraft` 时 outbound 追加 `ASSIGNMENT_WEB_PUBLIC_BASE_URL/workbench/manager/chat?thread=main`（`workbench-chat-link.ts`）。
+  - **Resolver**：`conversation-thread-resolver.ts`（`createSideThreadSession` 等；主线程见 canonical）。
 
 ## 催办（Follow-up，v1）
 

@@ -7,6 +7,18 @@ const STAGING_KEYS = [
   "stagedAssignmentHash",
 ] as const;
 
+/** Returns a copy of draft with prepare_publish_task staging fields removed. */
+export function clearPublishStagingFieldsOnDraft(
+  draft: Record<string, unknown>,
+): Record<string, unknown> {
+  const d = { ...draft };
+  if (String(d.stagedBy ?? "").trim() !== "prepare_publish_task") return d;
+  for (const key of STAGING_KEYS) {
+    delete d[key];
+  }
+  return d;
+}
+
 /** Clear prepare_publish_task staging metadata after structural draft edits. */
 export function clearPublishStagingOnDraft(session: PlanSession): void {
   const draft = session.latestDraft;

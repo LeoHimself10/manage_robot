@@ -21,12 +21,33 @@ import {
 import { presentDueBarState, presentDueLabel, presentDueProgress } from "../infra/due-present";
 import { buildSubtaskLabelResolver, presentWorkbenchTaskEvent } from "../infra/workbench-event-present";
 import {
+  buildThreadListItem,
   inferConversationTitleFromSession,
   truncateConversationPreview,
 } from "../infra/conversation-present";
+import { buildWorkbenchTurnDisplay } from "../agent/workbench/conversation-turn-display";
+import { runWorkbenchDraftRevision } from "../agent/workbench/draft-revision";
+import { prevalidateWorkbenchDraftRevision } from "../agent/workbench/draft-revise-prevalidate";
+import {
+  applyDraftScalarsFromForm,
+  draftToExcelRows,
+} from "./draft-excel-grid";
+import { resolveMessageDisplayContent } from "../view/resolve-message-display-content";
+import { buildManagerChatDeepLink } from "../view/workbench-chat-link";
+import {
+  createSideThreadSession,
+  findMainThreadSession,
+  listManagerConversationSessions,
+  loadAllPlanSessions,
+  markSessionAsMainThread,
+  resolveConversationThread,
+} from "./conversation-thread-resolver";
 import { formatWorkbenchAssistantHtml } from "./workbench-markdown-lite";
 import { loadQwenPlannerConfigFromEnv } from "../agent/demo/qwen-planner";
-import { runOrchestrator } from "../agent/orchestrator";
+import {
+  buildManagerQwenClientConfig,
+  runManagerOrchestratorTurn,
+} from "../agent/manager-orchestrator-turn";
 import type { KnownFactsStore } from "../agent/tools/update-known-facts";
 import {
   DingTalkAuthError,
@@ -184,6 +205,12 @@ const assignmentWorkbenchDir = dirname(fileURLToPath(import.meta.url));
 function resolveWorkbenchDdLoginBundlePath(): string {
   return join(assignmentWorkbenchDir, "..", "..", "dist", "workbench-dd-login.js");
 }
+
+function resolveWorkbenchDraftGridBundlePath(): string {
+  return join(assignmentWorkbenchDir, "..", "..", "dist", "workbench-draft-grid.js");
+}
+
+export const WORKBENCH_DRAFT_REVISE_HISTORY_USER = "[工作台] 已提交草案表格编辑";
 
 const planSessionStore = createPlanSessionStore();
 const employeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
@@ -531,35 +558,13 @@ function safeReadRecentSessions(limit = 20): SessionSummary[] {
 }
 
 function loadAllSessions(): Array<PlanSession & { chatKeyHash: string }> {
-  try {
-    const dir = resolvePlanSessionDir();
-    if (!existsSync(dir)) return [];
-    const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
-    const out: Array<PlanSession & { chatKeyHash: string }> = [];
-    for (const file of files) {
-      try {
-        const raw = JSON.parse(
-          readFileSync(join(dir, file), "utf8"),
-        ) as PlanSession;
-        const chatKeyHash =
-          typeof raw.chatKeyHash === "string"
-            ? raw.chatKeyHash
-            : file.replace(/\.json$/, "");
-        out.push({ ...raw, chatKeyHash });
-      } catch {
-        // skip malformed session files
-      }
-    }
-    return out;
-  } catch {
-    return [];
-  }
+  return loadAllPlanSessions();
 }
 
 function findLatestSessionByPlanId(
   planId: string,
 ): (PlanSession & { chatKeyHash: string }) | undefined {
-  const sessions = loadAllSessions().filter((s) => s.planId === planId);
+  const sessions = loadAllPlanSessions().filter((s) => s.planId === planId);
   sessions.sort((a, b) => {
     const ta = Date.parse(a.updatedAt ?? "") || 0;
     const tb = Date.parse(b.updatedAt ?? "") || 0;
@@ -571,34 +576,50 @@ function findLatestSessionByPlanId(
 function findLatestSessionForManager(
   userId: string,
 ): (PlanSession & { chatKeyHash: string }) | undefined {
-  const sessions = loadAllSessions().filter((s) => s.senderStaffId === userId);
-  sessions.sort((a, b) => {
-    const ta = Date.parse(a.updatedAt ?? "") || 0;
-    const tb = Date.parse(b.updatedAt ?? "") || 0;
-    return tb - ta;
-  });
-  return sessions[0];
+  return findMainThreadSession(userId);
 }
 
-function ensureSessionForPlanId(params: {
-  planId: string;
-  userId: string;
-}): PlanSession & { chatKeyHash: string } {
-  const existing = findLatestSessionByPlanId(params.planId);
-  if (existing) return existing;
-  const chatKey = `workbench:${params.userId}:${params.planId}`;
-  const createdAt = new Date().toISOString();
-  const created: PlanSession & { chatKeyHash: string } = {
-    chatKeyHash: hashChatKey(chatKey),
-    planId: params.planId,
-    createdAt,
-    updatedAt: createdAt,
-    senderStaffId: params.userId,
-    knownFacts: [],
-    conversationHistory: [],
+function parseConversationThreadQuery(url: URL): {
+  threadId?: string;
+  threadKind?: "main" | "side";
+  planId?: string;
+} {
+  const thread = String(url.searchParams.get("thread") ?? "").trim().toLowerCase();
+  const threadId = String(url.searchParams.get("threadId") ?? "").trim();
+  const planId = String(url.searchParams.get("planId") ?? "").trim();
+  if (thread === "main") {
+    return { threadKind: "main", threadId: "main", planId: planId || undefined };
+  }
+  if (thread === "side" && threadId) {
+    return { threadKind: "side", threadId, planId: planId || undefined };
+  }
+  if (threadId === "main") {
+    return { threadKind: "main", threadId: "main", planId: planId || undefined };
+  }
+  return { threadId: threadId || undefined, planId: planId || undefined };
+}
+
+function resolveConversationThreadFromBody(body: Record<string, unknown>): {
+  threadId?: string;
+  threadKind?: "main" | "side";
+  planId?: string;
+} {
+  const threadId = String(body.threadId ?? "").trim();
+  const threadKindRaw = String(body.threadKind ?? "").trim().toLowerCase();
+  const planId = String(body.planId ?? "").trim();
+  const threadKind =
+    threadKindRaw === "main" || threadKindRaw === "side"
+      ? threadKindRaw
+      : threadId === "main"
+        ? "main"
+        : threadId
+          ? "side"
+          : undefined;
+  return {
+    threadId: threadId || (threadKind === "main" ? "main" : undefined),
+    threadKind,
+    planId: planId || undefined,
   };
-  planSessionStore.save(created);
-  return created;
 }
 
 function buildOverviewPayload(view: WorkbenchView, userId?: string) {
@@ -2701,6 +2722,28 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (isGetOrHead && url.pathname === "/static/workbench-draft-grid.js") {
+    const bundlePath = resolveWorkbenchDraftGridBundlePath();
+    if (!existsSync(bundlePath)) {
+      res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end(
+        "// Workbench draft grid bundle missing. Run: npm run build:workbench-draft-grid\n",
+      );
+      return true;
+    }
+    const body = readFileSync(bundlePath);
+    res.writeHead(200, {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    });
+    if (req.method === "HEAD") {
+      res.end();
+    } else {
+      res.end(body);
+    }
+    return true;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/workbench/auth/jsapi-config") {
     void (async () => {
       try {
@@ -4590,90 +4633,297 @@ export function handleAssignmentHttp(
   if (isGetOrHead && url.pathname === "/api/workbench/conversation/threads") {
     const session = requireSession(req, res, "manager");
     if (!session) return true;
-    const all = loadAllSessions().filter((s) => s.senderStaffId === session.userId);
-    const grouped = new Map<
-      string,
-      {
-        planId: string;
-        updatedAt?: string;
-        turns: number;
-        knownFacts: number;
-        lastMessage?: string;
-      }
-    >();
-    for (const s of all) {
-      const existing = grouped.get(s.planId);
-      const turns = Array.isArray(s.conversationHistory) ? s.conversationHistory.length : 0;
-      const knownFacts = Array.isArray(s.knownFacts) ? s.knownFacts.length : 0;
-      const lastMsg = turns > 0 ? s.conversationHistory[turns - 1]?.content : "";
-      const updatedAt = s.updatedAt;
-      if (!existing) {
-        grouped.set(s.planId, {
-          planId: s.planId,
-          updatedAt,
-          turns,
-          knownFacts,
-          lastMessage: typeof lastMsg === "string" ? lastMsg : "",
-        });
-      } else {
-        const currentTs = Date.parse(existing.updatedAt ?? "") || 0;
-        const nextTs = Date.parse(updatedAt ?? "") || 0;
-        if (nextTs >= currentTs) {
-          grouped.set(s.planId, {
-            ...existing,
-            updatedAt,
-            turns,
-            knownFacts,
-            lastMessage: typeof lastMsg === "string" ? lastMsg : existing.lastMessage,
-          });
-        }
-      }
-    }
-    const threads = [...grouped.values()]
-      .sort((a, b) => {
-        const ta = Date.parse(a.updatedAt ?? "") || 0;
-        const tb = Date.parse(b.updatedAt ?? "") || 0;
-        return tb - ta;
-      })
-      .map((row) => {
-        const full = findLatestSessionByPlanId(row.planId);
-        const title = full ? inferConversationTitleFromSession(full) : row.planId;
-        const preview = truncateConversationPreview(row.lastMessage ?? "", 72);
-        return { ...row, title, preview };
-      });
+    const threads = listManagerConversationSessions(session.userId).map((s) =>
+      buildThreadListItem(s),
+    );
     writeJson(res, 200, { ok: true, threads });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/conversation/new") {
+    void (async () => {
+      const session = requireSession(req, res, "manager");
+      if (!session) return;
+      try {
+        const created = createSideThreadSession(session.userId);
+        const item = buildThreadListItem(created);
+        const chatUrl =
+          buildManagerChatDeepLink({
+            threadKind: "side",
+            threadId: item.threadId,
+          }) ?? `/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(item.threadId)}`;
+        writeJson(res, 200, {
+          ok: true,
+          threadId: item.threadId,
+          planId: created.planId,
+          title: item.title,
+          chatUrl,
+          kind: item.kind,
+          badge: item.badge,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "failed to create side thread",
+        });
+      }
+    })();
     return true;
   }
 
   if (isGetOrHead && url.pathname === "/api/workbench/conversation/messages") {
     const session = requireSession(req, res, "manager");
     if (!session) return true;
-    const planId = String(url.searchParams.get("planId") ?? "").trim();
-    if (!planId) {
-      writeJson(res, 400, { ok: false, error: "planId is required" });
-      return true;
-    }
-    const target = findLatestSessionByPlanId(planId);
+    const query = parseConversationThreadQuery(url);
+    const target = resolveConversationThread(session.userId, query);
     if (!target) {
-      writeJson(res, 404, { ok: false, error: "No session found for planId" });
+      writeJson(res, 404, { ok: false, error: "No session found for thread" });
       return true;
     }
-    const messages = (target.conversationHistory ?? []).map((m) => {
+    const history = target.conversationHistory ?? [];
+    const messages = history.map((m, index) => {
       const role = String(m.role || "system");
       const content = String(m.content ?? "");
       const at = typeof m.at === "string" ? m.at : undefined;
       if (role === "assistant") {
-        return { role, content, at, html: formatWorkbenchAssistantHtml(content) };
+        const displayContent = resolveMessageDisplayContent(m, target, index, history);
+        return {
+          role,
+          content,
+          displayContent,
+          at,
+          html: formatWorkbenchAssistantHtml(displayContent),
+        };
       }
       return { role, content, at };
     });
+    const threadMeta = buildThreadListItem(target);
     writeJson(res, 200, {
       ok: true,
-      planId,
+      planId: target.planId,
+      threadId: threadMeta.threadId,
+      kind: threadMeta.kind,
+      title: threadMeta.title,
+      badge: threadMeta.badge,
       messages,
       knownFacts: target.knownFacts ?? [],
+      hasDraft: Boolean(target.latestDraft),
       updatedAt: target.updatedAt,
     });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/conversation/draft") {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    const query = parseConversationThreadQuery(url);
+    const target = resolveConversationThread(session.userId, query);
+    if (!target) {
+      writeJson(res, 404, { ok: false, error: "No session found for thread" });
+      return true;
+    }
+    const draft = target.latestDraft as Record<string, unknown> | undefined;
+    const editable = Boolean(draft && Array.isArray(draft.tasks) && draft.tasks.length > 0);
+    writeJson(res, 200, {
+      ok: true,
+      editable,
+      planId: target.planId,
+      threadId: buildThreadListItem(target).threadId,
+      draft: editable ? draft : undefined,
+      assignment: target.latestAssignment,
+      candidatePool: target.candidatePool,
+      rows: editable
+        ? draftToExcelRows({
+            draft: draft!,
+            assignment: target.latestAssignment as Record<string, unknown> | undefined,
+          })
+        : [],
+      title: editable ? String(draft?.title ?? "").trim() : "",
+      description: editable
+        ? String(draft?.description ?? draft?.summary ?? "").trim()
+        : "",
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/conversation/draft/revise") {
+    void (async () => {
+      const session = requireSession(req, res, "manager");
+      if (!session) return;
+      if (!qwenConfig) {
+        writeJson(res, 503, { ok: false, error: "QWEN_API_KEY is not configured" });
+        return;
+      }
+      try {
+        const body = (await readJsonBody(req)) as Record<string, unknown>;
+        const threadQuery = resolveConversationThreadFromBody(body);
+        let target = resolveConversationThread(session.userId, threadQuery);
+        if (!target) {
+          target =
+            threadQuery.threadKind === "side" && threadQuery.threadId
+              ? undefined
+              : findMainThreadSession(session.userId);
+        }
+        if (!target) {
+          writeJson(res, 404, { ok: false, error: "No session found for thread" });
+          return;
+        }
+        const preTurnDraft = target.latestDraft;
+        const preTurnAssignment = target.latestAssignment;
+        let draft = (body.draft ?? {}) as Record<string, unknown>;
+        const title = String(body.title ?? draft.title ?? "").trim();
+        const description = String(
+          body.description ?? draft.description ?? draft.summary ?? "",
+        ).trim();
+        draft = applyDraftScalarsFromForm(draft, title, description);
+        const assignment = (body.assignment ?? target.latestAssignment) as
+          | Record<string, unknown>
+          | undefined;
+
+        const pre = prevalidateWorkbenchDraftRevision({
+          draft,
+          assignment,
+          previousDraft: preTurnDraft,
+          previousAssignment: preTurnAssignment as Record<string, unknown> | undefined,
+        });
+        if (!pre.ok) {
+          writeJson(res, 400, { ok: false, error: "validation failed", errors: pre.errors });
+          return;
+        }
+
+        const planId = target.planId;
+        const memoryContext = loadMemoryContextForPlan(planId);
+        let mutableKnownFacts = [...(target.knownFacts ?? [])];
+        const knownFactsStore: KnownFactsStore = {
+          get: () => mutableKnownFacts,
+          update: (facts: string[]) => {
+            mutableKnownFacts = Array.from(
+              new Set([
+                ...mutableKnownFacts,
+                ...facts.map((f) => String(f).trim()).filter(Boolean),
+              ]),
+            ).slice(-50);
+          },
+        };
+        let mutableTarget = target;
+        const revised = await runWorkbenchDraftRevision({
+          session: target,
+          draft: pre.draft,
+          assignment: pre.assignment,
+          orchestratorConfig: {
+            clientConfig: {
+              ...qwenConfig,
+              thinking: process.env.DINGTALK_QWEN_THINKING?.trim() === "1",
+            },
+            employeeRepo,
+            toolProfile: session.role === "admin" ? "admin" : "manager",
+            promptProfile: "planner",
+            managerFollowup: session.role === "admin" || session.role === "manager",
+            knownFactsStore,
+            currentSessionPlanId: planId,
+            currentSession: target,
+            actorName: session.dingUser?.name,
+            actorRole: "manager",
+            onSessionMutated: (mutated) => {
+              mutableTarget = { ...mutableTarget, ...mutated };
+            },
+            sessionContext: {
+              conversationHistory: target.conversationHistory,
+              planId,
+              latestDraft: target.latestDraft,
+              latestAssignment: target.latestAssignment,
+              memorySummary: memoryContext.summary || buildSessionMemorySummary(target),
+              memoryFacts: [...memoryContext.facts, ...mutableKnownFacts].slice(0, 8),
+              currentTimeIso: new Date().toISOString(),
+            },
+          },
+        });
+        if (!revised.ok) {
+          writeJson(res, revised.status, {
+            ok: false,
+            error: revised.error,
+            errors: revised.errors,
+          });
+          return;
+        }
+
+        mutableTarget = {
+          ...mutableTarget,
+          latestDraft: revised.prevalidatedDraft,
+          latestAssignment: revised.prevalidatedAssignment,
+        };
+        const turnDisplay = buildWorkbenchTurnDisplay({
+          orchResult: revised.orch,
+          session: mutableTarget,
+          preTurnDraft,
+          preTurnAssignment,
+          postTurnDraft: revised.prevalidatedDraft,
+          modelName: qwenConfig.model,
+          employees: employeeRepo.list().map((e) => ({
+            userId: e.userId,
+            displayName: e.displayName,
+          })),
+        });
+        const nowIso = new Date().toISOString();
+        const nextConversationHistory = [
+          ...(target.conversationHistory ?? []),
+          { role: "user", content: WORKBENCH_DRAFT_REVISE_HISTORY_USER, at: nowIso },
+          {
+            role: "assistant",
+            content: turnDisplay.pureAssistantMessage,
+            displayContent: turnDisplay.displayContent,
+            at: nowIso,
+          },
+        ].slice(-20);
+        const threadMeta = buildThreadListItem({
+          ...mutableTarget,
+          conversationHistory: nextConversationHistory,
+          latestDraft: turnDisplay.persistedDraft ?? revised.prevalidatedDraft,
+          latestAssignment: turnDisplay.latestAssignment ?? revised.prevalidatedAssignment,
+        });
+        planSessionStore.save({
+          ...mutableTarget,
+          senderStaffId: session.userId,
+          lastTraceId: revised.orch.traceId,
+          knownFacts: mutableKnownFacts,
+          latestDraft: turnDisplay.persistedDraft ?? revised.prevalidatedDraft,
+          latestAssignment: turnDisplay.latestAssignment ?? revised.prevalidatedAssignment,
+          conversationHistory: nextConversationHistory,
+          revisionEvents: [
+            ...(mutableTarget.revisionEvents ?? []),
+            {
+              occurredAt: nowIso,
+              eventType: "MANAGER_WORKBENCH_DRAFT_REVISE",
+              planId,
+              traceId: revised.orch.traceId,
+            },
+          ].slice(-60),
+        });
+        planSessionStore.appendEvent({
+          planId,
+          chatKeyHash: target.chatKeyHash,
+          eventType: "manager_workbench_draft_revise",
+          payload: {
+            traceId: revised.orch.traceId,
+            actorUserId: session.userId,
+            threadId: threadMeta.threadId,
+          },
+        });
+        writeJson(res, 200, {
+          ok: true,
+          planId,
+          threadId: threadMeta.threadId,
+          message: turnDisplay.pureAssistantMessage,
+          displayContent: turnDisplay.displayContent,
+          hasDraft: Boolean(turnDisplay.persistedDraft ?? revised.prevalidatedDraft),
+        });
+      } catch (err) {
+        writeJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : "draft revise failed",
+        });
+      }
+    })();
     return true;
   }
 
@@ -4696,16 +4946,20 @@ export function handleAssignmentHttp(
           writeJson(res, 400, { ok: false, error: "缺少上传文件字段（form 字段名：file）" });
           return;
         }
+        const threadIdField = String(multipart.fields.threadId ?? "").trim();
+        const threadKindField = String(multipart.fields.threadKind ?? "").trim().toLowerCase();
         const planIdInput = String(multipart.fields.planId ?? "").trim();
-        const planId = planIdInput || findLatestSessionForManager(session.userId)?.planId;
-        if (!planId) {
-          writeJson(res, 400, {
-            ok: false,
-            error: "找不到目标会话；请在表单字段中提供 planId 或先在工作台开启新会话。",
-          });
-          return;
-        }
-        const target = ensureSessionForPlanId({ planId, userId: session.userId });
+        const target = resolveConversationThread(session.userId, {
+          threadId: threadIdField || (threadKindField === "main" ? "main" : undefined),
+          threadKind:
+            threadKindField === "main" || threadKindField === "side"
+              ? threadKindField
+              : threadIdField === "main"
+                ? "main"
+                : undefined,
+          planId: planIdInput || undefined,
+        }) ?? findMainThreadSession(session.userId);
+        const planId = target.planId;
         if (target.senderStaffId && target.senderStaffId !== session.userId) {
           writeJson(res, 403, { ok: false, error: "Plan does not belong to current manager" });
           return;
@@ -4792,115 +5046,95 @@ export function handleAssignmentHttp(
         return;
       }
       try {
-        const body = await readJsonBody(req);
-        const planId = String(body.planId ?? "").trim();
+        const body = (await readJsonBody(req)) as Record<string, unknown>;
         const message = String(body.message ?? "").trim();
-        if (!planId) {
-          writeJson(res, 400, { ok: false, error: "planId is required" });
-          return;
-        }
+        const threadQuery = resolveConversationThreadFromBody(body);
         if (!message) {
           writeJson(res, 400, { ok: false, error: "message is required" });
           return;
         }
-        const target = ensureSessionForPlanId({
-          planId,
-          userId: session.userId,
-        });
+        let target = resolveConversationThread(session.userId, threadQuery);
+        if (!target) {
+          target =
+            threadQuery.threadKind === "side" && threadQuery.threadId
+              ? undefined
+              : findMainThreadSession(session.userId);
+        }
+        if (!target) {
+          writeJson(res, 404, { ok: false, error: "No session found for thread" });
+          return;
+        }
+        const planId = target.planId;
         const memoryContext = loadMemoryContextForPlan(planId);
-        let mutableKnownFacts = [...(target.knownFacts ?? [])];
-        const knownFactsStore: KnownFactsStore = {
-          get: () => mutableKnownFacts,
-          update: (facts: string[]) => {
-            const merged = Array.from(new Set([
-              ...mutableKnownFacts,
-              ...facts.map((f) => String(f).trim()).filter(Boolean),
-            ])).slice(-50);
-            mutableKnownFacts = merged;
-          },
-        };
-        const pendingRosterCtx = target.pendingRosterText
-          ? {
-              sourceLabel: target.pendingRosterSource ?? "uploaded:roster",
-              chars: target.pendingRosterText.length,
-            }
-          : undefined;
-        const candidatePoolCtx = target.candidatePool
-          ? {
-              source: target.candidatePool.source,
-              entries: target.candidatePool.entries.map((e) => ({
-                userId: e.userId,
-                displayName: e.displayName,
-                ...(e.fileNotes?.trim()
-                  ? { fileNotes: e.fileNotes.trim().slice(0, 200) }
-                  : {}),
-              })),
-              unresolvedCount: target.candidatePool.unresolved?.length,
-            }
-          : undefined;
-        const orch = await runOrchestrator(message, {
-          clientConfig: {
-            ...qwenConfig,
-            thinking:
-              process.env.DINGTALK_QWEN_THINKING?.trim() === "1"
-                ? true
-                : false,
-          },
+        const turn = await runManagerOrchestratorTurn({
+          userMessage: message,
+          session: target,
           employeeRepo,
-          maxToolIterations: Number(
-            process.env.DINGTALK_ORCHESTRATOR_MAX_ITERATIONS ?? "6",
-          ),
-          toolProfile: session.role === "admin" ? "admin" : "manager",
-          promptProfile: "planner",
-          managerFollowup: session.role === "admin" || session.role === "manager",
-          knownFactsStore,
-          currentSessionPlanId: target.planId,
-          currentSession: target,
+          clientConfig: buildManagerQwenClientConfig(qwenConfig),
+          memorySummary:
+            memoryContext.summary || buildSessionMemorySummary(target),
+          memoryFacts: [
+            ...memoryContext.facts,
+            ...(target.knownFacts ?? []),
+          ],
           actorName: session.dingUser?.name,
-          actorRole: "manager",
-          allowSearchWeb: isExplicitSearchRequest(message),
-          // 工具回调原地修改了 target.candidatePool / pendingRoster*，把这些变更显式带回到落盘 payload
-          onSessionMutated: () => {
-            // 此处暂不重复落盘（下方 planSessionStore.save 会持久化最终状态），仅占位钩子。
-          },
-          sessionContext: {
-            conversationHistory: target.conversationHistory,
-            planId: target.planId,
-            latestDraft: target.latestDraft,
-            latestAssignment: target.latestAssignment,
-            memorySummary: memoryContext.summary || buildSessionMemorySummary(target),
-            memoryFacts: [...memoryContext.facts, ...mutableKnownFacts].slice(0, 8),
-            currentTimeIso: new Date().toISOString(),
-            pendingRoster: pendingRosterCtx,
-            candidatePool: candidatePoolCtx,
-          },
+          workbenchRole: session.role === "admin" ? "admin" : "manager",
+          senderStaffId: session.userId,
         });
-        const assistantMessage = orch.messages.join("\n\n").trim() || "已处理。";
+        const orch = turn.orchResult;
+        const mutableTarget = turn.session;
+        const turnDisplay = buildWorkbenchTurnDisplay({
+          orchResult: orch,
+          session: mutableTarget,
+          preTurnDraft: turn.preTurnDraft,
+          preTurnAssignment: turn.preTurnAssignment,
+          postTurnDraft: mutableTarget.latestDraft,
+          modelName: qwenConfig.model,
+          employees: employeeRepo.list().map((e) => ({
+            userId: e.userId,
+            displayName: e.displayName,
+          })),
+        });
         const nowIso = new Date().toISOString();
         const nextConversationHistory = [
           ...(target.conversationHistory ?? []),
           { role: "user", content: message, at: nowIso },
-          { role: "assistant", content: assistantMessage, at: nowIso },
+          {
+            role: "assistant",
+            content: turnDisplay.pureAssistantMessage,
+            displayContent: turnDisplay.displayContent,
+            at: nowIso,
+          },
         ].slice(-20);
-        planSessionStore.save({
-          ...target,
-          senderStaffId: session.userId,
-          lastTraceId: orch.traceId,
-          knownFacts: mutableKnownFacts,
-          latestDraft: orch.draft ?? target.latestDraft,
-          latestAssignment: orch.assignment ?? target.latestAssignment,
+        const threadMeta = buildThreadListItem({
+          ...mutableTarget,
           conversationHistory: nextConversationHistory,
-          revisionEvents: [
-            ...(target.revisionEvents ?? []),
-            {
-              occurredAt: new Date().toISOString(),
-              eventType: "MANAGER_AGENT_CHAT",
-              planId,
-              traceId: orch.traceId,
-              messageChars: message.length,
-            },
-          ].slice(-60),
+          latestDraft: turnDisplay.persistedDraft ?? mutableTarget.latestDraft,
+          latestAssignment: turnDisplay.latestAssignment ?? mutableTarget.latestAssignment,
         });
+        planSessionStore.save(
+          markSessionAsMainThread({
+            ...mutableTarget,
+            senderStaffId: session.userId,
+            canonicalUserId: session.userId,
+            lastTraceId: orch.traceId,
+            knownFacts: turn.mutableKnownFacts,
+            latestDraft: turnDisplay.persistedDraft ?? mutableTarget.latestDraft,
+            latestAssignment:
+              turnDisplay.latestAssignment ?? mutableTarget.latestAssignment,
+            conversationHistory: nextConversationHistory,
+            revisionEvents: [
+              ...(mutableTarget.revisionEvents ?? []),
+              {
+                occurredAt: new Date().toISOString(),
+                eventType: "MANAGER_AGENT_CHAT",
+                planId,
+                traceId: orch.traceId,
+                messageChars: message.length,
+              },
+            ].slice(-60),
+          }),
+        );
         planSessionStore.appendEvent({
           planId,
           chatKeyHash: target.chatKeyHash,
@@ -4910,14 +5144,15 @@ export function handleAssignmentHttp(
             messageChars: message.length,
             actorUserId: session.userId,
             actorName: session.dingUser?.name ?? undefined,
+            threadId: threadMeta.threadId,
           },
         });
         appendMemoryEvents({
           planId,
           userMessage: message,
-          assistantMessage,
-          latestDraft: orch.draft ?? target.latestDraft,
-          latestAssignment: orch.assignment ?? target.latestAssignment,
+          assistantMessage: turnDisplay.pureAssistantMessage,
+          latestDraft: turnDisplay.persistedDraft ?? mutableTarget.latestDraft,
+          latestAssignment: turnDisplay.latestAssignment ?? mutableTarget.latestAssignment,
           traceId: orch.traceId,
           modelConfig: {
             apiKey: qwenConfig.apiKey,
@@ -4928,10 +5163,13 @@ export function handleAssignmentHttp(
         writeJson(res, 200, {
           ok: true,
           planId,
+          threadId: threadMeta.threadId,
+          kind: threadMeta.kind,
+          title: threadMeta.title,
           traceId: orch.traceId,
-          assistantMessage,
-          hasDraft: !!orch.draft,
-          hasAssignment: !!orch.assignment,
+          assistantMessage: turnDisplay.displayContent,
+          hasDraft: Boolean(turnDisplay.persistedDraft ?? mutableTarget.latestDraft),
+          hasAssignment: Boolean(turnDisplay.latestAssignment ?? mutableTarget.latestAssignment),
         });
       } catch (err) {
         writeJson(res, 400, {
@@ -4969,22 +5207,31 @@ export function handleAssignmentHttp(
         redirect(res, defaultPathForRole(session.role));
         return true;
       }
-      let planId = url.searchParams.get("planId")?.trim() || undefined;
-      if (url.pathname === "/workbench/manager/chat" && !planId) {
-        planId = findLatestSessionForManager(session.userId)?.planId;
+      let chatThreadId = "main";
+      let chatThreadKind: "main" | "side" = "main";
+      let planTitle: string | undefined;
+      if (url.pathname === "/workbench/manager/chat") {
+        const threadQuery = parseConversationThreadQuery(url);
+        const resolved = resolveConversationThread(session.userId, threadQuery);
+        const target = resolved ?? findMainThreadSession(session.userId);
+        const meta = buildThreadListItem(target);
+        chatThreadId = meta.threadId;
+        chatThreadKind = meta.kind;
+        planTitle = meta.title;
       }
       const userLabel = session.dingUser?.name ?? session.userId;
-      let planTitle: string | undefined;
-      if (planId) {
-        const s = findLatestSessionByPlanId(planId);
-        if (s) planTitle = inferConversationTitleFromSession(s);
-      }
       const mgrTaskNo = url.searchParams.get("taskNo")?.trim() ?? "";
       const html =
         url.pathname === "/workbench/manager/tasks"
-          ? renderManagerTasksPage({ planId, planTitle, userLabel })
+          ? renderManagerTasksPage({ planId: url.searchParams.get("planId")?.trim(), planTitle, userLabel })
           : url.pathname === "/workbench/manager/chat"
-            ? renderManagerChatPage({ planId, planTitle, userLabel })
+            ? renderManagerChatPage({
+              threadId: chatThreadId,
+              threadKind: chatThreadKind,
+              planTitle,
+              userLabel,
+              openDraftEditor: url.searchParams.get("openDraftEditor") === "1",
+            })
             : url.pathname === "/workbench/manager/task/events"
               ? renderTaskEventsPage({
                 roleLabel: "manager",
@@ -5123,7 +5370,10 @@ export function handleAssignmentHttp(
       },
     });
     const base = defaultPathForRole(autoRole);
-    const redirectTo = `${base}?planId=${encodeURIComponent(verified.planId)}`;
+    const redirectTo =
+      autoRole === "manager"
+        ? `/workbench/manager/chat?thread=main`
+        : `${base}?planId=${encodeURIComponent(verified.planId)}`;
     redirect(res, redirectTo, [buildSessionCookie(session)]);
     return true;
   }

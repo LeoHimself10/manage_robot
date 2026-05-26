@@ -294,7 +294,7 @@ describe("assignment-workbench HTTP handler", () => {
     expect(handled).toBe(true);
     const c = captured();
     expect(c.statusCode).toBe(302);
-    expect(String(c.headers.Location ?? "")).toContain("/workbench/manager/tasks?planId=plan-1");
+    expect(String(c.headers.Location ?? "")).toMatch(/\/workbench\/manager\/(chat|tasks)/);
     expect(String(c.headers["Set-Cookie"] ?? "")).toContain("wb_session=");
   });
 
@@ -1142,45 +1142,7 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).toContain("进行中");
   });
 
-  it("GET /workbench/manager/chat without planId injects latest manager plan session", async () => {
-    const oldPlan = "11111111-1111-1111-1111-111111111111";
-    const newPlan = "22222222-2222-2222-2222-222222222222";
-    const t0 = "2020-01-01T00:00:00.000Z";
-    const t1 = "2026-05-15T12:00:00.000Z";
-    writeFileSync(
-      join(sessionDir, "old-plan.json"),
-      JSON.stringify(
-        {
-          chatKeyHash: "old-plan",
-          planId: oldPlan,
-          createdAt: t0,
-          updatedAt: t0,
-          senderStaffId: "manager-1",
-          knownFacts: [],
-          conversationHistory: [],
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-    writeFileSync(
-      join(sessionDir, "new-plan.json"),
-      JSON.stringify(
-        {
-          chatKeyHash: "new-plan",
-          planId: newPlan,
-          createdAt: t1,
-          updatedAt: t1,
-          senderStaffId: "manager-1",
-          knownFacts: [],
-          conversationHistory: [],
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
+  it("GET /workbench/manager/chat defaults to main thread", async () => {
     const loginReq = stubReq({
       url: "/api/workbench/login",
       method: "POST",
@@ -1201,8 +1163,150 @@ describe("assignment-workbench HTTP handler", () => {
     await flushAsync();
     const c = captured();
     expect(c.statusCode).toBe(200);
-    expect(c.body).toContain(`var activePlanId = ${JSON.stringify(newPlan)}`);
-    expect(c.body).not.toContain(`var activePlanId = ${JSON.stringify(oldPlan)}`);
+    expect(c.body).toContain('var activeThreadId = "main"');
+    expect(c.body).toContain('id="threadList"');
+    expect(c.body).toContain("新规划会话");
+    expect(c.body).not.toContain('id="editChips"');
+    expect(c.body).toContain('id="editDraftBtn"');
+    expect(c.body).toContain("/static/workbench-draft-grid.js");
+  });
+
+  it("GET /api/workbench/conversation/draft returns editable rows for main thread draft", async () => {
+    const now = new Date().toISOString();
+    const { hashChatKey } = await import("../../src/infra/plan-session-store");
+    const chatKeyHash = hashChatKey("workbench:main:manager-1");
+    writeFileSync(
+      join(sessionDir, `${chatKeyHash}.json`),
+      JSON.stringify({
+        chatKeyHash,
+        planId: "plan-draft-get",
+        createdAt: now,
+        updatedAt: now,
+        senderStaffId: "manager-1",
+        threadKind: "main",
+        threadId: "main",
+        latestDraft: {
+          title: "草案标题",
+          description: "背景",
+          tasks: [
+            {
+              id: "task_1",
+              title: "子任务 A",
+              objective: "目标",
+              deliverables: ["交付物"],
+              completionCriteria: ["标准"],
+              timeNode: { dueAt: "2026-07-01" },
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const req = stubReq({
+      url: "/api/workbench/conversation/draft?thread=main",
+      method: "GET",
+      headers: { cookie },
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    const data = JSON.parse(c.body) as { ok: boolean; editable: boolean; rows: unknown[] };
+    expect(data.ok).toBe(true);
+    expect(data.editable).toBe(true);
+    expect(data.rows).toHaveLength(1);
+  });
+
+  it("GET draft on main thread reads dingtalk draft when canonical merges dual session files", async () => {
+    const userId = "manager-canonical-dual";
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", `manager-1,${userId}`);
+    const now = new Date().toISOString();
+    const { canonicalMainChatKey } = await import(
+      "../../src/web/canonical-main-session"
+    );
+    const { hashChatKey } = await import("../../src/infra/plan-session-store");
+    const wbKey = canonicalMainChatKey(userId);
+    const dtKey = `conv-dual::1::${userId}`;
+    writeFileSync(
+      join(sessionDir, `${hashChatKey(wbKey)}.json`),
+      JSON.stringify({
+        chatKeyHash: hashChatKey(wbKey),
+        planId: "plan-wb-placeholder",
+        createdAt: now,
+        updatedAt: now,
+        senderStaffId: userId,
+        threadKind: "main",
+        threadId: "main",
+      }),
+      "utf8",
+    );
+    writeFileSync(
+      join(sessionDir, `${hashChatKey(dtKey)}.json`),
+      JSON.stringify({
+        chatKeyHash: hashChatKey(dtKey),
+        planId: "plan-dt-draft",
+        createdAt: now,
+        updatedAt: new Date(Date.now() + 1000).toISOString(),
+        senderStaffId: userId,
+        conversationId: "conv-dual",
+        latestDraft: {
+          title: "钉钉合并后标题",
+          tasks: [
+            {
+              id: "task_1",
+              title: "子任务来自钉钉",
+              objective: "o",
+              deliverables: ["d"],
+              completionCriteria: ["c"],
+              timeNode: { dueAt: "2026-08-01" },
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId, role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const req = stubReq({
+      url: "/api/workbench/conversation/draft?thread=main",
+      method: "GET",
+      headers: { cookie },
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    const data = JSON.parse(c.body) as {
+      ok: boolean;
+      title?: string;
+      rows: Array<{ title?: string }>;
+    };
+    expect(data.ok).toBe(true);
+    expect(data.title).toBe("钉钉合并后标题");
+    expect(data.rows[0]?.title).toBe("子任务来自钉钉");
   });
 
   it("employee reject without note returns 400", async () => {

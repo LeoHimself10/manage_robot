@@ -39,10 +39,24 @@ const EXECUTORS = [
   },
 ] as const;
 
+function mergeLocalManagerWhitelist(): void {
+  const ids = new Set<string>();
+  const raw = process.env.WORKBENCH_MANAGER_USER_IDS?.trim();
+  if (raw) {
+    raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((id) => ids.add(id));
+  }
+  ids.add(LOCAL_MANAGER_ID);
+  process.env.WORKBENCH_MANAGER_USER_IDS = Array.from(ids).join(",");
+}
+
 function ensureLocalEnv(): void {
   process.env.WORKBENCH_EXTERNAL_LOGIN_ENABLED ??= "1";
   process.env.WORKBENCH_TEST_LOGIN_ENABLED ??= "1";
-  process.env.WORKBENCH_MANAGER_USER_IDS ??= LOCAL_MANAGER_ID;
+  mergeLocalManagerWhitelist();
   process.env.WORKBENCH_SESSION_SECRET ??= "local-dev-session-secret-min-32-chars!!";
   process.env.ASSIGNMENT_WEB_SECRET ??= "local-dev-assignment-secret-min-32-chars!!";
   process.env.WORKBENCH_SQLITE_PATH ??= "./data/local-external-dev/workbench.sqlite";

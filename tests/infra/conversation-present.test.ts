@@ -1,47 +1,59 @@
 import { describe, expect, it } from "vitest";
 import {
-  inferConversationTitleFromSession,
-  truncateConversationPreview,
+  MAIN_THREAD_TITLE,
+  buildThreadListItem,
+  formatSideThreadDefaultTitle,
+  inferSideThreadTitle,
 } from "../../src/infra/conversation-present";
 import type { PlanSession } from "../../src/infra/plan-session-store";
 
-function baseSession(overrides: Partial<PlanSession>): PlanSession {
+function baseSession(partial: Partial<PlanSession> = {}): PlanSession {
   return {
-    chatKeyHash: "h",
-    planId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
+    chatKeyHash: "hash",
+    planId: "plan-1",
+    createdAt: "2026-05-25T06:00:00.000Z",
+    updatedAt: "2026-05-25T06:00:00.000Z",
     knownFacts: [],
     conversationHistory: [],
-    ...overrides,
+    ...partial,
   };
 }
 
-describe("conversation-present", () => {
-  it("truncateConversationPreview collapses whitespace and caps length", () => {
-    expect(truncateConversationPreview("  hello world  ", 5)).toBe("hello…");
+describe("conversation-present thread titles", () => {
+  it("buildThreadListItem uses fixed title for main thread", () => {
+    const item = buildThreadListItem(
+      baseSession({
+        threadKind: "main",
+        threadId: "main",
+        conversationId: "conv-1",
+      }),
+    );
+    expect(item.title).toBe(MAIN_THREAD_TITLE);
+    expect(item.pinned).toBe(true);
+    expect(item.badge).toBe("主线程");
   });
 
-  it("inferConversationTitleFromSession prefers first user message", () => {
-    const s = baseSession({
-      conversationHistory: [{ role: "user", content: "  产线停线需要根因分析  " }],
-    });
-    expect(inferConversationTitleFromSession(s)).toContain("产线停线");
+  it("inferSideThreadTitle uses first user message when present", () => {
+    const title = inferSideThreadTitle(
+      baseSession({
+        threadKind: "side",
+        threadLabel: formatSideThreadDefaultTitle(new Date("2026-05-25T06:00:00.000Z")),
+        conversationHistory: [{ role: "user", content: "帮我规划 Q2 质量复盘" }],
+      }),
+    );
+    expect(title).toBe("帮我规划 Q2 质量复盘");
   });
 
-  it("inferConversationTitleFromSession falls back to draft title", () => {
-    const s = baseSession({
-      conversationHistory: [{ role: "assistant", content: "hi" }],
-      latestDraft: { title: "CAPA 草案标题" },
-    });
-    expect(inferConversationTitleFromSession(s)).toContain("CAPA");
-  });
-
-  it("inferConversationTitleFromSession falls back to short id", () => {
-    const s = baseSession({
-      planId: "11111111-2222-3333-4444-555555555555",
-      conversationHistory: [],
-    });
-    expect(inferConversationTitleFromSession(s)).toContain("11111111");
+  it("buildThreadListItem side uses default label before user message", () => {
+    const label = "新规划会话 · 05-25 14:30";
+    const item = buildThreadListItem(
+      baseSession({
+        threadKind: "side",
+        threadId: "side-uuid",
+        threadLabel: label,
+      }),
+    );
+    expect(item.title).toBe(label);
+    expect(item.badge).toBe("侧会话");
   });
 });

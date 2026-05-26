@@ -22,16 +22,13 @@ import { createAssignmentDraftRepo } from "./integrations/repos/assignment-draft
 import { createAssignmentEventRepo } from "./integrations/repos/assignment-event-repo";
 import { handleAssignmentHttp } from "./web/assignment-workbench";
 import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
-import { runOrchestrator } from "./agent/orchestrator";
 import {
-  buildScopeSwitchRetryUserMessage,
-  buildTopicSwitchRetryUserMessage,
-  buildDraftClarifyMixRetryUserMessage,
-  detectDraftClarifyMix,
+  buildManagerQwenClientConfig,
+  runManagerOrchestratorTurn,
+} from "./agent/manager-orchestrator-turn";
+import {
   detectFalsePublish,
   detectFalsePublishOnConfirm,
-  detectFalseScopeSwitch,
-  detectTopicSwitchWithoutArchive,
   formatFalsePublishObservedNotice,
 } from "./agent/publish-staging";
 import { publishResultSucceeded } from "./agent/publish-helpers";
@@ -40,25 +37,22 @@ import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
 } from "./agent/role-routing";
-import { processAssignmentForTurn } from "./agent/assignment/process-assignment-turn";
 import {
-  buildAssignRetryUserMessage,
-  buildTaskIndexMap,
   detectFalseAssign,
   formatFalseAssignObservedNotice,
 } from "./agent/assignment/false-assign";
-import {
-  buildSplitRetryUserMessage,
-  detectFalseSplit,
-} from "./agent/draft-mutation/false-split";
-import { hasAssigneeIntentInUserMessage } from "./agent/orchestrator-turn-hints";
 import {
   hasTaskTableInMessage,
   renderDraftSupplementSection,
   appendPublishSummaryMarkdown,
   renderDingtalkTaskMarkdown,
 } from "./view/dingtalk-task-markdown";
-import { resolveDraftForOutbound } from "./view/draft-outbound";
+import {
+  appendWorkbenchChatLinkFooter,
+  buildManagerChatDeepLink,
+} from "./view/workbench-chat-link";
+import { resolveCanonicalMainSession } from "./web/canonical-main-session";
+import { markSessionAsMainThread } from "./web/conversation-thread-resolver";
 import { parseRosterFile } from "./agent/assignment/roster-parser";
 import { DingTalkFileDownloadError, fetchDingTalkFile } from "./integrations/dingtalk/dingtalk-file-download";
 import { extractDingtalkMessageText } from "./integrations/dingtalk/extract-message-text";
@@ -67,8 +61,6 @@ import { savePlanEmbedding, generateQueryEmbedding } from "./infra/plan-index";
 import {
   createPlanSessionStore,
   hashChatKey,
-  markPublishedAndRotatePlanSession,
-  readDingtalkPlanIdRotateEnabled,
   type PlanSession,
 } from "./infra/plan-session-store";
 import { readSearchSimilarPlansEnabled } from "./agent/tools/search-similar-plans";
@@ -83,13 +75,9 @@ import {
 } from "./infra/workbench-memory-store";
 import { createRecentPublishStore } from "./agent/tools/publish-task";
 import { KNOWN_TOOL_NAMES } from "./agent/tools/registry";
-import type { KnownFactsStore } from "./agent/tools/update-known-facts";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
-const DEFAULT_DINGTALK_MAX_TOKENS = 8000;
-const DEFAULT_DINGTALK_ORCH_ITERATIONS = 6;
-const DEFAULT_DINGTALK_TIMEOUT_MS = 120000;
 const TOOL_NAME_LEAK_FALLBACK = "（系统检测到模型输出异常，已忽略；请重新描述您的需求。）";
 const KNOWN_TOOL_NAME_SET = new Set<string>(KNOWN_TOOL_NAMES);
 
@@ -110,12 +98,6 @@ function truncateMarkdown(text: string, maxChars: number): string {
 
 // hasTaskTableInMessage, renderDraftSupplementSection, appendPublishSummaryMarkdown
 // are now in src/view/dingtalk-task-markdown.ts and imported above.
-
-function isExplicitSearchRequest(input: string): boolean {
-  const text = input.trim().toLowerCase();
-  if (!text) return false;
-  return /联网|搜索|查最新|外部资料|行业资料|外部案例|web search|search web|latest/i.test(text);
-}
 
 function readEnvBool(name: string, fallback: boolean): boolean {
   const v = process.env[name]?.trim().toLowerCase();
@@ -280,24 +262,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const dingtalkQwenConfig = {
-    ...baseQwenConfig,
-    // 钉钉链路优先首条时延：默认关闭 thinking，可用 DINGTALK_QWEN_THINKING=1 覆盖。
-    thinking: readEnvBool("DINGTALK_QWEN_THINKING", false),
-    timeoutMs: readEnvInt("DINGTALK_QWEN_TIMEOUT_MS", DEFAULT_DINGTALK_TIMEOUT_MS),
-    maxTokens: Math.min(
-      baseQwenConfig.maxTokens,
-      readEnvInt("DINGTALK_QWEN_MAX_TOKENS", DEFAULT_DINGTALK_MAX_TOKENS),
-    ),
-    // 钉钉链路启用 SSE 流式：避免长 prompt/慢生成下 keep-alive 被中间网关 idle-断开，
-    // 让 fetch 在 chunk 流入期间保持活跃，显著降低"单次 LLM 调用挂死 120s"的概率。
-    // 可通过 DINGTALK_QWEN_STREAM=0 关掉作为应急回退。
-    stream: readEnvBool("DINGTALK_QWEN_STREAM", true),
-  };
-  const dingtalkOrchestratorMaxIterations = readEnvInt(
-    "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS",
-    DEFAULT_DINGTALK_ORCH_ITERATIONS,
-  );
+  const dingtalkQwenConfig = buildManagerQwenClientConfig(baseQwenConfig);
   const appendStructuredTaskTable = readEnvBool(
     "DINGTALK_APPEND_STRUCTURED_TABLE",
     true,
@@ -328,7 +293,6 @@ async function main(): Promise<void> {
   });
 
   const chatSessionMemory = new MemoryChatSessionStore<Record<string, unknown>>();
-  const publishRecentStore = createRecentPublishStore();
   const planSessionStore = createPlanSessionStore();
   const employeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
   const assignmentDraftRepo = createAssignmentDraftRepo(resolveAssignmentDraftDir());
@@ -428,26 +392,33 @@ async function main(): Promise<void> {
         const handlerStartedAt = Date.now();
         let session: PlanSession | undefined;
         if (!isAnonymousSender) {
-          session = planSessionStore.loadByChatKey(chatKey);
-          if (!session && chatKey !== legacyChatKey) {
+          if (chatKey !== legacyChatKey) {
             const legacy = planSessionStore.loadByChatKey(legacyChatKey);
-            if (legacy) {
-              session = {
+            if (legacy && !planSessionStore.loadByChatKey(chatKey)) {
+              const migrated = {
                 ...legacy,
                 chatKeyHash: hashChatKey(chatKey),
               };
-              planSessionStore.save(session);
+              planSessionStore.save(migrated);
               planSessionStore.deleteByChatKey(legacyChatKey);
               logStructured({
                 event: "memory_session_migrated",
                 messageId,
-                planId: session.planId,
+                planId: migrated.planId,
               });
             }
           }
-          if (!session) {
-            session = planSessionStore.loadOrCreate(chatKey);
-          }
+          session = resolveCanonicalMainSession(senderStaffId, {
+            dingtalkChatKey: chatKey,
+          });
+          session = {
+            ...session,
+            conversationId: conversationId || session.conversationId,
+            conversationType: conversationType || session.conversationType,
+            senderStaffId: senderStaffId || session.senderStaffId,
+            sessionWebhookLastSeen:
+              sessionWebhook || session.sessionWebhookLastSeen,
+          };
         } else {
           const now = new Date().toISOString();
           session = {
@@ -681,20 +652,7 @@ async function main(): Promise<void> {
         const memoryContext = isAnonymousSender
           ? { summary: "", facts: [] as string[] }
           : loadMemoryContextForPlan(session.planId);
-        let mutableKnownFacts = [...(session.knownFacts ?? [])];
-        const knownFactsStore: KnownFactsStore = {
-          get: () => mutableKnownFacts,
-          update: (facts: string[]) => {
-            const merged = Array.from(new Set([
-              ...mutableKnownFacts,
-              ...facts.map((f) => String(f).trim()).filter(Boolean),
-            ])).slice(-50);
-            mutableKnownFacts = merged;
-          },
-        };
-        let publishResult: Record<string, unknown> | undefined;
-
-        // Run ReAct orchestrator — 模型自主决定追问/搜索/出稿
+        const orchestratorStartedAt = Date.now();
         logStructured({
           event: "dingtalk_role_routing",
           messageId,
@@ -704,181 +662,35 @@ async function main(): Promise<void> {
           routingEnabled: routing.roleRoutingEnabled,
           reason: routing.reason,
         });
-        const orchestratorStartedAt = Date.now();
-        // 检测上一轮是否发生了 scope 切换（发布后自动轮转 / 手动 start_new_task）。
-        // conversationHistory 以 [system_note] 开头且 <= 3 条记录 → 上一轮刚发生了 scope 切换。
-        const scopeRotatedSinceLastTurn = (() => {
-          const hist = session.conversationHistory;
-          if (hist.length === 0) return undefined;
-          const first = hist[0];
-          if (typeof first.content !== "string" || !first.content.startsWith("[system_note]")) return undefined;
-          if (hist.length > 3) return undefined;
-          const trail = session.scopeAuditTrail ?? [];
-          const last = trail[trail.length - 1];
-          if (last && (last.eventType === "SCOPE_CREATED" || last.eventType === "SCOPE_RESTORED")) {
-            const fromScopeId = last.fromScopeId;
-            const fromLabel = fromScopeId ? session.taskScopes?.[fromScopeId]?.scopeLabel : undefined;
-            return { fromLabel, toLabel: last.scopeLabel };
-          }
-          return {};
-        })();
-        const buildOrchestratorConfig = () => ({
-          clientConfig: dingtalkQwenConfig,
+        const turn = await runManagerOrchestratorTurn({
+          userMessage: background,
+          session,
           employeeRepo,
-          maxToolIterations: dingtalkOrchestratorMaxIterations,
-          toolProfile: routing.toolProfile,
-          promptProfile: routing.promptProfile,
-          managerFollowup:
-            routing.toolProfile === "manager" || routing.toolProfile === "admin",
-          trustedActorUserId: routing.trustedActorUserId,
-          allowSearchWeb: isExplicitSearchRequest(background),
-          knownFactsStore,
-          currentSessionPlanId: session.planId,
-          currentSession: session,
-          publishRecentStore,
+          clientConfig: dingtalkQwenConfig,
+          memorySummary: memoryContext.summary || buildMemorySummary(session),
+          memoryFacts: [
+            ...memoryContext.facts,
+            ...(session.knownFacts ?? []),
+          ],
           actorName: (payload.senderNick as string | undefined)?.trim(),
-          actorRole:
-            routing.resolvedRole === "admin"
-              ? ("admin" as const)
-              : routing.resolvedRole === "manager"
-                ? ("manager" as const)
-                : ("employee" as const),
-          onPublishTaskResult: (result: Record<string, unknown>) => {
-            publishResult = result;
-          },
-          onSessionMutated: (mutated) => {
-            session = mutated;
-            mutableKnownFacts = [...(mutated.knownFacts ?? [])];
-          },
-          sessionContext: {
-            conversationHistory: session.conversationHistory,
-            planId: session.planId,
-            latestDraft: session.latestDraft,
-            latestAssignment: session.latestAssignment,
-            memorySummary: memoryContext.summary || buildMemorySummary(session),
-            memoryFacts: [...mutableKnownFacts].slice(0, 8),
-            currentTimeIso: new Date().toISOString(),
-            pendingRoster: session.pendingRosterText
-              ? {
-                  sourceLabel: session.pendingRosterSource ?? "uploaded:roster",
-                  chars: session.pendingRosterText.length,
-                }
-              : undefined,
-            candidatePool: session.candidatePool
-              ? {
-                  source: session.candidatePool.source,
-                  entries: session.candidatePool.entries.map((e) => ({
-                    userId: e.userId,
-                    displayName: e.displayName,
-                    ...(e.fileNotes?.trim()
-                      ? { fileNotes: e.fileNotes.trim().slice(0, 200) }
-                      : {}),
-                  })),
-                  unresolvedCount: session.candidatePool.unresolved?.length,
-                }
-              : undefined,
-            scopeRotatedSinceLastTurn,
-          },
+          senderStaffId,
         });
-        const preTurnDraft = session.latestDraft;
-        const preTurnAssignment = session.latestAssignment;
-        let orchResult = await runOrchestrator(background, buildOrchestratorConfig());
         let orchestratorMs = Date.now() - orchestratorStartedAt;
+        session = turn.session;
+        const mutableKnownFacts = turn.mutableKnownFacts;
+        const orchResult = turn.orchResult;
+        const preTurnDraft = turn.preTurnDraft;
+        const preTurnAssignment = turn.preTurnAssignment;
+        let persistedDraft = turn.persistedDraft;
+        let draftForRender = turn.draftForRender;
+        const draftTouchedThisTurn = turn.draftTouchedThisTurn;
+        let latestAssignment = turn.latestAssignment;
+        const assignmentSection = turn.assignmentSection;
+        const assignState = turn.assignState;
+        const publishResult = turn.publishResult;
+        let planRotatedAfterPublish = turn.planRotatedAfterPublish;
+        const snapshotPlanId = turn.preRotatePlanId;
 
-        // Layer-3：scope 切换口播未调 start_new_task 时重试（与发布无关，保留）。
-        {
-          const initialOutbound = orchResult.messages.join("\n\n");
-          const isFalseScopeSwitch = detectFalseScopeSwitch({
-            userMessage: background,
-            toolInvocationNames: orchResult.toolInvocationNames ?? [],
-            outboundMarkdown: initialOutbound,
-          });
-          if (isFalseScopeSwitch) {
-            logStructured({
-              event: "scope_switch_silent_skip_detected",
-              messageId,
-              traceId: orchResult.traceId,
-              planId: session.planId,
-              initialToolNames: [...(orchResult.toolInvocationNames ?? [])],
-              initialMessagePreview: initialOutbound.slice(0, 160),
-            });
-            const retryStartedAt = Date.now();
-            const retryBackground = buildScopeSwitchRetryUserMessage(background);
-            const retryResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
-            orchestratorMs += Date.now() - retryStartedAt;
-            logStructured({
-              event: "scope_switch_silent_skip_retry_done",
-              messageId,
-              traceId: retryResult.traceId,
-              retriedToolNames: [...(retryResult.toolInvocationNames ?? [])],
-              retryMessagePreview: retryResult.messages.join("\n\n").slice(0, 160),
-            });
-            orchResult = retryResult;
-          }
-        }
-
-        // 用户要求换题/新任务但未调 start_new_task → 重试一轮（与假 scope 口播互补）。
-        {
-          if (
-            detectTopicSwitchWithoutArchive({
-              userMessage: background,
-              preTurnLatestDraft: preTurnDraft,
-              toolInvocationNames: orchResult.toolInvocationNames ?? [],
-            })
-          ) {
-            logStructured({
-              event: "topic_switch_without_archive_detected",
-              messageId,
-              traceId: orchResult.traceId,
-              planId: session.planId,
-            });
-            const retryStartedAt = Date.now();
-            const retryBackground = buildTopicSwitchRetryUserMessage(background);
-            const retryResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
-            orchestratorMs += Date.now() - retryStartedAt;
-            logStructured({
-              event: "topic_switch_without_archive_retry_done",
-              messageId,
-              traceId: retryResult.traceId,
-              retriedToolNames: [...(retryResult.toolInvocationNames ?? [])],
-            });
-            orchResult = retryResult;
-          }
-        }
-
-        // CLARIFY 语气与 draft JSON 混写 → 内部重试一轮（不追加用户可见兜底文案）。
-        {
-          const initialOutbound = orchResult.messages.join("\n\n");
-          const hasDraftOutput = orchResult.draft !== undefined;
-          if (
-            detectDraftClarifyMix({
-              message: initialOutbound,
-              hasDraft: hasDraftOutput,
-            })
-          ) {
-            logStructured({
-              event: "draft_clarify_mix_detected",
-              messageId,
-              traceId: orchResult.traceId,
-              planId: session.planId,
-              messagePreview: initialOutbound.slice(0, 160),
-            });
-            const retryStartedAt = Date.now();
-            const retryBackground = buildDraftClarifyMixRetryUserMessage(background);
-            const retryResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
-            orchestratorMs += Date.now() - retryStartedAt;
-            logStructured({
-              event: "draft_clarify_mix_retry_done",
-              messageId,
-              traceId: retryResult.traceId,
-              retriedToolNames: [...(retryResult.toolInvocationNames ?? [])],
-              retryMessagePreview: retryResult.messages.join("\n\n").slice(0, 160),
-            });
-            orchResult = retryResult;
-          }
-        }
-
-        // 假发布观测：主管确认发布但模型未调 publish_task 却口播「已发布」→ 审计 + 用户提示，不替模型重试。
         {
           const initialOutbound = orchResult.messages.join("\n\n");
           const falsePublish =
@@ -886,14 +698,14 @@ async function main(): Promise<void> {
               userMessage: background,
               preTurnLatestDraft: preTurnDraft,
               toolInvocationNames: orchResult.toolInvocationNames ?? [],
-              hasPublishResult: publishResultSucceeded(publishResult as Record<string, unknown> | undefined),
+              hasPublishResult: publishResultSucceeded(publishResult),
               outboundMarkdown: initialOutbound,
             })
             || detectFalsePublishOnConfirm({
               userMessage: background,
               preTurnLatestDraft: preTurnDraft,
               toolInvocationNames: orchResult.toolInvocationNames ?? [],
-              hasPublishResult: publishResultSucceeded(publishResult as Record<string, unknown> | undefined),
+              hasPublishResult: publishResultSucceeded(publishResult),
               outboundMarkdown: initialOutbound,
             });
           if (falsePublish) {
@@ -907,122 +719,7 @@ async function main(): Promise<void> {
           }
         }
 
-        const snapshotPlanId = session.planId;
-        const postTurnDraft = session.latestDraft;
-
-        const applyDraftFromOrchestrator = (result: typeof orchResult) => {
-          const outbound = resolveDraftForOutbound({
-            preTurnDraft,
-            postTurnDraft: session.latestDraft,
-            orchResultDraft: result.draft as Record<string, unknown> | undefined,
-            toolInvocationNames: result.toolInvocationNames ?? [],
-          });
-          if (outbound.persistedDraft) {
-            session.latestDraft = outbound.persistedDraft as PlanSession["latestDraft"];
-          }
-          return outbound;
-        };
-
-        let draftOutbound = applyDraftFromOrchestrator(orchResult);
-        let { draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound;
-
-        const needsSplitRetry = detectFalseSplit({
-          userMessage: background,
-          preTurnDraft: preTurnDraft as Record<string, unknown> | undefined,
-          postTurnDraft: persistedDraft as Record<string, unknown> | undefined,
-          outboundMarkdown: orchResult.messages.join("\n\n"),
-          toolInvocationNames: orchResult.toolInvocationNames ?? [],
-          orchResultHasDraftJson: orchResult.draft !== undefined,
-        });
-        if (needsSplitRetry) {
-          logStructured({
-            event: "false_split_observed",
-            messageId,
-            traceId: orchResult.traceId,
-            planId: session.planId,
-          });
-          const splitRetryStartedAt = Date.now();
-          const splitRetryBackground = buildSplitRetryUserMessage({
-            originalUserMessage: background,
-            taskIndexMap: buildTaskIndexMap(persistedDraft as Record<string, unknown> | undefined),
-          });
-          orchResult = await runOrchestrator(splitRetryBackground, buildOrchestratorConfig());
-          orchestratorMs += Date.now() - splitRetryStartedAt;
-          logStructured({
-            event: "split_retry_done",
-            messageId,
-            traceId: orchResult.traceId,
-            retriedToolNames: [...(orchResult.toolInvocationNames ?? [])],
-          });
-          draftOutbound = applyDraftFromOrchestrator(orchResult);
-          ({ draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound);
-        }
-
-        const employeesForAssignment = employeeRepo.list().map((e) => ({
-          userId: e.userId,
-          displayName: e.displayName,
-        }));
-
-        const runAssignmentProcessing = (result: typeof orchResult, outbound: typeof draftOutbound) => {
-          const assignmentDraft = outbound.draftForRender ?? outbound.persistedDraft;
-          const taskIds = Array.isArray((assignmentDraft as { tasks?: unknown[] } | undefined)?.tasks)
-            ? ((assignmentDraft as { tasks: Array<{ id?: string }> }).tasks)
-                .map((t) => (typeof t?.id === "string" ? t.id : ""))
-                .filter((id) => id.length > 0)
-            : [];
-          return processAssignmentForTurn({
-            preTurnDraft: preTurnDraft as Record<string, unknown> | undefined,
-            persistedDraft: outbound.persistedDraft as Record<string, unknown> | undefined,
-            sessionAssignment: session.latestAssignment as Record<string, unknown> | undefined,
-            orchAssignment: result.assignment,
-            draftTouchedThisTurn: outbound.draftTouchedThisTurn,
-            planId: session.planId,
-            traceId: result.traceId,
-            modelName: dingtalkQwenConfig.model,
-            taskIds,
-            employees: employeesForAssignment,
-            candidatePoolUserIds: session.candidatePool?.entries.map((e) => e.userId),
-            requireFullCoverage: true,
-          });
-        };
-
         const assignmentStartedAt = Date.now();
-        let assignState = runAssignmentProcessing(orchResult, draftOutbound);
-
-        const needsAssignRetry =
-          process.env.ASSIGNMENT_PHASE_ENABLED === "1"
-          && hasAssigneeIntentInUserMessage(background)
-          && assignState.coverage.total > 0
-          && assignState.coverage.covered < assignState.coverage.total;
-
-        if (needsAssignRetry) {
-          logStructured({
-            event: "assign_partial_retry",
-            messageId,
-            traceId: orchResult.traceId,
-            missingTaskIds: assignState.missingTaskIds,
-            covered: assignState.coverage.covered,
-            total: assignState.coverage.total,
-          });
-          const retryStartedAt = Date.now();
-          const retryBackground = buildAssignRetryUserMessage({
-            originalUserMessage: background,
-            missingTaskIds: assignState.missingTaskIds,
-            taskIndexMap: buildTaskIndexMap(persistedDraft as Record<string, unknown> | undefined),
-          });
-          orchResult = await runOrchestrator(retryBackground, buildOrchestratorConfig());
-          orchestratorMs += Date.now() - retryStartedAt;
-          draftOutbound = applyDraftFromOrchestrator(orchResult);
-          ({ draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound);
-          assignState = runAssignmentProcessing(orchResult, draftOutbound);
-        }
-
-        let latestAssignment = assignState.latestAssignment ?? (preTurnAssignment as Record<string, unknown> | undefined);
-        let assignmentSection = assignState.assignmentSection;
-        if (latestAssignment) {
-          session.latestAssignment = latestAssignment as PlanSession["latestAssignment"];
-        }
-
         const showAssignment =
           process.env.ASSIGNMENT_PHASE_ENABLED === "1"
           && (draftForRender ?? persistedDraft);
@@ -1066,7 +763,6 @@ async function main(): Promise<void> {
         }
         const assignmentMs = Date.now() - assignmentStartedAt;
 
-        // 长期记忆：有草案时自动存快照+embedding
         if (persistedDraft && !isAnonymousSender) {
           savePlanSnapshot(snapshotPlanId, {
             planId: snapshotPlanId,
@@ -1081,7 +777,6 @@ async function main(): Promise<void> {
             draft: persistedDraft,
             messagePreview: orchResult.messages[0]?.slice(0, 500),
           });
-          // 生成 embedding 用于未来相似任务检索
           if (readSearchSimilarPlansEnabled()) {
             const summary = `领域:${(persistedDraft as any)?.classification?.domain ?? "未知"} 子类型:${(persistedDraft as any)?.classification?.subtype ?? "未知"}`;
             generateQueryEmbedding(summary).then((emb) => {
@@ -1107,52 +802,33 @@ async function main(): Promise<void> {
           outboundMarkdown = sanitizedOutbound.markdown;
         }
 
-        let planRotatedAfterPublish = false;
         let rotatePlanHintTail = "";
-        const pr = publishResult as Record<string, unknown> | undefined;
-        if (
-          readDingtalkPlanIdRotateEnabled() &&
-          !isAnonymousSender &&
-          pr &&
-          String(pr.ok ?? "") === "true" &&
-          String(pr.alreadyPublished ?? "") !== "true" &&
-          pr.dedupedByLru !== true &&
-          String(pr.reason ?? "") !== "unknown_assignees"
-        ) {
-          const taskRow = pr.task as { taskNo?: string } | undefined;
-          const taskNo = String(taskRow?.taskNo ?? "").trim();
-          const rotRes = markPublishedAndRotatePlanSession(session, {
-            taskNo,
-            scopeLabel: "（发布后新规划）",
-            reason: "auto_rotate_after_publish",
-          });
-          if (!("skipped" in rotRes)) {
-            planRotatedAfterPublish = true;
-            rotatePlanHintTail =
-              `\n\n---\n**已切换到新任务上下文**：接下来您发的内容会按**新任务**继续编排。\n` +
-              (taskNo ?
-                `刚才那条已发布的任务业务编号为 **${taskNo}**。若还要继续改那条任务的拆解或分配，请直接回复一句：**切回上一条任务**（或说明要接着改刚才那条）。\n`
-              : `若还要继续改刚才那条任务的拆解或分配，请直接回复一句：**切回上一条任务**。\n`);
-            planSessionStore.appendEvent({
-              planId: rotRes.toPlanId,
-              chatKeyHash: session.chatKeyHash,
-              eventType: "planid_rotated_after_publish",
-              payload: {
-                fromPlanId: rotRes.fromPlanId,
-                toPlanId: rotRes.toPlanId,
-                taskNo: taskNo || undefined,
-                traceId: orchResult.traceId,
-              },
-            });
-            logStructured({
-              event: "planid_rotated_after_publish",
-              messageId,
-              fromPlanId: rotRes.fromPlanId,
-              toPlanId: rotRes.toPlanId,
+        if (planRotatedAfterPublish && turn.planRotateMeta && !isAnonymousSender) {
+          const { taskNo, fromPlanId, toPlanId } = turn.planRotateMeta;
+          rotatePlanHintTail =
+            `\n\n---\n**已切换到新任务上下文**：接下来您发的内容会按**新任务**继续编排。\n` +
+            (taskNo ?
+              `刚才那条已发布的任务业务编号为 **${taskNo}**。若还要继续改那条任务的拆解或分配，请直接回复一句：**切回上一条任务**（或说明要接着改刚才那条）。\n`
+            : `若还要继续改刚才那条任务的拆解或分配，请直接回复一句：**切回上一条任务**。\n`);
+          planSessionStore.appendEvent({
+            planId: toPlanId,
+            chatKeyHash: session.chatKeyHash,
+            eventType: "planid_rotated_after_publish",
+            payload: {
+              fromPlanId,
+              toPlanId,
               taskNo: taskNo || undefined,
               traceId: orchResult.traceId,
-            });
-          }
+            },
+          });
+          logStructured({
+            event: "planid_rotated_after_publish",
+            messageId,
+            fromPlanId,
+            toPlanId,
+            taskNo: taskNo || undefined,
+            traceId: orchResult.traceId,
+          });
         }
 
         const shouldRenderRichSection = Boolean(draftForRender) && !planRotatedAfterPublish;
@@ -1218,6 +894,14 @@ async function main(): Promise<void> {
           publishResult: publishResult as Record<string, unknown> | undefined,
           rotatePlanHintTail: planRotatedAfterPublish ? rotatePlanHintTail : "",
         });
+        let displayContentForUser = finalOutboundForHistory;
+        if (!isAnonymousSender && persistedDraft && !planRotatedAfterPublish) {
+          const workbenchLink = buildManagerChatDeepLink({ threadKind: "main" });
+          displayContentForUser = appendWorkbenchChatLinkFooter(
+            finalOutboundForHistory,
+            workbenchLink,
+          );
+        }
         // history 中只保留模型原话（不含本轮 bot 渲染的「任务补充信息」/ 结构化任务表 / 分配建议段），
         // 否则下一轮模型读 conversationHistory 会把上一轮的 latestDraft.description 等内容
         // 一字不漏地「复读」到新回复里造成跨任务串台（即用户看到的污染）。
@@ -1230,7 +914,7 @@ async function main(): Promise<void> {
           messageId,
           senderStaffId,
           title: draftForRender ? "任务拆解草案" : "消息",
-          markdownText: truncateMarkdown(finalOutboundForHistory, MAX_MARKDOWN_CHARS),
+          markdownText: truncateMarkdown(displayContentForUser, MAX_MARKDOWN_CHARS),
         });
         const sendReplyMs = Date.now() - sendReplyStartedAt;
         const totalMs = Date.now() - handlerStartedAt;
@@ -1261,23 +945,29 @@ async function main(): Promise<void> {
         const nextConversationHistory = [
           ...session.conversationHistory,
           { role: "user" as const, content: background },
-          { role: "assistant" as const, content: pureAssistantMessageForHistory },
+          {
+            role: "assistant" as const,
+            content: pureAssistantMessageForHistory,
+            displayContent: displayContentForUser,
+          },
         ].slice(-10);
         if (!isAnonymousSender) {
-          planSessionStore.save({
-            ...session,
-            lastAgentProfile: selectedProfile,
-            conversationId: conversationId || session.conversationId,
-            conversationType: conversationType || session.conversationType,
-            senderStaffId: senderStaffId || session.senderStaffId,
-            sessionWebhookLastSeen: sessionWebhook || session.sessionWebhookLastSeen,
-            lastTraceId: orchResult.traceId,
-            knownFacts: mutableKnownFacts,
-            conversationHistory: nextConversationHistory,
-            latestDraft: planRotatedAfterPublish ? undefined : persistedDraft,
-            latestAssignment: planRotatedAfterPublish ? undefined : latestAssignment,
-            revisionEvents: nextRevisionEvents,
-          });
+          planSessionStore.save(
+            markSessionAsMainThread({
+              ...session,
+              lastAgentProfile: selectedProfile,
+              conversationId: conversationId || session.conversationId,
+              conversationType: conversationType || session.conversationType,
+              senderStaffId: senderStaffId || session.senderStaffId,
+              sessionWebhookLastSeen: sessionWebhook || session.sessionWebhookLastSeen,
+              lastTraceId: orchResult.traceId,
+              knownFacts: mutableKnownFacts,
+              conversationHistory: nextConversationHistory,
+              latestDraft: planRotatedAfterPublish ? undefined : persistedDraft,
+              latestAssignment: planRotatedAfterPublish ? undefined : latestAssignment,
+              revisionEvents: nextRevisionEvents,
+            }),
+          );
         }
 
         if (!isAnonymousSender) {

@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.13";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.14";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -15,6 +15,19 @@ export interface QwenPlannerPromptRequest {
 
 export interface QwenPlannerPromptOpts {
   managerFollowup?: boolean;
+  /** Only workbench POST /conversation/draft/revise — do not enable on DingTalk or normal chat send. */
+  workbenchDraftRevision?: boolean;
+}
+
+function buildWorkbenchDraftRevisionDiscipline(): string[] {
+  return [
+    "",
+    "## 工作台草案修订（仅当 user 含 [WORKBENCH_DRAFT_REVISION]）",
+    "- 用户已在 Excel 编辑器提交**完整** draft + assignment；你的职责是校验后**原样采纳**，禁止重拆主题、禁止改变条数语义。",
+    "- **本回合禁止 tool_calls**；须顶层输出完整 `draft` JSON（TABLE REDRAFT）+ 简短 `message` 确认已更新。",
+    "- 仅可修正明显格式问题（缺 id、空 title）；不得改写用户未改动的任务目标/交付/标准语义。",
+    "- **禁止**输出 assignment 以外的 demo 字段；assignee 已在 assignment JSON 中。",
+  ];
 }
 
 function buildManagerFollowupModeLines(): string[] {
@@ -156,6 +169,9 @@ export function buildQwenPlannerSystemPrompt(
   // 由 toolProfile 决定能不能拿到发布工具，请勿轻易回退到独立 manager prompt。
   const lines =
     profile === "employee" ? buildEmployeePromptBody() : buildPlannerPromptBody(opts);
+  if (opts?.workbenchDraftRevision) {
+    lines.push(...buildWorkbenchDraftRevisionDiscipline());
+  }
   return lines.join("\n");
 }
 

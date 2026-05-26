@@ -70,14 +70,28 @@ export interface PlanSession {
   planId: string;
   createdAt: string;
   updatedAt: string;
+  /** Workbench thread model: dingtalk canonical main vs workbench-only side session. */
+  threadKind?: "main" | "side";
+  /** `main` for primary thread; uuid for side threads. */
+  threadId?: string;
+  /** Default side-thread label before first user message (e.g. 新规划会话 · MM-DD HH:mm). */
+  threadLabel?: string;
   lastAgentProfile?: "planner" | "manager" | "employee";
   conversationId?: string;
   conversationType?: string;
   senderStaffId?: string;
+  /** Canonical manager id for main-thread dedup (workbench + DingTalk). */
+  canonicalUserId?: string;
   sessionWebhookLastSeen?: string;
   lastTraceId?: string;
   knownFacts: string[];
-  conversationHistory: Array<{ role: string; content: string; at?: string }>;
+  conversationHistory: Array<{
+    role: string;
+    content: string;
+    /** Full user-visible markdown (tables, assignment section); orchestrator uses `content` only. */
+    displayContent?: string;
+    at?: string;
+  }>;
   latestDraft?: Record<string, unknown>;
   latestAssignment?: Record<string, unknown>;
   revisionEvents?: Array<Record<string, unknown>>;
@@ -443,6 +457,10 @@ export function createPlanSessionStore() {
 
     deleteByChatKey(chatKey: string): void {
       const chatKeyHash = hashChatKey(chatKey);
+      deleteByChatKeyHash(chatKeyHash);
+    },
+
+    deleteByChatKeyHash(chatKeyHash: string): void {
       deleteByChatKeyHash(chatKeyHash);
     },
 

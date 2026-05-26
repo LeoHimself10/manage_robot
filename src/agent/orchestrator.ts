@@ -87,6 +87,10 @@ export interface OrchestratorConfig {
     scopeRotatedSinceLastTurn?: { fromLabel?: string; toLabel?: string };
   };
   traceId?: string;
+  /** Workbench Excel draft revise only — injects revision discipline into system prompt. */
+  workbenchDraftRevision?: boolean;
+  /** When true with workbenchDraftRevision, no tools are exposed to the model. */
+  disableTools?: boolean;
 }
 
 export interface OrchestratorResult {
@@ -133,16 +137,23 @@ export async function runOrchestrator(
     onSessionMutated: config.onSessionMutated,
   });
 
-  const tools = Object.values(toolRegistry).map((e) => e.definition);
+  const tools = config.disableTools
+    ? []
+    : Object.values(toolRegistry).map((e) => e.definition);
   const handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown> | unknown> = {};
-  for (const [name, entry] of Object.entries(toolRegistry)) {
-    handlers[name] = entry.handler;
+  if (!config.disableTools) {
+    for (const [name, entry] of Object.entries(toolRegistry)) {
+      handlers[name] = entry.handler;
+    }
   }
 
   // Build messages with conversation history
-  const promptOpts: QwenPlannerPromptOpts | undefined = config.managerFollowup
-    ? { managerFollowup: true }
-    : undefined;
+  const promptOpts: QwenPlannerPromptOpts | undefined =
+    config.workbenchDraftRevision
+      ? { workbenchDraftRevision: true, managerFollowup: config.managerFollowup }
+      : config.managerFollowup
+        ? { managerFollowup: true }
+        : undefined;
   const sysPrompt = buildQwenPlannerSystemPrompt(
     config.promptProfile ?? "planner",
     promptOpts,
