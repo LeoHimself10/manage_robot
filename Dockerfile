@@ -7,7 +7,7 @@ RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build:workbench-login && npm prune --omit=dev
+RUN npm run build:workbench-login && npm run build:workbench-draft-grid && npm prune --omit=dev
 
 ENV NODE_ENV=production
 

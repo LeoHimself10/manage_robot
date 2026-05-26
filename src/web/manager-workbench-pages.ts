@@ -642,7 +642,7 @@ export function renderManagerChatPage(params: {
         </div>
         <div class="chat-composer">
           <div class="form-stack">
-            <textarea id="msgInput" placeholder="例如：把 task_2 截止改到 6/30，或补充背景与诉求…"></textarea>
+            <textarea id="msgInput" placeholder="Enter 发送，Shift+Enter 换行。例如：把 task_2 截止改到 6/30…"></textarea>
             <div class="roster-upload-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;">
               <label class="btn btn-secondary" for="rosterFileInput" style="margin:0;cursor:pointer;">上传花名册</label>
               <input id="rosterFileInput" type="file" accept=".md,.markdown,.txt,.docx,.pdf" style="display:none;" />
@@ -841,38 +841,47 @@ export function renderManagerChatPage(params: {
       box.innerHTML = '<li style="color:#dc2626;">加载消息失败</li>';
     }
   }
+  async function sendChatMessage() {
+    var sendBtn = document.getElementById('sendBtn');
+    var message = (document.getElementById('msgInput').value || '').trim();
+    if (!message) { setFb('sendFeedback', '请输入消息内容', 'err'); return; }
+    if (sendBtn) sendBtn.disabled = true;
+    setFb('sendFeedback', '发送中…', 'muted');
+    try {
+      var res = await fetch('/api/workbench/conversation/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId: activeThreadId,
+          threadKind: activeThreadKind,
+          message: message
+        })
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      document.getElementById('msgInput').value = '';
+      setFb('sendFeedback', '已发送', 'ok');
+      if (data.threadId) activeThreadId = data.threadId;
+      if (data.kind) activeThreadKind = data.kind;
+      await loadThreads(activeThreadId);
+      await loadMessages();
+      scrollMessageStreamToBottom();
+      focusComposer();
+    } catch (e) {
+      setFb('sendFeedback', String(e && e.message ? e.message : e), 'err');
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
+    }
+  }
   var sendBtn = document.getElementById('sendBtn');
   if (sendBtn) {
-    sendBtn.addEventListener('click', async function () {
-      var message = (document.getElementById('msgInput').value || '').trim();
-      if (!message) { setFb('sendFeedback', '请输入消息内容', 'err'); return; }
-      sendBtn.disabled = true;
-      setFb('sendFeedback', '发送中…', 'muted');
-      try {
-        var res = await fetch('/api/workbench/conversation/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            threadId: activeThreadId,
-            threadKind: activeThreadKind,
-            message: message
-          })
-        });
-        var data = await res.json().catch(function () { return {}; });
-        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-        document.getElementById('msgInput').value = '';
-        setFb('sendFeedback', '已发送', 'ok');
-        if (data.threadId) activeThreadId = data.threadId;
-        if (data.kind) activeThreadKind = data.kind;
-        await loadThreads(activeThreadId);
-        await loadMessages();
-        scrollMessageStreamToBottom();
-        focusComposer();
-      } catch (e) {
-        setFb('sendFeedback', String(e && e.message ? e.message : e), 'err');
-      } finally {
-        sendBtn.disabled = false;
-      }
+    sendBtn.addEventListener('click', function () { void sendChatMessage(); });
+  }
+  if (msgInput) {
+    msgInput.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' || ev.shiftKey || ev.isComposing) return;
+      ev.preventDefault();
+      void sendChatMessage();
     });
   }
   var newThreadBtn = document.getElementById('newThreadBtn');

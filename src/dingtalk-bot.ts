@@ -49,7 +49,7 @@ import {
 } from "./view/dingtalk-task-markdown";
 import {
   appendWorkbenchChatLinkFooter,
-  buildManagerChatDeepLink,
+  buildManagerChatDeepLinkForDingtalkOutbound,
 } from "./view/workbench-chat-link";
 import { resolveCanonicalMainSession } from "./web/canonical-main-session";
 import { markSessionAsMainThread } from "./web/conversation-thread-resolver";
@@ -896,7 +896,7 @@ async function main(): Promise<void> {
         });
         let displayContentForUser = finalOutboundForHistory;
         if (!isAnonymousSender && persistedDraft && !planRotatedAfterPublish) {
-          const workbenchLink = buildManagerChatDeepLink({ threadKind: "main" });
+          const workbenchLink = buildManagerChatDeepLinkForDingtalkOutbound({ threadKind: "main" });
           displayContentForUser = appendWorkbenchChatLinkFooter(
             finalOutboundForHistory,
             workbenchLink,
