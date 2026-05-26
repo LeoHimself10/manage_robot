@@ -29,6 +29,8 @@
     "seed:employees": "tsx scripts/seed-employee-profiles.ts",
     "seed:external-executors": "tsx scripts/seed-external-executors.ts",
     "dev:external-workbench": "tsx scripts/local-external-workbench-dev.ts",
+    "dev:manager-chat": "tsx scripts/local-manager-chat-dev.ts",
+    "dev:manager-chat:keep": "tsx scripts/local-manager-chat-dev.ts --keep-data",
     "build:workbench-login": "esbuild src/web/workbench-dd-login-entry.ts --bundle --platform=browser --format=iife --legal-comments=none --outfile=dist/workbench-dd-login.js",
     "build:workbench-draft-grid": "esbuild src/web/workbench-draft-grid-entry.ts --bundle --platform=browser --format=iife --global-name=WorkbenchDraftGrid --legal-comments=none --outfile=dist/workbench-draft-grid.js"
   },

@@ -11,10 +11,46 @@ import {
   type DraftExcelColumnKey,
   type DraftExcelRow,
 } from "./draft-excel-grid";
+import {
+  mountContactComboInCell,
+  parseAssigneeCellDisplay,
+} from "./workbench-contact-combo";
 
 const VISIBLE_KEYS = DRAFT_EXCEL_COLUMN_KEYS.filter(
   (k) => k !== "taskId",
 ) as DraftExcelColumnKey[];
+
+const COL_WIDTH_STORAGE_KEY = "workbench-draft-excel-col-widths-v1";
+const DEFAULT_COL_WIDTHS: Partial<Record<DraftExcelColumnKey, number>> = {
+  rowNum: 36,
+  title: 140,
+  objective: 120,
+  deliverables: 120,
+  completionCriteria: 140,
+  dueAt: 120,
+  actions: 120,
+  dependencyTaskIds: 100,
+  assignee: 140,
+  feedbackFrequency: 100,
+  inputMaterials: 120,
+  collaborators: 100,
+  inScope: 100,
+  outOfScope: 100,
+  checkpoints: 100,
+  risks: 100,
+};
+
+const LONG_TEXT_KEYS = new Set<DraftExcelColumnKey>([
+  "objective",
+  "deliverables",
+  "completionCriteria",
+  "actions",
+  "inputMaterials",
+  "inScope",
+  "outOfScope",
+  "checkpoints",
+  "risks",
+]);
 
 export interface OpenDraftExcelModalOpts {
   threadId: string;
@@ -33,18 +69,45 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+function normalizeDateInputValue(raw: string): string {
+  const text = String(raw ?? "").trim();
+  if (!text || text === "待确认") return "";
+  const iso = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const d = new Date(text);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function readAssigneeFromCell(cell: HTMLTableCellElement | undefined): string {
+  if (!cell) return "";
+  const hidden = cell.querySelector(".cell-assignee-user-id") as HTMLInputElement | null;
+  const visible = cell.querySelector(".cell-input--contact") as HTMLInputElement | null;
+  const name = String(visible?.value ?? "").trim();
+  const userId = String(hidden?.value ?? "").trim();
+  if (name && userId) return `${name} (${userId})`;
+  if (userId) return userId;
+  return name;
+}
+
 function readRowFromTr(tr: HTMLTableRowElement): DraftExcelRow {
   const row = {} as DraftExcelRow;
   VISIBLE_KEYS.forEach((key, colIdx) => {
     const cell = tr.cells[colIdx];
+    if (key === "assignee") {
+      row[key] = readAssigneeFromCell(cell);
+      return;
+    }
     const input = cell?.querySelector("textarea, input") as
       | HTMLTextAreaElement
       | HTMLInputElement
       | null;
     row[key] = input ? String(input.value ?? "").trim() : "";
   });
-  const taskId = tr.dataset.taskId ?? "";
-  row.taskId = taskId;
+  row.taskId = tr.dataset.taskId ?? "";
   row.rowNum = tr.dataset.rowNum ?? "";
   return row;
 }
@@ -55,34 +118,141 @@ function buildRowTr(row: DraftExcelRow, index: number): HTMLTableRowElement {
   tr.dataset.rowNum = String(index + 1);
   VISIBLE_KEYS.forEach((key) => {
     const td = document.createElement("td");
-    const readonly = key === "rowNum";
-    if (readonly) {
-      td.className = "cell-readonly";
+    if (key === "rowNum") {
+      td.className = "cell-readonly col-frozen";
       td.textContent = String(index + 1);
-    } else {
-      const isLong =
-        key === "objective" ||
-        key === "deliverables" ||
-        key === "completionCriteria" ||
-        key === "actions" ||
-        key === "inputMaterials" ||
-        key === "inScope" ||
-        key === "outOfScope" ||
-        key === "checkpoints" ||
-        key === "risks";
-      const field = isLong
-        ? document.createElement("textarea")
-        : document.createElement("input");
+    } else if (key === "title") {
+      td.className = "col-frozen";
+      const field = document.createElement("input");
       field.className = "cell-input";
       field.value = String(row[key] ?? "");
-      if (isLong) {
-        (field as HTMLTextAreaElement).rows = 2;
-      }
+      td.appendChild(field);
+    } else if (key === "dueAt") {
+      const field = document.createElement("input");
+      field.type = "date";
+      field.className = "cell-input cell-input--date";
+      field.value = normalizeDateInputValue(String(row.dueAt ?? ""));
+      td.appendChild(field);
+    } else if (key === "assignee") {
+      const parsed = parseAssigneeCellDisplay(String(row.assignee ?? ""));
+      mountContactComboInCell(
+        td,
+        { display: parsed.display, userId: parsed.userId },
+        (kw) => `/api/workbench/manager/contacts?keyword=${encodeURIComponent(kw)}`,
+      );
+    } else if (LONG_TEXT_KEYS.has(key)) {
+      const field = document.createElement("textarea");
+      field.className = "cell-input";
+      field.rows = 3;
+      field.value = String(row[key] ?? "");
+      td.appendChild(field);
+    } else {
+      const field = document.createElement("input");
+      field.className = "cell-input";
+      field.value = String(row[key] ?? "");
       td.appendChild(field);
     }
     tr.appendChild(td);
   });
   return tr;
+}
+
+function loadColWidths(): Record<string, number> {
+  try {
+    const raw = sessionStorage.getItem(COL_WIDTH_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveColWidths(widths: Record<string, number>): void {
+  try {
+    sessionStorage.setItem(COL_WIDTH_STORAGE_KEY, JSON.stringify(widths));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+function applyColumnWidths(table: HTMLTableElement, colgroup: HTMLTableColElement[]): void {
+  const saved = loadColWidths();
+  VISIBLE_KEYS.forEach((key, idx) => {
+    const width = saved[key] ?? DEFAULT_COL_WIDTHS[key] ?? 100;
+    const col = colgroup[idx];
+    if (col) {
+      col.style.width = `${width}px`;
+      col.dataset.colKey = key;
+    }
+    table.querySelectorAll("tr").forEach((tr) => {
+      const cell = tr.cells[idx];
+      if (cell) {
+        cell.style.width = `${width}px`;
+        cell.style.minWidth = `${width}px`;
+        cell.style.maxWidth = `${width}px`;
+      }
+    });
+  });
+}
+
+function attachColumnResize(
+  table: HTMLTableElement,
+  headTr: HTMLTableRowElement,
+  colgroup: HTMLTableColElement[],
+): void {
+  const widths: Record<string, number> = {};
+  VISIBLE_KEYS.forEach((key, idx) => {
+    widths[key] =
+      loadColWidths()[key] ?? DEFAULT_COL_WIDTHS[key] ?? 100;
+  });
+
+  headTr.querySelectorAll("th").forEach((th, idx) => {
+    const key = VISIBLE_KEYS[idx];
+    if (!key || key === "rowNum") return;
+    const handle = document.createElement("span");
+    handle.className = "col-resize-handle";
+    handle.title = "拖拽调整列宽";
+    th.style.position = "sticky";
+    th.appendChild(handle);
+
+    let startX = 0;
+    let startW = 0;
+
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.max(60, startW + (ev.clientX - startX));
+      widths[key] = next;
+      const col = colgroup[idx];
+      if (col) col.style.width = `${next}px`;
+      table.querySelectorAll("tr").forEach((tr) => {
+        const cell = tr.cells[idx];
+        if (cell) {
+          cell.style.width = `${next}px`;
+          cell.style.minWidth = `${next}px`;
+          cell.style.maxWidth = `${next}px`;
+        }
+      });
+    };
+
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      saveColWidths(widths);
+    };
+
+    handle.addEventListener("mousedown", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      startX = ev.clientX;
+      startW = widths[key] ?? DEFAULT_COL_WIDTHS[key] ?? 100;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  });
 }
 
 export function closeDraftExcelModal(): void {
@@ -155,13 +325,27 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   toolbar.append(insertBtn, deleteBtn, discardBtn);
 
   const gridWrap = el("div", "draft-modal-grid-wrap");
+  const submitOverlay = el("div", "draft-modal-submit-overlay");
+  submitOverlay.hidden = true;
+  submitOverlay.innerHTML =
+    '<div class="draft-modal-spinner" aria-hidden="true"></div>' +
+    '<div class="draft-modal-submit-title">Agent 校验中…</div>' +
+    '<div class="draft-modal-submit-hint">通常需要 15–30 秒，请勿关闭</div>' +
+    '<div class="draft-modal-submit-elapsed muted"></div>';
+
   const scroll = el("div", "draft-excel-scroll");
   const table = el("table", "draft-excel-table");
+  const colgroup = document.createElement("colgroup");
+  VISIBLE_KEYS.forEach(() => {
+    colgroup.appendChild(document.createElement("col"));
+  });
+  table.appendChild(colgroup);
   const thead = document.createElement("thead");
   const headTr = document.createElement("tr");
   VISIBLE_KEYS.forEach((key) => {
     const th = document.createElement("th");
     th.textContent = DRAFT_EXCEL_COLUMN_HEADERS[key];
+    th.dataset.colKey = key;
     if (key === "rowNum" || key === "title") th.className = "col-frozen";
     headTr.appendChild(th);
   });
@@ -171,7 +355,7 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   initialRows.forEach((row, i) => tbody.appendChild(buildRowTr(row, i)));
   table.appendChild(tbody);
   scroll.appendChild(table);
-  gridWrap.appendChild(scroll);
+  gridWrap.append(submitOverlay, scroll);
 
   const footer = el("div", "draft-modal-footer");
   const errBox = el("div", "draft-modal-error");
@@ -187,8 +371,24 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   document.body.appendChild(overlayEl);
   document.body.style.overflow = "hidden";
 
+  const colEls = Array.from(colgroup.querySelectorAll("col"));
+  applyColumnWidths(table, colEls);
+  attachColumnResize(table, headTr, colEls);
+
   let selectedTr: HTMLTableRowElement | null = tbody.rows[0] ?? null;
   if (selectedTr) selectedTr.classList.add("selected");
+
+  function setSubmitting(active: boolean) {
+    submitOverlay.hidden = !active;
+    modal.classList.toggle("draft-modal--submitting", active);
+    submitBtn.disabled = active;
+    cancelBtn.disabled = active;
+    insertBtn.disabled = active;
+    deleteBtn.disabled = active;
+    discardBtn.disabled = active;
+    closeBtn.disabled = active;
+    fullscreenBtn.disabled = active;
+  }
 
   function renumber() {
     Array.from(tbody.rows).forEach((tr, i) => {
@@ -201,6 +401,7 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   tbody.addEventListener("click", (ev) => {
     const tr = (ev.target as HTMLElement).closest("tr");
     if (!tr || tr.parentElement !== tbody) return;
+    if ((ev.target as HTMLElement).closest(".col-resize-handle")) return;
     Array.from(tbody.rows).forEach((r) => r.classList.remove("selected"));
     tr.classList.add("selected");
     selectedTr = tr;
@@ -209,10 +410,13 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   insertBtn.addEventListener("click", () => {
     const empty: DraftExcelRow = { rowNum: "", taskId: "", title: "新子任务" } as DraftExcelRow;
     VISIBLE_KEYS.forEach((k) => {
-      if (k !== "rowNum" && k !== "title" && k !== "taskId") (empty as Record<string, string>)[k] = "";
+      if (k !== "rowNum" && k !== "title" && k !== "taskId") {
+        (empty as Record<string, string>)[k] = "";
+      }
     });
     tbody.appendChild(buildRowTr(empty, tbody.rows.length));
     renumber();
+    applyColumnWidths(table, colEls);
   });
 
   deleteBtn.addEventListener("click", () => {
@@ -242,12 +446,20 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   closeBtn.addEventListener("click", close);
   cancelBtn.addEventListener("click", close);
   overlayEl.addEventListener("click", (ev) => {
-    if (ev.target === overlayEl) close();
+    if (ev.target === overlayEl && !modal.classList.contains("draft-modal--submitting")) close();
   });
 
   submitBtn.addEventListener("click", async () => {
     errBox.textContent = "";
-    submitBtn.disabled = true;
+    setSubmitting(true);
+    const elapsedEl = submitOverlay.querySelector(".draft-modal-submit-elapsed");
+    const started = Date.now();
+    const elapsedTimer = window.setInterval(() => {
+      if (elapsedEl) {
+        const sec = Math.floor((Date.now() - started) / 1000);
+        elapsedEl.textContent = `已等待 ${sec} 秒`;
+      }
+    }, 1000);
     try {
       const rows = Array.from(tbody.rows).map((tr, i) => {
         const r = readRowFromTr(tr);
@@ -288,7 +500,8 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
     } catch (e) {
       errBox.textContent = e instanceof Error ? e.message : String(e);
     } finally {
-      submitBtn.disabled = false;
+      window.clearInterval(elapsedTimer);
+      setSubmitting(false);
     }
   });
 }

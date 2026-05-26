@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>智能规划助手 + Excel UX · 实现预览</title>
+  <style>
+    :root {
+      --bg: #f1f5f9;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-soft: #eff6ff;
+      --danger: #dc2626;
+      --success: #059669;
+      --warn: #d97706;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+      --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      --excel-header: #f3f4f6;
+      --excel-border: #d1d5db;
+      --excel-focus: #bfdbfe;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: #dfe6ee;
+      color: var(--text);
+      line-height: 1.5;
+    }
+    a { color: var(--primary); }
+
+    /* ===== doc shell ===== */
+    .doc-hero {
+      background: linear-gradient(145deg, #0f172a 0%, #1e3a8a 100%);
+      color: #f8fafc;
+      padding: 32px 24px 28px;
+    }
+    .doc-hero h1 { margin: 0 0 8px; font-size: 26px; letter-spacing: -0.02em; }
+    .doc-hero p { margin: 0; max-width: 720px; color: #cbd5e1; font-size: 14px; }
+    .doc-wrap { max-width: 1320px; margin: 0 auto; padding: 24px 16px 64px; }
+    .doc-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 28px;
+      overflow: hidden;
+    }
+    .doc-section-head {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      background: #f8fafc;
+    }
+    .doc-section-head h2 { margin: 0 0 4px; font-size: 18px; }
+    .doc-section-head p { margin: 0; font-size: 13px; color: var(--muted); }
+    .doc-section-body { padding: 20px; }
+    .state-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .state-tab {
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      color: var(--text);
+    }
+    .state-tab:hover { border-color: #cbd5e1; }
+    .state-tab.active {
+      background: var(--primary-soft);
+      border-color: #93c5fd;
+      color: var(--primary-hover);
+    }
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .legend-item {
+      font-size: 12px;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: #fafbfc;
+    }
+    .legend-item strong { display: block; margin-bottom: 2px; font-size: 13px; }
+    .tag-new {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #dbeafe;
+      color: #1e40af;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .tag-chg {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #fef3c7;
+      color: #92400e;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    /* ===== workbench mock ===== */
+    .mock-viewport {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--bg);
+      min-height: 520px;
+    }
+    .mock-viewport[data-state] .state-panel { display: none; }
+    .mock-viewport[data-state="empty"] .state-empty,
+    .mock-viewport[data-state="draft"] .state-draft,
+    .mock-viewport[data-state="pending"] .state-pending,
+    .mock-viewport[data-state="skeleton"] .state-skeleton { display: block; }
+
+    .page-shell--chat {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 12px 14px 20px;
+      min-height: 500px;
+    }
+    .topbar--compact {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .brand { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
+    .page-title { margin: 2px 0 0; font-size: 20px; font-weight: 700; }
+    .nav-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+    .nav-pills a {
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+    }
+    .nav-pills a.active { background: var(--primary-soft); border-color: #93c5fd; color: var(--primary-hover); }
+
+    .chat-main {
+      display: grid;
+      grid-template-columns: 260px 1fr 240px;
+      gap: 12px;
+      min-height: 420px;
+    }
+    @media (max-width: 959px) {
+      .chat-main { grid-template-columns: 1fr; }
+      .draft-context-panel { display: none !important; }
+      .draft-context-bar--mobile { display: flex !important; }
+    }
+
+    /* sidebar */
+    .chat-sidebar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 380px;
+    }
+    .chat-sidebar-head { padding: 12px; border-bottom: 1px solid var(--border); }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      font-family: inherit;
+    }
+    .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn-ghost {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .btn-sm { padding: 6px 10px; font-size: 12px; }
+    .btn-block { width: 100%; }
+    .thread-list { flex: 1; overflow: auto; padding: 8px; }
+    .thread-item {
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      cursor: pointer;
+      margin-bottom: 4px;
+    }
+    .thread-item:hover { background: #f8fafc; }
+    .thread-item.active { background: var(--primary-soft); border-color: #bfdbfe; }
+    .thread-item .t { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+    .thread-item .m { font-size: 11px; color: var(--muted); }
+    .thread-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: #e0e7ff;
+      color: #3730a3;
+      margin-left: 4px;
+    }
+    .chat-sidebar-tip {
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+      background: #fafbfc;
+    }
+
+    /* conversation pane */
+    .chat-pane {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      min-height: 380px;
+      overflow: hidden;
+    }
+    .chat-pane-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .pane-title { font-size: 15px; font-weight: 700; }
+    .pane-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    .draft-context-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 14px;
+      background: #f0fdf4;
+      border-bottom: 1px solid #bbf7d0;
+      font-size: 12px;
+    }
+    .draft-context-bar.muted {
+      background: #f8fafc;
+      border-color: var(--border);
+      color: var(--muted);
+    }
+    .draft-context-bar--mobile { display: none; }
+
+    .chat-stream {
+      flex: 1;
+      overflow: auto;
+      padding: 14px;
+      min-height: 180px;
+    }
+    .msg-list { display: flex; flex-direction: column; gap: 12px; }
+    .msg-row { display: flex; }
+    .msg-row.user { justify-content: flex-end; }
+    .msg-bubble {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .msg-row.user .msg-bubble {
+      background: var(--primary);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg-row.assistant .msg-bubble {
+      background: #f1f5f9;
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+    .msg-bubble--pending {
+      background: #f8fafc !important;
+      border: 1px dashed #cbd5e1 !important;
+      color: var(--muted);
+    }
+    .typing-dots {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+      margin-right: 6px;
+    }
+    .typing-dots span {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #94a3b8;
+      animation: bounce 1.2s infinite ease-in-out;
+    }
+    .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+    .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+      40% { transform: translateY(-4px); opacity: 1; }
+    }
+    .elapsed { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+
+    /* empty state */
+    .chat-empty-state {
+      border: 2px dashed #cbd5e1;
+      border-radius: var(--radius);
+      padding: 28px 20px;
+      text-align: center;
+      background: #fafbfc;
+    }
+    .chat-empty-state h3 { margin: 0 0 6px; font-size: 15px; }
+    .chat-empty-state p { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
+    .chat-quick-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .chat-quick-chip {
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid #bfdbfe;
+      background: var(--primary-soft);
+      color: var(--primary-hover);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .chat-quick-chip:hover { background: #dbeafe; }
+
+    /* skeleton */
+    .skeleton-msg {
+      height: 48px;
+      border-radius: 10px;
+      background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.2s infinite;
+      margin-bottom: 12px;
+    }
+    .skeleton-msg:nth-child(2) { width: 75%; }
+    .skeleton-msg:nth-child(3) { width: 60%; }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* composer */
+    .chat-composer-wrap { padding: 12px 14px; border-top: 1px solid var(--border); background: #fafbfc; }
+    .chat-composer-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      box-shadow: var(--shadow);
+    }
+    .chat-composer-card textarea {
+      width: 100%;
+      min-height: 72px;
+      border: none;
+      outline: none;
+      resize: vertical;
+      font: inherit;
+      font-size: 13px;
+      background: transparent;
+    }
+    .composer-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .composer-secondary { display: flex; gap: 6px; flex-wrap: wrap; }
+    .composer-status {
+      margin-top: 8px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .composer-status.ok { background: #ecfdf5; color: var(--success); border: 1px solid #a7f3d0; }
+    .composer-status.err { background: #fef2f2; color: var(--danger); border: 1px solid #fecaca; }
+    .composer-status.busy { background: #eff6ff; color: var(--primary); border: 1px solid #bfdbfe; }
+
+    /* draft context panel */
+    .draft-context-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .draft-context-panel h4 { margin: 0; font-size: 13px; font-weight: 700; }
+    .draft-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .draft-stat {
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      background: #f8fafc;
+      border: 1px solid var(--border);
+    }
+    .draft-stat .l { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .draft-stat .v { font-size: 20px; font-weight: 800; margin-top: 2px; }
+    .draft-stat .v.warn { color: var(--warn); }
+    .draft-preview-list { font-size: 12px; color: var(--muted); margin: 0; padding-left: 16px; }
+    .draft-preview-list li { margin-bottom: 4px; }
+
+    /* ===== excel mock ===== */
+    .excel-toggle { margin-bottom: 12px; }
+    .draft-modal-overlay {
+      position: relative;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.35);
+      padding: 16px;
+      min-height: 480px;
+    }
+    .draft-modal {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+      display: flex;
+      flex-direction: column;
+      max-height: 440px;
+      overflow: hidden;
+    }
+    .draft-modal-top {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .draft-modal-top h3 { margin: 0; font-size: 16px; }
+    .draft-modal-toolbar {
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #fafbfc;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .draft-modal-grid-wrap {
+      flex: 1;
+      overflow: auto;
+      padding: 8px 12px;
+      position: relative;
+    }
+    .draft-excel-table {
+      border-collapse: collapse;
+      width: max-content;
+      min-width: 100%;
+      font-size: 12px;
+    }
+    .draft-excel-table th {
+      position: sticky;
+      top: 0;
+      background: var(--excel-header);
+      border: 1px solid var(--excel-border);
+      padding: 6px 8px;
+      white-space: nowrap;
+      position: relative;
+    }
+    .col-resize-handle {
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 6px;
+      cursor: col-resize;
+      background: transparent;
+    }
+    .col-resize-handle:hover { background: rgba(37, 99, 235, 0.25); }
+    .draft-excel-table td {
+      border: 1px solid var(--excel-border);
+      padding: 0;
+      vertical-align: top;
+    }
+    .cell-input {
+      width: 100%;
+      min-height: 36px;
+      border: none;
+      outline: none;
+      padding: 6px 8px;
+      font: inherit;
+      font-size: 12px;
+      background: transparent;
+      resize: vertical;
+    }
+    .cell-input:focus { background: var(--excel-focus); }
+    .cell-date {
+      width: 100%;
+      border: none;
+      outline: none;
+      padding: 6px 8px;
+      font: inherit;
+      font-size: 12px;
+      background: #fffbeb;
+    }
+    .contact-combo {
+      position: relative;
+      min-width: 120px;
+    }
+    .contact-combo input {
+      width: 100%;
+      border: none;
+      outline: none;
+      padding: 6px 8px;
+      font: inherit;
+      font-size: 12px;
+      background: #f0fdf4;
+    }
+    .contact-dropdown {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 100%;
+      z-index: 10;
+      background: #fff;
+      border: 1px solid var(--excel-border);
+      border-radius: 6px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+      max-height: 120px;
+      overflow: auto;
+    }
+    .contact-dropdown div {
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .contact-dropdown div:hover { background: var(--primary-soft); }
+    .contact-dropdown .hint { color: var(--muted); font-size: 11px; }
+    .draft-modal-footer {
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+    .submit-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0.85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 20;
+    }
+    .submit-overlay.show { display: flex; }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid #e2e8f0;
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 800px) { .compare-grid { grid-template-columns: 1fr; } }
+    .compare-box {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+    .compare-label {
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .compare-label.before { background: #fee2e2; color: #991b1b; }
+    .compare-label.after { background: #d1fae5; color: #065f46; }
+    .compare-body { padding: 12px; font-size: 13px; background: #fafbfc; min-height: 80px; }
+  </style>
+</head>
+<body>
+
+<div class="doc-hero">
+  <h1>智能规划助手 + Excel 草案 · UX 实现预览</h1>
+  <p>静态 HTML 示意稿，对应计划 <code>workbench_excel_ux</code>。下方可切换 Chat 各状态；Excel 区展示列宽拖拽、日期选择、负责人 1 字搜索、提交 loading。</p>
+</div>
+
+<div class="doc-wrap">
+
+  <!-- ===== CHAT ===== -->
+  <section class="doc-section">
+    <div class="doc-section-head">
+      <h2>§1 智能规划助手页重设计</h2>
+      <p>三栏布局（线程 | 对话 | 草案上下文）· 紧凑顶栏 · 唯一「编辑草案表格」按钮 · Composer 卡片 · 空状态快捷 chip · 发送 pending</p>
+    </div>
+    <div class="doc-section-body">
+      <div class="legend">
+        <div class="legend-item"><strong>Compact topbar</strong>去掉长说明，说明移到侧栏底部 tip</div>
+        <div class="legend-item"><strong>草案摘要条</strong>N 条子任务 · M 未指派 · 最近截止</div>
+        <div class="legend-item"><strong>右栏 DraftContext</strong>桌面 ≥960px 常驻；窄屏折叠为 sticky 条</div>
+        <div class="legend-item"><strong>Loading</strong>不做 SSE；乐观用户气泡 + pending + 耗时</div>
+      </div>
+
+      <div class="state-tabs" id="chatStateTabs">
+        <button type="button" class="state-tab active" data-state="empty">空会话 + 快捷 chip</button>
+        <button type="button" class="state-tab" data-state="draft">有草案 + 右栏摘要</button>
+        <button type="button" class="state-tab" data-state="pending">发送中 pending</button>
+        <button type="button" class="state-tab" data-state="skeleton">加载 skeleton</button>
+      </div>
+
+      <div class="mock-viewport" id="chatMock" data-state="empty">
+        <div class="page-shell--chat">
+          <header class="topbar--compact">
+            <div>
+              <div class="brand">主管工作台</div>
+              <h1 class="page-title">智能规划助手</h1>
+            </div>
+            <nav class="nav-pills">
+              <a href="#">历史任务</a>
+              <a href="#" class="active">智能助手</a>
+              <a href="#">退出</a>
+            </nav>
+          </header>
+
+          <div class="chat-main">
+            <!-- sidebar -->
+            <aside class="chat-sidebar">
+              <div class="chat-sidebar-head">
+                <button type="button" class="btn btn-primary btn-block btn-sm">+ 新规划会话</button>
+              </div>
+              <div class="thread-list">
+                <div class="thread-item active">
+                  <div class="t">Q2 渠道复盘<span class="thread-badge">主线程</span></div>
+                  <div class="m">刚刚 · 6 条消息</div>
+                </div>
+                <div class="thread-item">
+                  <div class="t">新品上市 WBS</div>
+                  <div class="m">昨天 · 已发布</div>
+                </div>
+              </div>
+              <div class="chat-sidebar-tip">与机器人对话可拆解任务、点将、发布。Enter 发送，Shift+Enter 换行。</div>
+            </aside>
+
+            <!-- pane -->
+            <main class="chat-pane">
+              <div class="chat-pane-head">
+                <div>
+                  <div class="pane-title">Q2 渠道复盘 <span class="thread-badge">主线程</span></div>
+                  <div class="pane-sub">与规划助手协作 · 草案未发布</div>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm state-draft-only" style="display:none">编辑草案表格</button>
+              </div>
+
+              <!-- mobile sticky bar (shown on narrow) -->
+              <div class="draft-context-bar draft-context-bar--mobile state-draft-only" style="display:none">
+                <span>5 条 · 2 未指派 · 截止 2026-06-15</span>
+                <button type="button" class="btn btn-primary btn-sm">编辑表格</button>
+              </div>
+
+              <!-- draft bar desktop (in pane for draft state) -->
+              <div class="draft-context-bar state-draft-only" style="display:none">
+                <span><strong>草案摘要</strong> · 5 条子任务 · <span style="color:var(--warn)">2 条未指派</span> · 最近截止 2026-06-15</span>
+              </div>
+              <div class="draft-context-bar muted state-empty-only">
+                <span>暂无草案 — 在下方描述任务，或点击快捷话术开始</span>
+              </div>
+
+              <div class="chat-stream" aria-live="polite">
+                <!-- EMPTY -->
+                <div class="state-panel state-empty">
+                  <div class="chat-empty-state" style="border:none;background:transparent;padding:0;">
+                    <div style="max-width:400px;margin:0 auto;text-align:center;">
+                      <div style="width:56px;height:56px;margin:0 auto 16px;border-radius:16px;background:linear-gradient(135deg,#dbeafe,#eff6ff);border:1px solid #bfdbfe;display:flex;align-items:center;justify-content:center;font-size:26px;">✦</div>
+                      <h3 style="margin:0 0 8px;font-size:17px;">开始规划</h3>
+                      <p style="margin:0;font-size:13px;color:#64748b;">在下方输入任务目标，助手将协助拆解 WBS、点将与发布。</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- DRAFT -->
+                <div class="state-panel state-draft">
+                  <div class="msg-list">
+                    <div class="msg-row user">
+                      <div class="msg-bubble">帮我做 Q2 渠道复盘，要含数据收集、分析和汇报三块。</div>
+                    </div>
+                    <div class="msg-row assistant">
+                      <div class="msg-bubble">已拆成 5 条子任务。右侧可查看草案摘要；需要改字段请点「编辑草案表格」，或在对话里说明修改点。</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- PENDING -->
+                <div class="state-panel state-pending">
+                  <div class="msg-list">
+                    <div class="msg-row user">
+                      <div class="msg-bubble">把 t3 截止改到 6 月 20 日，负责人换成张三</div>
+                    </div>
+                    <div class="msg-row assistant">
+                      <div class="msg-bubble msg-bubble--pending">
+                        <span class="typing-dots"><span></span><span></span><span></span></span>
+                        正在处理…
+                        <div class="elapsed">已等待 8 秒</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- SKELETON -->
+                <div class="state-panel state-skeleton">
+                  <div class="skeleton-msg"></div>
+                  <div class="skeleton-msg"></div>
+                  <div class="skeleton-msg"></div>
+                </div>
+              </div>
+
+              <div class="chat-composer-wrap">
+                <div class="chat-composer-card">
+                  <textarea placeholder="" aria-label="输入消息，Enter 发送"></textarea>
+                  <div class="composer-actions">
+                    <div class="composer-secondary">
+                      <button type="button" class="btn btn-ghost btn-sm">上传花名册</button>
+                    </div>
+                    <button type="button" class="btn btn-primary btn-sm" id="sendBtn">发送</button>
+                  </div>
+                  <div class="composer-status busy state-pending-only" style="display:none">处理中，请稍候…</div>
+                  <div class="composer-status ok state-draft-only" style="display:none">已同步最新草案</div>
+                </div>
+              </div>
+            </main>
+
+            <!-- draft context panel -->
+            <aside class="draft-context-panel state-draft-only" style="display:none">
+              <h4>当前草案</h4>
+              <div class="draft-stat-grid">
+                <div class="draft-stat"><div class="l">子任务</div><div class="v">5</div></div>
+                <div class="draft-stat"><div class="l">未指派</div><div class="v warn">2</div></div>
+              </div>
+              <div class="draft-stat"><div class="l">最近截止</div><div class="v" style="font-size:16px">2026-06-15</div></div>
+              <ul class="draft-preview-list">
+                <li>t1 数据收集 · 已指派</li>
+                <li>t2 竞品对比 · 未指派</li>
+                <li>t3 汇报材料 · 未指派</li>
+              </ul>
+              <button type="button" class="btn btn-primary btn-block">编辑草案表格</button>
+              <p style="margin:0;font-size:11px;color:var(--muted)">PaneHead 与右栏只保留这一处 Primary 按钮</p>
+            </aside>
+          </div>
+        </div>
+      </div>
+
+      <div class="compare-grid" style="margin-top:20px">
+        <div class="compare-box">
+          <div class="compare-label before">改前</div>
+          <div class="compare-body">双「编辑草案表格」按钮；长 page-desc 占高；无草案摘要；空会话仅「暂无消息」；发送无反馈</div>
+        </div>
+        <div class="compare-box">
+          <div class="compare-label after">改后</div>
+          <div class="compare-body">三栏 + 摘要条 + 唯一 Primary；Composer 卡片 + status strip；空状态 chip；pending 气泡 + 禁用发送</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== EXCEL ===== -->
+  <section class="doc-section">
+    <div class="doc-section-head">
+      <h2>§2 Excel 草案编辑器增强</h2>
+      <p>列宽拖拽 · 行高可调 · 截止日用 date input · 负责人 contact combo（1 字起搜）· Agent 校验提交 overlay</p>
+    </div>
+    <div class="doc-section-body">
+      <div class="legend">
+        <div class="legend-item"><strong>列宽</strong>表头右侧拖拽 handle，sessionStorage 持久化</div>
+        <div class="legend-item"><strong>截止 dueAt</strong><span class="tag-new">NEW</span> type=date 单元格</div>
+        <div class="legend-item"><strong>负责人</strong><span class="tag-new">NEW</span> 共享 workbench-contact-combo，≥1 字搜索</div>
+        <div class="legend-item"><strong>改派页</strong><span class="tag-chg">CHG</span> 搜索阈值 2 字 → 1 字</div>
+      </div>
+
+      <div class="excel-toggle">
+        <button type="button" class="btn btn-primary btn-sm" id="toggleSubmitOverlay">模拟「提交修改（Agent 校验）」loading</button>
+      </div>
+
+      <div class="draft-modal-overlay">
+        <div class="draft-modal">
+          <div class="draft-modal-top">
+            <h3>编辑草案表格 · Q2 渠道复盘</h3>
+          </div>
+          <div class="draft-modal-toolbar">
+            <span>列宽可拖拽</span> · <span>行高 textarea 可拉高</span> · <span>截止列 date · 负责人 1 字搜索</span>
+          </div>
+          <div class="draft-modal-grid-wrap">
+            <div class="submit-overlay" id="submitOverlay">
+              <div class="spinner"></div>
+              <div style="font-weight:600">Agent 校验中…</div>
+              <div style="font-size:12px;color:var(--muted)">通常需要 15–30 秒，请勿关闭</div>
+            </div>
+            <div style="overflow:auto;max-height:260px">
+              <table class="draft-excel-table">
+                <thead>
+                  <tr>
+                    <th style="min-width:36px">#<div class="col-resize-handle" title="拖拽调宽"></div></th>
+                    <th style="min-width:140px">标题<div class="col-resize-handle"></div></th>
+                    <th style="min-width:100px">截止 dueAt<div class="col-resize-handle"></div></th>
+                    <th style="min-width:140px">负责人 assignee<div class="col-resize-handle"></div></th>
+                    <th style="min-width:180px">验收标准<div class="col-resize-handle"></div></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding:6px 8px;text-align:center;color:var(--muted)">1</td>
+                    <td><textarea class="cell-input" rows="2">收集各区域 Q2 销售数据</textarea></td>
+                    <td><input type="date" class="cell-date" value="2026-06-10"></td>
+                    <td>
+                      <div class="contact-combo">
+                        <input type="text" value="李四" placeholder="输入姓名…">
+                      </div>
+                    </td>
+                    <td><textarea class="cell-input" rows="2">Excel 汇总表已上传至共享盘</textarea></td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 8px;text-align:center;color:var(--muted)">2</td>
+                    <td><textarea class="cell-input" rows="2">竞品渠道对比分析</textarea></td>
+                    <td><input type="date" class="cell-date" value="2026-06-15"></td>
+                    <td>
+                      <div class="contact-combo">
+                        <input type="text" value="张" placeholder="输入姓名…">
+                        <div class="contact-dropdown">
+                          <div class="hint">输入 1 个字即可搜索</div>
+                          <div>张三 · 华东区</div>
+                          <div>张敏 · 产品部</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td><textarea class="cell-input" rows="2">对比报告 1 份</textarea></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="draft-modal-footer">
+            <span style="color:var(--muted)">修改后提交将由 Agent 校验并写回会话</span>
+            <div style="display:flex;gap:8px">
+              <button type="button" class="btn btn-ghost btn-sm">取消</button>
+              <button type="button" class="btn btn-primary btn-sm">提交修改（Agent 校验）</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== REASSIGN ===== -->
+  <section class="doc-section">
+    <div class="doc-section-head">
+      <h2>§3 改派 / 联系人搜索统一</h2>
+      <p>新增 <code>workbench-contact-combo.ts</code>，Excel 负责人列与改派页共用，debounce + 键盘选择</p>
+    </div>
+    <div class="doc-section-body">
+      <div style="max-width:360px;border:1px solid var(--border);border-radius:var(--radius);padding:14px;background:#fff">
+        <label style="font-size:12px;font-weight:600;color:var(--muted)">改派给</label>
+        <div class="contact-combo" style="margin-top:6px;border:1px solid var(--border);border-radius:6px">
+          <input type="text" value="王" placeholder="输入姓名搜索（1 字起）" style="background:#fff;padding:8px 10px">
+          <div class="contact-dropdown">
+            <div>王芳 · 运营</div>
+            <div>王磊 · 研发</div>
+          </div>
+        </div>
+        <p style="margin:10px 0 0;font-size:11px;color:var(--muted)">原逻辑：≥2 字才请求 · 新逻辑：≥1 字</p>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  var mock = document.getElementById('chatMock');
+  var tabs = document.getElementById('chatStateTabs');
+  var sendBtn = document.getElementById('sendBtn');
+  var overlay = document.getElementById('submitOverlay');
+  var toggleOverlay = document.getElementById('toggleSubmitOverlay');
+
+  function applyChatState(state) {
+    mock.setAttribute('data-state', state);
+    tabs.querySelectorAll('.state-tab').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-state') === state);
+    });
+
+    var draftOnly = mock.querySelectorAll('.state-draft-only');
+    var emptyOnly = mock.querySelectorAll('.state-empty-only');
+    var pendingOnly = mock.querySelectorAll('.state-pending-only');
+
+    draftOnly.forEach(function (el) {
+      el.style.display = (state === 'draft' || state === 'pending') ? '' : 'none';
+    });
+    emptyOnly.forEach(function (el) {
+      el.style.display = state === 'empty' ? '' : 'none';
+    });
+    pendingOnly.forEach(function (el) {
+      el.style.display = state === 'pending' ? '' : 'none';
+    });
+
+    if (sendBtn) {
+      sendBtn.disabled = state === 'pending';
+      sendBtn.textContent = state === 'pending' ? '发送中…' : '发送';
+    }
+  }
+
+  tabs.addEventListener('click', function (e) {
+    var btn = e.target.closest('.state-tab');
+    if (btn) applyChatState(btn.getAttribute('data-state'));
+  });
+
+  document.querySelectorAll('.chat-quick-chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var ta = mock.querySelector('textarea');
+      if (ta) ta.value = chip.textContent;
+    });
+  });
+
+  if (toggleOverlay && overlay) {
+    toggleOverlay.addEventListener('click', function () {
+      overlay.classList.toggle('show');
+      toggleOverlay.textContent = overlay.classList.contains('show')
+        ? '关闭 loading 模拟'
+        : '模拟「提交修改（Agent 校验）」loading';
+    });
+  }
+
+  applyChatState('empty');
+})();
+</script>
+</body>
+</html>

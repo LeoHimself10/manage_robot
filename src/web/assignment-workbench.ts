@@ -39,7 +39,8 @@ import {
   findMainThreadSession,
   listManagerConversationSessions,
   loadAllPlanSessions,
-  markSessionAsMainThread,
+  isSideThreadSession,
+  preserveThreadIdentityOnSave,
   resolveConversationThread,
 } from "./conversation-thread-resolver";
 import { formatWorkbenchAssistantHtml } from "./workbench-markdown-lite";
@@ -102,6 +103,7 @@ import {
   type SubtaskAttentionInput,
 } from "./workbench-attention";
 import { buildWorkbenchFmtTimeClientJs } from "./workbench-datetime";
+import { buildWorkbenchContactComboClientJs } from "./workbench-contact-combo-snippet";
 import { buildSubtaskPlanningFieldsClientJs } from "./workbench-subtask-fields-snippet";
 import type { WorkbenchSession } from "./assignment-workbench-session-types";
 import {
@@ -1111,7 +1113,7 @@ export function renderTaskDetailPage(params: {
         <select id="detailReassignSubtask"><option value="">整单未完成子任务（全部改派）</option></select>
       </label>
       <label>新负责人
-        <input id="detailReassignAssigneeInput" type="search" autocomplete="off" placeholder="至少输入 2 个字符" style="width:100%;" />
+        <input id="detailReassignAssigneeInput" type="search" autocomplete="off" placeholder="输入姓名或部门（1 字起搜）" style="width:100%;" />
         <input id="detailReassignAssigneeUserId" type="hidden" value="" />
         <ul id="detailReassignAssigneeOptions" class="combo-options" hidden></ul>
       </label>
@@ -1137,7 +1139,7 @@ export function renderTaskDetailPage(params: {
         <input id="addSubtaskTitle" type="text" maxlength="200" placeholder="子任务做什么" style="width:100%;" />
       </label>
       <label>负责人<span class="mgr-req">（必填）</span>
-        <input id="addSubtaskAssigneeInput" type="search" autocomplete="off" placeholder="至少输入 2 个字符" style="width:100%;" />
+        <input id="addSubtaskAssigneeInput" type="search" autocomplete="off" placeholder="输入姓名或部门（1 字起搜）" style="width:100%;" />
         <input id="addSubtaskAssigneeUserId" type="hidden" value="" />
         <ul id="addSubtaskAssigneeOptions" class="combo-options" hidden></ul>
       </label>
@@ -1222,6 +1224,7 @@ export function renderTaskDetailPage(params: {
     return s.split('\\\\').join('\\\\\\\\').split('"').join('\\\\"');
   }
   ${buildWorkbenchFmtTimeClientJs()}
+  ${buildWorkbenchContactComboClientJs()}
   ${buildSubtaskPlanningFieldsClientJs()}
   function subBadgeClass(st){
     if (st === 'BLOCKED') return 'blocked';
@@ -1253,10 +1256,20 @@ export function renderTaskDetailPage(params: {
     el.textContent = msg || '';
     el.className = 'feedback ' + (cls || 'muted');
   }
-  function closeDetailAssigneeCombo() {
-    var ul = document.getElementById('detailReassignAssigneeOptions');
-    if (ul) ul.hidden = true;
-  }
+  wbAttachContactCombo({
+    input: 'detailReassignAssigneeInput',
+    hiddenUserId: 'detailReassignAssigneeUserId',
+    optionsList: 'detailReassignAssigneeOptions',
+    minLength: 1,
+    resultKey: ROLE === 'admin' ? 'employees' : 'contacts',
+    searchUrl: function (kw) {
+      return ROLE === 'admin'
+        ? '/api/workbench/admin/employees?keyword=' + encodeURIComponent(kw)
+        : '/api/workbench/manager/contacts?keyword=' + encodeURIComponent(kw);
+    },
+    onFeedback: function (msg, kind) { setDetailReassignFb(msg, kind); },
+    onSelect: function () { setDetailReassignFb('已选择负责人', 'ok'); }
+  });
   function initDetailReassign(subs, presetSubId) {
     var card = document.getElementById('reassignCard');
     if (!card) return;
@@ -1308,61 +1321,7 @@ export function renderTaskDetailPage(params: {
     if (!detailReassignComboBound) {
       detailReassignComboBound = true;
       var input = document.getElementById('detailReassignAssigneeInput');
-      var ul = document.getElementById('detailReassignAssigneeOptions');
       var hid2 = document.getElementById('detailReassignAssigneeUserId');
-      var tmr = null;
-      function renderOpts(rows) {
-        if (!ul) return;
-        ul.innerHTML = '';
-        rows.forEach(function (r) {
-          var li = document.createElement('li');
-          li.setAttribute('role', 'option');
-          li.setAttribute('data-user-id', r.userId || '');
-          var dept = r.departmentSummary || r.departmentName || '';
-          li.textContent = (r.name || r.userId || '') + (dept ? ' · ' + dept : '');
-          li.addEventListener('mousedown', function (ev) {
-            ev.preventDefault();
-            if (hid2) hid2.value = r.userId || '';
-            if (input) input.value = (r.name || r.userId || '').trim();
-            closeDetailAssigneeCombo();
-            setDetailReassignFb('已选择负责人', 'ok');
-          });
-          ul.appendChild(li);
-        });
-        ul.hidden = rows.length === 0;
-      }
-      async function doSearch() {
-        var q = (input && input.value || '').trim().toLowerCase();
-        if (q.length < 2) {
-          closeDetailAssigneeCombo();
-          return;
-        }
-        setDetailReassignFb('查找中…', 'muted');
-        try {
-          var path = ROLE === 'admin'
-            ? '/api/workbench/admin/employees?keyword=' + encodeURIComponent(q)
-            : '/api/workbench/manager/contacts?keyword=' + encodeURIComponent(q);
-          var res = await fetch(path, { cache: 'no-store' });
-          var data = await res.json().catch(function () { return {}; });
-          if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-          var rows = ROLE === 'admin' ? (data.employees || []) : (data.contacts || []);
-          renderOpts(rows.slice(0, 20));
-          if (!rows.length) setDetailReassignFb('无匹配结果', 'muted');
-          else setDetailReassignFb('点击选择负责人', 'ok');
-        } catch (err) {
-          setDetailReassignFb(String(err && err.message ? err.message : err), 'err');
-          closeDetailAssigneeCombo();
-        }
-      }
-      if (input) {
-        input.addEventListener('input', function () {
-          if (tmr) clearTimeout(tmr);
-          tmr = setTimeout(function () { void doSearch(); }, 280);
-        });
-        input.addEventListener('blur', function () {
-          setTimeout(function () { closeDetailAssigneeCombo(); }, 200);
-        });
-      }
       var btn = document.getElementById('detailReassignBtn');
       if (btn) {
         btn.addEventListener('click', async function () {
@@ -1446,38 +1405,19 @@ export function renderTaskDetailPage(params: {
     populateAddSubtaskDependsOn(subs || []);
     if (addSubtaskComboBound) return;
     addSubtaskComboBound = true;
-    var inp = document.getElementById('addSubtaskAssigneeInput');
-    var hid = document.getElementById('addSubtaskAssigneeUserId');
-    var ul = document.getElementById('addSubtaskAssigneeOptions');
+    wbAttachContactCombo({
+      input: 'addSubtaskAssigneeInput',
+      hiddenUserId: 'addSubtaskAssigneeUserId',
+      optionsList: 'addSubtaskAssigneeOptions',
+      minLength: 1,
+      resultKey: ROLE === 'admin' ? 'employees' : 'contacts',
+      searchUrl: function (kw) {
+        return ROLE === 'admin'
+          ? '/api/workbench/admin/employees?keyword=' + encodeURIComponent(kw)
+          : '/api/workbench/manager/contacts?keyword=' + encodeURIComponent(kw);
+      }
+    });
     var btn = document.getElementById('addSubtaskBtn');
-    if (inp && ul) {
-      inp.addEventListener('input', function () {
-        if (hid) hid.value = '';
-        var q = String(inp.value || '').trim();
-        if (q.length < 2) { ul.hidden = true; ul.innerHTML = ''; return; }
-        var path = ROLE === 'admin'
-          ? '/api/workbench/admin/employees?keyword=' + encodeURIComponent(q)
-          : '/api/workbench/manager/contacts?keyword=' + encodeURIComponent(q);
-        void fetch(path, { cache: 'no-store' })
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            var items = ROLE === 'admin' ? (data && data.employees) || [] : (data && data.contacts) || [];
-            if (!items.length) { ul.hidden = true; ul.innerHTML = ''; return; }
-            ul.innerHTML = items.map(function (c) {
-              return '<li data-uid="' + esc(c.userId || '') + '" data-name="' + esc(c.name || c.userId || '') + '">' + esc(c.name || c.userId || '') + '</li>';
-            }).join('');
-            ul.hidden = false;
-          })
-          .catch(function () { ul.hidden = true; });
-      });
-      ul.addEventListener('click', function (ev) {
-        var li = ev.target && ev.target.closest ? ev.target.closest('li[data-uid]') : null;
-        if (!li) return;
-        if (inp) inp.value = String(li.getAttribute('data-name') || '');
-        if (hid) hid.value = String(li.getAttribute('data-uid') || '');
-        ul.hidden = true;
-      });
-    }
     if (btn) {
       btn.addEventListener('click', function () {
         void (async function () {
@@ -5113,10 +5053,12 @@ export function handleAssignmentHttp(
           latestAssignment: turnDisplay.latestAssignment ?? mutableTarget.latestAssignment,
         });
         planSessionStore.save(
-          markSessionAsMainThread({
+          preserveThreadIdentityOnSave({
             ...mutableTarget,
             senderStaffId: session.userId,
-            canonicalUserId: session.userId,
+            canonicalUserId: isSideThreadSession(mutableTarget)
+              ? mutableTarget.canonicalUserId
+              : session.userId,
             lastTraceId: orch.traceId,
             knownFacts: turn.mutableKnownFacts,
             latestDraft: turnDisplay.persistedDraft ?? mutableTarget.latestDraft,
@@ -5213,6 +5155,14 @@ export function handleAssignmentHttp(
       if (url.pathname === "/workbench/manager/chat") {
         const threadQuery = parseConversationThreadQuery(url);
         const resolved = resolveConversationThread(session.userId, threadQuery);
+        if (
+          !resolved &&
+          threadQuery.threadKind === "side" &&
+          threadQuery.threadId
+        ) {
+          redirect(res, "/workbench/manager/chat?thread=main");
+          return true;
+        }
         const target = resolved ?? findMainThreadSession(session.userId);
         const meta = buildThreadListItem(target);
         chatThreadId = meta.threadId;

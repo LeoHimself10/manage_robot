@@ -1,4 +1,5 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
+import { buildWorkbenchContactComboClientJs } from "./workbench-contact-combo-snippet";
 import { buildWorkbenchFmtTimeClientJs } from "./workbench-datetime";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 
@@ -120,7 +121,7 @@ export function renderManagerTasksPage(params: {
         </label>
         <label>新负责人（输入姓名或部门，弹出候选）
           <div class="combo" style="position:relative;">
-            <input id="reassignAssigneeInput" type="search" autocomplete="off" placeholder="至少输入 2 个字符" style="width:100%;" />
+            <input id="reassignAssigneeInput" type="search" autocomplete="off" placeholder="输入姓名或部门（1 字起搜）" style="width:100%;" />
             <input id="reassignAssigneeUserId" type="hidden" value="" />
             <ul id="reassignAssigneeOptions" class="combo-options" hidden></ul>
           </div>
@@ -147,6 +148,7 @@ export function renderManagerTasksPage(params: {
 <script>
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}
+  ${buildWorkbenchContactComboClientJs()}
   wbBindViewSwitchLink('navMyTasks', 'employee', '/workbench/employee?view=new');
   var WB_ENFORCE_ACTION_GUARDS = ${workbenchEnforceActionGuards() ? "true" : "false"};
   if (WB_ENFORCE_ACTION_GUARDS) {
@@ -248,59 +250,16 @@ export function renderManagerTasksPage(params: {
     }
   }
 
-  var assigneeSearchTimer = null;
-  function closeAssigneeCombo() {
-    var ul = document.getElementById('reassignAssigneeOptions');
-    if (ul) { ul.hidden = true; ul.innerHTML = ''; }
-  }
-  async function runAssigneeSearch() {
-    var input = document.getElementById('reassignAssigneeInput');
-    var ul = document.getElementById('reassignAssigneeOptions');
-    var hid = document.getElementById('reassignAssigneeUserId');
-    if (!input || !ul) return;
-    var kw = String(input.value || '').trim().toLowerCase();
-    if (kw.length < 2) {
-      closeAssigneeCombo();
-      return;
-    }
-    setFb('reassignFeedback', '查找中…', 'muted');
-    try {
-      var res = await fetch('/api/workbench/manager/contacts?keyword=' + encodeURIComponent(kw));
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      var contacts = data.contacts || [];
-      if (!contacts.length) {
-        ul.innerHTML = '';
-        ul.hidden = true;
-        setFb('reassignFeedback', '无匹配结果', 'muted');
-        return;
-      }
-      ul.innerHTML = contacts.map(function (c) {
-        var dept = escapeHtml(c.departmentSummary || c.departmentName || '');
-        var tag = c.matchedField === 'department' ? '<span class="combo-tag">按部门匹配</span>' : '';
-        return '<li role="option" tabindex="-1" data-user-id="' + escapeHtml(c.userId) + '">'
-          + '<span>' + escapeHtml(c.name || c.userId) + ' · ' + dept + '</span>' + tag + '</li>';
-      }).join('');
-      ul.querySelectorAll('li[role="option"]').forEach(function (li) { li.removeAttribute('aria-selected'); });
-      ul.hidden = false;
-      setFb('reassignFeedback', '点击选择负责人', 'ok');
-      ul.querySelectorAll('li[role="option"]').forEach(function (li) {
-        li.addEventListener('mousedown', function (ev) {
-          ev.preventDefault();
-          var uid = li.getAttribute('data-user-id') || '';
-          if (hid) hid.value = uid;
-          input.value = li.textContent.replace(/按部门匹配/g, '').trim();
-          closeAssigneeCombo();
-        });
-      });
-    } catch (e) {
-      setFb('reassignFeedback', String(e && e.message ? e.message : e), 'err');
-    }
-  }
-  function scheduleAssigneeSearch() {
-    if (assigneeSearchTimer) clearTimeout(assigneeSearchTimer);
-    assigneeSearchTimer = setTimeout(function () { void runAssigneeSearch(); }, 250);
-  }
+  wbAttachContactCombo({
+    input: 'reassignAssigneeInput',
+    hiddenUserId: 'reassignAssigneeUserId',
+    optionsList: 'reassignAssigneeOptions',
+    minLength: 1,
+    searchUrl: function (kw) {
+      return '/api/workbench/manager/contacts?keyword=' + encodeURIComponent(kw);
+    },
+    onFeedback: function (msg, kind) { setFb('reassignFeedback', msg, kind); }
+  });
 
   function renderTaskTable(tasks) {
     var mount = document.getElementById('taskTableMount');
@@ -459,53 +418,6 @@ export function renderManagerTasksPage(params: {
     }
   }
 
-  var reassignInput = document.getElementById('reassignAssigneeInput');
-  if (reassignInput && !reassignInput.dataset.boundCombo) {
-    reassignInput.dataset.boundCombo = '1';
-    reassignInput.addEventListener('input', function () { scheduleAssigneeSearch(); });
-    reassignInput.addEventListener('blur', function () {
-      setTimeout(function () { closeAssigneeCombo(); }, 200);
-    });
-    reassignInput.addEventListener('keydown', function (ev) {
-      var ul = document.getElementById('reassignAssigneeOptions');
-      var hid = document.getElementById('reassignAssigneeUserId');
-      var input = reassignInput;
-      if (ev.key === 'Escape') {
-        ev.preventDefault();
-        closeAssigneeCombo();
-        return;
-      }
-      if (!ul || ul.hidden) return;
-      var items = Array.prototype.slice.call(ul.querySelectorAll('li[role="option"]'));
-      if (!items.length) return;
-      var cur = items.findIndex(function (li) { return li.getAttribute('aria-selected') === 'true'; });
-      if (cur < 0) cur = 0;
-      if (ev.key === 'ArrowDown') {
-        ev.preventDefault();
-        cur = (cur + 1) % items.length;
-        items.forEach(function (li, i) { li.setAttribute('aria-selected', i === cur ? 'true' : 'false'); });
-        items[cur].scrollIntoView({ block: 'nearest' });
-        return;
-      }
-      if (ev.key === 'ArrowUp') {
-        ev.preventDefault();
-        cur = (cur - 1 + items.length) % items.length;
-        items.forEach(function (li, i) { li.setAttribute('aria-selected', i === cur ? 'true' : 'false'); });
-        items[cur].scrollIntoView({ block: 'nearest' });
-        return;
-      }
-      if (ev.key === 'Enter') {
-        var pick = items.find(function (li) { return li.getAttribute('aria-selected') === 'true'; }) || items[0];
-        if (!pick) return;
-        ev.preventDefault();
-        var uid = pick.getAttribute('data-user-id') || '';
-        if (hid) hid.value = uid;
-        input.value = pick.textContent.replace(/按部门匹配/g, '').trim();
-        closeAssigneeCombo();
-      }
-    });
-  }
-
   document.getElementById('reassignBtn').addEventListener('click', async function () {
     var planId = (document.getElementById('reassignPlanId').value || '').trim();
     var assigneeUserId = (document.getElementById('reassignAssigneeUserId').value || '').trim();
@@ -602,7 +514,6 @@ export function renderManagerChatPage(params: {
     <div>
       <div class="brand">主管工作台</div>
       <h1 class="page-title">智能规划助手</h1>
-      <p class="page-desc">主线程与钉钉机器人同步；可另开侧会话做独立规划，互不影响。</p>
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="主管导航">
@@ -617,45 +528,61 @@ export function renderManagerChatPage(params: {
   <div class="chat-main">
     <aside class="chat-sidebar" aria-label="会话列表">
       <div class="chat-sidebar-head">
-        <button type="button" class="btn btn-secondary btn-sm" id="newThreadBtn" style="width:100%;">+ 新规划会话</button>
+        <button type="button" class="btn btn-primary btn-sm" id="newThreadBtn" style="width:100%;">+ 新规划会话</button>
       </div>
       <ul class="chat-thread-list" id="threadList"><li class="muted" style="padding:8px;">加载中…</li></ul>
+      <div class="chat-sidebar-tip">与助手对话可拆解任务、点将并发布。Enter 发送，Shift+Enter 换行。</div>
     </aside>
 
     <div class="chat-pane">
       <div class="chat-pane-head">
         <div>
           <h2 class="chat-pane-title" id="paneTitle">${escapeHtml(initialTitle)}</h2>
-          <div class="muted" id="panePreview" style="font-size:12px;margin-top:2px;"></div>
+          <div class="chat-pane-sub" id="paneSub">与规划助手协作</div>
         </div>
         <div class="chat-pane-head-actions">
-          <button type="button" class="btn btn-secondary btn-sm" id="editDraftBtnHead" hidden>编辑草案表格</button>
           <span class="chat-thread-badge" id="paneBadge">${initialKind === "main" ? "主线程" : "侧会话"}</span>
+          <button type="button" class="btn btn-primary btn-sm" id="editDraftBtn" hidden>编辑草案表格</button>
         </div>
       </div>
-      <section class="chat-message-pane" style="border-radius:0 0 var(--radius) var(--radius);border-top:none;flex:1;">
-        <div class="chat-stream" aria-live="polite">
-          <ul class="msg-list" id="msgList"><li class="muted" style="border-style:dashed;">加载中…</li></ul>
+      <div class="draft-context-bar is-muted" id="draftContextBar">
+        <span id="draftContextText">暂无草案 — 在下方描述任务开始规划</span>
+      </div>
+      <div class="draft-context-bar draft-context-bar--mobile is-muted" id="draftContextBarMobile" hidden>
+        <span id="draftContextTextMobile">暂无草案</span>
+        <button type="button" class="btn btn-primary btn-sm" id="editDraftBtnMobile" hidden>编辑表格</button>
+      </div>
+      <section class="chat-message-pane">
+        <div class="chat-stream" id="chatStream" aria-live="polite">
+          <ul class="msg-list" id="msgList"></ul>
         </div>
-        <div class="chat-draft-toolbar">
-          <button type="button" class="btn btn-secondary btn-sm" id="editDraftBtn" hidden>编辑草案表格</button>
-        </div>
-        <div class="chat-composer">
-          <div class="form-stack">
-            <textarea id="msgInput"></textarea>
-            <div class="roster-upload-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;">
-              <label class="btn btn-secondary" for="rosterFileInput" style="margin:0;cursor:pointer;">上传花名册</label>
-              <input id="rosterFileInput" type="file" accept=".md,.markdown,.txt,.docx,.pdf" style="display:none;" />
-              <span class="muted" id="rosterStatus"></span>
+        <div class="chat-composer-wrap">
+          <div class="chat-composer-card">
+            <textarea id="msgInput" aria-label="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+            <div class="composer-actions">
+              <div class="composer-secondary">
+                <label class="btn btn-ghost btn-sm" for="rosterFileInput" style="margin:0;cursor:pointer;">上传花名册</label>
+                <input id="rosterFileInput" type="file" accept=".md,.markdown,.txt,.docx,.pdf" style="display:none;" />
+                <span class="muted" id="rosterStatus"></span>
+              </div>
+              <button type="button" class="btn btn-primary btn-sm" id="sendBtn">发送</button>
             </div>
-            <div class="chat-composer-actions">
-              <button type="button" class="btn btn-primary" id="sendBtn">发送</button>
-            </div>
-            <div class="feedback muted" id="sendFeedback"></div>
+            <div class="composer-status muted" id="sendFeedback" hidden></div>
           </div>
         </div>
       </section>
     </div>
+
+    <aside class="draft-context-panel" id="draftContextPanel" hidden aria-label="草案上下文">
+      <h3>当前草案</h3>
+      <div class="draft-stat-grid">
+        <div class="draft-stat"><div class="lbl">子任务</div><div class="val" id="draftStatCount">0</div></div>
+        <div class="draft-stat"><div class="lbl">未指派</div><div class="val warn" id="draftStatUnassigned">0</div></div>
+      </div>
+      <div class="draft-stat"><div class="lbl">最近截止</div><div class="val" id="draftStatDue" style="font-size:16px;">—</div></div>
+      <ul class="draft-preview-list" id="draftPreviewList"></ul>
+      <button type="button" class="btn btn-primary btn-sm" id="editDraftBtnPanel" hidden>编辑草案表格</button>
+    </aside>
   </div>
 </div>
 
@@ -669,15 +596,24 @@ export function renderManagerChatPage(params: {
   var activeThreadKind = ${JSON.stringify(initialKind)};
   var activeHasDraft = false;
   var pendingOpenDraftEditor = ${JSON.stringify(initialOpenDraftEditor)};
+  var sendInFlight = false;
+  var pendingElapsedTimer = null;
 
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
-  function setFb(id, msg, kind) {
-    var el = document.getElementById(id);
+  function setComposerStatus(msg, kind) {
+    var el = document.getElementById('sendFeedback');
     if (!el) return;
-    el.textContent = msg || '';
-    el.className = 'feedback ' + (kind || 'muted');
+    if (!msg) {
+      el.hidden = true;
+      el.textContent = '';
+      el.className = 'composer-status muted';
+      return;
+    }
+    el.hidden = false;
+    el.textContent = msg;
+    el.className = 'composer-status ' + (kind || 'muted');
   }
   function roleClass(role) {
     var normalized = String(role || '').toLowerCase();
@@ -686,9 +622,7 @@ export function renderManagerChatPage(params: {
     return 'msg-bubble--system';
   }
   function scrollMessageStreamToBottom() {
-    var box = document.getElementById('msgList');
-    if (!box) return;
-    var stream = box.closest('.chat-stream');
+    var stream = document.getElementById('chatStream');
     if (!stream) return;
     stream.scrollTop = stream.scrollHeight;
   }
@@ -697,7 +631,7 @@ export function renderManagerChatPage(params: {
     if (!msgInput) return;
     requestAnimationFrame(function () {
       msgInput.focus();
-      var composer = document.querySelector('.chat-composer');
+      var composer = document.querySelector('.chat-composer-wrap');
       if (composer && window.innerWidth <= 860) {
         composer.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
@@ -723,6 +657,12 @@ export function renderManagerChatPage(params: {
     }
     return '/api/workbench/conversation/messages?thread=main';
   }
+  function draftQuery() {
+    if (activeThreadKind === 'side' && activeThreadId && activeThreadId !== 'main') {
+      return '/api/workbench/conversation/draft?thread=side&threadId=' + encodeURIComponent(activeThreadId);
+    }
+    return '/api/workbench/conversation/draft?thread=main';
+  }
   function threadUrl(threadId, kind) {
     if (kind === 'side' && threadId && threadId !== 'main') {
       return '/workbench/manager/chat?thread=side&threadId=' + encodeURIComponent(threadId);
@@ -732,31 +672,199 @@ export function renderManagerChatPage(params: {
   function updatePaneHeader(meta) {
     document.getElementById('paneTitle').textContent = meta.title || '智能规划助手';
     document.getElementById('paneBadge').textContent = meta.badge || (meta.kind === 'main' ? '主线程' : '侧会话');
-    document.getElementById('panePreview').textContent = meta.preview || '';
+    var sub = document.getElementById('paneSub');
+    if (sub) sub.textContent = meta.hasDraft ? '草案未发布 · 可继续对话或编辑表格' : '与规划助手协作';
   }
   function updateEditDraftButtons(hasDraft) {
-    ['editDraftBtnHead', 'editDraftBtn'].forEach(function (id) {
+    ['editDraftBtn', 'editDraftBtnMobile', 'editDraftBtnPanel'].forEach(function (id) {
       var btn = document.getElementById(id);
       if (btn) btn.hidden = !hasDraft;
     });
+    var panel = document.getElementById('draftContextPanel');
+    if (panel) panel.hidden = !hasDraft;
+  }
+  function computeDraftSummary(draftData) {
+    var rows = draftData.rows || [];
+    var tasks = (draftData.draft && draftData.draft.tasks) || [];
+    var count = rows.length || tasks.length;
+    var assignments = (draftData.assignment && draftData.assignment.assignments) || [];
+    var byTask = {};
+    assignments.forEach(function (a) {
+      var tid = String(a.taskId || '').trim();
+      var uid = a.primary && String(a.primary.userId || '').trim();
+      if (tid && uid) byTask[tid] = uid;
+    });
+    var unassigned = 0;
+    var items = rows.length ? rows : tasks.map(function (t, i) {
+      return { taskId: t.id, title: t.title, dueAt: (t.timeNode && t.timeNode.dueAt) || t.dueAt || '' };
+    });
+    items.forEach(function (r, idx) {
+      var tid = String(r.taskId || r.id || ('task_' + (idx + 1))).trim();
+      if (!byTask[tid]) unassigned += 1;
+    });
+    var dues = [];
+    items.forEach(function (r) {
+      var d = String(r.dueAt || '').trim();
+      if (d && d !== '待确认' && /^\\d{4}-\\d{2}-\\d{2}/.test(d)) dues.push(d.slice(0, 10));
+    });
+    dues.sort();
+    var preview = items.slice(0, 5).map(function (r, idx) {
+      var tid = String(r.taskId || r.id || ('task_' + (idx + 1))).trim();
+      var title = String(r.title || tid || '子任务').trim();
+      return title + (byTask[tid] ? ' · 已指派' : ' · 未指派');
+    });
+    return { count: count, unassigned: unassigned, nearestDue: dues[0] || '', preview: preview };
+  }
+  function updateDraftContext(summary, hasDraft) {
+    var bar = document.getElementById('draftContextBar');
+    var barM = document.getElementById('draftContextBarMobile');
+    var text = document.getElementById('draftContextText');
+    var textM = document.getElementById('draftContextTextMobile');
+    if (!hasDraft) {
+      if (bar) { bar.classList.add('is-muted'); bar.hidden = false; }
+      if (barM) { barM.classList.add('is-muted'); barM.hidden = false; }
+      if (text) text.textContent = '暂无草案 — 在下方描述任务开始规划';
+      if (textM) textM.textContent = '暂无草案';
+      return;
+    }
+    var line = summary.count + ' 条子任务 · ' + summary.unassigned + ' 条未指派';
+    if (summary.nearestDue) line += ' · 最近截止 ' + summary.nearestDue;
+    if (bar) { bar.classList.remove('is-muted'); bar.hidden = false; }
+    if (barM) { barM.classList.remove('is-muted'); barM.hidden = false; }
+    if (text) text.textContent = line;
+    if (textM) textM.textContent = line;
+    var c = document.getElementById('draftStatCount');
+    var u = document.getElementById('draftStatUnassigned');
+    var d = document.getElementById('draftStatDue');
+    var list = document.getElementById('draftPreviewList');
+    if (c) c.textContent = String(summary.count);
+    if (u) u.textContent = String(summary.unassigned);
+    if (d) d.textContent = summary.nearestDue || '—';
+    if (list) list.innerHTML = summary.preview.map(function (p) { return '<li>' + escapeHtml(p) + '</li>'; }).join('');
+  }
+  function renderSkeleton() {
+    var box = document.getElementById('msgList');
+    var stream = document.getElementById('chatStream');
+    if (stream) stream.setAttribute('aria-busy', 'true');
+    if (box) {
+      box.innerHTML = '<li class="chat-skeleton-msg"></li><li class="chat-skeleton-msg"></li><li class="chat-skeleton-msg"></li>';
+    }
+  }
+  function renderEmptyState() {
+    var box = document.getElementById('msgList');
+    if (!box) return;
+    box.innerHTML = '<li class="chat-welcome-wrap"><div class="chat-welcome">'
+      + '<div class="chat-welcome__icon" aria-hidden="true">✦</div>'
+      + '<h3 class="chat-welcome__title">开始规划</h3>'
+      + '<p class="chat-welcome__lead">在下方输入任务目标或粘贴需求，助手将协助拆解 WBS、点将与发布预览。</p>'
+      + '<div class="chat-welcome__steps">'
+      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">1</span><span>说清楚背景、对象、时间与交付物</span></div>'
+      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">2</span><span>确认草案后，用「编辑草案表格」批量改字段</span></div>'
+      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">3</span><span>点将齐全后再发布到工作台</span></div>'
+      + '</div>'
+      + '<p class="chat-welcome__hint"><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</p>'
+      + '</div></li>';
+  }
+  function renderThreadLostState() {
+    var box = document.getElementById('msgList');
+    if (!box) return;
+    box.innerHTML = '<li class="chat-thread-lost-wrap"><div class="chat-thread-lost">'
+      + '<div class="chat-thread-lost__icon" aria-hidden="true">⚠</div>'
+      + '<h3>找不到该会话</h3>'
+      + '<p>可能因本地数据已重置，或会话记录已过期。请返回主线程继续规划，或新建侧会话。</p>'
+      + '<div class="chat-thread-lost__actions">'
+      + '<button type="button" class="btn btn-primary btn-sm" id="threadLostGoMainBtn">返回主线程</button>'
+      + '<button type="button" class="btn btn-ghost btn-sm" id="threadLostNewBtn">新建规划会话</button>'
+      + '</div></div></li>';
+    var goMain = document.getElementById('threadLostGoMainBtn');
+    if (goMain) goMain.addEventListener('click', function () { void switchToMainThread(); });
+    var goNew = document.getElementById('threadLostNewBtn');
+    if (goNew) goNew.addEventListener('click', function () {
+      var btn = document.getElementById('newThreadBtn');
+      if (btn) btn.click();
+    });
+  }
+  function isThreadNotFoundError(err) {
+    var msg = String(err && err.message ? err.message : err);
+    return msg.indexOf('No session found for thread') >= 0;
+  }
+  async function switchToMainThread() {
+    activeThreadId = 'main';
+    activeThreadKind = 'main';
+    history.replaceState(null, '', threadUrl('main', 'main'));
+    var list = document.getElementById('threadList');
+    if (list) {
+      list.querySelectorAll('.chat-thread-item').forEach(function (x) {
+        x.classList.toggle('active', (x.getAttribute('data-thread-id') || '') === 'main');
+      });
+    }
+    setComposerStatus('', 'muted');
+    await loadThreads('main');
+    await loadMessages();
+    focusComposer();
+  }
+  function renderMessageRows(msgs) {
+    var box = document.getElementById('msgList');
+    if (!box) return;
+    if (!msgs.length) {
+      renderEmptyState();
+      return;
+    }
+    box.innerHTML = msgs.map(function (m) {
+      var role = String(m.role || 'system');
+      var rl = roleLabel(role);
+      var rowClass = role === 'user' ? 'msg-row msg-row--user' : 'msg-row msg-row--assistant';
+      var bubbleClass = 'msg-bubble ' + roleClass(role);
+      var tm = formatMsgTime(m.at);
+      var metaLine = '<div class="msg-meta">' + escapeHtml(rl) + (tm ? ' · ' + escapeHtml(tm) : '') + '</div>';
+      var body = (role === 'assistant' && m.html)
+        ? '<div class="msg-body msg-body--assistant">' + m.html + '</div>'
+        : '<div class="msg-body">' + escapeHtml(m.content || '') + '</div>';
+      return '<li class="' + rowClass + '"><div class="' + bubbleClass + '">' + metaLine + body + '</div></li>';
+    }).join('');
+  }
+  function appendPendingBubble(startedAt) {
+    var box = document.getElementById('msgList');
+    if (!box) return;
+    var li = document.createElement('li');
+    li.className = 'msg-row msg-row--assistant';
+    li.id = 'pendingAssistantMsg';
+    li.innerHTML = '<div class="msg-bubble msg-bubble--pending">'
+      + '<div class="msg-meta">规划助手</div>'
+      + '<div class="msg-body"><span class="typing-dots"><span></span><span></span><span></span></span>正在处理…'
+      + '<div class="msg-elapsed" id="pendingElapsed">已等待 0 秒</div></div></div>';
+    box.appendChild(li);
+    scrollMessageStreamToBottom();
+    if (pendingElapsedTimer) clearInterval(pendingElapsedTimer);
+    pendingElapsedTimer = setInterval(function () {
+      var el = document.getElementById('pendingElapsed');
+      if (!el) return;
+      var sec = Math.floor((Date.now() - startedAt) / 1000);
+      el.textContent = '已等待 ' + sec + ' 秒';
+    }, 1000);
+  }
+  function clearPendingBubble() {
+    if (pendingElapsedTimer) { clearInterval(pendingElapsedTimer); pendingElapsedTimer = null; }
+    var pending = document.getElementById('pendingAssistantMsg');
+    if (pending && pending.parentNode) pending.parentNode.removeChild(pending);
   }
   function openDraftEditorModal() {
     if (!activeHasDraft) {
-      setFb('sendFeedback', '当前会话没有可编辑的草案', 'err');
+      setComposerStatus('当前会话没有可编辑的草案', 'err');
       return;
     }
     var grid = window.WorkbenchDraftGrid;
     if (!grid || typeof grid.openDraftExcelModal !== 'function') {
-      setFb('sendFeedback', '表格编辑器未加载，请刷新页面或联系管理员', 'err');
+      setComposerStatus('表格编辑器未加载，请刷新页面或联系管理员', 'err');
       return;
     }
-    setFb('sendFeedback', '', 'muted');
+    setComposerStatus('', 'muted');
     grid.openDraftExcelModal({
       threadId: activeThreadId,
       threadKind: activeThreadKind,
       onRevised: function () { return loadMessages(); }
     }).catch(function (e) {
-      setFb('sendFeedback', String(e && e.message ? e.message : e), 'err');
+      setComposerStatus(String(e && e.message ? e.message : e), 'err');
     });
   }
   function stripOpenDraftEditorParam() {
@@ -772,6 +880,18 @@ export function renderManagerChatPage(params: {
     pendingOpenDraftEditor = false;
     stripOpenDraftEditorParam();
     openDraftEditorModal();
+  }
+  async function loadDraftSummary() {
+    if (!activeHasDraft) {
+      updateDraftContext({ count: 0, unassigned: 0, nearestDue: '', preview: [] }, false);
+      return;
+    }
+    try {
+      var res = await fetch(draftQuery());
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) return;
+      updateDraftContext(computeDraftSummary(data), true);
+    } catch (e) { /* ignore */ }
   }
   async function loadThreads(selectId) {
     var list = document.getElementById('threadList');
@@ -805,48 +925,62 @@ export function renderManagerChatPage(params: {
         });
       });
     } catch (e) {
-      list.innerHTML = '<li style="color:#dc2626;padding:8px;">加载会话失败</li>';
+      list.innerHTML = '<li class="chat-sidebar-error">加载会话失败</li>'
+        + '<li style="padding:8px;"><button type="button" class="btn btn-ghost btn-sm" id="retryThreadsBtn">重试</button></li>';
+      var retry = document.getElementById('retryThreadsBtn');
+      if (retry) retry.addEventListener('click', function () { void loadThreads(selectId); });
     }
   }
   async function loadMessages() {
-    var box = document.getElementById('msgList');
-    box.innerHTML = '<li class="muted" style="border-style:dashed;">加载中…</li>';
+    if (sendInFlight) return;
+    renderSkeleton();
+    var stream = document.getElementById('chatStream');
     try {
       var res = await fetch(messagesQuery());
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      updatePaneHeader({ title: data.title, badge: data.badge, kind: data.kind, preview: '' });
+      updatePaneHeader({ title: data.title, badge: data.badge, kind: data.kind, hasDraft: !!data.hasDraft });
       activeHasDraft = !!data.hasDraft;
       updateEditDraftButtons(activeHasDraft);
+      renderMessageRows(data.messages || []);
+      await loadDraftSummary();
       maybeOpenDraftEditorFromUrl();
-      var msgs = data.messages || [];
-      if (!msgs.length) {
-        box.innerHTML = '<li class="muted" style="border-style:dashed;">暂无消息，请在下方发送第一条。</li>';
-        return;
-      }
-      box.innerHTML = msgs.map(function (m) {
-        var role = String(m.role || 'system');
-        var rl = roleLabel(role);
-        var rowClass = role === 'user' ? 'msg-row msg-row--user' : 'msg-row msg-row--assistant';
-        var bubbleClass = 'msg-bubble ' + roleClass(role);
-        var tm = formatMsgTime(m.at);
-        var metaLine = '<div class="msg-meta">' + escapeHtml(rl) + (tm ? ' · ' + escapeHtml(tm) : '') + '</div>';
-        var body = (role === 'assistant' && m.html)
-          ? '<div class="msg-body msg-body--assistant">' + m.html + '</div>'
-          : '<div class="msg-body">' + escapeHtml(m.content || '') + '</div>';
-        return '<li class="' + rowClass + '"><div class="' + bubbleClass + '">' + metaLine + body + '</div></li>';
-      }).join('');
       scrollMessageStreamToBottom();
     } catch (e) {
-      box.innerHTML = '<li style="color:#dc2626;">加载消息失败</li>';
+      if (activeThreadKind === 'side' && isThreadNotFoundError(e)) {
+        renderThreadLostState();
+        setComposerStatus('会话不存在或已过期', 'err');
+      } else {
+        var box = document.getElementById('msgList');
+        if (box) {
+          box.innerHTML = '<li class="msg-bubble msg-bubble--error" style="list-style:none;">加载消息失败：'
+            + escapeHtml(String(e && e.message ? e.message : e)) + '</li>';
+        }
+      }
+    } finally {
+      if (stream) stream.setAttribute('aria-busy', 'false');
     }
   }
   async function sendChatMessage() {
+    if (sendInFlight) return;
     var sendBtn = document.getElementById('sendBtn');
     var message = (document.getElementById('msgInput').value || '').trim();
-    if (!message) { setFb('sendFeedback', '请输入消息内容', 'err'); return; }
-    if (sendBtn) sendBtn.disabled = true;
-    setFb('sendFeedback', '发送中…', 'muted');
+    if (!message) { setComposerStatus('请输入消息内容', 'err'); return; }
+    sendInFlight = true;
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '发送中…'; }
+    setComposerStatus('处理中，请稍候…', 'busy');
+    var startedAt = Date.now();
+    var box = document.getElementById('msgList');
+    if (box) {
+      var emptyCard = box.querySelector('.chat-welcome, .chat-empty-state');
+      if (emptyCard) emptyCard.closest('li').remove();
+      var userLi = document.createElement('li');
+      userLi.className = 'msg-row msg-row--user';
+      userLi.innerHTML = '<div class="msg-bubble msg-bubble--user"><div class="msg-meta">我</div><div class="msg-body">' + escapeHtml(message) + '</div></div>';
+      box.appendChild(userLi);
+    }
+    appendPendingBubble(startedAt);
+    document.getElementById('msgInput').value = '';
     try {
       var res = await fetch('/api/workbench/conversation/send', {
         method: 'POST',
@@ -859,18 +993,25 @@ export function renderManagerChatPage(params: {
       });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      document.getElementById('msgInput').value = '';
-      setFb('sendFeedback', '已发送', 'ok');
+      setComposerStatus('已同步最新回复', 'ok');
       if (data.threadId) activeThreadId = data.threadId;
       if (data.kind) activeThreadKind = data.kind;
+      clearPendingBubble();
       await loadThreads(activeThreadId);
+      sendInFlight = false;
       await loadMessages();
-      scrollMessageStreamToBottom();
       focusComposer();
     } catch (e) {
-      setFb('sendFeedback', String(e && e.message ? e.message : e), 'err');
+      clearPendingBubble();
+      var errLi = document.createElement('li');
+      errLi.className = 'msg-row msg-row--assistant';
+      errLi.innerHTML = '<div class="msg-bubble msg-bubble--error"><div class="msg-meta">系统</div><div class="msg-body">发送失败：' + escapeHtml(String(e && e.message ? e.message : e)) + '。请重试。</div></div>';
+      if (box) box.appendChild(errLi);
+      setComposerStatus('发送失败，请重试', 'err');
+      scrollMessageStreamToBottom();
     } finally {
-      if (sendBtn) sendBtn.disabled = false;
+      sendInFlight = false;
+      if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '发送'; }
     }
   }
   var sendBtn = document.getElementById('sendBtn');
@@ -899,7 +1040,7 @@ export function renderManagerChatPage(params: {
         await loadMessages();
         focusComposer();
       } catch (e) {
-        setFb('sendFeedback', String(e && e.message ? e.message : e), 'err');
+        setComposerStatus(String(e && e.message ? e.message : e), 'err');
       } finally {
         newThreadBtn.disabled = false;
       }
@@ -923,20 +1064,20 @@ export function renderManagerChatPage(params: {
         if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
         rosterStatusEl.textContent =
           '已上传 ' + escapeHtml(data.filename || file.name) +
-          '（' + (data.kind || '') + '，' + (data.chars || 0) + ' 字符）。请在下方说明分配诉求。';
+          '（' + (data.kind || '') + '，' + (data.chars || 0) + ' 字符）';
         rosterStatusEl.style.color = '#0f766e';
       } catch (err) {
-        rosterStatusEl.textContent = '上传失败：' + (err && err.message ? err.message : err);
+        rosterStatusEl.textContent = '上传失败';
         rosterStatusEl.style.color = '#dc2626';
       } finally {
         rosterInput.value = '';
       }
     });
   }
-  var editDraftBtnHead = document.getElementById('editDraftBtnHead');
-  var editDraftBtn = document.getElementById('editDraftBtn');
-  if (editDraftBtnHead) editDraftBtnHead.addEventListener('click', openDraftEditorModal);
-  if (editDraftBtn) editDraftBtn.addEventListener('click', openDraftEditorModal);
+  ['editDraftBtn', 'editDraftBtnMobile', 'editDraftBtnPanel'].forEach(function (id) {
+    var btn = document.getElementById(id);
+    if (btn) btn.addEventListener('click', openDraftEditorModal);
+  });
 
   document.getElementById('logoutBtn').addEventListener('click', async function () {
     var res = await fetch('/api/workbench/logout', { method: 'POST' });

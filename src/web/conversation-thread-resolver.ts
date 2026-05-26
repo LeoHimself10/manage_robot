@@ -24,6 +24,56 @@ export function isSideThreadSession(session: PlanSession): boolean {
   return false;
 }
 
+export function sideThreadChatKey(userId: string, threadId: string): string {
+  return `workbench:side:${userId.trim()}:${threadId.trim()}`;
+}
+
+/** Restore side metadata when a session file was wrongly promoted to main (e.g. after send). */
+export function healSideThreadSession(
+  session: PlanSessionRow,
+  userId: string,
+  threadId: string,
+): PlanSessionRow {
+  const uid = userId.trim();
+  const tid = threadId.trim();
+  if (!uid || !tid || tid === "main") return session;
+  const expectedHash = hashChatKey(sideThreadChatKey(uid, tid));
+  if (session.chatKeyHash !== expectedHash) return session;
+  if (session.threadKind === "side" && session.threadId === tid) return session;
+  const healed: PlanSessionRow = {
+    ...session,
+    threadKind: "side",
+    threadId: tid,
+    senderStaffId: session.senderStaffId ?? uid,
+    threadLabel:
+      String(session.threadLabel ?? "").trim() ||
+      formatSideThreadDefaultTitle(
+        session.createdAt ? new Date(session.createdAt) : new Date(),
+      ),
+  };
+  planSessionStore.save(healed);
+  return healed;
+}
+
+export function preserveThreadIdentityOnSave(session: PlanSession): PlanSession {
+  const uid = String(session.senderStaffId ?? session.canonicalUserId ?? "").trim();
+  const tid = String(session.threadId ?? "").trim();
+  if (uid && tid && tid !== "main") {
+    const expectedHash = hashChatKey(sideThreadChatKey(uid, tid));
+    if (session.chatKeyHash === expectedHash) {
+      return { ...session, threadKind: "side", threadId: tid };
+    }
+  }
+  if (isSideThreadSession(session)) {
+    return {
+      ...session,
+      threadKind: "side",
+      threadId: tid || session.threadId,
+    };
+  }
+  return markSessionAsMainThread(session);
+}
+
 export function sessionsForManager(userId: string): PlanSessionRow[] {
   const uid = userId.trim();
   return loadAllPlanSessions().filter((s) => sessionBelongsToManager(s, uid));
@@ -43,7 +93,7 @@ export function findMainThreadSession(userId: string): PlanSessionRow {
 
 export function createSideThreadSession(userId: string): PlanSessionRow {
   const threadId = randomUUID();
-  const chatKey = `workbench:side:${userId}:${threadId}`;
+  const chatKey = sideThreadChatKey(userId, threadId);
   const now = new Date().toISOString();
   const threadLabel = formatSideThreadDefaultTitle(new Date(now));
   const created: PlanSessionRow = {
@@ -81,6 +131,10 @@ export function resolveConversationThread(
   }
 
   if (threadKind === "side" && threadId) {
+    const byHash = sessionsForManager(userId).find(
+      (s) => s.chatKeyHash === hashChatKey(sideThreadChatKey(userId, threadId)),
+    );
+    if (byHash) return healSideThreadSession(byHash, userId, threadId);
     const side = sessionsForManager(userId).find(
       (s) => s.threadKind === "side" && s.threadId === threadId,
     );

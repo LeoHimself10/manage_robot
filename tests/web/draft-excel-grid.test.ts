@@ -69,6 +69,20 @@ describe("draft-excel-grid", () => {
     expect((a1?.primary as Record<string, unknown>)?.userId).toBe("u1");
   });
 
+  it("round-trips assignee with userId from Name (uid) cell", () => {
+    const rows = draftToExcelRows({ draft: sampleDraft });
+    rows[0].assignee = "李四 (u2)";
+    const { assignment: outAssign } = excelRowsToDraft({
+      rows,
+      previousDraft: sampleDraft,
+    });
+    const a0 = (outAssign.assignments as Array<Record<string, unknown>>).find(
+      (r) => r.taskId === "task_1",
+    );
+    expect((a0?.primary as Record<string, unknown>)?.userId).toBe("u2");
+    expect((a0?.primary as Record<string, unknown>)?.displayName).toBe("李四");
+  });
+
   it("prevalidateFromExcelRows stabilizes ids and deps", () => {
     const rows = draftToExcelRows({ draft: sampleDraft });
     const pre = prevalidateFromExcelRows({

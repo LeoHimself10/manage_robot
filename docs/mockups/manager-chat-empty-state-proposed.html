@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>智能助手 · 空状态与异常态 · 拟实现预览</title>
+  <style>
+    :root {
+      --bg: #e8edf3;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-soft: #eff6ff;
+      --danger: #dc2626;
+      --danger-soft: #fef2f2;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+      --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .doc-hero {
+      background: linear-gradient(145deg, #0f172a 0%, #1e3a8a 100%);
+      color: #f8fafc;
+      padding: 28px 24px;
+    }
+    .doc-hero h1 { margin: 0 0 8px; font-size: 22px; }
+    .doc-hero p { margin: 0; max-width: 720px; font-size: 14px; color: #cbd5e1; }
+    .doc-wrap { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 900px) {
+      .compare-grid { grid-template-columns: 1fr; }
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .panel-head h2 { margin: 0; font-size: 14px; font-weight: 700; }
+    .tag {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+    }
+    .tag--old { background: #fee2e2; color: #991b1b; }
+    .tag--new { background: #d1fae5; color: #065f46; }
+    .tag--fix { background: #e0e7ff; color: #3730a3; }
+
+    /* mini chat shell */
+    .mini-chat {
+      display: flex;
+      flex-direction: column;
+      min-height: 420px;
+    }
+    .mini-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .mini-head .title { font-size: 15px; font-weight: 700; margin: 0; }
+    .mini-head .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .draft-bar {
+      padding: 8px 14px;
+      font-size: 12px;
+      color: var(--muted);
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+    }
+    .mini-stream {
+      flex: 1;
+      padding: 20px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 240px;
+      background: linear-gradient(180deg, #fafbfc 0%, #fff 100%);
+    }
+    .mini-composer {
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      background: #fff;
+    }
+    .composer-box {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font-size: 13px;
+      color: #94a3b8;
+      min-height: 56px;
+      background: #fafbfc;
+    }
+    .composer-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+    .btn {
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid var(--primary);
+      background: var(--primary);
+      color: #fff;
+      font-family: inherit;
+      cursor: default;
+    }
+    .btn-ghost {
+      background: #fff;
+      color: var(--muted);
+      border-color: var(--border);
+      margin-right: 8px;
+    }
+
+    /* —— 现状：虚线框 + chips —— */
+    .chat-empty-state--old {
+      border: 2px dashed #cbd5e1;
+      border-radius: var(--radius);
+      padding: 28px 20px;
+      text-align: center;
+      background: #fafbfc;
+      max-width: 360px;
+      width: 100%;
+    }
+    .chat-empty-state--old h3 { margin: 0 0 6px; font-size: 15px; }
+    .chat-empty-state--old p { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
+    .chat-quick-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .chat-quick-chip {
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid #bfdbfe;
+      background: var(--primary-soft);
+      color: var(--primary-hover);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* —— 拟实现：无 chip，居中品牌空状态 —— */
+    .chat-welcome {
+      max-width: 400px;
+      width: 100%;
+      text-align: center;
+      padding: 8px 12px 4px;
+    }
+    .chat-welcome__icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 16px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 50%, #f0fdf4 100%);
+      border: 1px solid #bfdbfe;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      line-height: 1;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.12);
+    }
+    .chat-welcome__title {
+      margin: 0 0 8px;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .chat-welcome__lead {
+      margin: 0 0 20px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .chat-welcome__steps {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      text-align: left;
+      margin: 0 auto;
+      max-width: 320px;
+    }
+    .chat-welcome__step {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      color: #334155;
+      box-shadow: var(--shadow);
+    }
+    .chat-welcome__step-num {
+      flex-shrink: 0;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .chat-welcome__hint {
+      margin: 18px 0 0;
+      font-size: 11px;
+      color: #94a3b8;
+    }
+    .chat-welcome__hint kbd {
+      display: inline-block;
+      padding: 1px 5px;
+      border-radius: 4px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      font-size: 10px;
+      font-family: inherit;
+    }
+
+    /* —— 会话失效提示（修复 No session found 后的 UI）—— */
+    .chat-thread-lost {
+      max-width: 380px;
+      width: 100%;
+      text-align: center;
+      padding: 24px 20px;
+      background: var(--danger-soft);
+      border: 1px solid #fecaca;
+      border-radius: var(--radius);
+    }
+    .chat-thread-lost__icon {
+      font-size: 28px;
+      margin-bottom: 10px;
+      line-height: 1;
+    }
+    .chat-thread-lost h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      color: #991b1b;
+    }
+    .chat-thread-lost p {
+      margin: 0 0 16px;
+      font-size: 13px;
+      color: #b91c1c;
+      line-height: 1.55;
+    }
+    .chat-thread-lost .actions {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn-danger-outline {
+      background: #fff;
+      color: var(--danger);
+      border-color: #fecaca;
+    }
+
+    .note-block {
+      margin-top: 24px;
+      padding: 16px 18px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 13px;
+      color: #334155;
+    }
+    .note-block h3 { margin: 0 0 10px; font-size: 14px; }
+    .note-block ul { margin: 0; padding-left: 20px; }
+    .note-block li { margin-bottom: 6px; }
+    .note-block code {
+      font-size: 12px;
+      background: #f1f5f9;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <header class="doc-hero">
+    <h1>智能规划助手 · 拟实现 UI 预览</h1>
+    <p>对应计划：去掉快捷 chip、美化新会话空状态、侧会话 404 时友好回主线程。在浏览器直接打开本文件即可对照。</p>
+  </header>
+
+  <main class="doc-wrap">
+    <div class="compare-grid">
+      <!-- 现状 -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>现状（将移除 chip）</h2>
+          <span class="tag tag--old">Before</span>
+        </div>
+        <div class="mini-chat">
+          <div class="mini-head">
+            <p class="title">新规划会话 · 05-26 10:28</p>
+            <p class="sub">与规划助手协作</p>
+          </div>
+          <div class="draft-bar">暂无草案 — 在下方描述任务开始规划</div>
+          <div class="mini-stream">
+            <div class="chat-empty-state--old">
+              <h3>开始一次任务规划</h3>
+              <p>描述目标、背景或粘贴需求，助手会帮你拆 WBS、点将并发布。</p>
+              <div class="chat-quick-chips">
+                <span class="chat-quick-chip">帮我拆解一个新任务</span>
+                <span class="chat-quick-chip">补充各子任务负责人</span>
+                <span class="chat-quick-chip">做发布预览</span>
+              </div>
+            </div>
+          </div>
+          <div class="mini-composer">
+            <div class="composer-box">输入消息…</div>
+            <div class="composer-actions"><button type="button" class="btn">发送</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 拟实现：新空状态 -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>拟实现 · 新会话空状态</h2>
+          <span class="tag tag--new">After</span>
+        </div>
+        <div class="mini-chat">
+          <div class="mini-head">
+            <p class="title">新规划会话 · 05-26 10:28</p>
+            <p class="sub">与规划助手协作</p>
+          </div>
+          <div class="draft-bar">暂无草案 — 在下方描述任务开始规划</div>
+          <div class="mini-stream">
+            <div class="chat-welcome">
+              <div class="chat-welcome__icon" aria-hidden="true">✦</div>
+              <h3 class="chat-welcome__title">开始规划</h3>
+              <p class="chat-welcome__lead">在下方输入任务目标或粘贴需求，助手将协助拆解 WBS、点将与发布预览。</p>
+              <div class="chat-welcome__steps">
+                <div class="chat-welcome__step">
+                  <span class="chat-welcome__step-num">1</span>
+                  <span>说清楚背景、对象、时间与交付物</span>
+                </div>
+                <div class="chat-welcome__step">
+                  <span class="chat-welcome__step-num">2</span>
+                  <span>确认草案后，用「编辑草案表格」批量改字段</span>
+                </div>
+                <div class="chat-welcome__step">
+                  <span class="chat-welcome__step-num">3</span>
+                  <span>点将齐全后再发布到工作台</span>
+                </div>
+              </div>
+              <p class="chat-welcome__hint"><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</p>
+            </div>
+          </div>
+          <div class="mini-composer">
+            <div class="composer-box">例如：帮我规划 Q2 渠道复盘，含数据收集、分析与汇报…</div>
+            <div class="composer-actions"><button type="button" class="btn">发送</button></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 异常态 -->
+    <section class="panel" style="margin-top: 20px;">
+      <div class="panel-head">
+        <h2>拟实现 · 侧会话失效（修复加载失败后）</h2>
+        <span class="tag tag--fix">Error UX</span>
+      </div>
+      <div class="mini-chat" style="min-height: 320px;">
+        <div class="mini-head">
+          <p class="title">新规划会话 · 05-26 10:28</p>
+          <p class="sub">侧会话</p>
+        </div>
+        <div class="mini-stream">
+          <div class="chat-thread-lost">
+            <div class="chat-thread-lost__icon" aria-hidden="true">⚠</div>
+            <h3>找不到该会话</h3>
+            <p>可能因本地数据已重置，或会话记录已过期。请返回主线程继续规划，或新建侧会话。</p>
+            <div class="actions">
+              <button type="button" class="btn">返回主线程</button>
+              <button type="button" class="btn btn-ghost btn-danger-outline">新建规划会话</button>
+            </div>
+          </div>
+        </div>
+        <div class="mini-composer">
+          <div class="composer-box" style="opacity: 0.5;">输入已禁用，请先恢复会话</div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="note-block">
+      <h3>后端同步修复（本 HTML 仅展示视觉）</h3>
+      <ul>
+        <li><code>POST /conversation/send</code> 不再对侧会话调用 <code>markSessionAsMainThread</code>，避免 <code>No session found for thread</code></li>
+        <li>实现文件：<code>manager-workbench-pages.ts</code>（空状态 HTML）、<code>workbench-app-styles.ts</code>（<code>.chat-welcome</code> 样式）</li>
+        <li>打开方式：双击本文件，或 <code>file:///…/docs/mockups/manager-chat-empty-state-proposed.html</code></li>
+      </ul>
+    </aside>
+  </main>
+</body>
+</html>
