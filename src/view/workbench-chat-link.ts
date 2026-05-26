@@ -18,21 +18,43 @@ function appendOpenDraftEditorParam(url: string, openDraftEditor?: boolean): str
   return parsed.toString();
 }
 
+/** Collapse accidental `//` in pathname (breaks DingTalk in-app browser with -379). */
+export function normalizePublicPageUrl(pageUrl: string): string {
+  const parsed = new URL(pageUrl);
+  parsed.pathname = parsed.pathname.replace(/\/{2,}/g, "/");
+  return parsed.toString();
+}
+
+function buildWorkbenchChatPath(input: ManagerChatDeepLinkInput, base: string): string {
+  const basePath = base.replace(/\/+$/, "");
+  const underWorkbench = basePath.endsWith("/workbench");
+  const kind = input.threadKind ?? (input.threadId === "main" || !input.threadId ? "main" : "side");
+
+  if (kind === "main" || input.threadId === "main" || !input.threadId) {
+    return underWorkbench
+      ? `${basePath}/manager/chat?thread=main`
+      : `${basePath}/workbench/manager/chat?thread=main`;
+  }
+
+  const threadId = String(input.threadId ?? "").trim();
+  if (!threadId) {
+    return underWorkbench
+      ? `${basePath}/manager/chat?thread=main`
+      : `${basePath}/workbench/manager/chat?thread=main`;
+  }
+
+  const sideQuery = `thread=side&threadId=${encodeURIComponent(threadId)}`;
+  return underWorkbench
+    ? `${basePath}/manager/chat?${sideQuery}`
+    : `${basePath}/workbench/manager/chat?${sideQuery}`;
+}
+
 /** Public workbench chat URL for manager planning assistant. */
 export function buildManagerChatDeepLink(input: ManagerChatDeepLinkInput = {}): string | null {
   const base = readPublicBaseUrl();
   if (!base) return null;
-  const kind = input.threadKind ?? (input.threadId === "main" || !input.threadId ? "main" : "side");
-  let url: string;
-  if (kind === "main" || input.threadId === "main" || !input.threadId) {
-    url = `${base}/workbench/manager/chat?thread=main`;
-  } else {
-    const threadId = String(input.threadId ?? "").trim();
-    url = !threadId
-      ? `${base}/workbench/manager/chat?thread=main`
-      : `${base}/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(threadId)}`;
-  }
-  return appendOpenDraftEditorParam(url, input.openDraftEditor);
+  const url = buildWorkbenchChatPath(input, base);
+  return normalizePublicPageUrl(appendOpenDraftEditorParam(url, input.openDraftEditor));
 }
 
 /** Micro-app homepage path in DingTalk (应用首页), default /workbench. */
@@ -43,9 +65,8 @@ function readWorkbenchH5AppHomePath(): string {
 }
 
 /**
- * h5_app_open `path` is joined against the micro-app homepage URL. A leading `/workbench/...`
- * on a homepage ending with `/` yields `//workbench/...` (ERR_HTTP_RESPONSE_CODE_FAILURE).
- * Pass a path relative to the configured app home (e.g. `manager/chat?thread=main`).
+ * Optional h5_app_open path (only when DINGTALK_WORKBENCH_APPLINK_MODE=h5).
+ * Relative to configured micro-app home to avoid `//workbench` join bugs.
  */
 export function toH5AppOpenPath(pageUrl: string): string {
   const parsed = new URL(pageUrl);
@@ -59,35 +80,42 @@ export function toH5AppOpenPath(pageUrl: string): string {
   return rel ? `${rel}${parsed.search}` : parsed.search.replace(/^\?/, "") || "manager/chat";
 }
 
+function readApplinkMode(): "link" | "h5" {
+  const raw = String(process.env.DINGTALK_WORKBENCH_APPLINK_MODE ?? "link").trim().toLowerCase();
+  return raw === "h5" || raw === "h5_app_open" ? "h5" : "link";
+}
+
 /**
- * Wrap a HTTPS workbench URL so DingTalk opens it inside the client (H5 微应用 / 工作台容器),
- * not the system external browser.
+ * Wrap a HTTPS workbench URL so DingTalk opens it inside the client, not the system browser.
+ * Default: page/link with full normalized URL (reliable). Set DINGTALK_WORKBENCH_APPLINK_MODE=h5 to try h5_app_open.
  */
 export function wrapUrlForDingtalkClient(pageUrl: string): string {
   const disabled = String(process.env.DINGTALK_WORKBENCH_APPLINK ?? "1").trim().toLowerCase();
+  const normalized = normalizePublicPageUrl(pageUrl);
   if (disabled === "0" || disabled === "false" || disabled === "no") {
-    return pageUrl;
+    return normalized;
   }
 
-  const corpId =
-    process.env.DINGTALK_CORP_ID?.trim() || process.env.DINGTALK_CORP_ID_ALT?.trim() || "";
-  const agentId = process.env.DINGTALK_AGENT_ID?.trim() || "";
-
-  if (corpId && agentId) {
-    try {
-      const params = new URLSearchParams({
-        appId: agentId,
-        corpId,
-        appType: "2",
-        path: toH5AppOpenPath(pageUrl),
-      });
-      return `https://applink.dingtalk.com/page/h5_app_open?${params.toString()}`;
-    } catch {
-      // fall through to page/link
+  if (readApplinkMode() === "h5") {
+    const corpId =
+      process.env.DINGTALK_CORP_ID?.trim() || process.env.DINGTALK_CORP_ID_ALT?.trim() || "";
+    const agentId = process.env.DINGTALK_AGENT_ID?.trim() || "";
+    if (corpId && agentId) {
+      try {
+        const params = new URLSearchParams({
+          appId: agentId,
+          corpId,
+          appType: "2",
+          path: toH5AppOpenPath(normalized),
+        });
+        return `https://applink.dingtalk.com/page/h5_app_open?${params.toString()}`;
+      } catch {
+        // fall through to page/link
+      }
     }
   }
 
-  const encoded = encodeURIComponent(pageUrl);
+  const encoded = encodeURIComponent(normalized);
   return `https://applink.dingtalk.com/page/link?url=${encoded}&target=fullScreen&targetDesktop=workbench`;
 }
 

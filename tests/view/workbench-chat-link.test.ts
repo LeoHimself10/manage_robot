@@ -3,6 +3,7 @@ import {
   appendWorkbenchChatLinkFooter,
   buildManagerChatDeepLink,
   buildManagerChatDeepLinkForDingtalkOutbound,
+  normalizePublicPageUrl,
   toH5AppOpenPath,
   wrapUrlForDingtalkClient,
 } from "../../src/view/workbench-chat-link";
@@ -12,6 +13,7 @@ describe("workbench-chat-link", () => {
   const prevCorp = process.env.DINGTALK_CORP_ID;
   const prevAgent = process.env.DINGTALK_AGENT_ID;
   const prevApplink = process.env.DINGTALK_WORKBENCH_APPLINK;
+  const prevMode = process.env.DINGTALK_WORKBENCH_APPLINK_MODE;
 
   afterEach(() => {
     if (prevBase === undefined) delete process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL;
@@ -22,6 +24,8 @@ describe("workbench-chat-link", () => {
     else process.env.DINGTALK_AGENT_ID = prevAgent;
     if (prevApplink === undefined) delete process.env.DINGTALK_WORKBENCH_APPLINK;
     else process.env.DINGTALK_WORKBENCH_APPLINK = prevApplink;
+    if (prevMode === undefined) delete process.env.DINGTALK_WORKBENCH_APPLINK_MODE;
+    else process.env.DINGTALK_WORKBENCH_APPLINK_MODE = prevMode;
   });
 
   it("builds main thread chat URL when base configured", () => {
@@ -31,19 +35,32 @@ describe("workbench-chat-link", () => {
     );
   });
 
-  it("builds side thread chat URL", () => {
-    process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL = "https://wb.example.com";
-    expect(buildManagerChatDeepLink({ threadId: "abc-123", threadKind: "side" })).toBe(
-      "https://wb.example.com/workbench/manager/chat?thread=side&threadId=abc-123",
+  it("avoids double /workbench when base already ends with /workbench", () => {
+    process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL = "https://wb.example.com/workbench";
+    expect(buildManagerChatDeepLink({ threadKind: "main" })).toBe(
+      "https://wb.example.com/workbench/manager/chat?thread=main",
     );
   });
 
-  it("appendWorkbenchChatLinkFooter adds markdown link", () => {
-    const out = appendWorkbenchChatLinkFooter("hello", "https://wb.example.com/chat");
-    expect(out).toContain("[在工作台继续编辑草案](https://wb.example.com/chat)");
+  it("normalizePublicPageUrl collapses duplicate slashes in pathname", () => {
+    expect(
+      normalizePublicPageUrl("https://wb.example.com//workbench/manager/chat?thread=main"),
+    ).toBe("https://wb.example.com/workbench/manager/chat?thread=main");
   });
 
-  it("toH5AppOpenPath strips /workbench prefix to avoid double-slash join", () => {
+  it("wrapUrlForDingtalkClient defaults to page/link even when corp/agent set", () => {
+    process.env.DINGTALK_CORP_ID = "ding-corp";
+    process.env.DINGTALK_AGENT_ID = "123456";
+    delete process.env.DINGTALK_WORKBENCH_APPLINK_MODE;
+    const page = "https://wb.example.com/workbench/manager/chat?thread=main&openDraftEditor=1";
+    const wrapped = wrapUrlForDingtalkClient(page);
+    expect(wrapped).toContain("https://applink.dingtalk.com/page/link?");
+    expect(wrapped).toContain(encodeURIComponent(page));
+    expect(wrapped).toContain("targetDesktop=workbench");
+    expect(wrapped).not.toContain("h5_app_open");
+  });
+
+  it("toH5AppOpenPath strips /workbench prefix for optional h5 mode", () => {
     expect(
       toH5AppOpenPath(
         "https://wb.example.com/workbench/manager/chat?thread=main&openDraftEditor=1",
@@ -51,37 +68,28 @@ describe("workbench-chat-link", () => {
     ).toBe("manager/chat?thread=main&openDraftEditor=1");
   });
 
-  it("wrapUrlForDingtalkClient uses h5_app_open when corp and agent configured", () => {
+  it("wrapUrlForDingtalkClient uses h5_app_open only when mode=h5", () => {
     process.env.DINGTALK_CORP_ID = "ding-corp";
     process.env.DINGTALK_AGENT_ID = "123456";
+    process.env.DINGTALK_WORKBENCH_APPLINK_MODE = "h5";
     const wrapped = wrapUrlForDingtalkClient(
       "https://wb.example.com/workbench/manager/chat?thread=main&openDraftEditor=1",
     );
     expect(wrapped).toContain("https://applink.dingtalk.com/page/h5_app_open?");
-    expect(wrapped).toContain("appId=123456");
-    expect(wrapped).toContain("corpId=ding-corp");
-    expect(wrapped).toContain("appType=2");
-    expect(wrapped).toContain(
-      encodeURIComponent("manager/chat?thread=main&openDraftEditor=1"),
-    );
+    expect(wrapped).toContain("path=manager%2Fchat");
   });
 
-  it("wrapUrlForDingtalkClient falls back to page/link without corp/agent", () => {
-    delete process.env.DINGTALK_CORP_ID;
-    delete process.env.DINGTALK_AGENT_ID;
-    const page = "https://wb.example.com/workbench/manager/chat?thread=main";
-    expect(wrapUrlForDingtalkClient(page)).toBe(
-      `https://applink.dingtalk.com/page/link?url=${encodeURIComponent(page)}&target=fullScreen&targetDesktop=workbench`,
-    );
-  });
-
-  it("buildManagerChatDeepLinkForDingtalkOutbound adds openDraftEditor and applink", () => {
+  it("buildManagerChatDeepLinkForDingtalkOutbound uses page/link by default", () => {
     process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL = "https://wb.example.com";
     process.env.DINGTALK_CORP_ID = "ding-corp";
     process.env.DINGTALK_AGENT_ID = "99";
     const link = buildManagerChatDeepLinkForDingtalkOutbound({ threadKind: "main" });
-    expect(link).toContain("applink.dingtalk.com/page/h5_app_open");
-    expect(link).toContain("path=manager%2Fchat");
-    expect(link).toContain("openDraftEditor%3D1");
+    expect(link).toContain("applink.dingtalk.com/page/link");
+    expect(link).toContain(encodeURIComponent("openDraftEditor=1"));
+  });
+
+  it("appendWorkbenchChatLinkFooter adds markdown link", () => {
+    const out = appendWorkbenchChatLinkFooter("hello", "https://wb.example.com/chat");
+    expect(out).toContain("[在工作台继续编辑草案](https://wb.example.com/chat)");
   });
 });
