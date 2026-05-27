@@ -338,17 +338,7 @@ ${buildWorkbenchFmtTimeClientJs()}
       return '<div class="' + cls + '"></div>';
     }).join('');
   }
-  function ganttGroupBadges(bars) {
-    var counts = {};
-    (bars || []).forEach(function (b) {
-      var status = String(b.status || '');
-      counts[status] = (counts[status] || 0) + 1;
-    });
-    return Object.keys(counts).map(function (status) {
-      return '<span class="badge ' + badgeClassForStatus(status) + '">' + esc(statusLabel(status)) + ' ' + counts[status] + '</span>';
-    }).join('');
-  }
-  function isGanttGroupOpen(taskId) {
+  function renderSubtaskBar(b, dayCount) {
     if (state.ganttMode === 'fold') return false;
     if (state.ganttMode === 'due') return true;
     return state.ganttOpen[taskId] !== false;
@@ -389,8 +379,7 @@ ${buildWorkbenchFmtTimeClientJs()}
       var open = isGanttGroupOpen(row.taskId);
       html += '<div class="gantt-row gantt-group-head' + (open ? '' : ' is-collapsed') + '" data-task-id="' + esc(row.taskId) + '">' +
         '<div class="gantt-label"><span class="gantt-chev" aria-hidden="true">▾</span>' +
-        '<div class="gantt-group-title"><strong>' + esc(row.taskNo) + ' · ' + esc(row.title) + '</strong></div>' +
-        '<div class="gantt-group-badges">' + ganttGroupBadges(bars) + '</div></div>' +
+        '<div class="gantt-group-title"><strong title="' + esc(row.taskNo + ' · ' + row.title) + '">' + esc(row.title) + '</strong></div></div>' +
         '<div class="gantt-group-summary">' + bars.length + ' 条子任务 · 点击展开</div></div>';
       if (open) {
         bars.forEach(function (b) {
