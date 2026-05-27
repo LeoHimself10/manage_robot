@@ -250,9 +250,16 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   let readUrlCallCount = 0;
   let updateDraftTaskCallCount = 0;
   let updateDraftTaskAssigneePatchCount = 0;
+  let addDraftSubtaskCallCount = 0;
   const UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX = (() => {
     const raw = Number(
       String(process.env.UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX ?? "4").trim(),
+    );
+    return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 4;
+  })();
+  const ADD_DRAFT_SUBTASK_PER_ORCHESTRATOR_MAX = (() => {
+    const raw = Number(
+      String(process.env.ADD_DRAFT_SUBTASK_PER_ORCHESTRATOR_MAX ?? "4").trim(),
     );
     return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 4;
   })();
@@ -407,7 +414,20 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     },
     add_draft_subtask: {
       definition: ADD_DRAFT_SUBTASK_TOOL,
-      handler: buildAddDraftSubtaskHandler({ currentSession: deps.currentSession }),
+      handler: (args: Record<string, unknown>) => {
+        addDraftSubtaskCallCount += 1;
+        if (addDraftSubtaskCallCount > ADD_DRAFT_SUBTASK_PER_ORCHESTRATOR_MAX) {
+          return {
+            ok: false,
+            reason: "too_many_add_draft_subtask",
+            callCount: addDraftSubtaskCallCount,
+            max: ADD_DRAFT_SUBTASK_PER_ORCHESTRATOR_MAX,
+            hint:
+              "本轮 add_draft_subtask 次数过多。请用顶层 **draft** JSON 一次 REDRAFT 扩条，或减少单条追加。",
+          };
+        }
+        return buildAddDraftSubtaskHandler({ currentSession: deps.currentSession })(args);
+      },
     },
     remove_draft_subtask: {
       definition: REMOVE_DRAFT_SUBTASK_TOOL,

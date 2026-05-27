@@ -48,6 +48,8 @@ describe("buildProjectRollupCards", () => {
     expect(cards).toHaveLength(1);
     expect(cards[0]?.breakdown.blocked).toBe(1);
     expect(cards[0]?.headline).toContain("阻塞");
+    expect(cards[0]?.taskBuckets.blocked).toBe(1);
+    expect(cards[0]?.progress.pillTone).toBe("blocked");
   });
 
   it("includes unassigned bucket only when tasks exist", () => {

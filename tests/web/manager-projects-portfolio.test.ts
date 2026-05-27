@@ -11,18 +11,32 @@ describe("manager project portfolio UI guards", () => {
     expect(html).not.toContain('id="filterProject"');
   });
 
-  it("portfolio manager HTML includes project nav and filter", () => {
-    const html = renderManagerTasksPage({ userLabel: "测试", projectPortfolioEnabled: true });
+  it("portfolio manager HTML includes grouped view and bulk assign", () => {
+    const html = renderManagerTasksPage({
+      userLabel: "测试",
+      projectPortfolioEnabled: true,
+      initialView: "group",
+    });
     expect(html).toContain("项目总览");
-    expect(html).toContain("filterProject");
     expect(html).toContain('id="filterProject"');
-    expect(html).toContain("/api/workbench/manager/projects");
+    expect(html).toContain("bulkAssignBar");
+    expect(html).toContain("将所选任务归入到项目");
+    expect(html).toContain("按项目归档");
+    expect(html).toContain("所属项目");
+    expect(html).not.toContain("wbScopeChipsMount");
+    expect(html).not.toContain("大项目");
+    expect(html).not.toContain("条大任务");
   });
 
-  it("projects overview page loads project API in script", () => {
+  it("projects overview page has no presentation mode and uses view=group links", () => {
     const html = renderManagerProjectsPage({ userLabel: "测试" });
     expect(html).toContain("/api/workbench/manager/projects");
-    expect(html).toContain("开会展示");
+    expect(html).not.toContain("开会展示");
+    expect(html).not.toContain("presentation=1");
+    expect(html).toContain("view=group");
+    expect(html).toContain("project-card__progress");
+    expect(html).not.toContain("kpi-row");
+    expect(html).not.toContain("条大任务");
   });
 
   it("planner prompt without portfolio omits project tools line", () => {

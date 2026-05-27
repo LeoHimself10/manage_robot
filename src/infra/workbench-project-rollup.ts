@@ -1,9 +1,15 @@
 import {
   computeSubtaskBreakdown,
-  deriveManagerAttentionLabel,
   type SubtaskAttentionInput,
   type SubtaskBreakdown,
 } from "../web/workbench-attention";
+import {
+  buildProjectCardProgress,
+  bumpProjectTaskBucket,
+  emptyProjectTaskBuckets,
+  type ProjectCardProgress,
+  type ProjectTaskBuckets,
+} from "../web/workbench-project-card-progress";
 import { UNASSIGNED_PROJECT_BUCKET, type WorkbenchProjectRow } from "./workbench-project-types";
 import type { WorkbenchTaskRow } from "./workbench-formal-task-store";
 
@@ -13,9 +19,13 @@ export type ProjectRollupCard = {
   description?: string;
   status: "active" | "archived" | "unassigned";
   taskCount: number;
+  /** Per–main-task attention bucket counts (overview cards). */
+  taskBuckets: ProjectTaskBuckets;
+  progress: ProjectCardProgress;
   breakdown: SubtaskBreakdown;
   attentionLabel: string;
   attentionBucket: string;
+  /** @deprecated UI uses `progress`; kept for API compat */
   headline: string;
   latestUpdatedAt?: string;
 };
@@ -71,6 +81,12 @@ export function buildProjectRollupCards(input: ProjectRollupInput): ProjectRollu
       description: p.description,
       status: p.status,
       taskCount: 0,
+      taskBuckets: emptyProjectTaskBuckets(),
+      progress: buildProjectCardProgress({
+        taskCount: 0,
+        taskBuckets: emptyProjectTaskBuckets(),
+        attentionBucket: "done",
+      }),
       breakdown: {
         needsManager: 0,
         waitingAccept: 0,
@@ -91,6 +107,12 @@ export function buildProjectRollupCards(input: ProjectRollupInput): ProjectRollu
     name: "未归类",
     status: "unassigned",
     taskCount: 0,
+    taskBuckets: emptyProjectTaskBuckets(),
+    progress: buildProjectCardProgress({
+      taskCount: 0,
+      taskBuckets: emptyProjectTaskBuckets(),
+      attentionBucket: "done",
+    }),
     breakdown: {
       needsManager: 0,
       waitingAccept: 0,
@@ -112,6 +134,7 @@ export function buildProjectRollupCards(input: ProjectRollupInput): ProjectRollu
     const card = pid ? byProject.get(pid) : unassigned;
     if (!card) continue;
     card.taskCount += 1;
+    bumpProjectTaskBucket(card.taskBuckets, attn.attentionBucket);
     card.breakdown = mergeBreakdown(card.breakdown, breakdown);
     const rank = attentionRank(attn.attentionBucket);
     const curRank = attentionRank(card.attentionBucket);
@@ -125,15 +148,24 @@ export function buildProjectRollupCards(input: ProjectRollupInput): ProjectRollu
     }
   }
 
+  function finalizeCard(c: ProjectRollupCard): void {
+    c.headline = buildHeadline(c.name, c.breakdown, c.attentionLabel);
+    c.progress = buildProjectCardProgress({
+      taskCount: c.taskCount,
+      taskBuckets: c.taskBuckets,
+      attentionBucket: c.attentionBucket,
+    });
+  }
+
   const cards: ProjectRollupCard[] = [];
   for (const p of input.projects) {
     const c = byProject.get(p.projectId);
     if (!c) continue;
-    c.headline = buildHeadline(c.name, c.breakdown, c.attentionLabel);
+    finalizeCard(c);
     cards.push(c);
   }
   if (unassigned.taskCount > 0) {
-    unassigned.headline = buildHeadline(unassigned.name, unassigned.breakdown, unassigned.attentionLabel);
+    finalizeCard(unassigned);
     cards.push(unassigned);
   }
   cards.sort((a, b) => {

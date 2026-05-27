@@ -1,6 +1,11 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { buildWorkbenchContactComboClientJs } from "./workbench-contact-combo-snippet";
 import { buildWorkbenchFmtTimeClientJs } from "./workbench-datetime";
+import {
+  buildWorkbenchTasksPortfolioClientJs,
+  WORKBENCH_TASKS_PORTFOLIO_CSS,
+} from "./workbench-tasks-portfolio-snippet";
+import { WORKBENCH_TASKS_FILTER_UNIFIED_CSS } from "./workbench-project-overview-styles";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 
 function escapeHtml(v: string): string {
@@ -25,56 +30,50 @@ function workbenchEnforceActionGuards(): boolean {
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
-function buildManagerTasksPortfolioClientJs(initialProjectId: string): string {
-  return `
-  WB_FILTER_PROJECT_ID = '${initialProjectId.replace(/'/g, "")}';
-  async function loadProjectFilterOptions() {
-    var sel = document.getElementById('filterProject');
-    if (!sel) return;
-    try {
-      var res = await fetch('/api/workbench/manager/projects');
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) return;
-      var cards = data.cards || [];
-      sel.innerHTML = '<option value="">全部项目</option>' + cards.map(function (c) {
-        return '<option value="' + escapeHtml(c.projectId) + '">' + escapeHtml(c.name) + '</option>';
-      }).join('');
-      if (WB_FILTER_PROJECT_ID) sel.value = WB_FILTER_PROJECT_ID;
-    } catch (e) {}
-  }
-  var filterProjectEl = document.getElementById('filterProject');
-  if (filterProjectEl) {
-    filterProjectEl.addEventListener('change', async function () {
-      WB_FILTER_PROJECT_ID = String(filterProjectEl.value || '').trim();
-      await loadTasks();
-    });
-  }
-  void (async function () {
-    await loadProjectFilterOptions();
-    await loadTasks();
-  })();
-  `;
-}
-
 export function renderManagerTasksPage(params: {
   planId?: string;
   planTitle?: string;
   userLabel?: string;
   projectPortfolioEnabled?: boolean;
   initialProjectId?: string;
+  initialView?: "group" | "flat";
 }): string {
   const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
   const portfolio = Boolean(params.projectPortfolioEnabled);
   const initialProjectId = escapeHtml(params.initialProjectId ?? "");
+  const initialView = params.initialView === "flat" ? "flat" : "group";
   const portfolioNav = portfolio
     ? '<a href="/workbench/manager/projects">项目总览</a>\n        '
     : "";
   const projectFilter = portfolio
-    ? `<label>大项目
+    ? `<label id="filterProjectWrap">所属项目
           <select id="filterProject">
             <option value="">全部项目</option>
+            <option value="__unassigned__">仅未归入项目</option>
           </select>
         </label>`
+    : "";
+  const portfolioFilterFooter = portfolio
+    ? `<div class="wb-filter-footer">
+        <span class="wb-filter-footer-lbl">视图</span>
+        <div class="wb-tasks-view-mode" role="group" aria-label="列表视图">
+          <button type="button" data-wb-view-mode="flat" aria-pressed="false">平铺列表</button>
+          <button type="button" data-wb-view-mode="group" aria-pressed="true">按项目归档</button>
+        </div>
+        <span class="wb-filter-hint">归档视图下，「所属项目」用于限定显示的项目组</span>
+      </div>`
+    : "";
+  const portfolioExtras = portfolio
+    ? `<div class="wb-bulk-bar" id="bulkAssignBar" role="status" aria-live="polite">
+        <div class="wb-bulk-bar__left">
+          <span class="wb-bulk-bar__badge" id="bulkAssignCount">0</span>
+          <span class="wb-bulk-bar__title">条任务已选 · 可批量归入项目</span>
+        </div>
+        <div class="wb-bulk-bar__actions">
+          <button type="button" class="btn btn-primary btn-sm" id="bulkAssignBtn">归入项目…</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="bulkAssignClearBtn">取消选择</button>
+        </div>
+      </div>`
     : "";
 
   return `<!DOCTYPE html>
@@ -83,7 +82,7 @@ export function renderManagerTasksPage(params: {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>历史任务 · 主管工作台</title>
-<style>${WORKBENCH_APP_BASE_CSS}</style>
+<style>${WORKBENCH_APP_BASE_CSS}${portfolio ? WORKBENCH_TASKS_PORTFOLIO_CSS + WORKBENCH_TASKS_FILTER_UNIFIED_CSS : ""}</style>
 </head>
 <body>
 <div class="app-shell">
@@ -96,6 +95,7 @@ export function renderManagerTasksPage(params: {
     <div class="top-actions">
       <nav class="nav-pills" aria-label="主管导航">
         ${portfolioNav}<a class="active" href="/workbench/manager/tasks">历史任务</a>
+        <a href="/workbench/manager/dashboard">周度 Dashboard</a>
         <a href="/workbench/manager/chat">智能规划助手</a>
         <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
       </nav>
@@ -117,7 +117,7 @@ export function renderManagerTasksPage(params: {
         <div class="kpi"><div class="lbl">员工执行中</div><div class="val" id="kpiRunning">—</div></div>
         <div class="kpi"><div class="lbl">已完成</div><div class="val" id="kpiDone">—</div></div>
       </section>
-      <div class="mgr-list-toolbar form-stack" role="search" aria-label="任务筛选">
+      <div class="mgr-list-toolbar${portfolio ? " mgr-list-toolbar--portfolio" : " form-stack"}" role="search" aria-label="任务筛选">
         <label>关注状态
           <select id="filterAttention">
             <option value="">全部</option>
@@ -128,13 +128,13 @@ export function renderManagerTasksPage(params: {
             <option value="done">已完成</option>
           </select>
         </label>
+        ${projectFilter}
         <label>标题 / 业务编号
           <input id="filterKeyword" type="search" placeholder="关键词" autocomplete="off" />
         </label>
         <label>负责人
-          <input id="filterAssignee" type="search" placeholder="姓名关键词" autocomplete="off" />
+          <input id="filterAssignee" type="search" placeholder="姓名" autocomplete="off" />
         </label>
-        ${projectFilter}
         <label>排序
           <select id="filterSort">
             <option value="updated_desc">更新时间 ↓</option>
@@ -143,11 +143,13 @@ export function renderManagerTasksPage(params: {
             <option value="attention">关注优先级</option>
           </select>
         </label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="${portfolio ? "wb-filter-actions" : ""}" style="${portfolio ? "" : "display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;"}">
           <button type="button" class="btn btn-primary btn-sm" id="filterApplyBtn">应用筛选</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="filterClearBtn">清除筛选</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="filterClearBtn">清除</button>
         </div>
+        ${portfolioFilterFooter}
       </div>
+      ${portfolioExtras}
       <p class="muted" id="filterResultMeta" style="margin:0 0 10px;font-size:13px;" role="status" aria-live="polite">—</p>
       <div>
         <p class="page-desc" style="margin:0 0 14px;">${who}可见的全部任务；列表状态为「需您关注」视角，与子任务实际状态可能不同。</p>
@@ -180,9 +182,12 @@ export function renderManagerTasksPage(params: {
         <label>说明
           <textarea id="reassignNote" placeholder="简要说明改派原因"></textarea>
         </label>
-        <label id="mgrReassignConfirmWrap" style="display:none;align-items:center;gap:8px;">
-          <input type="checkbox" id="mgrReassignConfirm" /> 确认执行改派
-        </label>
+        <div class="wb-confirm-bar" id="mgrReassignConfirmWrap" hidden>
+          <div class="wb-confirm-bar__row">
+            <input type="checkbox" id="mgrReassignConfirm" />
+            <label for="mgrReassignConfirm">确认执行改派</label>
+          </div>
+        </div>
         <div>
           <button type="button" class="btn btn-primary" id="reassignBtn">保存改派</button>
         </div>
@@ -191,6 +196,20 @@ export function renderManagerTasksPage(params: {
     </section>
   </div>
 </div>
+${portfolio ? `<dialog id="assignProjectDialog">
+  <form method="dialog" class="form-stack" style="min-width:360px;padding:8px;" onsubmit="return false;">
+    <h2 id="assignProjectDialogTitle" style="margin:0 0 12px;">归入项目</h2>
+    <p class="muted" id="assignProjectTaskLine" style="margin:0 0 12px;">—</p>
+    <label>选择项目
+      <select id="assignProjectSelect"></select>
+    </label>
+    <p class="feedback muted" id="assignProjectFeedback"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+      <button type="button" class="btn btn-ghost" id="assignProjectCancelBtn">取消</button>
+      <button type="button" class="btn btn-primary" id="assignProjectSaveBtn">保存</button>
+    </div>
+  </form>
+</dialog>` : ""}
 <script>
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}
@@ -201,7 +220,7 @@ export function renderManagerTasksPage(params: {
   var WB_FILTER_PROJECT_ID = '';
   if (WB_ENFORCE_ACTION_GUARDS) {
     var mgrWrap = document.getElementById('mgrReassignConfirmWrap');
-    if (mgrWrap) mgrWrap.style.display = 'flex';
+    if (mgrWrap) mgrWrap.removeAttribute('hidden');
   }
   function setText(id, t) {
     var el = document.getElementById(id);
@@ -324,15 +343,18 @@ export function renderManagerTasksPage(params: {
       var bucket = String(t.attentionBucket || '');
       var hint = String(t.attentionHint || '').trim();
       var stHtml = '<span class="badge ' + badgeClassForBucket(bucket) + '">' + escapeHtml(t.attentionLabel || t.statusLabel || '—') + '</span>';
-      if (hint) stHtml += '<br><span class="muted" style="font-size:12px;">' + escapeHtml(hint) + '</span>';
-      var detail = '<a href="/workbench/manager/task?taskNo=' + encodeURIComponent(t.taskNo || '') + '">查看详情</a>';
+      if (hint) stHtml += ' <span class="muted" style="font-size:12px;">' + escapeHtml(hint) + '</span>';
+      var actionsCell = (typeof wbRenderActionsCell === 'function')
+        ? wbRenderActionsCell(t)
+        : ('<td>' + fmtTime(t.updatedAt) + '<br><a href="/workbench/manager/task?taskNo='
+          + encodeURIComponent(t.taskNo || '') + '">查看详情</a></td>');
       return '<tr>'
         + '<td><code>' + escapeHtml(t.taskNo || '—') + '</code></td>'
         + '<td>' + escapeHtml(t.title || '—') + '</td>'
         + '<td>' + escapeHtml(t.assigneeSummary || '—') + '</td>'
         + '<td>' + escapeHtml(String(t.subtasksCount || 0)) + '（阻塞 ' + escapeHtml(String(t.blockedCount || 0)) + '）</td>'
         + '<td>' + stHtml + '</td>'
-        + '<td>' + fmtTime(t.updatedAt) + '<br>' + detail + '</td>'
+        + actionsCell
         + '</tr>';
     }).join('');
     mount.innerHTML = '<div class="table-wrap"><table class="data">'
@@ -486,15 +508,13 @@ export function renderManagerTasksPage(params: {
       if (subtaskId) payload.subtaskId = subtaskId;
       if (WB_ENFORCE_ACTION_GUARDS) {
         var c = document.getElementById('mgrReassignConfirm');
-        if (!c || !c.checked) { setFb('reassignFeedback', '请勾选确认执行改派', 'err'); return; }
-        payload.confirm = true;
-        try {
-          payload.idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
-            ? crypto.randomUUID()
-            : ('reassign-' + Date.now() + '-' + Math.random().toString(36).slice(2));
-        } catch (e0) {
-          payload.idempotencyKey = 'reassign-' + Date.now();
+        if (!c || !c.checked) {
+          setFb('reassignFeedback', '请勾选确认执行改派', 'err');
+          btn.disabled = false;
+          return;
         }
+        payload.confirm = true;
+        payload.idempotencyKey = 'reassign-' + planId + (subtaskId ? '-' + subtaskId : '');
       }
       var res = await fetch('/api/workbench/manager/reassign', {
         method: 'POST',
@@ -533,7 +553,7 @@ export function renderManagerTasksPage(params: {
   var filterClearBtn = document.getElementById('filterClearBtn');
   if (filterApplyBtn) filterApplyBtn.addEventListener('click', applyFiltersAndSort);
   if (filterClearBtn) filterClearBtn.addEventListener('click', clearFilters);
-  ${portfolio ? buildManagerTasksPortfolioClientJs(initialProjectId) : "void loadTasks();"}
+  ${portfolio ? buildWorkbenchTasksPortfolioClientJs({ initialProjectId, initialView }) : "void loadTasks();"}
 })();
 </script>
 </body>
@@ -556,17 +576,6 @@ export function renderManagerChatPage(params: {
   const portfolioNav = portfolio
     ? '<a href="/workbench/manager/projects">项目总览</a>\n        '
     : "";
-  const projectChipBar = portfolio
-    ? `<div class="draft-context-bar" id="projectChipBar" style="margin:0 0 8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-        <span class="muted" style="font-size:13px;">当前大项目</span>
-        <select id="activeProjectSelect" class="btn btn-ghost btn-sm" style="max-width:240px;">
-          <option value="">未选择</option>
-        </select>
-        <button type="button" class="btn btn-ghost btn-sm" id="clearActiveProjectBtn">清除</button>
-        <span class="muted" id="activeProjectHint" style="font-size:12px;"></span>
-      </div>`
-    : "";
-
   return `<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -585,14 +594,13 @@ export function renderManagerChatPage(params: {
     <div class="top-actions">
       <nav class="nav-pills" aria-label="主管导航">
         ${portfolioNav}<a href="/workbench/manager/tasks">历史任务</a>
+        <a href="/workbench/manager/dashboard">周度 Dashboard</a>
         <a class="active" href="/workbench/manager/chat?thread=main">智能规划助手</a>
         <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
       </nav>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
   </header>
-  ${projectChipBar}
-
   <div class="chat-main">
     <aside class="chat-sidebar" aria-label="会话列表">
       <div class="chat-sidebar-head">
@@ -716,56 +724,6 @@ export function renderManagerChatPage(params: {
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}
   wbBindViewSwitchLink('navMyTasks', 'employee', '/workbench/employee?view=new');
-  var WB_PORTFOLIO_CHAT = ${portfolio ? "true" : "false"};
-
-  async function loadActiveProjectSelect(selectedId) {
-    if (!WB_PORTFOLIO_CHAT) return;
-    var sel = document.getElementById('activeProjectSelect');
-    if (!sel) return;
-    try {
-      var res = await fetch('/api/workbench/manager/projects');
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) return;
-      var cards = (data.cards || []).filter(function (c) {
-        return String(c.projectId || '') !== '__unassigned__';
-      });
-      var cur = String(selectedId || sel.value || '').trim();
-      sel.innerHTML = '<option value="">未选择</option>' + cards.map(function (c) {
-        return '<option value="' + escapeHtml(c.projectId) + '">' + escapeHtml(c.name) + '</option>';
-      }).join('');
-      if (cur) sel.value = cur;
-      var hint = document.getElementById('activeProjectHint');
-      if (hint) {
-        var opt = sel.selectedOptions && sel.selectedOptions[0];
-        hint.textContent = opt && opt.value ? ('规划默认归属：' + opt.textContent) : '';
-      }
-    } catch (e) {}
-  }
-  async function saveActiveProject(projectId) {
-    if (!WB_PORTFOLIO_CHAT) return;
-    await fetch('/api/workbench/manager/active-project', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId: projectId || '' })
-    });
-    await loadActiveProjectSelect(projectId);
-  }
-  if (WB_PORTFOLIO_CHAT) {
-    var activeProjectSelect = document.getElementById('activeProjectSelect');
-    if (activeProjectSelect) {
-      activeProjectSelect.addEventListener('change', function () {
-        void saveActiveProject(String(activeProjectSelect.value || '').trim());
-      });
-    }
-    var clearActiveProjectBtn = document.getElementById('clearActiveProjectBtn');
-    if (clearActiveProjectBtn) {
-      clearActiveProjectBtn.addEventListener('click', function () {
-        void saveActiveProject('');
-      });
-    }
-    void loadActiveProjectSelect('');
-  }
-
   var activeThreadId = ${JSON.stringify(initialThreadId)};
   var activeThreadKind = ${JSON.stringify(initialKind)};
   var activeHasDraft = false;
@@ -1371,9 +1329,6 @@ export function renderManagerChatPage(params: {
       updatePaneHeader({ title: data.title, badge: data.badge, kind: data.kind, hasDraft: hasDraft });
       applyDraftPanelUi(hasDraft);
       renderMessageRows(data.messages || []);
-      if (WB_PORTFOLIO_CHAT) {
-        await loadActiveProjectSelect(data.activeProjectId || '');
-      }
       await loadDraftSummary(expectedSeq);
       if (expectedSeq !== loadSeq) return;
       maybeOpenDraftEditorFromUrl();

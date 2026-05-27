@@ -1084,6 +1084,54 @@ describe("employee / manager subtask flows", () => {
     expect(store.getTaskDetail("plan-dedup")?.subtasks).toHaveLength(2);
   });
 
+  it("appendSubtask deduplicates by clientRequestId", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-crid",
+      planId: "plan-crid",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "clientRequestId",
+        tasks: [{ id: "t1", title: "原任务" }],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t1", primary: { userId: "emp-a" } }],
+      },
+    };
+    store.publishFromSession({
+      planId: "plan-crid",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const payload = {
+      planId: "plan-crid",
+      managerUserId: "manager-1",
+      title: "唯一子任务",
+      assigneeUserId: "emp-b",
+      objective: "目标",
+      deliverables: "交付",
+      completionCriteria: "标准",
+      dueAt: "2026-06-20",
+      clientRequestId: "req-abc-123",
+    };
+    const first = store.appendSubtask(payload);
+    const second = store.appendSubtask({
+      ...payload,
+      title: "不同标题也应去重",
+      objective: "不同目标",
+    });
+    expect(first.duplicated).not.toBe(true);
+    expect(second.duplicated).toBe(true);
+    expect(second.subtask.subtaskId).toBe(first.subtask.subtaskId);
+    expect(store.getTaskDetail("plan-crid")?.subtasks).toHaveLength(2);
+  });
+
   it("appendSubtask allows same title with different objective within window", () => {
     vi.stubEnv("WORKBENCH_APPEND_SUBTASK_DEDUP_SECONDS", "60");
     const store = createWorkbenchFormalTaskStore();

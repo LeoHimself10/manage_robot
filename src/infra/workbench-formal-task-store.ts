@@ -183,6 +183,25 @@ function ensureTaskProjectIdColumn(db: DatabaseSync): void {
   db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id)");
 }
 
+function ensureAppendSubtaskIdempotencyTable(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS append_subtask_idempotency (
+      task_id TEXT NOT NULL,
+      client_request_id TEXT NOT NULL,
+      subtask_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (task_id, client_request_id)
+    );
+  `);
+}
+
+const APPEND_SUBTASK_CLIENT_REQUEST_ID_MAX = 128;
+
+function normalizeAppendSubtaskClientRequestId(raw: unknown): string | undefined {
+  const id = String(raw ?? "").trim().slice(0, APPEND_SUBTASK_CLIENT_REQUEST_ID_MAX);
+  return id || undefined;
+}
+
 function parseAliasesJson(raw: unknown): string[] {
   if (raw === null || raw === undefined) return [];
   const s = String(raw).trim();
@@ -422,6 +441,7 @@ export function createWorkbenchFormalTaskStore() {
     );
     CREATE INDEX IF NOT EXISTS idx_task_events_task_id ON task_events(task_id);
     CREATE INDEX IF NOT EXISTS idx_task_events_occurred_at ON task_events(occurred_at);
+    CREATE INDEX IF NOT EXISTS idx_task_events_task_occurred ON task_events(task_id, occurred_at);
     CREATE TABLE IF NOT EXISTS permission_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       actor_user_id TEXT NOT NULL,
@@ -487,6 +507,7 @@ export function createWorkbenchFormalTaskStore() {
   ensureProjectsTable(db);
   ensureTaskProjectIdColumn(db);
   ensureSubtaskReminderStateColumns(db);
+  ensureAppendSubtaskIdempotencyTable(db);
 
   const migratedAt = nowIso();
   db.prepare(
@@ -538,6 +559,12 @@ export function createWorkbenchFormalTaskStore() {
   /** 单个子任务事件（旧→新）；用于驳回开放态判定，避免被任务级 `LIMIT 200` 时间线截断。 */
   const qSubtaskEventTypesAsc = db.prepare(
     "SELECT event_type FROM task_events WHERE subtask_id = ? ORDER BY id ASC LIMIT 5000",
+  );
+  const qAppendSubtaskIdem = db.prepare(
+    "SELECT subtask_id FROM append_subtask_idempotency WHERE task_id = ? AND client_request_id = ?",
+  );
+  const qInsertAppendSubtaskIdem = db.prepare(
+    "INSERT INTO append_subtask_idempotency(task_id, client_request_id, subtask_id, created_at) VALUES(?,?,?,?)",
   );
   const qMetrics = db.prepare(`
     SELECT
@@ -1391,6 +1418,7 @@ export function createWorkbenchFormalTaskStore() {
       outOfScope?: string[];
       note?: string;
       actorName?: string;
+      clientRequestId?: string;
     }): AppendSubtaskResult {
       const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("Task not found for planId");
@@ -1418,26 +1446,68 @@ export function createWorkbenchFormalTaskStore() {
       if (!input.dueAt?.trim()) throw new Error("dueAt is required");
 
       const dueAt = formatDueAtForStorage(input.dueAt);
+      const clientRequestId = normalizeAppendSubtaskClientRequestId(input.clientRequestId);
       const dedupSeconds = resolveAppendSubtaskDedupSeconds();
-      if (dedupSeconds > 0) {
-        const cutoff = new Date(Date.now() - dedupSeconds * 1000).toISOString();
-        const dupRow = db
+
+      const qContentDup = db.prepare(
+        `SELECT s.*, t.plan_id FROM subtasks s
+         JOIN tasks t ON t.task_id = s.task_id
+         WHERE s.task_id = ?
+           AND s.title = ?
+           AND s.assignee_user_id = ?
+           AND s.objective = ?
+           AND s.deliverables = ?
+           AND s.completion_criteria = ?
+           AND COALESCE(s.due_at, '') = COALESCE(?, '')
+           AND s.status NOT IN ('DONE', 'STOPPED')
+           AND s.created_at >= ?
+         ORDER BY s.created_at DESC
+         LIMIT 1`,
+      );
+
+      function appendResultFromSubtaskRow(
+        subtaskRow: Record<string, unknown>,
+        duplicated: boolean,
+      ): AppendSubtaskResult {
+        const updatedTaskRow = qTaskById.get(task.taskId) as Record<string, unknown> | undefined;
+        if (!updatedTaskRow) throw new Error("Failed to reload task after appendSubtask");
+        return {
+          task: mapTaskRow(updatedTaskRow),
+          subtask: mapSubtaskRow(subtaskRow),
+          duplicated,
+        };
+      }
+
+      function resolveByClientRequestId(): AppendSubtaskResult | undefined {
+        if (!clientRequestId) return undefined;
+        const idem = qAppendSubtaskIdem.get(task.taskId, clientRequestId) as
+          | { subtask_id?: string }
+          | undefined;
+        const sid = String(idem?.subtask_id ?? "").trim();
+        if (!sid) return undefined;
+        const subtaskRow = db
           .prepare(
-            `SELECT s.*, t.plan_id FROM subtasks s
-             JOIN tasks t ON t.task_id = s.task_id
-             WHERE s.task_id = ?
-               AND s.title = ?
-               AND s.assignee_user_id = ?
-               AND s.objective = ?
-               AND s.deliverables = ?
-               AND s.completion_criteria = ?
-               AND COALESCE(s.due_at, '') = COALESCE(?, '')
-               AND s.status NOT IN ('DONE', 'STOPPED')
-               AND s.created_at >= ?
-             ORDER BY s.created_at DESC
-             LIMIT 1`,
+            "SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
           )
-          .get(
+          .get(sid) as Record<string, unknown> | undefined;
+        if (!subtaskRow) return undefined;
+        return appendResultFromSubtaskRow(subtaskRow, true);
+      }
+
+      const earlyIdem = resolveByClientRequestId();
+      if (earlyIdem) return earlyIdem;
+
+      let txResult: AppendSubtaskResult | undefined;
+      runInTransaction(() => {
+        const inTxIdem = resolveByClientRequestId();
+        if (inTxIdem) {
+          txResult = inTxIdem;
+          return;
+        }
+
+        if (dedupSeconds > 0) {
+          const cutoff = new Date(Date.now() - dedupSeconds * 1000).toISOString();
+          const dupRow = qContentDup.get(
             task.taskId,
             title,
             assigneeUserId,
@@ -1447,22 +1517,16 @@ export function createWorkbenchFormalTaskStore() {
             dueAt || null,
             cutoff,
           ) as Record<string, unknown> | undefined;
-        if (dupRow) {
-          const updatedTaskRow = qTaskById.get(task.taskId) as Record<string, unknown> | undefined;
-          if (!updatedTaskRow) throw new Error("Failed to reload task after duplicate appendSubtask");
-          return {
-            task: mapTaskRow(updatedTaskRow),
-            subtask: mapSubtaskRow(dupRow),
-            duplicated: true,
-          };
+          if (dupRow) {
+            txResult = appendResultFromSubtaskRow(dupRow, true);
+            return;
+          }
         }
-      }
 
-      const sourceTaskKey = `manual-${randomUUID().slice(0, 8)}`;
-      const subtaskId = `${task.taskId}:${sourceTaskKey}`;
-      const now = nowIso();
+        const sourceTaskKey = `manual-${randomUUID().slice(0, 8)}`;
+        const subtaskId = `${task.taskId}:${sourceTaskKey}`;
+        const now = nowIso();
 
-      runInTransaction(() => {
         db.prepare(
           `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at, depends_on, checkpoints, risks, input_materials, actions, collaborators, in_scope, out_of_scope)
            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -1502,24 +1566,26 @@ export function createWorkbenchFormalTaskStore() {
             assigneeUserId,
             sourceTaskKey,
             actorName: input.actorName,
+            clientRequestId: clientRequestId ?? null,
           }),
           now,
         );
+        if (clientRequestId) {
+          qInsertAppendSubtaskIdem.run(task.taskId, clientRequestId, subtaskId, now);
+        }
         updateTaskStatus(task.taskId);
+
+        const subtaskRow = db
+          .prepare(
+            "SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
+          )
+          .get(subtaskId) as Record<string, unknown> | undefined;
+        if (!subtaskRow) throw new Error("Failed to reload rows after append subtask");
+        txResult = appendResultFromSubtaskRow(subtaskRow, false);
       });
 
-      const updatedTaskRow = qTaskById.get(task.taskId) as Record<string, unknown> | undefined;
-      const subtaskRow = db
-        .prepare("SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?")
-        .get(subtaskId) as Record<string, unknown> | undefined;
-      if (!updatedTaskRow || !subtaskRow) {
-        throw new Error("Failed to reload rows after append subtask");
-      }
-      return {
-        task: mapTaskRow(updatedTaskRow),
-        subtask: mapSubtaskRow(subtaskRow),
-        duplicated: false,
-      };
+      if (!txResult) throw new Error("appendSubtask transaction produced no result");
+      return txResult;
     },
 
     reassignTask(input: {
