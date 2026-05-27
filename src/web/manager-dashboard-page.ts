@@ -356,16 +356,17 @@ ${buildWorkbenchFmtTimeClientJs()}
   function renderSubtaskBar(b, dayCount) {
     var start = typeof b.startDayIndex === 'number' ? b.startDayIndex : b.dayIndex;
     var end = typeof b.endDayIndex === 'number' ? b.endDayIndex : b.dayIndex;
+    var dueIdx = typeof b.dueDayIndex === 'number' ? b.dueDayIndex : end;
     if (start > end) { var tmp = start; start = end; end = tmp; }
     var left = (start / dayCount) * 100;
     var width = ((end - start + 1) / dayCount) * 100;
-    var dueLeft = (end / dayCount) * 100;
+    var dueRight = ((dueIdx + 1) / dayCount) * 100;
     var label = b.title.length > 8 ? b.title.slice(0, 8) + '…' : b.title;
     var dueTag = '截止日 ' + String(b.dueYmd || '').slice(5);
     var overdueCls = b.isOverdue ? ' is-overdue' : '';
     return '<span class="gantt-bar status-' + esc(b.status) + '" style="left:' + left + '%;width:' + width + '%" title="' +
       esc(b.title + ' · ' + statusLabel(b.status)) + '">' + esc(label) + '</span>' +
-      '<span class="gantt-due-marker' + overdueCls + '" style="left:calc(' + dueLeft + '% - 1px)" data-label="' + esc(dueTag) + '" title="' + esc(dueTag) + '"></span>';
+      '<span class="gantt-due-marker' + overdueCls + '" style="left:calc(' + dueRight + '% - 1px)" data-label="' + esc(dueTag) + '" title="' + esc(dueTag) + '"></span>';
   }
   function renderTimeline(d) {
     var days = d.timeline.days || [];

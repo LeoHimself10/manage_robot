@@ -117,7 +117,11 @@ export function buildWeeklyDashboardHttpPayload(input: {
   if (input.feedOnly) {
     return serializeWeeklyDashboardForClient({ facts, timeline: { days: [], byTask: [], byPerson: [] }, resolveName: input.resolveName, feedOnly: true });
   }
-  const timeline = buildWeeklyDashboardTimeline({ facts, resolveName: input.resolveName });
+  const timeline = buildWeeklyDashboardTimeline({
+    facts,
+    taskStore: input.taskStore,
+    resolveName: input.resolveName,
+  });
   return serializeWeeklyDashboardForClient({ facts, timeline, resolveName: input.resolveName });
 }
 

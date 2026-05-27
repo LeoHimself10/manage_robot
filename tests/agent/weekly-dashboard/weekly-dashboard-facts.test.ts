@@ -117,7 +117,7 @@ describe("weekly dashboard facts", () => {
     expect(facts.kpi.eventCount).toBeGreaterThanOrEqual(2);
     expect(facts.feed.nextCursor).toBe("offset:1");
 
-    const timeline = buildWeeklyDashboardTimeline({ facts });
+    const timeline = buildWeeklyDashboardTimeline({ facts, taskStore: store });
     expect(timeline.byTask[0]?.bars[0]?.dueYmd).toBe("2026-05-20");
     expect(timeline.byTask[0]?.bars[0]?.isOverdue).toBe(false);
     expect(timeline.byPerson[0]?.dueInSpanCount).toBe(1);

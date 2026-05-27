@@ -2034,6 +2034,21 @@ export function createWorkbenchFormalTaskStore() {
         .all(...params) as Array<Record<string, unknown>>;
     },
 
+    listSubtaskTimelineAnchorEvents(subtaskIds: string[]): Array<Record<string, unknown>> {
+      const ids = [...new Set(subtaskIds.map((id) => String(id ?? "").trim()).filter(Boolean))];
+      if (ids.length === 0) return [];
+      const placeholders = ids.map(() => "?").join(", ");
+      return db
+        .prepare(
+          `SELECT subtask_id, event_type, occurred_at, payload_json
+             FROM task_events
+            WHERE subtask_id IN (${placeholders})
+              AND event_type IN ('SUBTASK_ACCEPTED', 'SUBTASK_PROGRESS')
+            ORDER BY subtask_id ASC, occurred_at ASC, id ASC`,
+        )
+        .all(...ids) as Array<Record<string, unknown>>;
+    },
+
     tryClaimProgressDigest(input: {
       userId: string;
       audience: string;
