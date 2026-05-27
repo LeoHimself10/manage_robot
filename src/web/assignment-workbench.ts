@@ -98,7 +98,6 @@ import {
   renderManagerTasksPage,
 } from "./manager-workbench-pages";
 import { renderManagerProjectsPage } from "./manager-projects-pages";
-import { renderManagerDashboardPage } from "./manager-dashboard-page";
 import {
   buildManagerProjectDetailResponse,
   buildManagerProjectsListResponse,
@@ -132,21 +131,12 @@ import {
   sanitizeWorkbenchNextPath,
   shouldUseSecureWorkbenchCookies,
 } from "./external-workbench-login";
-import { buildWeeklyDashboardFacts } from "../agent/weekly-dashboard/weekly-dashboard-facts";
-import { buildWeeklyDashboardTimeline } from "../agent/weekly-dashboard/weekly-dashboard-timeline";
-import {
-  clampWeeklyDashboardSpan,
-  clampWeeklyFeedLimit,
-  loadWeeklyDashboardPolicy,
-} from "../agent/weekly-dashboard/weekly-dashboard-policy";
-import { summarizeWeeklyAdvisorWithLlm } from "../agent/weekly-dashboard/weekly-dashboard-advisor-llm";
 
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
 const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/manager/projects",
   "/workbench/manager/tasks",
-  "/workbench/manager/dashboard",
   "/workbench/manager/chat",
   "/workbench/manager/task",
   "/workbench/manager/task/events",
@@ -3218,69 +3208,6 @@ export function handleAssignmentHttp(
     return true;
   }
 
-  if (isGetOrHead && url.pathname === "/api/workbench/manager/weekly-dashboard") {
-    const session = requireSession(req, res, "manager");
-    if (!session) return true;
-    const policy = loadWeeklyDashboardPolicy();
-    const contacts = withPeopleDirectoryStore((store) => new Map(store.listContacts().map((c) => [c.userId, c.name])));
-    const resolveName = (uid: string): string | undefined => contacts.get(uid)?.trim() || undefined;
-    const facts = buildWeeklyDashboardFacts({
-      taskStore: getFormalTaskStore(),
-      managerUserId: session.userId,
-      week: String(url.searchParams.get("week") ?? "").trim() || undefined,
-      span: clampWeeklyDashboardSpan(url.searchParams.get("span"), policy),
-      feedCursor: String(url.searchParams.get("feedCursor") ?? "").trim() || undefined,
-      feedLimit: clampWeeklyFeedLimit(url.searchParams.get("feedLimit"), policy),
-      policy,
-      resolveName,
-    });
-    const timeline = buildWeeklyDashboardTimeline({ facts, resolveName });
-    writeJson(res, 200, {
-      ok: true,
-      week: facts.week,
-      span: facts.span,
-      weeks: facts.weekSpan.weeks,
-      approxHistoricalState: facts.approxHistoricalState,
-      timezone: facts.timezone,
-      generatedAt: facts.generatedAt,
-      kpi: facts.kpi,
-      tasks: facts.tasks.map((g) => ({
-        task: g.task,
-        subtasks: g.subtasks.map((s) => ({ ...s, assigneeName: resolveName(s.assigneeUserId) })),
-      })),
-      people: timeline.byPerson,
-      timeline,
-      feed: facts.feed,
-    });
-    return true;
-  }
-
-  if (req.method === "POST" && url.pathname === "/api/workbench/manager/weekly-advisor") {
-    void (async () => {
-      try {
-        const session = requireSession(req, res, "manager");
-        if (!session) return;
-        const body = await readJsonBody(req);
-        const policy = loadWeeklyDashboardPolicy();
-        const contacts = withPeopleDirectoryStore((store) => new Map(store.listContacts().map((c) => [c.userId, c.name])));
-        const resolveName = (uid: string): string | undefined => contacts.get(uid)?.trim() || undefined;
-        const facts = buildWeeklyDashboardFacts({
-          taskStore: getFormalTaskStore(),
-          managerUserId: session.userId,
-          week: String(body.week ?? "").trim() || undefined,
-          span: clampWeeklyDashboardSpan(body.span, policy),
-          feedLimit: policy.feedPageSize,
-          policy,
-          resolveName,
-        });
-        writeJson(res, 200, { ok: true, ...(await summarizeWeeklyAdvisorWithLlm(facts, policy)) });
-      } catch (err) {
-        writeJson(res, 400, { ok: false, error: err instanceof Error ? err.message : "invalid request" });
-      }
-    })();
-    return true;
-  }
-
   if (isGetOrHead && url.pathname === "/api/workbench/manager/projects") {
     const session = requireSession(req, res, "manager");
     if (!session) return true;
@@ -5587,11 +5514,6 @@ export function handleAssignmentHttp(
               projectPortfolioEnabled: portfolioEnabled,
               initialProjectId,
             })
-            : url.pathname === "/workbench/manager/dashboard"
-              ? renderManagerDashboardPage({
-                userLabel,
-                projectPortfolioEnabled: portfolioEnabled,
-              })
             : url.pathname === "/workbench/manager/chat"
               ? renderManagerChatPage({
                 threadId: chatThreadId,
