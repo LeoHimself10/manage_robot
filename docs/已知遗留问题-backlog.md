@@ -3,7 +3,17 @@
 > 记录在 assignee / publish triage 与 prompt v5.23.x 本轮工作中发现、**尚未解决**或**刻意延后**的事项。  
 > 不作为当前迭代的交付范围；按「建议归档去向」独立排期或等 telemetry / 真实反馈后再评估。
 
-**最后更新**：2026-05-25
+**最后更新**：2026-05-26
+
+---
+
+## 近期已闭环（热修记录）
+
+| 日期 | 提交 | 现象 | 根因 | 修复 |
+|------|------|------|------|------|
+| 2026-05-26 | `71feebe0` | 主管「历史任务」页 `loadTasks()` 报错 **`WB_PORTFOLIO is not defined`**，列表无法加载 | 草案侧栏合并时 `manager-workbench-pages.ts` 误留 portfolio 半成品：`if (WB_PORTFOLIO && …)` 已引用，但 **portfolio 未部署**、页面脚本未注入该变量 | 任务页脚本补 `var WB_PORTFOLIO = false`（未开 portfolio 时）与 `WB_FILTER_PROJECT_ID = ''`；ECS 已重部署，`/health` 正常 |
+
+> **防再发**：凡在 `buildManagerTasks*` 内联 JS 使用 `WB_PORTFOLIO` / `WB_FILTER_PROJECT_ID`，须与 chat 页一致由服务端 `portfolio` 开关生成；禁止只写分支不写变量定义。
 
 ---
 

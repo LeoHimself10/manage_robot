@@ -87,6 +87,7 @@ import {
   refreshSessionFromWhitelist,
   resolveWorkbenchCapabilities,
 } from "../security/workbench-capabilities";
+import { isWorkbenchProjectPortfolioEnabled } from "../security/workbench-project-portfolio";
 import { resolveWorkbenchRole, type WorkbenchRole } from "../security/workbench-role-resolver";
 import { verifyAssignmentEntry } from "../security/web-entry-token";
 import { parseRosterFile } from "../agent/assignment/roster-parser";
@@ -96,6 +97,12 @@ import {
   renderManagerChatPage,
   renderManagerTasksPage,
 } from "./manager-workbench-pages";
+import { renderManagerProjectsPage } from "./manager-projects-pages";
+import {
+  buildManagerProjectDetailResponse,
+  buildManagerProjectsListResponse,
+  enrichManagerTasksForApi,
+} from "./workbench-project-api";
 import { renderEmployeeWorkbenchPage } from "./employee-workbench-pages";
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { logStructured } from "../infra/logger";
@@ -128,6 +135,7 @@ import {
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
 const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
+  "/workbench/manager/projects",
   "/workbench/manager/tasks",
   "/workbench/manager/chat",
   "/workbench/manager/task",
@@ -468,6 +476,9 @@ type WorkbenchView =
   | "in-progress";
 
 function resolveWorkbenchView(path: string): WorkbenchView {
+  if (path === "/workbench/manager/projects") {
+    return "manager";
+  }
   if (path === "/workbench/manager/tasks" || path === "/workbench/manager") {
     return "manager";
   }
@@ -818,37 +829,27 @@ function mapEmployeeSubtaskForApi(
   };
 }
 
-function enrichManagerTasksForApi(managerUserId: string) {
-  const store = getFormalTaskStore();
-  return store.listManagerTasks(managerUserId).map((t) => {
-    const detail = store.getTaskDetail(t.taskNo);
-    const names = new Set<string>();
-    const subInputs: SubtaskAttentionInput[] = [];
-    if (detail) {
-      for (const s of detail.subtasks) {
-        const picked = withPeopleDirectoryStore((st) =>
-          st.getContact(s.assigneeUserId)?.name?.trim(),
-        );
-        if (picked) names.add(picked);
-        subInputs.push({
-          status: String(s.status ?? ""),
-          openDeclineKind: store.getSubtaskOpenDeclineKind(s.subtaskId),
-        });
-      }
-    }
-    const attn = deriveManagerAttentionLabel(subInputs);
-    return {
-      ...t,
-      statusLabel: attn.attentionLabel,
-      attentionLabel: attn.attentionLabel,
-      attentionBucket: attn.attentionBucket,
-      attentionHint: attn.attentionHint,
-      subtaskBreakdown: attn.breakdown,
-      openManagerSubtaskCount: attn.openManagerSubtaskCount,
-      assigneeSummary: names.size ? [...names].join("、") : "—",
-      triageOpenSubtaskCount: attn.openManagerSubtaskCount,
-    };
-  });
+function requirePortfolioManager(
+  session: WorkbenchSession,
+  res: ServerResponse,
+): boolean {
+  if (!isWorkbenchProjectPortfolioEnabled(session.userId)) {
+    writeJson(res, 404, { ok: false, error: "project_portfolio_not_enabled" });
+    return false;
+  }
+  return true;
+}
+
+function resolveLegacyWorkbenchRedirect(pathname: string, userId: string): string | undefined {
+  const base = LEGACY_WORKBENCH_REDIRECTS[pathname];
+  if (!base) return undefined;
+  if (
+    pathname === "/workbench/manager"
+    && isWorkbenchProjectPortfolioEnabled(userId)
+  ) {
+    return "/workbench/manager/projects";
+  }
+  return base;
 }
 
 /** Keep session.latestAssignment.assignments[0].primary.userId aligned after manager reassign. */
@@ -875,7 +876,10 @@ function patchLatestAssignmentAssignee(
   return { ...base, assignments };
 }
 
-function defaultPathForRole(role: WorkbenchRole): string {
+function defaultPathForRole(role: WorkbenchRole, userId?: string): string {
+  if (role === "manager" && userId && isWorkbenchProjectPortfolioEnabled(userId)) {
+    return "/workbench/manager/projects";
+  }
   return defaultRedirectForView(role);
 }
 
@@ -3074,6 +3078,7 @@ export function handleAssignmentHttp(
       dingUser: session.dingUser ?? null,
       externalAccount: externalAccount ?? null,
       exp: session.exp,
+      projectPortfolioEnabled: isWorkbenchProjectPortfolioEnabled(session.userId),
     });
     return true;
   }
@@ -3140,8 +3145,177 @@ export function handleAssignmentHttp(
   if (isGetOrHead && url.pathname === "/api/workbench/manager/tasks") {
     const session = requireSession(req, res, "manager");
     if (!session) return true;
-    const tasks = enrichManagerTasksForApi(session.userId);
+    const projectId = isWorkbenchProjectPortfolioEnabled(session.userId)
+      ? String(url.searchParams.get("projectId") ?? "").trim()
+      : "";
+    const tasks = enrichManagerTasksForApi(
+      session.userId,
+      projectId ? { projectId } : undefined,
+    );
     writeJson(res, 200, { ok: true, tasks });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/manager/projects") {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    if (!requirePortfolioManager(session, res)) return true;
+    const payload = buildManagerProjectsListResponse(session.userId);
+    writeJson(res, 200, { ok: true, ...payload });
+    return true;
+  }
+
+  const managerProjectDetailMatch = url.pathname.match(
+    /^\/api\/workbench\/manager\/projects\/([^/]+)$/,
+  );
+  if (isGetOrHead && managerProjectDetailMatch) {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    if (!requirePortfolioManager(session, res)) return true;
+    const projectId = decodeURIComponent(managerProjectDetailMatch[1] ?? "");
+    const detail = buildManagerProjectDetailResponse(session.userId, projectId);
+    if (!detail) {
+      writeJson(res, 404, { ok: false, error: "project_not_found" });
+      return true;
+    }
+    writeJson(res, 200, { ok: true, ...detail });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/projects") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!requirePortfolioManager(session, res)) return;
+        const body = await readJsonBody(req);
+        const name = String(body.name ?? "").trim();
+        if (!name) {
+          writeJson(res, 400, { ok: false, error: "name is required" });
+          return;
+        }
+        const store = getFormalTaskStore();
+        const project = store.createProject({
+          ownerUserId: session.userId,
+          name,
+          description: String(body.description ?? "").trim() || undefined,
+          aliases: Array.isArray(body.aliases)
+            ? (body.aliases as unknown[]).map((x) => String(x).trim()).filter(Boolean)
+            : undefined,
+        });
+        writeJson(res, 200, { ok: true, project });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "PATCH" && managerProjectDetailMatch) {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!requirePortfolioManager(session, res)) return;
+        const projectId = decodeURIComponent(managerProjectDetailMatch[1] ?? "");
+        const body = await readJsonBody(req);
+        const store = getFormalTaskStore();
+        const project = store.updateProject({
+          projectId,
+          ownerUserId: session.userId,
+          name: body.name !== undefined ? String(body.name).trim() : undefined,
+          description:
+            body.description !== undefined ? String(body.description).trim() : undefined,
+          status:
+            body.status === "archived" || body.status === "active"
+              ? body.status
+              : undefined,
+          aliases: Array.isArray(body.aliases)
+            ? (body.aliases as unknown[]).map((x) => String(x).trim()).filter(Boolean)
+            : undefined,
+        });
+        writeJson(res, 200, { ok: true, project });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "invalid request";
+        const status = msg.includes("not found") ? 404 : 400;
+        writeJson(res, status, { ok: false, error: msg });
+      }
+    })();
+    return true;
+  }
+
+  const managerTaskProjectMatch = url.pathname.match(
+    /^\/api\/workbench\/manager\/tasks\/([^/]+)\/project$/,
+  );
+  if (req.method === "POST" && managerTaskProjectMatch) {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!requirePortfolioManager(session, res)) return;
+        const taskNo = decodeURIComponent(managerTaskProjectMatch[1] ?? "");
+        const body = await readJsonBody(req);
+        const rawPid = body.projectId;
+        const projectId =
+          rawPid === null || rawPid === undefined
+            ? null
+            : String(rawPid).trim() || null;
+        const store = getFormalTaskStore();
+        const task = store.setTaskProject({
+          taskNo,
+          managerUserId: session.userId,
+          projectId,
+        });
+        writeJson(res, 200, { ok: true, task });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "invalid request";
+        const status = msg.includes("not found") ? 404 : 400;
+        writeJson(res, status, { ok: false, error: msg });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/active-project") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!requirePortfolioManager(session, res)) return;
+        const body = await readJsonBody(req);
+        const target =
+          resolveConversationThread(session.userId, { threadKind: "main" })
+          ?? findMainThreadSession(session.userId);
+        const pid = String(body.projectId ?? "").trim();
+        const store = getFormalTaskStore();
+        if (!pid) {
+          target.activeProjectId = undefined;
+        } else {
+          const proj = store.getProject(pid, session.userId);
+          if (!proj || proj.status !== "active") {
+            writeJson(res, 400, { ok: false, error: "invalid_project" });
+            return;
+          }
+          target.activeProjectId = pid;
+        }
+        planSessionStore.save(target);
+        writeJson(res, 200, {
+          ok: true,
+          projectId: target.activeProjectId ?? null,
+          projectName: target.activeProjectId
+            ? store.getProject(target.activeProjectId, session.userId)?.name
+            : null,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request",
+        });
+      }
+    })();
     return true;
   }
 
@@ -4712,6 +4886,19 @@ export function handleAssignmentHttp(
       return { role, content, at };
     });
     const threadMeta = buildThreadListItem(target);
+    const portfolioOn = isWorkbenchProjectPortfolioEnabled(session.userId);
+    const activePid = portfolioOn ? String(target.activeProjectId ?? "").trim() : "";
+    const draftPid =
+      portfolioOn && target.latestDraft && typeof target.latestDraft === "object"
+        ? String((target.latestDraft as Record<string, unknown>).projectId ?? "").trim()
+        : "";
+    const resolvedPid = activePid || draftPid;
+    let activeProjectName: string | undefined;
+    if (resolvedPid) {
+      activeProjectName = getFormalTaskStore()
+        .getProject(resolvedPid, session.userId)
+        ?.name;
+    }
     writeJson(res, 200, {
       ok: true,
       planId: target.planId,
@@ -4723,6 +4910,12 @@ export function handleAssignmentHttp(
       knownFacts: target.knownFacts ?? [],
       hasDraft: planSessionHasDraft(target),
       updatedAt: target.updatedAt,
+      ...(portfolioOn
+        ? {
+            activeProjectId: resolvedPid || null,
+            activeProjectName: activeProjectName ?? null,
+          }
+        : {}),
     });
     return true;
   }
@@ -5204,10 +5397,10 @@ export function handleAssignmentHttp(
       return true;
     }
 
-    const legacyTarget = LEGACY_WORKBENCH_REDIRECTS[url.pathname];
+    const legacyTarget = resolveLegacyWorkbenchRedirect(url.pathname, session.userId);
     if (legacyTarget) {
       if (legacyRedirectRequiresManager(url.pathname) && !allowsManagerSession(session)) {
-        redirect(res, defaultPathForRole(session.role));
+        redirect(res, defaultPathForRole(session.role, session.userId));
         return true;
       }
       redirect(res, legacyTarget);
@@ -5220,7 +5413,12 @@ export function handleAssignmentHttp(
         return true;
       }
       if (!allowsManagerSession(session)) {
-        redirect(res, defaultPathForRole(session.role));
+        redirect(res, defaultPathForRole(session.role, session.userId));
+        return true;
+      }
+      const portfolioEnabled = isWorkbenchProjectPortfolioEnabled(session.userId);
+      if (url.pathname === "/workbench/manager/projects" && !portfolioEnabled) {
+        redirect(res, "/workbench/manager/tasks");
         return true;
       }
       let chatThreadId = "main";
@@ -5245,18 +5443,31 @@ export function handleAssignmentHttp(
       }
       const userLabel = session.dingUser?.name ?? session.userId;
       const mgrTaskNo = url.searchParams.get("taskNo")?.trim() ?? "";
+      const initialProjectId = url.searchParams.get("projectId")?.trim() ?? "";
       const html =
-        url.pathname === "/workbench/manager/tasks"
-          ? renderManagerTasksPage({ planId: url.searchParams.get("planId")?.trim(), planTitle, userLabel })
-          : url.pathname === "/workbench/manager/chat"
-            ? renderManagerChatPage({
-              threadId: chatThreadId,
-              threadKind: chatThreadKind,
+        url.pathname === "/workbench/manager/projects"
+          ? renderManagerProjectsPage({
+            userLabel,
+            presentation: url.searchParams.get("presentation") === "1",
+          })
+          : url.pathname === "/workbench/manager/tasks"
+            ? renderManagerTasksPage({
+              planId: url.searchParams.get("planId")?.trim(),
               planTitle,
               userLabel,
-              openDraftEditor: url.searchParams.get("openDraftEditor") === "1",
+              projectPortfolioEnabled: portfolioEnabled,
+              initialProjectId,
             })
-            : url.pathname === "/workbench/manager/task/events"
+            : url.pathname === "/workbench/manager/chat"
+              ? renderManagerChatPage({
+                threadId: chatThreadId,
+                threadKind: chatThreadKind,
+                planTitle,
+                userLabel,
+                openDraftEditor: url.searchParams.get("openDraftEditor") === "1",
+                projectPortfolioEnabled: portfolioEnabled,
+              })
+              : url.pathname === "/workbench/manager/task/events"
               ? renderTaskEventsPage({
                 roleLabel: "manager",
                 backPath: "/workbench/manager/tasks",

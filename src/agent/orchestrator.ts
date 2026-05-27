@@ -47,6 +47,8 @@ export interface OrchestratorConfig {
   promptProfile?: AgentPromptProfile;
   /** When true, inject sixth mode FOLLOWUP + follow-up tool discipline (manager/admin). */
   managerFollowup?: boolean;
+  /** When true, append project portfolio tools + prompt (role A only). */
+  projectPortfolioEnabled?: boolean;
   trustedActorUserId?: string;
   allowSearchWeb?: boolean;
   knownFactsStore?: KnownFactsStore;
@@ -118,6 +120,7 @@ export async function runOrchestrator(
   const toolRegistry = buildToolRegistry({
     employeeRepo: config.employeeRepo,
     toolProfile: config.toolProfile ?? "planner",
+    projectPortfolioEnabled: config.projectPortfolioEnabled,
     trustedActorUserId: config.trustedActorUserId,
     allowSearchWeb: config.allowSearchWeb,
     knownFactsStore: config.knownFactsStore,
@@ -150,9 +153,16 @@ export async function runOrchestrator(
   // Build messages with conversation history
   const promptOpts: QwenPlannerPromptOpts | undefined =
     config.workbenchDraftRevision
-      ? { workbenchDraftRevision: true, managerFollowup: config.managerFollowup }
-      : config.managerFollowup
-        ? { managerFollowup: true }
+      ? {
+          workbenchDraftRevision: true,
+          managerFollowup: config.managerFollowup,
+          projectPortfolioContext: config.projectPortfolioEnabled,
+        }
+      : config.managerFollowup || config.projectPortfolioEnabled
+        ? {
+            managerFollowup: config.managerFollowup,
+            projectPortfolioContext: config.projectPortfolioEnabled,
+          }
         : undefined;
   const sysPrompt = buildQwenPlannerSystemPrompt(
     config.promptProfile ?? "planner",

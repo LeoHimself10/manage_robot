@@ -162,4 +162,30 @@ describe("tool registry profiles", () => {
     expect(withFacts.update_known_facts).toBeDefined();
     expect(withFacts.list_known_facts).toBeDefined();
   });
+
+  it("excludes project portfolio tools when portfolio disabled", () => {
+    vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "portfolio-only");
+    const registry = buildToolRegistry({
+      employeeRepo: { list: () => [] },
+      toolProfile: "manager",
+      trustedActorUserId: "manager-baseline",
+      projectPortfolioEnabled: false,
+    });
+    expect(registry.list_projects).toBeUndefined();
+    expect(registry.suggest_project).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+
+  it("includes project portfolio tools for portfolio manager", () => {
+    vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "portfolio-mgr");
+    const registry = buildToolRegistry({
+      employeeRepo: { list: () => [] },
+      toolProfile: "manager",
+      trustedActorUserId: "portfolio-mgr",
+      projectPortfolioEnabled: true,
+    });
+    expect(registry.list_projects).toBeDefined();
+    expect(registry.create_project).toBeDefined();
+    vi.unstubAllEnvs();
+  });
 });

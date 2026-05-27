@@ -5,6 +5,11 @@ import { DatabaseSync } from "node:sqlite";
 import { inferConversationTitleFromSession } from "./conversation-present";
 import type { PlanSession } from "./plan-session-store";
 import { resolveWorkbenchSqlitePath } from "./workbench-db-path";
+import {
+  UNASSIGNED_PROJECT_BUCKET,
+  type WorkbenchProjectRow,
+  type WorkbenchProjectStatus,
+} from "./workbench-project-types";
 import { formatDueAtForStorage } from "../agent/reminders/due-at-parse";
 import { logStructured } from "./logger";
 
@@ -43,6 +48,8 @@ export interface WorkbenchTaskRow {
   publishedAt: string;
   createdAt: string;
   updatedAt: string;
+  /** 大项目归属（可空） */
+  projectId?: string;
 }
 
 export interface WorkbenchSubtaskRow {
@@ -150,6 +157,56 @@ function ensureTaskDescriptionColumn(db: DatabaseSync): void {
   if (!rows.some((r) => String(r.name ?? "") === "description")) {
     db.exec("ALTER TABLE tasks ADD COLUMN description TEXT");
   }
+}
+
+function ensureProjectsTable(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      project_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      owner_user_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      aliases_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_user_id);
+  `);
+}
+
+function ensureTaskProjectIdColumn(db: DatabaseSync): void {
+  const rows = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>;
+  if (!rows.some((r) => String(r.name ?? "") === "project_id")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN project_id TEXT");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id)");
+}
+
+function parseAliasesJson(raw: unknown): string[] {
+  if (raw === null || raw === undefined) return [];
+  const s = String(raw).trim();
+  if (!s) return [];
+  try {
+    const arr = JSON.parse(s) as unknown;
+    if (!Array.isArray(arr)) return [];
+    return arr.map((x) => String(x).trim()).filter(Boolean).slice(0, 20);
+  } catch {
+    return [];
+  }
+}
+
+function mapProjectRow(row: Record<string, unknown>): WorkbenchProjectRow {
+  return {
+    projectId: String(row.project_id ?? ""),
+    name: String(row.name ?? ""),
+    description: asString(row.description),
+    ownerUserId: String(row.owner_user_id ?? ""),
+    status: (String(row.status ?? "active") === "archived" ? "archived" : "active") as WorkbenchProjectStatus,
+    aliases: parseAliasesJson(row.aliases_json),
+    createdAt: String(row.created_at ?? ""),
+    updatedAt: String(row.updated_at ?? ""),
+  };
 }
 
 function clipTaskDescriptionForDb(raw: string): string | undefined {
@@ -411,6 +468,8 @@ export function createWorkbenchFormalTaskStore() {
 
   ensureSubtaskRichColumns(db);
   ensureTaskDescriptionColumn(db);
+  ensureProjectsTable(db);
+  ensureTaskProjectIdColumn(db);
   ensureSubtaskReminderStateColumns(db);
 
   const migratedAt = nowIso();
@@ -492,6 +551,7 @@ export function createWorkbenchFormalTaskStore() {
       publishedAt: String(row.published_at ?? ""),
       createdAt: String(row.created_at ?? ""),
       updatedAt: String(row.updated_at ?? ""),
+      projectId: asString(row.project_id),
     };
   }
 
@@ -588,6 +648,8 @@ export function createWorkbenchFormalTaskStore() {
       initiatorDepartment: string;
       actorUserId: string;
       actorName?: string;
+      /** 大项目 id；非 portfolio 路径应省略，落库为 NULL */
+      projectId?: string | null;
     }): {
       task: WorkbenchTaskRow;
       subtasks: WorkbenchSubtaskRow[];
@@ -647,10 +709,23 @@ export function createWorkbenchFormalTaskStore() {
       const taskTitle = asString((input.session.latestDraft as Record<string, unknown> | undefined)?.title)
         || inferTitleFromSession(input.session);
       const taskDescription = extractTaskDescriptionFromLatestDraft(input.session.latestDraft);
+      const rawProjectId = String(input.projectId ?? "").trim();
+      let resolvedProjectId: string | null = null;
+      if (rawProjectId) {
+        const proj = db
+          .prepare(
+            "SELECT * FROM projects WHERE project_id = ? AND owner_user_id = ? AND status = 'active' LIMIT 1",
+          )
+          .get(rawProjectId, input.managerUserId.trim()) as Record<string, unknown> | undefined;
+        if (!proj) {
+          throw new Error(`Invalid or inaccessible project_id: ${rawProjectId}`);
+        }
+        resolvedProjectId = rawProjectId;
+      }
       runInTransaction(() => {
         db.prepare(
-          `INSERT INTO tasks(task_id, task_no, plan_id, title, description, status, initiator_user_id, initiator_department, manager_user_id, source_trace_id, published_at, created_at, updated_at)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO tasks(task_id, task_no, plan_id, title, description, status, initiator_user_id, initiator_department, manager_user_id, source_trace_id, published_at, created_at, updated_at, project_id)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         ).run(
           taskId,
           taskNo,
@@ -665,6 +740,7 @@ export function createWorkbenchFormalTaskStore() {
           publishedAt,
           publishedAt,
           publishedAt,
+          resolvedProjectId,
         );
         const insertSubtask = db.prepare(
           `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at, depends_on, checkpoints, risks, input_materials, actions, collaborators, in_scope, out_of_scope)
@@ -721,15 +797,168 @@ export function createWorkbenchFormalTaskStore() {
       return { task, subtasks, alreadyPublished: false };
     },
 
-    listManagerTasks(managerUserId: string): Array<WorkbenchTaskRow & {
+    listManagerTasks(
+      managerUserId: string,
+      filter?: { projectId?: string },
+    ): Array<WorkbenchTaskRow & {
       subtasksCount: number;
       blockedCount: number;
     }> {
-      return (qManagerTasks.all(managerUserId) as Array<Record<string, unknown>>).map((row) => ({
+      const mid = managerUserId.trim();
+      const pid = String(filter?.projectId ?? "").trim();
+      let rows: Array<Record<string, unknown>>;
+      if (pid === UNASSIGNED_PROJECT_BUCKET) {
+        rows = db
+          .prepare(
+            `SELECT t.*,
+              (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id) AS subtasks_count,
+              (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id AND s.status = 'BLOCKED') AS blocked_count
+             FROM tasks t
+             WHERE t.manager_user_id = ? AND (t.project_id IS NULL OR t.project_id = '')
+             ORDER BY t.updated_at DESC`,
+          )
+          .all(mid) as Array<Record<string, unknown>>;
+      } else if (pid) {
+        rows = db
+          .prepare(
+            `SELECT t.*,
+              (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id) AS subtasks_count,
+              (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id AND s.status = 'BLOCKED') AS blocked_count
+             FROM tasks t
+             WHERE t.manager_user_id = ? AND t.project_id = ?
+             ORDER BY t.updated_at DESC`,
+          )
+          .all(mid, pid) as Array<Record<string, unknown>>;
+      } else {
+        rows = qManagerTasks.all(mid) as Array<Record<string, unknown>>;
+      }
+      return rows.map((row) => ({
         ...mapTaskRow(row),
         subtasksCount: Number(row.subtasks_count ?? 0),
         blockedCount: Number(row.blocked_count ?? 0),
       }));
+    },
+
+    createProject(input: {
+      ownerUserId: string;
+      name: string;
+      description?: string;
+      aliases?: string[];
+    }): WorkbenchProjectRow {
+      const name = input.name.trim();
+      if (!name) throw new Error("project name is required");
+      const ownerUserId = input.ownerUserId.trim();
+      if (!ownerUserId) throw new Error("ownerUserId is required");
+      const now = nowIso();
+      const projectId = `proj:${randomUUID()}`;
+      const aliases = normalizeRichStringList(input.aliases ?? []).slice(0, 10);
+      db.prepare(
+        `INSERT INTO projects(project_id, name, description, owner_user_id, status, aliases_json, created_at, updated_at)
+         VALUES(?,?,?,?,?,?,?,?)`,
+      ).run(
+        projectId,
+        name,
+        asString(input.description) ?? null,
+        ownerUserId,
+        "active",
+        aliases.length > 0 ? JSON.stringify(aliases) : null,
+        now,
+        now,
+      );
+      const row = db.prepare("SELECT * FROM projects WHERE project_id = ?").get(projectId) as
+        | Record<string, unknown>
+        | undefined;
+      if (!row) throw new Error("Failed to create project");
+      return mapProjectRow(row);
+    },
+
+    updateProject(input: {
+      projectId: string;
+      ownerUserId: string;
+      name?: string;
+      description?: string;
+      status?: WorkbenchProjectStatus;
+      aliases?: string[];
+    }): WorkbenchProjectRow {
+      const projectId = input.projectId.trim();
+      const ownerUserId = input.ownerUserId.trim();
+      const existing = db
+        .prepare("SELECT * FROM projects WHERE project_id = ? AND owner_user_id = ? LIMIT 1")
+        .get(projectId, ownerUserId) as Record<string, unknown> | undefined;
+      if (!existing) throw new Error("project not found");
+      const now = nowIso();
+      const name = input.name !== undefined ? input.name.trim() : String(existing.name ?? "");
+      if (!name) throw new Error("project name is required");
+      const description =
+        input.description !== undefined ? asString(input.description) ?? null : asString(existing.description) ?? null;
+      const status =
+        input.status === "archived" || input.status === "active"
+          ? input.status
+          : (String(existing.status ?? "active") === "archived" ? "archived" : "active");
+      const aliases =
+        input.aliases !== undefined
+          ? JSON.stringify(normalizeRichStringList(input.aliases).slice(0, 10))
+          : existing.aliases_json != null
+            ? String(existing.aliases_json)
+            : null;
+      db.prepare(
+        "UPDATE projects SET name = ?, description = ?, status = ?, aliases_json = ?, updated_at = ? WHERE project_id = ?",
+      ).run(name, description, status, aliases, now, projectId);
+      const row = db.prepare("SELECT * FROM projects WHERE project_id = ?").get(projectId) as
+        | Record<string, unknown>
+        | undefined;
+      if (!row) throw new Error("Failed to update project");
+      return mapProjectRow(row);
+    },
+
+    getProject(projectId: string, ownerUserId: string): WorkbenchProjectRow | undefined {
+      const row = db
+        .prepare("SELECT * FROM projects WHERE project_id = ? AND owner_user_id = ? LIMIT 1")
+        .get(projectId.trim(), ownerUserId.trim()) as Record<string, unknown> | undefined;
+      return row ? mapProjectRow(row) : undefined;
+    },
+
+    listProjectsForOwner(ownerUserId: string): WorkbenchProjectRow[] {
+      const rows = db
+        .prepare(
+          "SELECT * FROM projects WHERE owner_user_id = ? ORDER BY CASE WHEN status = 'archived' THEN 1 ELSE 0 END, updated_at DESC",
+        )
+        .all(ownerUserId.trim()) as Array<Record<string, unknown>>;
+      return rows.map((row) => mapProjectRow(row));
+    },
+
+    setTaskProject(input: {
+      taskNo: string;
+      managerUserId: string;
+      projectId: string | null;
+    }): WorkbenchTaskRow {
+      const taskNo = input.taskNo.trim();
+      const managerUserId = input.managerUserId.trim();
+      const taskRow = qTaskByNo.get(taskNo) as Record<string, unknown> | undefined;
+      if (!taskRow) throw new Error("task not found");
+      if (String(taskRow.manager_user_id ?? "").trim() !== managerUserId) {
+        throw new Error("task not managed by actor");
+      }
+      let resolved: string | null = null;
+      const pid = input.projectId === null ? "" : String(input.projectId ?? "").trim();
+      if (pid && pid !== UNASSIGNED_PROJECT_BUCKET) {
+        const proj = db
+          .prepare(
+            "SELECT project_id FROM projects WHERE project_id = ? AND owner_user_id = ? AND status = 'active' LIMIT 1",
+          )
+          .get(pid, managerUserId) as Record<string, unknown> | undefined;
+        if (!proj) throw new Error("Invalid or inaccessible project_id");
+        resolved = pid;
+      }
+      const now = nowIso();
+      db.prepare("UPDATE tasks SET project_id = ?, updated_at = ? WHERE task_id = ?").run(
+        resolved,
+        now,
+        String(taskRow.task_id ?? ""),
+      );
+      const updated = qTaskByNo.get(taskNo) as Record<string, unknown> | undefined;
+      if (!updated) throw new Error("Failed to load task");
+      return mapTaskRow(updated);
     },
 
     listEmployeeSubtasks(userId: string): Array<

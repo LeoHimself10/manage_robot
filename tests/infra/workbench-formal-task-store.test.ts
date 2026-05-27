@@ -1154,3 +1154,114 @@ describe("aggregateTaskStatus", () => {
     expect(aggregateTaskStatus(["DONE", "DONE"])).toBe("DONE");
   });
 });
+
+describe("workbench-formal-task-store projects", () => {
+  beforeEach(() => {
+    const temp = mkdtempSync(join(tmpdir(), "formal-store-project-"));
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", join(temp, "workbench.sqlite"));
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  function baseSession(planId: string): PlanSession {
+    return {
+      chatKeyHash: `hash-${planId}`,
+      planId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "项目绑定发布",
+        tasks: [{ id: "t1", title: "子任务一" }],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t1", primary: { userId: "emp-1" } }],
+      },
+    };
+  }
+
+  it("publishFromSession without projectId leaves project_id NULL", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const published = store.publishFromSession({
+      planId: "plan-no-proj",
+      session: baseSession("plan-no-proj"),
+      managerUserId: "manager-1",
+      initiatorDepartment: "质量部",
+      actorUserId: "manager-1",
+    });
+    expect(published.task.projectId).toBeUndefined();
+    const db = new DatabaseSync(process.env.WORKBENCH_SQLITE_PATH!);
+    const row = db.prepare("SELECT project_id FROM tasks WHERE plan_id = ?").get("plan-no-proj") as {
+      project_id: string | null;
+    };
+    expect(row.project_id).toBeNull();
+    db.close();
+  });
+
+  it("publishFromSession with valid projectId binds task", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const project = store.createProject({
+      ownerUserId: "manager-1",
+      name: "OCT 专项",
+      description: "客诉闭环",
+    });
+    const published = store.publishFromSession({
+      planId: "plan-with-proj",
+      session: baseSession("plan-with-proj"),
+      managerUserId: "manager-1",
+      initiatorDepartment: "质量部",
+      actorUserId: "manager-1",
+      projectId: project.projectId,
+    });
+    expect(published.task.projectId).toBe(project.projectId);
+  });
+
+  it("publishFromSession rejects invalid project_id", () => {
+    const store = createWorkbenchFormalTaskStore();
+    expect(() =>
+      store.publishFromSession({
+        planId: "plan-bad-proj",
+        session: baseSession("plan-bad-proj"),
+        managerUserId: "manager-1",
+        initiatorDepartment: "质量部",
+        actorUserId: "manager-1",
+        projectId: "proj:does-not-exist",
+      }),
+    ).toThrow(/Invalid or inaccessible project_id/);
+  });
+
+  it("listManagerTasks filters by projectId and unassigned bucket", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const project = store.createProject({
+      ownerUserId: "manager-1",
+      name: "注册申报",
+    });
+    store.publishFromSession({
+      planId: "plan-a",
+      session: baseSession("plan-a"),
+      managerUserId: "manager-1",
+      initiatorDepartment: "质量部",
+      actorUserId: "manager-1",
+      projectId: project.projectId,
+    });
+    store.publishFromSession({
+      planId: "plan-b",
+      session: baseSession("plan-b"),
+      managerUserId: "manager-1",
+      initiatorDepartment: "质量部",
+      actorUserId: "manager-1",
+    });
+    const all = store.listManagerTasks("manager-1");
+    expect(all).toHaveLength(2);
+    const filtered = store.listManagerTasks("manager-1", { projectId: project.projectId });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.planId).toBe("plan-a");
+    const unassigned = store.listManagerTasks("manager-1", { projectId: "__unassigned__" });
+    expect(unassigned).toHaveLength(1);
+    expect(unassigned[0]?.planId).toBe("plan-b");
+  });
+});

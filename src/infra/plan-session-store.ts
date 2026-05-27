@@ -114,6 +114,8 @@ export interface PlanSession {
     department?: string;
     hitAt: string;
   }>;
+  /** 大项目可选层：当前规划默认归属（portfolio 主管） */
+  activeProjectId?: string;
 }
 
 export function resolvePlanSessionDir(): string {

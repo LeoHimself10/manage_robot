@@ -130,6 +130,8 @@ import {
   shouldBlockPreDraftTool,
   type PreDraftGateTool,
 } from "../registry-pre-draft-gate";
+import { buildProjectPortfolioToolHandlers } from "./project-portfolio-tools";
+import { isWorkbenchProjectPortfolioEnabled } from "../../security/workbench-project-portfolio";
 
 export interface ToolRegistryEntry {
   definition: ToolDefinition;
@@ -158,6 +160,8 @@ export interface ToolRegistryDeps {
   onSessionMutated?: (session: PlanSession) => void;
   /** 本轮 orchestrator 用户消息，供 pre-draft 工具门禁判定点将意图。 */
   orchestratorUserMessage?: string;
+  /** 大项目 portfolio 主管：动态挂载 list/create/suggest/set_active_project */
+  projectPortfolioEnabled?: boolean;
 }
 
 export type ToolProfile = "planner" | "employee" | "manager" | "admin" | "full";
@@ -670,5 +674,20 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   for (const [name, entry] of Object.entries(all)) {
     if (names.has(name)) out[name] = entry;
   }
+
+  const portfolioOn =
+    deps.projectPortfolioEnabled === true ||
+    (trustedActor ? isWorkbenchProjectPortfolioEnabled(trustedActor) : false);
+  if (portfolioOn && (profile === "manager" || profile === "admin")) {
+    const portfolioHandlers = buildProjectPortfolioToolHandlers({
+      trustedActorUserId: trustedActor,
+      currentSession: deps.currentSession,
+      onSessionMutated: deps.onSessionMutated,
+    });
+    for (const [name, entry] of Object.entries(portfolioHandlers)) {
+      out[name] = entry;
+    }
+  }
+
   return out;
 }

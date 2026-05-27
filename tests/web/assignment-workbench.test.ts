@@ -2064,4 +2064,106 @@ describe("assignment-workbench HTTP handler", () => {
     expect(pageRes.captured().body).toContain("/workbench/external/login");
     expect(pageRes.captured().body).not.toContain('id="externalPasswordCard"');
   });
+
+  describe("project portfolio API", () => {
+    async function loginCookie(userId: string): Promise<string> {
+      const loginReq = stubReq({
+        url: "/api/workbench/login",
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId, role: "manager" }),
+      });
+      const loginRes = stubRes();
+      handleAssignmentHttp(loginReq, loginRes.res);
+      await flushAsync();
+      return String(loginRes.captured().headers["Set-Cookie"] ?? "");
+    }
+
+    it("GET /api/workbench/manager/projects returns 404 when portfolio disabled", async () => {
+      vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "portfolio-only");
+      const cookie = await loginCookie("manager-1");
+      const req = stubReq({
+        url: "/api/workbench/manager/projects",
+        method: "GET",
+        headers: { cookie },
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      expect(captured().statusCode).toBe(404);
+    });
+
+    it("baseline manager tasks API ignores projectId query when portfolio disabled", async () => {
+      vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "portfolio-only");
+      await seedPublishedTask({
+        planId: "plan-baseline-project-query",
+        managerUserId: "manager-1",
+        assigneeUserId: "emp-project-query",
+      });
+      const cookie = await loginCookie("manager-1");
+      const req = stubReq({
+        url: "/api/workbench/manager/tasks?projectId=proj%3Ashould-not-filter",
+        method: "GET",
+        headers: { cookie },
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      await flushAsync();
+      const body = JSON.parse(captured().body) as { tasks?: unknown[] };
+      expect(captured().statusCode).toBe(200);
+      expect(body.tasks).toHaveLength(1);
+    });
+
+    it("portfolio manager can create project and list rollup cards", async () => {
+      vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "portfolio-mgr");
+      vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "manager-1,portfolio-mgr");
+      const cookie = await loginCookie("portfolio-mgr");
+      const createReq = stubReq({
+        url: "/api/workbench/manager/projects",
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ name: "OCT 上市", description: "客诉专项" }),
+      });
+      const createRes = stubRes();
+      handleAssignmentHttp(createReq, createRes.res);
+      await flushAsync();
+      expect(createRes.captured().statusCode).toBe(200);
+      const created = JSON.parse(createRes.captured().body) as {
+        ok?: boolean;
+        project?: { projectId?: string };
+      };
+      expect(created.ok).toBe(true);
+      expect(created.project?.projectId).toMatch(/^proj:/);
+
+      const listReq = stubReq({
+        url: "/api/workbench/manager/projects",
+        method: "GET",
+        headers: { cookie },
+      });
+      const listRes = stubRes();
+      handleAssignmentHttp(listReq, listRes.res);
+      await flushAsync();
+      const listed = JSON.parse(listRes.captured().body) as {
+        ok?: boolean;
+        cards?: Array<{ name?: string }>;
+      };
+      expect(listed.ok).toBe(true);
+      expect(listed.cards?.some((c) => c.name === "OCT 上市")).toBe(true);
+    });
+
+    it("GET /api/workbench/me includes projectPortfolioEnabled", async () => {
+      vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "portfolio-mgr");
+      vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "manager-1,portfolio-mgr");
+      const cookie = await loginCookie("portfolio-mgr");
+      const req = stubReq({
+        url: "/api/workbench/me",
+        method: "GET",
+        headers: { cookie },
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      await flushAsync();
+      const body = JSON.parse(captured().body) as { projectPortfolioEnabled?: boolean };
+      expect(body.projectPortfolioEnabled).toBe(true);
+    });
+  });
 });

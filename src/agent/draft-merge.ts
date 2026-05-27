@@ -116,7 +116,7 @@ export function deepMergePreserveRichFields(
   return merged;
 }
 
-const ORCHESTRATOR_DRAFT_SCALAR_KEYS = ["title", "description", "summary", "stagedBy"] as const;
+const ORCHESTRATOR_DRAFT_SCALAR_KEYS = ["title", "description", "summary", "stagedBy", "projectId", "projectName"] as const;
 
 /**
  * coerceLlmPlanPayload strips orchestrator draft scalars (title, description).

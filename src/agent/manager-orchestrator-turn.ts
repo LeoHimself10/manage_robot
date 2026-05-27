@@ -22,6 +22,7 @@ import {
   detectFalseSplit,
 } from "./draft-mutation/false-split";
 import { hasAssigneeIntentInUserMessage } from "./orchestrator-turn-hints";
+import { isWorkbenchProjectPortfolioEnabled } from "../security/workbench-project-portfolio";
 import { resolveDraftForOutbound } from "../view/draft-outbound";
 import { createRecentPublishStore } from "./tools/publish-task";
 import type { PlanSession } from "../infra/plan-session-store";
@@ -190,6 +191,9 @@ export async function runManagerOrchestratorTurn(
     toolProfile,
     promptProfile,
     managerFollowup: toolProfile === "manager" || toolProfile === "admin",
+    projectPortfolioEnabled: route.trustedActorUserId
+      ? isWorkbenchProjectPortfolioEnabled(route.trustedActorUserId)
+      : false,
     trustedActorUserId: route.trustedActorUserId,
     allowSearchWeb: isExplicitSearchRequest(input.userMessage),
     knownFactsStore,

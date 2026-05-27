@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.15";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.16";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -15,6 +15,8 @@ export interface QwenPlannerPromptRequest {
 
 export interface QwenPlannerPromptOpts {
   managerFollowup?: boolean;
+  /** 大项目 portfolio 主管：注入项目归属纪律与工具说明 */
+  projectPortfolioContext?: boolean;
   /** Only workbench POST /conversation/draft/revise — do not enable on DingTalk or normal chat send. */
   workbenchDraftRevision?: boolean;
 }
@@ -42,13 +44,31 @@ function buildManagerFollowupDiscipline(): string[] {
   ];
 }
 
+function buildProjectPortfolioDiscipline(): string[] {
+  return [
+    "",
+    "## 大项目归属（portfolio 主管专用）",
+    "- **项目工具优先级高于 CLARIFY 的“禁止 tool_calls”**：只要用户本轮明示项目/专项/业务线（如“属于 X”“不是 A 是 B”“新建项目”），即使任务细节仍不足，也必须先调用项目工具完成归属处理；工具后若仍缺业务信息，再只用 message 追问。",
+    "- 用户描述新需求且可能属于某业务线时：先 `list_projects`；若用户文本已出现项目名/别名，按列表匹配后 `set_active_project`；若不确定则 `suggest_project`，在 message 中给出建议项目名与理由，请用户确认。",
+    "- 用户纠正归属（如“其实是注册申报那个，不是 OCT”）时：不要 `start_new_task`；先 `list_projects` 或 `suggest_project` 找到目标项目，再 `set_active_project`。若已有 `latestDraft`，仅更新归属，不要求整表 REDRAFT。",
+    "- 用户确认或指明项目后：`set_active_project` 和/或在顶层 `draft` 写入 `projectId`（及可选 `projectName`）。禁止只在 message 口播项目名而不写 session/draft。",
+    "- 用户要求新建大项目：调 `create_project`（name 必填），再继续 DRAFT/发放。",
+    "- **禁止**对未启用 portfolio 的用户追问大项目；**禁止**编造 projectId。",
+    "- MVP **不强制** projectId 才能发放；未归类任务仍允许 publish。",
+  ];
+}
+
 function buildPlannerToolCheatsheet(opts?: QwenPlannerPromptOpts): string {
   const common =
     "通用：search_employees / get_employee_details / search_similar_plans / search_web / read_url / get_current_time / update_known_facts / list_known_facts / start_new_task / switch_back_task / update_draft_task / add_draft_subtask / remove_draft_subtask。";
+  const portfolio =
+    opts?.projectPortfolioContext
+      ? "大项目：用户本轮出现“项目/专项/属于/归属/不是A是B/新建项目”时，必须先 tool_call：list_projects / create_project / suggest_project / set_active_project；禁止仅口播“已记录归属”。"
+      : "";
   const manager = opts?.managerFollowup
     ? "主管：list_managed_tasks / get_task_detail / reassign_task / list_follow_up_candidates / send_subtask_reminder / prepare_publish_task / publish_task / bulk_assign_tasks / read_uploaded_roster_text / resolve_roster_names / set_candidate_pool / clear_candidate_pool / list_candidate_pool。"
     : "主管：list_managed_tasks / get_task_detail / reassign_task / prepare_publish_task / publish_task / bulk_assign_tasks / read_uploaded_roster_text / resolve_roster_names / set_candidate_pool / clear_candidate_pool / list_candidate_pool。";
-  return `${common}\n${manager}`;
+  return [common, portfolio, manager].filter(Boolean).join("\n");
 }
 
 function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
@@ -80,6 +100,11 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "- **禁止**在 draft 内使用 demo 字段名：`responseIntent`、`assistantMessage`（orchestrator 不读）。",
     "- message 禁手画任务表/`| # |`；**结构化任务表（列表）**由服务端根据 draft + latestAssignment 附加渲染（非 Markdown 表格），**不等于** message 可空。",
     "- 输出 draft 时 message **禁止** CLARIFY 语气（「等待补充」「请补充以下信息」「以便我生成正式草案」等）；待确认项写入 `draft.openQuestions`，**禁止**在 message ④ 里用追问语气替代。",
+    ...(opts?.projectPortfolioContext
+      ? [
+          "- **Portfolio 强制前置**：用户本轮文字含“项目/专项/属于/归属/不是 A 是 B/新建项目”时，在任何 CLARIFY、DRAFT 或 message 前必须先调用项目工具；工具成功后才可追问任务细节。禁止只在 message 写“已记录归属”。",
+        ]
+      : []),
     "- **ASSIGN** 可选顶层 `assignment`、**bulk_assign_tasks**（N 条一次）或单条 `update_draft_task`；**draft.tasks 禁止** assigneeUserId/collaborators（scheme C）。",
     "",
     "## 人员指派纪律（scheme C，一处规则）",
@@ -105,6 +130,7 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "**CLARIFY**：只追问；缺截止日期/时间范围时**必须**追问；≤6 条；**禁止** draft/assignment/表；**本回合禁止任何 tool_calls**（含 search_employees、update_known_facts、search_similar_plans、get_current_time 等），只输出 `{\"message\":\"...\"}`。寒暄/打招呼（你好/在吗）→ 简短回复或追问，**禁止** draft。客诉/质量/OCT 场景若缺**型号或批次** → **CLARIFY-only**（无 draft JSON）。",
     "**QUERY**：先 `list_managed_tasks`/`get_task_detail`/`list_my_tasks`/`admin_list_all_tasks`/`get_metrics`/`list_managers`（按题选用）；须工具 ok 后再转述；**禁止**编造 TASK-xxxx/主管名单；**禁止**凭 memory 猜配置；**禁止** draft/表。",
     ...(opts?.managerFollowup ? buildManagerFollowupDiscipline() : []),
+    ...(opts?.projectPortfolioContext ? buildProjectPortfolioDiscipline() : []),
     "**WBS 拆解原则**（DRAFT / REDRAFT 均适用）：按阶段→工作包→可执行动作逐级下钻。",
     "每条 task 须对应单一交付物，deliverables 与 completionCriteria 均非空，且能在单一执行者职责内验收闭环。",
     "若 title 仍含多个动词或「及/并/以及」、跨多部门、或一条 completionCriteria 无法单独验证 → 继续拆；禁止仅输出少数阶段大包；禁止「跟进/协调/支持」单独成条。",

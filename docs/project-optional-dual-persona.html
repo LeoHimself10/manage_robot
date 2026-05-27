@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>项目维度 · 可选分层方案</title>
+<style>
+:root {
+  --bg: #f0f4f8;
+  --card: #fff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --a: #2563eb;
+  --a-bg: #eff6ff;
+  --b: #059669;
+  --b-bg: #ecfdf5;
+  --accent: #7c3aed;
+  --accent-bg: #f5f3ff;
+  --r: 14px;
+  --font: "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; }
+body { font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.55; font-size: 15px; }
+
+.hero {
+  background: linear-gradient(120deg, #1e3a5f, #2563eb 55%, #7c3aed);
+  color: #fff; padding: 36px 24px 40px; text-align: center;
+}
+.hero h1 { font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+.hero p { margin-top: 10px; font-size: 14px; opacity: .9; max-width: 520px; margin-left: auto; margin-right: auto; }
+
+.wrap { max-width: 880px; margin: -20px auto 48px; padding: 0 16px; }
+
+/* core idea pill */
+.core {
+  background: var(--card); border-radius: var(--r); padding: 20px 22px;
+  box-shadow: 0 8px 30px rgba(15,23,42,.08); text-align: center; margin-bottom: 20px;
+  border: 1px solid var(--line);
+}
+.core strong { color: var(--accent); font-size: 17px; }
+.core span { display: block; margin-top: 8px; color: var(--muted); font-size: 14px; }
+
+/* two personas */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+@media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+
+.persona {
+  background: var(--card); border-radius: var(--r); padding: 18px 20px;
+  border: 2px solid var(--line); position: relative; overflow: hidden;
+}
+.persona.a { border-color: #93c5fd; }
+.persona.b { border-color: #6ee7b7; }
+.persona::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+}
+.persona.a::before { background: var(--a); }
+.persona.b::before { background: var(--b); }
+.persona .tag {
+  font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 999px; display: inline-block; margin-bottom: 10px;
+}
+.persona.a .tag { background: var(--a-bg); color: #1d4ed8; }
+.persona.b .tag { background: var(--b-bg); color: #047857; }
+.persona h2 { font-size: 18px; margin-bottom: 8px; }
+.persona ul { padding-left: 1.1em; font-size: 14px; color: #334155; }
+.persona li { margin: 5px 0; }
+.persona .ui { margin-top: 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
+
+/* stack diagram */
+.stack {
+  background: var(--card); border-radius: var(--r); padding: 22px;
+  border: 1px solid var(--line); margin-bottom: 20px;
+}
+.stack h2 { font-size: 16px; margin-bottom: 14px; text-align: center; }
+.layers { display: flex; flex-direction: column; gap: 8px; max-width: 420px; margin: 0 auto; }
+.layer {
+  padding: 12px 16px; border-radius: 10px; text-align: center; font-size: 14px; font-weight: 600;
+}
+.layer.optional { background: var(--accent-bg); color: #5b21b6; border: 2px dashed #c4b5fd; }
+.layer.core { background: var(--a-bg); color: #1e40af; }
+.layer.base { background: var(--surface-3, #f1f5f9); color: #475569; font-weight: 500; }
+.layer small { display: block; font-weight: 400; font-size: 12px; margin-top: 2px; opacity: .85; }
+
+/* rules compact */
+.rules {
+  background: var(--card); border-radius: var(--r); padding: 20px 22px;
+  border: 1px solid var(--line); margin-bottom: 20px;
+}
+.rules h2 { font-size: 16px; margin-bottom: 12px; }
+.rules table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.rules th, .rules td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); }
+.rules th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.rules tr:last-child td { border-bottom: none; }
+.yes { color: var(--b); font-weight: 700; }
+.no { color: var(--muted); }
+.hide { color: #94a3b8; font-size: 13px; }
+
+/* bot one line */
+.bot {
+  display: flex; gap: 14px; align-items: center; background: var(--card);
+  border-radius: var(--r); padding: 16px 20px; border: 1px solid var(--line);
+  margin-bottom: 20px; font-size: 14px;
+}
+.bot .icon { font-size: 28px; flex-shrink: 0; }
+.bot p { color: #334155; }
+.bot strong { color: var(--a); }
+
+/* phases mini */
+.phases { display: flex; gap: 10px; flex-wrap: wrap; }
+.phase {
+  flex: 1; min-width: 140px; background: var(--card); border-radius: 10px;
+  padding: 14px; border: 1px solid var(--line); font-size: 13px;
+}
+.phase b { display: block; font-size: 12px; color: var(--a); margin-bottom: 6px; }
+
+footer { text-align: center; font-size: 12px; color: var(--muted); padding-top: 8px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>一套平台 · 两种用法</h1>
+  <p>有人要「大项目」归类；有人只要拆解与追踪。项目做成<strong>可选层</strong>，不强迫所有人。</p>
+</header>
+
+<div class="wrap">
+
+  <div class="core">
+    <strong>项目 = 可选标签，不是人人必填</strong>
+    <span>底层仍是：大任务 → 子任务 → 承接/催办。项目只给需要的人加导航。</span>
+  </div>
+
+  <div class="grid2">
+    <article class="persona a">
+      <span class="tag">角色 A · 多专项主管</span>
+      <h2>要「大项目」</h2>
+      <ul>
+        <li>管多条业务线 / 专项</li>
+        <li>列表、日报按项目看</li>
+        <li>机器人建议归入哪项</li>
+      </ul>
+      <p class="ui">工作台：项目侧栏 → 任务列表</p>
+    </article>
+    <article class="persona b">
+      <span class="tag">角色 B · 拆解追踪为主</span>
+      <h2>不要「项目」</h2>
+      <ul>
+        <li>发需求 → 拆 WBS → 点将 → 追踪</li>
+        <li>不关心项目档案</li>
+        <li>任务标题 + 状态就够</li>
+      </ul>
+      <p class="ui">工作台：保持现网扁平列表</p>
+    </article>
+  </div>
+
+  <section class="stack">
+    <h2>同一套数据，叠一层可选的</h2>
+    <div class="layers">
+      <div class="layer optional">大项目 Project <small>可空 · 仅角色 A 常显</small></div>
+      <div class="layer core">大任务 Task <small>一次发放 · 0.1.2…</small></div>
+      <div class="layer base">子任务 Subtask <small>承接 · 催办 · 进展</small></div>
+    </div>
+  </section>
+
+  <section class="rules">
+    <h2>怎么做到「适合两边」</h2>
+    <table>
+      <thead>
+        <tr><th>能力</th><th>角色 A</th><th>角色 B</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>创建 / 选项目</td><td class="yes">有</td><td class="hide">默认不出现</td></tr>
+        <tr><td>发放任务必选项目</td><td class="yes">可配置强制</td><td class="no">不强制</td></tr>
+        <tr><td>历史任务列表</td><td>按项目筛选</td><td>扁平 + 关注状态（现网）</td></tr>
+        <tr><td>钉钉规划助手</td><td>显示当前项目 chip</td><td>无项目 chip</td></tr>
+        <tr><td>机器人归类</td><td>建议项目 + 确认</td><td>不问项目，直接拆</td></tr>
+        <tr><td>每日进展 / 催办</td><td>可按项目汇总</td><td>按主管 / 任务（现网）</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="bot">
+    <span class="icon" aria-hidden="true">🤖</span>
+    <p><strong>机器人：</strong>先识别用户模式（或看是否开启「项目管理」）。A 类 → 列项目再建议；B 类 → 跳过项目，走 CLARIFY / DRAFT / 发放。</p>
+  </div>
+
+  <section class="rules" style="margin-bottom:0">
+    <h2>实现上三件事就够</h2>
+    <div class="phases">
+      <div class="phase"><b>① 开关</b>主管档案加「启用项目视图」；未开 = 角色 B 体验</div>
+      <div class="phase"><b>② 可空字段</b><code>project_id</code> 允许 NULL；未归类照常改派催办</div>
+      <div class="phase"><b>③ 分入口</b>同一 URL，按开关渲染侧栏或扁平列表</div>
+    </div>
+  </section>
+
+  <footer style="margin-top:24px">
+    docs/project-optional-dual-persona.html · 与 project-portfolio-requirement-analysis.html 配套
+  </footer>
+
+</div>
+</body>
+</html>

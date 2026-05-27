@@ -3,6 +3,7 @@ import type { PlanSession } from "../../infra/plan-session-store";
 import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
 import type { WorkbenchSubtaskRow } from "../../infra/workbench-formal-task-store";
 import { isStagingStale } from "../publish-helpers";
+import { resolvePublishProjectIdForSession } from "./resolve-publish-project-id";
 
 type SubtaskRichFields = Pick<WorkbenchSubtaskRow, "dependsOn" | "checkpoints" | "risks" | "inputMaterials" | "actions" | "collaborators" | "inScope" | "outOfScope">;
 
@@ -13,6 +14,7 @@ type PublishFromSessionFn = (input: {
   initiatorDepartment: string;
   actorUserId: string;
   actorName?: string;
+  projectId?: string | null;
 }) => {
   task: { taskId: string; taskNo: string; title: string; description?: string };
     subtasks: Array<{
@@ -155,6 +157,7 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
 
     let published: ReturnType<PublishFromSessionFn>;
     try {
+      const projectId = resolvePublishProjectIdForSession(session, trustedActor);
       published = deps.publishFromSession({
         planId,
         session,
@@ -162,6 +165,7 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
         initiatorDepartment: deps.initiatorDepartment,
         actorUserId: trustedActor,
         actorName: deps.actorName,
+        projectId: projectId ?? null,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -182,6 +186,13 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
           missingTaskId,
           hint:
             `子任务 ${missingTaskId} 仍缺少负责人。请重新调用 prepare_publish_task 把所有 subtasks 的 assigneeUserId 补齐，让主管再次确认后再发布。`,
+        };
+      }
+      if (message.includes("Invalid or inaccessible project_id")) {
+        return {
+          ok: false,
+          reason: "invalid_project",
+          hint: "大项目归属无效或无权访问。请用 list_projects / suggest_project 确认项目，或清除 draft.projectId 后再发放。",
         };
       }
       throw error;
