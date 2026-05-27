@@ -6,6 +6,10 @@ import {
   hasRowSplitIntent,
   hasWholeTableRedraftIntent,
 } from "./draft-mutation/false-split";
+import {
+  formatPortfolioArchiveActionHint,
+  isPortfolioProjectArchiveIntent,
+} from "./publish-staging";
 
 export interface TurnHintSessionContext {
   conversationHistory?: Array<{ role: string; content: string }>;
@@ -234,8 +238,13 @@ export function buildTurnActionHintLine(
   sessionContext: TurnHintSessionContext | undefined,
   userMessage: string,
 ): string | undefined {
+  const parts: string[] = [];
+  if (isPortfolioProjectArchiveIntent(userMessage)) {
+    parts.push(formatPortfolioArchiveActionHint());
+  }
   const hint = resolveTurnActionHint(sessionContext, userMessage);
-  return hint ? formatTurnActionHint(hint, sessionContext) : undefined;
+  if (hint) parts.push(formatTurnActionHint(hint, sessionContext));
+  return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
 export function formatPublishStagingActionHint(staged: boolean): string {

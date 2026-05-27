@@ -78,4 +78,17 @@ describe("postClarify hint tightening", () => {
     expect(buildTurnActionHintLine(ctx, "把任务2拆成2个小任务")).toContain("splitAction");
     expect(shouldInjectSplitActionHint(ctx, "整表拆更细扩成8条")).toBe(false);
   });
+
+  it("injects portfolioArchiveAction when user archives draft to a named project", () => {
+    const ctx = {
+      latestDraft: { tasks: [{ id: "task_1", title: "培训" }] },
+      conversationHistory: [],
+      memoryFacts: [],
+    };
+    const msg =
+      "可以非常好，未分配的任务给姚雪峰，然后把这个任务归档到器械设计项目里。";
+    const line = buildTurnActionHintLine(ctx, msg);
+    expect(line).toContain("portfolioArchiveAction");
+    expect(line).not.toContain("scopeSwitchAction");
+  });
 });

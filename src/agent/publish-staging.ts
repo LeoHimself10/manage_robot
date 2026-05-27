@@ -166,10 +166,25 @@ export function detectFalseScopeSwitch(input: FalseScopeSwitchDetectionInput): b
 }
 
 /**
+ * 大项目归属：把当前草案/任务「归档/归入」到命名项目 —— 不是 start_new_task 的 scope 归档。
+ * 须走 list_projects / set_active_project / draft.projectId。
+ */
+export const PORTFOLIO_PROJECT_ARCHIVE_INTENT =
+  /(?:归档|归入|划到|归到|收到|放进|纳入|挂到|绑定到|归并到).{0,28}(?:项目|专项|大项目)|(?:项目|专项|大项目).{0,16}(?:归档|归属|归入)/i;
+
+/** 用户要把当前草案归属到大项目（portfolio），禁止误判为换题 start_new_task。 */
+export function isPortfolioProjectArchiveIntent(userMessage: string): boolean {
+  const text = String(userMessage ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  return PORTFOLIO_PROJECT_ARCHIVE_INTENT.test(text);
+}
+
+/**
  * 构造重试时塞给 orchestrator 的 user 消息：保留原话，前置强指令，要求**立刻**调 start_new_task。
+ * 「归档」单独出现可表示换题；「归档到 XX 项目」见 isPortfolioProjectArchiveIntent，不命中。
  */
 const TOPIC_SWITCH_USER_SIGNAL =
-  /换个|新任务|不说这个|另外(一个)?问题|先放一放|归档|换个话题|另一项|重新开始|开新(的)?任务/i;
+  /换个|新任务|不说这个|另外(一个)?问题|先放一放|换个话题|另一项|重新开始|开新(的)?任务|归档(?!到[^。，；\s]{0,28}(?:项目|专项|大项目))/i;
 
 export interface TopicSwitchWithoutArchiveInput {
   userMessage: string;
@@ -187,7 +202,16 @@ export function detectTopicSwitchWithoutArchive(input: TopicSwitchWithoutArchive
   if (isPublishConfirmUserMessage(input.userMessage)) return false;
   const text = String(input.userMessage ?? "").replace(/\s+/g, " ").trim();
   if (!text || text.length < 4) return false;
+  if (isPortfolioProjectArchiveIntent(text)) return false;
   return TOPIC_SWITCH_USER_SIGNAL.test(text);
+}
+
+export function formatPortfolioArchiveActionHint(): string {
+  return (
+    "portfolioArchiveAction: 用户要把**当前草案**归属到大项目（非换题）；" +
+    "list_projects 匹配项目名 → set_active_project 和/或在 draft 写入 projectId/projectName；" +
+    "**禁止** start_new_task；**禁止**口播「会话已重置/草案已清空」；保留 latestDraft，仅更新归属与指派。"
+  );
 }
 
 export function buildTopicSwitchRetryUserMessage(originalUserMessage: string): string {

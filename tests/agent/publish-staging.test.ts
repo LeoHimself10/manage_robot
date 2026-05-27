@@ -9,6 +9,7 @@ import {
   formatAuthoritativePublishBlockedNotice,
   detectFalseScopeSwitch,
   detectTopicSwitchWithoutArchive,
+  isPortfolioProjectArchiveIntent,
   isDraftStagedForPublish,
   isPublishConfirmUserMessage,
   looksLikeFalsePublishClaim,
@@ -294,6 +295,47 @@ describe("publish-staging", () => {
           toolInvocationNames: [],
         }),
       ).toBe(false);
+    });
+    it("false when user archives draft to a portfolio project (姚凯珩 case)", () => {
+      const msg =
+        "可以非常好，未分配的任务给姚雪峰 (agent测试组)，然后把这个任务归档到器械设计项目里。";
+      expect(isPortfolioProjectArchiveIntent(msg)).toBe(true);
+      expect(
+        detectTopicSwitchWithoutArchive({
+          userMessage: msg,
+          preTurnLatestDraft: { tasks: [{ id: "task_1" }, { id: "task_2" }] },
+          toolInvocationNames: [],
+        }),
+      ).toBe(false);
+    });
+    it("true for bare 归档 without 到项目 (scope switch)", () => {
+      expect(
+        detectTopicSwitchWithoutArchive({
+          userMessage: "这个先归档，我们聊别的",
+          preTurnLatestDraft: { tasks: [{ id: "task_1" }] },
+          toolInvocationNames: [],
+        }),
+      ).toBe(true);
+    });
+    it("false for 归入XX项目 phrasing", () => {
+      expect(
+        detectTopicSwitchWithoutArchive({
+          userMessage: "归入器械设计大项目",
+          preTurnLatestDraft: { tasks: [{ id: "task_1" }] },
+          toolInvocationNames: [],
+        }),
+      ).toBe(false);
+    });
+  });
+
+  describe("isPortfolioProjectArchiveIntent", () => {
+    it("matches 归档到项目 / 归入项目", () => {
+      expect(isPortfolioProjectArchiveIntent("把这个任务归档到器械设计项目里")).toBe(true);
+      expect(isPortfolioProjectArchiveIntent("归入注册申报专项")).toBe(true);
+    });
+    it("does not match bare topic switch", () => {
+      expect(isPortfolioProjectArchiveIntent("换个新任务")).toBe(false);
+      expect(isPortfolioProjectArchiveIntent("这个先归档，我们聊别的")).toBe(false);
     });
   });
 });
