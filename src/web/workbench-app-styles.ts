@@ -29,12 +29,16 @@ a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .app-shell { max-width: 1200px; margin: 0 auto; padding: 20px 18px 48px; }
 .topbar {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 16px;
+  align-items: start;
   margin-bottom: 20px;
+}
+.topbar > div:first-child {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
 }
 .topbar.topbar--compact { margin-bottom: 14px; }
 .brand { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; color: var(--muted); text-transform: uppercase; }
@@ -42,7 +46,17 @@ a:hover { text-decoration: underline; }
 .page-desc { margin: 6px 0 0; font-size: 14px; color: var(--muted); max-width: 560px; }
 .topbar.topbar--compact .page-title { font-size: 22px; }
 .topbar.topbar--compact .page-desc { max-width: 480px; }
-.top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.top-actions {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  align-self: start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 .nav-pills { display: flex; gap: 6px; flex-wrap: wrap; }
 .nav-pills a {
   padding: 8px 14px;
@@ -2401,23 +2415,21 @@ details.sub-row-mgr.mgr-sub-row--hidden {
 @media (max-width: 640px) {
   .app-shell { padding: 12px 12px 32px; }
   .topbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 10px;
   }
   .top-actions {
-    width: 100%;
-    justify-content: flex-start;
-    gap: 8px;
+    justify-self: end;
+    justify-content: flex-end;
+    max-width: 100%;
   }
   .nav-pills {
-    flex: 1 1 auto;
-    min-width: 0;
-    width: 100%;
+    flex: 0 1 auto;
+    justify-content: flex-end;
+    max-width: 100%;
   }
   .nav-pills a {
-    flex: 1 1 0;
-    min-width: 0;
+    flex: 0 1 auto;
     text-align: center;
     font-size: 13px;
     padding: 8px 10px;
