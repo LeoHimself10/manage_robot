@@ -730,6 +730,35 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   background: #f8fafc;
   color: var(--muted);
 }
+.wb-confirm-bar {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+.wb-confirm-bar__row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+.wb-confirm-bar__row input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #2563eb;
+}
+.form-stack .wb-confirm-bar__row label {
+  display: inline;
+  margin: 0;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
 .draft-context-panel {
   background: var(--surface);
   border: 1px solid var(--border);
