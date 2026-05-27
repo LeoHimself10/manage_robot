@@ -17,10 +17,36 @@ export const DRAFT_STRUCT_MUTATE_TOOL_NAMES = new Set([
   "remove_draft_subtask",
 ]);
 
+/** ASSIGN turns: session draft unchanged but outbound must show assignee column. */
+export const DRAFT_TABLE_RENDER_TOOL_NAMES = new Set(["bulk_assign_tasks"]);
+
+function draftHasTasks(draft: unknown): boolean {
+  if (!draft || typeof draft !== "object") return false;
+  const tasks = (draft as { tasks?: unknown[] }).tasks;
+  return Array.isArray(tasks) && tasks.length > 0;
+}
+
+/** Whether to attach server-rendered 结构化任务表 this turn (distinct from DRAFT_UPDATED audit). */
+export function shouldAttachDraftTableForOutbound(input: {
+  preTurnDraft: unknown;
+  postTurnDraft: unknown;
+  orchResultDraft?: Record<string, unknown>;
+  orchResultAssignment?: unknown;
+  toolInvocationNames: ReadonlyArray<string>;
+}): boolean {
+  if (isDraftTouchedThisTurn(input)) return true;
+  if (input.toolInvocationNames.some((n) => DRAFT_TABLE_RENDER_TOOL_NAMES.has(n))) {
+    return true;
+  }
+  if (input.orchResultAssignment !== undefined) return true;
+  return false;
+}
+
 export interface ResolveDraftForOutboundInput {
   preTurnDraft: unknown;
   postTurnDraft: unknown;
   orchResultDraft?: Record<string, unknown>;
+  orchResultAssignment?: unknown;
   toolInvocationNames: ReadonlyArray<string>;
 }
 
@@ -90,11 +116,21 @@ export function resolveDraftForOutbound(
   }
 
   if (!touched) {
+    const normalizedPersisted = persistedDraft
+      ? normalizeDraftTasksForSession(persistedDraft)
+      : undefined;
+    let draftForRender: Record<string, unknown> | undefined;
+    if (
+      shouldAttachDraftTableForOutbound(input)
+      && normalizedPersisted
+      && draftHasTasks(normalizedPersisted)
+    ) {
+      draftForRender = normalizedPersisted;
+    }
     return {
       draftTouchedThisTurn: false,
-      persistedDraft: persistedDraft
-        ? normalizeDraftTasksForSession(persistedDraft)
-        : undefined,
+      draftForRender,
+      persistedDraft: normalizedPersisted,
     };
   }
 

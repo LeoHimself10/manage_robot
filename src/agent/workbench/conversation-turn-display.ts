@@ -37,6 +37,7 @@ export function buildWorkbenchTurnDisplay(
     preTurnDraft: input.preTurnDraft,
     postTurnDraft,
     orchResultDraft: input.orchResult.draft as Record<string, unknown> | undefined,
+    orchResultAssignment: input.orchResult.assignment,
     toolInvocationNames: input.orchResult.toolInvocationNames ?? [],
   });
 

@@ -43,6 +43,30 @@ describe("resolveDraftForOutbound", () => {
     expect(result.persistedDraft).toEqual(normalizedBaseDraft);
   });
 
+  it("renders table when bulk_assign_tasks updates assignment only", () => {
+    const result = resolveDraftForOutbound({
+      preTurnDraft: baseDraft,
+      postTurnDraft: baseDraft,
+      toolInvocationNames: ["bulk_assign_tasks"],
+    });
+    expect(result.draftTouchedThisTurn).toBe(false);
+    expect(result.draftForRender).toEqual(normalizedBaseDraft);
+    expect(result.persistedDraft).toEqual(normalizedBaseDraft);
+  });
+
+  it("renders table when orchestrator returns assignment JSON without bulk_assign tool", () => {
+    const result = resolveDraftForOutbound({
+      preTurnDraft: baseDraft,
+      postTurnDraft: baseDraft,
+      orchResultAssignment: {
+        assignments: [{ taskId: "task_1", primary: { userId: "u1", displayName: "张三" } }],
+      },
+      toolInvocationNames: [],
+    });
+    expect(result.draftTouchedThisTurn).toBe(false);
+    expect(result.draftForRender).toEqual(normalizedBaseDraft);
+  });
+
   it("clears persisted draft after start_new_task when post is undefined", () => {
     const result = resolveDraftForOutbound({
       preTurnDraft: baseDraft,

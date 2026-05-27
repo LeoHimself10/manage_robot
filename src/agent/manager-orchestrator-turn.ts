@@ -299,6 +299,7 @@ export async function runManagerOrchestratorTurn(
       preTurnDraft,
       postTurnDraft: session.latestDraft,
       orchResultDraft: result.draft as Record<string, unknown> | undefined,
+      orchResultAssignment: result.assignment,
       toolInvocationNames: result.toolInvocationNames ?? [],
     });
     if (outbound.persistedDraft) {
