@@ -1125,9 +1125,11 @@ export function renderTaskDetailPage(params: {
         <select id="detailReassignSubtask"><option value="">整单未完成子任务（全部改派）</option></select>
       </label>
       <label>新负责人
+        <div class="combo" style="position:relative;">
         <input id="detailReassignAssigneeInput" type="search" autocomplete="off" placeholder="输入姓名或部门（1 字起搜）" style="width:100%;" />
         <input id="detailReassignAssigneeUserId" type="hidden" value="" />
         <ul id="detailReassignAssigneeOptions" class="combo-options" hidden></ul>
+        </div>
       </label>
       <label>说明
         <textarea id="detailReassignNote" rows="2" placeholder="简要说明改派原因（可选）"></textarea>
@@ -1151,9 +1153,11 @@ export function renderTaskDetailPage(params: {
         <input id="addSubtaskTitle" type="text" maxlength="200" placeholder="子任务做什么" style="width:100%;" />
       </label>
       <label>负责人<span class="mgr-req">（必填）</span>
+        <div class="combo" style="position:relative;">
         <input id="addSubtaskAssigneeInput" type="search" autocomplete="off" placeholder="输入姓名或部门（1 字起搜）" style="width:100%;" />
         <input id="addSubtaskAssigneeUserId" type="hidden" value="" />
         <ul id="addSubtaskAssigneeOptions" class="combo-options" hidden></ul>
+        </div>
       </label>
       <h4 class="subs-section-h" style="margin:12px 0 6px;font-size:13px;">执行要点</h4>
       <label>目标<span class="mgr-req">（必填）</span>
@@ -1171,9 +1175,13 @@ export function renderTaskDetailPage(params: {
       <label>执行动作（可选，每行一条或分号分隔）
         <textarea id="addSubtaskActions" rows="2" placeholder="具体执行步骤"></textarea>
       </label>
-      <label>前置依赖（可选，多选已有子任务）
-        <select id="addSubtaskDependsOn" multiple size="3" style="width:100%;"></select>
-      </label>
+      <div class="add-subtask-depends-field">
+        <span class="add-subtask-depends-label">前置依赖<span class="mgr-opt">（可选，可勾选多条）</span></span>
+        <div id="addSubtaskDependsOn" class="add-subtask-depends-list" role="group" aria-label="前置依赖">
+          <p class="add-subtask-depends-empty muted">暂无可选子任务</p>
+        </div>
+        <p class="add-subtask-depends-hint muted">勾选必须先完成的子任务；不选表示无前置依赖</p>
+      </div>
       <details class="subtask-more-details" style="margin-top:8px;">
         <summary>更多规划（7 项，可选）</summary>
         <div class="form-stack" style="margin-top:10px;">
@@ -1397,15 +1405,44 @@ export function renderTaskDetailPage(params: {
     return String(raw || '').split(/[\\n;；]/).map(function (x) { return String(x || '').trim(); }).filter(Boolean);
   }
   function syncAddSubtaskDependsOn(subs) {
-    var sel = document.getElementById('addSubtaskDependsOn');
-    if (!sel) return;
+    var box = document.getElementById('addSubtaskDependsOn');
+    if (!box) return;
+    var prev = getSelectedAddSubtaskDependsOn();
     var list = subs || [];
-    sel.innerHTML = list.map(function (s) {
+    var items = list.map(function (s) {
       var key = String(s.sourceTaskKey || s.source_task_key || '').trim();
       if (!key) return '';
       var label = String(s.title || key);
-      return '<option value="' + esc(key) + '">' + esc(label) + '</option>';
-    }).join('');
+      var checked = prev.indexOf(key) >= 0;
+      var rowCls = 'add-subtask-depends-item' + (checked ? ' is-selected' : '');
+      return '<label class="' + rowCls + '">'
+        + '<input type="checkbox" name="addSubtaskDependsOn" value="' + esc(key) + '"' + (checked ? ' checked' : '') + ' />'
+        + '<span class="add-subtask-depends-item-body">'
+        + (s.orderIndex ? '<span class="add-subtask-depends-ord">#' + esc(String(s.orderIndex)) + '</span>' : '')
+        + '<span class="add-subtask-depends-title">' + esc(label) + '</span>'
+        + '</span></label>';
+    }).filter(Boolean);
+    if (!items.length) {
+      box.innerHTML = '<p class="add-subtask-depends-empty muted">暂无可选子任务</p>';
+    } else {
+      box.innerHTML = items.join('');
+    }
+  }
+  function getSelectedAddSubtaskDependsOn() {
+    var box = document.getElementById('addSubtaskDependsOn');
+    if (!box) return [];
+    return Array.prototype.slice.call(
+      box.querySelectorAll('input[type="checkbox"][name="addSubtaskDependsOn"]:checked'),
+    ).map(function (cb) { return String(cb.value || '').trim(); }).filter(Boolean);
+  }
+  function clearAddSubtaskDependsOn() {
+    var box = document.getElementById('addSubtaskDependsOn');
+    if (!box) return;
+    box.querySelectorAll('input[type="checkbox"][name="addSubtaskDependsOn"]').forEach(function (cb) {
+      cb.checked = false;
+      var row = cb.closest('.add-subtask-depends-item');
+      if (row) row.classList.remove('is-selected');
+    });
   }
   function clearAddSubtaskFormFields() {
     var ids = [
@@ -1420,10 +1457,7 @@ export function renderTaskDetailPage(params: {
     });
     var hid = document.getElementById('addSubtaskAssigneeUserId');
     if (hid) hid.value = '';
-    var depSel = document.getElementById('addSubtaskDependsOn');
-    if (depSel) {
-      for (var di = 0; di < depSel.options.length; di++) depSel.options[di].selected = false;
-    }
+    clearAddSubtaskDependsOn();
     var confirmCb = document.getElementById('addSubtaskConfirm');
     if (confirmCb) confirmCb.checked = false;
     addSubtaskClientRequestId = '';
@@ -1447,6 +1481,16 @@ export function renderTaskDetailPage(params: {
           : '/api/workbench/manager/contacts?keyword=' + encodeURIComponent(kw);
       }
     });
+    var depBox = document.getElementById('addSubtaskDependsOn');
+    if (depBox && !depBox.dataset.changeBound) {
+      depBox.dataset.changeBound = '1';
+      depBox.addEventListener('change', function (ev) {
+        var t = ev.target;
+        if (!t || t.type !== 'checkbox' || t.name !== 'addSubtaskDependsOn') return;
+        var row = t.closest('.add-subtask-depends-item');
+        if (row) row.classList.toggle('is-selected', t.checked);
+      });
+    }
     var btn = document.getElementById('addSubtaskBtn');
     if (!btn) return;
     btn.addEventListener('click', function () {
@@ -1481,14 +1525,8 @@ export function renderTaskDetailPage(params: {
         };
         var actions = parseLinesToArray(document.getElementById('addSubtaskActions')?.value);
         if (actions.length) payload.actions = actions;
-        var depSel = document.getElementById('addSubtaskDependsOn');
-        if (depSel) {
-          var deps = [];
-          for (var di = 0; di < depSel.options.length; di++) {
-            if (depSel.options[di].selected) deps.push(depSel.options[di].value);
-          }
-          if (deps.length) payload.dependsOn = deps;
-        }
+        var deps = getSelectedAddSubtaskDependsOn();
+        if (deps.length) payload.dependsOn = deps;
         var ff = String(document.getElementById('addSubtaskFeedbackFrequency')?.value || '').trim();
         if (ff) payload.feedbackFrequency = ff;
         var im = parseLinesToArray(document.getElementById('addSubtaskInputMaterials')?.value);

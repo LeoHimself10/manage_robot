@@ -108,6 +108,7 @@ a:hover { text-decoration: underline; }
 .card h3 { margin: 0 0 10px; font-size: 15px; font-weight: 600; color: var(--text); }
 .form-stack { display: grid; gap: 12px; }
 .form-stack label { display: grid; gap: 6px; font-size: 13px; font-weight: 500; color: #334155; }
+.form-stack .combo { position: relative; }
 .form-stack input, .form-stack select, .form-stack textarea {
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -116,6 +117,55 @@ a:hover { text-decoration: underline; }
   width: 100%;
 }
 .form-stack textarea { min-height: 88px; resize: vertical; }
+.add-subtask-depends-field { display: grid; gap: 6px; }
+.add-subtask-depends-label { font-size: 13px; font-weight: 500; color: #334155; }
+.add-subtask-depends-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+}
+.add-subtask-depends-empty { margin: 0; font-size: 13px; padding: 6px 4px; }
+.add-subtask-depends-hint { margin: 0; font-size: 12px; line-height: 1.45; }
+.add-subtask-depends-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 400;
+  margin: 0;
+  transition: border-color 0.12s, background 0.12s;
+}
+.add-subtask-depends-item:hover { border-color: #bfdbfe; background: #f8fafc; }
+.add-subtask-depends-item.is-selected { border-color: #93c5fd; background: #eff6ff; }
+.add-subtask-depends-item input[type="checkbox"] {
+  margin: 3px 0 0;
+  flex-shrink: 0;
+  width: auto;
+  accent-color: var(--primary, #2563eb);
+}
+.add-subtask-depends-item-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  flex: 1;
+  font-size: 14px;
+  color: var(--text);
+}
+.add-subtask-depends-ord { font-size: 12px; font-weight: 600; color: var(--muted); }
+.add-subtask-depends-title { flex: 1; min-width: 0; word-break: break-word; line-height: 1.4; }
+.mgr-opt { font-weight: 400; color: var(--muted); font-size: 12px; }
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
 .kpis.kpis--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .kpis.kpis--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 480px; }
