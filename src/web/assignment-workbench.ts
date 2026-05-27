@@ -3224,15 +3224,13 @@ export function handleAssignmentHttp(
     const policy = loadWeeklyDashboardPolicy();
     const contacts = withPeopleDirectoryStore((store) => new Map(store.listContacts().map((c) => [c.userId, c.name])));
     const resolveName = (uid: string): string | undefined => contacts.get(uid)?.trim() || undefined;
-    const span = clampWeeklyDashboardSpan(url.searchParams.get("span"), policy);
-    const feedLimit = clampWeeklyFeedLimit(url.searchParams.get("feedLimit"), policy);
     const facts = buildWeeklyDashboardFacts({
       taskStore: getFormalTaskStore(),
       managerUserId: session.userId,
       week: String(url.searchParams.get("week") ?? "").trim() || undefined,
-      span,
+      span: clampWeeklyDashboardSpan(url.searchParams.get("span"), policy),
       feedCursor: String(url.searchParams.get("feedCursor") ?? "").trim() || undefined,
-      feedLimit,
+      feedLimit: clampWeeklyFeedLimit(url.searchParams.get("feedLimit"), policy),
       policy,
       resolveName,
     });
@@ -3248,10 +3246,7 @@ export function handleAssignmentHttp(
       kpi: facts.kpi,
       tasks: facts.tasks.map((g) => ({
         task: g.task,
-        subtasks: g.subtasks.map((s) => ({
-          ...s,
-          assigneeName: resolveName(s.assigneeUserId),
-        })),
+        subtasks: g.subtasks.map((s) => ({ ...s, assigneeName: resolveName(s.assigneeUserId) })),
       })),
       people: timeline.byPerson,
       timeline,
@@ -3278,13 +3273,9 @@ export function handleAssignmentHttp(
           policy,
           resolveName,
         });
-        const advisor = await summarizeWeeklyAdvisorWithLlm(facts, policy);
-        writeJson(res, 200, { ok: true, ...advisor });
+        writeJson(res, 200, { ok: true, ...(await summarizeWeeklyAdvisorWithLlm(facts, policy)) });
       } catch (err) {
-        writeJson(res, 400, {
-          ok: false,
-          error: err instanceof Error ? err.message : "invalid request",
-        });
+        writeJson(res, 400, { ok: false, error: err instanceof Error ? err.message : "invalid request" });
       }
     })();
     return true;
