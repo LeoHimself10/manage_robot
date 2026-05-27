@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>周度 Dashboard · 修改计划与改完效果预览</title>
+<style>
+:root {
+  --bg: #f1f5f9; --surface: #fff; --border: #e2e8f0; --text: #0f172a; --muted: #64748b;
+  --primary: #2563eb; --primary-soft: #eff6ff; --danger: #dc2626; --danger-soft: #fef2f2;
+  --success: #059669; --success-soft: #ecfdf5; --warn: #d97706; --warn-soft: #fffbeb;
+  --plan: #0e7490; --plan-soft: #ecfeff; --radius: 12px; --font: "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.55; font-size: 14px; }
+.wrap { max-width: 960px; margin: 0 auto; padding: 28px 20px 64px; }
+h1 { font-size: 24px; margin: 0 0 8px; }
+.lead { color: var(--muted); margin: 0 0 24px; max-width: 720px; }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; margin-right: 6px; margin-bottom: 6px; }
+.tag-plan { background: var(--plan-soft); color: var(--plan); border: 1px solid #a5f3fc; }
+.tag-keep { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.tag-fix { background: var(--warn-soft); color: #92400e; border: 1px solid #fcd34d; }
+
+/* Plan sections */
+.plan-block {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  margin-bottom: 20px; overflow: hidden;
+}
+.plan-block h2 {
+  margin: 0; padding: 14px 18px; font-size: 16px; background: #f8fafc; border-bottom: 1px solid var(--border);
+}
+.plan-block .body { padding: 16px 18px; }
+.plan-block ul { margin: 8px 0 0; padding-left: 20px; }
+.plan-block li { margin-bottom: 8px; }
+.plan-block li strong { color: var(--text); }
+.effect { color: var(--muted); font-size: 13px; margin-top: 4px; padding-left: 0; list-style: none; }
+.effect::before { content: "→ 改完："; color: var(--success); font-weight: 600; }
+
+/* Before / After strip */
+.compare {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0;
+}
+@media (max-width: 700px) { .compare { grid-template-columns: 1fr; } }
+.box {
+  border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 12px;
+}
+.box.bad { background: #fef2f2; border-color: #fecaca; }
+.box.good { background: #f0fdf4; border-color: #bbf7d0; }
+.box h3 { margin: 0 0 8px; font-size: 13px; }
+
+/* ===== Preview: what page looks like AFTER ===== */
+.preview-title {
+  margin: 36px 0 12px; padding-top: 24px; border-top: 2px solid var(--border);
+  font-size: 18px;
+}
+.preview-note {
+  background: var(--plan-soft); border: 1px solid #a5f3fc; border-radius: 8px;
+  padding: 12px 14px; font-size: 13px; color: #155e75; margin-bottom: 16px;
+}
+
+/* Mini workbench preview */
+.preview-shell {
+  border: 2px solid var(--primary); border-radius: var(--radius); overflow: hidden;
+  box-shadow: 0 8px 24px rgba(37,99,235,.12);
+}
+.preview-label {
+  background: var(--primary); color: #fff; text-align: center; padding: 8px;
+  font-size: 12px; font-weight: 700;
+}
+.mini-top {
+  padding: 12px 14px; background: #fff; border-bottom: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center;
+}
+.mini-nav span {
+  font-size: 11px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); margin-right: 4px;
+}
+.mini-nav span.on { background: var(--primary-soft); border-color: #93c5fd; color: #1d4ed8; }
+
+.banner-warn {
+  margin: 10px 14px 0; padding: 10px 12px; background: var(--warn-soft); border: 1px solid #fcd34d;
+  border-radius: 8px; font-size: 12px; color: #92400e;
+}
+
+.mini-time {
+  margin: 10px 14px; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px;
+}
+.mini-time button { padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: #fff; cursor: default; }
+.mini-time .chip { padding: 4px 10px; border-radius: 999px; background: var(--primary-soft); font-size: 11px; font-weight: 600; }
+
+.mini-kpi {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; padding: 0 14px 10px;
+}
+@media (max-width: 600px) { .mini-kpi { grid-template-columns: repeat(3, 1fr); } }
+.mini-kpi div {
+  background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 8px; text-align: center;
+}
+.mini-kpi .n { font-size: 18px; font-weight: 800; }
+.mini-kpi .l { font-size: 9px; color: var(--muted); font-weight: 600; }
+.mini-kpi .danger .n { color: var(--danger); }
+.mini-kpi .warn .n { color: var(--warn); }
+.mini-kpi .ok .n { color: var(--success); }
+
+.mini-section {
+  margin: 0 14px 12px; padding: 10px; background: #fff; border: 1px solid var(--border); border-radius: 8px;
+}
+.mini-section h4 { margin: 0 0 8px; font-size: 13px; }
+.mini-gantt {
+  display: grid; grid-template-columns: 80px repeat(7, 1fr); gap: 2px; font-size: 9px;
+}
+.mini-gantt .h { background: #f1f5f9; padding: 4px; text-align: center; color: var(--muted); }
+.mini-gantt .h.center { background: var(--primary-soft); color: #1d4ed8; }
+.mini-gantt .lbl { padding: 4px; font-weight: 600; overflow: hidden; white-space: nowrap; }
+.mini-gantt .cell { background: #f8fafc; min-height: 22px; display: flex; align-items: center; justify-content: center; }
+.dot { width: 10px; height: 10px; border-radius: 50%; }
+.dot.blue { background: var(--primary); }
+.dot.red { background: var(--danger); }
+.dot.green { background: var(--success); }
+.legend { font-size: 10px; color: var(--muted); margin-top: 6px; }
+
+.mini-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.mini-tabs span { font-size: 11px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); }
+.mini-tabs span.on { background: #eff6ff; border-color: #93c5fd; }
+
+.person-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 500px) { .person-cards { grid-template-columns: 1fr; } }
+.pcard {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: #f8fafc; font-size: 11px;
+}
+.pcard .name { font-weight: 700; margin-bottom: 6px; }
+.pcard .stats { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.pcard .s { background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 10px; }
+.badge {
+  display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 999px;
+}
+.badge.progress { background: var(--primary-soft); color: #1d4ed8; }
+.badge.blocked { background: var(--danger-soft); color: var(--danger); }
+.badge.done { background: var(--success-soft); color: var(--success); }
+
+.mini-grid { display: grid; grid-template-columns: 1fr 240px; gap: 10px; padding: 0 14px 14px; }
+@media (max-width: 700px) { .mini-grid { grid-template-columns: 1fr; } }
+.mini-side {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: #fff; font-size: 11px;
+}
+.mini-side button {
+  width: 100%; padding: 8px; background: var(--primary); color: #fff; border: none; border-radius: 6px;
+  font-weight: 700; margin-bottom: 8px;
+}
+.adv-high { border-left: 3px solid var(--danger); padding-left: 8px; margin-bottom: 6px; }
+
+.timeline { margin-top: 32px; }
+.timeline-item { display: flex; gap: 12px; margin-bottom: 16px; }
+.timeline-item .step {
+  width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: #fff;
+  display: grid; place-items: center; font-size: 12px; font-weight: 800; flex-shrink: 0;
+}
+.timeline-item .content { flex: 1; }
+.timeline-item h3 { margin: 0 0 4px; font-size: 14px; }
+.timeline-item p { margin: 0; font-size: 13px; color: var(--muted); }
+
+.footer-note {
+  margin-top: 32px; padding: 14px; background: #fff; border: 1px dashed var(--border); border-radius: 8px;
+  font-size: 13px; color: var(--muted);
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>周度 Dashboard · 增量修改计划</h1>
+<p class="lead">
+  在专家已有代码（<code>weekly-dashboard/*</code> + <code>manager-dashboard-page.ts</code>）基础上<strong>修补与对齐</strong>，不重写领域层。
+  下面分阶段说明改什么、改完你能看到什么；最下方是<strong>改完后的页面长什么样</strong>（示意）。
+</p>
+<p>
+  <span class="tag tag-keep">保留：facts / timeline / advisor 核心逻辑</span>
+  <span class="tag tag-fix">修补：接线 / UI 对齐 / KPI 一致性</span>
+  <span class="tag tag-plan">不做：整页重做 / 钉钉机器人 / 导出</span>
+</p>
+
+<!-- ========== PHASE 1 ========== -->
+<div class="plan-block">
+  <h2>阶段 1 · 能打开、能加载（约 1–2 天）</h2>
+  <div class="body">
+    <ul>
+      <li><strong>接线 workbench</strong>：在 <code>assignment-workbench.ts</code> 注册
+        <code>/workbench/manager/dashboard</code>、
+        <code>GET /api/workbench/manager/weekly-dashboard</code>、
+        <code>POST /api/workbench/manager/weekly-advisor</code>
+        <ul class="effect">点击导航不再 404；页面能拉到真实 KPI / 甘特 / 动态</ul>
+      </li>
+      <li><strong>接通讯录姓名</strong>：API 里给 facts 传 <code>resolveName</code>（同进展推送）
+        <ul class="effect">负责人列显示「张三」而不是 userId 字符串</ul>
+      </li>
+      <li><strong>补页面基础 wiring</strong>：退出登录、员工视图切换（与历史任务页一致）
+        <ul class="effect">右上角按钮都能用，不会点了没反应</ul>
+      </li>
+      <li><strong>周控件同步</strong>：加载后把 API 返回的周一日期写回日期控件
+        <ul class="effect">打开页面日期与「2026-W21 · 5/19–5/25」一致，不会空白</ul>
+      </li>
+    </ul>
+    <div class="compare">
+      <div class="box bad"><h3>现在</h3>点「周度 Dashboard」→ 404 或 API 失败</div>
+      <div class="box good"><h3>阶段 1 后</h3>能进页、能看真实数据、负责人有姓名</div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== PHASE 2 ========== -->
+<div class="plan-block">
+  <h2>阶段 2 · 用起来像工作台（约 2–3 天）</h2>
+  <div class="body">
+    <ul>
+      <li><strong>时间栏</strong>：加「‹ 上周 · 本周 · 下周 ›」和快捷 chip；切换后<strong>自动刷新</strong>（可保留刷新按钮作重试）
+        <ul class="effect">开会不用再选日期 + 点刷新；一切就能讲「本周」</ul>
+      </li>
+      <li><strong>KPI 第 6 格</strong>：单独展示「本周动态」；阻塞/逾期/完成用红/绿语义色
+        <ul class="effect">一眼看到要盯的数字；和 v2 规格一致</ul>
+      </li>
+      <li><strong>历史周提示条</strong>：<code>approxHistoricalState</code> 时顶部黄条
+        <ul class="effect">看上周数据时知道「颜色是近似值」，不会误解</ul>
+      </li>
+      <li><strong>复用工作台组件</strong>：状态改中文 badge（执行中/阻塞中/已完成）；表格用 <code>table.data</code>；Tab 用 <code>.tabs</code> + 无障碍属性
+        <ul class="effect">和历史任务、项目总览<strong>同一套视觉</strong>，不再像 demo 页</ul>
+      </li>
+      <li><strong>任务明细</strong>：accordion 默认<strong>折叠</strong>；只展开要讲的任务
+        <ul class="effect">10 条任务不会一屏全是展开的表</ul>
+      </li>
+      <li><strong>Feed</strong>：事件类型显示中文标签（进度更新/阻塞/完成），不是 <code>SUBTASK_PROGRESS</code>
+        <ul class="effect">动态列表适合投屏朗读</ul>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<!-- ========== PHASE 3 ========== -->
+<div class="plan-block">
+  <h2>阶段 3 · 人员视图 + 甘特可读（约 2 天）</h2>
+  <div class="body">
+    <ul>
+      <li><strong>人员 Tab 改版（重点）</strong>：去掉第二套「人员 day 网格甘特」；改为<strong>人员卡片</strong>：头像区 + 执行中/阻塞/span内due/下周due 四计数 + 子任务短列表
+        <ul class="effect">按人过周会时：「李四 1 阻塞、2 执行中」+ 点开的子任务名，不再是一排看不懂的小格</ul>
+      </li>
+      <li><strong>任务甘特微调</strong>：格子里只显示<strong>色点</strong>（或 1–2 字），完整标题在 hover；加中心周列高亮 + 图例
+        <ul class="effect">甘特能扫读，不会 34px 格里挤一长串字</ul>
+      </li>
+      <li><strong>建议助手</strong>：首次未生成时虚线占位；必谈/关注分块左边框颜色；超时提示更明显
+        <ul class="effect">侧栏更像「周会提纲」，不是空白一块</ul>
+      </li>
+    </ul>
+    <div class="compare">
+      <div class="box bad"><h3>现在 · 人员 Tab</h3>又一张 day 表格，和任务甘特重复</div>
+      <div class="box good"><h3>阶段 3 后</h3>人员卡片 + 子任务列表，专门用来「逐人问进展」</div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== PHASE 4 ========== -->
+<div class="plan-block">
+  <h2>阶段 4 · 逻辑修补 + 项目联动（约 1–2 天，可后置）</h2>
+  <div class="body">
+    <ul>
+      <li><strong>KPI 一致性</strong>：本周已完成（事件）的子任务，不再同时计入「待承接」
+        <ul class="effect">KPI 数字不再自相矛盾</ul>
+      </li>
+      <li><strong>Feed 过滤</strong>：动态列表只用业务相关 event 类型（进度/接受/阻塞等）
+        <ul class="effect">动态区干净，没有通知类噪音</ul>
+      </li>
+      <li><strong>加载更多</strong>：只追加 feed，不重建甘特/明细
+        <ul class="effect">点「加载更多」页面不会闪一下重绘</ul>
+      </li>
+      <li><strong>Portfolio（可选）</strong>：顶栏项目下拉 + <code>?projectId=</code> 筛选；项目总览卡片加「本周进展」链到 Dashboard
+        <ul class="effect">多项目主管：先选「注册申报」再看该专项本周情况</ul>
+      </li>
+      <li><strong>测试</strong>：assignment-workbench API 集成测试 + KPI 边界用例
+        <ul class="effect">发版有信心，不会再次「页面对了 API 没注册」</ul>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<!-- ========== IMPLEMENTATION ORDER ========== -->
+<div class="plan-block">
+  <h2>实施顺序（建议）</h2>
+  <div class="body timeline">
+    <div class="timeline-item"><div class="step">1</div><div class="content"><h3>阶段 1</h3><p>先能访问 — 否则后面 UI 改完也测不了</p></div></div>
+    <div class="timeline-item"><div class="step">2</div><div class="content"><h3>阶段 2</h3><p>像工作台 — 解决「前端很丑 / 不像产品」的大部分观感</p></div></div>
+    <div class="timeline-item"><div class="step">3</div><div class="content"><h3>阶段 3</h3><p>人员卡片 + 甘特可读 — 周会核心场景</p></div></div>
+    <div class="timeline-item"><div class="step">4</div><div class="content"><h3>阶段 4</h3><p>逻辑 + 项目 — 数据可信、多项目可选</p></div></div>
+  </div>
+</div>
+
+<!-- ========== PREVIEW AFTER ALL PHASES ========== -->
+<h2 class="preview-title">改完以后 · 页面效果示意（四阶段完成后）</h2>
+<div class="preview-note">
+  下面是<strong>合并阶段 1–3 后</strong>你在浏览器里投屏周会时看到的样子（示意，非最终实现截图）。
+  布局仍是一个主栏 + 右侧建议，但信息更清晰。
+</div>
+
+<div class="preview-shell">
+  <div class="preview-label">改完效果预览 · /workbench/manager/dashboard</div>
+
+  <div class="mini-top">
+    <div>
+      <div style="font-size:10px;color:var(--muted);font-weight:700">主管工作台</div>
+      <strong style="font-size:15px">周度 Dashboard</strong>
+    </div>
+    <div class="mini-nav">
+      <span>项目总览</span><span>历史任务</span><span class="on">周度 Dashboard</span><span>助手</span>
+    </div>
+  </div>
+
+  <!-- optional historical banner -->
+  <div class="banner-warn" style="display:none" id="histDemo">
+    ⚠ 历史周视图：阻塞/执行中颜色为近似值，请以明细与事件为准。
+  </div>
+
+  <div class="mini-time">
+    <button>‹</button>
+    <strong>2026-W21 · 5/19 – 5/25</strong>
+    <button>›</button>
+    <span style="margin-left:8px">|</span>
+    <span class="chip">本周</span>
+    <span style="padding:4px 10px;border:1px solid var(--border);border-radius:999px;font-size:11px">上周</span>
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">span ±1 周</span>
+  </div>
+
+  <div class="mini-kpi">
+    <div class="ok"><div class="n">7</div><div class="l">本周完成</div></div>
+    <div><div class="n">12</div><div class="l">执行中</div></div>
+    <div class="warn"><div class="n">3</div><div class="l">待承接</div></div>
+    <div class="danger"><div class="n">2</div><div class="l">阻塞/逾期</div></div>
+    <div><div class="n">18</div><div class="l">本周动态</div></div>
+    <div><div class="n">5</div><div class="l">下周到期</div></div>
+  </div>
+
+  <div class="mini-grid">
+    <div>
+      <div class="mini-section">
+        <h4>任务甘特（格内色点，hover 看全名）</h4>
+        <div class="mini-gantt">
+          <div class="lbl"></div>
+          <div class="h">19</div><div class="h">20</div><div class="h">21</div><div class="h center">22</div><div class="h center">23</div><div class="h center">24</div><div class="h center">25</div>
+          <div class="lbl">TASK-014</div>
+          <div class="cell"></div><div class="cell"></div><div class="cell"><span class="dot green"></span></div><div class="cell"><span class="dot red"></span></div><div class="cell"></div><div class="cell"><span class="dot blue"></span></div><div class="cell"></div>
+          <div class="lbl">TASK-011</div>
+          <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"><span class="dot blue"></span></div><div class="cell"></div>
+        </div>
+        <div class="legend">● 执行中　● 阻塞　● 完成　（中心周列浅蓝底）</div>
+      </div>
+
+      <div class="mini-section">
+        <div class="mini-tabs">
+          <span class="on">任务明细</span><span>人员负载</span>
+        </div>
+        <div style="font-size:11px;border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:6px;background:#fff">
+          ▶ TASK-014 良率提升 <span class="badge blocked">阻塞中</span> <span style="color:var(--muted)">（点击展开子任务表）</span>
+        </div>
+        <div style="font-size:11px;border:1px solid var(--border);border-radius:6px;padding:8px;background:#fff">
+          ▶ TASK-011 rollout <span class="badge progress">待员工承接</span>
+        </div>
+        <p style="font-size:10px;color:var(--muted);margin:8px 0 0">切换到「人员负载」时 ↓</p>
+        <div class="person-cards" style="margin-top:8px">
+          <div class="pcard">
+            <div class="name">李四 · 质量</div>
+            <div class="stats"><span class="s">执行中 1</span><span class="s" style="color:var(--danger)">阻塞 1</span><span class="s">下周due 0</span></div>
+            <div>· 根因分析 <span class="badge blocked">阻塞</span></div>
+          </div>
+          <div class="pcard">
+            <div class="name">王五 · 工艺</div>
+            <div class="stats"><span class="s">执行中 1</span><span class="s">下周due 1</span></div>
+            <div>· DOE 试验 <span class="badge progress">执行中</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mini-section">
+        <h4>本周动态</h4>
+        <div style="font-size:11px;padding:6px 0;border-bottom:1px solid #f1f5f9">
+          5/24 16:20 · 王五 · <span class="badge progress">进度</span> · DOE 40%
+        </div>
+        <div style="font-size:11px;padding:6px 0">
+          5/24 09:10 · 李四 · <span class="badge blocked">阻塞</span> · 缺来料报告
+        </div>
+        <div style="font-size:10px;color:var(--primary);margin-top:6px">加载更多…</div>
+      </div>
+    </div>
+
+    <div class="mini-side">
+      <strong>周会建议</strong>
+      <button>生成本周建议</button>
+      <div class="adv-high"><strong>必谈</strong><br>李四根因阻塞需协调来料</div>
+      <div style="border-left:3px solid var(--warn);padding-left:8px;margin-bottom:6px"><strong>关注</strong><br>赵六培训待承接</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:8px">8s 内生成 · 超时用规则模板</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">
+  <strong>说明：</strong>本文件仅为<strong>修改计划 + 效果示意</strong>，未改动仓库代码。
+  确认计划后可在 Agent 模式按阶段 1→4 实施。专家已写的 <code>weekly-dashboard-facts.ts</code> 等文件<strong>保留</strong>，主要改
+  <code>assignment-workbench.ts</code>（接线）、<code>manager-dashboard-page.ts</code>（UI 增量）、少量 facts 修补（KPI / event 过滤）。
+</div>
+
+</div>
+
+<script>
+// demo: toggle historical banner when clicking prev week
+document.querySelectorAll('.mini-time button')[0].addEventListener('click', function () {
+  var b = document.getElementById('histDemo');
+  b.style.display = b.style.display === 'none' ? 'block' : 'none';
+});
+</script>
+</body>
+</html>

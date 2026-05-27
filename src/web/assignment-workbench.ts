@@ -98,6 +98,11 @@ import {
   renderManagerTasksPage,
 } from "./manager-workbench-pages";
 import { renderManagerProjectsPage } from "./manager-projects-pages";
+import { renderManagerDashboardPage } from "./manager-dashboard-page";
+import {
+  buildWeeklyAdvisorHttpPayload,
+  buildWeeklyDashboardHttpPayload,
+} from "./weekly-dashboard-api";
 import {
   buildManagerProjectDetailResponse,
   buildManagerProjectsListResponse,
@@ -137,6 +142,7 @@ const WORKBENCH_LOGIN_PATH = "/workbench";
 const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/manager/projects",
   "/workbench/manager/tasks",
+  "/workbench/manager/dashboard",
   "/workbench/manager/chat",
   "/workbench/manager/task",
   "/workbench/manager/task/events",
@@ -1134,9 +1140,12 @@ export function renderTaskDetailPage(params: {
       <label>说明
         <textarea id="detailReassignNote" rows="2" placeholder="简要说明改派原因（可选）"></textarea>
       </label>
-      <label id="detailReassignConfirmWrap" style="display:none;align-items:center;gap:8px;">
-        <input type="checkbox" id="detailReassignConfirm" /> 确认执行改派
-      </label>
+      <div class="wb-confirm-bar" id="detailReassignConfirmWrap" hidden>
+        <div class="wb-confirm-bar__row">
+          <input type="checkbox" id="detailReassignConfirm" />
+          <label for="detailReassignConfirm">确认执行改派</label>
+        </div>
+      </div>
       <button type="button" class="btn btn-primary" id="detailReassignBtn">保存改派</button>
       <div class="feedback muted" id="detailReassignFeedback"></div>
     </div>
@@ -1208,9 +1217,12 @@ export function renderTaskDetailPage(params: {
           </label>
         </div>
       </details>
-      <label id="addSubtaskConfirmWrap" style="display:none;align-items:center;gap:8px;">
-        <input type="checkbox" id="addSubtaskConfirm" /> 确认新增子任务
-      </label>
+      <div class="wb-confirm-bar" id="addSubtaskConfirmWrap" hidden>
+        <div class="wb-confirm-bar__row">
+          <input type="checkbox" id="addSubtaskConfirm" />
+          <label for="addSubtaskConfirm">确认新增子任务</label>
+        </div>
+      </div>
       <button type="button" class="btn btn-primary" id="addSubtaskBtn">保存子任务</button>
       <div class="feedback muted" id="addSubtaskFeedback"></div>
     </div>
@@ -1234,6 +1246,7 @@ export function renderTaskDetailPage(params: {
   var addSubtaskSubmitting = false;
   var addSubtaskJustSucceeded = false;
   var addSubtaskClientRequestId = '';
+  var addSubtaskClickTimer = null;
   var mgrRowHandlersBound = false;
   var taskActionHandlersBound = false;
   var lastSubsForReassign = [];
@@ -1334,10 +1347,10 @@ export function renderTaskDetailPage(params: {
     var cw = document.getElementById('detailReassignConfirmWrap');
     var confirmCb = document.getElementById('detailReassignConfirm');
     if (ENFORCE_GUARDS) {
-      if (cw) cw.style.display = 'flex';
+      if (cw) cw.removeAttribute('hidden');
       if (confirmCb) confirmCb.checked = false;
     } else {
-      if (cw) cw.style.display = 'none';
+      if (cw) cw.setAttribute('hidden', '');
     }
     setDetailReassignFb('', 'muted');
     try { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e0) {}
@@ -1494,7 +1507,11 @@ export function renderTaskDetailPage(params: {
     var btn = document.getElementById('addSubtaskBtn');
     if (!btn) return;
     btn.addEventListener('click', function () {
-      void (async function () {
+      if (addSubtaskSubmitting) return;
+      if (addSubtaskClickTimer) return;
+      addSubtaskClickTimer = setTimeout(function () {
+        addSubtaskClickTimer = null;
+        void (async function () {
         if (addSubtaskSubmitting) return;
         addSubtaskSubmitting = true;
         btn.disabled = true;
@@ -1551,7 +1568,10 @@ export function renderTaskDetailPage(params: {
           }
         }
         payload.clientRequestId = addSubtaskClientRequestId;
-        if (ENFORCE_GUARDS) { payload.confirm = true; payload.idempotencyKey = newMgrIdem(); }
+        if (ENFORCE_GUARDS) {
+          payload.confirm = true;
+          payload.idempotencyKey = addSubtaskClientRequestId;
+        }
         setAddSubtaskFb('提交中…', 'muted');
         try {
           var res = await fetch('/api/workbench/manager/subtasks', {
@@ -1575,16 +1595,17 @@ export function renderTaskDetailPage(params: {
           releaseAddSubtaskSubmit(btn);
         }
       })();
+      }, 300);
     });
   }
   function prepareAddSubtaskFormUi(subs) {
     var cw = document.getElementById('addSubtaskConfirmWrap');
     var confirmCb = document.getElementById('addSubtaskConfirm');
     if (ENFORCE_GUARDS) {
-      if (cw) cw.style.display = 'flex';
+      if (cw) cw.removeAttribute('hidden');
       if (confirmCb && !addSubtaskJustSucceeded) confirmCb.checked = false;
     } else if (cw) {
-      cw.style.display = 'none';
+      cw.setAttribute('hidden', '');
     }
     if (!addSubtaskJustSucceeded) setAddSubtaskFb('', 'muted');
     syncAddSubtaskDependsOn(subs || []);
@@ -1695,7 +1716,7 @@ export function renderTaskDetailPage(params: {
             var payloadR = { subtaskId: sidR, tone: 'polite' };
             if (ENFORCE_GUARDS) {
               payloadR.confirm = true;
-              payloadR.idempotencyKey = newMgrIdem();
+              payloadR.idempotencyKey = 'remind-' + sidR;
             }
             var resR = await fetch('/api/workbench/manager/subtasks/remind', {
               method: 'POST',
@@ -1821,7 +1842,7 @@ export function renderTaskDetailPage(params: {
           var payload = { planId: planId, subtaskId: sid, note: note };
           if (ENFORCE_GUARDS) {
             payload.confirm = true;
-            payload.idempotencyKey = newMgrIdem();
+            payload.idempotencyKey = 'decline-' + sid;
           }
           subm.disabled = true;
           setRowMgrFb(row3, 'decline', '提交中…', 'muted');
@@ -1850,7 +1871,7 @@ export function renderTaskDetailPage(params: {
           var noteA = nEl ? String(nEl.value || '').trim() : '';
           var payloadA = { planId: planId, signal: sig, note: noteA };
           if (sid) payloadA.subtaskId = sid;
-          if (ENFORCE_GUARDS) payloadA.idempotencyKey = newMgrIdem();
+          if (ENFORCE_GUARDS) payloadA.idempotencyKey = 'ack-' + (sid || planId) + '-' + sig;
           subm.disabled = true;
           setRowMgrFb(row3, 'ack', '提交中…', 'muted');
           try {
@@ -1875,7 +1896,7 @@ export function renderTaskDetailPage(params: {
           var noteR = rEl ? String(rEl.value || '').trim() : '';
           var payloadR = { planId: planId, signal: 'ack_rejection', note: noteR };
           if (sid) payloadR.subtaskId = sid;
-          if (ENFORCE_GUARDS) payloadR.idempotencyKey = newMgrIdem();
+          if (ENFORCE_GUARDS) payloadR.idempotencyKey = 'ack-rejection-' + (sid || planId);
           subm.disabled = true;
           setRowMgrFb(row3, 'ack-rejection', '提交中…', 'muted');
           try {
@@ -1916,7 +1937,7 @@ export function renderTaskDetailPage(params: {
           var payloadS = { planId: planId, subtaskId: sid, note: noteS };
           if (ENFORCE_GUARDS) {
             payloadS.confirm = true;
-            payloadS.idempotencyKey = newMgrIdem();
+            payloadS.idempotencyKey = 'stop-' + sid;
           }
           subm.disabled = true;
           setRowMgrFb(row3, 'stop', '提交中…', 'muted');
@@ -3246,6 +3267,66 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (isGetOrHead && url.pathname === "/api/workbench/manager/weekly-dashboard") {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    const portfolioEnabled = isWorkbenchProjectPortfolioEnabled(session.userId);
+    const projectId = portfolioEnabled
+      ? String(url.searchParams.get("projectId") ?? "").trim()
+      : "";
+    const feedOnly = url.searchParams.get("feedOnly") === "1";
+    const peopleStore = createPeopleDirectoryStore();
+    try {
+      const payload = buildWeeklyDashboardHttpPayload({
+        taskStore: getFormalTaskStore(),
+        managerUserId: session.userId,
+        week: String(url.searchParams.get("week") ?? "").trim() || undefined,
+        span: url.searchParams.get("span"),
+        feedCursor: String(url.searchParams.get("feedCursor") ?? "").trim() || undefined,
+        feedLimit: url.searchParams.get("feedLimit"),
+        projectId: projectId || undefined,
+        feedOnly,
+        resolveName: (uid) => peopleStore.getContact(uid)?.name?.trim(),
+      });
+      writeJson(res, 200, payload);
+    } finally {
+      peopleStore.close();
+    }
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/weekly-advisor") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        const portfolioEnabled = isWorkbenchProjectPortfolioEnabled(session.userId);
+        const body = await readJsonBody(req);
+        const projectId = portfolioEnabled ? String(body.projectId ?? "").trim() : "";
+        const peopleStore = createPeopleDirectoryStore();
+        try {
+          const payload = await buildWeeklyAdvisorHttpPayload({
+            taskStore: getFormalTaskStore(),
+            managerUserId: session.userId,
+            week: String(body.week ?? "").trim() || undefined,
+            span: body.span,
+            projectId: projectId || undefined,
+            resolveName: (uid) => peopleStore.getContact(uid)?.name?.trim(),
+          });
+          writeJson(res, 200, payload);
+        } finally {
+          peopleStore.close();
+        }
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (isGetOrHead && url.pathname === "/api/workbench/manager/projects") {
     const session = requireSession(req, res, "manager");
     if (!session) return true;
@@ -4343,6 +4424,7 @@ export function handleAssignmentHttp(
           writeJson(res, 400, { ok: false, error: "dueAt is required" });
           return;
         }
+        const clientRequestId = String(body.clientRequestId ?? "").trim().slice(0, 128) || undefined;
         const appendResult = store.appendSubtask({
           planId,
           managerUserId,
@@ -4363,6 +4445,7 @@ export function handleAssignmentHttp(
           outOfScope: parseRichStringListFromBody(body.outOfScope),
           note: note || undefined,
           actorName: session.dingUser?.name,
+          clientRequestId,
         });
         const { task, subtask, duplicated } = appendResult;
         if (!duplicated) {
@@ -5538,11 +5621,18 @@ export function handleAssignmentHttp(
       const userLabel = session.dingUser?.name ?? session.userId;
       const mgrTaskNo = url.searchParams.get("taskNo")?.trim() ?? "";
       const initialProjectId = url.searchParams.get("projectId")?.trim() ?? "";
+      const tasksViewParam = url.searchParams.get("view")?.trim().toLowerCase();
+      const initialTasksView = tasksViewParam === "flat" ? "flat" : "group";
       const html =
-        url.pathname === "/workbench/manager/projects"
+        url.pathname === "/workbench/manager/dashboard"
+          ? renderManagerDashboardPage({
+            userLabel,
+            projectPortfolioEnabled: portfolioEnabled,
+            initialProjectId,
+          })
+          : url.pathname === "/workbench/manager/projects"
           ? renderManagerProjectsPage({
             userLabel,
-            presentation: url.searchParams.get("presentation") === "1",
           })
           : url.pathname === "/workbench/manager/tasks"
             ? renderManagerTasksPage({
@@ -5551,6 +5641,7 @@ export function handleAssignmentHttp(
               userLabel,
               projectPortfolioEnabled: portfolioEnabled,
               initialProjectId,
+              initialView: portfolioEnabled ? initialTasksView : undefined,
             })
             : url.pathname === "/workbench/manager/chat"
               ? renderManagerChatPage({

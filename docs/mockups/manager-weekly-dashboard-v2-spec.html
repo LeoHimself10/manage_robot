@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>主管周度 Dashboard · 实现规格展示（v2）</title>
+<style>
+:root {
+  --bg: #eef2f6;
+  --surface: #fff;
+  --surface-2: #f8fafc;
+  --surface-3: #f1f5f9;
+  --border: #dde3ea;
+  --text: #0f172a;
+  --muted: #64748b;
+  --primary: #2563eb;
+  --primary-soft: #eff6ff;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --success: #059669;
+  --success-soft: #ecfdf5;
+  --warn: #d97706;
+  --warn-soft: #fffbeb;
+  --purple: #7c3aed;
+  --purple-soft: #f5f3ff;
+  --spec: #0e7490;
+  --spec-soft: #ecfeff;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --shadow: 0 1px 3px rgba(15,23,42,.06);
+  --shadow-lg: 0 10px 32px rgba(15,23,42,.08);
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.5; }
+code { font-size: 11px; background: var(--surface-3); padding: 2px 6px; border-radius: 4px; }
+
+/* ===== Spec banner ===== */
+.spec-banner {
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0e7490 100%);
+  color: #f8fafc; padding: 28px 24px 32px;
+}
+.spec-banner h1 { margin: 0 0 8px; font-size: 26px; letter-spacing: -.02em; }
+.spec-banner p { margin: 0; max-width: 880px; color: #cbd5e1; font-size: 14px; }
+.spec-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.spec-tag {
+  font-size: 11px; font-weight: 700; padding: 5px 10px; border-radius: 999px;
+  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.15);
+}
+.spec-tag.new { background: rgba(34,211,238,.2); border-color: rgba(34,211,238,.4); }
+
+/* ===== Layout ===== */
+.demo-wrap { max-width: 1280px; margin: 0 auto; padding: 24px 20px 64px; }
+.demo-grid { display: grid; grid-template-columns: 1fr 320px; gap: 0; align-items: start; }
+@media (max-width: 1080px) { .demo-grid { grid-template-columns: 1fr; } .advisor-col { order: -1; } }
+
+.main-col { min-width: 0; }
+.advisor-col {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg); position: sticky; top: 16px; overflow: hidden;
+}
+@media (min-width: 1081px) {
+  .demo-grid { gap: 16px; }
+  .advisor-col { border-radius: var(--radius); }
+}
+
+/* ===== Callout ===== */
+.callout {
+  display: flex; gap: 12px; padding: 12px 14px; border-radius: var(--radius-sm);
+  font-size: 12px; margin-bottom: 14px; border: 1px solid;
+}
+.callout-spec { background: var(--spec-soft); border-color: #a5f3fc; color: #155e75; }
+.callout-warn { background: var(--warn-soft); border-color: #fcd34d; color: #92400e; }
+.callout-icon { font-size: 16px; flex-shrink: 0; }
+.callout strong { display: block; margin-bottom: 2px; font-size: 13px; }
+
+/* ===== Workbench chrome ===== */
+.wb-shell {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg); overflow: hidden;
+}
+.wb-topbar {
+  padding: 18px 20px; border-bottom: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; align-items: flex-start;
+  background: linear-gradient(180deg, #fff, #fafbfc);
+}
+.wb-brand { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.wb-title { margin: 4px 0 0; font-size: 22px; font-weight: 800; }
+.wb-desc { margin: 4px 0 0; font-size: 12px; color: var(--muted); max-width: 480px; }
+.nav-pills { display: flex; gap: 5px; flex-wrap: wrap; }
+.nav-pills a {
+  padding: 7px 12px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-size: 12px; font-weight: 600; text-decoration: none;
+}
+.nav-pills a.on { background: var(--primary-soft); border-color: #93c5fd; color: #1d4ed8; }
+
+.wb-body { padding: 16px 18px 24px; }
+
+/* ===== Section label (spec annotation) ===== */
+.sec-label {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 8px;
+  font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--spec);
+}
+.sec-label::after { content: ""; flex: 1; height: 1px; background: #bae6fd; }
+
+/* ===== Time bar ===== */
+.time-bar {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 14px; margin-bottom: 14px;
+}
+.time-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.week-nav { display: flex; align-items: center; gap: 6px; }
+.week-nav button {
+  width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--border);
+  background: #fff; cursor: pointer; font-size: 15px;
+}
+.week-nav button:hover { border-color: #93c5fd; background: var(--primary-soft); }
+.week-label { font-size: 15px; font-weight: 800; text-align: center; min-width: 200px; }
+.week-label small { display: block; font-size: 11px; font-weight: 500; color: var(--muted); }
+.chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.chip {
+  font-size: 11px; font-weight: 650; padding: 5px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: #fff; cursor: pointer; color: var(--muted);
+}
+.chip.on { background: var(--primary-soft); border-color: #93c5fd; color: #1d4ed8; }
+.span-row {
+  margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 11px; color: var(--muted);
+}
+.span-weeks { display: flex; gap: 3px; }
+.span-w {
+  width: 28px; height: 22px; border-radius: 4px; font-size: 9px; font-weight: 700;
+  display: grid; place-items: center; border: 1px solid var(--border); background: #fff; color: var(--muted);
+}
+.span-w.past { background: #e2e8f0; }
+.span-w.center { background: var(--primary); color: #fff; border-color: #1d4ed8; }
+.span-w.future { background: var(--purple-soft); color: var(--purple); border-color: #c4b5fd; }
+
+/* ===== KPI ===== */
+.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 16px; }
+@media (max-width: 900px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
+.kpi {
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px 12px; position: relative; cursor: help;
+}
+.kpi:hover .kpi-tip { opacity: 1; visibility: visible; }
+.kpi .lbl { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.kpi .val { font-size: 24px; font-weight: 800; margin-top: 2px; letter-spacing: -.02em; }
+.kpi .hint { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.kpi.danger .val { color: var(--danger); }
+.kpi.warn .val { color: var(--warn); }
+.kpi.ok .val { color: var(--success); }
+.kpi-tip {
+  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  width: 200px; padding: 8px 10px; background: #0f172a; color: #f1f5f9; border-radius: 8px;
+  font-size: 10px; font-weight: 500; line-height: 1.45; opacity: 0; visibility: hidden;
+  transition: .15s; z-index: 10; pointer-events: none; text-transform: none; letter-spacing: 0;
+}
+.kpi-tip::after {
+  content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: #0f172a;
+}
+
+/* ===== Gantt (tasks only) ===== */
+.gantt-card {
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 14px; margin-bottom: 14px;
+}
+.gantt-card h3 { margin: 0 0 4px; font-size: 14px; }
+.gantt-card .sub { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+.gantt-head {
+  display: grid; grid-template-columns: 148px 1fr; gap: 0; margin-bottom: 4px;
+}
+.gantt-days {
+  display: grid; grid-template-columns: repeat(21, 1fr); gap: 2px;
+}
+.gantt-day {
+  text-align: center; font-size: 9px; font-weight: 650; color: var(--muted); padding: 3px 0;
+  border-radius: 3px;
+}
+.gantt-day.center-week { background: var(--primary-soft); color: #1d4ed8; }
+.gantt-day.weekend { opacity: .5; }
+.gantt-day .wk { font-size: 8px; display: block; color: #94a3b8; }
+.gantt-row { display: grid; grid-template-columns: 148px 1fr; min-height: 32px; align-items: center; }
+.gantt-row + .gantt-row { border-top: 1px solid #f1f5f9; }
+.gantt-lbl { font-size: 11px; font-weight: 650; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gantt-lbl code { font-size: 9px; }
+.gantt-track { position: relative; height: 26px; display: grid; grid-template-columns: repeat(21, 1fr); gap: 2px; }
+.gantt-cell { background: var(--surface-2); border-radius: 2px; min-height: 26px; }
+.gantt-bar {
+  position: absolute; height: 20px; top: 3px; border-radius: 4px;
+  font-size: 9px; font-weight: 700; color: #fff; padding: 0 5px;
+  display: flex; align-items: center; overflow: hidden; white-space: nowrap;
+  cursor: pointer; transition: transform .1s;
+}
+.gantt-bar:hover { transform: scaleY(1.08); z-index: 2; }
+.gantt-bar.progress { background: var(--primary); }
+.gantt-bar.blocked { background: var(--danger); }
+.gantt-bar.done { background: var(--success); }
+.gantt-bar.due { background: var(--purple); opacity: .85; }
+.gantt-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 10px; color: var(--muted); }
+.gantt-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 4px; vertical-align: middle; }
+
+/* ===== Person load (NOT gantt) ===== */
+.person-load-card {
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 14px; margin-bottom: 14px;
+}
+.person-load-card h3 { margin: 0 0 4px; font-size: 14px; }
+.person-load-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; }
+@media (max-width: 700px) { .person-load-grid { grid-template-columns: 1fr; } }
+.person-load-item {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px;
+  background: var(--surface-2);
+}
+.person-load-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.avatar {
+  width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg,#3b82f6,#6366f1);
+  color: #fff; font-weight: 800; font-size: 13px; display: grid; place-items: center; flex-shrink: 0;
+}
+.person-name { font-weight: 750; font-size: 13px; }
+.person-dept { font-size: 10px; color: var(--muted); }
+.load-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.load-stat {
+  text-align: center; background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 6px 4px;
+}
+.load-stat .n { font-size: 16px; font-weight: 800; }
+.load-stat .t { font-size: 9px; color: var(--muted); font-weight: 600; }
+.load-stat.danger .n { color: var(--danger); }
+.load-stat.warn .n { color: var(--warn); }
+.due-dots { display: flex; gap: 3px; margin-top: 8px; flex-wrap: wrap; }
+.due-dot {
+  width: 18px; height: 18px; border-radius: 4px; font-size: 9px; font-weight: 800;
+  display: grid; place-items: center; background: var(--purple-soft); color: var(--purple);
+  border: 1px solid #ddd6fe;
+}
+.due-dot.empty { background: var(--surface-3); color: #cbd5e1; border-color: var(--border); }
+
+/* ===== Toolbar + panels ===== */
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.seg { display: inline-flex; padding: 3px; background: #e2e8f0; border-radius: 9px; }
+.seg button {
+  border: none; background: transparent; padding: 7px 13px; border-radius: 7px;
+  font-size: 12px; font-weight: 700; cursor: pointer; color: var(--muted); font-family: inherit;
+}
+.seg button.on { background: #fff; color: var(--text); box-shadow: var(--shadow); }
+.panel { display: none; }
+.panel.on { display: block; }
+
+/* Task accordion */
+.task-acc {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; overflow: hidden; background: #fff;
+}
+.task-acc-head {
+  padding: 12px 14px; cursor: pointer; display: flex; gap: 12px; align-items: center;
+  background: linear-gradient(180deg,#fff,#fafbfc);
+}
+.task-acc-head:hover { background: #f8fafc; }
+.task-acc.open .task-acc-body { display: block; }
+.task-acc-body { display: none; border-top: 1px solid var(--border); overflow-x: auto; }
+.subtable { width: 100%; border-collapse: collapse; font-size: 11px; }
+.subtable th {
+  text-align: left; padding: 8px 10px; background: var(--surface-2); color: var(--muted);
+  font-size: 10px; font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.subtable td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+.badge {
+  display: inline-block; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 999px;
+}
+.badge.done { background: var(--success-soft); color: var(--success); }
+.badge.progress { background: var(--primary-soft); color: #1d4ed8; }
+.badge.blocked { background: var(--danger-soft); color: var(--danger); }
+.badge.wait { background: var(--warn-soft); color: var(--warn); }
+.event-mini { font-size: 10px; color: var(--muted); line-height: 1.4; max-width: 220px; }
+
+/* Person detail cards */
+.person-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 700px) { .person-detail-grid { grid-template-columns: 1fr; } }
+.person-detail-card {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; background: #fff;
+}
+.person-detail-card h4 { margin: 0 0 8px; font-size: 13px; }
+.pd-item { font-size: 11px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+.pd-item:last-child { border-bottom: none; }
+
+/* Feed */
+.feed-card {
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px;
+}
+.feed-card h3 { margin: 0 0 10px; font-size: 14px; }
+.feed { list-style: none; margin: 0; padding: 0; }
+.feed li {
+  display: grid; grid-template-columns: 68px 1fr auto; gap: 10px; padding: 9px 0;
+  border-bottom: 1px solid #f1f5f9; font-size: 11px; align-items: start;
+}
+.feed li:last-child { border-bottom: none; }
+.feed time { color: var(--muted); font-weight: 650; font-size: 10px; }
+.feed .who { font-weight: 750; }
+.btn-load {
+  margin-top: 10px; width: 100%; padding: 9px; border-radius: var(--radius-sm);
+  border: 1px dashed var(--border); background: var(--surface-2); font-size: 12px;
+  font-weight: 650; cursor: pointer; color: var(--muted); font-family: inherit;
+}
+.btn-load:hover { border-color: #93c5fd; color: #1d4ed8; background: var(--primary-soft); }
+
+/* ===== Advisor panel ===== */
+.advisor-head { padding: 16px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.advisor-head h2 { margin: 0; font-size: 15px; font-weight: 800; }
+.advisor-head p { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+.advisor-body { padding: 14px; }
+.btn-primary {
+  width: 100%; padding: 11px; border: none; border-radius: var(--radius-sm);
+  background: var(--primary); color: #fff; font-size: 13px; font-weight: 750;
+  cursor: pointer; font-family: inherit;
+}
+.btn-primary:hover { background: #1d4ed8; }
+.btn-primary:disabled { opacity: .6; cursor: wait; }
+.advisor-empty {
+  text-align: center; padding: 24px 12px; color: var(--muted); font-size: 12px;
+  border: 1px dashed var(--border); border-radius: var(--radius-sm); margin-top: 12px;
+}
+.advisor-result { display: none; margin-top: 12px; }
+.advisor-result.show { display: block; }
+.adv-sec {
+  border-left: 3px solid var(--border); padding: 10px 12px; margin-bottom: 8px;
+  background: var(--surface-2); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: 11px;
+}
+.adv-sec.high { border-left-color: var(--danger); }
+.adv-sec.mid { border-left-color: var(--warn); }
+.adv-sec.low { border-left-color: var(--success); }
+.adv-sec h4 { margin: 0 0 6px; font-size: 12px; }
+.adv-sec ul { margin: 0; padding-left: 16px; }
+.adv-sec li { margin-bottom: 4px; line-height: 1.45; }
+.adv-meta { font-size: 10px; color: var(--muted); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+
+/* ===== Spec appendix ===== */
+.appendix { margin-top: 32px; }
+.appendix details {
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+  margin-bottom: 12px; overflow: hidden;
+}
+.appendix summary {
+  padding: 14px 18px; cursor: pointer; font-weight: 750; font-size: 14px;
+  background: var(--surface-2); border-bottom: 1px solid transparent;
+}
+.appendix details[open] summary { border-bottom-color: var(--border); }
+.appendix .inner { padding: 16px 18px; font-size: 12px; color: var(--muted); line-height: 1.65; }
+.appendix h4 { color: var(--text); margin: 14px 0 6px; font-size: 13px; }
+.appendix table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 8px 0; }
+.appendix th, .appendix td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
+.appendix th { background: var(--surface-2); color: var(--text); }
+.api-block {
+  background: #0f172a; color: #e2e8f0; padding: 12px 14px; border-radius: 8px;
+  font-family: ui-monospace, monospace; font-size: 10px; line-height: 1.5; overflow-x: auto;
+}
+.not-build { text-decoration: line-through; opacity: .55; }
+</style>
+</head>
+<body>
+
+<header class="spec-banner">
+  <h1>主管周度 Dashboard · 实现规格展示（Plan v2）</h1>
+  <p>
+    本页展示即将实现的<strong>工作台页面</strong>完整形态：路由 <code>/workbench/manager/dashboard</code>，
+    数据来自 <code>GET /api/workbench/manager/weekly-dashboard</code>。
+    右侧「周度建议」为 <code>POST /api/workbench/manager/weekly-advisor</code>（8s 超时，非钉钉机器人）。
+  </p>
+  <div class="spec-tags">
+    <span class="spec-tag new">新建 manager-dashboard-page.ts</span>
+    <span class="spec-tag">Asia/Shanghai 自然周</span>
+    <span class="spec-tag">任务甘特 P0</span>
+    <span class="spec-tag">人员负载摘要 P0</span>
+    <span class="spec-tag not-build">人员甘特 P2</span>
+    <span class="spec-tag not-build">导出/钉钉推送</span>
+  </div>
+</header>
+
+<div class="demo-wrap">
+  <div class="demo-grid">
+    <!-- ========== MAIN COLUMN ========== -->
+    <div class="main-col">
+      <div class="wb-shell">
+        <header class="wb-topbar">
+          <div>
+            <div class="wb-brand">主管工作台</div>
+            <h1 class="wb-title">周度 Dashboard</h1>
+            <p class="wb-desc">自然周指挥舱 · 任务甘特 + 人员负载 · 仅投屏浏览</p>
+          </div>
+          <nav class="nav-pills">
+            <a href="#" class="on">周度 Dashboard</a>
+            <a href="#">历史任务</a>
+            <a href="#">智能规划助手</a>
+          </nav>
+        </header>
+
+        <div class="wb-body">
+          <!-- Historical week banner (hidden for current week demo) -->
+          <div class="callout callout-warn" id="histBanner" style="display:none">
+            <span class="callout-icon">⚠</span>
+            <div>
+              <strong>历史周视图 · 状态为近似值</strong>
+              非当前周时 <code>approxHistoricalState=true</code>：阻塞/执行中颜色基于该周最后 progress 事件或当前 status 近似，非精确快照。
+            </div>
+          </div>
+
+          <!-- §1 Time control -->
+          <div class="sec-label">§1 时间控制 · week + span</div>
+          <section class="time-bar">
+            <div class="time-row">
+              <div class="week-nav">
+                <button type="button" id="prevW" title="上一周">‹</button>
+                <div class="week-label" id="weekLbl">
+                  2026-W21 · 5/19 – 5/25
+                  <small>Asia/Shanghai · 周一 00:00 起</small>
+                </div>
+                <button type="button" id="nextW" title="下一周">›</button>
+              </div>
+              <div class="chips">
+                <span class="chip" data-w="last">上周</span>
+                <span class="chip on" data-w="this">本周</span>
+                <span class="chip" data-w="4">近 4 周跳转</span>
+              </div>
+            </div>
+            <div class="span-row">
+              <span>时间轴 span（默认 ±1 周，共 3 列周）：</span>
+              <div class="span-weeks" id="spanWeeks">
+                <div class="span-w past" title="W20">W20</div>
+                <div class="span-w center" title="W21 选中周">W21</div>
+                <div class="span-w future" title="W22">W22</div>
+              </div>
+              <button type="button" class="chip" id="expandSpan">拉长至 ±3 周</button>
+            </div>
+          </section>
+
+          <!-- §2 KPI -->
+          <div class="sec-label">§2 KPI · 绝对数（无环比）</div>
+          <section class="kpis">
+            <div class="kpi ok">
+              <div class="lbl">本周完成</div><div class="val">7</div><div class="hint">子任务</div>
+              <div class="kpi-tip">周内 SUBTASK_PROGRESS 且 progressStatus=DONE 的去重 subtask 数</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">执行中</div><div class="val">12</div><div class="hint">IN_PROGRESS</div>
+              <div class="kpi-tip">scope 内当前 status=IN_PROGRESS 的子任务数</div>
+            </div>
+            <div class="kpi warn">
+              <div class="lbl">待承接</div><div class="val">3</div><div class="hint">ASSIGNED</div>
+              <div class="kpi-tip">scope 内当前 status=ASSIGNED</div>
+            </div>
+            <div class="kpi danger">
+              <div class="lbl">阻塞/逾期</div><div class="val">2</div><div class="hint">需会上重点</div>
+              <div class="kpi-tip">BLOCKED + due_at 早于参考时刻（当前周=now，历史周=weekEnd）</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">本周动态</div><div class="val">18</div><div class="hint">事件条</div>
+              <div class="kpi-tip">countTaskEventsForManagerInRange（COUNT，不受 feed 分页影响）</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">下周到期</div><div class="val">5</div><div class="hint">下一自然周</div>
+              <div class="kpi-tip">due_at 落在 center 周的下一 Mon–Sun（非 rolling 7 天）</div>
+            </div>
+          </section>
+
+          <!-- §3 Task gantt -->
+          <div class="sec-label">§3 任务×周甘特 · timeline.byTask（P0）</div>
+          <section class="gantt-card">
+            <h3>任务时间轴</h3>
+            <p class="sub">3 周 span 内按<strong>日格</strong>定位；条来自子任务 <code>due_at</code>，无 due 不画条。Hover 看子任务详情。</p>
+            <div class="gantt-head">
+              <div></div>
+              <div class="gantt-days" id="ganttDays"></div>
+            </div>
+            <div id="ganttRows"></div>
+            <div class="gantt-legend">
+              <span><i style="background:var(--primary)"></i> 执行中</span>
+              <span><i style="background:var(--danger)"></i> 阻塞</span>
+              <span><i style="background:var(--success)"></i> 本周完成</span>
+              <span><i style="background:var(--purple)"></i> due 计划点</span>
+            </div>
+          </section>
+
+          <!-- §4 Person load summary -->
+          <div class="sec-label">§4 人员负载摘要 · timeline.byPerson（P0，非甘特）</div>
+          <section class="person-load-card">
+            <h3>人员负载（±1 周 span）</h3>
+            <p class="sub">每人 4 项计数 + span 内 due 日 badge。<strong>不做</strong>人员行内多层甘特（P2 再评估）。</p>
+            <div class="person-load-grid">
+              <div class="person-load-item">
+                <div class="person-load-head">
+                  <div class="avatar">张</div>
+                  <div><div class="person-name">张三</div><div class="person-dept">工艺工程</div></div>
+                </div>
+                <div class="load-stats">
+                  <div class="load-stat"><div class="n">2</div><div class="t">执行中</div></div>
+                  <div class="load-stat danger"><div class="n">0</div><div class="t">阻塞</div></div>
+                  <div class="load-stat"><div class="n">1</div><div class="t">span内due</div></div>
+                  <div class="load-stat warn"><div class="n">1</div><div class="t">下周due</div></div>
+                </div>
+                <div class="due-dots" title="span 内各日 due 计数">
+                  <span class="due-dot empty">—</span><span class="due-dot empty">—</span><span class="due-dot">1</span>
+                  <span class="due-dot empty">—</span><span class="due-dot">1</span><span class="due-dot empty">—</span><span class="due-dot empty">—</span>
+                </div>
+              </div>
+              <div class="person-load-item">
+                <div class="person-load-head">
+                  <div class="avatar" style="background:linear-gradient(135deg,#dc2626,#f97316)">李</div>
+                  <div><div class="person-name">李四</div><div class="person-dept">质量分析</div></div>
+                </div>
+                <div class="load-stats">
+                  <div class="load-stat"><div class="n">1</div><div class="t">执行中</div></div>
+                  <div class="load-stat danger"><div class="n">1</div><div class="t">阻塞</div></div>
+                  <div class="load-stat"><div class="n">2</div><div class="t">span内due</div></div>
+                  <div class="load-stat warn"><div class="n">0</div><div class="t">下周due</div></div>
+                </div>
+                <div class="due-dots">
+                  <span class="due-dot empty">—</span><span class="due-dot">1</span><span class="due-dot empty">—</span>
+                  <span class="due-dot">1</span><span class="due-dot empty">—</span><span class="due-dot empty">—</span><span class="due-dot empty">—</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- §5 Detail panels -->
+          <div class="sec-label">§5 明细 · tasks[] / people[]</div>
+          <div class="toolbar">
+            <div class="seg">
+              <button type="button" class="on" data-panel="task">按任务聚合</button>
+              <button type="button" data-panel="person">按人员聚合</button>
+            </div>
+            <div class="chips">
+              <select style="font-size:11px;padding:5px 8px;border-radius:6px;border:1px solid var(--border)">
+                <option>全部状态</option><option>阻塞/逾期</option><option>执行中</option>
+              </select>
+              <input type="search" placeholder="搜索" style="font-size:11px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);width:120px">
+            </div>
+          </div>
+
+          <div class="panel on" id="panelTask">
+            <article class="task-acc open">
+              <div class="task-acc-head" onclick="this.parentElement.classList.toggle('open')">
+                <div style="flex:1">
+                  <strong style="font-size:13px">TASK-2026-014 · Q2 产线良率提升</strong>
+                  <div style="font-size:10px;color:var(--muted);margin-top:3px">8 子任务 · 本周 6 条动态 · 完成 3</div>
+                </div>
+                <span class="badge blocked" style="margin-left:auto">阻塞中</span>
+              </div>
+              <div class="task-acc-body">
+                <table class="subtable">
+                  <thead>
+                    <tr>
+                      <th>子任务</th><th>负责人</th><th>状态</th><th>截止</th>
+                      <th>本周事件摘要</th><th>下周提示</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>1.1 SPC 脚本</td><td>张三</td>
+                      <td><span class="badge done">已完成</span></td><td>5/22</td>
+                      <td><div class="event-mini">5/21 进度更新<br>5/22 DONE 事件</div></td>
+                      <td>—</td>
+                    </tr>
+                    <tr>
+                      <td>1.2 根因分析</td><td>李四</td>
+                      <td><span class="badge blocked">阻塞</span></td><td>5/24</td>
+                      <td><div class="event-mini">5/23 BLOCKED 上报</div></td>
+                      <td><span class="badge wait">需协调</span></td>
+                    </tr>
+                    <tr>
+                      <td>1.3 DOE 试验</td><td>王五</td>
+                      <td><span class="badge progress">执行中</span></td><td>5/30</td>
+                      <td><div class="event-mini">5/20 ACCEPT<br>5/24 进度 40%</div></td>
+                      <td>计划完成 R1</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+            <article class="task-acc">
+              <div class="task-acc-head" onclick="this.parentElement.classList.toggle('open')">
+                <div style="flex:1">
+                  <strong style="font-size:13px">TASK-2026-011 · 作业指导书 rollout</strong>
+                  <div style="font-size:10px;color:var(--muted);margin-top:3px">5 子任务 · 本周 4 条动态</div>
+                </div>
+                <span class="badge wait">待员工承接</span>
+              </div>
+              <div class="task-acc-body">
+                <table class="subtable">
+                  <thead><tr><th>子任务</th><th>负责人</th><th>状态</th><th>截止</th><th>本周事件</th><th>下周</th></tr></thead>
+                  <tbody>
+                    <tr>
+                      <td>2.1 产线 A 培训</td><td>赵六</td>
+                      <td><span class="badge wait">待承接</span></td><td>5/28</td>
+                      <td><div class="event-mini">5/23 通知已发，未 ACCEPT</div></td>
+                      <td>催承接</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+
+          <div class="panel" id="panelPerson">
+            <div class="person-detail-grid">
+              <div class="person-detail-card">
+                <h4>张三 · 工艺工程</h4>
+                <div class="pd-item"><strong>SPC 脚本</strong> <span class="badge done">已完成</span><br><span style="color:var(--muted)">TASK-014 · 5/22 DONE 事件</span></div>
+                <div class="pd-item"><strong>参数复核</strong> <span class="badge progress">执行中</span><br><span style="color:var(--muted)">TASK-011 · due 5/29</span></div>
+              </div>
+              <div class="person-detail-card">
+                <h4>李四 · 质量分析</h4>
+                <div class="pd-item"><strong>根因分析</strong> <span class="badge blocked">阻塞</span><br><span style="color:var(--muted)">TASK-014 · 逾期 · 缺来料报告</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- §6 Feed -->
+          <div class="sec-label" style="margin-top:16px">§6 本周动态 · feed + cursor 分页</div>
+          <section class="feed-card">
+            <h3>事件时间线 <code style="font-size:10px">feed.items + nextCursor</code></h3>
+            <ul class="feed" id="feedList">
+              <li><time>5/24 16:20</time><div><span class="who">王五</span> 进度 · TASK-014/1.3 · DOE 40%</div><span class="badge progress">PROGRESS</span></li>
+              <li><time>5/24 09:10</time><div><span class="who">李四</span> 阻塞 · TASK-014/1.2 · 缺来料报告</div><span class="badge blocked">BLOCKED</span></li>
+              <li><time>5/22 18:00</time><div><span class="who">张三</span> 完成 · TASK-014/1.1</div><span class="badge done">DONE</span></li>
+              <li><time>5/20 11:30</time><div><span class="who">王五</span> 接受 · TASK-014/1.3</div><span class="badge progress">ACCEPT</span></li>
+            </ul>
+            <button type="button" class="btn-load" id="loadMore">加载更多 · feedCursor=5/20T11:30:00</button>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== ADVISOR COLUMN ========== -->
+    <aside class="advisor-col">
+      <div class="advisor-head">
+        <h2>周度建议助手</h2>
+        <p>POST /api/workbench/manager/weekly-advisor · 8s 超时 · 单次生成 · 非钉钉机器人</p>
+      </div>
+      <div class="advisor-body">
+        <div class="callout callout-spec" style="margin-top:0">
+          <span class="callout-icon">i</span>
+          <div><strong>facts-first</strong> 先 <code>buildWeeklyDashboardFacts</code>，LLM 只写建议文案；超时/失败走 template。</div>
+        </div>
+        <button type="button" class="btn-primary" id="genBtn">生成本周建议</button>
+        <div class="advisor-empty" id="advEmpty">
+          点击上方按钮生成。<br>无多轮追问 · 无导出 · 无定时推送。
+        </div>
+        <div class="advisor-result" id="advResult">
+          <div class="adv-sec high">
+            <h4>会上必谈</h4>
+            <ul>
+              <li><strong>李四 · 根因分析</strong>：阻塞且逾期，缺来料检验报告。</li>
+              <li><strong>赵六 · 产线 A 培训</strong>：2 天未 accept，建议周一催办。</li>
+            </ul>
+          </div>
+          <div class="adv-sec mid">
+            <h4>下周关注</h4>
+            <ul>
+              <li><strong>王五 · DOE</strong>：进度 40%，5/30 到期，需再更新一次。</li>
+              <li><strong>张三</strong>：下周 1 项 due，不宜再加高优新单。</li>
+            </ul>
+          </div>
+          <div class="adv-sec low">
+            <h4>可表扬</h4>
+            <ul><li><strong>张三 · SPC 脚本</strong>：提前完成且附验收 note。</li></ul>
+          </div>
+          <div class="adv-meta">renderSource: llm · 生成耗时 2.3s · 可重新点击覆盖</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ========== APPENDIX ========== -->
+  <section class="appendix">
+    <details open>
+      <summary>API 契约摘要（实现对照）</summary>
+      <div class="inner">
+        <div class="api-block">GET /api/workbench/manager/weekly-dashboard
+  ?week=2026-W21&amp;span=1&amp;feedCursor=&amp;feedLimit=50
+
+Response: {
+  week, span, weeks[], approxHistoricalState,
+  kpi: { completedInWeek, inProgress, waitingAccept,
+         blockedOrOverdue, eventCount, dueNextWeek },
+  tasks[], people[],
+  timeline: { byTask[], byPerson[] },
+  feed: { items[], nextCursor? }
+}
+
+POST /api/workbench/manager/weekly-advisor
+  Body: { week?: "2026-W21" }
+  Response: { sections: { mustDiscuss[], watch[], praise[], agenda[] },
+              renderSource: "llm"|"template", timedOut?: boolean }</div>
+      </div>
+    </details>
+
+    <details>
+      <summary>任务纳入 scope 规则</summary>
+      <div class="inner">
+        <table>
+          <tr><th>场景</th><th>规则</th></tr>
+          <tr><td>当前周</td><td><code>listManagerTasks</code> 过滤非 DONE/STOPPED 顶层任务</td></tr>
+          <tr><td>历史/非当前周</td><td>并集：① 该周有事件 ② 该周发布 ③ due 落在 span 内 ④ span 内仍活跃子任务</td></tr>
+          <tr><td>负责人</td><td>正式 SQLite 必有 assigneeUserId；人员视图直接分组</td></tr>
+        </table>
+      </div>
+    </details>
+
+    <details>
+      <summary>文件清单（将新增/修改）</summary>
+      <div class="inner">
+        <table>
+          <tr><th>路径</th><th>说明</th></tr>
+          <tr><td><code>src/agent/weekly-dashboard/*</code></td><td>facts / timeline / advisor / week-range</td></tr>
+          <tr><td><code>src/web/manager-dashboard-page.ts</code></td><td>SSR 页面 + 客户端 JS</td></tr>
+          <tr><td><code>src/web/dashboard-page-styles.ts</code></td><td>DASHBOARD_PAGE_CSS</td></tr>
+          <tr><td><code>src/web/assignment-workbench.ts</code></td><td>路由 + GET/POST API</td></tr>
+          <tr><td><code>src/infra/workbench-formal-task-store.ts</code></td><td>扩展 events 查询 + count + 索引</td></tr>
+        </table>
+      </div>
+    </details>
+
+    <details>
+      <summary>明确不做（Plan v2）</summary>
+      <div class="inner">
+        <ul>
+          <li class="not-build">钉钉 WEEKLY_REVIEW 对话模式 / 新 orchestrator tool</li>
+          <li class="not-build">周五定时推送 scheduler</li>
+          <li class="not-build">导出 Markdown / PDF / 发钉钉群</li>
+          <li class="not-build">Admin 跨主管大盘</li>
+          <li class="not-build">KPI 较上周环比</li>
+          <li class="not-build">人员×周多层甘特（P2）</li>
+          <li class="not-build">建议助手多轮追问对话</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+</div>
+
+<script>
+(function () {
+  /* Gantt: 21 days = 3 weeks */
+  var days = [];
+  for (var w = 0; w < 3; w++) {
+    var wkLabel = ["W20", "W21", "W22"][w];
+    for (var d = 0; d < 7; d++) {
+      var dayNum = 12 + w * 7 + d + (w === 0 ? 0 : w === 1 ? 7 : 7);
+      if (w === 1) dayNum = 19 + d;
+      if (w === 2) dayNum = 26 + d;
+      if (w === 0) dayNum = 12 + d;
+      days.push({ wk: wkLabel, num: dayNum, center: w === 1, weekend: d >= 5 });
+    }
+  }
+  var ganttDays = document.getElementById("ganttDays");
+  days.forEach(function (dd) {
+    var el = document.createElement("div");
+    el.className = "gantt-day" + (dd.center ? " center-week" : "") + (dd.weekend ? " weekend" : "");
+    el.innerHTML = "<span class=\"wk\">" + dd.wk + "</span>" + dd.num;
+    ganttDays.appendChild(el);
+  });
+
+  var rows = [
+    { label: "TASK-014 良率", bars: [{ start: 7, span: 8, cls: "progress", text: "1.3 DOE" }, { start: 10, span: 3, cls: "blocked", text: "1.2" }] },
+    { label: "TASK-011 rollout", bars: [{ start: 12, span: 4, cls: "due", text: "2.1 due" }] },
+    { label: "TASK-009 CAPA", bars: [{ start: 2, span: 3, cls: "done", text: "完成" }] },
+  ];
+  var ganttRows = document.getElementById("ganttRows");
+  rows.forEach(function (row) {
+    var wrap = document.createElement("div");
+    wrap.className = "gantt-row";
+    var lbl = document.createElement("div");
+    lbl.className = "gantt-lbl";
+    lbl.textContent = row.label;
+    var track = document.createElement("div");
+    track.className = "gantt-track";
+    for (var i = 0; i < 21; i++) {
+      var cell = document.createElement("div");
+      cell.className = "gantt-cell";
+      track.appendChild(cell);
+    }
+    row.bars.forEach(function (b) {
+      var bar = document.createElement("div");
+      bar.className = "gantt-bar " + b.cls;
+      bar.style.left = "calc(" + (b.start / 21 * 100) + "% + 2px)";
+      bar.style.width = "calc(" + (b.span / 21 * 100) + "% - 4px)";
+      bar.title = row.label + " · " + b.text;
+      bar.textContent = b.text;
+      track.appendChild(bar);
+    });
+    wrap.appendChild(lbl);
+    wrap.appendChild(track);
+    ganttRows.appendChild(wrap);
+  });
+
+  /* Panel toggle */
+  document.querySelectorAll(".seg button").forEach(function (btn) {
+    btn.onclick = function () {
+      document.querySelectorAll(".seg button").forEach(function (b) { b.classList.remove("on"); });
+      btn.classList.add("on");
+      var p = btn.dataset.panel;
+      document.getElementById("panelTask").classList.toggle("on", p === "task");
+      document.getElementById("panelPerson").classList.toggle("on", p === "person");
+    };
+  });
+
+  /* Week nav demo */
+  var wi = 1;
+  var labels = ["2026-W20 · 5/12 – 5/18", "2026-W21 · 5/19 – 5/25", "2026-W22 · 5/26 – 6/1"];
+  function setWeek(i) {
+    wi = Math.max(0, Math.min(2, i));
+    document.getElementById("weekLbl").innerHTML = labels[wi] + "<small>Asia/Shanghai · 周一 00:00 起</small>";
+    document.getElementById("histBanner").style.display = wi !== 1 ? "flex" : "none";
+  }
+  document.getElementById("prevW").onclick = function () { setWeek(wi - 1); };
+  document.getElementById("nextW").onclick = function () { setWeek(wi + 1); };
+  document.querySelectorAll(".chips .chip[data-w]").forEach(function (c) {
+    c.onclick = function () {
+      document.querySelectorAll(".chips .chip[data-w]").forEach(function (x) { x.classList.remove("on"); });
+      c.classList.add("on");
+      if (c.dataset.w === "last") setWeek(0);
+      if (c.dataset.w === "this") setWeek(1);
+    };
+  });
+
+  /* Advisor generate demo */
+  document.getElementById("genBtn").onclick = function () {
+    var btn = document.getElementById("genBtn");
+    var empty = document.getElementById("advEmpty");
+    var result = document.getElementById("advResult");
+    btn.disabled = true;
+    btn.textContent = "生成中…（最长 8s）";
+    empty.style.display = "none";
+    setTimeout(function () {
+      btn.disabled = false;
+      btn.textContent = "重新生成本周建议";
+      result.classList.add("show");
+    }, 1800);
+  };
+
+  /* Load more feed demo */
+  document.getElementById("loadMore").onclick = function () {
+    var ul = document.getElementById("feedList");
+    var li = document.createElement("li");
+    li.innerHTML = "<time>5/19 09:00</time><div><span class=\"who\">张三</span> 进度 · TASK-014/1.1</div><span class=\"badge progress\">PROGRESS</span>";
+    ul.appendChild(li);
+    this.textContent = "已加载 · nextCursor 为空";
+    this.disabled = true;
+  };
+
+  document.getElementById("expandSpan").onclick = function () {
+    alert("span=3 → 共 7 周列（W18–W24），任务甘特日格扩展；人员 due badge 同步扩展。");
+  };
+})();
+</script>
+</body>
+</html>

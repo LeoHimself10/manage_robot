@@ -384,6 +384,19 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `PROGRESS_DIGEST_LLM_TIMEOUT_MS` | 否 | LLM 超时毫秒，超时走模板 fallback（默认 `8000`） |
 | `PROGRESS_DIGEST_LLM_MAX_TOKENS` | 否 | LLM 输出 token 上限（默认 `800`） |
 
+### 主管周度 Dashboard
+
+| 变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `WEEKLY_DASHBOARD_TIMEZONE` | 否 | 周边界时区，默认回退 `FOLLOWUP_TIMEZONE`，再回退 `Asia/Shanghai`；自然周为周一 00:00 到下周一 00:00 |
+| `WEEKLY_DASHBOARD_SPAN_MAX` | 否 | 页面可查看中心周前后 span 上限（默认 `6`） |
+| `WEEKLY_DASHBOARD_FEED_PAGE_SIZE` | 否 | 动态 feed 默认分页大小（默认 `50`） |
+| `WEEKLY_DASHBOARD_FEED_MAX_PAGE_SIZE` | 否 | 单页最大条数（默认 `100`） |
+| `WEEKLY_ADVISOR_LLM_ENABLED` | 否 | 工作台内「周会建议」是否调用 LLM（默认 `1`）；失败或超时使用模板 |
+| `WEEKLY_ADVISOR_LLM_MODEL` | 否 | 建议助手模型（默认 `qwen3.6-flash`） |
+| `WEEKLY_ADVISOR_LLM_TIMEOUT_MS` | 否 | 建议助手超时毫秒（默认 `8000`） |
+| `WEEKLY_ADVISOR_LLM_MAX_TOKENS` | 否 | 建议助手输出 token 上限（默认 `900`） |
+
 单测默认会设置 `*_DISABLED`，避免写入仓库外路径；`vitest.setup.ts` 默认 `FOLLOWUP_REMINDER_ENABLED=0` 与 `PROGRESS_DIGEST_ENABLED=0` 避免测试进程启动后台扫描。与本节生产配置无关。
 
 本地直连调试：

@@ -1,4 +1,5 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
+import { WORKBENCH_PROJECT_OVERVIEW_CSS } from "./workbench-project-overview-styles";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 
 function escapeHtml(v: string): string {
@@ -11,11 +12,8 @@ function escapeHtml(v: string): string {
 
 export function renderManagerProjectsPage(params: {
   userLabel?: string;
-  presentation?: boolean;
 }): string {
   const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
-  const presentation = Boolean(params.presentation);
-  const bodyClass = presentation ? "page-shell--presentation" : "";
 
   return `<!DOCTYPE html>
 <html lang="zh">
@@ -25,51 +23,41 @@ export function renderManagerProjectsPage(params: {
 <title>项目总览 · 主管工作台</title>
 <style>
 ${WORKBENCH_APP_BASE_CSS}
-.page-shell--presentation .topbar .btn:not(.presentation-exit),
-.page-shell--presentation #newProjectBtn,
-.page-shell--presentation #refreshBtn { display: none !important; }
-.page-shell--presentation .project-card { font-size: 1.05rem; }
-.page-shell--presentation .project-card .kpi-row .val { font-size: 1.35rem; }
-.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px; }
-.project-card { border: 1px solid var(--border, #e5e7eb); border-radius: 12px; padding: 16px; background: var(--card-bg, #fff); cursor: pointer; transition: box-shadow .15s; }
-.project-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.08); }
-.project-card.attn-blocked { border-color: #f87171; }
-.project-card.attn-needs { border-color: #fb923c; }
-.project-card h3 { margin: 0 0 6px; font-size: 1.1rem; }
-.project-card .desc { color: var(--muted, #6b7280); font-size: 13px; margin: 0 0 12px; min-height: 1.2em; }
-.project-card .headline { font-size: 13px; font-weight: 600; color: #b45309; margin: 0 0 10px; }
-.project-card .kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; font-size: 11px; }
-.project-card .kpi-row .lbl { color: var(--muted, #6b7280); }
-.project-card .kpi-row .val { font-weight: 700; font-size: 1rem; }
-.toolbar-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px; }
+${WORKBENCH_PROJECT_OVERVIEW_CSS}
 </style>
 </head>
-<body class="${bodyClass}">
+<body>
 <div class="app-shell">
   <header class="topbar">
     <div>
       <div class="brand">主管工作台</div>
       <h1 class="page-title">项目总览</h1>
-      <p class="page-desc">按大项目聚合任务进展，适合周会 / 月会一屏汇报。${who}</p>
+      <p class="page-desc">按项目查看主任务整体进展；需要子任务明细请进入历史任务。周会汇报请使用周度 Dashboard。</p>
     </div>
     <div class="top-actions">
       <nav class="nav-pills" aria-label="主管导航">
         <a class="active" href="/workbench/manager/projects">项目总览</a>
         <a href="/workbench/manager/tasks">历史任务</a>
+        <a href="/workbench/manager/dashboard">周度 Dashboard</a>
         <a href="/workbench/manager/chat?thread=main">智能规划助手</a>
         <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
       </nav>
-      <button type="button" class="btn btn-secondary btn-sm" id="presentationBtn">开会展示</button>
-      <a class="btn btn-ghost btn-sm presentation-exit" id="exitPresentationBtn" href="/workbench/manager/projects" hidden>退出开会模式</a>
       <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
     </div>
   </header>
 
   <div class="card">
-    <div class="toolbar-row">
+    <div class="proj-page-toolbar">
       <button type="button" class="btn btn-primary btn-sm" id="newProjectBtn">新建项目</button>
       <button type="button" class="btn btn-ghost btn-sm" id="refreshBtn">刷新</button>
-      <p class="muted" id="loadMeta" style="margin:0;" role="status" aria-live="polite">加载中…</p>
+      <input type="search" class="proj-search" id="projectSearch" placeholder="搜索项目名称…" aria-label="搜索项目" />
+      <div class="proj-filter-chips" id="projectFilterChips" aria-label="快捷筛选">
+        <button type="button" class="proj-filter-chip" data-proj-filter="all" aria-pressed="true">全部</button>
+        <button type="button" class="proj-filter-chip" data-proj-filter="needs_manager">有待您处理</button>
+        <button type="button" class="proj-filter-chip" data-proj-filter="blocked">有阻塞</button>
+        <button type="button" class="proj-filter-chip" data-proj-filter="unassigned">仅未归类</button>
+      </div>
+      <p class="proj-load-meta" id="loadMeta" role="status" aria-live="polite">加载中…</p>
     </div>
     <div id="projectGrid" class="project-grid">
       <div class="empty-state">加载中…</div>
@@ -79,7 +67,7 @@ ${WORKBENCH_APP_BASE_CSS}
 
 <dialog id="newProjectDialog">
   <form method="dialog" id="newProjectForm" class="form-stack" style="min-width:320px;padding:8px;">
-    <h2 style="margin:0 0 12px;">新建大项目</h2>
+    <h2 style="margin:0 0 12px;">新建项目</h2>
     <label>名称 <input id="newProjectName" required autocomplete="off" /></label>
     <label>描述 <textarea id="newProjectDesc" rows="3" placeholder="业务线、范围简述"></textarea></label>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
@@ -94,14 +82,12 @@ ${WORKBENCH_APP_BASE_CSS}
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}
   wbBindViewSwitchLink('navMyTasks', 'employee', '/workbench/employee?view=new');
-  var PRESENTATION = ${presentation ? "true" : "false"};
-  if (PRESENTATION) {
-    document.body.classList.add('page-shell--presentation');
-    var exitBtn = document.getElementById('exitPresentationBtn');
-    if (exitBtn) exitBtn.hidden = false;
-  }
   var grid = document.getElementById('projectGrid');
   var loadMeta = document.getElementById('loadMeta');
+  var allCards = [];
+  var projFilter = 'all';
+  var searchKw = '';
+
   function attnClass(bucket) {
     if (bucket === 'blocked') return 'attn-blocked';
     if (bucket === 'needs_manager') return 'attn-needs';
@@ -110,36 +96,91 @@ ${WORKBENCH_APP_BASE_CSS}
   function esc(s) {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
+  function tasksHref(projectId, extraScope) {
+    var q = 'view=group&projectId=' + encodeURIComponent(projectId);
+    if (extraScope) q += '&scope=' + encodeURIComponent(extraScope);
+    return '/workbench/manager/tasks?' + q;
+  }
+  function dashboardHref(projectId) {
+    return '/workbench/manager/dashboard?projectId=' + encodeURIComponent(projectId);
+  }
+  function renderProgress(c) {
+    var p = c.progress || {};
+    var pill = '<span class="project-card__pill tone-' + esc(p.pillTone || 'idle') + '">' + esc(p.pillLabel || '—') + '</span>';
+    var summary = '<span class="project-card__summary">' + esc(p.summary || '') + '</span>';
+    var tagInner = '';
+    if (p.tags && p.tags.length) {
+      tagInner = p.tags.map(function (t) {
+        return '<span class="project-card__tag">' + esc(t.label || '') + '</span>';
+      }).join('');
+    }
+    var barInner = '';
+    if (p.barSegments && p.barSegments.length) {
+      barInner = p.barSegments.map(function (s) {
+        return '<span class="seg seg-' + esc(s.tone || 'running') + '" style="width:' + esc(String(s.pct || 0)) + '%"></span>';
+      }).join('');
+    }
+    return '<div class="project-card__progress">'
+      + '<div class="project-card__progress-main">'
+      + '<div class="project-card__progress-row">' + pill + summary + '</div>'
+      + '<div class="project-card__tags-slot"><div class="project-card__tags">' + tagInner + '</div></div>'
+      + '</div>'
+      + '<div class="project-card__bar">' + barInner + '</div>'
+      + '</div>';
+  }
+  function filterCards(cards) {
+    var kw = searchKw.trim().toLowerCase();
+    return cards.filter(function (c) {
+      if (kw && String(c.name || '').toLowerCase().indexOf(kw) < 0) return false;
+      if (projFilter === 'all') return true;
+      if (projFilter === 'unassigned') return String(c.projectId) === '__unassigned__';
+      if (projFilter === 'needs_manager') {
+        return (c.taskBuckets && c.taskBuckets.needs_manager > 0) || c.attentionBucket === 'needs_manager';
+      }
+      if (projFilter === 'blocked') {
+        return (c.taskBuckets && c.taskBuckets.blocked > 0) || c.attentionBucket === 'blocked';
+      }
+      return true;
+    });
+  }
   function renderCards(cards) {
-    if (!cards || !cards.length) {
-      grid.innerHTML = '<div class="empty-state">暂无项目。可点击「新建项目」开始归类大任务。</div>';
+    var visible = filterCards(cards);
+    if (!visible.length) {
+      grid.innerHTML = '<div class="empty-state">暂无匹配项目。可调整筛选或点击「新建项目」。</div>';
       return;
     }
-    grid.innerHTML = cards.map(function (c) {
-      var b = c.breakdown || {};
-      var href = '/workbench/manager/tasks?projectId=' + encodeURIComponent(c.projectId);
-      return '<article class="project-card ' + attnClass(c.attentionBucket) + '" data-project-id="' + esc(c.projectId) + '" tabindex="0" role="button">'
-        + '<h3>' + esc(c.name) + '</h3>'
-        + (c.description ? '<p class="desc">' + esc(c.description) + '</p>' : '<p class="desc">—</p>')
-        + '<p class="headline">' + esc(c.headline || c.attentionLabel) + '</p>'
-        + '<div class="kpi-row">'
-        + '<div><div class="lbl">待您处理</div><div class="val">' + (b.needsManager||0) + '</div></div>'
-        + '<div><div class="lbl">待承接</div><div class="val">' + (b.waitingAccept||0) + '</div></div>'
-        + '<div><div class="lbl">执行中</div><div class="val">' + (b.inProgress||0) + '</div></div>'
-        + '<div><div class="lbl">阻塞</div><div class="val">' + (b.blocked||0) + '</div></div>'
-        + '<div><div class="lbl">已完成</div><div class="val">' + (b.done||0) + '</div></div>'
+    grid.innerHTML = visible.map(function (c) {
+      var pid = String(c.projectId || '');
+      var isUnassigned = pid === '__unassigned__';
+      var primaryLabel = isUnassigned ? '整理未归类任务' : '查看任务列表';
+      var desc = c.description ? esc(c.description) : (isUnassigned ? '待整理归属的主任务' : '—');
+      return '<article class="project-card ' + attnClass(c.attentionBucket) + '" data-project-id="' + esc(pid) + '" tabindex="0" role="button">'
+        + '<div class="project-card__head"><h3>' + esc(c.name) + '</h3><p class="desc">' + desc + '</p></div>'
+        + renderProgress(c)
+        + '<div class="project-card__actions">'
+        + '<button type="button" class="btn btn-primary btn-sm" data-card-go="' + esc(pid) + '">' + esc(primaryLabel) + '</button>'
+        + (isUnassigned ? '' : '<a class="btn btn-ghost btn-sm" href="' + dashboardHref(pid) + '">周度 Dashboard</a>')
         + '</div>'
-        + '<p class="muted" style="margin:10px 0 0;font-size:12px;">' + (c.taskCount||0) + ' 条大任务 · ' + esc(c.attentionLabel) + '</p>'
         + '</article>';
     }).join('');
     grid.querySelectorAll('.project-card').forEach(function (el) {
-      function go() {
-        var pid = el.getAttribute('data-project-id');
-        if (pid) window.location.href = '/workbench/manager/tasks?projectId=' + encodeURIComponent(pid);
+      function go(ev) {
+        if (ev.target.closest('.project-card__actions .btn')) return;
+        var id = el.getAttribute('data-project-id');
+        if (id) window.location.href = tasksHref(id, id === '__unassigned__' ? 'unassigned' : '');
       }
       el.addEventListener('click', go);
       el.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(e); }
+      });
+    });
+    grid.querySelectorAll('[data-card-go]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var pid = btn.getAttribute('data-card-go');
+        if (!pid) return;
+        var scope = pid === '__unassigned__' ? 'unassigned' : '';
+        window.location.href = tasksHref(pid, scope);
       });
     });
   }
@@ -149,16 +190,29 @@ ${WORKBENCH_APP_BASE_CSS}
       var res = await fetch('/api/workbench/manager/projects');
       var data = await res.json();
       if (!data.ok) throw new Error(data.error || 'load failed');
-      renderCards(data.cards || []);
-      loadMeta.textContent = '共 ' + (data.cards ? data.cards.length : 0) + ' 个视图（含未归类）';
+      allCards = data.cards || [];
+      renderCards(allCards);
+      var n = allCards.filter(function (c) { return String(c.projectId) !== '__unassigned__'; }).length;
+      var un = allCards.find(function (c) { return String(c.projectId) === '__unassigned__'; });
+      loadMeta.textContent = n + ' 个项目' + (un && un.taskCount ? ' · 未归类 ' + un.taskCount + ' 条' : '');
     } catch (e) {
       grid.innerHTML = '<div class="empty-state">加载失败</div>';
       loadMeta.textContent = String(e.message || e);
     }
   }
   document.getElementById('refreshBtn').addEventListener('click', load);
-  document.getElementById('presentationBtn').addEventListener('click', function () {
-    window.location.href = '/workbench/manager/projects?presentation=1';
+  document.getElementById('projectSearch').addEventListener('input', function (e) {
+    searchKw = String(e.target.value || '');
+    renderCards(allCards);
+  });
+  document.querySelectorAll('[data-proj-filter]').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      projFilter = chip.getAttribute('data-proj-filter') || 'all';
+      document.querySelectorAll('[data-proj-filter]').forEach(function (c) {
+        c.setAttribute('aria-pressed', c === chip ? 'true' : 'false');
+      });
+      renderCards(allCards);
+    });
   });
   var dlg = document.getElementById('newProjectDialog');
   document.getElementById('newProjectBtn').addEventListener('click', function () { dlg.showModal(); });

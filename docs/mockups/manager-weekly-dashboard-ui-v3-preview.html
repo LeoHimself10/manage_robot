@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>周度 Dashboard · UI 预览 v3</title>
+<style>
+:root {
+  --bg: #eef2f6; --surface: #fff; --border: #dde3ea; --text: #0f172a; --muted: #64748b;
+  --primary: #2563eb; --primary-soft: #eff6ff; --danger: #dc2626; --ok: #16a34a; --warn: #d97706;
+  --radius: 12px; --font: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.5; }
+.preview-bar {
+  background: linear-gradient(135deg, #0f172a, #1e40af); color: #e2e8f0; padding: 16px 20px;
+}
+.preview-bar h1 { margin: 0 0 6px; font-size: 20px; }
+.preview-bar p { margin: 0; font-size: 13px; color: #cbd5e1; max-width: 920px; }
+.view-switch { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.view-switch button {
+  border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #fff;
+  padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.view-switch button.on { background: #fff; color: #1d4ed8; border-color: #fff; }
+.shell { max-width: 1320px; margin: 0 auto; padding: 20px 18px 48px; }
+.topbar {
+  display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 14px;
+}
+.brand { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.page-title { margin: 4px 0 0; font-size: 24px; font-weight: 800; }
+.page-desc { margin: 4px 0 0; font-size: 13px; color: var(--muted); max-width: 520px; }
+.nav-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.nav-pills a {
+  padding: 7px 12px; border-radius: 999px; border: 1px solid var(--border); background: #fff;
+  color: var(--text); font-size: 12px; font-weight: 600; text-decoration: none;
+}
+.nav-pills a.on { background: var(--primary-soft); border-color: #93c5fd; color: #1d4ed8; }
+.card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+.stack { display: grid; gap: 14px; }
+.body-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+@media (max-width: 1080px) { .body-grid { grid-template-columns: 1fr; } }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; justify-content: space-between; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.controls label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.controls input, .controls select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
+.week-nav { display: flex; gap: 6px; align-items: end; }
+.week-nav button { width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: #fff; cursor: pointer; }
+.chips { display: flex; gap: 4px; }
+.chip { padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-size: 12px; cursor: pointer; }
+.chip.on { background: var(--primary-soft); color: #1d4ed8; border-color: #93c5fd; font-weight: 700; }
+.meta { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
+.kpi { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.kpi .lbl { font-size: 12px; color: var(--muted); }
+.kpi .val { font-size: 28px; font-weight: 800; margin-top: 2px; }
+.kpi.ok .val { color: var(--ok); }
+.kpi.warn .val { color: var(--warn); }
+.kpi.danger .val { color: var(--danger); }
+.section-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+.section-head h2 { margin: 0; font-size: 17px; }
+.section-sub { margin: 0; font-size: 12px; color: var(--muted); }
+.tabs { display: inline-flex; gap: 4px; padding: 3px; background: #f1f5f9; border-radius: 8px; border: 1px solid var(--border); }
+.tabs button { border: 0; background: transparent; padding: 7px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--muted); }
+.tabs button.on { background: #fff; color: var(--primary); box-shadow: 0 1px 3px rgba(15,23,42,.08); }
+.gantt-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+.gantt { min-width: 900px; --days: 21; }
+.gantt-head, .gantt-row { display: grid; grid-template-columns: 250px 1fr; }
+.gantt-head { background: #f8fafc; border-bottom: 1px solid var(--border); position: sticky; top: 0; }
+.gantt-head .lbl { padding: 10px 12px; font-weight: 700; font-size: 12px; border-right: 1px solid var(--border); }
+.gantt-days { display: grid; grid-template-columns: repeat(var(--days), minmax(28px, 1fr)); }
+.gantt-day { text-align: center; font-size: 11px; padding: 6px 2px; border-right: 1px solid #eef2f7; }
+.gantt-day.center { background: #eff6ff; color: #1d4ed8; font-weight: 700; }
+.gantt-day.we { opacity: .6; }
+.gantt-row { border-bottom: 1px solid #eef2f7; min-height: 46px; align-items: stretch; }
+.gantt-row:last-child { border-bottom: 0; }
+.gantt-label { padding: 10px 12px; border-right: 1px solid var(--border); font-size: 12px; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+.gantt-label strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gantt-label small { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gantt-track { position: relative; height: 28px; margin: 9px 4px; display: grid; grid-template-columns: repeat(var(--days), minmax(28px, 1fr)); gap: 2px; }
+.gantt-cell { background: #f8fafc; border-radius: 3px; }
+.gantt-cell.center { background: #eff6ff; }
+.gantt-bar {
+  position: absolute; top: 4px; height: 20px; border-radius: 5px; color: #fff; font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; padding: 0 6px; overflow: hidden; white-space: nowrap;
+}
+.gantt-bar.p { background: #2563eb; } .gantt-bar.b { background: #dc2626; } .gantt-bar.d { background: #16a34a; } .gantt-bar.w { background: #d97706; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 18px; height: 8px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+.person-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.person { border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.person h3 { margin: 0 0 8px; font-size: 15px; }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.stats b { color: var(--text); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.badge-info { background: #dbeafe; color: #1d4ed8; }
+.badge-warn { background: #fef3c7; color: #92400e; }
+.badge-danger { background: #fee2e2; color: #991b1b; }
+.badge-ok { background: #dcfce7; color: #166534; }
+.badge-muted { background: #f1f5f9; color: #475569; }
+.feed { display: grid; gap: 8px; }
+.feed-item { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+.feed-meta { font-size: 12px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.side { position: sticky; top: 16px; }
+.advisor { padding: 0; overflow: hidden; }
+.advisor-head { padding: 14px 16px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg,#fff,#f8fafc); }
+.advisor-body { padding: 14px 16px 16px; display: grid; gap: 10px; }
+.advisor-empty { border: 1px dashed #cbd5e1; border-radius: 10px; padding: 16px; text-align: center; color: var(--muted); font-size: 13px; background: #fafbfc; }
+.adv-sec { border: 1px solid var(--border); border-left-width: 4px; border-radius: 10px; padding: 12px; background: #fff; }
+.adv-sec.high { border-left-color: #dc2626; } .adv-sec.mid { border-left-color: #2563eb; } .adv-sec.low { border-left-color: #94a3b8; }
+.adv-sec h4 { margin: 0 0 6px; font-size: 14px; }
+.adv-sec ul { margin: 0; padding-left: 18px; font-size: 13px; }
+.btn { border: 0; border-radius: 8px; padding: 9px 14px; font-weight: 600; cursor: pointer; font-size: 13px; }
+.btn-primary { background: var(--primary); color: #fff; }
+.panel { display: none; } .panel.on { display: block; }
+.project-tag { font-size: 11px; color: #6366f1; background: #eef2ff; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header class="preview-bar">
+  <h1>周度 Dashboard · UI 预览 v3（静态稿）</h1>
+  <p>对照智能规划助手工作台风格：KPI 与筛选全宽、下方主区 + 右侧「周会助手」并列不重叠；甘特为<strong>计划区间条</strong>；无「口径说明」等技术文案。可切换 Portfolio 主管 / 普通主管两种视角。</p>
+  <div class="view-switch">
+    <button type="button" class="on" data-view="portfolio">Portfolio 主管（可筛项目）</button>
+    <button type="button" data-view="standard">普通主管（无项目模块）</button>
+  </div>
+</header>
+
+<div class="shell">
+  <header class="topbar">
+    <div>
+      <div class="brand">主管工作台</div>
+      <h1 class="page-title">周度 Dashboard</h1>
+      <p class="page-desc">周会投屏与进展汇报：一屏看清任务节奏、人员负载与关键动态。</p>
+    </div>
+    <nav class="nav-pills">
+      <a href="#" id="navProjects">项目总览</a>
+      <a href="#">历史任务</a>
+      <a href="#" class="on">周度 Dashboard</a>
+      <a href="#">智能规划助手</a>
+    </nav>
+  </header>
+
+  <div class="stack">
+    <section class="card toolbar">
+      <div class="controls">
+        <div class="week-nav">
+          <button type="button">‹</button>
+          <label>中心周<input type="date" value="2026-06-02"></label>
+          <button type="button">›</button>
+        </div>
+        <div class="chips">
+          <span class="chip">上周</span><span class="chip on">本周</span><span class="chip">下周</span>
+        </div>
+        <label>视图范围<select><option>±1 周</option></select></label>
+        <label id="projectFilterWrap">项目<select id="projectFilter">
+          <option value="">全部项目</option>
+          <option value="q2">Q2 渠道复盘</option>
+          <option value="oct">微导管上市准备</option>
+          <option value="unassigned">未归类</option>
+        </select></label>
+        <button class="btn btn-primary" type="button">刷新</button>
+      </div>
+      <p class="meta" id="rangeMeta">2026-06-02 ~ 2026-06-08 · 视图 ±1 周 · 动态 24 条 · <span id="scopeHint">全部项目</span></p>
+    </section>
+
+    <section class="kpis" id="kpiRow"></section>
+
+    <div class="body-grid">
+      <div class="stack">
+        <section class="card">
+          <div class="section-head">
+            <div><h2>任务时间轴</h2><p class="section-sub">子任务截止日期前的计划区间（非单点）。</p></div>
+          </div>
+          <div class="gantt-wrap"><div class="gantt" id="gantt"></div></div>
+          <div class="legend">
+            <span><i style="background:#2563eb"></i>执行中</span>
+            <span><i style="background:#dc2626"></i>阻塞</span>
+            <span><i style="background:#16a34a"></i>已完成</span>
+            <span><i style="background:#d97706"></i>待承接</span>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <div><h2>明细</h2><p class="section-sub">按任务核对，或按人员过会。</p></div>
+            <div class="tabs"><button type="button" class="on" data-panel="tasks">任务明细</button><button type="button" data-panel="people">人员负载</button></div>
+          </div>
+          <div id="panelTasks" class="panel on"></div>
+          <div id="panelPeople" class="panel"></div>
+        </section>
+
+        <section class="card">
+          <div class="section-head"><div><h2>本周动态</h2><p class="section-sub">关键变更与进展。</p></div></div>
+          <div class="feed" id="feed"></div>
+        </section>
+      </div>
+
+      <aside class="side">
+        <section class="card advisor">
+          <div class="advisor-head">
+            <h2 style="margin:0;font-size:16px">周会助手</h2>
+            <p class="section-sub" style="margin:4px 0 0">一键整理过会议程，适合投屏。</p>
+          </div>
+          <div class="advisor-body">
+            <button type="button" class="btn btn-primary" id="genBtn">生成本周要点</button>
+            <p class="meta" id="advMeta"></p>
+            <div class="advisor-empty" id="advEmpty">尚未生成。点击上方按钮，助手会根据本周任务与动态整理讨论要点。</div>
+            <div id="advOut" class="hidden"></div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var DAYS = 21;
+  var CENTER_START = 7;
+  var CENTER_END = 13;
+
+  var TASKS = [
+    { no: "TASK-014", title: "周度 Dashboard 演示任务", project: "q2", projLabel: "Q2 渠道复盘", bars: [{ s: 8, e: 10, cls: "p", t: "整理指标" }, { s: 10, e: 12, cls: "b", t: "跨部门依赖" }] },
+    { no: "TASK-018", title: "产能爬坡与良率提升", project: "oct", projLabel: "微导管上市", bars: [{ s: 9, e: 13, cls: "p", t: "产线参数" }, { s: 12, e: 15, cls: "p", t: "SPC联调" }, { s: 14, e: 17, cls: "w", t: "来料检验" }] },
+    { no: "TASK-021", title: "注册资料与临床推进", project: "oct", projLabel: "微导管上市", bars: [{ s: 11, e: 13, cls: "w", t: "随访表" }, { s: 15, e: 19, cls: "p", t: "专家函审" }] },
+    { no: "TASK-009", title: "学术推广与品牌活动", project: "q2", projLabel: "Q2 渠道复盘", bars: [{ s: 7, e: 9, cls: "d", t: "KOL议程" }, { s: 13, e: 16, cls: "p", t: "宣传物料" }] },
+    { no: "TASK-003", title: "未归类演示任务", project: "unassigned", projLabel: "未归类", bars: [{ s: 16, e: 18, cls: "w", t: "竞品材料" }] },
+    { no: "TASK-027", title: "客诉闭环专项", project: "q2", projLabel: "Q2 渠道复盘", bars: [{ s: 8, e: 11, cls: "b", t: "根因分析" }] },
+  ];
+
+  var PEOPLE = [
+    { name: "李四", run: 2, block: 0, due: 3, next: 1, subs: ["整理指标 · 执行中", "竞品材料 · 待承接"] },
+    { name: "张三", run: 0, block: 1, due: 2, next: 0, subs: ["跨部门依赖 · 阻塞", "根因分析 · 阻塞"] },
+    { name: "王五", run: 1, block: 0, due: 2, next: 1, subs: ["产线参数 · 执行中"] },
+    { name: "赵六", run: 1, block: 0, due: 1, next: 0, subs: ["SPC联调 · 执行中"] },
+    { name: "周八", run: 0, block: 0, due: 1, next: 0, subs: ["KOL议程 · 已完成"] },
+  ];
+
+  var FEED = [
+    { time: "06-02 09:12", tag: "员工提交进度", who: "李四", line: "TASK-014 整理周会关键指标", note: "指标已整理 80%" },
+    { time: "06-02 10:40", tag: "子任务阻塞", who: "张三", line: "TASK-014 确认跨部门依赖", note: "等待市场部数据" },
+    { time: "06-01 16:05", tag: "员工提交进度", who: "王五", line: "TASK-018 产线 A 参数复核", note: "参数表已上传" },
+    { time: "06-01 11:20", tag: "任务发布", who: "本地测试主管", line: "TASK-021 注册资料与临床推进", note: "" },
+  ];
+
+  var KPI_ALL = { ok: 3, run: 8, wait: 4, block: 3, next: 5, evt: 24 };
+  var KPI_Q2 = { ok: 2, run: 3, wait: 2, block: 2, next: 2, evt: 11 };
+  var KPI_OCT = { ok: 1, run: 4, wait: 1, block: 1, next: 2, evt: 9 };
+
+  function renderDays() {
+    var html = '<div class="gantt-head"><div class="lbl">任务</div><div class="gantt-days">';
+    for (var i = 0; i < DAYS; i++) {
+      var cls = 'gantt-day';
+      if (i >= CENTER_START && i <= CENTER_END) cls += ' center';
+      if (i % 7 >= 5) cls += ' we';
+      html += '<div class="' + cls + '">' + String(5 + (i % 7) + 1).padStart(2, '0') + '</div>';
+    }
+    html += '</div></div>';
+    return html;
+  }
+
+  function filterTasks() {
+    var v = document.getElementById('projectFilter').value;
+    if (!document.getElementById('projectFilterWrap').classList.contains('hidden') && v) {
+      return TASKS.filter(function (t) { return t.project === v; });
+    }
+    return TASKS.slice();
+  }
+
+  function renderKpi(k) {
+    document.getElementById('kpiRow').innerHTML =
+      '<div class="kpi ok"><div class="lbl">本周完成</div><div class="val">' + k.ok + '</div></div>' +
+      '<div class="kpi"><div class="lbl">执行中</div><div class="val">' + k.run + '</div></div>' +
+      '<div class="kpi warn"><div class="lbl">待承接</div><div class="val">' + k.wait + '</div></div>' +
+      '<div class="kpi danger"><div class="lbl">阻塞/逾期</div><div class="val">' + k.block + '</div></div>' +
+      '<div class="kpi"><div class="lbl">下周到期</div><div class="val">' + k.next + '</div></div>' +
+      '<div class="kpi"><div class="lbl">本周动态</div><div class="val">' + k.evt + '</div></div>';
+  }
+
+  function renderGantt() {
+    var tasks = filterTasks();
+    var html = renderDays();
+    tasks.forEach(function (row) {
+      html += '<div class="gantt-row"><div class="gantt-label"><strong>' + row.no + '</strong><small>' + row.title + '</small></div>';
+      html += '<div style="position:relative"><div class="gantt-track" style="--days:' + DAYS + '">';
+      for (var i = 0; i < DAYS; i++) {
+        var c = 'gantt-cell' + (i >= CENTER_START && i <= CENTER_END ? ' center' : '');
+        html += '<div class="' + c + '"></div>';
+      }
+      row.bars.forEach(function (b) {
+        var left = (b.s / DAYS) * 100;
+        var width = ((b.e - b.s + 1) / DAYS) * 100;
+        html += '<span class="gantt-bar ' + b.cls + '" style="left:' + left + '%;width:' + width + '%">' + b.t + '</span>';
+      });
+      html += '</div></div></div>';
+    });
+    document.getElementById('gantt').innerHTML = html;
+  }
+
+  function renderTasks() {
+    var tasks = filterTasks();
+    document.getElementById('panelTasks').innerHTML = tasks.map(function (t) {
+      return '<details style="margin-bottom:8px;border:1px solid var(--border);border-radius:10px;padding:10px 12px"><summary><strong>' +
+        t.no + ' · ' + t.title + '</strong><span class="project-tag">' + t.projLabel + '</span></summary>' +
+        '<p class="section-sub" style="margin-top:8px">3 条子任务 · 示例折叠明细</p></details>';
+    }).join('');
+  }
+
+  function renderPeople() {
+    document.getElementById('panelPeople').innerHTML = '<div class="person-grid">' + PEOPLE.map(function (p) {
+      return '<article class="person"><h3>' + p.name + '</h3><div class="stats">' +
+        '<span>执行中 <b>' + p.run + '</b></span><span>阻塞 <b>' + p.block + '</b></span>' +
+        '<span>本周期到期 <b>' + p.due + '</b></span><span>下周 <b>' + p.next + '</b></span></div><ul style="margin:0;padding-left:18px;font-size:12px">' +
+        p.subs.map(function (s) { return '<li>' + s + '</li>'; }).join('') + '</ul></article>';
+    }).join('') + '</div>';
+  }
+
+  function renderFeed() {
+    document.getElementById('feed').innerHTML = FEED.map(function (f) {
+      return '<article class="feed-item"><div class="feed-meta"><span>' + f.time + '</span><span class="badge badge-muted">' + f.tag + '</span><span>' + f.who + '</span></div>' +
+        '<strong>' + f.line + '</strong>' + (f.note ? '<div class="section-sub" style="margin-top:4px">' + f.note + '</div>' : '') + '</article>';
+    }).join('');
+  }
+
+  function refreshScope() {
+    var pf = document.getElementById('projectFilter').value;
+    var hint = pf === 'q2' ? 'Q2 渠道复盘' : pf === 'oct' ? '微导管上市准备' : pf === 'unassigned' ? '未归类' : '全部项目';
+    document.getElementById('scopeHint').textContent = hint;
+    var k = pf === 'q2' ? KPI_Q2 : pf === 'oct' ? KPI_OCT : KPI_ALL;
+    renderKpi(k);
+    renderGantt();
+    renderTasks();
+  }
+
+  document.querySelectorAll('[data-view]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('[data-view]').forEach(function (b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+      var portfolio = btn.getAttribute('data-view') === 'portfolio';
+      document.getElementById('projectFilterWrap').classList.toggle('hidden', !portfolio);
+      document.getElementById('navProjects').classList.toggle('hidden', !portfolio);
+      if (!portfolio) document.getElementById('projectFilter').value = '';
+      refreshScope();
+    });
+  });
+
+  document.getElementById('projectFilter').addEventListener('change', refreshScope);
+
+  document.querySelectorAll('[data-panel]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('[data-panel]').forEach(function (b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+      document.getElementById('panelTasks').classList.toggle('on', btn.getAttribute('data-panel') === 'tasks');
+      document.getElementById('panelPeople').classList.toggle('on', btn.getAttribute('data-panel') === 'people');
+    });
+  });
+
+  document.getElementById('genBtn').addEventListener('click', function () {
+    document.getElementById('advEmpty').classList.add('hidden');
+    document.getElementById('advMeta').textContent = '已生成本周要点 · 可重新生成';
+    document.getElementById('advOut').classList.remove('hidden');
+    document.getElementById('advOut').innerHTML =
+      '<div class="adv-sec high"><h4>会上必谈</h4><ul><li><strong>张三</strong>：跨部门依赖仍阻塞，需明确市场部交付日期。</li><li><strong>客诉专项</strong>：根因分析逾期，建议当场指定升级人。</li></ul></div>' +
+      '<div class="adv-sec mid"><h4>跟进事项</h4><ul><li><strong>王五</strong>：产线参数复核进度正常，关注 SPC 联调 5/30 节点。</li><li><strong>李四</strong>：指标整理接近完成，可安排周会前半段快速过。</li></ul></div>' +
+      '<div class="adv-sec low"><h4>可表扬</h4><ul><li><strong>周八</strong>：KOL 议程提前定稿。</li></ul></div>';
+  });
+
+  renderKpi(KPI_ALL);
+  renderGantt();
+  renderTasks();
+  renderPeople();
+  renderFeed();
+})();
+</script>
+</body>
+</html>

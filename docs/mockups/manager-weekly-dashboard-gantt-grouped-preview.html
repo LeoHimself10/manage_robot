@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>周度 Dashboard · 子任务平铺甘特预览</title>
+<style>
+:root {
+  --bg: #eef2f6; --surface: #fff; --border: #dde3ea; --text: #0f172a; --muted: #64748b;
+  --primary: #2563eb; --primary-soft: #eff6ff; --danger: #dc2626; --ok: #16a34a; --warn: #d97706;
+  --radius: 12px; --font: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.5; }
+.preview-bar {
+  background: linear-gradient(135deg, #134e4a, #0f766e 45%, #2563eb); color: #ecfdf5; padding: 18px 20px 20px;
+}
+.preview-bar h1 { margin: 0 0 8px; font-size: 21px; }
+.preview-bar p { margin: 0; font-size: 13px; color: #ccfbf1; max-width: 960px; }
+.compare {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px;
+}
+@media (max-width: 800px) { .compare { grid-template-columns: 1fr; } }
+.compare-box {
+  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); border-radius: 10px; padding: 12px 14px;
+  font-size: 12px; color: #ecfdf5;
+}
+.compare-box strong { display: block; margin-bottom: 6px; font-size: 13px; }
+.compare-box.bad { opacity: .85; }
+.compare-box.good { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.35); }
+.mini-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 10px; }
+.mini-label { width: 72px; color: #99f6e4; flex-shrink: 0; }
+.mini-track { flex: 1; height: 14px; background: rgba(0,0,0,.15); border-radius: 4px; position: relative; }
+.mini-bar { position: absolute; top: 2px; height: 10px; border-radius: 3px; }
+.shell { max-width: 1320px; margin: 0 auto; padding: 20px 18px 48px; }
+.card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+.section-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.section-head h2 { margin: 0; font-size: 17px; }
+.section-sub { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.tool-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.seg { display: inline-flex; padding: 3px; background: #f1f5f9; border: 1px solid var(--border); border-radius: 8px; }
+.seg button {
+  border: 0; background: transparent; padding: 6px 12px; border-radius: 6px; font-size: 12px;
+  font-weight: 600; cursor: pointer; color: var(--muted); font-family: inherit;
+}
+.seg button.on { background: #fff; color: var(--primary); box-shadow: 0 1px 2px rgba(15,23,42,.08); }
+.gantt-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+.gantt { min-width: 960px; --days: 21; }
+.gantt-head { display: grid; grid-template-columns: 300px 1fr; background: #f8fafc; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
+.gantt-head .col-label { padding: 10px 12px; font-size: 12px; font-weight: 700; border-right: 1px solid var(--border); }
+.gantt-days { display: grid; grid-template-columns: repeat(var(--days), minmax(28px, 1fr)); }
+.gantt-day { text-align: center; font-size: 11px; padding: 6px 2px; border-right: 1px solid #eef2f7; }
+.gantt-day.center { background: #eff6ff; color: #1d4ed8; font-weight: 700; }
+.gantt-day.we { opacity: .55; }
+.gantt-row { display: grid; grid-template-columns: 300px 1fr; border-bottom: 1px solid #eef2f7; min-height: 40px; }
+.gantt-row:last-child { border-bottom: 0; }
+.group-head { background: linear-gradient(180deg, #fafbfc, #f8fafc); cursor: pointer; user-select: none; }
+.group-head:hover { background: #f1f5f9; }
+.group-head .col-label {
+  padding: 10px 12px; border-right: 1px solid var(--border); display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+.chev { width: 18px; height: 18px; display: grid; place-items: center; font-size: 11px; color: var(--muted); flex-shrink: 0; transition: transform .15s; }
+.group-head.collapsed .chev { transform: rotate(-90deg); }
+.group-title { min-width: 0; flex: 1; }
+.group-title strong { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.group-title small { color: var(--muted); font-size: 11px; }
+.group-badges { display: flex; flex-wrap: wrap; gap: 4px; flex-shrink: 0; }
+.sub-row .col-label {
+  padding: 8px 12px 8px 36px; border-right: 1px solid var(--border); display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+.sub-title { flex: 1; min-width: 0; }
+.sub-title strong { display: block; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub-title small { color: var(--muted); font-size: 11px; }
+.badge { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.badge-info { background: #dbeafe; color: #1d4ed8; }
+.badge-warn { background: #fef3c7; color: #92400e; }
+.badge-danger { background: #fee2e2; color: #991b1b; }
+.badge-ok { background: #dcfce7; color: #166534; }
+.badge-muted { background: #f1f5f9; color: #475569; }
+.group-summary-track {
+  display: flex; align-items: center; padding: 0 8px; color: var(--muted); font-size: 11px;
+}
+.gantt-track {
+  position: relative; height: 24px; display: grid; grid-template-columns: repeat(var(--days), minmax(28px, 1fr)); gap: 2px;
+}
+.gantt-cell { background: #f8fafc; border-radius: 3px; min-height: 24px; }
+.gantt-cell.center { background: #eff6ff; }
+.gantt-bar {
+  position: absolute; top: 3px; height: 18px; border-radius: 4px; color: #fff; font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; padding: 0 6px; overflow: hidden; white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(15,23,42,.12);
+}
+.gantt-bar.in_progress { background: #2563eb; }
+.gantt-bar.blocked { background: #dc2626; }
+.gantt-bar.done { background: #16a34a; }
+.gantt-bar.assigned { background: #d97706; }
+.track-wrap { position: relative; padding: 22px 4px 6px; }
+.due-marker {
+  position: absolute; top: 4px; bottom: 4px; width: 0; z-index: 3; pointer-events: none;
+  border-left: 2px solid #7c3aed;
+}
+.due-marker::before {
+  content: ""; position: absolute; top: 0; left: -5px;
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-top: 6px solid #7c3aed;
+}
+.due-marker::after {
+  content: attr(data-label); position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+  padding: 2px 7px; border-radius: 6px; font-size: 10px; font-weight: 700; line-height: 1.2;
+  color: #5b21b6; background: #ede9fe; border: 1px solid #c4b5fd; white-space: nowrap;
+}
+.due-marker.overdue { border-left-color: #dc2626; }
+.due-marker.overdue::before { border-top-color: #dc2626; }
+.due-marker.overdue::after { color: #991b1b; background: #fee2e2; border-color: #fca5a5; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 16px; height: 8px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+.note { margin-top: 14px; padding: 12px 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; font-size: 13px; color: #166534; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header class="preview-bar">
+  <h1>甘特方案 B · 主任务分组 + 子任务一行一条</h1>
+  <p>更接近 Jira / Asana：每一行是一个可排期单元（子任务），主任务只做可折叠分组头；每行仅 <strong>一条</strong> bar，颜色表示状态。区间仍由「截止日前 N 天 → 截止日」推算（因系统仅有 due_at）。</p>
+  <div class="compare">
+    <div class="compare-box bad">
+      <strong>❌ 现方案 A（主任务一行多色条）</strong>
+      同一行里叠多条子任务 bar，颜色各异，像里程碑串而非标准甘特。
+      <div class="mini-row"><span class="mini-label">TASK-014</span><div class="mini-track">
+        <span class="mini-bar" style="left:20%;width:12%;background:#2563eb"></span>
+        <span class="mini-bar" style="left:38%;width:10%;background:#dc2626"></span>
+        <span class="mini-bar" style="left:55%;width:14%;background:#d97706"></span>
+      </div></div>
+    </div>
+    <div class="compare-box good">
+      <strong>✓ 方案 B（本页完整交互）</strong>
+      主任务可折叠；子任务各自一行、各自一条 bar；父行只显示汇总 badge，不画 bar。
+      <div class="mini-row"><span class="mini-label">↳ 子任务</span><div class="mini-track">
+        <span class="mini-bar" style="left:25%;width:18%;background:#2563eb"></span>
+      </div></div>
+      <div class="mini-row"><span class="mini-label">↳ 子任务</span><div class="mini-track">
+        <span class="mini-bar" style="left:42%;width:8%;background:#dc2626"></span>
+      </div></div>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <section class="card">
+    <div class="section-head">
+      <div>
+        <h2>任务时间轴（分组视图）</h2>
+        <p class="section-sub">2026-06-02 ~ 06-08 为中心周 · ±1 周 · 点击主任务行折叠/展开</p>
+      </div>
+      <div class="tool-row">
+        <div class="seg" id="densitySeg">
+          <button type="button" class="on" data-mode="all">全部展开</button>
+          <button type="button" data-mode="due">仅本 span 有 due</button>
+          <button type="button" data-mode="fold">全部折叠</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="gantt-wrap">
+      <div class="gantt" id="ganttRoot" style="--days:21"></div>
+    </div>
+
+    <div class="legend">
+      <span><i style="background:#2563eb"></i>执行中</span>
+      <span><i style="background:#dc2626"></i>阻塞</span>
+      <span><i style="background:#16a34a"></i>已完成</span>
+      <span><i style="background:#d97706"></i>待承接</span>
+      <span><i style="background:#7c3aed;width:3px;height:10px;border-radius:1px"></i>截止日（竖线 + 标签，仅轨道）</span>
+    </div>
+
+    <div class="note">
+      <strong>截止日：</strong>只在时间轴轨道标注——竖线落点 + 上方「截止日 MM-DD」标签；左侧与表头不再重复。逾期子任务标签为红色。
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var DAYS = 21;
+  var CENTER_START = 7;
+  var CENTER_END = 13;
+  var DAY_LABELS = [
+    "05-26", "05-27", "05-28", "05-29", "05-30", "05-31", "06-01",
+    "06-02", "06-03", "06-04", "06-05", "06-06", "06-07", "06-08",
+    "06-09", "06-10", "06-11", "06-12", "06-13", "06-14", "06-15",
+  ];
+
+  var GROUPS = [
+    {
+      id: "t14", no: "TASK-014", title: "周度 Dashboard 演示任务", project: "Q2 渠道复盘",
+      badges: [{ t: "执行中 1", c: "badge-info" }, { t: "阻塞 1", c: "badge-danger" }],
+      open: true,
+      subs: [
+        { title: "整理周会关键指标", who: "李四", status: "执行中", cls: "in_progress", s: 8, e: 10, due: 10, dueLabel: "06-10" },
+        { title: "确认跨部门依赖", who: "张三", status: "阻塞", cls: "blocked", s: 9, e: 12, due: 12, dueLabel: "06-12" },
+        { title: "准备下周风险预案", who: "王五", status: "已完成", cls: "done", s: 6, e: 8, due: 8, dueLabel: "06-08" },
+      ],
+    },
+    {
+      id: "t18", no: "TASK-018", title: "产能爬坡与良率提升", project: "微导管上市",
+      badges: [{ t: "执行中 2", c: "badge-info" }, { t: "待承接 1", c: "badge-warn" }],
+      open: true,
+      subs: [
+        { title: "产线 A 参数复核", who: "王五", status: "执行中", cls: "in_progress", s: 9, e: 13, due: 13, dueLabel: "06-13" },
+        { title: "SPC 脚本联调", who: "赵六", status: "执行中", cls: "in_progress", s: 11, e: 15, due: 15, dueLabel: "06-15" },
+        { title: "来料检验对齐", who: "孙七", status: "待承接", cls: "assigned", s: 14, e: 17, due: 17, dueLabel: "06-17" },
+      ],
+    },
+    {
+      id: "t21", no: "TASK-021", title: "注册资料与临床推进", project: "微导管上市",
+      badges: [{ t: "待承接 1", c: "badge-warn" }, { t: "执行中 1", c: "badge-info" }],
+      open: true,
+      subs: [
+        { title: "补充临床随访表", who: "吴九", status: "待承接", cls: "assigned", s: 11, e: 13, due: 13, dueLabel: "06-13" },
+        { title: "专家函审材料", who: "郑十", status: "执行中", cls: "in_progress", s: 14, e: 19, due: 19, dueLabel: "06-19" },
+      ],
+    },
+    {
+      id: "t09", no: "TASK-009", title: "学术推广与品牌活动", project: "Q2 渠道复盘",
+      badges: [{ t: "已完成 1", c: "badge-ok" }],
+      open: false,
+      subs: [
+        { title: "KOL 圆桌议程", who: "周八", status: "已完成", cls: "done", s: 7, e: 9, due: 9, dueLabel: "06-09" },
+        { title: "宣传物料定稿", who: "王芳", status: "执行中", cls: "in_progress", s: 12, e: 16, due: 16, dueLabel: "06-16" },
+      ],
+    },
+    {
+      id: "t27", no: "TASK-027", title: "客诉闭环专项", project: "Q2 渠道复盘",
+      badges: [{ t: "阻塞 1", c: "badge-danger" }],
+      open: true,
+      subs: [
+        { title: "根因分析与 8D", who: "张三", status: "阻塞", cls: "blocked", s: 8, e: 11, due: 11, dueLabel: "06-11", overdue: true },
+      ],
+    },
+  ];
+
+  function inSpan(sub) {
+    return sub.e >= 0 && sub.s < DAYS;
+  }
+
+  function renderDays() {
+    var h = '<div class="gantt-head"><div class="col-label">子任务 · 负责人</div><div class="gantt-days">';
+    for (var i = 0; i < DAYS; i++) {
+      var cls = 'gantt-day';
+      if (i >= CENTER_START && i <= CENTER_END) cls += ' center';
+      if (i % 7 >= 5) cls += ' we';
+      h += '<div class="' + cls + '" title="' + DAY_LABELS[i] + '">' + String((i % 7) + 1).padStart(2, '0') + '</div>';
+    }
+    return h + '</div></div>';
+  }
+
+  function trackCells() {
+    var cells = '';
+    for (var i = 0; i < DAYS; i++) {
+      var c = 'gantt-cell' + (i >= CENTER_START && i <= CENTER_END ? ' center' : '');
+      cells += '<div class="' + c + '"></div>';
+    }
+    return cells;
+  }
+
+  function barHtml(sub) {
+    var left = (sub.s / DAYS) * 100;
+    var width = ((sub.e - sub.s + 1) / DAYS) * 100;
+    var dueLeft = (sub.due / DAYS) * 100;
+    var dateLabel = sub.dueLabel || DAY_LABELS[sub.due] || '';
+    var dueTag = '截止日 ' + dateLabel;
+    var overdueCls = sub.overdue ? ' overdue' : '';
+    return '<div class="track-wrap"><div class="gantt-track" style="--days:' + DAYS + '">' +
+      trackCells() +
+      '<span class="gantt-bar ' + sub.cls + '" style="left:' + left + '%;width:' + width + '%" title="' + sub.title + '">' + sub.title.slice(0, 6) + '</span>' +
+      '<span class="due-marker' + overdueCls + '" style="left:calc(' + dueLeft + '% - 1px)" data-label="' + dueTag + '" title="' + dueTag + '"></span>' +
+      '</div></div>';
+  }
+
+  function render(mode) {
+    var html = renderDays();
+    GROUPS.forEach(function (g) {
+      var subs = g.subs.filter(inSpan);
+      if (mode === 'due' && subs.length === 0) return;
+
+      var open = mode === 'fold' ? false : (mode === 'due' ? true : g.open);
+      html += '<div class="gantt-row group-head' + (open ? '' : ' collapsed') + '" data-gid="' + g.id + '">';
+      html += '<div class="col-label"><span class="chev">▾</span><div class="group-title"><strong>' + g.no + ' · ' + g.title + '</strong><small>' + g.project + '</small></div>';
+      html += '<div class="group-badges">' + g.badges.map(function (b) {
+        return '<span class="badge ' + b.c + '">' + b.t + '</span>';
+      }).join('') + '</div></div>';
+      html += '<div class="group-summary-track">' + g.subs.length + ' 条子任务 · 点击展开明细</div></div>';
+
+      if (open) {
+        subs.forEach(function (sub) {
+          html += '<div class="gantt-row sub-row"><div class="col-label"><div class="sub-title"><strong>' + sub.title + '</strong><small>' + sub.who + '</small></div>';
+          html += '<span class="badge badge-' + (sub.cls === 'in_progress' ? 'info' : sub.cls === 'blocked' ? 'danger' : sub.cls === 'done' ? 'ok' : 'warn') + '">' + sub.status + '</span></div>';
+          html += barHtml(sub) + '</div>';
+        });
+      }
+    });
+    document.getElementById('ganttRoot').innerHTML = html;
+
+    document.querySelectorAll('.group-head').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var gid = el.getAttribute('data-gid');
+        var g = GROUPS.find(function (x) { return x.id === gid; });
+        if (g) g.open = !g.open;
+        render(document.querySelector('#densitySeg button.on').getAttribute('data-mode'));
+      });
+    });
+  }
+
+  document.querySelectorAll('#densitySeg button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#densitySeg button').forEach(function (b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+      var mode = btn.getAttribute('data-mode');
+      if (mode === 'fold') GROUPS.forEach(function (g) { g.open = false; });
+      if (mode === 'all') GROUPS.forEach(function (g) { g.open = true; });
+      if (mode === 'due') GROUPS.forEach(function (g) { g.open = true; });
+      render(mode);
+    });
+  });
+
+  render('all');
+})();
+</script>
+</body>
+</html>

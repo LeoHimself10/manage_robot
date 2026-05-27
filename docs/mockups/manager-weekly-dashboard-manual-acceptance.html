@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>周度 Dashboard · 本地部署与手动验收方案</title>
+<style>
+:root {
+  --bg: #eef2f6;
+  --surface: #fff;
+  --border: #dde3ea;
+  --text: #0f172a;
+  --muted: #64748b;
+  --primary: #2563eb;
+  --primary-soft: #eff6ff;
+  --ok: #059669;
+  --ok-soft: #ecfdf5;
+  --warn: #d97706;
+  --warn-soft: #fffbeb;
+  --danger: #dc2626;
+  --radius: 12px;
+  --font: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.55; }
+a { color: var(--primary); }
+code, kbd { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+.hero {
+  background: linear-gradient(135deg, #0f172a, #1e3a5f 55%, #2563eb);
+  color: #f8fafc; padding: 28px 24px 32px;
+}
+.hero h1 { margin: 0 0 8px; font-size: 26px; }
+.hero p { margin: 0; max-width: 920px; color: #cbd5e1; font-size: 14px; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 64px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(15,23,42,.05);
+}
+.card h2 { margin: 0 0 12px; font-size: 18px; }
+.card h3 { margin: 18px 0 8px; font-size: 15px; }
+.muted { color: var(--muted); font-size: 13px; }
+.status-ok {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px;
+  background: var(--ok-soft); color: var(--ok); font-size: 12px; font-weight: 700;
+}
+.link-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
+.link-card {
+  display: block; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
+  text-decoration: none; color: inherit; background: var(--primary-soft);
+}
+.link-card strong { display: block; color: var(--primary); margin-bottom: 4px; }
+.link-card span { font-size: 12px; color: var(--muted); word-break: break-all; }
+.steps { margin: 0; padding-left: 20px; }
+.steps li { margin: 6px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: #f8fafc; }
+.checklist { list-style: none; padding: 0; margin: 0; }
+.checklist li {
+  display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 10px 0;
+  border-bottom: 1px solid #eef2f7;
+}
+.checklist li:last-child { border-bottom: 0; }
+.checklist input { width: 18px; height: 18px; margin-top: 3px; }
+.checklist .expect { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.phase-tag {
+  display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px;
+  background: #e2e8f0; color: #334155; margin-right: 6px;
+}
+.callout {
+  padding: 12px 14px; border-radius: 10px; border: 1px solid #fcd34d;
+  background: var(--warn-soft); color: #92400e; font-size: 13px; margin-bottom: 14px;
+}
+.callout-info {
+  border-color: #93c5fd; background: var(--primary-soft); color: #1e40af;
+}
+.signoff { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.signoff label { display: grid; gap: 6px; font-size: 13px; }
+.signoff input[type=text] { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+@media (max-width: 720px) { .signoff { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header class="hero">
+  <h1>周度 Dashboard · 本地部署与手动验收</h1>
+  <p>
+    本文档对应四阶段增量计划（Workbench 接线 → UI 对齐 → 周会 UX → 逻辑/Portfolio）。
+    本地服务使用 <code>npm run dev:manager-chat</code>，已预置演示正式任务与 Portfolio 数据。
+  </p>
+  <p style="margin-top:10px"><span class="status-ok">● 服务地址 http://127.0.0.1:8787</span></p>
+</header>
+
+<div class="wrap">
+
+<section class="card">
+  <h2>一、本地部署（已完成可跳过）</h2>
+  <div class="callout callout-info">
+    若端口被占用，先停止旧进程再启动：<br>
+    <code>Get-NetTCPConnection -LocalPort 8787 | % { Stop-Process -Id $_.OwningProcess -Force }</code><br>
+    然后：<code>cd D:\manage_robot</code> → <code>npm run dev:manager-chat</code>
+  </div>
+  <ol class="steps">
+    <li>确认 Node ≥ 22；可选在 <code>.env</code> 配置 <code>QWEN_API_KEY</code>（周会建议 LLM；无 key 时走规则模板）。</li>
+    <li>启动后终端应打印「5) 周度 Dashboard」链接；健康检查：<a href="http://127.0.0.1:8787/health" target="_blank">/health</a> 返回 <code>ok</code>。</li>
+    <li>数据目录：<code>data/local-manager-chat-dev/</code>（本次为全新重置 seed）。</li>
+    <li>测试账号：<strong>userId = manager-local-dev</strong>（测试登录页选「自动判定」或「主管」）。</li>
+  </ol>
+
+  <div class="link-grid">
+    <a class="link-card" href="http://127.0.0.1:8787/workbench" target="_blank">
+      <strong>1. 登录页</strong>
+      <span>http://127.0.0.1:8787/workbench</span>
+    </a>
+    <a class="link-card" href="http://127.0.0.1:8787/workbench/manager/dashboard" target="_blank">
+      <strong>2. 周度 Dashboard（主验收页）</strong>
+      <span>http://127.0.0.1:8787/workbench/manager/dashboard</span>
+    </a>
+    <a class="link-card" href="http://127.0.0.1:8787/workbench/manager/projects" target="_blank">
+      <strong>3. 项目总览（Portfolio 深链）</strong>
+      <span>http://127.0.0.1:8787/workbench/manager/projects</span>
+    </a>
+    <a class="link-card" href="http://127.0.0.1:8787/workbench/manager/tasks" target="_blank">
+      <strong>4. 历史任务（对照 UI）</strong>
+      <span>http://127.0.0.1:8787/workbench/manager/tasks</span>
+    </a>
+  </div>
+</section>
+
+<section class="card">
+  <h2>二、预置演示数据（验收对照）</h2>
+  <p class="muted">脚本 <code>scripts/local-manager-chat-dev.ts</code> 在启动时写入以下数据，便于无需手工造数。</p>
+  <table>
+    <thead>
+      <tr><th>项</th><th>预期</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>正式任务</td>
+        <td>「周度 Dashboard 演示任务」含 3 条子任务：李四执行中、张三阻塞、王五有完成事件</td>
+      </tr>
+      <tr>
+        <td>负责人姓名</td>
+        <td>甘特/明细/人员卡片显示「李四 / 张三 / 王五」，非 userId</td>
+      </tr>
+      <tr>
+        <td>本周动态</td>
+        <td>feed 含中文 actionLabel（如「员工提交进度」），非原始 eventType</td>
+      </tr>
+      <tr>
+        <td>Portfolio</td>
+        <td>项目「Q2 渠道复盘」已关联演示任务；另有「微导管上市准备」与「未归类」任务</td>
+      </tr>
+      <tr>
+        <td>中心周默认</td>
+        <td>首次进入后日期控件同步为当前自然周周一；span 默认 ±1 周</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>三、阶段验收清单</h2>
+  <p class="muted">在浏览器打开 Dashboard 后逐项勾选。全部通过即四阶段验收完成。</p>
+
+  <h3><span class="phase-tag">P1</span>Workbench 接线</h3>
+  <ul class="checklist">
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>导航可进入，不再 404</strong>
+        <div class="expect">顶栏「周度 Dashboard」高亮；页面标题「周度 Dashboard · 主管工作台」</div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>首屏数据加载成功</strong>
+        <div class="expect"><code>rangeMeta</code> 非「加载失败」；6 个 KPI 有数字；甘特区非空（有截止日的子任务）</div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>退出 / 视图切换</strong>
+        <div class="expect">「退出」回到登录页；「我负责的任务」可切换员工视图（或提示无员工身份）</div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>weekInput 与 API 同步</strong>
+        <div class="expect">加载成功后日期框 = 当前中心周周一（<code>YYYY-MM-DD</code>）</div>
+      </div>
+    </li>
+  </ul>
+
+  <h3><span class="phase-tag">P2</span>UI 对齐工作台</h3>
+  <ul class="checklist">
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>周导航 + 自动刷新</strong>
+        <div class="expect">‹ ›、上周/本周/下周 chip 可切换；改 span 或日期后自动刷新（无需仅点刷新）</div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>6 KPI + 语义色</strong>
+        <div class="expect">含「本周动态」格；完成=绿、待承接=橙、阻塞/逾期=红</div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>历史周黄条</strong>
+        <div class="expect">切到明显过去周（如 2026-01-05）出现黄色 <code>info-banner</code>「历史状态近似…」</div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>Tabs / 表格 / Badge / 时间</strong>
+        <div class="expect">明细 Tab 为工作台 <code>.tabs-btn</code>；子任务表 <code>table.data</code>；状态中文 badge；动态时间为 <code>yyyy-MM-dd HH:mm</code></div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>任务折叠 + 中文动态</strong>
+        <div class="expect"><code>&lt;details&gt;</code> 默认折叠；summary 有 attention badge；feed 显示 actionLabel 非 SUBTASK_* 英文</div>
+      </div>
+    </li>
+  </ul>
+
+  <h3><span class="phase-tag">P3</span>周会 UX</h3>
+  <ul class="checklist">
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>人员 Tab → 卡片（非 day 网格）</strong>
+        <div class="expect">每人一张卡：执行中/阻塞/span到期/下周 四计数；due 小圆 chip；子任务短列表 + 状态 badge</div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>甘特色点 + 图例 + 中心周列</strong>
+        <div class="expect">格内仅色点（hover 有 tooltip）；底部图例；中心周列浅蓝底；周末列略淡</div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>周会建议助手 UI</strong>
+        <div class="expect">初始虚线占位；点击「生成本周建议」后出现分区；左侧色条区分优先级；无 API key 时显示「已使用规则模板」</div>
+      </div>
+    </li>
+  </ul>
+
+  <h3><span class="phase-tag">P4</span>逻辑 + Portfolio</h3>
+  <ul class="checklist">
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>KPI 不自相矛盾</strong>
+        <div class="expect">同一子任务不会同时计入「本周完成」与「待承接/执行中/阻塞」；演示数据中完成事件不与活跃 KPI 双计</div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>动态 feed 加载更多不闪屏</strong>
+        <div class="expect">点「加载更多」仅追加 feed，甘特/明细/人员区不重绘闪动（Network 可见 <code>feedOnly=1</code>）</div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>项目筛选（Portfolio）</strong>
+        <div class="expect">顶栏有「项目筛选」下拉（全部 / 未归类 / 各项目）；选「Q2 渠道复盘」后 KPI/任务范围缩小</div>
+      </div>
+    </li>
+    <li>
+      <input type="checkbox">
+      <div>
+        <strong>项目总览 → Dashboard 深链</strong>
+        <div class="expect">项目卡片有「周度 Dashboard」按钮，URL 带 <code>?projectId=proj:...</code> 且筛选预选</div>
+      </div>
+    </li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>四、API 冒烟（可选，开发者）</h2>
+  <p class="muted">登录后从浏览器 DevTools → Application → Cookies 复制 session，或使用测试登录后的同一浏览器会话。</p>
+  <table>
+    <thead><tr><th>请求</th><th>预期</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>GET /api/workbench/manager/weekly-dashboard?week=2026-05-20&amp;span=1</code></td>
+        <td><code>{ ok:true, kpi, timeline, tasks, feed, week.mondayYmd }</code></td>
+      </tr>
+      <tr>
+        <td><code>GET ...&amp;feedOnly=1&amp;feedCursor=offset:0</code></td>
+        <td>仅 <code>feed</code> + 轻量 <code>kpi.eventCount</code>，无 <code>tasks</code>/<code>timeline</code></td>
+      </tr>
+      <tr>
+        <td><code>POST /api/workbench/manager/weekly-advisor</code> body <code>{ week, span }</code></td>
+        <td><code>{ ok:true, sections:[], renderSource }</code></td>
+      </tr>
+      <tr>
+        <td><code>GET ...&amp;projectId=proj:...</code>（Portfolio 用户）</td>
+        <td>任务列表仅含该项目；非 Portfolio 用户忽略 projectId</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>五、自动化回归（发布前）</h2>
+  <pre style="background:#f8fafc;border:1px solid var(--border);padding:12px;border-radius:8px;overflow:auto;font-size:12px;">cd D:\manage_robot
+npx vitest run tests/agent/weekly-dashboard tests/web/assignment-workbench.test.ts -t "weekly"
+npm run typecheck</pre>
+  <p class="muted">单元 + 集成已通过即可与手动清单交叉确认。</p>
+</section>
+
+<section class="card">
+  <h2>六、验收签字</h2>
+  <div class="signoff">
+    <label>验收人<input type="text" placeholder="姓名"></label>
+    <label>验收日期<input type="text" placeholder="2026-05-27"></label>
+  </div>
+  <p class="muted" style="margin-top:12px">结论：□ 通过　□ 有条件通过（备注：________）　□ 不通过</p>
+</section>
+
+</div>
+</body>
+</html>

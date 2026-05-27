@@ -18,6 +18,7 @@ import { signAssignmentEntry } from "../../src/security/web-entry-token";
 import { __resetExternalLoginRateLimitsForTest } from "../../src/web/external-workbench-login";
 import { DingTalkAuthError, type DingTalkAuthClient } from "../../src/integrations/dingtalk/dingtalk-auth";
 import type { WorkbenchPublishNotifier } from "../../src/integrations/dingtalk/workbench-notify";
+import { __setWeeklyAdvisorLlmForTest } from "../../src/agent/weekly-dashboard/weekly-dashboard-advisor-llm";
 
 /** Minimal IncomingMessage stub for tests */
 function stubReq(overrides: {
@@ -565,6 +566,83 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).toContain('"status":"ASSIGNED"');
     const store = createWorkbenchFormalTaskStore();
     expect(store.getTaskDetail("plan-add-api")?.subtasks).toHaveLength(2);
+  });
+
+  it("duplicate append subtask POST dedupes by clientRequestId", async () => {
+    const notifyPublishedTask = vi.fn(async () => ({
+      enabled: true,
+      success: [{ userId: "emp-3", robotMessageKey: "rk-crid" }],
+      failed: [],
+    }));
+    __setWorkbenchPublishNotifierForTest({
+      notifyPublishedTask,
+      notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyTaskStopped: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyProgressDigest: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
+    });
+    seedContact("emp-3", "执行部", "Engineer");
+    await seedPublishedTask({
+      planId: "plan-add-crid-api",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-1",
+    });
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const body = JSON.stringify({
+      planId: "plan-add-crid-api",
+      title: "clientRequestId 子任务",
+      assigneeUserId: "emp-3",
+      objective: "完成",
+      deliverables: "交付",
+      completionCriteria: "通过",
+      dueAt: "2026-06-15",
+      clientRequestId: "api-req-unique-1",
+    });
+    const req1 = stubReq({
+      url: "/api/workbench/manager/subtasks",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body,
+    });
+    const res1 = stubRes();
+    handleAssignmentHttp(req1, res1.res);
+    await flushAsync();
+    expect(res1.captured().statusCode).toBe(200);
+
+    const req2 = stubReq({
+      url: "/api/workbench/manager/subtasks",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        planId: "plan-add-crid-api",
+        title: "不同标题",
+        assigneeUserId: "emp-3",
+        objective: "不同",
+        deliverables: "不同",
+        completionCriteria: "不同",
+        dueAt: "2026-06-20",
+        clientRequestId: "api-req-unique-1",
+      }),
+    });
+    const res2 = stubRes();
+    handleAssignmentHttp(req2, res2.res);
+    await flushAsync();
+    expect(res2.captured().body).toContain('"duplicated":true');
+    expect(createWorkbenchFormalTaskStore().getTaskDetail("plan-add-crid-api")?.subtasks).toHaveLength(2);
+    expect(notifyPublishedTask).toHaveBeenCalledTimes(1);
   });
 
   it("duplicate append subtask POST returns duplicated and does not notify twice", async () => {
@@ -2238,6 +2316,47 @@ describe("assignment-workbench HTTP handler", () => {
       expect(listed.cards?.some((c) => c.name === "OCT 上市")).toBe(true);
     });
 
+    it("POST /api/workbench/manager/tasks/{taskNo}/project assigns project", async () => {
+      vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "portfolio-mgr");
+      vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "manager-1,portfolio-mgr");
+      const cookie = await loginCookie("portfolio-mgr");
+      const createReq = stubReq({
+        url: "/api/workbench/manager/projects",
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ name: "测试项目", description: "" }),
+      });
+      const createRes = stubRes();
+      handleAssignmentHttp(createReq, createRes.res);
+      await flushAsync();
+      const created = JSON.parse(createRes.captured().body) as {
+        project?: { projectId?: string };
+      };
+      const projectId = String(created.project?.projectId ?? "");
+
+      await seedPublishedTask({
+        planId: "plan-assign-project",
+        managerUserId: "portfolio-mgr",
+        assigneeUserId: "emp-1",
+      });
+      const store = createWorkbenchFormalTaskStore();
+      const before = store.getTaskDetail("plan-assign-project");
+      expect(before?.task.projectId ?? "").toBe("");
+
+      const assignReq = stubReq({
+        url: "/api/workbench/manager/tasks/" + encodeURIComponent(before!.task.taskNo) + "/project",
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ projectId }),
+      });
+      const assignRes = stubRes();
+      handleAssignmentHttp(assignReq, assignRes.res);
+      await flushAsync();
+      expect(assignRes.captured().statusCode).toBe(200);
+      const after = store.getTaskDetail("plan-assign-project");
+      expect(after?.task.projectId).toBe(projectId);
+    });
+
     it("GET /api/workbench/me includes projectPortfolioEnabled", async () => {
       vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "portfolio-mgr");
       vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "manager-1,portfolio-mgr");
@@ -2252,6 +2371,140 @@ describe("assignment-workbench HTTP handler", () => {
       await flushAsync();
       const body = JSON.parse(captured().body) as { projectPortfolioEnabled?: boolean };
       expect(body.projectPortfolioEnabled).toBe(true);
+    });
+  });
+
+  describe("weekly dashboard", () => {
+    async function loginCookie(userId = "manager-1"): Promise<string> {
+      const loginReq = stubReq({
+        url: "/api/workbench/login",
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId, role: "manager" }),
+      });
+      const loginRes = stubRes();
+      handleAssignmentHttp(loginReq, loginRes.res);
+      await flushAsync();
+      return String(loginRes.captured().headers["Set-Cookie"] ?? "");
+    }
+
+    it("GET /workbench/manager/dashboard returns HTML for manager", async () => {
+      const cookie = await loginCookie();
+      const req = stubReq({
+        url: "/workbench/manager/dashboard",
+        method: "GET",
+        headers: { cookie },
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      expect(captured().statusCode).toBe(200);
+      expect(captured().body).toContain("周度 Dashboard");
+      expect(captured().body).toContain("id=\"kpiEvents\"");
+    });
+
+    it("GET /api/workbench/manager/weekly-dashboard returns facts payload", async () => {
+      await seedPublishedTask({
+        planId: "plan-weekly-api",
+        managerUserId: "manager-1",
+        assigneeUserId: "emp-weekly",
+      });
+      const cookie = await loginCookie();
+      const req = stubReq({
+        url: "/api/workbench/manager/weekly-dashboard?week=2026-05-20&span=1",
+        method: "GET",
+        headers: { cookie },
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      await flushAsync();
+      const body = JSON.parse(captured().body) as {
+        ok?: boolean;
+        kpi?: { eventCount?: number };
+        timeline?: { byTask?: unknown[] };
+        week?: { mondayYmd?: string };
+      };
+      expect(captured().statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.kpi).toBeTruthy();
+      expect(body.timeline).toBeTruthy();
+      expect(body.week?.mondayYmd).toBeTruthy();
+    });
+
+    it("POST /api/workbench/manager/weekly-advisor returns template sections", async () => {
+      __setWeeklyAdvisorLlmForTest(async () => null);
+      await seedPublishedTask({
+        planId: "plan-weekly-advisor",
+        managerUserId: "manager-1",
+        assigneeUserId: "emp-advisor",
+      });
+      const cookie = await loginCookie();
+      const req = stubReq({
+        url: "/api/workbench/manager/weekly-advisor",
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ week: "2026-05-20", span: 1 }),
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      await flushAsync();
+      const body = JSON.parse(captured().body) as {
+        ok?: boolean;
+        sections?: Array<{ title?: string }>;
+      };
+      expect(captured().statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.sections?.length).toBeGreaterThan(0);
+      __setWeeklyAdvisorLlmForTest(undefined);
+    });
+
+    it("GET weekly-dashboard with projectId ignores filter when portfolio disabled", async () => {
+      vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "portfolio-only");
+      await seedPublishedTask({
+        planId: "plan-weekly-project-filter",
+        managerUserId: "manager-1",
+        assigneeUserId: "emp-1",
+      });
+      const cookie = await loginCookie();
+      const req = stubReq({
+        url: "/api/workbench/manager/weekly-dashboard?projectId=proj%3Ano-such",
+        method: "GET",
+        headers: { cookie },
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      await flushAsync();
+      const body = JSON.parse(captured().body) as { ok?: boolean; tasks?: unknown[] };
+      expect(captured().statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.tasks?.length).toBeGreaterThan(0);
+    });
+
+    it("feedOnly query returns feed slice without tasks", async () => {
+      await seedPublishedTask({
+        planId: "plan-weekly-feed-only",
+        managerUserId: "manager-1",
+        assigneeUserId: "emp-feed",
+      });
+      const cookie = await loginCookie();
+      const req = stubReq({
+        url: "/api/workbench/manager/weekly-dashboard?feedOnly=1&week=2026-05-20",
+        method: "GET",
+        headers: { cookie },
+      });
+      const { res, captured } = stubRes();
+      handleAssignmentHttp(req, res);
+      await flushAsync();
+      const body = JSON.parse(captured().body) as {
+        ok?: boolean;
+        feed?: { items?: unknown[] };
+        tasks?: unknown[];
+        timeline?: unknown;
+      };
+      expect(captured().statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.feed).toBeTruthy();
+      expect(body.tasks).toBeUndefined();
+      expect(body.timeline).toBeUndefined();
     });
   });
 });

@@ -29,7 +29,8 @@
 
 - **接口**：DashScope OpenAI 兼容；默认策略见 `model-policy.ts`；线上可 `QWEN_MODEL` 切换（如 `qwen3.6-flash` 降延迟，需自行验证工具调用质量）。
 - **Prompt 版本**：`orchestrator-agent-v5.23.16`（`src/agent/demo/qwen-prompt.ts`）。对用户口径统一「发放/已发放」；内部工具名仍为 `prepare_publish_task` / `publish_task`。
-- **大项目（Portfolio，可选）**：`WORKBENCH_PROJECT_PORTFOLIO_*` 白名单内主管启用 `projects` 表 + `tasks.project_id`（可空）、项目总览/开会视图、`list_projects` / `create_project` / `suggest_project` / `set_active_project`；名单外主管（角色 B）界面与 Agent 与现网一致。
+- **项目（Portfolio，可选）**：`WORKBENCH_PROJECT_PORTFOLIO_*` 白名单内主管启用 `projects` 表 + `tasks.project_id`（可空）、**项目总览** + **历史任务（默认按项目归档、批量/行内归入）**、`list_projects` / `create_project` / `suggest_project` / `set_active_project`；周会投屏用 **周度 Dashboard**（非项目总览）；名单外主管（角色 B）界面与 Agent 与现网一致。
+- **子任务防重复**：`appendSubtask` 支持 `clientRequestId` + 内容 dedup（`WORKBENCH_APPEND_SUBTASK_DEDUP_SECONDS`）；建议生产 `WORKBENCH_ENFORCE_ACTION_GUARDS=1`；`add_draft_subtask` 单轮配额 `ADD_DRAFT_SUBTASK_PER_ORCHESTRATOR_MAX`（默认 4）。
 - **Prompt profile**（`buildQwenPlannerSystemPrompt`）：仅 **`planner`** 与 **`employee`** 两套正文；主管/admin **共用 planner 正文** + `managerFollowup` 注入第六模式 **FOLLOWUP**（见 qwen-prompt.ts 注释，勿回退独立 manager prompt）。
 - **Tool profile**（`buildToolRegistry`）：`planner` / `manager` / `admin` / `employee` / `full`；与 prompt profile **解耦**——例如 `DINGTALK_ROLE_ROUTING_ENABLED=1` 时主管路由为 `promptProfile=planner` + `toolProfile=manager`。
 - **操作模式**（JSON 输出意图，**不是** tool_calls 函数名）：CLARIFY 禁止与其他模式混用；QUERY 查正式任务（`list_managed_tasks` 等，admin 工具含 `list_managers` / `get_metrics`）；DRAFT / ASSIGN / PUBLISH 可同句叠加；**不设 PREPARE 模式**（`prepare_publish_task` 为工具两回合纪律）。
@@ -120,6 +121,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 - **催办按钮**：仅 `IN_PROGRESS` / `BLOCKED`（与 `reminder-send` 一致）。
 - **员工**：Tab「待承接」；详情事件 `/workbench/employee/task/events`；`openSignal=changes` →「待主管回复」。
 - **时间格式**：`formatWorkbenchDateTime` → `zh-CN` `yyyy-MM-dd HH:mm`。
+- **周度 Dashboard**（`/workbench/manager/dashboard`）：主管按自然周查看 KPI、任务甘特、人员负载卡片、动态 feed 与按需周会建议；API `GET /api/workbench/manager/weekly-dashboard`（`week`/`span`/`feedCursor`/`feedOnly`；portfolio 用户可选 `projectId`）+ `POST /api/workbench/manager/weekly-advisor`；领域层 `src/agent/weekly-dashboard/`；历史周 `approxHistoricalState` 黄条提示；项目总览卡片可深链 `?projectId=`。
 - **智能规划助手（主管 chat）**（`/workbench/manager/chat`）：
   - **线程模型**：**主线程**（canonical `workbench:main:{userId}`，钉钉与工作台共用）+ **侧会话**（`thread=side&threadId=`；新 `planId`，不动主线程草案）。
   - **Canonical 会话**：`canonical-main-session.ts` 的 `resolveCanonicalMainSession` 合并钉钉 `chatKey` 与 `workbench:main` 占位文件（`mergeMainSessions`，审计 `MAIN_SESSION_MERGE`）；钉钉入站、`POST .../send`、`GET/POST .../draft` 均经此解析；`findMainThreadSession` 为薄封装。
@@ -145,6 +147,13 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 - **范围**：工作日 9:00 北京窗口；`PROGRESS_DIGEST_WEEKDAYS_ONLY=1`。
 - **内容**：代码渲染 GFM 表格（需您处理 / 正常推进 / 昨日动态）；`qwen3.6-flash` 生成「今日概览」+「后续建议」（`PROGRESS_DIGEST_LLM_*`，失败仅表格）。
 - **实现**：`src/agent/progress-digest/` + `progress_digest_state` 日去重；与催办 scheduler 并列启动。
+
+## 主管周度 Dashboard（v1）
+
+- **页面**：`/workbench/manager/dashboard`；主管只看自己名下正式 SQLite 任务。
+- **周边界**：`WEEKLY_DASHBOARD_TIMEZONE`（默认回退 `FOLLOWUP_TIMEZONE` → `Asia/Shanghai`）下自然周一 00:00 起；默认 ±1 周，最大 `WEEKLY_DASHBOARD_SPAN_MAX=6`。
+- **内容**：任务×周甘特（仅画有 `due_at` 子任务）+ 人员负载摘要 + 任务/人员明细 + 事件 feed 分页；历史周活跃态无快照时使用当前状态近似并在 UI 标注。
+- **建议助手**：工作台内按需 POST，不走钉钉机器人、不定时推送；`WEEKLY_ADVISOR_LLM_*` 8s 默认超时，失败走模板 fallback。
 
 ## 承接指派（v0.2 MVP）
 
