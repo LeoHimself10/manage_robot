@@ -648,6 +648,11 @@ describe("assignment-workbench HTTP handler", () => {
     expect(html).toContain("addSubtaskSubmitting");
     expect(html).toContain("prepareAddSubtaskFormUi");
     expect(html).toContain("countByFilter('in_progress') > 0 ? 'in_progress'");
+    expect(html).toContain("add-subtask-depends-item");
+    expect(html).toContain('type="checkbox" name="addSubtaskDependsOn"');
+    expect(html).not.toContain('<select id="addSubtaskDependsOn"');
+    expect(html).toContain("syncComboDropdownPosition");
+    expect(html).toContain("combo-options--fixed");
   });
 
   it("append subtask API requires deliverables", async () => {

@@ -122,49 +122,99 @@ a:hover { text-decoration: underline; }
 .add-subtask-depends-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: 220px;
+  gap: 8px;
+  max-height: 240px;
   overflow-y: auto;
-  padding: 8px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: #f8fafc;
 }
 .add-subtask-depends-empty { margin: 0; font-size: 13px; padding: 6px 4px; }
 .add-subtask-depends-hint { margin: 0; font-size: 12px; line-height: 1.45; }
-.add-subtask-depends-item {
+/* 覆盖 .form-stack label{display:grid}，避免 checkbox 被挤到卡片顶部 */
+.add-subtask-depends-list label.add-subtask-depends-item {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 8px 10px;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
   border: 1px solid #e2e8f0;
   border-radius: var(--radius-sm);
   background: #fff;
   cursor: pointer;
   font-weight: 400;
   margin: 0;
-  transition: border-color 0.12s, background 0.12s;
+  min-height: 44px;
+  box-sizing: border-box;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
-.add-subtask-depends-item:hover { border-color: #bfdbfe; background: #f8fafc; }
-.add-subtask-depends-item.is-selected { border-color: #93c5fd; background: #eff6ff; }
-.add-subtask-depends-item input[type="checkbox"] {
-  margin: 3px 0 0;
+.add-subtask-depends-list label.add-subtask-depends-item:hover {
+  border-color: #bfdbfe;
+  background: #f8fafc;
+}
+.add-subtask-depends-list label.add-subtask-depends-item.is-selected {
+  border-color: #60a5fa;
+  background: #eff6ff;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+.add-subtask-depends-list label.add-subtask-depends-item input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
   flex-shrink: 0;
-  width: auto;
-  accent-color: var(--primary, #2563eb);
+  border: 2px solid #cbd5e1;
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  position: relative;
+  vertical-align: middle;
+}
+.add-subtask-depends-list label.add-subtask-depends-item input[type="checkbox"]:checked {
+  border-color: #2563eb;
+  background: #2563eb;
+}
+.add-subtask-depends-list label.add-subtask-depends-item input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 .add-subtask-depends-item-body {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: baseline;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
   flex: 1;
   font-size: 14px;
   color: var(--text);
+  line-height: 1.4;
 }
-.add-subtask-depends-ord { font-size: 12px; font-weight: 600; color: var(--muted); }
-.add-subtask-depends-title { flex: 1; min-width: 0; word-break: break-word; line-height: 1.4; }
+.add-subtask-depends-ord {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  line-height: 1.3;
+}
+.add-subtask-depends-list label.add-subtask-depends-item.is-selected .add-subtask-depends-ord {
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+.add-subtask-depends-title { flex: 1; min-width: 0; word-break: break-word; }
 .mgr-opt { font-weight: 400; color: var(--muted); font-size: 12px; }
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
 .kpis.kpis--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
@@ -370,6 +420,11 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   margin:0;
   list-style:none;
   box-shadow:0 6px 16px rgba(15,23,42,.08);
+}
+.combo-options.combo-options--fixed {
+  position:fixed;
+  right:auto;
+  z-index:10050;
 }
 .combo-options li {
   padding:8px 12px;

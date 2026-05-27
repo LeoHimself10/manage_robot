@@ -13,12 +13,79 @@ export function buildWorkbenchContactComboClientJs(): string {
     var resultKey = cfg.resultKey || 'contacts';
     var timer = null;
     var destroyed = false;
+    var repositionBound = false;
+    var homeParent = ul.parentNode;
     function esc(s) {
       return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function syncComboDropdownPosition() {
+      if (!input || !ul || ul.hidden) return;
+      var rect = input.getBoundingClientRect();
+      if (!rect.width && !rect.height) return;
+      var gap = 4;
+      var width = Math.max(rect.width, 220);
+      var left = rect.left;
+      if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8);
+      if (left < 8) left = 8;
+      var top = rect.bottom + gap;
+      var maxH = 240;
+      if (top + maxH > window.innerHeight - 8) {
+        var above = rect.top - gap - maxH;
+        if (above >= 8) top = above;
+      }
+      ul.classList.add('combo-options--fixed');
+      ul.style.position = 'fixed';
+      ul.style.left = left + 'px';
+      ul.style.top = top + 'px';
+      ul.style.width = width + 'px';
+      ul.style.right = 'auto';
+      ul.style.maxHeight = maxH + 'px';
+      ul.style.zIndex = '10050';
+    }
+    function clearComboDropdownPosition() {
+      ul.classList.remove('combo-options--fixed');
+      ul.style.position = '';
+      ul.style.left = '';
+      ul.style.top = '';
+      ul.style.width = '';
+      ul.style.right = '';
+      ul.style.maxHeight = '';
+      ul.style.zIndex = '';
+    }
+    function bindReposition() {
+      if (repositionBound) return;
+      repositionBound = true;
+      window.addEventListener('scroll', syncComboDropdownPosition, true);
+      window.addEventListener('resize', syncComboDropdownPosition);
+    }
+    function unbindReposition() {
+      if (!repositionBound) return;
+      repositionBound = false;
+      window.removeEventListener('scroll', syncComboDropdownPosition, true);
+      window.removeEventListener('resize', syncComboDropdownPosition);
+    }
+    function mountPortal() {
+      if (ul.parentNode !== document.body) {
+        document.body.appendChild(ul);
+      }
+    }
+    function unmountPortal() {
+      if (homeParent && ul.parentNode === document.body) {
+        homeParent.appendChild(ul);
+      }
     }
     function close() {
       ul.hidden = true;
       ul.innerHTML = '';
+      clearComboDropdownPosition();
+      unbindReposition();
+      unmountPortal();
+    }
+    function openDropdown() {
+      mountPortal();
+      ul.hidden = false;
+      syncComboDropdownPosition();
+      bindReposition();
     }
     function fb(msg, kind) {
       if (cfg.onFeedback) cfg.onFeedback(msg, kind || 'muted');
@@ -44,7 +111,7 @@ export function buildWorkbenchContactComboClientJs(): string {
           + '<span>' + esc(c.name || c.userId) + ' · ' + dept + '</span>' + tag + '</li>';
       }).join('');
       ul.querySelectorAll('li[role="option"]').forEach(function (li) { li.removeAttribute('aria-selected'); });
-      ul.hidden = false;
+      openDropdown();
       fb('点击选择负责人', 'ok');
       ul.querySelectorAll('li[role="option"]').forEach(function (li) {
         li.addEventListener('mousedown', function (ev) {

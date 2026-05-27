@@ -1176,11 +1176,11 @@ export function renderTaskDetailPage(params: {
         <textarea id="addSubtaskActions" rows="2" placeholder="具体执行步骤"></textarea>
       </label>
       <div class="add-subtask-depends-field">
-        <span class="add-subtask-depends-label">前置依赖<span class="mgr-opt">（可选，可勾选多条）</span></span>
+        <span class="add-subtask-depends-label">前置依赖<span class="mgr-opt">（可选，可多选）</span></span>
         <div id="addSubtaskDependsOn" class="add-subtask-depends-list" role="group" aria-label="前置依赖">
           <p class="add-subtask-depends-empty muted">暂无可选子任务</p>
         </div>
-        <p class="add-subtask-depends-hint muted">勾选必须先完成的子任务；不选表示无前置依赖</p>
+        <p class="add-subtask-depends-hint muted">选择须先完成的子任务；不选表示无前置依赖</p>
       </div>
       <details class="subtask-more-details" style="margin-top:8px;">
         <summary>更多规划（7 项，可选）</summary>
