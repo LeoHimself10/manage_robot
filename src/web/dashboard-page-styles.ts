@@ -63,7 +63,7 @@ export const DASHBOARD_PAGE_CSS = `
   flex-shrink: 0; transition: transform .15s;
 }
 .gantt-group-title { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.gantt-group-badges { display: flex; flex-wrap: wrap; gap: 4px; flex-shrink: 0; }
+.gantt-group-title strong { font-size: 13px; font-weight: 700; }
 .gantt-group-summary {
   display: flex; align-items: center; padding: 0 8px; color: var(--muted); font-size: 11px;
 }
@@ -77,9 +77,9 @@ export const DASHBOARD_PAGE_CSS = `
 }
 .gantt-label strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gantt-label small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gantt-track-wrap { position: relative; padding: 22px 4px 6px; }
+.gantt-track-wrap { position: relative; padding: 26px 4px 6px; overflow: visible; }
 .gantt-track {
-  position: relative; height: 24px;
+  position: relative; height: 24px; overflow: visible;
   display: grid; grid-template-columns: repeat(var(--day-count), minmax(28px, 1fr)); gap: 2px;
 }
 .gantt-cell { background: #f8fafc; border-radius: 3px; min-height: 24px; }
@@ -97,22 +97,21 @@ export const DASHBOARD_PAGE_CSS = `
 .gantt-bar.status-ASSIGNED, .gantt-bar.status-CHANGES_REQUESTED { background: #d97706; }
 .gantt-bar.status-REJECTED { background: #7c3aed; }
 .gantt-due-marker {
-  position: absolute; top: 4px; bottom: 4px; width: 0; z-index: 3; pointer-events: none;
-  border-left: 2px solid #7c3aed;
+  position: absolute; top: 0; bottom: 0; width: 0; z-index: 5; pointer-events: none;
+  border-left: 3px solid #6d28d9;
+  filter: drop-shadow(0 0 2px rgba(109, 40, 217, 0.55));
 }
 .gantt-due-marker::before {
-  content: ""; position: absolute; top: 0; left: -5px;
-  border-left: 5px solid transparent; border-right: 5px solid transparent;
-  border-top: 6px solid #7c3aed;
+  content: ""; position: absolute; top: 0; left: -6px;
+  border-left: 6px solid transparent; border-right: 6px solid transparent;
+  border-top: 7px solid #6d28d9;
 }
 .gantt-due-marker::after {
-  content: attr(data-label); position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
-  padding: 2px 7px; border-radius: 6px; font-size: 10px; font-weight: 700; line-height: 1.2;
-  color: #5b21b6; background: #ede9fe; border: 1px solid #c4b5fd; white-space: nowrap;
+  content: attr(data-label); position: absolute; top: -24px; left: 50%; transform: translateX(-50%);
+  padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; line-height: 1.2;
+  color: #fff; background: #6d28d9; border: 1px solid #5b21b6; white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(109, 40, 217, 0.38);
 }
-.gantt-due-marker.is-overdue { border-left-color: #dc2626; }
-.gantt-due-marker.is-overdue::before { border-top-color: #dc2626; }
-.gantt-due-marker.is-overdue::after { color: #991b1b; background: #fee2e2; border-color: #fca5a5; }
 .gantt-density {
   display: inline-flex; padding: 3px; background: #f1f5f9; border: 1px solid var(--border); border-radius: 8px;
 }
@@ -129,7 +128,7 @@ export const DASHBOARD_PAGE_CSS = `
 .gantt-legend i.bar-blocked { background: #dc2626; }
 .gantt-legend i.bar-done { background: #16a34a; }
 .gantt-legend i.bar-waiting { background: #d97706; }
-.gantt-legend i.bar-due { width: 3px; height: 10px; border-radius: 1px; background: #7c3aed; }
+.gantt-legend i.bar-due { width: 3px; height: 12px; border-radius: 1px; background: #6d28d9; }
 .detail-panel[hidden] { display: none; }
 .person-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .person-card { border: 1px solid var(--border); border-radius: 10px; padding: 14px; background: #fff; }

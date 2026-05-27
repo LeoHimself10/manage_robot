@@ -35,6 +35,7 @@ export function renderManagerDashboardPage(params: {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache">
 <title>周度 Dashboard · 主管工作台</title>
 <style>${WORKBENCH_APP_BASE_CSS}${DASHBOARD_PAGE_CSS}</style>
 </head>
@@ -353,10 +354,10 @@ ${buildWorkbenchFmtTimeClientJs()}
     var dueRight = ((dueIdx + 1) / dayCount) * 100;
     var label = b.title.length > 8 ? b.title.slice(0, 8) + '…' : b.title;
     var dueTag = '截止日 ' + String(b.dueYmd || '').slice(5);
-    var overdueCls = b.isOverdue ? ' is-overdue' : '';
+    if (b.isOverdue) dueTag += ' · 逾期';
     return '<span class="gantt-bar status-' + esc(b.status) + '" style="left:' + left + '%;width:' + width + '%" title="' +
       esc(b.title + ' · ' + statusLabel(b.status)) + '">' + esc(label) + '</span>' +
-      '<span class="gantt-due-marker' + overdueCls + '" style="left:calc(' + dueRight + '% - 1px)" data-label="' + esc(dueTag) + '" title="' + esc(dueTag) + '"></span>';
+      '<span class="gantt-due-marker" style="left:calc(' + dueRight + '% - 1px)" data-label="' + esc(dueTag) + '" title="' + esc(dueTag) + '"></span>';
   }
   function renderTimeline(d) {
     var days = d.timeline.days || [];
