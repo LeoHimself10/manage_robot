@@ -86,4 +86,51 @@ describe("runManagerOrchestratorTurn", () => {
     expect(mockedRunOrchestrator).toHaveBeenCalledTimes(2);
     expect(result.orchResult.traceId).toBe("t2");
   });
+
+  it("clears latestAssignment after start_new_task scope switch", async () => {
+    mockedRunOrchestrator.mockImplementation(async (_msg, config) => {
+      config.onSessionMutated?.({
+        ...baseSession(),
+        planId: "plan-bci-new",
+        latestAssignment: undefined,
+        latestDraft: undefined,
+      });
+      return {
+        traceId: "t-scope",
+        messages: ["已开启新任务。"],
+        toolInvocationNames: ["start_new_task"],
+        toolCallsTotal: 1,
+      };
+    });
+
+    const session = baseSession();
+    session.latestAssignment = {
+      planId: "plan-1",
+      assignments: [{ taskId: "task_1", primary: { displayName: "朱锐" } }],
+    };
+
+    const employeeRepo = {
+      list: () => [{ userId: "u1", displayName: "张三" }],
+    } as ReturnType<
+      typeof import("../../src/integrations/repos/employee-profile-repo").createEmployeeProfileRepo
+    >;
+
+    const result = await runManagerOrchestratorTurn({
+      userMessage: "开启新任务",
+      session,
+      employeeRepo,
+      clientConfig: {
+        apiKey: "k",
+        baseUrl: "https://example.com",
+        model: "qwen-test",
+        timeoutMs: 1000,
+        maxTokens: 1000,
+      },
+      senderStaffId: "mgr-1",
+      workbenchRole: "manager",
+    });
+
+    expect(result.session.latestAssignment).toBeUndefined();
+    expect(result.latestAssignment).toBeUndefined();
+  });
 });

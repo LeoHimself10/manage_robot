@@ -28,7 +28,7 @@
 ### 模型与 Prompt
 
 - **接口**：DashScope OpenAI 兼容；默认策略见 `model-policy.ts`；线上可 `QWEN_MODEL` 切换（如 `qwen3.6-flash` 降延迟，需自行验证工具调用质量）。
-- **Prompt 版本**：`orchestrator-agent-v5.23.16`（`src/agent/demo/qwen-prompt.ts`）。对用户口径统一「发放/已发放」；内部工具名仍为 `prepare_publish_task` / `publish_task`。
+- **Prompt 版本**：`orchestrator-agent-v5.23.17`（`src/agent/demo/qwen-prompt.ts`）。对用户口径统一「发放/已发放」；内部工具名仍为 `prepare_publish_task` / `publish_task`。
 - **项目（Portfolio，可选）**：`WORKBENCH_PROJECT_PORTFOLIO_*` 白名单内主管启用 `projects` 表 + `tasks.project_id`（可空）、**项目总览** + **历史任务（默认按项目归档、批量/行内归入）**、`list_projects` / `create_project` / `suggest_project` / `set_active_project`；周会投屏用 **周度 Dashboard**（非项目总览）；名单外主管（角色 B）界面与 Agent 与现网一致。
 - **子任务防重复**：`appendSubtask` 支持 `clientRequestId` + 内容 dedup（`WORKBENCH_APPEND_SUBTASK_DEDUP_SECONDS`）；建议生产 `WORKBENCH_ENFORCE_ACTION_GUARDS=1`；`add_draft_subtask` 单轮配额 `ADD_DRAFT_SUBTASK_PER_ORCHESTRATOR_MAX`（默认 4）。
 - **Prompt profile**（`buildQwenPlannerSystemPrompt`）：仅 **`planner`** 与 **`employee`** 两套正文；主管/admin **共用 planner 正文** + `managerFollowup` 注入第六模式 **FOLLOWUP**（见 qwen-prompt.ts 注释，勿回退独立 manager prompt）。
@@ -115,9 +115,9 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 
 ## 工作台 UI（主管 / 员工）
 
-- **草案 Excel 弹窗编辑**（主管 `/workbench/manager/chat`）：有 `latestDraft` 时显示「编辑草案表格」；大弹窗（92vw×88vh）单张 **16 列**宽表（主表 9 + 规划 7，一行一条子任务）；`GET/POST /api/workbench/conversation/draft` + `runWorkbenchDraftRevision`（`workbenchDraftRevision` 条件 prompt、`disableTools`、max 2 轮）；`conversationHistory` 仅写 `[工作台] 已提交草案表格编辑`，不写整表 JSON；深链 `?openDraftEditor=1`；bundle `npm run build:workbench-draft-grid` → `/static/workbench-draft-grid.js`。
+- **草案 Excel 弹窗编辑**（主管 `/workbench/manager/chat`）：有 `latestDraft` 时显示「编辑草案表格」；大弹窗（92vw×88vh）单张 **10 列**宽表（核心字段 + 负责人，一行一条子任务）；`GET/POST /api/workbench/conversation/draft` + `runWorkbenchDraftRevision`（`workbenchDraftRevision` 条件 prompt、`disableTools`、max 2 轮）；`conversationHistory` 仅写 `[工作台] 已提交草案表格编辑`，不写整表 JSON；深链 `?openDraftEditor=1`；bundle `npm run build:workbench-draft-grid` → `/static/workbench-draft-grid.js`。
 - **主管列表关注状态**（`workbench-attention.ts`，展示层）：`待您处理` / `待员工承接` / `员工执行中` / `阻塞中` / `已完成`；API `GET /api/workbench/manager/tasks` 含 `attentionLabel`、`attentionBucket`、`subtaskBreakdown`。
-- **子任务规划字段**（双端一致）：执行要点 6 项 + 更多规划 7 项（`<details>` 折叠）；共享 `workbench-subtask-fields-snippet.ts`。
+- **子任务规划字段**（双端一致）：仅展示执行要点 6 项（目标/交付/标准/截止/执行动作/前置依赖）；共享 `workbench-subtask-fields-snippet.ts`。SQLite 富字段列保留读历史，**新发布不再写入**已下线的 7 项规划字段。
 - **催办按钮**：仅 `IN_PROGRESS` / `BLOCKED`（与 `reminder-send` 一致）。
 - **员工**：Tab「待承接」；详情事件 `/workbench/employee/task/events`；`openSignal=changes` →「待主管回复」。
 - **时间格式**：`formatWorkbenchDateTime` → `zh-CN` `yyyy-MM-dd HH:mm`。

@@ -109,15 +109,15 @@ describe("workbench-formal-task-store mapping", () => {
     });
     const t2 = published.subtasks.find((s) => s.sourceTaskKey === "task_2");
     expect(t2?.dependsOn).toEqual(["task_1"]);
-    expect(t2?.checkpoints).toEqual(["M1 评审"]);
-    expect(t2?.risks).toEqual(["样品可能延迟"]);
+    expect(t2?.checkpoints).toBeUndefined();
+    expect(t2?.risks).toBeUndefined();
     const t1 = published.subtasks.find((s) => s.sourceTaskKey === "task_1");
     expect(t1?.dependsOn).toBeUndefined();
     const detail = store.getTaskDetail("plan-extra-1");
     const detailT2 = detail?.subtasks.find((s) => s.sourceTaskKey === "task_2");
     expect(detailT2?.dependsOn).toEqual(["task_1"]);
-    expect(detailT2?.checkpoints).toEqual(["M1 评审"]);
-    expect(detailT2?.risks).toEqual(["样品可能延迟"]);
+    expect(detailT2?.checkpoints).toBeUndefined();
+    expect(detailT2?.risks).toBeUndefined();
   });
 
   it("persists v2 rich fields (inputMaterials/actions/collaborators/scope) as flat columns", () => {
@@ -158,11 +158,11 @@ describe("workbench-formal-task-store mapping", () => {
       actorUserId: "manager-1",
     });
     const s1 = published.subtasks.find((x) => x.sourceTaskKey === "task_1");
-    expect(s1?.inputMaterials).toEqual(["需求文档"]);
+    expect(s1?.inputMaterials).toBeUndefined();
     expect(s1?.actions).toEqual(["跑用例"]);
-    expect(s1?.collaborators).toEqual(["测试"]);
-    expect(s1?.inScope).toEqual(["功能 A"]);
-    expect(s1?.outOfScope).toEqual(["不做性能"]);
+    expect(s1?.collaborators).toBeUndefined();
+    expect(s1?.inScope).toBeUndefined();
+    expect(s1?.outOfScope).toBeUndefined();
   });
 
   it("tolerates invalid JSON in flat rich columns when loading subtasks", () => {

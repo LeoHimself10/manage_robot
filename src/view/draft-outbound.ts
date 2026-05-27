@@ -1,4 +1,5 @@
 import { deepMergePreserveRichFields } from "../agent/draft-merge";
+import { normalizeDraftTasksForSession } from "../agent/draft-person-fields";
 
 /** Tools that mutate session.latestDraft in-place during orchestrator. */
 export const DRAFT_MUTATING_TOOL_NAMES = new Set([
@@ -56,13 +57,15 @@ export function mergeOrchestratorDraftIntoSession(
   if (isPartialRevise) {
     const orchScalars = { ...orchResultDraft };
     delete orchScalars.tasks;
-    return deepMergePreserveRichFields(preTurnDraft, orchScalars) as Record<string, unknown>;
+    return normalizeDraftTasksForSession(
+      deepMergePreserveRichFields(preTurnDraft, orchScalars) as Record<string, unknown>,
+    );
   }
   const merged = deepMergePreserveRichFields(preTurnDraft, orchResultDraft) as Record<string, unknown>;
   if (Array.isArray(orchResultDraft.tasks)) {
     merged.tasks = orchResultDraft.tasks;
   }
-  return merged;
+  return normalizeDraftTasksForSession(merged);
 }
 
 /**
@@ -87,7 +90,12 @@ export function resolveDraftForOutbound(
   }
 
   if (!touched) {
-    return { draftTouchedThisTurn: false, persistedDraft };
+    return {
+      draftTouchedThisTurn: false,
+      persistedDraft: persistedDraft
+        ? normalizeDraftTasksForSession(persistedDraft)
+        : undefined,
+    };
   }
 
   let draftForRender: Record<string, unknown> | undefined;
@@ -101,9 +109,16 @@ export function resolveDraftForOutbound(
     draftForRender = post;
   }
 
+  const normalizedPersisted = persistedDraft
+    ? normalizeDraftTasksForSession(persistedDraft)
+    : undefined;
+  const normalizedRender = draftForRender
+    ? normalizeDraftTasksForSession(draftForRender)
+    : undefined;
+
   return {
     draftTouchedThisTurn: true,
-    draftForRender,
-    persistedDraft,
+    draftForRender: normalizedRender,
+    persistedDraft: normalizedPersisted,
   };
 }

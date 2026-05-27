@@ -18,7 +18,7 @@ import type { KnownFactsStore } from "./tools/update-known-facts";
 import type { PlanSession } from "../infra/plan-session-store";
 import type { PublishTaskRecentStore } from "./tools/publish-task";
 import { preserveOrchestratorDraftScalars } from "./draft-merge";
-import { stripPlanningPersonFieldsFromDraft } from "./draft-person-fields";
+import { normalizeDraftTasksForSession } from "./draft-person-fields";
 import {
   isDraftStagedForPublish,
   shouldInjectPublishStagingMemoryHint,
@@ -31,6 +31,7 @@ import {
 } from "./orchestrator-turn-hints";
 import { stabilizeDraftTaskIds } from "./draft-stabilize";
 import { buildTaskIndexMap } from "./assignment/false-assign";
+import { assignmentMatchesPlan } from "./assignment/resolve-turn-assignment";
 
 export { shouldInjectExplicitDraftRequestHint } from "./orchestrator-turn-hints";
 
@@ -201,7 +202,10 @@ export async function runOrchestrator(
       "draftReviseDiscipline: TABLE REDRAFT（整表/WBS/扩成N条，无单一task锚点）→禁止 tool_calls，顶层完整 draft JSON；ROW_SPLIT（任务N拆成M条）→update_draft_task+add_draft_subtask(insertAfterSubtaskId) 增行；PATCH（单点改不增行）→update_draft_task/remove_draft_subtask；禁止仅 message 口播拆分而无增行或整表 JSON。",
     );
   }
-  if (config.sessionContext?.latestAssignment) {
+  if (
+    config.sessionContext?.latestAssignment
+    && assignmentMatchesPlan(config.sessionContext.latestAssignment, config.sessionContext.planId ?? "")
+  ) {
     memoryParts.push(
       `latestAssignmentSummary: ${safeJson(summarizeAssignmentForPrompt(config.sessionContext.latestAssignment))}`,
     );
@@ -272,9 +276,11 @@ export async function runOrchestrator(
           const parsed = JSON.parse(salvagedMessage) as Record<string, unknown>;
           if (parsed && typeof parsed === "object") {
             if (isPlainObject(parsed.draft)) {
-              salvagedDraft = stabilizeDraftTaskIds(
-                coerceLlmPlanPayload(parsed.draft) as unknown as Record<string, unknown>,
-                previousDraft,
+              salvagedDraft = normalizeDraftTasksForSession(
+                stabilizeDraftTaskIds(
+                  coerceLlmPlanPayload(parsed.draft) as unknown as Record<string, unknown>,
+                  previousDraft,
+                ),
               );
             }
             if (typeof parsed.message === "string" && parsed.message.trim()) {
@@ -338,7 +344,7 @@ export async function runOrchestrator(
     : undefined;
   let draft: Record<string, unknown> | undefined = savedDraft ?? payloadDraft;
   if (draft) {
-    draft = stripPlanningPersonFieldsFromDraft(stabilizeDraftTaskIds(draft, previousDraft));
+    draft = normalizeDraftTasksForSession(stabilizeDraftTaskIds(draft, previousDraft));
   }
   if (assignment && draft) {
     assignment = alignAssignmentTaskIds(assignment, draft);
@@ -401,13 +407,14 @@ function looksLikeDraftStyleMessage(message: string): boolean {
 }
 
 function serializeDraftForMemory(draft: Record<string, unknown>): Record<string, unknown> {
+  const normalized = normalizeDraftTasksForSession(draft);
   const maxChars = Number(process.env.ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS ?? "32000");
   const cap = Number.isFinite(maxChars) && maxChars > 500 ? Math.floor(maxChars) : 32000;
-  const full = JSON.stringify(draft);
-  if (full.length <= cap) return draft;
+  const full = JSON.stringify(normalized);
+  if (full.length <= cap) return normalized;
 
-  const tasks = Array.isArray((draft as { tasks?: unknown[] }).tasks)
-    ? ((draft as { tasks: Array<Record<string, unknown>> }).tasks)
+  const tasks = Array.isArray((normalized as { tasks?: unknown[] }).tasks)
+    ? ((normalized as { tasks: Array<Record<string, unknown>> }).tasks)
     : [];
   const slimTasks = tasks.map((t) => ({
     id: String(t?.id ?? ""),
@@ -419,14 +426,21 @@ function serializeDraftForMemory(draft: Record<string, unknown>): Record<string,
   }));
   const slim: Record<string, unknown> = {
     _truncated: true,
-    title: draft.title,
-    description: typeof draft.description === "string" ? (draft.description as string).slice(0, 500) : draft.description,
-    classification: (draft as { classification?: unknown }).classification,
+    title: normalized.title,
+    description: typeof normalized.description === "string"
+      ? (normalized.description as string).slice(0, 500)
+      : normalized.description,
+    classification: (normalized as { classification?: unknown }).classification,
     tasks: slimTasks,
   };
   const slimJson = JSON.stringify(slim);
   if (slimJson.length <= cap) return slim;
-  return { _truncated: true, title: draft.title, taskCount: tasks.length, taskIds: slimTasks.map((t) => t.id) };
+  return {
+    _truncated: true,
+    title: normalized.title,
+    taskCount: tasks.length,
+    taskIds: slimTasks.map((t) => t.id),
+  };
 }
 
 function summarizeAssignmentForPrompt(

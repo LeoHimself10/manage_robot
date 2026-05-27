@@ -166,9 +166,8 @@ function draftFieldCoverage(draft: unknown): number {
     if (Array.isArray(task.completionCriteria) && task.completionCriteria.length > 0) hits++;
     const due = (task.timeNode as { dueAt?: string } | undefined)?.dueAt;
     if (due) hits++;
-    if (String(task.feedbackFrequency ?? "").trim()) hits++;
     if (String(task.id ?? "").trim()) hits++;
-    return hits / 7;
+    return hits / 6;
   });
   return scores.reduce((a, b) => a + b, 0) / scores.length;
 }

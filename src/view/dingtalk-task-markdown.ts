@@ -15,8 +15,7 @@ export function hasTaskTableInMessage(markdown: string): boolean {
     markdown.includes("### 结构化任务表（列表）") ||
     markdown.includes("### 任务列表（结构化字段）") ||
     markdown.includes("### 任务草案（结构化字段）") ||
-    markdown.includes("### 任务补充信息") ||
-    markdown.includes("### 更多规划（7 项）")
+    markdown.includes("### 任务补充信息")
   );
 }
 
@@ -175,30 +174,12 @@ function rowHasMorePlanning(values: string[]): boolean {
   return values.some((v) => v !== "—");
 }
 
-/** Second pipe table: 更多规划 7 项 (+ # column). Omitted when all rows empty. */
+/** Deprecated: 更多规划 7 项已下线，不再追加第二表。 */
 export function renderDraftSupplementSection(
-  draft: unknown,
-  latestAssignment?: unknown,
+  _draft: unknown,
+  _latestAssignment?: unknown,
 ): string {
-  if (!draft || typeof draft !== "object") return "";
-  const tasks = Array.isArray((draft as { tasks?: unknown[] }).tasks)
-    ? ((draft as { tasks: Array<Record<string, unknown>> }).tasks)
-    : [];
-  if (tasks.length === 0) return "";
-
-  const { collaboratorsByTaskId } = buildAssignmentMaps(latestAssignment);
-  const rows: string[] = [];
-  for (let idx = 0; idx < tasks.length; idx++) {
-    const cells = collectMorePlanningCells(tasks[idx], collaboratorsByTaskId);
-    if (!rowHasMorePlanning(cells)) continue;
-    const escaped = [String(idx + 1), ...cells].map(escapeTableCell);
-    rows.push(`| ${escaped.join(" | ")} |`);
-  }
-  if (rows.length === 0) return "";
-
-  const header = "| # | 反馈频率 | 输入材料 | 协作人 | 范围内 | 范围外 | 检查点 | 风险 |";
-  const sep = "| --- | --- | --- | --- | --- | --- | --- | --- |";
-  return ["### 更多规划（7 项）", header, sep, ...rows].join("\n");
+  return "";
 }
 
 // ---------------------------------------------------------------------------
@@ -289,8 +270,6 @@ export function renderDingtalkTaskMarkdown(input: RenderDingtalkTaskMarkdownInpu
     ) {
       const taskTable = renderTaskPipeTableSection(currentDraft, latestAssignment);
       if (taskTable) outboundMarkdown += `\n\n${taskTable}`;
-      const supplement = renderDraftSupplementSection(currentDraft, latestAssignment);
-      if (supplement) outboundMarkdown += `\n\n${supplement}`;
     } else if (hasTaskTableInMessage(outboundMarkdown)) {
       onModelDrewTable?.();
     }

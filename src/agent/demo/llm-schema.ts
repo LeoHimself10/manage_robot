@@ -289,35 +289,23 @@ function validateTask(task: unknown, index: number, errors: string[]): void {
     }
   });
 
-  if (typeof candidate.feedbackFrequency !== "string") {
-    errors.push(`tasks[${index}].feedbackFrequency must be string`);
-  }
-
-  const requiredArrays = [
-    "collaborators",
-    "inputMaterials",
+  const optionalArrays = [
     "actions",
     "deliverables",
     "completionCriteria",
-    "risksAndOpenQuestions",
     "dependencyTaskIds",
   ] as const;
-  requiredArrays.forEach((field) => {
-    if (!isStringArray(candidate[field])) {
-      errors.push(`tasks[${index}].${field} must be string[]`);
+  optionalArrays.forEach((field) => {
+    if (candidate[field] !== undefined && !isStringArray(candidate[field])) {
+      errors.push(`tasks[${index}].${field} must be string[] when present`);
     }
   });
 
   const timeNode = candidate.timeNode as Record<string, unknown> | undefined;
-  if (!timeNode || typeof timeNode !== "object") {
-    errors.push(`tasks[${index}].timeNode is required`);
-  } else {
-    if (!isStringArray(timeNode.checkpoints)) {
-      errors.push(`tasks[${index}].timeNode.checkpoints must be string[]`);
-    }
-    if (typeof timeNode.dueAt !== "string") {
-      errors.push(`tasks[${index}].timeNode.dueAt must be string`);
-    }
+  if (timeNode !== undefined && typeof timeNode !== "object") {
+    errors.push(`tasks[${index}].timeNode must be an object when present`);
+  } else if (timeNode && typeof timeNode.dueAt !== "string") {
+    errors.push(`tasks[${index}].timeNode.dueAt must be string when timeNode is present`);
   }
 }
 

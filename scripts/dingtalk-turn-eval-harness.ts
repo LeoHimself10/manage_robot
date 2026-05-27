@@ -10,6 +10,10 @@ import { resolveEmployeeProfileDir } from "../src/infra/assignment-env";
 import { createRecentPublishStore } from "../src/agent/tools/publish-task";
 import { processAssignmentForTurn, type ProcessAssignmentTurnResult } from "../src/agent/assignment/process-assignment-turn";
 import {
+  resolveSessionAssignmentForTurn,
+  resolveTurnLatestAssignment,
+} from "../src/agent/assignment/resolve-turn-assignment";
+import {
   buildAssignRetryUserMessage,
   buildTaskIndexMap,
 } from "../src/agent/assignment/false-assign";
@@ -82,6 +86,7 @@ export async function runDingtalkLikeTurn(
   const publishRecentStore = createRecentPublishStore();
   const preTurnDraft = session.latestDraft as Record<string, unknown> | undefined;
   const preTurnAssignment = session.latestAssignment;
+  const preTurnPlanId = session.planId;
   let publishResult: Record<string, unknown> | undefined;
   let allTools: string[] = [];
   const t0 = Date.now();
@@ -248,7 +253,13 @@ export async function runDingtalkLikeTurn(
   let assignState = processAssignmentForTurn({
     preTurnDraft,
     persistedDraft: persistedDraft as Record<string, unknown> | undefined,
-    sessionAssignment: session.latestAssignment as Record<string, unknown> | undefined,
+    sessionAssignment: resolveSessionAssignmentForTurn({
+      sessionLatest: session.latestAssignment as Record<string, unknown> | undefined,
+      preTurnAssignment,
+      sessionPlanId: session.planId,
+      preTurnPlanId,
+      toolInvocationNames: orchResult.toolInvocationNames,
+    }),
     orchAssignment: orchResult.assignment,
     draftTouchedThisTurn,
     planId: session.planId,
@@ -301,7 +312,13 @@ export async function runDingtalkLikeTurn(
     assignState = processAssignmentForTurn({
       preTurnDraft,
       persistedDraft: retryOutbound.persistedDraft as Record<string, unknown> | undefined,
-      sessionAssignment: session.latestAssignment as Record<string, unknown> | undefined,
+      sessionAssignment: resolveSessionAssignmentForTurn({
+        sessionLatest: session.latestAssignment as Record<string, unknown> | undefined,
+        preTurnAssignment,
+        sessionPlanId: session.planId,
+        preTurnPlanId,
+        toolInvocationNames: orchResult.toolInvocationNames,
+      }),
       orchAssignment: orchResult.assignment,
       draftTouchedThisTurn: true,
       planId: session.planId,
@@ -314,9 +331,14 @@ export async function runDingtalkLikeTurn(
     });
   }
 
-  if (assignState.latestAssignment) {
-    session.latestAssignment = assignState.latestAssignment as PlanSession["latestAssignment"];
-  }
+  session.latestAssignment = resolveTurnLatestAssignment({
+    assignStateLatest: assignState.latestAssignment as Record<string, unknown> | undefined,
+    sessionLatest: session.latestAssignment as Record<string, unknown> | undefined,
+    preTurnAssignment,
+    sessionPlanId: session.planId,
+    preTurnPlanId,
+    toolInvocationNames: orchResult.toolInvocationNames,
+  }) as PlanSession["latestAssignment"];
 
   const outboundMessage = orchResult.messages.join("\n\n");
   session.conversationHistory = [

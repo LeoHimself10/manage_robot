@@ -1,5 +1,6 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 import { coerceLlmPlanPayload } from "../demo/llm-schema";
+import { normalizeDraftTasksForSession } from "../draft-person-fields";
 
 export const SAVE_DRAFT_TOOL: ToolDefinition = {
   type: "function",
@@ -23,7 +24,9 @@ export function buildSaveDraftHandler(opts?: { onDraftSaved?: (draft: Record<str
     const coerced = coerceLlmPlanPayload(payload);
 
     // Always save — just note gate issues. Don't make the model fight format.
-    opts?.onDraftSaved?.(coerced as unknown as Record<string, unknown>);
+    opts?.onDraftSaved?.(
+      normalizeDraftTasksForSession(coerced as unknown as Record<string, unknown>),
+    );
 
     return {
       saved: true,

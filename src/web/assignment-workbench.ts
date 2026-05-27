@@ -30,6 +30,7 @@ import {
 import { buildWorkbenchTurnDisplay } from "../agent/workbench/conversation-turn-display";
 import { runWorkbenchDraftRevision } from "../agent/workbench/draft-revision";
 import { prevalidateWorkbenchDraftRevision } from "../agent/workbench/draft-revise-prevalidate";
+import { normalizeDraftTasksForSession } from "../agent/draft-person-fields";
 import {
   applyDraftScalarsFromForm,
   draftToExcelRows,
@@ -1191,32 +1192,6 @@ export function renderTaskDetailPage(params: {
         </div>
         <p class="add-subtask-depends-hint muted">选择须先完成的子任务；不选表示无前置依赖</p>
       </div>
-      <details class="subtask-more-details" style="margin-top:8px;">
-        <summary>更多规划（7 项，可选）</summary>
-        <div class="form-stack" style="margin-top:10px;">
-          <label>反馈频率
-            <input id="addSubtaskFeedbackFrequency" type="text" maxlength="120" placeholder="例如：每日 17:00" style="width:100%;" />
-          </label>
-          <label>输入材料（每行一条）
-            <textarea id="addSubtaskInputMaterials" rows="2"></textarea>
-          </label>
-          <label>协作人（每行一条）
-            <textarea id="addSubtaskCollaborators" rows="2"></textarea>
-          </label>
-          <label>范围内（每行一条）
-            <textarea id="addSubtaskInScope" rows="2"></textarea>
-          </label>
-          <label>范围外（每行一条）
-            <textarea id="addSubtaskOutOfScope" rows="2"></textarea>
-          </label>
-          <label>检查点（每行一条）
-            <textarea id="addSubtaskCheckpoints" rows="2"></textarea>
-          </label>
-          <label>风险与待澄清（每行一条）
-            <textarea id="addSubtaskRisks" rows="2"></textarea>
-          </label>
-        </div>
-      </details>
       <div class="wb-confirm-bar" id="addSubtaskConfirmWrap" hidden>
         <div class="wb-confirm-bar__row">
           <input type="checkbox" id="addSubtaskConfirm" />
@@ -1460,9 +1435,7 @@ export function renderTaskDetailPage(params: {
   function clearAddSubtaskFormFields() {
     var ids = [
       'addSubtaskTitle', 'addSubtaskAssigneeInput', 'addSubtaskObjective', 'addSubtaskDeliverables',
-      'addSubtaskCriteria', 'addSubtaskDueAt', 'addSubtaskActions', 'addSubtaskFeedbackFrequency',
-      'addSubtaskInputMaterials', 'addSubtaskCollaborators', 'addSubtaskInScope', 'addSubtaskOutOfScope',
-      'addSubtaskCheckpoints', 'addSubtaskRisks'
+      'addSubtaskCriteria', 'addSubtaskDueAt', 'addSubtaskActions'
     ];
     ids.forEach(function (id) {
       var el = document.getElementById(id);
@@ -1544,20 +1517,6 @@ export function renderTaskDetailPage(params: {
         if (actions.length) payload.actions = actions;
         var deps = getSelectedAddSubtaskDependsOn();
         if (deps.length) payload.dependsOn = deps;
-        var ff = String(document.getElementById('addSubtaskFeedbackFrequency')?.value || '').trim();
-        if (ff) payload.feedbackFrequency = ff;
-        var im = parseLinesToArray(document.getElementById('addSubtaskInputMaterials')?.value);
-        if (im.length) payload.inputMaterials = im;
-        var col = parseLinesToArray(document.getElementById('addSubtaskCollaborators')?.value);
-        if (col.length) payload.collaborators = col;
-        var ins = parseLinesToArray(document.getElementById('addSubtaskInScope')?.value);
-        if (ins.length) payload.inScope = ins;
-        var outs = parseLinesToArray(document.getElementById('addSubtaskOutOfScope')?.value);
-        if (outs.length) payload.outOfScope = outs;
-        var cps = parseLinesToArray(document.getElementById('addSubtaskCheckpoints')?.value);
-        if (cps.length) payload.checkpoints = cps;
-        var risks = parseLinesToArray(document.getElementById('addSubtaskRisks')?.value);
-        if (risks.length) payload.risks = risks;
         if (!addSubtaskClientRequestId) {
           try {
             addSubtaskClientRequestId = (typeof crypto !== 'undefined' && crypto.randomUUID)
@@ -4434,15 +4393,8 @@ export function handleAssignmentHttp(
           completionCriteria,
           objective,
           deliverables,
-          feedbackFrequency: String(body.feedbackFrequency ?? "").trim() || undefined,
           dependsOn: parseRichStringListFromBody(body.dependsOn),
-          checkpoints: parseRichStringListFromBody(body.checkpoints),
-          risks: parseRichStringListFromBody(body.risks),
-          inputMaterials: parseRichStringListFromBody(body.inputMaterials),
           actions: parseRichStringListFromBody(body.actions),
-          collaborators: parseRichStringListFromBody(body.collaborators),
-          inScope: parseRichStringListFromBody(body.inScope),
-          outOfScope: parseRichStringListFromBody(body.outOfScope),
           note: note || undefined,
           actorName: session.dingUser?.name,
           clientRequestId,
@@ -5106,7 +5058,8 @@ export function handleAssignmentHttp(
       writeJson(res, 404, { ok: false, error: "No session found for thread" });
       return true;
     }
-    const draft = target.latestDraft as Record<string, unknown> | undefined;
+    const rawDraft = target.latestDraft as Record<string, unknown> | undefined;
+    const draft = rawDraft ? normalizeDraftTasksForSession(rawDraft) : undefined;
     const editable = Boolean(draft && Array.isArray(draft.tasks) && draft.tasks.length > 0);
     writeJson(res, 200, {
       ok: true,
@@ -5154,6 +5107,7 @@ export function handleAssignmentHttp(
         }
         const preTurnDraft = target.latestDraft;
         const preTurnAssignment = target.latestAssignment;
+        const preTurnPlanId = target.planId;
         let draft = (body.draft ?? {}) as Record<string, unknown>;
         const title = String(body.title ?? draft.title ?? "").trim();
         const description = String(
@@ -5241,6 +5195,7 @@ export function handleAssignmentHttp(
           session: mutableTarget,
           preTurnDraft,
           preTurnAssignment,
+          preTurnPlanId,
           postTurnDraft: revised.prevalidatedDraft,
           modelName: qwenConfig.model,
           employees: employeeRepo.list().map((e) => ({
@@ -5472,6 +5427,7 @@ export function handleAssignmentHttp(
           session: mutableTarget,
           preTurnDraft: turn.preTurnDraft,
           preTurnAssignment: turn.preTurnAssignment,
+          preTurnPlanId: turn.preRotatePlanId,
           postTurnDraft: mutableTarget.latestDraft,
           modelName: qwenConfig.model,
           employees: employeeRepo.list().map((e) => ({

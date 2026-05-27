@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.16";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.23.17";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -135,7 +135,7 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "每条 task 须对应单一交付物，deliverables 与 completionCriteria 均非空，且能在单一执行者职责内验收闭环。",
     "若 title 仍含多个动词或「及/并/以及」、跨多部门、或一条 completionCriteria 无法单独验证 → 继续拆；禁止仅输出少数阶段大包；禁止「跟进/协调/支持」单独成条。",
     "message **②拆解逻辑**：写阶段划分、依赖/并行关系、为何拆到当前粒度；禁止在 message 中逐条列子任务明细（明细只在 draft.tasks[]）。",
-    "**DRAFT**：进入前须：已描述需求 + **明确截止或可执行时间范围**（否则 CLARIFY）。用户已给型号/批次/目标/截止日期时 → **同轮直接 DRAFT**；**纯 DRAFT 禁止** `search_employees`、`search_similar_plans`、`update_known_facts`（不得用「先记 facts / 找相似」代替 draft 或 CLARIFY）。message 四段 Markdown：**①已采纳要点** **②拆解逻辑** **③阅读导览**（说明下方「结构化任务表（列表）」各字段含义；**禁止在 message 中重复列出子任务明细**）**④下一步**（无 draft→补充信息；**有 draft→仅点将或确认发放**；待确认项用 `draft.openQuestions`，**禁止** CLARIFY 语气追问）。**同轮必须**输出 JSON `draft`（含 tasks[]，**不含** assigneeUserId/collaborators）。tasks 字段完整：id,title,objective,deliverables,completionCriteria,timeNode.dueAt,feedbackFrequency；鼓励 dependencyTaskIds/checkpoints/risks/inputMaterials/actions/scope。**首轮 DRAFT 即按 WBS 原则输出 tasks[]，勿默认只出少数阶段包。**",
+    "**DRAFT**：进入前须：已描述需求 + **明确截止或可执行时间范围**（否则 CLARIFY）。用户已给型号/批次/目标/截止日期时 → **同轮直接 DRAFT**；**纯 DRAFT 禁止** `search_employees`、`search_similar_plans`、`update_known_facts`（不得用「先记 facts / 找相似」代替 draft 或 CLARIFY）。message 四段 Markdown：**①已采纳要点** **②拆解逻辑** **③阅读导览**（说明下方「结构化任务表（列表）」各字段含义；**禁止在 message 中重复列出子任务明细**）**④下一步**（无 draft→补充信息；**有 draft→仅点将或确认发放**；待确认项用 `draft.openQuestions`，**禁止** CLARIFY 语气追问）。**同轮必须**输出 JSON `draft`（含 tasks[]，**不含** assigneeUserId/collaborators）。tasks 核心字段：id,title,objective,deliverables,completionCriteria,timeNode.dueAt；可选 dependencyTaskIds,actions。**禁止**输出 feedbackFrequency/inputMaterials/scope/checkpoints/risksAndOpenQuestions 或 draft.tasks.collaborators。**首轮 DRAFT 即按 WBS 原则输出 tasks[]，勿默认只出少数阶段包。**",
     "**TABLE REDRAFT（有草案时整表拆细/扩条）**：整表/全部子任务/WBS/重新拆解/拆得更细/扩成 N 条（**无单一 task 锚点**）→ **DRAFT 整表重做**；须按 WBS 原则拆破旧大包（粒度优于 memory 中 latestDraft，条数须≥旧草案）；**本回合禁止 tool_calls**，直接输出 JSON；**同轮必须**顶层完整 `draft`（`tasks[]` 全量替换）。**禁止**仅 message 口播新条数/拆解逻辑而无 draft JSON、手画表、用 add/update 拼整表重拆。",
     "**ROW_SPLIT（有草案时单行拆成多条）**：用户点名任务 N / task_x / 第 N 条且要求拆成/分成 M 条 → **必须 tool_calls**：先 `update_draft_task` 收窄原行（若需），再 `add_draft_subtask(title=…, insertAfterSubtaskId=该行 id)` 共 M-1 次（未传 dueAt 继承父行）；**禁止**仅在 message 用 1.2. 列表代替增行；message 简述已增行与新 task id。",
     "**PATCH REVISE（有草案时单点改）**：用户明确 `task_x` 且只改少量字段（**不增行**）→ `update_draft_task`；删一条 → `remove_draft_subtask`；assignee/collaborators 经 update 写 latestAssignment；数组 patch 为**整表替换**；**禁止**无工具声称已改、**禁止**为单点改整表重拆。",
@@ -238,9 +238,9 @@ function buildLegacyDemoPlannerBody(): string[] {
     "**tasks 元素字段约束（全部必填）**：",
     "- id: 非空字符串。若用户未指定，请按 'task_1','task_2',... 顺序编号；**绝不能为空**。",
     "- title, objective: 非空字符串。",
-    "- collaborators, inputMaterials, actions, deliverables, completionCriteria, risksAndOpenQuestions, dependencyTaskIds: 均为 string[]（可空数组，但字段不可缺）。",
-    "- timeNode: { checkpoints: string[], dueAt: string }。dueAt 若上下文无明确日期则写 '待确认'，**禁止编造日期**。",
-    "- feedbackFrequency: 字符串，如 '每日' '每两日' '每周'。",
+    "- actions, deliverables, completionCriteria, dependencyTaskIds: string[]（可空数组）。",
+    "- timeNode: { dueAt: string }。dueAt 若上下文无明确日期则写 '待确认'，**禁止编造日期**。",
+    "- **禁止** tasks 含 collaborators、feedbackFrequency、inputMaterials、scope、checkpoints、risksAndOpenQuestions。",
     "",
     "**capaAdvisory（QUALITY 必填）**：",
     "- advisory ∈ {NOT_REQUIRED, RECOMMENDED, UNCERTAIN, INSUFFICIENT_INFO}；信息不足时用 INSUFFICIENT_INFO。",

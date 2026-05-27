@@ -20,6 +20,6 @@ describe("validateDispatchGate", () => {
     expect(result.reason).toContain("deliverables");
     expect(result.reason).toContain("completionCriteria");
     expect(result.reason).toContain("timeNode.dueAt");
-    expect(result.reason).toContain("feedbackFrequency");
+    expect(result.reason).not.toContain("feedbackFrequency");
   });
 });

@@ -517,7 +517,7 @@ describe("buildPublishTaskNotifyMarkdown", () => {
     expect(md).toContain("- **任务背景**：");
   });
 
-  it("renders dependency, checkpoints, and risks", () => {
+  it("renders dependency and actions only (deprecated planning fields omitted)", () => {
     const md = buildPublishTaskNotifyMarkdown({
       taskNo: "N-1",
       title: "主任务",
@@ -528,8 +528,10 @@ describe("buildPublishTaskNotifyMarkdown", () => {
           {
             title: "子B",
             dependsOn: ["task_1"],
+            actions: ["执行一步"],
             checkpoints: ["c1"],
             risks: ["r1"],
+            inputMaterials: ["图纸"],
           },
         ],
       },
@@ -537,45 +539,10 @@ describe("buildPublishTaskNotifyMarkdown", () => {
     });
     expect(md).toContain("前置依赖");
     expect(md).toContain("task_1（子A）");
-    expect(md).toContain("检查点");
-    expect(md).toContain("c1");
-    expect(md).toContain("风险");
-    expect(md).toContain("r1");
-  });
-
-  it("renders v2 extra fields inputMaterials actions collaborators scope", () => {
-    const md = buildPublishTaskNotifyMarkdown({
-      taskNo: "N-v2",
-      title: "主任务",
-      managerUserId: "mgr",
-      assignee: {
-        userId: "u1",
-        subtasks: [
-          {
-            title: "子V2",
-            inputMaterials: ["图纸 v2"],
-            actions: ["复测"],
-            collaborators: ["质量"],
-            inScope: ["A"],
-            outOfScope: ["不做包装"],
-            dependsOn: ["task_1"],
-            checkpoints: ["c1"],
-            risks: ["r1"],
-          },
-        ],
-      },
-      subtaskTitleBySourceKey: { task_1: "前置子" },
-    });
-    expect(md).toContain("输入材料");
-    expect(md).toContain("图纸 v2");
     expect(md).toContain("执行动作");
-    expect(md).toContain("复测");
-    expect(md).toContain("协作人");
-    expect(md).toContain("质量");
-    expect(md).toContain("范围内");
-    expect(md).toContain("A");
-    expect(md).toContain("范围外");
-    expect(md).toContain("不做包装");
+    expect(md).not.toContain("检查点");
+    expect(md).not.toContain("风险");
+    expect(md).not.toContain("输入材料");
   });
 
   it("omits empty extra sections", () => {

@@ -4,6 +4,29 @@ import {
   startNewTaskScope,
 } from "../../infra/plan-session-store";
 
+export const NEUTRAL_START_NEW_TASK_SCOPE_LABEL = "新任务待定义";
+
+const START_NEW_TASK_ONLY_USER_MESSAGE =
+  /^(开启新任务|开新任务|新建任务|开个新任务|开始新任务|新任务)([。！!？?…\s]*)$/i;
+
+/** 用户本条仅表达「开新任务」、尚未描述新主题（含工作台按钮文案）。 */
+export function isStartNewTaskOnlyUserMessage(userMessage: string | undefined): boolean {
+  const text = String(userMessage ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  return START_NEW_TASK_ONLY_USER_MESSAGE.test(text);
+}
+
+export function resolveStartNewTaskScopeLabel(input: {
+  modelScopeLabel: string;
+  userMessage?: string;
+}): { scopeLabel: string; overridden: boolean } {
+  const modelScopeLabel = String(input.modelScopeLabel ?? "").trim();
+  if (isStartNewTaskOnlyUserMessage(input.userMessage)) {
+    return { scopeLabel: NEUTRAL_START_NEW_TASK_SCOPE_LABEL, overridden: true };
+  }
+  return { scopeLabel: modelScopeLabel, overridden: false };
+}
+
 export const START_NEW_TASK_TOOL: ToolDefinition = {
   type: "function",
   function: {
@@ -30,14 +53,21 @@ export const START_NEW_TASK_TOOL: ToolDefinition = {
 export interface BuildStartNewTaskHandlerDeps {
   currentSession?: PlanSession;
   onSessionMutated?: (session: PlanSession) => void;
+  /** 本轮 orchestrator 用户原文；仅「开启新任务」时强制中性 scopeLabel。 */
+  userMessage?: string;
 }
 
 export function buildStartNewTaskHandler(
   deps: BuildStartNewTaskHandlerDeps = {},
 ): ToolHandler {
   return (args: Record<string, unknown>) => {
-    const scopeLabel = String(args.scopeLabel ?? "").trim();
+    const modelScopeLabel = String(args.scopeLabel ?? "").trim();
     const reason = String(args.reason ?? "").trim() || undefined;
+    const resolved = resolveStartNewTaskScopeLabel({
+      modelScopeLabel,
+      userMessage: deps.userMessage,
+    });
+    const scopeLabel = resolved.scopeLabel;
     if (!scopeLabel) {
       return {
         ok: false,
@@ -54,6 +84,9 @@ export function buildStartNewTaskHandler(
     }
     const result = startNewTaskScope(deps.currentSession, { scopeLabel, reason });
     deps.onSessionMutated?.(deps.currentSession);
+    const scopeIntro = resolved.overridden
+      ? `已切换到新任务「${result.toScopeLabel}」（用户尚未描述具体主题，系统使用中性标签）。`
+      : `切换到新任务「${result.toScopeLabel}」。`;
     return {
       ok: true,
       fromScopeId: result.fromScopeId,
@@ -63,9 +96,11 @@ export function buildStartNewTaskHandler(
       toScopeLabel: result.toScopeLabel,
       toPlanId: result.toPlanId,
       clearedHistoryEntries: result.clearedHistoryEntries,
+      scopeLabelOverridden: resolved.overridden,
+      modelScopeLabel: resolved.overridden ? modelScopeLabel : undefined,
       hint:
         `已归档原任务${result.fromScopeLabel ? `「${result.fromScopeLabel}」` : ""}，` +
-        `切换到新任务「${result.toScopeLabel}」。规划 id 已从 \`${result.fromPlanId}\` 更新为 \`${result.toPlanId}\`。` +
+        `${scopeIntro}规划 id 已从 \`${result.fromPlanId}\` 更新为 \`${result.toPlanId}\`。` +
         `对话历史已清空（清除 ${result.clearedHistoryEntries} 条旧记录），candidatePool 已重置。` +
         `当前 scope 草案为空，请按用户最新输入重新生成；旧 scope 的人员名单/task_x 编号/姓名不得引用。` +
         `scope 已切换｜**本回合禁止再调任何工具**；若用户尚未描述新需求，下一条 assistant 须为纯 CLARIFY JSON（仅 message，无 draft/tasks[]）。`,

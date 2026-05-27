@@ -6,7 +6,7 @@ import {
   isUserIdAllowedForAssignment,
   resolveCollaboratorToken,
 } from "../employee-search-cache";
-import { stripPlanningPersonFieldsFromTask } from "../draft-person-fields";
+import { normalizeDraftTasksForSession } from "../draft-person-fields";
 import { clearPublishStagingOnDraft } from "../draft-staging-clear";
 import { findDraftTaskIndex } from "../draft-task-ids";
 
@@ -60,7 +60,7 @@ export const UPDATE_DRAFT_TASK_TOOL: ToolDefinition = {
   function: {
     name: "update_draft_task",
     description:
-      "在当前 session.latestDraft 中原地修改单个子任务的字段（title/objective/deliverables/completionCriteria/feedbackFrequency/dueAt/dependencyTaskIds/checkpoints/risks/inputMaterials/actions/scope）；**负责人/协作人**通过 patch.assigneeUserId / patch.collaborators 写入 latestAssignment（scheme C，不写进 draft.tasks）。用于局部修改，**避免重新生成整张草案**而触发主题串台。数组类字段为**整表替换**：须先基于当前草案合并后再提交完整数组；**例外**：`scope` 仅可传 `{ inScope?, outOfScope? }` 的一边或两边，未出现的键保留原值。assigneeUserId 须来自本轮 search_employees 命中或 candidatePool。",
+      "在当前 session.latestDraft 中原地修改单个子任务的字段（title/objective/deliverables/completionCriteria/dueAt/dependencyTaskIds/actions）；**负责人/协作人**通过 patch.assigneeUserId / patch.collaborators 写入 latestAssignment（scheme C，不写进 draft.tasks）。用于局部修改，**避免重新生成整张草案**而触发主题串台。数组类字段为**整表替换**。assigneeUserId 须来自本轮 search_employees 命中或 candidatePool。",
     parameters: {
       type: "object",
       properties: {
@@ -84,28 +84,12 @@ export const UPDATE_DRAFT_TASK_TOOL: ToolDefinition = {
               items: { type: "string" },
               description: "完成标准列表（整表替换）。",
             },
-            feedbackFrequency: { type: "string", description: "反馈频率，如「每周」。" },
             dueAt: { type: "string" },
             assigneeUserId: { type: "string" },
             dependencyTaskIds: {
               type: "array",
               items: { type: "string" },
               description: "前置依赖 task id 列表（如 task_1）；写入草案 dependencyTaskIds，发布后进 extra.dependsOn。",
-            },
-            checkpoints: {
-              type: "array",
-              items: { type: "string" },
-              description: "检查点列表；写入 timeNode.checkpoints。",
-            },
-            risks: {
-              type: "array",
-              items: { type: "string" },
-              description: "风险与待澄清；写入 risksAndOpenQuestions。",
-            },
-            inputMaterials: {
-              type: "array",
-              items: { type: "string" },
-              description: "开工前须具备的材料/样品/权限（整表替换）。",
             },
             actions: {
               type: "array",
@@ -116,15 +100,6 @@ export const UPDATE_DRAFT_TASK_TOOL: ToolDefinition = {
               type: "array",
               items: { type: "string" },
               description: "协作人 displayName（须 search 命中）；写入 latestAssignment，不写 draft。",
-            },
-            scope: {
-              type: "object",
-              description: "范围边界；可只传 inScope 或只传 outOfScope，未传的键保留原值。",
-              properties: {
-                inScope: { type: "array", items: { type: "string" } },
-                outOfScope: { type: "array", items: { type: "string" } },
-              },
-              additionalProperties: false,
             },
           },
         },
@@ -189,52 +164,33 @@ export function buildUpdateDraftTaskHandler(
       completionCriteria: Array.isArray(patchRaw.completionCriteria)
         ? normalizePatchStringList(patchRaw.completionCriteria)
         : undefined,
-      feedbackFrequency:
-        typeof patchRaw.feedbackFrequency === "string" ? patchRaw.feedbackFrequency.trim() : undefined,
       dueAt: typeof patchRaw.dueAt === "string" ? patchRaw.dueAt.trim() : undefined,
       assigneeUserId:
         typeof patchRaw.assigneeUserId === "string" ? patchRaw.assigneeUserId.trim() : undefined,
       dependencyTaskIds: Array.isArray(patchRaw.dependencyTaskIds)
         ? normalizePatchStringList(patchRaw.dependencyTaskIds)
         : undefined,
-      checkpoints: Array.isArray(patchRaw.checkpoints)
-        ? normalizePatchStringList(patchRaw.checkpoints)
-        : undefined,
-      risks: Array.isArray(patchRaw.risks) ? normalizePatchStringList(patchRaw.risks) : undefined,
-      inputMaterials: Array.isArray(patchRaw.inputMaterials)
-        ? normalizePatchStringList(patchRaw.inputMaterials)
-        : undefined,
       actions: Array.isArray(patchRaw.actions) ? normalizePatchStringList(patchRaw.actions) : undefined,
       collaborators: Array.isArray(patchRaw.collaborators)
         ? normalizePatchStringList(patchRaw.collaborators)
         : undefined,
-      scope:
-        patchRaw.scope !== null && patchRaw.scope !== undefined && typeof patchRaw.scope === "object"
-        && !Array.isArray(patchRaw.scope)
-          ? (patchRaw.scope as Record<string, unknown>)
-          : undefined,
     };
     const hasAnyField =
       patch.title !== undefined
       || patch.objective !== undefined
       || patch.deliverables !== undefined
       || patch.completionCriteria !== undefined
-      || patch.feedbackFrequency !== undefined
       || patch.dueAt !== undefined
       || patch.assigneeUserId !== undefined
       || patch.dependencyTaskIds !== undefined
-      || patch.checkpoints !== undefined
-      || patch.risks !== undefined
-      || patch.inputMaterials !== undefined
       || patch.actions !== undefined
-      || patch.collaborators !== undefined
-      || patch.scope !== undefined;
+      || patch.collaborators !== undefined;
     if (!hasAnyField) {
       return {
         ok: false,
         reason: "empty_patch",
         hint:
-          "patch 至少要包含 title / objective / deliverables / completionCriteria / feedbackFrequency / dueAt / assigneeUserId / dependencyTaskIds / checkpoints / risks / inputMaterials / actions / collaborators / scope 之一。",
+          "patch 至少要包含 title / objective / deliverables / completionCriteria / dueAt / assigneeUserId / dependencyTaskIds / actions / collaborators 之一。",
       };
     }
 
@@ -327,14 +283,8 @@ export function buildUpdateDraftTaskHandler(
       target.completionCriteria = patch.completionCriteria;
       updatedFields.push("completionCriteria");
     }
-    if (patch.feedbackFrequency) {
-      target.feedbackFrequency = patch.feedbackFrequency;
-      updatedFields.push("feedbackFrequency");
-    }
     if (patch.dueAt) {
-      const tn = (target.timeNode as Record<string, unknown> | undefined) ?? {};
-      tn.dueAt = patch.dueAt;
-      target.timeNode = tn;
+      target.timeNode = { dueAt: patch.dueAt };
       updatedFields.push("dueAt");
     }
     if (patch.assigneeUserId && assigneeResolved) {
@@ -370,21 +320,8 @@ export function buildUpdateDraftTaskHandler(
       target.actions = patch.actions;
       updatedFields.push("actions");
     }
-    if (patch.scope !== undefined) {
-      const cur = (target.scope as Record<string, unknown> | undefined) ?? {};
-      const p = patch.scope;
-      const next: Record<string, unknown> = { ...cur };
-      if (Object.prototype.hasOwnProperty.call(p, "inScope")) {
-        next.inScope = normalizePatchStringList(p.inScope);
-      }
-      if (Object.prototype.hasOwnProperty.call(p, "outOfScope")) {
-        next.outOfScope = normalizePatchStringList(p.outOfScope);
-      }
-      target.scope = next;
-      updatedFields.push("scope");
-    }
-
-    draft.tasks[targetIdx] = stripPlanningPersonFieldsFromTask(target);
+    draft.tasks[targetIdx] = target;
+    session.latestDraft = normalizeDraftTasksForSession(draft);
     clearPublishStagingOnDraft(session);
 
     if (assigneeError && updatedFields.length === 0) {

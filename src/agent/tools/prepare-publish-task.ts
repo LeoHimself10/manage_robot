@@ -1,7 +1,11 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 import type { PlanSession } from "../../infra/plan-session-store";
 import { TASK_DESCRIPTION_MAX_DB } from "../../infra/workbench-formal-task-store";
-import { stripPlanningPersonFieldsFromTask } from "../draft-person-fields";
+import {
+  normalizeDraftTasksForSession,
+  stripDeprecatedPlanningFieldsOnTask,
+  stripPlanningPersonFieldsFromTask,
+} from "../draft-person-fields";
 import {
   buildPreparePublishArgsFromSession,
   hashAssignmentForStaging,
@@ -56,32 +60,25 @@ interface SubtaskPatch {
   assigneeUserId: string;
   objective?: string;
   dueAt?: string;
-  feedbackFrequency?: string;
   deliverables?: string[];
   completionCriteria?: string[];
   dependencyTaskIds?: string[];
-  checkpoints?: string[];
-  risksAndOpenQuestions?: string[];
-  inputMaterials?: string[];
   actions?: string[];
   collaborators?: string[];
-  scope?: { inScope: string[]; outOfScope: string[] };
 }
 
 function mergeSubtaskPatch(
   originalTask: Record<string, unknown> | undefined,
   patch: SubtaskPatch,
 ): Record<string, unknown> {
-  const next = stripPlanningPersonFieldsFromTask({ ...(originalTask ?? {}) });
+  const next = stripDeprecatedPlanningFieldsOnTask(
+    stripPlanningPersonFieldsFromTask({ ...(originalTask ?? {}) }),
+  );
   next.id = patch.taskId;
   next.title = patch.title;
   if (patch.objective !== undefined) next.objective = patch.objective;
-  if (patch.feedbackFrequency !== undefined) next.feedbackFrequency = patch.feedbackFrequency;
 
-  const arrayFields = [
-    "deliverables", "completionCriteria", "dependencyTaskIds",
-    "checkpoints", "risksAndOpenQuestions", "inputMaterials", "actions",
-  ] as const;
+  const arrayFields = ["deliverables", "completionCriteria", "dependencyTaskIds", "actions"] as const;
   for (const f of arrayFields) {
     const v = patch[f];
     if (Array.isArray(v) && v.length > 0) next[f] = v;
@@ -89,28 +86,11 @@ function mergeSubtaskPatch(
 
   const rawTimeNode = asPlainObject(next.timeNode) ?? {};
   if (patch.dueAt !== undefined) {
-    next.timeNode = { ...rawTimeNode, dueAt: patch.dueAt };
-  } else if (Object.keys(rawTimeNode).length > 0) {
-    next.timeNode = rawTimeNode;
-  }
-
-  if (patch.checkpoints !== undefined && Array.isArray(patch.checkpoints) && patch.checkpoints.length > 0) {
-    const tn = asPlainObject(next.timeNode) ?? {};
-    next.timeNode = { ...tn, checkpoints: patch.checkpoints };
-  }
-
-  if (patch.scope !== undefined) {
-    const existingScope = asPlainObject(next.scope) ?? {};
-    next.scope = {
-      inScope:
-        Array.isArray(patch.scope.inScope) && patch.scope.inScope.length > 0
-          ? patch.scope.inScope
-          : (existingScope.inScope ?? []),
-      outOfScope:
-        Array.isArray(patch.scope.outOfScope) && patch.scope.outOfScope.length > 0
-          ? patch.scope.outOfScope
-          : (existingScope.outOfScope ?? []),
-    };
+    next.timeNode = { dueAt: patch.dueAt };
+  } else {
+    const dueAt = String(rawTimeNode.dueAt ?? "").trim();
+    if (dueAt) next.timeNode = { dueAt };
+    else delete next.timeNode;
   }
 
   return next;
@@ -323,7 +303,7 @@ export function buildPreparePublishTaskHandler(
       stagedDraftHash: hashDraftForStaging(draftBodyForHash),
       stagedAssignmentHash: hashAssignmentForStaging(stagedAssignment),
     };
-    deps.currentSession.latestDraft = stagedDraft;
+    deps.currentSession.latestDraft = normalizeDraftTasksForSession(stagedDraft);
     deps.currentSession.latestAssignment = stagedAssignment;
 
     return {

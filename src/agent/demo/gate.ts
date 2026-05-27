@@ -3,8 +3,7 @@ import { TaskPackage } from "../../domain/task-package";
 export type DemoGateMissingField =
   | "deliverables"
   | "completionCriteria"
-  | "timeNode.dueAt"
-  | "feedbackFrequency";
+  | "timeNode.dueAt";
 
 export interface DemoGateMissingTask {
   taskId: string;
@@ -33,10 +32,6 @@ export function findDispatchGateMissingFields(
 
   if (!task.timeNode.dueAt.trim()) {
     missingFields.push("timeNode.dueAt");
-  }
-
-  if (!task.feedbackFrequency.trim()) {
-    missingFields.push("feedbackFrequency");
   }
 
   return missingFields;

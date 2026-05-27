@@ -11,6 +11,7 @@ import {
   assertRowAtDisplayIndex,
   assertSplitRowsInheritDueAt,
 } from "../../../scripts/eval-assignment-assertions";
+import { resolveTurnLatestAssignment } from "../../../src/agent/assignment/resolve-turn-assignment";
 
 function taskDueAt(task: Record<string, unknown>): string {
   const tn = task.timeNode as { dueAt?: string } | undefined;
@@ -140,5 +141,20 @@ describe("assignment gate invariants (deterministic)", () => {
     expect(cov.ratio).toBeCloseTo(1 / 3);
     expect(assertRowAtDisplayIndex(draft, 3, { dueAt: "2026-06-01" })).toEqual([]);
     expect(assertRowAtDisplayIndex(draft, 1, { dueAt: "2026-06-01" })).toHaveLength(1);
+  });
+
+  it("resolveTurnLatestAssignment is empty when scope switched with stale assignment planId", () => {
+    const stale = {
+      planId: "old-plan",
+      assignments: [{ taskId: "task_1", primary: { displayName: "朱锐" } }],
+    };
+    expect(
+      resolveTurnLatestAssignment({
+        preTurnAssignment: stale,
+        sessionPlanId: "new-plan",
+        preTurnPlanId: "old-plan",
+        toolInvocationNames: ["start_new_task"],
+      }),
+    ).toBeUndefined();
   });
 });

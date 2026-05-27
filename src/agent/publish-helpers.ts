@@ -55,16 +55,11 @@ export function buildPreparePublishArgsFromSession(
       assigneeUserId,
       objective: String(t.objective ?? "").trim() || undefined,
       dueAt,
-      feedbackFrequency: String(t.feedbackFrequency ?? "").trim() || undefined,
       deliverables: Array.isArray(t.deliverables) ? t.deliverables : undefined,
       completionCriteria: Array.isArray(t.completionCriteria) ? t.completionCriteria : undefined,
       dependencyTaskIds: Array.isArray(t.dependencyTaskIds) ? t.dependencyTaskIds : undefined,
-      checkpoints: Array.isArray(timeNode?.checkpoints) ? timeNode.checkpoints : undefined,
-      risksAndOpenQuestions: Array.isArray(t.risksAndOpenQuestions) ? t.risksAndOpenQuestions : undefined,
-      inputMaterials: Array.isArray(t.inputMaterials) ? t.inputMaterials : undefined,
       actions: Array.isArray(t.actions) ? t.actions : undefined,
       collaborators: assign?.collaborators,
-      scope: t.scope,
     });
   }
   if (subtasks.length === 0) return null;

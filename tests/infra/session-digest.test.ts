@@ -149,7 +149,7 @@ describe("summarizePriorDemoForPrompt", () => {
     expect(digest).toContain("交付物：事实确认记录");
     expect(digest).toContain("验收：影响范围明确");
     expect(digest).toContain("截止：T+1 工作日");
-    expect(digest).toContain("反馈：每日 17:00 更新");
+    expect(digest).not.toContain("反馈：");
     expect(digest).toContain("仍需关注的问题：是否存在重复发生？");
   });
 

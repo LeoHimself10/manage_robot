@@ -2,6 +2,8 @@
  * Workbench draft Excel grid: column model + draft ↔ flat rows (shared by tests and browser bundle).
  */
 
+import { normalizeDraftTasksForSession } from "../agent/draft-person-fields";
+
 export const DRAFT_EXCEL_COLUMN_KEYS = [
   "rowNum",
   "taskId",
@@ -13,13 +15,6 @@ export const DRAFT_EXCEL_COLUMN_KEYS = [
   "actions",
   "dependencyTaskIds",
   "assignee",
-  "feedbackFrequency",
-  "inputMaterials",
-  "collaborators",
-  "inScope",
-  "outOfScope",
-  "checkpoints",
-  "risks",
 ] as const;
 
 export type DraftExcelColumnKey = (typeof DRAFT_EXCEL_COLUMN_KEYS)[number];
@@ -35,13 +30,6 @@ export const DRAFT_EXCEL_COLUMN_HEADERS: Record<DraftExcelColumnKey, string> = {
   actions: "执行动作",
   dependencyTaskIds: "前置依赖",
   assignee: "负责人",
-  feedbackFrequency: "反馈频率",
-  inputMaterials: "输入材料",
-  collaborators: "协作人",
-  inScope: "范围内",
-  outOfScope: "范围外",
-  checkpoints: "检查点",
-  risks: "风险",
 };
 
 export type DraftExcelRow = Record<DraftExcelColumnKey, string>;
@@ -85,7 +73,6 @@ export function draftToExcelRows(input: {
   return tasks.map((t, idx) => {
     const taskId = String(t.id ?? "").trim();
     const timeNode = (t.timeNode ?? {}) as Record<string, unknown>;
-    const scope = (t.scope ?? {}) as Record<string, unknown>;
     return {
       rowNum: String(idx + 1),
       taskId,
@@ -97,13 +84,6 @@ export function draftToExcelRows(input: {
       actions: joinListCell(t.actions),
       dependencyTaskIds: joinListCell(t.dependencyTaskIds),
       assignee: readAssigneeDisplay(taskId, input.assignment),
-      feedbackFrequency: String(t.feedbackFrequency ?? "").trim(),
-      inputMaterials: joinListCell(t.inputMaterials),
-      collaborators: joinListCell(t.collaborators),
-      inScope: joinListCell(scope.inScope),
-      outOfScope: joinListCell(scope.outOfScope),
-      checkpoints: joinListCell(timeNode.checkpoints),
-      risks: joinListCell(t.risksAndOpenQuestions),
     };
   });
 }
@@ -147,19 +127,11 @@ export function excelRowsToDraft(input: {
     }
     usedIds.add(taskId);
 
-    const base = prevTask ? { ...prevTask } : {};
-    const timeNode = { ...((base.timeNode as Record<string, unknown>) ?? {}) };
+    const timeNode = { ...((prevTask?.timeNode as Record<string, unknown>) ?? {}) };
     const dueAt = String(row.dueAt ?? "").trim();
     if (dueAt) timeNode.dueAt = dueAt;
 
-    const scope = { ...((base.scope as Record<string, unknown>) ?? {}) };
-    const inScope = splitListCell(row.inScope);
-    const outOfScope = splitListCell(row.outOfScope);
-    if (inScope.length) scope.inScope = inScope;
-    if (outOfScope.length) scope.outOfScope = outOfScope;
-
     const task: Record<string, unknown> = {
-      ...base,
       id: taskId,
       title,
       objective: String(row.objective ?? "").trim() || title,
@@ -167,16 +139,9 @@ export function excelRowsToDraft(input: {
       completionCriteria: splitListCell(row.completionCriteria),
       actions: splitListCell(row.actions),
       dependencyTaskIds: splitListCell(row.dependencyTaskIds),
-      feedbackFrequency: String(row.feedbackFrequency ?? "").trim() || base.feedbackFrequency || "",
-      inputMaterials: splitListCell(row.inputMaterials),
-      collaborators: splitListCell(row.collaborators),
-      risksAndOpenQuestions: splitListCell(row.risks),
       timeNode: {
-        ...timeNode,
-        checkpoints: splitListCell(row.checkpoints),
-        dueAt: dueAt || timeNode.dueAt || "待确认",
+        dueAt: dueAt || String(timeNode.dueAt ?? "").trim() || "待确认",
       },
-      scope,
     };
     tasks.push(task);
 
@@ -208,7 +173,7 @@ export function excelRowsToDraft(input: {
   };
 
   return {
-    draft,
+    draft: normalizeDraftTasksForSession(draft),
     assignment: { ...assignmentBase, assignments: assignmentRows },
   };
 }

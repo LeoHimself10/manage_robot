@@ -666,7 +666,7 @@ export function renderManagerChatPage(params: {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
               最近截止 <strong id="draftStatDue">—</strong>
             </div>
-            <button type="button" class="btn-draft-edit-table" id="editDraftBtnPanel" hidden title="在弹窗中编辑 16 列草案表格">
+            <button type="button" class="btn-draft-edit-table" id="editDraftBtnPanel" hidden title="在弹窗中编辑 10 列草案表格">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
               编辑草案表格
             </button>

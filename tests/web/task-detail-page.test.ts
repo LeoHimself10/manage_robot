@@ -15,9 +15,8 @@ describe("renderTaskDetailPage", () => {
       enforceActionGuards: false,
     });
     expect(html).toContain("function subtaskCoreDtDds");
-    expect(html).toContain("function subtaskMoreDtDds");
     expect(html).toContain("function subtaskPlanningBlock");
-    expect(html).toContain("输入材料");
+    expect(html).not.toContain("function subtaskMoreDtDds");
     expect(html).toContain("前置依赖");
     expect(html).toContain("改派");
     expect(html).toContain("detailReassignBtn");
@@ -30,6 +29,6 @@ describe("renderTaskDetailPage", () => {
       enforceActionGuards: false,
     });
     expect(html).toContain("function subtaskCoreDtDds");
-    expect(html).toContain("function subtaskMoreDtDds");
+    expect(html).not.toContain("function subtaskMoreDtDds");
   });
 });

@@ -361,6 +361,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       handler: buildStartNewTaskHandler({
         currentSession: deps.currentSession,
         onSessionMutated: deps.onSessionMutated,
+        userMessage: deps.orchestratorUserMessage,
       }),
     },
     switch_back_task: {

@@ -237,3 +237,45 @@ export function assertSplitRowsInheritDueAt(
   }
   return [];
 }
+
+export function assertNoStaleAssigneeNamesInMarkdown(
+  markdown: string,
+  staleNames: readonly string[],
+): string[] {
+  const reasons: string[] = [];
+  for (const name of staleNames) {
+    const trimmed = String(name ?? "").trim();
+    if (trimmed && markdown.includes(trimmed)) {
+      reasons.push(`stale assignee name in markdown: ${trimmed}`);
+    }
+  }
+  return reasons;
+}
+
+export function assertSessionAssignmentCleared(session: PlanSession): string[] {
+  return session.latestAssignment ? ["expected session.latestAssignment to be undefined"] : [];
+}
+
+export function assertAssignmentPlanMatchesSession(session: PlanSession): string[] {
+  const assignment = session.latestAssignment as { planId?: string } | undefined;
+  const assignmentPlanId = String(assignment?.planId ?? "").trim();
+  if (!assignmentPlanId) return [];
+  if (assignmentPlanId !== session.planId) {
+    return [`assignment.planId=${assignmentPlanId} !== session.planId=${session.planId}`];
+  }
+  return [];
+}
+
+export function assertScopeSwitchClearedAssignment(
+  tools: readonly string[],
+  preTurnPlanId: string,
+  session: PlanSession,
+): string[] {
+  if (tools.includes("start_new_task")) {
+    return assertSessionAssignmentCleared(session);
+  }
+  if (preTurnPlanId && session.planId && preTurnPlanId !== session.planId) {
+    return assertSessionAssignmentCleared(session);
+  }
+  return [];
+}

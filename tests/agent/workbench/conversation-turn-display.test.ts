@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlanSession } from "../../../src/infra/plan-session-store";
+import { startNewTaskScope } from "../../../src/infra/plan-session-store";
 import { buildBulkAssignTasksHandler } from "../../../src/agent/tools/bulk-assign-tasks";
 import { buildPreparePublishTaskHandler } from "../../../src/agent/tools/prepare-publish-task";
 import { buildWorkbenchTurnDisplay } from "../../../src/agent/workbench/conversation-turn-display";
@@ -82,5 +83,71 @@ describe("buildWorkbenchTurnDisplay", () => {
 
     expect(turnDisplay.displayContent).toContain(ASSIGNEE_NAME);
     expect(turnDisplay.displayContent).not.toContain(ASSIGNEE_ID);
+  });
+
+  it("does not show stale assignees after start_new_task scope switch (朱锐 repro)", () => {
+    const now = new Date().toISOString();
+    const session = {
+      chatKeyHash: "hash-zhurui",
+      planId: "9300fc35-old-plan",
+      createdAt: now,
+      updatedAt: now,
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "干眼光敷仪项目",
+        tasks: [
+          { id: "task_1", title: "供应商评估", objective: "评估" },
+          { id: "task_2", title: "样机验证", objective: "验证" },
+        ],
+      },
+      latestAssignment: {
+        planId: "9300fc35-old-plan",
+        assignments: [
+          { taskId: "task_1", primary: { displayName: "贾三祥" } },
+          { taskId: "task_2", primary: { displayName: "姚雪峰" } },
+        ],
+      },
+    } as PlanSession;
+
+    const preTurnPlanId = session.planId;
+    const preTurnDraft = session.latestDraft;
+    const preTurnAssignment = session.latestAssignment;
+
+    startNewTaskScope(session, { scopeLabel: "脑机接口项目", reason: "user_start_new_task" });
+    expect(session.latestAssignment).toBeUndefined();
+
+    session.latestDraft = {
+      title: "脑机接口项目",
+      description: "BCI 研发规划",
+      tasks: [
+        { id: "task_1", title: "需求梳理", objective: "明确范围" },
+        { id: "task_2", title: "原型验证", objective: "技术验证" },
+      ],
+    };
+
+    const orchResult: OrchestratorResult = {
+      traceId: "trace-bci-draft",
+      messages: ["已根据您的描述生成脑机接口项目草案。"],
+      toolInvocationNames: [],
+      toolCallsTotal: 0,
+      draft: session.latestDraft as Record<string, unknown>,
+    };
+
+    const turnDisplay = buildWorkbenchTurnDisplay({
+      orchResult,
+      session,
+      preTurnDraft,
+      preTurnAssignment,
+      preTurnPlanId,
+      postTurnDraft: session.latestDraft,
+      modelName: "qwen-test",
+      employees: [],
+    });
+
+    expect(turnDisplay.latestAssignment).toBeUndefined();
+    expect(turnDisplay.displayContent).not.toContain("贾三祥");
+    expect(turnDisplay.displayContent).not.toContain("姚雪峰");
+    expect(turnDisplay.displayContent).not.toContain("朱锐");
   });
 });

@@ -240,9 +240,8 @@ function getDraftFieldCoverage(draft: Record<string, unknown> | undefined): {
       hits += 1;
     const tn = (task as { timeNode?: { dueAt?: string } }).timeNode;
     if (tn?.dueAt) hits += 1;
-    if (String(task?.feedbackFrequency ?? "").trim()) hits += 1;
     if (String(task?.id ?? "").trim()) hits += 1;
-    return hits / 7;
+    return hits / 6;
   });
   const avg =
     fieldHits.reduce((sum, x) => sum + x, 0) / Math.max(1, fieldHits.length);

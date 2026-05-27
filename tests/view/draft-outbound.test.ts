@@ -11,7 +11,19 @@ const baseDraft = {
     {
       id: "task_1",
       title: "旧子任务",
-      inputMaterials: ["图纸A"],
+      deliverables: ["报告"],
+      completionCriteria: ["完成"],
+      timeNode: { dueAt: "2026-06-01" },
+    },
+  ],
+};
+
+const normalizedBaseDraft = {
+  title: "旧任务",
+  tasks: [
+    {
+      id: "task_1",
+      title: "旧子任务",
       deliverables: ["报告"],
       completionCriteria: ["完成"],
       timeNode: { dueAt: "2026-06-01" },
@@ -28,7 +40,7 @@ describe("resolveDraftForOutbound", () => {
     });
     expect(result.draftTouchedThisTurn).toBe(false);
     expect(result.draftForRender).toBeUndefined();
-    expect(result.persistedDraft).toEqual(baseDraft);
+    expect(result.persistedDraft).toEqual(normalizedBaseDraft);
   });
 
   it("clears persisted draft after start_new_task when post is undefined", () => {
@@ -66,7 +78,7 @@ describe("resolveDraftForOutbound", () => {
       toolInvocationNames: ["prepare_publish_task"],
     });
     expect(result.draftTouchedThisTurn).toBe(true);
-    expect(result.draftForRender).toEqual(postDraft);
+    expect(result.draftForRender?.stagedBy).toBe("prepare_publish_task");
   });
 
   it("renders on update_draft_task with merge", () => {
@@ -125,7 +137,7 @@ describe("mergeOrchestratorDraftIntoSession", () => {
     );
     const t = (merged.tasks as Array<Record<string, unknown>>)[0];
     expect(t.title).toBe("局部改标题");
-    expect(t.inputMaterials).toEqual(["图纸A"]);
+    expect(t.inputMaterials).toBeUndefined();
   });
 });
 

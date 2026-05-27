@@ -18,6 +18,7 @@
     "eval:agent": "tsx scripts/run-agent-eval.ts",
     "eval:wbs-manager": "tsx scripts/run-wbs-manager-eval.ts",
     "eval:assignment-gate": "vitest run tests/agent/assignment/assignment-gate-invariants.test.ts && tsx scripts/run-assignment-gate-eval.ts",
+    "eval:assignment-scope-switch": "vitest run tests/agent/assignment/assignment-scope-conversation.test.ts && tsx scripts/run-assignment-scope-switch-eval.ts",
     "eval:replay-transport": "tsx scripts/run-replay-transport-eval.ts",
     "eval:natural-full-chains": "tsx scripts/run-natural-full-chains.ts",
     "eval:natural-full": "tsx scripts/run-natural-full-eval.ts",
@@ -37,6 +38,7 @@
     "dev:manager-chat:keep": "tsx scripts/local-manager-chat-dev.ts --keep-data",
     "dev:microcatheter-repro": "tsx scripts/local-microcatheter-repro-dev.ts",
     "test:displayname-local": "tsx scripts/local-test-displayname-fix.ts",
+    "test:assignment-scope": "vitest run tests/agent/assignment/resolve-turn-assignment.test.ts tests/agent/assignment/assignment-scope-conversation.test.ts tests/agent/assignment/assignment-gate-invariants.test.ts tests/agent/manager-orchestrator-turn.test.ts tests/agent/workbench/conversation-turn-display.test.ts tests/agent/tools/start-new-task.test.ts tests/agent/tools/switch-back-task.test.ts tests/view/draft-outbound.test.ts tests/agent/scope-message-truncate.test.ts",
     "build:workbench-login": "esbuild src/web/workbench-dd-login-entry.ts --bundle --platform=browser --format=iife --legal-comments=none --outfile=dist/workbench-dd-login.js",
     "build:workbench-draft-grid": "esbuild src/web/workbench-draft-grid-entry.ts --bundle --platform=browser --format=iife --global-name=WorkbenchDraftGrid --legal-comments=none --outfile=dist/workbench-draft-grid.js"
   },

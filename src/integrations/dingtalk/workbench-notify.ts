@@ -593,26 +593,10 @@ export function buildPublishTaskNotifyMarkdown(params: {
   }
   for (const st of subtasks) {
     lines.push("", `#### 子任务：${st.title}`);
-    const im = formatPlainListLine("输入材料", st.inputMaterials);
-    if (im) lines.push(im);
     const act = formatPlainListLine("执行动作", st.actions);
     if (act) lines.push(act);
-    const col = formatPlainListLine("协作人", st.collaborators);
-    if (col) lines.push(col);
-    if (st.inScope?.length) {
-      const sc = formatPlainListLine("范围内", st.inScope);
-      if (sc) lines.push(sc);
-    }
-    if (st.outOfScope?.length) {
-      const so = formatPlainListLine("范围外", st.outOfScope);
-      if (so) lines.push(so);
-    }
     const dep = formatListLine("前置依赖", st.dependsOn, titleMap);
     if (dep) lines.push(dep);
-    const cp = formatPlainListLine("检查点", st.checkpoints);
-    if (cp) lines.push(cp);
-    const rk = formatPlainListLine("风险", st.risks);
-    if (rk) lines.push(rk);
   }
   return enforceNotifyMarkdownLimit(lines.join("\n"));
 }

@@ -1,5 +1,9 @@
 import type { OrchestratorResult } from "../orchestrator";
 import { processAssignmentForTurn } from "../assignment/process-assignment-turn";
+import {
+  resolveSessionAssignmentForTurn,
+  resolveTurnLatestAssignment,
+} from "../assignment/resolve-turn-assignment";
 import { resolveDraftForOutbound } from "../../view/draft-outbound";
 import { buildAssistantDisplayMarkdown } from "../../view/conversation-display-markdown";
 import type { PlanSession } from "../../infra/plan-session-store";
@@ -9,6 +13,7 @@ export interface BuildWorkbenchTurnDisplayInput {
   session: PlanSession;
   preTurnDraft: unknown;
   preTurnAssignment: unknown;
+  preTurnPlanId?: string;
   modelName: string;
   employees: Array<{ userId: string; displayName: string }>;
   postTurnDraft?: unknown;
@@ -42,10 +47,16 @@ export function buildWorkbenchTurnDisplay(
         .filter((id) => id.length > 0)
     : [];
 
-  // Use post-tool session assignment (bulk_assign / prepare_publish_task in this turn).
-  // preTurnAssignment is stale when assign + prepare happen in one orchestrator turn.
-  const sessionAssignment = (input.session.latestAssignment
-    ?? input.preTurnAssignment) as Record<string, unknown> | undefined;
+  const preTurnPlanId = input.preTurnPlanId ?? input.session.planId;
+  const toolInvocationNames = input.orchResult.toolInvocationNames ?? [];
+
+  const sessionAssignment = resolveSessionAssignmentForTurn({
+    sessionLatest: input.session.latestAssignment as Record<string, unknown> | undefined,
+    preTurnAssignment: input.preTurnAssignment,
+    sessionPlanId: input.session.planId,
+    preTurnPlanId,
+    toolInvocationNames,
+  });
 
   const assignState = processAssignmentForTurn({
     preTurnDraft: input.preTurnDraft as Record<string, unknown> | undefined,
@@ -64,7 +75,14 @@ export function buildWorkbenchTurnDisplay(
 
   const modelMessage = input.orchResult.messages.join("\n\n").trim() || "已处理。";
   const pureAssistantMessage = modelMessage;
-  const latestAssignment = assignState.latestAssignment ?? (input.preTurnAssignment as Record<string, unknown> | undefined);
+  const latestAssignment = resolveTurnLatestAssignment({
+    assignStateLatest: assignState.latestAssignment as Record<string, unknown> | undefined,
+    sessionLatest: input.session.latestAssignment as Record<string, unknown> | undefined,
+    preTurnAssignment: input.preTurnAssignment,
+    sessionPlanId: input.session.planId,
+    preTurnPlanId,
+    toolInvocationNames,
+  });
   const shouldRenderRichSection = Boolean(draftOutbound.draftForRender ?? draftOutbound.persistedDraft);
 
   const displayContent = buildAssistantDisplayMarkdown({

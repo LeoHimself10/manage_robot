@@ -6,6 +6,7 @@ import {
 import { stabilizeDraftTaskIds } from "../draft-stabilize";
 import { reconcileAssignmentWithDraft } from "../assignment/reconcile-assignment";
 import { clearPublishStagingFieldsOnDraft } from "../draft-staging-clear";
+import { normalizeDraftTasksForSession } from "../draft-person-fields";
 
 export interface DraftRevisePrevalidateInput {
   draft: Record<string, unknown>;
@@ -91,7 +92,11 @@ export function prevalidateWorkbenchDraftRevision(
   }
   if (errors.length > 0) return { ok: false, errors };
 
-  return { ok: true, draft, assignment };
+  return {
+    ok: true,
+    draft: normalizeDraftTasksForSession(draft),
+    assignment,
+  };
 }
 
 export function prevalidateFromExcelRows(input: {

@@ -63,6 +63,11 @@ describe("draft-excel-grid", () => {
     const t1 = (draft.tasks as Array<Record<string, unknown>>)[0];
     expect(t1.id).toBe("task_1");
     expect(t1.deliverables).toEqual(["报告"]);
+    expect(t1.feedbackFrequency).toBeUndefined();
+    expect(t1.inputMaterials).toBeUndefined();
+    expect(t1.risksAndOpenQuestions).toBeUndefined();
+    expect(t1.scope).toBeUndefined();
+    expect((t1.timeNode as { checkpoints?: unknown })?.checkpoints).toBeUndefined();
     const a1 = (outAssign.assignments as Array<Record<string, unknown>>).find(
       (r) => r.taskId === "task_1",
     );

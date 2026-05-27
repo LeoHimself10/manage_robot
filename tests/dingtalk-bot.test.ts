@@ -72,7 +72,7 @@ describe("dingtalk bot helpers", () => {
     });
   });
 
-  it("renders core and more-planning pipe tables with rich fields", () => {
+  it("renders core pipe table without more-planning supplement", () => {
     const markdown = renderDingtalkTaskMarkdown({
       modelMessage: "草案说明",
       currentDraft: {
@@ -105,15 +105,8 @@ describe("dingtalk bot helpers", () => {
     expect(markdown).toContain("### 结构化任务表");
     expect(markdown).toMatch(/\| # \| 任务 \| 目标 \| 交付物 \| 完成标准 \| 截止 \| 执行动作 \| 前置依赖 \| 负责人 \|/);
     expect(markdown).toContain("| 1 | 任务A | 目标A | 交付A | 标准A | 2026-06-01 | 动作A | task_0 | 协作A |");
-    expect(markdown).toContain("### 更多规划（7 项）");
+    expect(markdown).not.toContain("### 更多规划（7 项）");
     expect(markdown).toContain("任务背景");
-    expect(markdown).toContain("输入A");
     expect(markdown).toContain("动作A");
-    expect(markdown).toContain("协作A");
-    expect(markdown).toContain("李四");
-    expect(markdown).toContain("范围内A");
-    expect(markdown).toContain("范围外A");
-    expect(markdown).toContain("里程碑1");
-    expect(markdown).toContain("风险A");
   });
 });

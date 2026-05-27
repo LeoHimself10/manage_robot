@@ -20,7 +20,7 @@ const VISIBLE_KEYS = DRAFT_EXCEL_COLUMN_KEYS.filter(
   (k) => k !== "taskId",
 ) as DraftExcelColumnKey[];
 
-const COL_WIDTH_STORAGE_KEY = "workbench-draft-excel-col-widths-v1";
+const COL_WIDTH_STORAGE_KEY = "workbench-draft-excel-col-widths-v2";
 const DEFAULT_COL_WIDTHS: Partial<Record<DraftExcelColumnKey, number>> = {
   rowNum: 36,
   title: 140,
@@ -31,13 +31,6 @@ const DEFAULT_COL_WIDTHS: Partial<Record<DraftExcelColumnKey, number>> = {
   actions: 120,
   dependencyTaskIds: 100,
   assignee: 140,
-  feedbackFrequency: 100,
-  inputMaterials: 120,
-  collaborators: 100,
-  inScope: 100,
-  outOfScope: 100,
-  checkpoints: 100,
-  risks: 100,
 };
 
 const LONG_TEXT_KEYS = new Set<DraftExcelColumnKey>([
@@ -45,11 +38,6 @@ const LONG_TEXT_KEYS = new Set<DraftExcelColumnKey>([
   "deliverables",
   "completionCriteria",
   "actions",
-  "inputMaterials",
-  "inScope",
-  "outOfScope",
-  "checkpoints",
-  "risks",
 ]);
 
 export interface OpenDraftExcelModalOpts {

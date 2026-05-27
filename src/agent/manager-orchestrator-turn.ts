@@ -13,6 +13,10 @@ import {
   type ProcessAssignmentTurnResult,
 } from "./assignment/process-assignment-turn";
 import {
+  resolveSessionAssignmentForTurn,
+  resolveTurnLatestAssignment,
+} from "./assignment/resolve-turn-assignment";
+import {
   buildAssignRetryUserMessage,
   buildTaskIndexMap,
   detectFalseAssign,
@@ -146,6 +150,7 @@ export async function runManagerOrchestratorTurn(
 ): Promise<ManagerOrchestratorTurnResult> {
   let session = { ...input.session };
   const preRotatePlanId = session.planId;
+  const preTurnPlanId = session.planId;
   const preTurnDraft = session.latestDraft;
   const preTurnAssignment = session.latestAssignment;
   let mutableKnownFacts = [...(session.knownFacts ?? [])];
@@ -348,7 +353,13 @@ export async function runManagerOrchestratorTurn(
     return processAssignmentForTurn({
       preTurnDraft: preTurnDraft as Record<string, unknown> | undefined,
       persistedDraft: outbound.persistedDraft as Record<string, unknown> | undefined,
-      sessionAssignment: session.latestAssignment as Record<string, unknown> | undefined,
+      sessionAssignment: resolveSessionAssignmentForTurn({
+        sessionLatest: session.latestAssignment as Record<string, unknown> | undefined,
+        preTurnAssignment,
+        sessionPlanId: session.planId,
+        preTurnPlanId,
+        toolInvocationNames: result.toolInvocationNames,
+      }),
       orchAssignment: result.assignment,
       draftTouchedThisTurn: outbound.draftTouchedThisTurn,
       planId: session.planId,
@@ -383,12 +394,15 @@ export async function runManagerOrchestratorTurn(
     assignState = runAssignmentProcessing(orchResult, draftOutbound);
   }
 
-  let latestAssignment =
-    assignState.latestAssignment
-    ?? (preTurnAssignment as Record<string, unknown> | undefined);
-  if (latestAssignment) {
-    session.latestAssignment = latestAssignment as PlanSession["latestAssignment"];
-  }
+  const latestAssignment = resolveTurnLatestAssignment({
+    assignStateLatest: assignState.latestAssignment as Record<string, unknown> | undefined,
+    sessionLatest: session.latestAssignment as Record<string, unknown> | undefined,
+    preTurnAssignment,
+    sessionPlanId: session.planId,
+    preTurnPlanId,
+    toolInvocationNames: orchResult.toolInvocationNames,
+  });
+  session.latestAssignment = latestAssignment as PlanSession["latestAssignment"];
 
   let planRotatedAfterPublish = false;
   let planRotateMeta: ManagerOrchestratorTurnResult["planRotateMeta"];

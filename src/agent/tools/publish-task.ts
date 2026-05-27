@@ -205,13 +205,7 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
       current.push({
         title: subtask.title,
         dependsOn: subtask.dependsOn,
-        checkpoints: subtask.checkpoints,
-        risks: subtask.risks,
-        inputMaterials: subtask.inputMaterials,
         actions: subtask.actions,
-        collaborators: subtask.collaborators,
-        inScope: subtask.inScope,
-        outOfScope: subtask.outOfScope,
       });
       groupedAssignees.set(subtask.assigneeUserId, current);
     });

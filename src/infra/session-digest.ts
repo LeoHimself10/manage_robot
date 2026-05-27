@@ -161,7 +161,6 @@ export function summarizePriorDemoForPrompt(
             `交付物：${renderInlineList(task.deliverables)}`,
             `验收：${renderInlineList(task.completionCriteria)}`,
             `截止：${task.timeNode.dueAt}`,
-            `反馈：${task.feedbackFrequency}`,
             `依赖：${renderInlineList(task.dependencyTaskIds)}`,
           ].join("；")
         );

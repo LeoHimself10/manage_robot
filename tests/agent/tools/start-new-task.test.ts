@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildStartNewTaskHandler } from "../../../src/agent/tools/start-new-task";
+import {
+  NEUTRAL_START_NEW_TASK_SCOPE_LABEL,
+  buildStartNewTaskHandler,
+  isStartNewTaskOnlyUserMessage,
+  resolveStartNewTaskScopeLabel,
+} from "../../../src/agent/tools/start-new-task";
 import type { PlanSession } from "../../../src/infra/plan-session-store";
 
 function makeSession(overrides: Partial<PlanSession> = {}): PlanSession {
@@ -92,5 +97,42 @@ describe("start_new_task tool", () => {
     expect(mutated).toBe(session);
     expect(mutated?.knownFacts).toEqual([]);
     expect(mutated?.latestDraft).toBeUndefined();
+  });
+
+  it("forces neutral scopeLabel when user only says 开启新任务 (姚凯珩 17:24 case)", () => {
+    const session = makeSession({
+      latestDraft: { title: "OCT 导管客诉", tasks: [{ id: "t1", title: "分析" }] },
+    });
+    const handler = buildStartNewTaskHandler({
+      currentSession: session,
+      userMessage: "开启新任务",
+    });
+    const result = handler({
+      scopeLabel: "OCT导管通过性差及折断投诉专项分析与改进",
+      reason: "用户明确要求开启新任务",
+    }) as {
+      ok: boolean;
+      toScopeLabel?: string;
+      scopeLabelOverridden?: boolean;
+      modelScopeLabel?: string;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.toScopeLabel).toBe(NEUTRAL_START_NEW_TASK_SCOPE_LABEL);
+    expect(result.scopeLabelOverridden).toBe(true);
+    expect(result.modelScopeLabel).toContain("OCT");
+    expect(session.taskScopes?.[session.currentTaskScopeId!]?.scopeLabel).toBe(
+      NEUTRAL_START_NEW_TASK_SCOPE_LABEL,
+    );
+  });
+
+  it("keeps model scopeLabel when user message already describes new topic", () => {
+    expect(
+      resolveStartNewTaskScopeLabel({
+        modelScopeLabel: "脑机接口项目",
+        userMessage: "开启新任务：接下来做脑机接口运动康复规划",
+      }).scopeLabel,
+    ).toBe("脑机接口项目");
+    expect(isStartNewTaskOnlyUserMessage("开启新任务：接下来做脑机接口")).toBe(false);
   });
 });

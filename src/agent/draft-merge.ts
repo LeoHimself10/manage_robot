@@ -11,11 +11,7 @@ const RICH_ARRAY_FIELDS = [
   "deliverables",
   "completionCriteria",
   "dependencyTaskIds",
-  "checkpoints",
-  "risksAndOpenQuestions",
-  "inputMaterials",
   "actions",
-  "collaborators",
 ] as const;
 
 function isNonEmptyArray(v: unknown): v is unknown[] {
@@ -45,31 +41,23 @@ function mergeSubtask(
     }
   }
 
-  // scope: merge inScope / outOfScope independently
-  const prevScope = asRecord(prev.scope);
-  const nextScope = asRecord(next.scope);
-  if (prevScope || nextScope) {
-    merged.scope = {
-      inScope:
-        isNonEmptyArray(nextScope?.inScope)
-          ? nextScope!.inScope
-          : (prevScope?.inScope ?? []),
-      outOfScope:
-        isNonEmptyArray(nextScope?.outOfScope)
-          ? nextScope!.outOfScope
-          : (prevScope?.outOfScope ?? []),
-    };
-  }
-
-  // timeNode: preserve dueAt and checkpoints from prev when next omits them
+  // timeNode: preserve dueAt from prev when next omits it
   const prevTimeNode = asRecord(prev.timeNode);
   const nextTimeNode = asRecord(next.timeNode);
-  if (prevTimeNode || nextTimeNode) {
-    merged.timeNode = {
-      ...(prevTimeNode ?? {}),
-      ...(nextTimeNode ?? {}),
-    };
+  const nextDue = String(nextTimeNode?.dueAt ?? "").trim();
+  const prevDue = String(prevTimeNode?.dueAt ?? "").trim();
+  const dueAt = nextDue || prevDue;
+  if (dueAt) {
+    merged.timeNode = { dueAt };
+  } else if (prevTimeNode || nextTimeNode) {
+    delete merged.timeNode;
   }
+
+  delete merged.scope;
+  delete merged.feedbackFrequency;
+  delete merged.inputMaterials;
+  delete merged.risksAndOpenQuestions;
+  delete merged.collaborators;
 
   return merged;
 }

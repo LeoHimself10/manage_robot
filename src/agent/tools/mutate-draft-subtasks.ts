@@ -6,7 +6,7 @@ import {
   collectUsedTaskIds,
   findDraftTaskIndex,
 } from "../draft-task-ids";
-import { stripPlanningPersonFieldsFromTask } from "../draft-person-fields";
+import { normalizeDraftTasksForSession, stripDeprecatedPlanningFieldsOnTask } from "../draft-person-fields";
 
 function getDraftTasks(session: PlanSession): Array<Record<string, unknown>> | undefined {
   const draft = session.latestDraft as { tasks?: unknown[] } | undefined;
@@ -123,21 +123,21 @@ export function buildAddDraftSubtaskHandler(
         dueAt = String(parentTn?.dueAt ?? "").trim();
       }
     }
-    const newTask: Record<string, unknown> = {
+    const newTask: Record<string, unknown> = stripDeprecatedPlanningFieldsOnTask({
       id: newId,
       title,
       objective,
       deliverables: [],
       completionCriteria: [],
       timeNode: dueAt ? { dueAt } : {},
-      feedbackFrequency: "按需同步",
-    };
+    });
     if (insertIdx >= 0) {
-      tasks.splice(insertIdx + 1, 0, stripPlanningPersonFieldsFromTask(newTask));
+      tasks.splice(insertIdx + 1, 0, newTask);
     } else {
-      tasks.push(stripPlanningPersonFieldsFromTask(newTask));
+      tasks.push(newTask);
     }
     draft.tasks = tasks;
+    session.latestDraft = normalizeDraftTasksForSession(draft);
     clearPublishStagingOnDraft(session);
     return {
       ok: true,

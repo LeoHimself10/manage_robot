@@ -722,7 +722,6 @@ export function createWorkbenchFormalTaskStore() {
         }
         const timeNode = draftTask.timeNode as Record<string, unknown> | undefined;
         const depsRaw = draftTask.dependencyTaskIds ?? draftTask.dependencies;
-        const scopeRaw = draftTask.scope as Record<string, unknown> | undefined;
         return {
           sourceKey,
           title: asString(draftTask.title) || `子任务 ${index + 1}`,
@@ -734,16 +733,16 @@ export function createWorkbenchFormalTaskStore() {
             ? (draftTask.completionCriteria as unknown[]).map((x) => String(x)).join("\n")
             : asString(draftTask.completionCriteria),
           dueAt: formatDueAtForStorage(resolveDraftTaskDueAt(draftTask)),
-          feedbackFrequency: asString(draftTask.feedbackFrequency),
+          feedbackFrequency: null,
           assigneeUserId,
           dependsOn: encodeRichJsonColumn(normalizeRichStringList(depsRaw)),
-          checkpoints: encodeRichJsonColumn(normalizeRichStringList(timeNode?.checkpoints)),
-          risks: encodeRichJsonColumn(normalizeRichStringList(draftTask.risksAndOpenQuestions)),
-          inputMaterials: encodeRichJsonColumn(normalizeRichStringList(draftTask.inputMaterials)),
+          checkpoints: encodeRichJsonColumn([]),
+          risks: encodeRichJsonColumn([]),
+          inputMaterials: encodeRichJsonColumn([]),
           actions: encodeRichJsonColumn(normalizeRichStringList(draftTask.actions)),
-          collaborators: encodeRichJsonColumn(normalizeRichStringList(draftTask.collaborators)),
-          inScope: encodeRichJsonColumn(normalizeRichStringList(scopeRaw?.inScope)),
-          outOfScope: encodeRichJsonColumn(normalizeRichStringList(scopeRaw?.outOfScope)),
+          collaborators: encodeRichJsonColumn([]),
+          inScope: encodeRichJsonColumn([]),
+          outOfScope: encodeRichJsonColumn([]),
         };
       });
       const taskId = `task:${planId}`;
@@ -1539,20 +1538,20 @@ export function createWorkbenchFormalTaskStore() {
           deliverables,
           completionCriteria,
           dueAt || null,
-          input.feedbackFrequency?.trim() || null,
+          null,
           assigneeUserId,
           "ASSIGNED",
           null,
           now,
           now,
           encodeRichJsonColumn(normalizeRichStringList(input.dependsOn)),
-          encodeRichJsonColumn(normalizeRichStringList(input.checkpoints)),
-          encodeRichJsonColumn(normalizeRichStringList(input.risks)),
-          encodeRichJsonColumn(normalizeRichStringList(input.inputMaterials)),
+          encodeRichJsonColumn([]),
+          encodeRichJsonColumn([]),
+          encodeRichJsonColumn([]),
           encodeRichJsonColumn(normalizeRichStringList(input.actions)),
-          encodeRichJsonColumn(normalizeRichStringList(input.collaborators)),
-          encodeRichJsonColumn(normalizeRichStringList(input.inScope)),
-          encodeRichJsonColumn(normalizeRichStringList(input.outOfScope)),
+          encodeRichJsonColumn([]),
+          encodeRichJsonColumn([]),
+          encodeRichJsonColumn([]),
         );
         db.prepare(
           "INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id, note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)",

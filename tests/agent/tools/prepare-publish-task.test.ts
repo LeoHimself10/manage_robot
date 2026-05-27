@@ -141,11 +141,14 @@ describe("prepare_publish_task tool", () => {
     const task = (draft.tasks as Array<Record<string, unknown>>)[0];
     expect(task).toMatchObject({
       deliverables: ["交付物A"],
-      inputMaterials: ["输入A"],
       actions: ["动作A"],
-      scope: { inScope: ["范围内A"], outOfScope: ["范围外A"] },
     });
+    expect(task.inputMaterials).toBeUndefined();
+    expect(task.scope).toBeUndefined();
     expect(task.collaborators).toBeUndefined();
+    expect(task.feedbackFrequency).toBeUndefined();
+    expect(task.risksAndOpenQuestions).toBeUndefined();
+    expect((task.timeNode as { checkpoints?: unknown })?.checkpoints).toBeUndefined();
   });
 
   it("rejects plan mismatch instead of mutating session", () => {
