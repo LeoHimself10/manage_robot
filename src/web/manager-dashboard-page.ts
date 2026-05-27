@@ -339,7 +339,7 @@ ${buildWorkbenchFmtTimeClientJs()}
       return '<div class="' + cls + '"></div>';
     }).join('');
   }
-  function renderSubtaskBar(b, dayCount) {
+  function isGanttGroupOpen(taskId) {
     if (state.ganttMode === 'fold') return false;
     if (state.ganttMode === 'due') return true;
     return state.ganttOpen[taskId] !== false;
