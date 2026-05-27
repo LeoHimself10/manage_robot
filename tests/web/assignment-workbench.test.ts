@@ -567,6 +567,89 @@ describe("assignment-workbench HTTP handler", () => {
     expect(store.getTaskDetail("plan-add-api")?.subtasks).toHaveLength(2);
   });
 
+  it("duplicate append subtask POST returns duplicated and does not notify twice", async () => {
+    const notifyPublishedTask = vi.fn(async () => ({
+      enabled: true,
+      success: [{ userId: "emp-3", robotMessageKey: "rk-add" }],
+      failed: [],
+    }));
+    __setWorkbenchPublishNotifierForTest({
+      notifyPublishedTask,
+      notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyTaskStopped: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyProgressDigest: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
+      notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
+    });
+    seedContact("emp-3", "执行部", "Engineer");
+    await seedPublishedTask({
+      planId: "plan-add-dedup-api",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-1",
+    });
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const body = JSON.stringify({
+      planId: "plan-add-dedup-api",
+      title: "补增子任务",
+      assigneeUserId: "emp-3",
+      objective: "完成补增",
+      deliverables: "补增交付物",
+      completionCriteria: "通过评审",
+      dueAt: "2026-06-15",
+    });
+    const req1 = stubReq({
+      url: "/api/workbench/manager/subtasks",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body,
+    });
+    const res1 = stubRes();
+    handleAssignmentHttp(req1, res1.res);
+    await flushAsync();
+    expect(res1.captured().statusCode).toBe(200);
+    expect(res1.captured().body).toContain('"ok":true');
+    expect(res1.captured().body).not.toContain('"duplicated":true');
+
+    const req2 = stubReq({
+      url: "/api/workbench/manager/subtasks",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body,
+    });
+    const res2 = stubRes();
+    handleAssignmentHttp(req2, res2.res);
+    await flushAsync();
+    expect(res2.captured().statusCode).toBe(200);
+    expect(res2.captured().body).toContain('"duplicated":true');
+
+    const store = createWorkbenchFormalTaskStore();
+    expect(store.getTaskDetail("plan-add-dedup-api")?.subtasks).toHaveLength(2);
+    expect(notifyPublishedTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("manager task detail page includes add-subtask submit lock and in_progress default filter", () => {
+    const html = renderTaskDetailPage({
+      roleLabel: "manager",
+      backPath: "/workbench/manager/tasks",
+      enforceActionGuards: false,
+    });
+    expect(html).toContain("addSubtaskSubmitting");
+    expect(html).toContain("prepareAddSubtaskFormUi");
+    expect(html).toContain("countByFilter('in_progress') > 0 ? 'in_progress'");
+  });
+
   it("append subtask API requires deliverables", async () => {
     await seedPublishedTask({
       planId: "plan-add-req",

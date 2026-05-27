@@ -98,6 +98,7 @@ import {
   renderManagerTasksPage,
 } from "./manager-workbench-pages";
 import { renderManagerProjectsPage } from "./manager-projects-pages";
+import { renderManagerDashboardPage } from "./manager-dashboard-page";
 import {
   buildManagerProjectDetailResponse,
   buildManagerProjectsListResponse,
@@ -131,12 +132,21 @@ import {
   sanitizeWorkbenchNextPath,
   shouldUseSecureWorkbenchCookies,
 } from "./external-workbench-login";
+import { buildWeeklyDashboardFacts } from "../agent/weekly-dashboard/weekly-dashboard-facts";
+import { buildWeeklyDashboardTimeline } from "../agent/weekly-dashboard/weekly-dashboard-timeline";
+import {
+  clampWeeklyDashboardSpan,
+  clampWeeklyFeedLimit,
+  loadWeeklyDashboardPolicy,
+} from "../agent/weekly-dashboard/weekly-dashboard-policy";
+import { summarizeWeeklyAdvisorWithLlm } from "../agent/weekly-dashboard/weekly-dashboard-advisor-llm";
 
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
 const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/manager/projects",
   "/workbench/manager/tasks",
+  "/workbench/manager/dashboard",
   "/workbench/manager/chat",
   "/workbench/manager/task",
   "/workbench/manager/task/events",
@@ -1223,6 +1233,9 @@ export function renderTaskDetailPage(params: {
   var lastLoadedPlanId = '';
   var detailReassignComboBound = false;
   var addSubtaskComboBound = false;
+  var addSubtaskSubmitting = false;
+  var addSubtaskJustSucceeded = false;
+  var addSubtaskClientRequestId = '';
   var mgrRowHandlersBound = false;
   var taskActionHandlersBound = false;
   var lastSubsForReassign = [];
@@ -1393,7 +1406,7 @@ export function renderTaskDetailPage(params: {
   function parseLinesToArray(raw) {
     return String(raw || '').split(/[\\n;；]/).map(function (x) { return String(x || '').trim(); }).filter(Boolean);
   }
-  function populateAddSubtaskDependsOn(subs) {
+  function syncAddSubtaskDependsOn(subs) {
     var sel = document.getElementById('addSubtaskDependsOn');
     if (!sel) return;
     var list = subs || [];
@@ -1404,17 +1417,32 @@ export function renderTaskDetailPage(params: {
       return '<option value="' + esc(key) + '">' + esc(label) + '</option>';
     }).join('');
   }
-  function initAddSubtaskForm(subs) {
-    var cw = document.getElementById('addSubtaskConfirmWrap');
-    var confirmCb = document.getElementById('addSubtaskConfirm');
-    if (ENFORCE_GUARDS) {
-      if (cw) cw.style.display = 'flex';
-      if (confirmCb) confirmCb.checked = false;
-    } else if (cw) {
-      cw.style.display = 'none';
+  function clearAddSubtaskFormFields() {
+    var ids = [
+      'addSubtaskTitle', 'addSubtaskAssigneeInput', 'addSubtaskObjective', 'addSubtaskDeliverables',
+      'addSubtaskCriteria', 'addSubtaskDueAt', 'addSubtaskActions', 'addSubtaskFeedbackFrequency',
+      'addSubtaskInputMaterials', 'addSubtaskCollaborators', 'addSubtaskInScope', 'addSubtaskOutOfScope',
+      'addSubtaskCheckpoints', 'addSubtaskRisks'
+    ];
+    ids.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    var hid = document.getElementById('addSubtaskAssigneeUserId');
+    if (hid) hid.value = '';
+    var depSel = document.getElementById('addSubtaskDependsOn');
+    if (depSel) {
+      for (var di = 0; di < depSel.options.length; di++) depSel.options[di].selected = false;
     }
-    setAddSubtaskFb('', 'muted');
-    populateAddSubtaskDependsOn(subs || []);
+    var confirmCb = document.getElementById('addSubtaskConfirm');
+    if (confirmCb) confirmCb.checked = false;
+    addSubtaskClientRequestId = '';
+  }
+  function releaseAddSubtaskSubmit(btn) {
+    addSubtaskSubmitting = false;
+    if (btn) btn.disabled = false;
+  }
+  function bindAddSubtaskHandlersOnce() {
     if (addSubtaskComboBound) return;
     addSubtaskComboBound = true;
     wbAttachContactCombo({
@@ -1430,79 +1458,109 @@ export function renderTaskDetailPage(params: {
       }
     });
     var btn = document.getElementById('addSubtaskBtn');
-    if (btn) {
-      btn.addEventListener('click', function () {
-        void (async function () {
-          var title = String(document.getElementById('addSubtaskTitle')?.value || '').trim();
-          var assigneeUserId = String(document.getElementById('addSubtaskAssigneeUserId')?.value || '').trim();
-          var dueAt = String(document.getElementById('addSubtaskDueAt')?.value || '').trim();
-          var completionCriteria = String(document.getElementById('addSubtaskCriteria')?.value || '').trim();
-          var objective = String(document.getElementById('addSubtaskObjective')?.value || '').trim();
-          var deliverables = String(document.getElementById('addSubtaskDeliverables')?.value || '').trim();
-          if (!lastLoadedPlanId) { setAddSubtaskFb('缺少 planId', 'err'); return; }
-          if (!title) { setAddSubtaskFb('请填写标题', 'err'); return; }
-          if (!assigneeUserId) { setAddSubtaskFb('请选择负责人', 'err'); return; }
-          if (!objective) { setAddSubtaskFb('请填写目标', 'err'); return; }
-          if (!deliverables) { setAddSubtaskFb('请填写交付物', 'err'); return; }
-          if (!completionCriteria) { setAddSubtaskFb('请填写完成标准', 'err'); return; }
-          if (!dueAt) { setAddSubtaskFb('请选择截止日期', 'err'); return; }
-          if (ENFORCE_GUARDS && !document.getElementById('addSubtaskConfirm')?.checked) {
-            setAddSubtaskFb('请勾选确认', 'err'); return;
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      void (async function () {
+        if (addSubtaskSubmitting) return;
+        addSubtaskSubmitting = true;
+        btn.disabled = true;
+        var title = String(document.getElementById('addSubtaskTitle')?.value || '').trim();
+        var assigneeUserId = String(document.getElementById('addSubtaskAssigneeUserId')?.value || '').trim();
+        var dueAt = String(document.getElementById('addSubtaskDueAt')?.value || '').trim();
+        var completionCriteria = String(document.getElementById('addSubtaskCriteria')?.value || '').trim();
+        var objective = String(document.getElementById('addSubtaskObjective')?.value || '').trim();
+        var deliverables = String(document.getElementById('addSubtaskDeliverables')?.value || '').trim();
+        if (!lastLoadedPlanId) { setAddSubtaskFb('缺少 planId', 'err'); releaseAddSubtaskSubmit(btn); return; }
+        if (!title) { setAddSubtaskFb('请填写标题', 'err'); releaseAddSubtaskSubmit(btn); return; }
+        if (!assigneeUserId) { setAddSubtaskFb('请选择负责人', 'err'); releaseAddSubtaskSubmit(btn); return; }
+        if (!objective) { setAddSubtaskFb('请填写目标', 'err'); releaseAddSubtaskSubmit(btn); return; }
+        if (!deliverables) { setAddSubtaskFb('请填写交付物', 'err'); releaseAddSubtaskSubmit(btn); return; }
+        if (!completionCriteria) { setAddSubtaskFb('请填写完成标准', 'err'); releaseAddSubtaskSubmit(btn); return; }
+        if (!dueAt) { setAddSubtaskFb('请选择截止日期', 'err'); releaseAddSubtaskSubmit(btn); return; }
+        if (ENFORCE_GUARDS && !document.getElementById('addSubtaskConfirm')?.checked) {
+          setAddSubtaskFb('请勾选确认', 'err'); releaseAddSubtaskSubmit(btn); return;
+        }
+        var payload = {
+          planId: lastLoadedPlanId,
+          title: title,
+          assigneeUserId: assigneeUserId,
+          objective: objective,
+          deliverables: deliverables,
+          completionCriteria: completionCriteria,
+          dueAt: dueAt,
+        };
+        var actions = parseLinesToArray(document.getElementById('addSubtaskActions')?.value);
+        if (actions.length) payload.actions = actions;
+        var depSel = document.getElementById('addSubtaskDependsOn');
+        if (depSel) {
+          var deps = [];
+          for (var di = 0; di < depSel.options.length; di++) {
+            if (depSel.options[di].selected) deps.push(depSel.options[di].value);
           }
-          var payload = {
-            planId: lastLoadedPlanId,
-            title: title,
-            assigneeUserId: assigneeUserId,
-            objective: objective,
-            deliverables: deliverables,
-            completionCriteria: completionCriteria,
-            dueAt: dueAt,
-          };
-          var actions = parseLinesToArray(document.getElementById('addSubtaskActions')?.value);
-          if (actions.length) payload.actions = actions;
-          var depSel = document.getElementById('addSubtaskDependsOn');
-          if (depSel) {
-            var deps = [];
-            for (var di = 0; di < depSel.options.length; di++) {
-              if (depSel.options[di].selected) deps.push(depSel.options[di].value);
-            }
-            if (deps.length) payload.dependsOn = deps;
-          }
-          var ff = String(document.getElementById('addSubtaskFeedbackFrequency')?.value || '').trim();
-          if (ff) payload.feedbackFrequency = ff;
-          var im = parseLinesToArray(document.getElementById('addSubtaskInputMaterials')?.value);
-          if (im.length) payload.inputMaterials = im;
-          var col = parseLinesToArray(document.getElementById('addSubtaskCollaborators')?.value);
-          if (col.length) payload.collaborators = col;
-          var ins = parseLinesToArray(document.getElementById('addSubtaskInScope')?.value);
-          if (ins.length) payload.inScope = ins;
-          var outs = parseLinesToArray(document.getElementById('addSubtaskOutOfScope')?.value);
-          if (outs.length) payload.outOfScope = outs;
-          var cps = parseLinesToArray(document.getElementById('addSubtaskCheckpoints')?.value);
-          if (cps.length) payload.checkpoints = cps;
-          var risks = parseLinesToArray(document.getElementById('addSubtaskRisks')?.value);
-          if (risks.length) payload.risks = risks;
-          if (ENFORCE_GUARDS) { payload.confirm = true; payload.idempotencyKey = newMgrIdem(); }
-          btn.disabled = true;
-          setAddSubtaskFb('提交中…', 'muted');
+          if (deps.length) payload.dependsOn = deps;
+        }
+        var ff = String(document.getElementById('addSubtaskFeedbackFrequency')?.value || '').trim();
+        if (ff) payload.feedbackFrequency = ff;
+        var im = parseLinesToArray(document.getElementById('addSubtaskInputMaterials')?.value);
+        if (im.length) payload.inputMaterials = im;
+        var col = parseLinesToArray(document.getElementById('addSubtaskCollaborators')?.value);
+        if (col.length) payload.collaborators = col;
+        var ins = parseLinesToArray(document.getElementById('addSubtaskInScope')?.value);
+        if (ins.length) payload.inScope = ins;
+        var outs = parseLinesToArray(document.getElementById('addSubtaskOutOfScope')?.value);
+        if (outs.length) payload.outOfScope = outs;
+        var cps = parseLinesToArray(document.getElementById('addSubtaskCheckpoints')?.value);
+        if (cps.length) payload.checkpoints = cps;
+        var risks = parseLinesToArray(document.getElementById('addSubtaskRisks')?.value);
+        if (risks.length) payload.risks = risks;
+        if (!addSubtaskClientRequestId) {
           try {
-            var res = await fetch('/api/workbench/manager/subtasks', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            });
-            var data = await res.json().catch(function () { return {}; });
-            if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-            setAddSubtaskFb('子任务已添加，正在刷新…', 'ok');
-            await load();
-          } catch (eAdd) {
-            setAddSubtaskFb(String(eAdd && eAdd.message ? eAdd.message : eAdd), 'err');
-          } finally {
-            btn.disabled = false;
+            addSubtaskClientRequestId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+              ? crypto.randomUUID()
+              : ('add-sub-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+          } catch (eCid) {
+            addSubtaskClientRequestId = 'add-sub-' + Date.now() + '-' + Math.random().toString(36).slice(2);
           }
-        })();
-      });
+        }
+        payload.clientRequestId = addSubtaskClientRequestId;
+        if (ENFORCE_GUARDS) { payload.confirm = true; payload.idempotencyKey = newMgrIdem(); }
+        setAddSubtaskFb('提交中…', 'muted');
+        try {
+          var res = await fetch('/api/workbench/manager/subtasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+          addSubtaskJustSucceeded = true;
+          clearAddSubtaskFormFields();
+          setAddSubtaskFb(data.duplicated ? '子任务已存在（未重复添加）' : '子任务已添加', 'ok');
+          await load();
+          if (addSubtaskJustSucceeded) {
+            setAddSubtaskFb(data.duplicated ? '子任务已存在（未重复添加）' : '子任务已添加', 'ok');
+            addSubtaskJustSucceeded = false;
+          }
+        } catch (eAdd) {
+          setAddSubtaskFb(String(eAdd && eAdd.message ? eAdd.message : eAdd), 'err');
+        } finally {
+          releaseAddSubtaskSubmit(btn);
+        }
+      })();
+    });
+  }
+  function prepareAddSubtaskFormUi(subs) {
+    var cw = document.getElementById('addSubtaskConfirmWrap');
+    var confirmCb = document.getElementById('addSubtaskConfirm');
+    if (ENFORCE_GUARDS) {
+      if (cw) cw.style.display = 'flex';
+      if (confirmCb && !addSubtaskJustSucceeded) confirmCb.checked = false;
+    } else if (cw) {
+      cw.style.display = 'none';
     }
+    if (!addSubtaskJustSucceeded) setAddSubtaskFb('', 'muted');
+    syncAddSubtaskDependsOn(subs || []);
+    bindAddSubtaskHandlersOnce();
   }
   function ensureTaskActionHandlers() {
     if (taskActionHandlersBound) return;
@@ -2130,7 +2188,11 @@ export function renderTaskDetailPage(params: {
           return true;
         }).length;
       }
-      var initialFilter = countByFilter('needs_manager') > 0 ? 'needs_manager' : (countByFilter('waiting_employee') > 0 ? 'waiting_employee' : 'all');
+      var initialFilter = countByFilter('needs_manager') > 0
+        ? 'needs_manager'
+        : (countByFilter('waiting_employee') > 0
+          ? 'waiting_employee'
+          : (countByFilter('in_progress') > 0 ? 'in_progress' : 'all'));
       if (urlSubtaskId) {
         var hitSu = subs.filter(function (x) { return String(x.subtaskId || '') === urlSubtaskId; })[0];
         if (hitSu) {
@@ -2514,7 +2576,7 @@ export function renderTaskDetailPage(params: {
     if (asc) {
       if ((ROLE === 'manager' || ROLE === 'admin') && String(t.status || '') !== 'STOPPED') {
         asc.style.display = 'block';
-        initAddSubtaskForm(subs);
+        prepareAddSubtaskFormUi(subs);
       } else {
         asc.style.display = 'none';
       }
@@ -3153,6 +3215,78 @@ export function handleAssignmentHttp(
       projectId ? { projectId } : undefined,
     );
     writeJson(res, 200, { ok: true, tasks });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/manager/weekly-dashboard") {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    const policy = loadWeeklyDashboardPolicy();
+    const contacts = withPeopleDirectoryStore((store) => new Map(store.listContacts().map((c) => [c.userId, c.name])));
+    const resolveName = (uid: string): string | undefined => contacts.get(uid)?.trim() || undefined;
+    const span = clampWeeklyDashboardSpan(url.searchParams.get("span"), policy);
+    const feedLimit = clampWeeklyFeedLimit(url.searchParams.get("feedLimit"), policy);
+    const facts = buildWeeklyDashboardFacts({
+      taskStore: getFormalTaskStore(),
+      managerUserId: session.userId,
+      week: String(url.searchParams.get("week") ?? "").trim() || undefined,
+      span,
+      feedCursor: String(url.searchParams.get("feedCursor") ?? "").trim() || undefined,
+      feedLimit,
+      policy,
+      resolveName,
+    });
+    const timeline = buildWeeklyDashboardTimeline({ facts, resolveName });
+    writeJson(res, 200, {
+      ok: true,
+      week: facts.week,
+      span: facts.span,
+      weeks: facts.weekSpan.weeks,
+      approxHistoricalState: facts.approxHistoricalState,
+      timezone: facts.timezone,
+      generatedAt: facts.generatedAt,
+      kpi: facts.kpi,
+      tasks: facts.tasks.map((g) => ({
+        task: g.task,
+        subtasks: g.subtasks.map((s) => ({
+          ...s,
+          assigneeName: resolveName(s.assigneeUserId),
+        })),
+      })),
+      people: timeline.byPerson,
+      timeline,
+      feed: facts.feed,
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/weekly-advisor") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        const body = await readJsonBody(req);
+        const policy = loadWeeklyDashboardPolicy();
+        const contacts = withPeopleDirectoryStore((store) => new Map(store.listContacts().map((c) => [c.userId, c.name])));
+        const resolveName = (uid: string): string | undefined => contacts.get(uid)?.trim() || undefined;
+        const facts = buildWeeklyDashboardFacts({
+          taskStore: getFormalTaskStore(),
+          managerUserId: session.userId,
+          week: String(body.week ?? "").trim() || undefined,
+          span: clampWeeklyDashboardSpan(body.span, policy),
+          feedLimit: policy.feedPageSize,
+          policy,
+          resolveName,
+        });
+        const advisor = await summarizeWeeklyAdvisorWithLlm(facts, policy);
+        writeJson(res, 200, { ok: true, ...advisor });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request",
+        });
+      }
+    })();
     return true;
   }
 
@@ -4253,7 +4387,7 @@ export function handleAssignmentHttp(
           writeJson(res, 400, { ok: false, error: "dueAt is required" });
           return;
         }
-        const { task, subtask } = store.appendSubtask({
+        const appendResult = store.appendSubtask({
           planId,
           managerUserId,
           title,
@@ -4274,50 +4408,54 @@ export function handleAssignmentHttp(
           note: note || undefined,
           actorName: session.dingUser?.name,
         });
-        void (async () => {
-          try {
-            const notifyResult = await workbenchPublishNotifier.notifyPublishedTask({
-              taskNo: task.taskNo,
-              title: task.title,
-              managerUserId,
-              managerDisplayName: withPeopleDirectoryStore((s) =>
-                s.getContact(managerUserId)?.name?.trim(),
-              ),
-              taskDescription: task.description,
-              assignees: [
-                {
-                  userId: assigneeUserId,
-                  displayName: withPeopleDirectoryStore((s) =>
-                    s.getContact(assigneeUserId)?.name?.trim(),
-                  ),
-                  subtasks: [{ title: subtask.title }],
+        const { task, subtask, duplicated } = appendResult;
+        if (!duplicated) {
+          void (async () => {
+            try {
+              const notifyResult = await workbenchPublishNotifier.notifyPublishedTask({
+                taskNo: task.taskNo,
+                title: task.title,
+                managerUserId,
+                managerDisplayName: withPeopleDirectoryStore((s) =>
+                  s.getContact(managerUserId)?.name?.trim(),
+                ),
+                taskDescription: task.description,
+                assignees: [
+                  {
+                    userId: assigneeUserId,
+                    displayName: withPeopleDirectoryStore((s) =>
+                      s.getContact(assigneeUserId)?.name?.trim(),
+                    ),
+                    subtasks: [{ title: subtask.title }],
+                  },
+                ],
+              });
+              store.appendTaskEvent({
+                taskId: task.taskId,
+                subtaskId: subtask.subtaskId,
+                eventType: "SUBTASK_ADD_NOTIFY_OK",
+                actorUserId: managerUserId,
+                payload: {
+                  enabled: notifyResult.enabled,
+                  skippedReason: notifyResult.skippedReason,
+                  success: notifyResult.success,
+                  failed: notifyResult.failed,
                 },
-              ],
-            });
-            store.appendTaskEvent({
-              taskId: task.taskId,
-              subtaskId: subtask.subtaskId,
-              eventType: "SUBTASK_ADD_NOTIFY_OK",
-              actorUserId: managerUserId,
-              payload: {
-                enabled: notifyResult.enabled,
-                skippedReason: notifyResult.skippedReason,
-                success: notifyResult.success,
-                failed: notifyResult.failed,
-              },
-            });
-          } catch (err) {
-            store.appendTaskEvent({
-              taskId: task.taskId,
-              subtaskId: subtask.subtaskId,
-              eventType: "SUBTASK_ADD_NOTIFY_FAILED",
-              actorUserId: managerUserId,
-              note: err instanceof Error ? err.message : String(err),
-            });
-          }
-        })();
+              });
+            } catch (err) {
+              store.appendTaskEvent({
+                taskId: task.taskId,
+                subtaskId: subtask.subtaskId,
+                eventType: "SUBTASK_ADD_NOTIFY_FAILED",
+                actorUserId: managerUserId,
+                note: err instanceof Error ? err.message : String(err),
+              });
+            }
+          })();
+        }
         writeJson(res, 200, {
           ok: true,
+          duplicated: duplicated === true,
           planId: task.planId,
           taskNo: task.taskNo,
           subtaskId: subtask.subtaskId,
@@ -5458,6 +5596,11 @@ export function handleAssignmentHttp(
               projectPortfolioEnabled: portfolioEnabled,
               initialProjectId,
             })
+            : url.pathname === "/workbench/manager/dashboard"
+              ? renderManagerDashboardPage({
+                userLabel,
+                projectPortfolioEnabled: portfolioEnabled,
+              })
             : url.pathname === "/workbench/manager/chat"
               ? renderManagerChatPage({
                 threadId: chatThreadId,

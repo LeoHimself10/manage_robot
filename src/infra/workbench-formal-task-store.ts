@@ -269,6 +269,21 @@ export function aggregateTaskStatus(statuses: WorkbenchTaskStatus[]): WorkbenchT
   return "ASSIGNED";
 }
 
+/** Default 60s; set `WORKBENCH_APPEND_SUBTASK_DEDUP_SECONDS=0` to disable content dedup. */
+export function resolveAppendSubtaskDedupSeconds(): number {
+  const raw = process.env.WORKBENCH_APPEND_SUBTASK_DEDUP_SECONDS?.trim();
+  if (raw === "0") return 0;
+  if (!raw) return 60;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 60;
+}
+
+export interface AppendSubtaskResult {
+  task: WorkbenchTaskRow;
+  subtask: WorkbenchSubtaskRow;
+  duplicated?: boolean;
+}
+
 /** 主管详情「驳回」按钮：与 `managerDeclineSubtaskChanges` 同一套开放信号判定（按单个子任务全量事件，旧→新）。 */
 export type SubtaskOpenDeclineKind = "changes" | "rejected";
 
@@ -406,6 +421,7 @@ export function createWorkbenchFormalTaskStore() {
       occurred_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_task_events_task_id ON task_events(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_events_occurred_at ON task_events(occurred_at);
     CREATE TABLE IF NOT EXISTS permission_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       actor_user_id TEXT NOT NULL,
@@ -1375,7 +1391,7 @@ export function createWorkbenchFormalTaskStore() {
       outOfScope?: string[];
       note?: string;
       actorName?: string;
-    }): { task: WorkbenchTaskRow; subtask: WorkbenchSubtaskRow } {
+    }): AppendSubtaskResult {
       const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("Task not found for planId");
       const task = mapTaskRow(taskRow);
@@ -1401,10 +1417,50 @@ export function createWorkbenchFormalTaskStore() {
       if (!completionCriteria) throw new Error("completionCriteria is required");
       if (!input.dueAt?.trim()) throw new Error("dueAt is required");
 
+      const dueAt = formatDueAtForStorage(input.dueAt);
+      const dedupSeconds = resolveAppendSubtaskDedupSeconds();
+      if (dedupSeconds > 0) {
+        const cutoff = new Date(Date.now() - dedupSeconds * 1000).toISOString();
+        const dupRow = db
+          .prepare(
+            `SELECT s.*, t.plan_id FROM subtasks s
+             JOIN tasks t ON t.task_id = s.task_id
+             WHERE s.task_id = ?
+               AND s.title = ?
+               AND s.assignee_user_id = ?
+               AND s.objective = ?
+               AND s.deliverables = ?
+               AND s.completion_criteria = ?
+               AND COALESCE(s.due_at, '') = COALESCE(?, '')
+               AND s.status NOT IN ('DONE', 'STOPPED')
+               AND s.created_at >= ?
+             ORDER BY s.created_at DESC
+             LIMIT 1`,
+          )
+          .get(
+            task.taskId,
+            title,
+            assigneeUserId,
+            objective,
+            deliverables,
+            completionCriteria,
+            dueAt || null,
+            cutoff,
+          ) as Record<string, unknown> | undefined;
+        if (dupRow) {
+          const updatedTaskRow = qTaskById.get(task.taskId) as Record<string, unknown> | undefined;
+          if (!updatedTaskRow) throw new Error("Failed to reload task after duplicate appendSubtask");
+          return {
+            task: mapTaskRow(updatedTaskRow),
+            subtask: mapSubtaskRow(dupRow),
+            duplicated: true,
+          };
+        }
+      }
+
       const sourceTaskKey = `manual-${randomUUID().slice(0, 8)}`;
       const subtaskId = `${task.taskId}:${sourceTaskKey}`;
       const now = nowIso();
-      const dueAt = input.dueAt ? formatDueAtForStorage(input.dueAt) : undefined;
 
       runInTransaction(() => {
         db.prepare(
@@ -1462,6 +1518,7 @@ export function createWorkbenchFormalTaskStore() {
       return {
         task: mapTaskRow(updatedTaskRow),
         subtask: mapSubtaskRow(subtaskRow),
+        duplicated: false,
       };
     },
 
@@ -1826,18 +1883,19 @@ export function createWorkbenchFormalTaskStore() {
       managerUserId: string;
       sinceIso: string;
       untilIso?: string;
-      eventTypes: string[];
+      eventTypes?: string[];
       limit?: number;
+      offset?: number;
     }): Array<Record<string, unknown>> {
-      const types = input.eventTypes.filter(Boolean);
-      if (types.length === 0) return [];
-      const placeholders = types.map(() => "?").join(", ");
-      const limit = Math.max(1, Math.min(input.limit ?? 50, 200));
+      const types = (input.eventTypes ?? []).filter(Boolean);
+      const typeClause = types.length > 0 ? ` AND e.event_type IN (${types.map(() => "?").join(", ")})` : "";
+      const limit = Math.max(1, Math.min(input.limit ?? 50, 500));
+      const offset = Math.max(0, Math.floor(input.offset ?? 0));
       const untilIso = String(input.untilIso ?? "").trim();
       const untilClause = untilIso ? " AND e.occurred_at < ?" : "";
-      const params: unknown[] = [input.managerUserId, input.sinceIso];
+      const params: Array<string | number | null> = [input.managerUserId, input.sinceIso];
       if (untilIso) params.push(untilIso);
-      params.push(...types, limit);
+      params.push(...types, limit, offset);
       return db
         .prepare(
           `SELECT e.*, t.task_no, t.title AS task_title, s.title AS subtask_title
@@ -1846,11 +1904,37 @@ export function createWorkbenchFormalTaskStore() {
              LEFT JOIN subtasks s ON s.subtask_id = e.subtask_id
             WHERE t.manager_user_id = ?
               AND e.occurred_at >= ?${untilClause}
-              AND e.event_type IN (${placeholders})
-            ORDER BY e.occurred_at DESC
-            LIMIT ?`,
+              ${typeClause}
+            ORDER BY e.occurred_at DESC, e.id DESC
+            LIMIT ? OFFSET ?`,
         )
         .all(...params) as Array<Record<string, unknown>>;
+    },
+
+    countTaskEventsForManagerInRange(input: {
+      managerUserId: string;
+      sinceIso: string;
+      untilIso?: string;
+      eventTypes?: string[];
+    }): { count: number } {
+      const types = (input.eventTypes ?? []).filter(Boolean);
+      const typeClause = types.length > 0 ? ` AND e.event_type IN (${types.map(() => "?").join(", ")})` : "";
+      const untilIso = String(input.untilIso ?? "").trim();
+      const untilClause = untilIso ? " AND e.occurred_at < ?" : "";
+      const params: Array<string | number | null> = [input.managerUserId, input.sinceIso];
+      if (untilIso) params.push(untilIso);
+      params.push(...types);
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) AS count
+             FROM task_events e
+             JOIN tasks t ON t.task_id = e.task_id
+            WHERE t.manager_user_id = ?
+              AND e.occurred_at >= ?${untilClause}
+              ${typeClause}`,
+        )
+        .get(...params) as { count?: number } | undefined;
+      return { count: Number(row?.count ?? 0) };
     },
 
     listTaskEventsForEmployeeSince(input: {
@@ -1866,7 +1950,7 @@ export function createWorkbenchFormalTaskStore() {
       const limit = Math.max(1, Math.min(input.limit ?? 50, 200));
       const untilIso = String(input.untilIso ?? "").trim();
       const untilClause = untilIso ? " AND e.occurred_at < ?" : "";
-      const params: unknown[] = [input.assigneeUserId, input.sinceIso];
+      const params: Array<string | number | null> = [input.assigneeUserId, input.sinceIso];
       if (untilIso) params.push(untilIso);
       params.push(...types, limit);
       return db

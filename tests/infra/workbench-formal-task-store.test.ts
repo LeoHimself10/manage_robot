@@ -1040,6 +1040,100 @@ describe("employee / manager subtask flows", () => {
     ).toThrow(/stopped/i);
   });
 
+  it("appendSubtask deduplicates identical manual add within window", () => {
+    vi.stubEnv("WORKBENCH_APPEND_SUBTASK_DEDUP_SECONDS", "60");
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-dedup",
+      planId: "plan-dedup",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "去重测试",
+        tasks: [{ id: "t1", title: "原任务" }],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t1", primary: { userId: "emp-a" } }],
+      },
+    };
+    store.publishFromSession({
+      planId: "plan-dedup",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    const payload = {
+      planId: "plan-dedup",
+      managerUserId: "manager-1",
+      title: "样品截留",
+      assigneeUserId: "emp-b",
+      objective: "复现",
+      deliverables: "报告",
+      completionCriteria: "可验收",
+      dueAt: "2026-06-15",
+    };
+    const first = store.appendSubtask(payload);
+    const second = store.appendSubtask(payload);
+    expect(first.duplicated).not.toBe(true);
+    expect(second.duplicated).toBe(true);
+    expect(second.subtask.subtaskId).toBe(first.subtask.subtaskId);
+    expect(store.getTaskDetail("plan-dedup")?.subtasks).toHaveLength(2);
+  });
+
+  it("appendSubtask allows same title with different objective within window", () => {
+    vi.stubEnv("WORKBENCH_APPEND_SUBTASK_DEDUP_SECONDS", "60");
+    const store = createWorkbenchFormalTaskStore();
+    const session: PlanSession = {
+      chatKeyHash: "hash-dedup2",
+      planId: "plan-dedup2",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      latestDraft: {
+        title: "去重测试2",
+        tasks: [{ id: "t1", title: "原任务" }],
+      },
+      latestAssignment: {
+        assignments: [{ taskId: "t1", primary: { userId: "emp-a" } }],
+      },
+    };
+    store.publishFromSession({
+      planId: "plan-dedup2",
+      session,
+      managerUserId: "manager-1",
+      initiatorDepartment: "质控",
+      actorUserId: "manager-1",
+    });
+    store.appendSubtask({
+      planId: "plan-dedup2",
+      managerUserId: "manager-1",
+      title: "同名",
+      assigneeUserId: "emp-b",
+      objective: "目标A",
+      deliverables: "交付A",
+      completionCriteria: "标准A",
+      dueAt: "2026-06-15",
+    });
+    const second = store.appendSubtask({
+      planId: "plan-dedup2",
+      managerUserId: "manager-1",
+      title: "同名",
+      assigneeUserId: "emp-b",
+      objective: "目标B",
+      deliverables: "交付B",
+      completionCriteria: "标准B",
+      dueAt: "2026-06-15",
+    });
+    expect(second.duplicated).not.toBe(true);
+    expect(store.getTaskDetail("plan-dedup2")?.subtasks).toHaveLength(3);
+  });
+
   it("stopSubtask stops one row and keeps task active when others in progress", () => {
     const store = createWorkbenchFormalTaskStore();
     const session: PlanSession = {
