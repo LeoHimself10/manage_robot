@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>周度 Dashboard · 周会助手响应式方案</title>
+<style>
+:root {
+  --bg: #eef2f6;
+  --surface: #fff;
+  --border: #dde3ea;
+  --text: #0f172a;
+  --muted: #64748b;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-soft: #eff6ff;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --warn: #d97706;
+  --radius: 12px;
+  --font: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.5; }
+
+/* ── doc header ── */
+.doc-bar {
+  background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 55%, #0ea5e9 100%);
+  color: #e0f2fe;
+  padding: 22px 24px 24px;
+}
+.doc-bar h1 { margin: 0 0 8px; font-size: 22px; font-weight: 700; }
+.doc-bar p { margin: 0; font-size: 13px; max-width: 920px; color: #bae6fd; }
+.doc-bar .tag {
+  display: inline-block; margin-top: 12px; padding: 4px 10px; border-radius: 999px;
+  background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25);
+  font-size: 12px; font-weight: 600;
+}
+
+/* ── controls ── */
+.controls {
+  position: sticky; top: 0; z-index: 100;
+  background: #fff; border-bottom: 1px solid var(--border);
+  padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  box-shadow: 0 2px 8px rgba(15,23,42,.06);
+}
+.controls label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.controls select, .controls button {
+  font-family: inherit; font-size: 13px; border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 12px; background: #fff; cursor: pointer;
+}
+.controls button.on { background: var(--primary-soft); border-color: #93c5fd; color: var(--primary-hover); font-weight: 600; }
+.viewport-readout { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ── layout shell ── */
+.compare-wrap { max-width: 1400px; margin: 0 auto; padding: 20px 18px 48px; }
+.section-label {
+  font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 10px;
+}
+.section-label.bad { color: #dc2626; }
+.section-label.good { color: #059669; }
+.note-box {
+  margin: 0 0 16px; padding: 12px 14px; border-radius: 10px; font-size: 13px;
+}
+.note-box.warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+.note-box.ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+
+/* ── preview frame ── */
+.preview-frame {
+  border: 2px solid var(--border); border-radius: 14px; overflow: hidden;
+  background: #f1f5f9; margin-bottom: 28px;
+  transition: width .25s ease;
+}
+.preview-frame.is-problem { border-color: #fca5a5; }
+.preview-frame.is-solution { border-color: #86efac; }
+.frame-chrome {
+  background: #334155; color: #cbd5e1; font-size: 11px; padding: 6px 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.frame-chrome .dots { display: flex; gap: 5px; }
+.frame-chrome .dot { width: 9px; height: 9px; border-radius: 50%; }
+.frame-chrome .dot:nth-child(1) { background: #ef4444; }
+.frame-chrome .dot:nth-child(2) { background: #eab308; }
+.frame-chrome .dot:nth-child(3) { background: #22c55e; }
+.frame-body { overflow: hidden; background: var(--bg); }
+
+/* ── dashboard mini ── */
+.dash-shell { padding: 14px; }
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
+.kpi { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.kpi .lbl { font-size: 11px; color: var(--muted); }
+.kpi .val { font-size: 20px; font-weight: 700; margin-top: 2px; }
+.kpi.danger .val { color: var(--danger); }
+
+/* current layout */
+.dash-body-current {
+  display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; align-items: start;
+}
+.dash-body-current.is-narrow { grid-template-columns: 1fr; }
+
+.card {
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px;
+}
+.section-head {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start;
+  gap: 10px; margin-bottom: 10px;
+}
+.section-head h2 { margin: 0; font-size: 16px; }
+.section-sub { margin: 3px 0 0; font-size: 11px; color: var(--muted); }
+.gantt-density {
+  display: inline-flex; padding: 2px; background: #f1f5f9; border: 1px solid var(--border); border-radius: 7px;
+}
+.gantt-density button {
+  border: 0; background: transparent; padding: 5px 9px; border-radius: 5px;
+  font-size: 11px; font-weight: 600; color: var(--muted); font-family: inherit;
+}
+.gantt-density button.on { background: #fff; color: var(--primary); box-shadow: 0 1px 2px rgba(15,23,42,.08); }
+
+.timeline-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 9px; }
+.gantt { min-width: 780px; --days: 21; }
+.gantt-head { display: grid; grid-template-columns: 220px 1fr; background: #f8fafc; border-bottom: 1px solid var(--border); }
+.gantt-head .col-label { padding: 8px 10px; font-size: 11px; font-weight: 700; border-right: 1px solid var(--border); }
+.gantt-days { display: grid; grid-template-columns: repeat(var(--days), minmax(24px, 1fr)); }
+.gantt-day { text-align: center; font-size: 10px; padding: 5px 1px; border-right: 1px solid #eef2f7; }
+.gantt-day.center { background: #eff6ff; color: #1d4ed8; font-weight: 700; }
+.gantt-row { display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid #eef2f7; min-height: 36px; }
+.gantt-row:last-child { border-bottom: 0; }
+.gantt-label {
+  padding: 8px 10px; border-right: 1px solid var(--border); font-size: 11px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gantt-track-wrap { position: relative; padding: 16px 3px 4px; }
+.gantt-track {
+  position: relative; height: 20px;
+  display: grid; grid-template-columns: repeat(var(--days), minmax(24px, 1fr)); gap: 1px;
+}
+.gantt-cell { background: #f8fafc; border-radius: 2px; }
+.gantt-bar {
+  position: absolute; top: 2px; height: 16px; border-radius: 3px; font-size: 9px; font-weight: 700;
+  color: #fff; display: flex; align-items: center; padding: 0 5px; overflow: hidden;
+}
+.gantt-bar.orange { background: #d97706; }
+.gantt-bar.blue { background: #2563eb; }
+.gantt-bar.red { background: #dc2626; }
+.due-pin {
+  position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid #7c3aed; z-index: 2;
+}
+.due-pin::after {
+  content: attr(data-d); position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+  font-size: 9px; font-weight: 700; color: #5b21b6; background: #ede9fe; border: 1px solid #c4b5fd;
+  border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+}
+
+/* advisor sidebar – current */
+.advisor-side { position: sticky; top: 8px; }
+.advisor-card { padding: 0; overflow: hidden; }
+.advisor-head {
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, #fff, #f8fafc);
+}
+.advisor-head h3 { margin: 0 0 3px; font-size: 14px; }
+.advisor-body { padding: 12px 14px; display: grid; gap: 10px; }
+.btn-primary {
+  display: inline-flex; align-items: center; justify-content: center; width: 100%;
+  padding: 9px 14px; border: 0; border-radius: 8px; background: var(--primary); color: #fff;
+  font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
+}
+.advisor-empty {
+  border: 1px dashed #cbd5e1; border-radius: 9px; padding: 14px 10px; text-align: center;
+  font-size: 12px; color: var(--muted); background: #fafbfc;
+}
+
+/* overlap highlight */
+.overlap-zone {
+  position: relative;
+}
+.overlap-zone::after {
+  content: "重叠区";
+  position: absolute; top: 50%; right: 0; transform: translateY(-50%);
+  width: 28%; height: 70%; border: 2px dashed #ef4444; border-radius: 8px;
+  background: rgba(239,68,68,.08); display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: #dc2626; pointer-events: none; z-index: 5;
+}
+.overlap-zone.is-fixed::after { display: none; }
+
+/* ── recommended layout ── */
+.dash-body-rec {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px;
+}
+.dash-body-rec.with-sidebar { grid-template-columns: minmax(0, 1fr) 280px; }
+
+.advisor-trigger-bar {
+  display: none; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; margin-bottom: 10px;
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.advisor-trigger-bar.show { display: flex; }
+.advisor-trigger-bar .hint { font-size: 12px; color: var(--muted); }
+.btn-outline {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px;
+  border: 1px solid #93c5fd; border-radius: 8px; background: var(--primary-soft);
+  color: var(--primary-hover); font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer;
+}
+.btn-outline svg { width: 14px; height: 14px; }
+
+/* drawer */
+.drawer-backdrop {
+  position: fixed; inset: 0; background: rgba(15,23,42,.35); z-index: 200;
+  opacity: 0; pointer-events: none; transition: opacity .2s;
+}
+.drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 92vw);
+  background: #fff; z-index: 201; box-shadow: -8px 0 32px rgba(15,23,42,.15);
+  transform: translateX(100%); transition: transform .25s ease;
+  display: flex; flex-direction: column;
+}
+.drawer.open { transform: translateX(0); }
+.drawer-head {
+  padding: 16px 18px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+.drawer-head h3 { margin: 0; font-size: 16px; }
+.drawer-close {
+  border: 0; background: #f1f5f9; width: 32px; height: 32px; border-radius: 8px;
+  font-size: 18px; cursor: pointer; color: var(--muted); flex-shrink: 0;
+}
+.drawer-body { padding: 16px 18px; overflow-y: auto; flex: 1; }
+
+/* spec table */
+.spec-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+.spec-table th, .spec-table td {
+  border: 1px solid var(--border); padding: 10px 12px; text-align: left; vertical-align: top;
+}
+.spec-table th { background: #f8fafc; font-weight: 600; }
+.spec-table code { font-size: 12px; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
+
+@media (max-width: 900px) {
+  .kpis { grid-template-columns: repeat(3, minmax(0,1fr)); }
+}
+</style>
+</head>
+<body>
+
+<div class="doc-bar">
+  <h1>周度 Dashboard · 周会助手响应式方案</h1>
+  <p>
+    问题：窄屏时右侧「周会助手」与甘特时间轴争抢水平空间，sticky 侧栏会盖住日期列与 bar 末端（见现网截图）。
+    推荐方案：<strong>宽屏并排 + 窄屏抽屉按需打开</strong>，保证时间轴始终占满可用宽度。
+  </p>
+  <span class="tag">仅 HTML 预览 · 尚未改代码</span>
+</div>
+
+<div class="controls">
+  <label>
+    模拟视口
+    <select id="vpSelect">
+      <option value="1320">宽屏 1320px（现网 max-width）</option>
+      <option value="1100">中屏 1100px（重叠高发区）</option>
+      <option value="900">窄屏 900px</option>
+      <option value="720">平板 720px</option>
+      <option value="390">手机 390px</option>
+    </select>
+  </label>
+  <button type="button" class="on" id="btnProblem">① 现网问题</button>
+  <button type="button" id="btnSolution">② 推荐方案</button>
+  <span class="viewport-readout" id="vpReadout">1320px</span>
+</div>
+
+<div class="compare-wrap">
+
+  <!-- ── PROBLEM ── -->
+  <div id="panelProblem">
+    <p class="section-label bad">现网 · 1080px 以下才单列，中间宽度仍双列挤压</p>
+    <div class="note-box warn">
+      <strong>根因：</strong>甘特 <code>min-width: 860px</code> + 侧栏 300px + 内边距 ≈ 需 1200px 以上才舒适；
+      1080px 断点偏晚，且侧栏 <code>position: sticky</code> 在双列窄宽时视觉上「浮」在时间轴上。
+      拖动上方视口到 <strong>1100px / 900px</strong> 观察红色重叠区。
+    </div>
+    <div class="preview-frame is-problem" id="frameProblem" style="width:1320px;max-width:100%;">
+      <div class="frame-chrome">
+        <div class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        现网布局模拟 · /workbench/manager/dashboard
+      </div>
+      <div class="frame-body">
+        <div class="dash-shell">
+          <div class="kpis">
+            <div class="kpi"><div class="lbl">本周完成</div><div class="val">0</div></div>
+            <div class="kpi"><div class="lbl">执行中</div><div class="val">0</div></div>
+            <div class="kpi"><div class="lbl">待承接</div><div class="val">0</div></div>
+            <div class="kpi danger"><div class="lbl">阻塞/逾期</div><div class="val">52</div></div>
+            <div class="kpi"><div class="lbl">下周到期</div><div class="val">3</div></div>
+            <div class="kpi"><div class="lbl">本周动态</div><div class="val">0</div></div>
+          </div>
+          <div class="dash-body-current" id="currentBody">
+            <main>
+              <div class="card overlap-zone" id="overlapZone">
+                <div class="section-head">
+                  <div>
+                    <h2>任务时间轴</h2>
+                    <p class="section-sub">主任务可折叠；每行子任务一条 bar，轨道上标注截止日。</p>
+                  </div>
+                  <div class="gantt-density">
+                    <button type="button" class="on">全部展开</button>
+                    <button type="button">本周期有 due</button>
+                    <button type="button">全部折叠</button>
+                  </div>
+                </div>
+                <div class="timeline-wrap">
+                  <div class="gantt">
+                    <div class="gantt-head">
+                      <div class="col-label">子任务 · 负责人</div>
+                      <div class="gantt-days" id="ganttDays"></div>
+                    </div>
+                    <div class="gantt-row">
+                      <div class="gantt-label">TASK-20260521-0004 · 待承接</div>
+                      <div class="gantt-track-wrap">
+                        <div class="gantt-track" id="track1"></div>
+                      </div>
+                    </div>
+                    <div class="gantt-row">
+                      <div class="gantt-label">TASK-20260521-0004 · 待承接</div>
+                      <div class="gantt-track-wrap">
+                        <div class="gantt-track" id="track2"></div>
+                      </div>
+                    </div>
+                    <div class="gantt-row">
+                      <div class="gantt-label">TASK-20260521-0004 · 待承接</div>
+                      <div class="gantt-track-wrap">
+                        <div class="gantt-track" id="track3"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
+            <aside class="advisor-side" id="currentAside">
+              <div class="card advisor-card">
+                <div class="advisor-head">
+                  <h3>周会助手</h3>
+                  <p class="section-sub">一键生成本周讨论要点，适合投屏过会。</p>
+                </div>
+                <div class="advisor-body">
+                  <button type="button" class="btn-primary">生成本周要点</button>
+                  <div class="advisor-empty">尚未生成。点击上方按钮，助手会根据本周任务与动态整理过会议程。</div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SOLUTION ── -->
+  <div id="panelSolution" hidden>
+    <p class="section-label good">推荐 · 按需抽屉（Drawer on demand）</p>
+    <div class="note-box ok">
+      <strong>最佳实践：</strong>甘特是主信息区，必须优先保证全宽 + 横向滚动。
+      周会助手是<strong>按需触发的辅助面板</strong>，窄屏不应常驻占列。
+      <br><br>
+      <strong>规则：</strong>
+      ≥1280px → 右侧 sticky 侧栏（与现网一致）；
+      &lt;1280px → 时间轴全宽，「周会助手」变为 section 内按钮，点击打开右侧 Drawer（或 Bottom Sheet ≤640px）。
+      抽屉打开时甘特仍可见、可滚动，不被遮挡。
+    </div>
+    <div class="preview-frame is-solution" id="frameSolution" style="width:1320px;max-width:100%;">
+      <div class="frame-chrome">
+        <div class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        推荐布局 · Drawer on demand
+      </div>
+      <div class="frame-body">
+        <div class="dash-shell">
+          <div class="kpis">
+            <div class="kpi"><div class="lbl">本周完成</div><div class="val">0</div></div>
+            <div class="kpi"><div class="lbl">执行中</div><div class="val">0</div></div>
+            <div class="kpi"><div class="lbl">待承接</div><div class="val">0</div></div>
+            <div class="kpi danger"><div class="lbl">阻塞/逾期</div><div class="val">52</div></div>
+            <div class="kpi"><div class="lbl">下周到期</div><div class="val">3</div></div>
+            <div class="kpi"><div class="lbl">本周动态</div><div class="val">0</div></div>
+          </div>
+          <div class="dash-body-rec" id="recBody">
+            <main>
+              <div class="card">
+                <div class="advisor-trigger-bar" id="recTriggerBar">
+                  <span class="hint">周会投屏时可一键生成讨论要点</span>
+                  <button type="button" class="btn-outline" id="openDrawerBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 14h4M12 6v2M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg>
+                    打开周会助手
+                  </button>
+                </div>
+                <div class="section-head">
+                  <div>
+                    <h2>任务时间轴</h2>
+                    <p class="section-sub">主任务可折叠；每行子任务一条 bar，轨道上标注截止日。</p>
+                  </div>
+                  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <button type="button" class="btn-outline" id="openDrawerBtn2" style="display:none;">
+                      周会助手
+                    </button>
+                    <div class="gantt-density">
+                      <button type="button" class="on">全部展开</button>
+                      <button type="button">本周期有 due</button>
+                      <button type="button">全部折叠</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="timeline-wrap">
+                  <div class="gantt">
+                    <div class="gantt-head">
+                      <div class="col-label">子任务 · 负责人</div>
+                      <div class="gantt-days" id="ganttDays2"></div>
+                    </div>
+                    <div class="gantt-row">
+                      <div class="gantt-label">TASK-20260521-0004 · 待承接</div>
+                      <div class="gantt-track-wrap"><div class="gantt-track" id="track1b"></div></div>
+                    </div>
+                    <div class="gantt-row">
+                      <div class="gantt-label">TASK-20260521-0004 · 待承接</div>
+                      <div class="gantt-track-wrap"><div class="gantt-track" id="track2b"></div></div>
+                    </div>
+                    <div class="gantt-row">
+                      <div class="gantt-label">TASK-20260521-0004 · 待承接</div>
+                      <div class="gantt-track-wrap"><div class="gantt-track" id="track3b"></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
+            <aside id="recAside">
+              <div class="card advisor-card">
+                <div class="advisor-head">
+                  <h3>周会助手</h3>
+                  <p class="section-sub">一键生成本周讨论要点，适合投屏过会。</p>
+                </div>
+                <div class="advisor-body">
+                  <button type="button" class="btn-primary">生成本周要点</button>
+                  <div class="advisor-empty">尚未生成。点击上方按钮，助手会根据本周任务与动态整理过会议程。</div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin:24px 0 10px;font-size:15px;">断点与行为对照</h3>
+    <table class="spec-table">
+      <thead>
+        <tr><th>视口</th><th>时间轴</th><th>周会助手</th><th>理由</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>≥ 1280px</td>
+          <td>主栏 <code>1fr</code>，横向滚动</td>
+          <td>右侧 sticky 卡片 280–300px（现网）</td>
+          <td>宽屏有足够空间，侧栏不抢甘特可视区</td>
+        </tr>
+        <tr>
+          <td>960 – 1279px</td>
+          <td>独占全宽</td>
+          <td>时间轴标题旁「周会助手」按钮 → 右侧 Drawer</td>
+          <td>避免双列挤压；助手按需打开，不常驻占宽</td>
+        </tr>
+        <tr>
+          <td>&lt; 640px</td>
+          <td>全宽 + 更紧凑 KPI</td>
+          <td>同上，Drawer 可改为 Bottom Sheet</td>
+          <td>移动端拇指区友好；投屏场景仍以桌面为主</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin:24px 0 10px;font-size:15px;">为何不用「直接堆叠到下方」</h3>
+    <table class="spec-table">
+      <thead>
+        <tr><th>方案</th><th>优点</th><th>缺点</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>窄屏侧栏移到甘特下方（现网 1080px 单列）</td>
+          <td>实现简单</td>
+          <td>投屏过会时要滚很远才到助手；中间宽度仍重叠</td>
+        </tr>
+        <tr>
+          <td>Modal 居中弹窗</td>
+          <td>完全不挡甘特</td>
+          <td>遮挡整屏，不适合边看过会边对照时间轴</td>
+        </tr>
+        <tr style="background:#f0fdf4;">
+          <td><strong>Drawer 按需（推荐）</strong></td>
+          <td>甘特始终全宽；助手与甘特可同屏对照；符合 Ant Design / Material 侧栏模式</td>
+          <td>需增加开关状态与 Esc 关闭（工作量小）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- drawer demo -->
+<div class="drawer-backdrop" id="drawerBackdrop"></div>
+<div class="drawer" id="drawer" role="dialog" aria-labelledby="drawerTitle" aria-modal="true">
+  <div class="drawer-head">
+    <div>
+      <h3 id="drawerTitle">周会助手</h3>
+      <p class="section-sub">一键生成本周讨论要点，适合投屏过会。</p>
+    </div>
+    <button type="button" class="drawer-close" id="closeDrawer" aria-label="关闭">×</button>
+  </div>
+  <div class="drawer-body">
+    <button type="button" class="btn-primary">生成本周要点</button>
+    <p class="section-sub" style="margin:12px 0 0;">生成后可在此查看「需讨论」「进展正常」「后续建议」等分段内容，左侧甘特仍可见。</p>
+    <div class="advisor-empty" style="margin-top:12px;">尚未生成。点击上方按钮开始。</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var days = [];
+  for (var d = 25; d <= 31; d++) days.push('05-' + String(d).padStart(2,'0'));
+  for (var d = 1; d <= 14; d++) days.push('06-' + String(d).padStart(2,'0'));
+
+  function fillDays(el) {
+    el.innerHTML = days.map(function (day, i) {
+      var cls = 'gantt-day' + (i >= 7 && i <= 13 ? ' center' : '');
+      return '<div class="' + cls + '">' + day + '</div>';
+    }).join('');
+  }
+  function fillTrack(el, bars) {
+    el.innerHTML = days.map(function () { return '<div class="gantt-cell"></div>'; }).join('');
+    bars.forEach(function (b) {
+      var bar = document.createElement('div');
+      bar.className = 'gantt-bar ' + b.cls;
+      bar.style.left = b.left;
+      bar.style.width = b.width;
+      bar.textContent = b.label || '';
+      el.appendChild(bar);
+    });
+    if (bars[0] && bars[0].due) {
+      var pin = document.createElement('div');
+      pin.className = 'due-pin';
+      pin.style.left = bars[0].due;
+      pin.setAttribute('data-d', '截止 05-26');
+      el.parentElement.appendChild(pin);
+    }
+  }
+
+  fillDays(document.getElementById('ganttDays'));
+  fillDays(document.getElementById('ganttDays2'));
+  var barData = [
+    { cls: 'orange', left: '2%', width: '18%', label: '子任务 A' },
+    { cls: 'blue', left: '8%', width: '22%', due: '12%' },
+    { cls: 'red', left: '5%', width: '35%', label: '阻塞' }
+  ];
+  fillTrack(document.getElementById('track1'), [barData[0]]);
+  fillTrack(document.getElementById('track2'), [barData[1]]);
+  fillTrack(document.getElementById('track3'), [barData[2]]);
+  fillTrack(document.getElementById('track1b'), [barData[0]]);
+  fillTrack(document.getElementById('track2b'), [barData[1]]);
+  fillTrack(document.getElementById('track3b'), [barData[2]]);
+
+  var vpSelect = document.getElementById('vpSelect');
+  var vpReadout = document.getElementById('vpReadout');
+  var frameProblem = document.getElementById('frameProblem');
+  var frameSolution = document.getElementById('frameSolution');
+  var currentBody = document.getElementById('currentBody');
+  var overlapZone = document.getElementById('overlapZone');
+  var recBody = document.getElementById('recBody');
+  var recAside = document.getElementById('recAside');
+  var recTriggerBar = document.getElementById('recTriggerBar');
+  var openDrawerBtn2 = document.getElementById('openDrawerBtn2');
+
+  var BREAK_WIDE = 1280;
+  var BREAK_STACK = 1080;
+
+  function applyViewport(w) {
+    w = Number(w);
+    vpReadout.textContent = w + 'px';
+    frameProblem.style.width = w + 'px';
+    frameSolution.style.width = w + 'px';
+
+    // current layout behavior
+    if (w < BREAK_STACK) {
+      currentBody.classList.add('is-narrow');
+      document.getElementById('currentAside').style.order = '2';
+    } else {
+      currentBody.classList.remove('is-narrow');
+      document.getElementById('currentAside').style.order = '';
+    }
+    // show overlap in the problematic mid range
+    if (w >= BREAK_STACK && w < BREAK_WIDE) {
+      overlapZone.classList.remove('is-fixed');
+    } else {
+      overlapZone.classList.add('is-fixed');
+    }
+
+    // recommended layout
+    if (w >= BREAK_WIDE) {
+      recBody.classList.add('with-sidebar');
+      recAside.style.display = '';
+      recTriggerBar.classList.remove('show');
+      openDrawerBtn2.style.display = 'none';
+    } else {
+      recBody.classList.remove('with-sidebar');
+      recAside.style.display = 'none';
+      recTriggerBar.classList.add('show');
+      openDrawerBtn2.style.display = 'inline-flex';
+    }
+  }
+
+  vpSelect.addEventListener('change', function () { applyViewport(vpSelect.value); });
+  applyViewport(1320);
+
+  var btnProblem = document.getElementById('btnProblem');
+  var btnSolution = document.getElementById('btnSolution');
+  var panelProblem = document.getElementById('panelProblem');
+  var panelSolution = document.getElementById('panelSolution');
+
+  btnProblem.addEventListener('click', function () {
+    btnProblem.classList.add('on'); btnSolution.classList.remove('on');
+    panelProblem.hidden = false; panelSolution.hidden = true;
+    closeDrawer();
+  });
+  btnSolution.addEventListener('click', function () {
+    btnSolution.classList.add('on'); btnProblem.classList.remove('on');
+    panelProblem.hidden = true; panelSolution.hidden = false;
+  });
+
+  var drawer = document.getElementById('drawer');
+  var backdrop = document.getElementById('drawerBackdrop');
+  function openDrawer() { drawer.classList.add('open'); backdrop.classList.add('open'); }
+  function closeDrawer() { drawer.classList.remove('open'); backdrop.classList.remove('open'); }
+
+  document.getElementById('openDrawerBtn').addEventListener('click', openDrawer);
+  document.getElementById('openDrawerBtn2').addEventListener('click', openDrawer);
+  document.getElementById('closeDrawer').addEventListener('click', closeDrawer);
+  backdrop.addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDrawer(); });
+})();
+</script>
+</body>
+</html>

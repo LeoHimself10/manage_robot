@@ -110,10 +110,13 @@ export function renderManagerDashboardPage(params: {
             <h2>任务时间轴</h2>
             <p class="section-sub">主任务可折叠；每行子任务一条 bar，轨道上标注截止日。</p>
           </div>
-          <div class="gantt-density" id="ganttDensity" role="group" aria-label="甘特展开">
-            <button type="button" class="is-on" data-gantt-mode="all">全部展开</button>
-            <button type="button" data-gantt-mode="due">本周期有 due</button>
-            <button type="button" data-gantt-mode="fold">全部折叠</button>
+          <div class="gantt-section-tools">
+            <button type="button" class="advisor-trigger-btn" id="openAdvisorDrawerBtn" aria-controls="advisorDrawer">打开周会助手</button>
+            <div class="gantt-density" id="ganttDensity" role="group" aria-label="甘特展开">
+              <button type="button" class="is-on" data-gantt-mode="all">全部展开</button>
+              <button type="button" data-gantt-mode="due">本周期有 due</button>
+              <button type="button" data-gantt-mode="fold">全部折叠</button>
+            </div>
           </div>
         </div>
         <div class="timeline-wrap" id="taskTimeline"></div>
@@ -159,14 +162,33 @@ export function renderManagerDashboardPage(params: {
           <h2>周会助手</h2>
           <p class="section-sub">一键生成本周讨论要点，适合投屏过会。</p>
         </div>
-        <div class="advisor-card__body">
-          <button type="button" class="btn btn-primary" id="advisorBtn">生成本周要点</button>
-          <p class="advisor-meta" id="advisorMeta"></p>
-          <div class="advisor-empty" id="advisorEmpty">尚未生成。点击上方按钮，助手会根据本周任务与动态整理过会议程。</div>
-          <div class="advisor-sections" id="advisorSections" hidden></div>
+        <div class="advisor-card__body" data-advisor-panel>
+          <button type="button" class="btn btn-primary" data-advisor-btn>生成本周要点</button>
+          <p class="advisor-meta" data-advisor-meta></p>
+          <div class="advisor-empty" data-advisor-empty>尚未生成。点击上方按钮，助手会根据本周任务与动态整理过会议程。</div>
+          <div class="advisor-sections" data-advisor-sections hidden></div>
         </div>
       </section>
     </aside>
+    </div>
+  </div>
+</div>
+
+<div class="advisor-drawer-backdrop" id="advisorBackdrop" aria-hidden="true"></div>
+<div class="advisor-drawer" id="advisorDrawer" role="dialog" aria-modal="true" aria-labelledby="advisorDrawerTitle" aria-hidden="true">
+  <div class="advisor-drawer__head">
+    <div>
+      <h2 id="advisorDrawerTitle">周会助手</h2>
+      <p class="section-sub">一键生成本周讨论要点，适合投屏过会。</p>
+    </div>
+    <button type="button" class="advisor-drawer__close" id="closeAdvisorDrawerBtn" aria-label="关闭">×</button>
+  </div>
+  <div class="advisor-drawer__body">
+    <div data-advisor-panel>
+      <button type="button" class="btn btn-primary" data-advisor-btn>生成本周要点</button>
+      <p class="advisor-meta" data-advisor-meta></p>
+      <div class="advisor-empty" data-advisor-empty>尚未生成。点击上方按钮，助手会根据本周任务与动态整理过会议程。</div>
+      <div class="advisor-sections" data-advisor-sections hidden></div>
     </div>
   </div>
 </div>
@@ -432,11 +454,45 @@ ${buildWorkbenchFmtTimeClientJs()}
     if (/判断|概览|本周/.test(t)) return 'advisor-section advisor-section--low';
     return 'advisor-section';
   }
+  function advisorEls(sel) {
+    return Array.prototype.slice.call(document.querySelectorAll(sel));
+  }
+  function setAdvisorButtons(disabled, text) {
+    advisorEls('[data-advisor-btn]').forEach(function (btn) {
+      btn.disabled = disabled;
+      btn.textContent = text;
+    });
+  }
+  function setAdvisorMeta(text, warn) {
+    advisorEls('[data-advisor-meta]').forEach(function (el) {
+      el.textContent = text;
+      el.classList.toggle('advisor-meta--warn', Boolean(warn));
+    });
+  }
+  function setAdvisorEmptyHidden(hidden) {
+    advisorEls('[data-advisor-empty]').forEach(function (el) { el.hidden = hidden; });
+  }
+  function setAdvisorSections(html, hidden) {
+    advisorEls('[data-advisor-sections]').forEach(function (el) {
+      el.hidden = hidden;
+      if (!hidden) el.innerHTML = html;
+    });
+  }
+  function openAdvisorDrawer() {
+    document.getElementById('advisorBackdrop').classList.add('is-open');
+    document.getElementById('advisorDrawer').classList.add('is-open');
+    document.getElementById('advisorBackdrop').setAttribute('aria-hidden', 'false');
+    document.getElementById('advisorDrawer').setAttribute('aria-hidden', 'false');
+  }
+  function closeAdvisorDrawer() {
+    document.getElementById('advisorBackdrop').classList.remove('is-open');
+    document.getElementById('advisorDrawer').classList.remove('is-open');
+    document.getElementById('advisorBackdrop').setAttribute('aria-hidden', 'true');
+    document.getElementById('advisorDrawer').setAttribute('aria-hidden', 'true');
+  }
   async function generateAdvisor() {
-    var btn = document.getElementById('advisorBtn');
-    btn.disabled = true;
-    btn.textContent = '生成中…';
-    document.getElementById('advisorMeta').textContent = '正在整理，请稍候…';
+    setAdvisorButtons(true, '生成中…');
+    setAdvisorMeta('正在整理，请稍候…', false);
     try {
       var body = {
         week: document.getElementById('weekInput').value || undefined,
@@ -450,18 +506,17 @@ ${buildWorkbenchFmtTimeClientJs()}
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || '生成失败');
       state.advisorGenerated = true;
-      document.getElementById('advisorEmpty').hidden = true;
-      document.getElementById('advisorSections').hidden = false;
-      document.getElementById('advisorMeta').textContent = data.renderSource === 'llm' ? '已生成本周要点' : (data.timedOut ? '生成较慢，已使用备用提纲' : '已使用备用提纲');
-      if (data.timedOut) document.getElementById('advisorMeta').classList.add('advisor-meta--warn');
-      document.getElementById('advisorSections').innerHTML = (data.sections || []).map(function (s) {
+      setAdvisorEmptyHidden(true);
+      var metaText = data.renderSource === 'llm' ? '已生成本周要点' : (data.timedOut ? '生成较慢，已使用备用提纲' : '已使用备用提纲');
+      setAdvisorMeta(metaText, Boolean(data.timedOut));
+      var sectionsHtml = (data.sections || []).map(function (s) {
         return '<section class="' + advisorSectionClass(s.title) + '"><h3>' + esc(s.title) + '</h3><ul>' + (s.bullets || []).map(function (b) { return '<li>' + esc(b) + '</li>'; }).join('') + '</ul></section>';
       }).join('');
+      setAdvisorSections(sectionsHtml, false);
     } catch (e) {
-      document.getElementById('advisorMeta').textContent = e.message || '生成失败';
+      setAdvisorMeta(e.message || '生成失败', false);
     } finally {
-      btn.disabled = false;
-      btn.textContent = '生成本周要点';
+      setAdvisorButtons(false, '生成本周要点');
     }
   }
   function shiftWeek(deltaWeeks) {
@@ -482,7 +537,15 @@ ${buildWorkbenchFmtTimeClientJs()}
   }
   document.getElementById('refreshBtn').addEventListener('click', function () { loadDashboard(false).catch(function (e) { document.getElementById('rangeMeta').textContent = e.message; }); });
   document.getElementById('loadMoreBtn').addEventListener('click', function () { loadDashboard(true).catch(function () {}); });
-  document.getElementById('advisorBtn').addEventListener('click', generateAdvisor);
+  advisorEls('[data-advisor-btn]').forEach(function (btn) {
+    btn.addEventListener('click', generateAdvisor);
+  });
+  document.getElementById('openAdvisorDrawerBtn').addEventListener('click', openAdvisorDrawer);
+  document.getElementById('closeAdvisorDrawerBtn').addEventListener('click', closeAdvisorDrawer);
+  document.getElementById('advisorBackdrop').addEventListener('click', closeAdvisorDrawer);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeAdvisorDrawer();
+  });
   document.getElementById('prevWeekBtn').addEventListener('click', function () { shiftWeek(-1); });
   document.getElementById('nextWeekBtn').addEventListener('click', function () { shiftWeek(1); });
   document.querySelectorAll('[data-week-offset]').forEach(function (btn) {

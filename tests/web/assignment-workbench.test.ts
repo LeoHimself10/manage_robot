@@ -2400,6 +2400,8 @@ describe("assignment-workbench HTTP handler", () => {
       expect(captured().statusCode).toBe(200);
       expect(captured().body).toContain("周度 Dashboard");
       expect(captured().body).toContain("id=\"kpiEvents\"");
+      expect(captured().body).toContain("id=\"openAdvisorDrawerBtn\"");
+      expect(captured().body).toContain("id=\"advisorDrawer\"");
     });
 
     it("GET /api/workbench/manager/weekly-dashboard returns facts payload", async () => {

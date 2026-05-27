@@ -169,8 +169,49 @@ export const DASHBOARD_PAGE_CSS = `
 .advisor-meta { font-size: 12px; color: var(--muted); min-height: 1.2em; }
 .advisor-meta--warn { color: #d97706; font-weight: 600; }
 .dashboard-note { color: var(--muted); font-size: 12px; margin: 0; }
-@media (max-width: 1080px) {
+.gantt-section-tools {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end;
+}
+.advisor-trigger-btn {
+  display: none; align-items: center; gap: 6px; padding: 7px 12px;
+  border: 1px solid #93c5fd; border-radius: 8px; background: #eff6ff;
+  color: #1d4ed8; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer;
+}
+.advisor-trigger-btn:hover { border-color: #60a5fa; background: #dbeafe; }
+.advisor-drawer-backdrop {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.35); z-index: 200;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.advisor-drawer-backdrop.is-open { opacity: 1; pointer-events: auto; }
+.advisor-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 92vw);
+  background: #fff; z-index: 201; box-shadow: -8px 0 32px rgba(15, 23, 42, 0.15);
+  transform: translateX(100%); transition: transform 0.25s ease;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.advisor-drawer.is-open { transform: translateX(0); }
+.advisor-drawer__head {
+  padding: 16px 18px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  flex-shrink: 0;
+}
+.advisor-drawer__head h2 { margin: 0; font-size: 16px; }
+.advisor-drawer__close {
+  border: 0; background: #f1f5f9; width: 32px; height: 32px; border-radius: 8px;
+  font-size: 18px; line-height: 1; cursor: pointer; color: var(--muted); flex-shrink: 0;
+}
+.advisor-drawer__body { padding: 14px 16px 16px; overflow-y: auto; flex: 1; min-height: 0; }
+.advisor-drawer__body .advisor-card { border: 0; box-shadow: none; padding: 0; }
+@media (max-width: 1279px) {
   .dashboard-body { grid-template-columns: 1fr; }
-  .dashboard-side { position: static; }
+  .dashboard-side { display: none; }
+  .advisor-trigger-btn { display: inline-flex; }
+}
+@media (max-width: 640px) {
+  .advisor-drawer {
+    top: auto; left: 0; right: 0; bottom: 0; width: 100%; max-height: 88vh;
+    border-radius: 16px 16px 0 0; transform: translateY(100%);
+  }
+  .advisor-drawer.is-open { transform: translateY(0); }
 }
 `;
