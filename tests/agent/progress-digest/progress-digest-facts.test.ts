@@ -19,11 +19,13 @@ describe("progress-digest-facts", () => {
     sessionDir = join(tmp, "sessions");
     process.env.WORKBENCH_SQLITE_PATH = sqlitePath;
     process.env.PLAN_SESSION_DIR = sessionDir;
+    process.env.PROGRESS_DIGEST_MODE = "full";
   });
 
   afterEach(() => {
     delete process.env.WORKBENCH_SQLITE_PATH;
     delete process.env.PLAN_SESSION_DIR;
+    delete process.env.PROGRESS_DIGEST_MODE;
   });
 
   function seedTask(opts?: { managerUserId?: string; assigneeUserId?: string; accept?: boolean }) {

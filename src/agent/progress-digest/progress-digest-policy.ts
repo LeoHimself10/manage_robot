@@ -1,3 +1,5 @@
+export type ProgressDigestContentMode = "delivery_reminder" | "full";
+
 export interface ProgressDigestPolicy {
   enabled: boolean;
   scanIntervalMs: number;
@@ -8,6 +10,8 @@ export interface ProgressDigestPolicy {
   /** @deprecated No longer used for activity window; dynamic section uses previous calendar day in timezone. */
   lookbackHours: number;
   maxTaskLines: number;
+  contentMode: ProgressDigestContentMode;
+  horizonDays: number;
 }
 
 function env(name: string): string {
@@ -25,6 +29,13 @@ function envInt(name: string, defaultValue: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : defaultValue;
 }
 
+function envContentMode(name: string, defaultValue: ProgressDigestContentMode): ProgressDigestContentMode {
+  const raw = env(name).toLowerCase();
+  if (raw === "full") return "full";
+  if (raw === "delivery_reminder" || raw === "delivery") return "delivery_reminder";
+  return defaultValue;
+}
+
 export function loadProgressDigestPolicy(): ProgressDigestPolicy {
   return {
     enabled: envFlag("PROGRESS_DIGEST_ENABLED", false),
@@ -35,6 +46,8 @@ export function loadProgressDigestPolicy(): ProgressDigestPolicy {
     weekdaysOnly: envFlag("PROGRESS_DIGEST_WEEKDAYS_ONLY", true),
     lookbackHours: envInt("PROGRESS_DIGEST_LOOKBACK_HOURS", 24),
     maxTaskLines: envInt("PROGRESS_DIGEST_MAX_TASK_LINES", 8),
+    contentMode: envContentMode("PROGRESS_DIGEST_MODE", "delivery_reminder"),
+    horizonDays: envInt("PROGRESS_DIGEST_HORIZON_DAYS", 7),
   };
 }
 

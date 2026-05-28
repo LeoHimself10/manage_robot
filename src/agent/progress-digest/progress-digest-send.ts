@@ -10,7 +10,7 @@ import { loadProgressDigestPolicy, type ProgressDigestPolicy } from "./progress-
 export interface ProgressDigestSendResult {
   ok: boolean;
   skipped?: string;
-  mode?: "full" | "brief";
+  mode?: "full" | "brief" | "delivery";
 }
 
 type TaskStore = ReturnType<typeof createWorkbenchFormalTaskStore>;

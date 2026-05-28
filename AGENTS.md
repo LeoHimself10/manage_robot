@@ -142,10 +142,12 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 - **工具 / Prompt**：`list_follow_up_candidates`、`send_subtask_reminder`；主管 toolProfile 注入 **FOLLOWUP** 模式。
 - **单实例**：切勿水平扩容 `dingtalk-bot`（scheduler 进程内假设）。Env 见 `docs/deploy-aliyun-dingtalk.md`。
 
-## 每日进展推送（Progress Digest，v1）
+## 每日进展推送（Progress Digest，v1.1）
 
 - **范围**：工作日 9:00 北京窗口；`PROGRESS_DIGEST_WEEKDAYS_ONLY=1`。
-- **内容**：代码渲染 GFM 表格（需您处理 / 正常推进 / 昨日动态）；`qwen3.6-flash` 生成「今日概览」+「后续建议」（`PROGRESS_DIGEST_LLM_*`，失败仅表格）。
+- **默认模式**（`PROGRESS_DIGEST_MODE=delivery_reminder`）：近 **7 自然日**（含逾期）交付提醒单表；主管/员工/combined 分视角；**不调 LLM**（`PROGRESS_DIGEST_LLM_ENABLED=0`）。
+- **legacy full 模式**（`PROGRESS_DIGEST_MODE=full`）：GFM 表格（需您处理 / 正常推进 / 昨日动态）+ 可选 `qwen3.6-flash` 概览/建议。
+- **Env**：`PROGRESS_DIGEST_HORIZON_DAYS=7`；回滚 full 见 `.env.example`。
 - **实现**：`src/agent/progress-digest/` + `progress_digest_state` 日去重；与催办 scheduler 并列启动。
 
 ## 主管周度 Dashboard（v1）

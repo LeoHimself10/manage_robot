@@ -8,7 +8,12 @@ import { formatWorkbenchDateTime } from "../../web/workbench-datetime";
 import { parseDueAtMs } from "../reminders/due-at-parse";
 import { formatDateInTz, previousCalendarDayRangeInTz, type CalendarDayRange } from "../reminders/reminder-policy";
 import type { DigestAudience } from "./progress-digest-eligibility";
-import type { ProgressDigestPolicy } from "./progress-digest-policy";
+import {
+  horizonEndMs,
+  isDueInHorizon,
+  isOverdueDue,
+} from "./progress-digest-due-window";
+import type { ProgressDigestContentMode, ProgressDigestPolicy } from "./progress-digest-policy";
 import { PROGRESS_DIGEST_EVENT_TYPES } from "./progress-digest-shared";
 
 export type DigestAttentionItem = {
@@ -56,17 +61,42 @@ export type ProgressDigestFactsCore = {
   recentUpdates: DigestRecentUpdate[];
 };
 
+export type DigestDueSoonItem = {
+  taskTitle: string;
+  taskNo?: string;
+  subtaskTitle?: string;
+  assigneeUserId?: string;
+  assigneeName?: string;
+  statusLabel: string;
+  dueLabel: string;
+  overdue: boolean;
+  dueSortMs: number;
+};
+
+export type DeliveryReminderCore = {
+  dueSoon: DigestDueSoonItem[];
+  skippedNoDueDate: number;
+  skippedBeyondHorizon: number;
+};
+
 export type ProgressDigestFacts = {
   dateYmd: string;
   dateDisplay: string;
   audience: DigestAudience;
   recipientDisplayName?: string;
+  recipientUserId?: string;
   detailUrl: string;
   isBrief: boolean;
+  contentMode: ProgressDigestContentMode;
   activityWindow: CalendarDayRange;
   core: ProgressDigestFactsCore;
   managerCore?: ProgressDigestFactsCore;
   employeeCore?: ProgressDigestFactsCore;
+  deliveryReminder?: {
+    manager?: DeliveryReminderCore;
+    employee?: DeliveryReminderCore;
+    core?: DeliveryReminderCore;
+  };
 };
 
 type TaskStore = ReturnType<typeof createWorkbenchFormalTaskStore>;
@@ -142,6 +172,223 @@ function eventActionLabel(eventType: string): string {
     default:
       return "更新任务";
   }
+}
+
+function formatDueLabelForDelivery(
+  dueAt: string | undefined,
+  overdue: boolean,
+  timezone: string,
+): string {
+  if (overdue) return "已逾期";
+  const dueMs = parseDueAtMs(dueAt, timezone);
+  if (dueMs === undefined) return "—";
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: timezone,
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(new Date(dueMs));
+  const month = parts.find((p) => p.type === "month")?.value ?? "";
+  const day = parts.find((p) => p.type === "day")?.value ?? "";
+  if (!month || !day) return formatWorkbenchDateTime(new Date(dueMs).toISOString());
+  return `${month}月${day}日`;
+}
+
+export function dueSoonItemKey(item: Pick<DigestDueSoonItem, "taskNo" | "subtaskTitle">): string {
+  return `${String(item.taskNo ?? "").trim()}:${String(item.subtaskTitle ?? "").trim()}`;
+}
+
+export function dedupeCombinedManagerDueSoon(
+  manager: DeliveryReminderCore,
+  employee: DeliveryReminderCore,
+  userId: string,
+): DigestDueSoonItem[] {
+  const selfKeys = new Set(
+    employee.dueSoon
+      .filter(() => true)
+      .map((item) => dueSoonItemKey(item)),
+  );
+  return manager.dueSoon.filter((item) => {
+    if (item.assigneeUserId === userId && selfKeys.has(dueSoonItemKey(item))) return false;
+    return true;
+  });
+}
+
+function sortDueSoonItems(items: DigestDueSoonItem[]): DigestDueSoonItem[] {
+  return [...items].sort((a, b) => {
+    if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+    return a.dueSortMs - b.dueSortMs;
+  });
+}
+
+function emptyDeliveryCore(): DeliveryReminderCore {
+  return { dueSoon: [], skippedNoDueDate: 0, skippedBeyondHorizon: 0 };
+}
+
+function buildManagerDeliveryCore(
+  taskStore: TaskStore,
+  userId: string,
+  policy: ProgressDigestPolicy,
+  now: Date,
+  resolveName?: (uid: string) => string | undefined,
+): DeliveryReminderCore {
+  const core = emptyDeliveryCore();
+  const nowMs = now.getTime();
+  const horizonEnd = horizonEndMs(now, policy.horizonDays, policy.timezone);
+
+  for (const t of taskStore.listManagerTasks(userId)) {
+    const detail = taskStore.getTaskDetail(t.taskNo);
+    if (!detail) continue;
+    const subInputs: SubtaskAttentionInput[] = detail.subtasks.map((s) => ({
+      status: String(s.status ?? ""),
+      openDeclineKind: taskStore.getSubtaskOpenDeclineKind(s.subtaskId),
+    }));
+    const attn = deriveManagerAttentionLabel(subInputs);
+    if (attn.attentionLabel === "已完成" || attn.attentionLabel === "已停止") continue;
+
+    for (const s of detail.subtasks) {
+      const st = normStatus(String(s.status ?? ""));
+      if (st === "DONE" || st === "STOPPED") continue;
+      const dueMs = parseDueAtMs(s.dueAt, policy.timezone);
+      if (dueMs === undefined) {
+        core.skippedNoDueDate += 1;
+        continue;
+      }
+      if (!isDueInHorizon(s.dueAt, horizonEnd, policy.timezone)) {
+        core.skippedBeyondHorizon += 1;
+        continue;
+      }
+      const overdue = isOverdueDue(s.dueAt, nowMs, policy.timezone);
+      const assigneeUserId = String(s.assigneeUserId ?? "").trim();
+      core.dueSoon.push({
+        taskTitle: t.title,
+        taskNo: t.taskNo,
+        subtaskTitle: s.title,
+        assigneeUserId: assigneeUserId || undefined,
+        assigneeName: resolveName?.(assigneeUserId) || assigneeUserId || undefined,
+        statusLabel: employeeStatusLabel(st),
+        dueLabel: formatDueLabelForDelivery(s.dueAt, overdue, policy.timezone),
+        overdue,
+        dueSortMs: dueMs,
+      });
+    }
+  }
+
+  core.dueSoon = sortDueSoonItems(core.dueSoon);
+  return core;
+}
+
+function buildEmployeeDeliveryCore(
+  taskStore: TaskStore,
+  userId: string,
+  policy: ProgressDigestPolicy,
+  now: Date,
+): DeliveryReminderCore {
+  const core = emptyDeliveryCore();
+  const nowMs = now.getTime();
+  const horizonEnd = horizonEndMs(now, policy.horizonDays, policy.timezone);
+
+  for (const s of taskStore.listEmployeeSubtasks(userId)) {
+    const st = normStatus(String(s.status ?? ""));
+    if (st === "DONE" || st === "STOPPED") continue;
+    const dueMs = parseDueAtMs(s.dueAt, policy.timezone);
+    if (dueMs === undefined) {
+      core.skippedNoDueDate += 1;
+      continue;
+    }
+    if (!isDueInHorizon(s.dueAt, horizonEnd, policy.timezone)) {
+      core.skippedBeyondHorizon += 1;
+      continue;
+    }
+    const overdue = isOverdueDue(s.dueAt, nowMs, policy.timezone);
+    core.dueSoon.push({
+      taskTitle: s.taskTitle || s.title,
+      taskNo: s.taskNo,
+      subtaskTitle: s.title,
+      statusLabel: employeeStatusLabel(st),
+      dueLabel: formatDueLabelForDelivery(s.dueAt, overdue, policy.timezone),
+      overdue,
+      dueSortMs: dueMs,
+    });
+  }
+
+  core.dueSoon = sortDueSoonItems(core.dueSoon);
+  return core;
+}
+
+function isDeliveryBrief(
+  audience: DigestAudience,
+  userId: string,
+  delivery: NonNullable<ProgressDigestFacts["deliveryReminder"]>,
+): boolean {
+  if (audience === "combined" && delivery.manager && delivery.employee) {
+    const teamItems = dedupeCombinedManagerDueSoon(delivery.manager, delivery.employee, userId);
+    return delivery.employee.dueSoon.length + teamItems.length === 0;
+  }
+  const single = delivery.core ?? delivery.manager ?? delivery.employee;
+  return (single?.dueSoon.length ?? 0) === 0;
+}
+
+function buildDeliveryReminderFacts(input: {
+  taskStore: TaskStore;
+  userId: string;
+  audience: DigestAudience;
+  policy: ProgressDigestPolicy;
+  detailUrl: string;
+  now: Date;
+  resolveName?: (uid: string) => string | undefined;
+}): ProgressDigestFacts {
+  const activityWindow = previousCalendarDayRangeInTz(input.now, input.policy.timezone);
+  const baseFacts = {
+    dateYmd: formatDateInTz(input.now.toISOString(), input.policy.timezone),
+    dateDisplay: formatDateDisplay(input.now, input.policy.timezone),
+    recipientDisplayName: input.resolveName?.(input.userId),
+    recipientUserId: input.userId,
+    detailUrl: input.detailUrl,
+    activityWindow,
+    contentMode: input.policy.contentMode,
+    core: emptyCore(),
+  };
+
+  if (input.audience === "combined") {
+    const manager = buildManagerDeliveryCore(
+      input.taskStore,
+      input.userId,
+      input.policy,
+      input.now,
+      input.resolveName,
+    );
+    const employee = buildEmployeeDeliveryCore(
+      input.taskStore,
+      input.userId,
+      input.policy,
+      input.now,
+    );
+    const deliveryReminder = { manager, employee };
+    return {
+      ...baseFacts,
+      audience: input.audience,
+      deliveryReminder,
+      isBrief: isDeliveryBrief(input.audience, input.userId, deliveryReminder),
+    };
+  }
+
+  const singleCore =
+    input.audience === "manager"
+      ? buildManagerDeliveryCore(
+          input.taskStore,
+          input.userId,
+          input.policy,
+          input.now,
+          input.resolveName,
+        )
+      : buildEmployeeDeliveryCore(input.taskStore, input.userId, input.policy, input.now);
+  const deliveryReminder = { core: singleCore };
+  return {
+    ...baseFacts,
+    audience: input.audience,
+    deliveryReminder,
+    isBrief: isDeliveryBrief(input.audience, input.userId, deliveryReminder),
+  };
 }
 
 function emptyCore(): ProgressDigestFactsCore {
@@ -378,6 +625,11 @@ export function buildProgressDigestFacts(input: {
   resolveName?: (uid: string) => string | undefined;
 }): ProgressDigestFacts {
   const now = input.now ?? new Date();
+
+  if (input.policy.contentMode === "delivery_reminder") {
+    return buildDeliveryReminderFacts({ ...input, now });
+  }
+
   const dateYmd = formatDateInTz(now.toISOString(), input.policy.timezone);
   const activityWindow = previousCalendarDayRangeInTz(now, input.policy.timezone);
   const isBrief = !hasActiveWork(input.taskStore, input.userId, input.audience);
@@ -387,8 +639,10 @@ export function buildProgressDigestFacts(input: {
     dateYmd,
     dateDisplay: formatDateDisplay(now, input.policy.timezone),
     recipientDisplayName,
+    recipientUserId: input.userId,
     detailUrl: input.detailUrl,
     activityWindow,
+    contentMode: input.policy.contentMode,
   };
 
   if (input.audience === "combined") {

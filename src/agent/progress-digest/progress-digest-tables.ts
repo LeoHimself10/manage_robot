@@ -1,3 +1,4 @@
+import type { DigestDueSoonItem } from "./progress-digest-facts";
 import type {
   DigestAttentionItem,
   DigestInProgressItem,
@@ -13,6 +14,39 @@ function clipCell(value: string | undefined, max: number): string {
 
 function escapePipeRow(cells: string[]): string {
   return `| ${cells.join(" | ")} |`;
+}
+
+export function renderDueSoonTable(
+  items: DigestDueSoonItem[],
+  opts: { maxLines: number; showAssignee: boolean },
+): string[] {
+  if (items.length === 0) return ["暂无"];
+  const headers = opts.showAssignee
+    ? ["任务", "子任务", "负责人", "截止", "状态"]
+    : ["任务", "子任务", "截止", "状态"];
+  const lines = [escapePipeRow(headers), escapePipeRow(headers.map(() => "---"))];
+  const shown = items.slice(0, opts.maxLines);
+  for (const item of shown) {
+    const row = opts.showAssignee
+      ? [
+          clipCell(item.taskTitle, 18),
+          clipCell(item.subtaskTitle, 16),
+          clipCell(item.assigneeName, 10),
+          clipCell(item.dueLabel, 12),
+          clipCell(item.statusLabel, 12),
+        ]
+      : [
+          clipCell(item.taskTitle, 20),
+          clipCell(item.subtaskTitle, 18),
+          clipCell(item.dueLabel, 12),
+          clipCell(item.statusLabel, 12),
+        ];
+    lines.push(escapePipeRow(row));
+  }
+  if (items.length > shown.length) {
+    lines.push(`另有 ${items.length - shown.length} 项，请打开工作台查看`);
+  }
+  return lines;
 }
 
 export function renderAttentionTable(

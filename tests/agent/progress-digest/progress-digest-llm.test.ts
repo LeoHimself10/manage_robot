@@ -10,6 +10,7 @@ const sampleFacts: ProgressDigestFacts = {
   dateYmd: "2026-05-21",
   dateDisplay: "5月21日",
   audience: "manager",
+  contentMode: "full",
   detailUrl: "https://example.com/workbench/manager/tasks",
   isBrief: false,
   activityWindow: {

@@ -9,13 +9,15 @@ import {
 import type { ProgressDigestPolicy } from "./progress-digest-policy";
 import {
   renderBriefDigestTemplate,
+  renderDeliveryBriefDigestTemplate,
+  renderDeliveryReminderTemplate,
   renderProgressDigestTemplate,
 } from "./progress-digest-templates";
 
-export type ProgressDigestMode = "full" | "brief";
+export type ProgressDigestBuildMode = "full" | "brief" | "delivery";
 
 export interface ProgressDigestBuildResult {
-  mode: ProgressDigestMode;
+  mode: ProgressDigestBuildMode;
   subject: string;
   markdown: string;
   detailUrl: string;
@@ -57,6 +59,27 @@ export async function buildProgressDigestMarkdown(input: {
     now,
     resolveName: input.resolveName,
   });
+
+  if (facts.contentMode === "delivery_reminder") {
+    if (facts.isBrief) {
+      const brief = renderDeliveryBriefDigestTemplate(facts);
+      return {
+        mode: "brief",
+        subject: brief.subject,
+        markdown: brief.markdown,
+        detailUrl,
+        renderSource: "template",
+      };
+    }
+    const delivery = renderDeliveryReminderTemplate(facts, input.policy.maxTaskLines);
+    return {
+      mode: "delivery",
+      subject: delivery.subject,
+      markdown: delivery.markdown,
+      detailUrl,
+      renderSource: "template",
+    };
+  }
 
   if (facts.isBrief) {
     const brief = renderBriefDigestTemplate(facts);

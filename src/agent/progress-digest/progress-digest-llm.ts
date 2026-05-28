@@ -51,7 +51,6 @@ function slimCore(core: ProgressDigestFactsCore) {
       taskTitle: item.taskTitle,
       subtaskTitle: item.subtaskTitle,
       assigneeNames: item.assigneeNames,
-      assigneeName: item.assigneeName,
       statusLabel: item.statusLabel,
       dueLabel: item.dueLabel,
       reasonHint: item.reasonHint,

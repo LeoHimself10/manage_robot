@@ -19,6 +19,7 @@ describe("progress-digest-build", () => {
     process.env.PLAN_SESSION_DIR = sessionDir;
     process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL = "https://example.com";
     process.env.PROGRESS_DIGEST_LLM_ENABLED = "0";
+    process.env.PROGRESS_DIGEST_MODE = "full";
   });
 
   afterEach(() => {
@@ -26,6 +27,7 @@ describe("progress-digest-build", () => {
     delete process.env.PLAN_SESSION_DIR;
     delete process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL;
     delete process.env.PROGRESS_DIGEST_LLM_ENABLED;
+    delete process.env.PROGRESS_DIGEST_MODE;
   });
 
   function seedInProgressTask() {
@@ -131,5 +133,37 @@ describe("progress-digest-build", () => {
     expect(built.mode).toBe("full");
     expect(built.markdown).toContain("我主管的任务");
     expect(built.markdown).toContain("我负责的任务");
+  });
+
+  it("builds delivery reminder digest with due-soon table only", async () => {
+    process.env.PROGRESS_DIGEST_MODE = "delivery_reminder";
+    const { store } = seedInProgressTask();
+    const built = await buildProgressDigestMarkdown({
+      taskStore: store,
+      userId: "mgr-1",
+      audience: "manager",
+      policy: loadProgressDigestPolicy(),
+      now: new Date("2026-12-25T01:00:00.000Z"),
+    });
+    expect(built.mode).toBe("delivery");
+    expect(built.renderSource).toBe("template");
+    expect(built.markdown).toContain("近一周交付提醒");
+    expect(built.markdown).toContain("| 任务 | 子任务 | 负责人 | 截止 | 状态 |");
+    expect(built.markdown).not.toContain("昨日动态");
+    expect(built.markdown).not.toContain("后续建议");
+  });
+
+  it("builds delivery brief when no due-soon items in horizon", async () => {
+    process.env.PROGRESS_DIGEST_MODE = "delivery_reminder";
+    const { store } = seedInProgressTask();
+    const built = await buildProgressDigestMarkdown({
+      taskStore: store,
+      userId: "mgr-1",
+      audience: "manager",
+      policy: loadProgressDigestPolicy(),
+      now: new Date("2026-01-01T01:00:00.000Z"),
+    });
+    expect(built.mode).toBe("brief");
+    expect(built.markdown).toContain("近一周暂无到期子任务");
   });
 });

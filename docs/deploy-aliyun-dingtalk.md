@@ -372,6 +372,8 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `FOLLOWUP_MANUAL_LLM_ENABLED` | 否 | 手动催办是否尝试 LLM 润色（默认 `1`） |
 | `FOLLOWUP_MANUAL_LLM_TIMEOUT_MS` | 否 | 手动催办 LLM 超时毫秒（默认 `5000`） |
 | `PROGRESS_DIGEST_ENABLED` | 否 | `1` 开启每日任务进展推送 scheduler（默认 `0`）；**单实例**假设 |
+| `PROGRESS_DIGEST_MODE` | 否 | `delivery_reminder`（默认，近一周交付单表）或 `full`（legacy 三表+LLM） |
+| `PROGRESS_DIGEST_HORIZON_DAYS` | 否 | 交付提醒滚动窗口自然日数（默认 `7`） |
 | `PROGRESS_DIGEST_SCAN_INTERVAL_MS` | 否 | 扫描间隔（默认 `300000`） |
 | `PROGRESS_DIGEST_TIMEZONE` | 否 | 发送时刻与自然日判定时区（默认 `Asia/Shanghai`） |
 | `PROGRESS_DIGEST_HOUR` | 否 | 发送小时（默认 `9`） |
@@ -379,7 +381,7 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `PROGRESS_DIGEST_WEEKDAYS_ONLY` | 否 | 仅工作日推送（默认 `1`） |
 | `PROGRESS_DIGEST_LOOKBACK_HOURS` | 否 | **已废弃**（动态改为 `PROGRESS_DIGEST_TIMEZONE` 前一自然日 00:00–24:00） |
 | `PROGRESS_DIGEST_MAX_TASK_LINES` | 否 | 列表截断行数（默认 `8`） |
-| `PROGRESS_DIGEST_LLM_ENABLED` | 否 | 是否用 qwen3.6-flash 生成概览+后续建议（默认 `1`）；表格由代码渲染 |
+| `PROGRESS_DIGEST_LLM_ENABLED` | 否 | `full` 模式下是否用 qwen 生成概览/建议（`delivery_reminder` 默认不调 LLM，建议 `0`） |
 | `PROGRESS_DIGEST_LLM_MODEL` | 否 | 总结模型（默认 `qwen3.6-flash`） |
 | `PROGRESS_DIGEST_LLM_TIMEOUT_MS` | 否 | LLM 超时毫秒，超时走模板 fallback（默认 `8000`） |
 | `PROGRESS_DIGEST_LLM_MAX_TOKENS` | 否 | LLM 输出 token 上限（默认 `800`） |
