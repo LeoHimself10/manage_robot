@@ -52,14 +52,14 @@ function railLink(
 
 function buildManagerRail(activeNav: WorkbenchNavId, portfolioEnabled: boolean): string {
   const portfolioLinks = portfolioEnabled
-    ? `${railLink("/workbench/manager/projects", "项目总览", "mgr-proj", activeNav, "manager")}
-  ${railLink("/workbench/manager/meeting-import", "会议入库", "mgr-meeting-import", activeNav, "manager")}`
+    ? `${railLink("/workbench/manager/projects", "项目总览", "mgr-proj", activeNav, "manager")}`
     : "";
   return `<div class="wb-rail-grp">
   <div class="wb-rail-grp-lbl">工作</div>
   ${railLink("/workbench/manager/tasks", "历史任务", "mgr-tasks", activeNav, "manager")}
   ${railLink("/workbench/manager/dashboard", "周度 Dashboard", "mgr-dash", activeNav, "manager")}
   ${railLink("/workbench/manager/chat?thread=main", "智能规划助手", "mgr-chat", activeNav, "manager")}
+  ${portfolioEnabled ? railLink("/workbench/manager/meeting-import", "会议入库", "mgr-meeting-import", activeNav, "manager") : ""}
 </div>
 ${
   portfolioEnabled
@@ -73,15 +73,11 @@ ${
 
 function buildEmployeeRail(activeNav: WorkbenchNavId): string {
   return `<div class="wb-rail-grp">
-  <div class="wb-rail-grp-lbl">我的任务</div>
+  <div class="wb-rail-grp-lbl">我的</div>
   ${railLink("/workbench/employee?view=new", "待承接", "emp-new", activeNav, "employee", { id: "navNew" })}
   ${railLink("/workbench/employee?view=current", "进行中", "emp-cur", activeNav, "employee", { id: "navCur" })}
   ${railLink("/workbench/employee?view=history", "已完成", "emp-hist", activeNav, "employee", { id: "navHist" })}
-</div>
-<div class="wb-rail-grp">
-  <div class="wb-rail-grp-lbl">账户</div>
   ${railLink("/workbench/employee?view=profile", "能力画像", "emp-prof", activeNav, "employee", { id: "navProf" })}
-  ${railLink("/workbench/employee?view=security", "账号安全", "emp-security", activeNav, "employee", { id: "navSecurity", hidden: true })}
 </div>`;
 }
 
@@ -227,9 +223,12 @@ export function renderWorkbenchPage(params: {
   const descBlock = params.description
     ? `<p class="wb-main-desc">${escapeHtml(params.description)}</p>`
     : "";
-  const crumbBlock = params.breadcrumbHtml
-    ? `<div class="wb-crumb">${params.breadcrumbHtml}</div>`
-    : `<div class="wb-crumb">${escapeHtml(params.title)}</div>`;
+  const crumbBlock =
+    params.role === "employee"
+      ? ""
+      : params.breadcrumbHtml
+        ? `<div class="wb-crumb">${params.breadcrumbHtml}</div>`
+        : `<div class="wb-crumb">${escapeHtml(params.title)}</div>`;
   const headActions = params.headActionsHtml ?? defaultHeadActionsHtml(params.role);
   const toolbar = params.headToolbarHtml ? `<div class="wb-main-toolbar">${params.headToolbarHtml}</div>` : "";
 

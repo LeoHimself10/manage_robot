@@ -2225,7 +2225,7 @@ describe("assignment-workbench HTTP handler", () => {
     expect(pageRes.captured().statusCode).toBe(200);
     expect(pageRes.captured().body).toContain("账号安全");
     expect(pageRes.captured().body).toContain('id="panelSecurity"');
-    expect(pageRes.captured().body).toContain('id="navSecurity"');
+    expect(pageRes.captured().body).toContain("getElementById('navSecurity')");
     expect(pageRes.captured().body).toContain('id="pwdSuccessBanner"');
     expect(pageRes.captured().body).toContain("/workbench/external/login");
     expect(pageRes.captured().body).not.toContain('id="externalPasswordCard"');

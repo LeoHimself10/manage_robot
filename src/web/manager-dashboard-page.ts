@@ -20,8 +20,9 @@ export function renderManagerDashboardPage(params: {
   const initialProjectId = escapeHtml(params.initialProjectId ?? "");
   const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
   const projectFilterBar = portfolio
-    ? `<label class="dash-project-filter">项目筛选
-        <select id="projectFilter">
+    ? `<label class="dash-filter-block dash-project-filter">
+        <span class="dash-filter-lbl">项目筛选</span>
+        <select class="dash-select" id="projectFilter">
           <option value="">全部项目</option>
           <option value="__unassigned__">未归类</option>
         </select>
@@ -38,40 +39,38 @@ export function renderManagerDashboardPage(params: {
     extraCss: DASHBOARD_PAGE_CSS,
     mainBodyClass: "wb-main-body app-shell--dashboard",
     mainHtml: `
-  <div id="historicalBanner" class="info-banner info-banner--note" hidden>
-    您正在查看历史周：部分进行中的状态为推算值，请以下方「本周动态」为准做复盘。
-  </div>
-
   <div class="dashboard-stack">
-    <section class="card">
-        <div class="dash-toolbar">
-          <div class="dash-controls">
-            <div class="week-nav" aria-label="周导航">
-              <button type="button" class="btn btn-ghost btn-sm" id="prevWeekBtn" title="上一周">‹</button>
-              <label>中心周
-                <input type="date" id="weekInput">
-              </label>
-              <button type="button" class="btn btn-ghost btn-sm" id="nextWeekBtn" title="下一周">›</button>
-              <div class="week-chips">
-                <button type="button" class="btn btn-ghost btn-sm week-chip" data-week-offset="-1">上周</button>
-                <button type="button" class="btn btn-ghost btn-sm week-chip" data-week-offset="0">本周</button>
-                <button type="button" class="btn btn-ghost btn-sm week-chip" data-week-offset="1">下周</button>
-              </div>
+    <section class="card dash-filter-card">
+        <div class="dash-filter-grid">
+          <div class="dash-filter-block dash-filter-block--week">
+            <span class="dash-filter-lbl">中心周</span>
+            <div class="dash-week-row" aria-label="周导航">
+              <button type="button" class="btn btn-ghost btn-sm dash-week-arrow" id="prevWeekBtn" title="上一周" aria-label="上一周">‹</button>
+              <input type="date" class="dash-date-input" id="weekInput" aria-label="中心周日期" />
+              <button type="button" class="btn btn-ghost btn-sm dash-week-arrow" id="nextWeekBtn" title="下一周" aria-label="下一周">›</button>
             </div>
-            <label>前后周数
-              <select id="spanInput">
-                <option value="0">仅本周</option>
-                <option value="1" selected>±1 周</option>
-                <option value="2">±2 周</option>
-                <option value="4">±4 周</option>
-                <option value="6">±6 周</option>
-              </select>
-            </label>
-            ${projectFilterBar}
-            <button type="button" class="btn btn-primary btn-sm" id="refreshBtn">刷新</button>
+            <div class="dash-week-chips" role="group" aria-label="快捷周">
+              <button type="button" class="dash-week-chip week-chip" data-week-offset="-1">上周</button>
+              <button type="button" class="dash-week-chip week-chip is-on" data-week-offset="0">本周</button>
+              <button type="button" class="dash-week-chip week-chip" data-week-offset="1">下周</button>
+            </div>
           </div>
-          <p class="dashboard-note" id="rangeMeta" aria-live="polite">加载中...</p>
+          <label class="dash-filter-block">
+            <span class="dash-filter-lbl">前后周数</span>
+            <select class="dash-select" id="spanInput">
+              <option value="0">仅本周</option>
+              <option value="1" selected>±1 周</option>
+              <option value="2">±2 周</option>
+              <option value="4">±4 周</option>
+              <option value="6">±6 周</option>
+            </select>
+          </label>
+          ${projectFilterBar}
+          <div class="dash-filter-block dash-filter-block--action">
+            <button type="button" class="btn btn-primary dash-refresh-btn" id="refreshBtn">刷新</button>
+          </div>
         </div>
+        <p class="dashboard-note dash-range-meta" id="rangeMeta" aria-live="polite">加载中...</p>
     </section>
 
     <section class="kpis kpis--6" aria-live="polite">
@@ -303,7 +302,6 @@ ${buildWorkbenchFmtTimeClientJs()}
     document.getElementById('kpiEvents').textContent = d.kpi.eventCount;
     var spanLabel = '±' + (d.span != null ? d.span : document.getElementById('spanInput').value) + ' 周';
     document.getElementById('rangeMeta').textContent = d.week.label + ' · 视图 ' + spanLabel + ' · 动态 ' + d.kpi.eventCount + ' 条';
-    document.getElementById('historicalBanner').hidden = !d.approxHistoricalState;
     renderTimeline(d);
     renderTaskDetails(d);
     renderPeople(d);
@@ -330,11 +328,19 @@ ${buildWorkbenchFmtTimeClientJs()}
     var left = (start / dayCount) * 100;
     var width = ((end - start + 1) / dayCount) * 100;
     var dueRight = ((dueIdx + 1) / dayCount) * 100;
-    var label = b.title.length > 8 ? b.title.slice(0, 8) + '…' : b.title;
+    var spanDays = end - start + 1;
+    var compact = width < 11 || spanDays < 2;
+    var barCls = 'gantt-bar status-' + esc(b.status) + (compact ? ' gantt-bar--compact' : '');
+    var label = '';
+    if (!compact) {
+      label = b.title.length > 10 ? b.title.slice(0, 10) + '…' : b.title;
+    }
     var dueTag = '截止日 ' + String(b.dueYmd || '').slice(5);
     if (b.isOverdue) dueTag += ' · 逾期';
-    return '<span class="gantt-bar status-' + esc(b.status) + '" style="left:' + left + '%;width:' + width + '%" title="' +
-      esc(b.title + ' · ' + statusLabel(b.status)) + '">' + esc(label) + '</span>' +
+    var tip = b.title + ' · ' + statusLabel(b.status);
+    if (compact) tip += ' · 名称见左侧列表';
+    return '<span class="' + barCls + '" style="left:' + left + '%;width:' + width + '%" title="' +
+      esc(tip) + '">' + esc(label) + '</span>' +
       '<span class="gantt-due-marker" style="left:calc(' + dueRight + '% - 1px)" data-label="' + esc(dueTag) + '" title="' + esc(dueTag) + '"></span>';
   }
   function renderTimeline(d) {
@@ -362,9 +368,8 @@ ${buildWorkbenchFmtTimeClientJs()}
         '<div class="gantt-group-summary">' + bars.length + ' 条子任务 · 点击展开</div></div>';
       if (open) {
         bars.forEach(function (b) {
-          html += '<div class="gantt-row gantt-sub-row"><div class="gantt-label">' +
-            '<div class="gantt-sub-title"><strong>' + esc(b.title) + '</strong><small>' + esc(b.assigneeName || b.assigneeUserId) + '</small></div>' +
-            '<span class="badge ' + badgeClassForStatus(b.status) + '">' + esc(statusLabel(b.status)) + '</span></div>' +
+          html += '<div class="gantt-row gantt-sub-row"><div class="gantt-label" data-status="' + esc(b.status) + '">' +
+            '<div class="gantt-sub-title"><strong>' + esc(b.title) + '</strong><small>' + esc(b.assigneeName || b.assigneeUserId) + '</small></div></div>' +
             '<div class="gantt-track-wrap"><div class="gantt-track" style="--day-count:' + dayCount + '">' +
             ganttTrackCells(days, centerMonday) + renderSubtaskBar(b, dayCount) + '</div></div></div>';
         });

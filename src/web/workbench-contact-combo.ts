@@ -21,6 +21,8 @@ export interface ContactComboAttachOptions {
   resultKey?: "contacts" | "employees";
   minLength?: number;
   debounceMs?: number;
+  /** Use fixed-position portal (mobile / scroll containers) */
+  useFixedPortal?: boolean;
   onFeedback?: (message: string, kind: "muted" | "ok" | "err") => void;
   onSelect?: (row: ContactComboRow) => void;
   escapeHtml?: (value: string) => string;
@@ -49,12 +51,70 @@ export function attachContactCombo(opts: ContactComboAttachOptions): { destroy: 
   const minLen = opts.minLength ?? 1;
   const debounceMs = opts.debounceMs ?? 250;
   const resultKey = opts.resultKey ?? "contacts";
+  const useFixedPortal = opts.useFixedPortal ?? false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let destroyed = false;
+  let repositionBound = false;
+  const homeParent = opts.optionsList.parentNode;
+
+  function syncComboDropdownPosition() {
+    if (!useFixedPortal || !opts.input || opts.optionsList.hidden) return;
+    const rect = opts.input.getBoundingClientRect();
+    if (!rect.width && !rect.height) return;
+    const gap = 4;
+    const width = Math.max(rect.width, 220);
+    let left = rect.left;
+    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8);
+    if (left < 8) left = 8;
+    let top = rect.bottom + gap;
+    const maxH = 240;
+    if (top + maxH > window.innerHeight - 8) {
+      const above = rect.top - gap - maxH;
+      if (above >= 8) top = above;
+    }
+    opts.optionsList.classList.add("combo-options--fixed");
+    opts.optionsList.style.position = "fixed";
+    opts.optionsList.style.left = `${left}px`;
+    opts.optionsList.style.top = `${top}px`;
+    opts.optionsList.style.width = `${width}px`;
+    opts.optionsList.style.right = "auto";
+    opts.optionsList.style.maxHeight = `${maxH}px`;
+    opts.optionsList.style.zIndex = "10050";
+  }
+
+  function clearComboDropdownPosition() {
+    if (!useFixedPortal) return;
+    opts.optionsList.classList.remove("combo-options--fixed");
+    opts.optionsList.style.position = "";
+    opts.optionsList.style.left = "";
+    opts.optionsList.style.top = "";
+    opts.optionsList.style.width = "";
+    opts.optionsList.style.right = "";
+    opts.optionsList.style.maxHeight = "";
+    opts.optionsList.style.zIndex = "";
+  }
+
+  function bindReposition() {
+    if (!useFixedPortal || repositionBound) return;
+    repositionBound = true;
+    window.addEventListener("scroll", syncComboDropdownPosition, true);
+    window.addEventListener("resize", syncComboDropdownPosition);
+  }
+
+  function unbindReposition() {
+    if (!repositionBound) return;
+    repositionBound = false;
+    window.removeEventListener("scroll", syncComboDropdownPosition, true);
+    window.removeEventListener("resize", syncComboDropdownPosition);
+  }
 
   function close() {
     opts.optionsList.hidden = true;
     opts.optionsList.innerHTML = "";
+    clearComboDropdownPosition();
+    if (useFixedPortal && homeParent && opts.optionsList.parentNode !== homeParent) {
+      homeParent.appendChild(opts.optionsList);
+    }
   }
 
   function feedback(msg: string, kind: "muted" | "ok" | "err" = "muted") {
@@ -85,6 +145,11 @@ export function attachContactCombo(opts: ContactComboAttachOptions): { destroy: 
       li.removeAttribute("aria-selected");
     });
     opts.optionsList.hidden = false;
+    if (useFixedPortal) {
+      document.body.appendChild(opts.optionsList);
+      bindReposition();
+      syncComboDropdownPosition();
+    }
     feedback("点击选择负责人", "ok");
     opts.optionsList.querySelectorAll("li[role='option']").forEach((li) => {
       li.addEventListener("mousedown", (ev) => {
@@ -204,16 +269,18 @@ export function attachContactCombo(opts: ContactComboAttachOptions): { destroy: 
       opts.input.removeEventListener("input", onInput);
       opts.input.removeEventListener("blur", onBlur);
       opts.input.removeEventListener("keydown", onKeydown);
+      unbindReposition();
       close();
     },
   };
 }
 
-/** Mount combo inside a table cell; returns hidden userId input. */
+/** Mount combo inside a table cell or form field; returns hidden userId input. */
 export function mountContactComboInCell(
   td: HTMLTableCellElement,
   assignee: { display: string; userId: string },
   searchUrl: string | ((keyword: string) => string),
+  opts?: { useFixedPortal?: boolean; inputClass?: string },
 ): HTMLInputElement {
   td.innerHTML = "";
   td.className = "cell-contact-combo";
@@ -221,7 +288,7 @@ export function mountContactComboInCell(
   wrap.className = "contact-combo-wrap";
   const input = document.createElement("input");
   input.type = "search";
-  input.className = "cell-input cell-input--contact";
+  input.className = opts?.inputClass ?? "cell-input cell-input--contact";
   input.autocomplete = "off";
   input.value = assignee.display.split("(")[0]?.trim() || assignee.display || "";
   const hidden = document.createElement("input");
@@ -238,11 +305,47 @@ export function mountContactComboInCell(
     hiddenUserId: hidden,
     optionsList: ul,
     searchUrl,
+    useFixedPortal: opts?.useFixedPortal ?? true,
     onSelect: (c) => {
       hidden.value = c.userId;
     },
   });
   return hidden;
+}
+
+/** Mount combo in a label/wrap for card editor forms. */
+export function mountContactComboInWrap(
+  wrap: HTMLElement,
+  assignee: { display: string; userId: string },
+  searchUrl: string | ((keyword: string) => string),
+): { hidden: HTMLInputElement; input: HTMLInputElement; destroy: () => void } {
+  wrap.innerHTML = "";
+  wrap.className = "contact-combo-wrap draft-card-combo";
+  const input = document.createElement("input");
+  input.type = "search";
+  input.className = "draft-card-input draft-card-input--contact";
+  input.autocomplete = "off";
+  input.placeholder = "输入姓名搜索（1 字起）";
+  input.value = assignee.display.split("(")[0]?.trim() || assignee.display || "";
+  const hidden = document.createElement("input");
+  hidden.type = "hidden";
+  hidden.className = "cell-assignee-user-id";
+  hidden.value = assignee.userId || "";
+  const ul = document.createElement("ul");
+  ul.className = "combo-options contact-combo-dropdown";
+  ul.hidden = true;
+  wrap.append(input, hidden, ul);
+  const combo = attachContactCombo({
+    input,
+    hiddenUserId: hidden,
+    optionsList: ul,
+    searchUrl,
+    useFixedPortal: true,
+    onSelect: (c) => {
+      hidden.value = c.userId;
+    },
+  });
+  return { hidden, input, destroy: combo.destroy };
 }
 
 export function parseAssigneeCellDisplay(raw: string): { display: string; userId: string } {

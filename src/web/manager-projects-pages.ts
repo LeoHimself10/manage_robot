@@ -41,18 +41,23 @@ export function renderManagerProjectsPage(params: {
     </div>
   </div>
 
-<dialog id="newProjectDialog">
-  <form method="dialog" id="newProjectForm" class="form-stack" style="min-width:320px;padding:8px;">
-    <h2 style="margin:0 0 12px;">新建项目</h2>
-    <label>名称 <input id="newProjectName" required autocomplete="off" /></label>
-    <label>描述 <textarea id="newProjectDesc" rows="3" placeholder="业务线、范围简述"></textarea></label>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
-      <button type="button" class="btn btn-ghost" id="newProjectCancel">取消</button>
-      <button type="submit" class="btn btn-primary">创建</button>
+<div class="wb-modal-overlay wb-project-dialog" id="newProjectDialogOverlay" role="dialog" aria-modal="true" aria-labelledby="newProjectDialogTitle">
+  <div class="wb-modal wb-modal--sm" role="document">
+    <div class="wb-modal__head">
+      <h3 class="wb-modal__title" id="newProjectDialogTitle">新建项目</h3>
+      <button type="button" class="wb-modal__close" id="newProjectCancel" aria-label="关闭">×</button>
     </div>
-    <p class="feedback muted" id="newProjectFeedback"></p>
-  </form>
-</dialog>`,
+    <form id="newProjectForm" class="wb-modal__body form-stack">
+      <label>名称 <input id="newProjectName" required autocomplete="off" /></label>
+      <label>描述 <textarea id="newProjectDesc" rows="3" placeholder="业务线、范围简述"></textarea></label>
+      <p class="feedback muted" id="newProjectFeedback"></p>
+    </form>
+    <div class="wb-modal__foot">
+      <button type="button" class="btn btn-ghost" id="newProjectCancelFoot">取消</button>
+      <button type="submit" form="newProjectForm" class="btn btn-primary">创建</button>
+    </div>
+  </div>
+</div>`,
     scriptHtml: `<script>
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}
@@ -189,9 +194,19 @@ export function renderManagerProjectsPage(params: {
       renderCards(allCards);
     });
   });
-  var dlg = document.getElementById('newProjectDialog');
-  document.getElementById('newProjectBtn').addEventListener('click', function () { dlg.showModal(); });
-  document.getElementById('newProjectCancel').addEventListener('click', function () { dlg.close(); });
+  var dlg = document.getElementById('newProjectDialogOverlay');
+  function openNewProjectDialog() {
+    if (dlg) dlg.setAttribute('data-open', 'true');
+  }
+  function closeNewProjectDialog() {
+    if (dlg) dlg.removeAttribute('data-open');
+  }
+  document.getElementById('newProjectBtn').addEventListener('click', openNewProjectDialog);
+  document.getElementById('newProjectCancel').addEventListener('click', closeNewProjectDialog);
+  document.getElementById('newProjectCancelFoot').addEventListener('click', closeNewProjectDialog);
+  dlg.addEventListener('click', function (e) {
+    if (e.target === dlg) closeNewProjectDialog();
+  });
   document.getElementById('newProjectForm').addEventListener('submit', async function (e) {
     e.preventDefault();
     var fb = document.getElementById('newProjectFeedback');
@@ -207,7 +222,7 @@ export function renderManagerProjectsPage(params: {
       });
       var data = await res.json();
       if (!data.ok) throw new Error(data.error || 'create failed');
-      dlg.close();
+      closeNewProjectDialog();
       document.getElementById('newProjectName').value = '';
       document.getElementById('newProjectDesc').value = '';
       await load();

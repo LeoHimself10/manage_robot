@@ -10,10 +10,8 @@ export function renderEmployeeWorkbenchPage(): string {
     activeNav: "emp-new",
     title: "待承接",
     pageTitle: "员工工作台",
-    description: "主管发布后的正式子任务。请在接受前核对执行要点。",
     mainHtml: `
   <div id="panelNew">
-    <p class="page-desc" id="empPageDescNew">主管发布后的正式子任务。请在接受前核对下方六项要点；拒绝或需要主管协助时请填写说明。</p>
     <section class="kpis kpis--2" aria-live="polite">
       <div class="kpi"><div class="lbl">待您处理</div><div class="val" id="kpiNewActionable">—</div></div>
       <div class="kpi"><div class="lbl">已处理 · 等主管</div><div class="val" id="kpiNewWaiting">—</div></div>
@@ -202,6 +200,16 @@ export function renderEmployeeWorkbenchPage(): string {
     if (!data || !data.ok || data.loginSource !== 'external_password') {
       if (getView() === 'security') navTo('new');
       return;
+    }
+    var railNav = document.querySelector('.wb-rail-nav');
+    if (railNav && !document.getElementById('navSecurity')) {
+      var a = document.createElement('a');
+      a.className = 'wb-rail-link';
+      a.href = '/workbench/employee?view=security';
+      a.setAttribute('data-wb-nav', 'emp-security');
+      a.id = 'navSecurity';
+      a.textContent = '账号安全';
+      railNav.querySelector('.wb-rail-grp').appendChild(a);
     }
     var nav = document.getElementById('navSecurity');
     if (nav) nav.hidden = false;

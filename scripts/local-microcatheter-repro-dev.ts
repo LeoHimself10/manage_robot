@@ -16,7 +16,6 @@ import { createPeopleDirectoryStore } from "../src/infra/people-directory-store"
 import { resolveWorkbenchSqlitePath } from "../src/infra/workbench-db-path";
 import { createPlanSessionStore } from "../src/infra/plan-session-store";
 import { handleAssignmentHttp } from "../src/web/assignment-workbench";
-import { renderWorkbenchRootLandingHtml } from "../src/web/workbench-landing";
 import { canonicalMainChatKey } from "../src/web/canonical-main-session";
 
 const LOCAL_PORT = Number(process.env.ASSIGNMENT_WEB_PORT ?? "8787") || 8787;
@@ -172,11 +171,6 @@ function main(): void {
     if (url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.end("ok");
-      return;
-    }
-    if (req.method === "GET" && url.pathname === "/") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(renderWorkbenchRootLandingHtml());
       return;
     }
     if (handleAssignmentHttp(req, res)) return;

@@ -1,4 +1,5 @@
 import type { WorkbenchSession } from "./assignment-workbench-session-types";
+import { WORKBENCH_LOGIN_SHELL_CSS } from "./workbench-login-shell";
 
 const EXTERNAL_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const EXTERNAL_LOGIN_MAX_ATTEMPTS = 5;
@@ -86,31 +87,30 @@ export function renderExternalLoginHtml(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>外部执行者登录</title>
-<style>
-body { font-family: system-ui, sans-serif; background: #f5f7fb; color: #0f172a; }
-.wrap { max-width: 420px; margin: 48px auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; }
-h1 { margin: 0 0 8px; font-size: 22px; }
-p { color: #475569; margin: 0 0 16px; font-size: 14px; }
-label { display: grid; gap: 6px; margin: 10px 0; font-size: 14px; }
-input { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font: inherit; }
-button { margin-top: 12px; width: 100%; border: 1px solid #1d4ed8; background: #2563eb; color: #fff; border-radius: 8px; padding: 10px 12px; font-weight: 600; cursor: pointer; }
-.muted { color: #64748b; font-size: 13px; margin-top: 12px; min-height: 1.2em; }
-</style>
+<title>外部执行者登录 · 任务规划工作台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>${WORKBENCH_LOGIN_SHELL_CSS}</style>
 </head>
-<body>
-<main class="wrap">
-  <h1>外部执行者登录</h1>
-  <p>请使用管理员提供的账号密码登录员工工作台。</p>
+<body class="wb-login-page">
+<main class="wb-login-wrap">
+  <div class="wb-login-hero">
+    <div class="wb-login-mark" aria-hidden="true">外</div>
+    <h1>外部执行者登录</h1>
+    <p>使用管理员提供的账号密码进入员工工作台。</p>
+  </div>
+  <div class="wb-login-card">
   <label>账号
     <input id="username" autocomplete="username" />
   </label>
   <label>密码
     <input id="password" type="password" autocomplete="current-password" />
   </label>
-  <button id="loginBtn" type="button">登录</button>
+  <button id="loginBtn" type="button" class="btn btn-primary">登录</button>
   <div class="muted" id="result"></div>
-  <p class="muted" style="margin-top:16px;">钉钉用户请<a href="/workbench">前往钉钉免登入口</a>。</p>
+  </div>
+  <p class="muted" style="text-align:center;margin-top:16px;">钉钉用户请<a href="/">前往工作台免登</a>。</p>
 </main>
 <script>
 (function () {

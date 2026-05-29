@@ -21,7 +21,6 @@ import { createEmployeeProfileRepo } from "./integrations/repos/employee-profile
 import { createAssignmentDraftRepo } from "./integrations/repos/assignment-draft-repo";
 import { createAssignmentEventRepo } from "./integrations/repos/assignment-event-repo";
 import { handleAssignmentHttp } from "./web/assignment-workbench";
-import { renderWorkbenchRootLandingHtml } from "./web/workbench-landing";
 import {
   buildManagerQwenClientConfig,
   runManagerOrchestratorTurn,
@@ -223,17 +222,7 @@ function startCombinedServer(healthPort: number): void {
       return;
     }
 
-    // DingTalk micro-app home URL is often configured as https://host/ — show HTML, not "ok".
-    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      if (req.method === "HEAD") {
-        res.end();
-      } else {
-        res.end(renderWorkbenchRootLandingHtml());
-      }
-      return;
-    }
-
+    // DingTalk micro-app home URL is often configured as https://host/ — same auto-login as /workbench.
     if (handleAssignmentHttp(req, res)) return;
     res.writeHead(404);
     res.end();

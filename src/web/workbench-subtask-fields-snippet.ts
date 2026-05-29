@@ -34,13 +34,22 @@ export function buildSubtaskPlanningFieldsClientJs(): string {
     );
   }
   function subtaskCardCoreLines(s, subs) {
-    var lines = [];
-    lines.push('<p class="meta task-card-field"><span class="task-card-lbl">目标</span> ' + fieldDash(clipStr(s.objective, 100)) + '</p>');
-    lines.push('<p class="meta task-card-field"><span class="task-card-lbl">交付</span> ' + fieldDash(clipStr(s.deliverables, 100)) + '</p>');
-    lines.push('<p class="meta task-card-field"><span class="task-card-lbl">完成标准</span> ' + fieldDash(clipStr(s.completionCriteria, 100)) + '</p>');
-    lines.push('<p class="meta task-card-field"><span class="task-card-lbl">截止</span> ' + (s.dueAt ? esc(String(s.dueAt).slice(0, 10)) : '—') + '</p>');
-    lines.push('<p class="meta task-card-field"><span class="task-card-lbl">执行动作</span> ' + fieldDash(clipStr((s.actions || []).join('；'), 100)) + '</p>');
-    lines.push('<p class="meta task-card-field"><span class="task-card-lbl">前置依赖</span> ' + (s.dependsOn && s.dependsOn.length ? esc(clipStr(depTitles(subs, s.dependsOn), 100)) : '—') + '</p>');
-    return lines.join('');
+    var due = s.dueAt ? esc(String(s.dueAt).slice(0, 10)) : '—';
+    var assignee = fieldDash(s.assigneeDisplayName || s.assigneeName || s.assigneeUserId || '');
+    return '<div class="task-card-summary">'
+      + '<p class="meta"><span class="task-card-lbl">负责人</span> ' + assignee + ' · <span class="task-card-lbl">截止</span> ' + due + '</p>'
+      + '<p class="meta task-card-desc"><span class="task-card-lbl">目标</span> ' + fieldDash(clipStr(s.objective, 120)) + '</p>'
+      + '</div>'
+      + subtaskCardPlanningDetails(s, subs);
+  }
+  function subtaskCardPlanningDetails(s, subs) {
+    var coreHtml = subtaskCoreDtDds(s, subs);
+    return (
+      '<details class="task-card-planning">' +
+      '<summary>查看完整规划要点</summary>' +
+      '<div class="subtask-planning-block">' +
+      '<dl class="subtask-detail-dl">' + coreHtml + '</dl>' +
+      '</div></details>'
+    );
   }`.trim();
 }

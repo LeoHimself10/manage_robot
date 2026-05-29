@@ -1,4 +1,5 @@
 import { renderWorkbenchPage } from "./workbench-shell";
+import { buildWorkbenchKeyboardClientJs } from "./workbench-keyboard-snippet";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 
 function escapeHtml(v: string): string {
@@ -111,6 +112,7 @@ textarea.mi-text { width:100%; min-height:200px; font-family:inherit; }
   </div>`,
     scriptHtml: `<script>
 ${buildWorkbenchViewSwitchClientJs()}
+${buildWorkbenchKeyboardClientJs()}
 (function () {
   var state = {
     step: 1,
@@ -251,6 +253,8 @@ ${buildWorkbenchViewSwitchClientJs()}
     var appendCount = state.rows.filter(function (r) { return r.parent?.kind === "existing"; }).length;
     document.getElementById("previewStats").textContent =
       "将新建约 " + newCount + " 组大任务、追加 " + appendCount + " 条到已有任务（可在表格中调整）";
+    var wrap = document.querySelector(".mi-table-wrap");
+    wbAttachMobileInputScrollAll(body, wrap || body);
   }
 
   function escapeAttr(s) {

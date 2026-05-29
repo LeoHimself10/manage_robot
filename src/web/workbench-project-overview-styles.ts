@@ -116,6 +116,20 @@ export const WORKBENCH_TASKS_FILTER_UNIFIED_CSS = `
 @media (max-width: 900px) {
   .mgr-list-toolbar.mgr-list-toolbar--portfolio { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+@media (max-width: 640px) {
+  .mgr-list-toolbar.mgr-list-toolbar--portfolio {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+  .mgr-list-toolbar--portfolio .wb-filter-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .mgr-list-toolbar--portfolio .wb-filter-hint {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+}
 .mgr-list-toolbar--portfolio label {
   display: grid; gap: 5px; font-size: 12px; font-weight: 600; color: #475569; margin: 0;
 }

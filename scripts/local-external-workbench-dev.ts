@@ -17,7 +17,6 @@ import { EXTERNAL_CONTACT_SOURCE } from "../src/infra/external-contact";
 import { resolveWorkbenchSqlitePath } from "../src/infra/workbench-db-path";
 import { createWorkbenchFormalTaskStore } from "../src/infra/workbench-formal-task-store";
 import { handleAssignmentHttp } from "../src/web/assignment-workbench";
-import { renderWorkbenchRootLandingHtml } from "../src/web/workbench-landing";
 
 const LOCAL_PORT = Number(process.env.ASSIGNMENT_WEB_PORT ?? "8787") || 8787;
 const LOCAL_PASSWORD = String(process.env.EXTERNAL_EXECUTOR_INITIAL_PASSWORD ?? "LocalTest1238").trim();
@@ -159,12 +158,6 @@ function startServer(): void {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       if (req.method === "HEAD") res.end();
       else res.end("ok");
-      return;
-    }
-    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      if (req.method === "HEAD") res.end();
-      else res.end(renderWorkbenchRootLandingHtml());
       return;
     }
     if (handleAssignmentHttp(req, res)) return;

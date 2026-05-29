@@ -3,18 +3,29 @@
  * Build: npm run build:workbench-draft-grid
  */
 import {
-  applyDraftScalarsFromForm,
   DRAFT_EXCEL_COLUMN_HEADERS,
   DRAFT_EXCEL_COLUMN_KEYS,
-  draftToExcelRows,
-  excelRowsToDraft,
   type DraftExcelColumnKey,
   type DraftExcelRow,
 } from "./draft-excel-grid";
+import { openDraftCardEditor, closeDraftCardEditor } from "./workbench-draft-card-editor";
+import {
+  fetchEditableDraft,
+  submitDraftRevise,
+  type OpenDraftEditorOpts,
+} from "./workbench-draft-submit";
 import {
   mountContactComboInCell,
   parseAssigneeCellDisplay,
 } from "./workbench-contact-combo";
+import {
+  attachMobileInputScrollAll,
+  isMobileViewport,
+  lockBodyScroll,
+  unlockBodyScroll,
+} from "./workbench-keyboard-utils";
+
+export type OpenDraftExcelModalOpts = OpenDraftEditorOpts;
 
 const VISIBLE_KEYS = DRAFT_EXCEL_COLUMN_KEYS.filter(
   (k) => k !== "taskId",
@@ -40,13 +51,8 @@ const LONG_TEXT_KEYS = new Set<DraftExcelColumnKey>([
   "actions",
 ]);
 
-export interface OpenDraftExcelModalOpts {
-  threadId: string;
-  threadKind: "main" | "side";
-  onRevised?: () => void | Promise<void>;
-}
-
 let overlayEl: HTMLElement | null = null;
+let detachInputScroll: (() => void) | null = null;
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -127,6 +133,7 @@ function buildRowTr(row: DraftExcelRow, index: number): HTMLTableRowElement {
         td,
         { display: parsed.display, userId: parsed.userId },
         (kw) => `/api/workbench/manager/contacts?keyword=${encodeURIComponent(kw)}`,
+        { useFixedPortal: true },
       );
     } else if (LONG_TEXT_KEYS.has(key)) {
       const field = document.createElement("textarea");
@@ -244,45 +251,34 @@ function attachColumnResize(
 }
 
 export function closeDraftExcelModal(): void {
+  detachInputScroll?.();
+  detachInputScroll = null;
+  closeDraftCardEditor();
   if (overlayEl?.parentNode) overlayEl.parentNode.removeChild(overlayEl);
   overlayEl = null;
-  document.body.style.overflow = "";
+  unlockBodyScroll();
 }
 
 export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promise<void> {
+  if (isMobileViewport()) {
+    return openDraftCardEditor(opts);
+  }
   closeDraftExcelModal();
-  const q =
-    opts.threadKind === "side" && opts.threadId !== "main"
-      ? `thread=side&threadId=${encodeURIComponent(opts.threadId)}`
-      : "thread=main";
-  const draftRes = await fetch(`/api/workbench/conversation/draft?${q}`);
-  const draftData = (await draftRes.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!draftRes.ok || !draftData.ok) {
-    throw new Error(String(draftData.error ?? `加载草案失败 HTTP ${draftRes.status}`));
-  }
-  if (!draftData.editable) {
-    throw new Error("当前会话没有可编辑的草案");
-  }
-
-  const initialRows = Array.isArray(draftData.rows)
-    ? (draftData.rows as DraftExcelRow[])
-    : draftToExcelRows({
-        draft: draftData.draft as Record<string, unknown>,
-        assignment: draftData.assignment as Record<string, unknown> | undefined,
-      });
-  const previousDraft = draftData.draft as Record<string, unknown>;
-  const previousAssignment = draftData.assignment as Record<string, unknown> | undefined;
+  const loaded = await fetchEditableDraft(opts);
+  const initialRows = loaded.rows;
+  const previousDraft = loaded.previousDraft;
+  const previousAssignment = loaded.previousAssignment;
 
   overlayEl = el("div", "draft-modal-overlay");
   const modal = el("div", "draft-modal");
   const top = el("div", "draft-modal-top");
   const titleInput = document.createElement("input");
   titleInput.className = "draft-meta-input";
-  titleInput.value = String(draftData.title ?? "");
+  titleInput.value = loaded.title;
   titleInput.placeholder = "任务标题";
   const descInput = document.createElement("textarea");
   descInput.className = "draft-meta-textarea";
-  descInput.value = String(draftData.description ?? "");
+  descInput.value = loaded.description;
   descInput.placeholder = "任务背景 / 描述";
   const topLeft = el("div", "draft-modal-top-left");
   topLeft.appendChild(el("h2")).textContent = "编辑草案表格";
@@ -357,7 +353,8 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   modal.append(top, toolbar, gridWrap, footer);
   overlayEl.appendChild(modal);
   document.body.appendChild(overlayEl);
-  document.body.style.overflow = "hidden";
+  lockBodyScroll();
+  detachInputScroll = attachMobileInputScrollAll(scroll, scroll);
 
   const colEls = Array.from(colgroup.querySelectorAll("col"));
   applyColumnWidths(table, colEls);
@@ -454,35 +451,15 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
         r.rowNum = String(i + 1);
         return r;
       });
-      const { draft: rawDraft, assignment } = excelRowsToDraft({
+      await submitDraftRevise({
+        threadId: opts.threadId,
+        threadKind: opts.threadKind,
+        title: titleInput.value.trim(),
+        description: descInput.value.trim(),
         rows,
         previousDraft,
         previousAssignment,
       });
-      const draft = applyDraftScalarsFromForm(
-        rawDraft,
-        titleInput.value.trim(),
-        descInput.value.trim(),
-      );
-      const res = await fetch("/api/workbench/conversation/draft/revise", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          threadId: opts.threadId,
-          threadKind: opts.threadKind,
-          title: titleInput.value.trim(),
-          description: descInput.value.trim(),
-          draft,
-          assignment,
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      if (!res.ok || !data.ok) {
-        const errs = Array.isArray(data.errors) ? (data.errors as string[]).join("；") : "";
-        throw new Error(
-          String(data.error ?? "提交失败") + (errs ? `：${errs}` : ""),
-        );
-      }
       close();
       if (opts.onRevised) await opts.onRevised();
     } catch (e) {

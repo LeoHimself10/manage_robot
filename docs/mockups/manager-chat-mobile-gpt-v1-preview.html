@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>智能规划助手 · 移动端重构预览（ChatGPT 风格）</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f4f4f5;
+      --surface: #ffffff;
+      --surface-elev: #fafafa;
+      --border: #e4e4e7;
+      --text: #18181b;
+      --muted: #71717a;
+      --primary: #2563eb;
+      --primary-soft: #eff6ff;
+      --user-bubble: #f4f4f5;
+      --assistant: #18181b;
+      --accent: #0ea5e9;
+      --success: #059669;
+      --warn: #d97706;
+      --radius: 16px;
+      --radius-sm: 12px;
+      --font: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+      --shadow-composer: 0 -8px 32px rgba(24, 24, 27, 0.08);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: linear-gradient(165deg, #e8edf5 0%, #f4f4f5 45%, #eceff4 100%);
+      color: var(--text);
+      line-height: 1.55;
+      min-height: 100dvh;
+    }
+
+    /* ── doc chrome ── */
+    .doc-bar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 20px;
+    }
+    .doc-bar h1 { margin: 0 0 4px; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+    .doc-bar p { margin: 0; font-size: 13px; color: var(--muted); max-width: 720px; }
+    .doc-wrap { max-width: 980px; margin: 0 auto; padding: 20px 16px 48px; }
+    .state-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .state-tab {
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .state-tab:hover { border-color: #cbd5e1; }
+    .state-tab.is-on {
+      background: var(--primary-soft);
+      border-color: #93c5fd;
+      color: #1d4ed8;
+    }
+    .notes {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #475569;
+    }
+    .notes li { margin-left: 18px; }
+
+    /* ── phone frame ── */
+    .phone-stage {
+      display: flex;
+      justify-content: center;
+      padding: 8px 0 24px;
+    }
+    .phone {
+      width: min(100%, 390px);
+      height: min(844px, calc(100dvh - 180px));
+      min-height: 640px;
+      background: var(--bg);
+      border-radius: 28px;
+      border: 1px solid #d4d4d8;
+      box-shadow:
+        0 24px 64px rgba(15, 23, 42, 0.14),
+        inset 0 0 0 1px rgba(255,255,255,0.6);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    .phone-notch {
+      height: 28px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .phone-notch span {
+      width: 72px;
+      height: 5px;
+      border-radius: 999px;
+      background: #e4e4e7;
+    }
+
+    /* ── chat app shell ── */
+    .chat-app {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+    }
+    .chat-top {
+      flex-shrink: 0;
+      display: grid;
+      grid-template-columns: 40px 1fr 40px;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.96);
+    }
+    .icon-btn {
+      width: 40px;
+      height: 40px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      font: inherit;
+    }
+    .icon-btn:active { background: #f4f4f5; }
+    .chat-top-title {
+      text-align: center;
+      min-width: 0;
+    }
+    .chat-top-title strong {
+      display: block;
+      font-size: 15px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chat-top-title em {
+      display: block;
+      font-style: normal;
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 1px;
+    }
+
+    .chat-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      padding: 16px 14px 8px;
+      scroll-behavior: smooth;
+    }
+
+    /* messages */
+    .msg { margin-bottom: 20px; animation: msg-in 0.35s ease both; }
+    @keyframes msg-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: none; }
+    }
+    .msg--user {
+      display: flex;
+      justify-content: flex-end;
+    }
+    .msg--user .msg-body {
+      max-width: 88%;
+      background: var(--user-bubble);
+      border-radius: 18px 18px 4px 18px;
+      padding: 10px 14px;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+    .msg--assistant .msg-body {
+      max-width: 100%;
+      font-size: 15px;
+      color: var(--assistant);
+    }
+    .msg--assistant .msg-body p { margin: 0 0 10px; }
+    .msg--assistant .msg-body p:last-child { margin-bottom: 0; }
+    .msg--assistant .msg-body ul {
+      margin: 8px 0 10px;
+      padding-left: 18px;
+    }
+    .msg--assistant .msg-body li { margin-bottom: 4px; }
+    .msg--assistant .msg-body strong { font-weight: 600; }
+    .msg-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .empty-hero {
+      text-align: center;
+      padding: 48px 20px 24px;
+      color: var(--muted);
+    }
+    .empty-hero .glyph {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 14px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #dbeafe, #e0f2fe);
+      display: grid;
+      place-items: center;
+      font-size: 24px;
+    }
+    .empty-hero h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      color: var(--text);
+    }
+    .empty-hero p { margin: 0; font-size: 14px; line-height: 1.6; }
+    .starter-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 20px;
+      padding: 0 8px;
+    }
+    .starter-chip {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font: inherit;
+      font-size: 13px;
+      color: #334155;
+      cursor: pointer;
+    }
+    .starter-chip:active { background: #f4f4f5; }
+
+    /* draft chip + sheet */
+    .draft-bar {
+      flex-shrink: 0;
+      padding: 0 12px 8px;
+    }
+    .draft-chip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #bfdbfe;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(90deg, #eff6ff, #f0f9ff);
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+      color: var(--text);
+    }
+    .draft-chip__icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: #2563eb;
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .draft-chip__main { flex: 1; min-width: 0; }
+    .draft-chip__title {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .draft-chip__meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .draft-chip__chev { color: var(--muted); font-size: 12px; }
+
+    .draft-sheet {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.22s ease;
+    }
+    .draft-sheet.is-open {
+      pointer-events: auto;
+      opacity: 1;
+    }
+    .draft-sheet__backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.4);
+    }
+    .draft-sheet__panel {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      max-height: 72%;
+      background: var(--surface);
+      border-radius: 20px 20px 0 0;
+      box-shadow: 0 -12px 40px rgba(15, 23, 42, 0.12);
+      display: flex;
+      flex-direction: column;
+      transform: translateY(100%);
+      transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .draft-sheet.is-open .draft-sheet__panel { transform: none; }
+    .draft-sheet__grab {
+      width: 36px;
+      height: 4px;
+      border-radius: 999px;
+      background: #d4d4d8;
+      margin: 10px auto 0;
+      flex-shrink: 0;
+    }
+    .draft-sheet__head {
+      padding: 12px 16px 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .draft-sheet__head h3 { margin: 0; font-size: 16px; }
+    .draft-sheet__body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 0 16px 12px;
+    }
+    .draft-item {
+      padding: 12px 0;
+      border-bottom: 1px solid #f4f4f5;
+    }
+    .draft-item:last-child { border-bottom: none; }
+    .draft-item__title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .draft-item__sub { font-size: 12px; color: var(--muted); }
+    .draft-sheet__foot {
+      padding: 12px 16px calc(12px + var(--safe-bottom));
+      border-top: 1px solid var(--border);
+      display: grid;
+      gap: 8px;
+    }
+    .btn-primary {
+      width: 100%;
+      min-height: 44px;
+      border: none;
+      border-radius: var(--radius-sm);
+      background: var(--primary);
+      color: #fff;
+      font: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-ghost {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: #fff;
+      font: inherit;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    /* composer */
+    .composer-wrap {
+      flex-shrink: 0;
+      padding: 8px 12px calc(10px + var(--safe-bottom));
+      background: var(--surface);
+      box-shadow: var(--shadow-composer);
+    }
+    .composer {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: end;
+      padding: 8px 8px 8px 14px;
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      background: var(--surface-elev);
+    }
+    .composer textarea {
+      border: none;
+      background: transparent;
+      resize: none;
+      font: inherit;
+      font-size: 15px;
+      line-height: 1.45;
+      min-height: 24px;
+      max-height: 120px;
+      padding: 6px 0;
+      outline: none;
+      color: var(--text);
+    }
+    .composer textarea::placeholder { color: #a1a1aa; }
+    .send-btn {
+      width: 36px;
+      height: 36px;
+      border: none;
+      border-radius: 999px;
+      background: var(--text);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .send-btn:disabled { opacity: 0.35; cursor: default; }
+    .composer-hint {
+      text-align: center;
+      font-size: 11px;
+      color: #a1a1aa;
+      margin-top: 6px;
+    }
+
+    /* thread drawer (sidebar as overlay) */
+    .thread-drawer {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .thread-drawer.is-open {
+      pointer-events: auto;
+      opacity: 1;
+    }
+    .thread-drawer__backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.35);
+    }
+    .thread-drawer__panel {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: min(82%, 300px);
+      background: var(--surface);
+      box-shadow: 8px 0 32px rgba(15, 23, 42, 0.12);
+      transform: translateX(-100%);
+      transition: transform 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+      display: flex;
+      flex-direction: column;
+    }
+    .thread-drawer.is-open .thread-drawer__panel { transform: none; }
+    .thread-drawer__head {
+      padding: 16px 14px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .thread-drawer__head button {
+      width: 100%;
+      min-height: 40px;
+      border: none;
+      border-radius: 10px;
+      background: var(--primary);
+      color: #fff;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .thread-list {
+      flex: 1;
+      overflow-y: auto;
+      list-style: none;
+      margin: 0;
+      padding: 8px;
+    }
+    .thread-list li {
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .thread-list li.is-active {
+      background: var(--primary-soft);
+      color: #1d4ed8;
+      font-weight: 600;
+    }
+
+    /* state panels */
+    .phone[data-state="empty"] .panel-empty { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .phone[data-state="empty"] .panel-chat,
+    .phone[data-state="empty"] .panel-draft-open { display: none; }
+    .phone[data-state="chat"] .panel-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .phone[data-state="chat"] .panel-empty,
+    .phone[data-state="chat"] .panel-draft-open { display: none; }
+    .phone[data-state="draft"] .panel-draft-open { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .phone[data-state="draft"] .panel-empty,
+    .phone[data-state="draft"] .panel-chat { display: none; }
+    .panel-draft-open .draft-sheet { opacity: 1; pointer-events: auto; }
+    .panel-draft-open .draft-sheet__panel { transform: none; }
+
+    .typing {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px 0;
+    }
+    .typing span {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: #a1a1aa;
+      animation: bounce 1.2s infinite ease-in-out;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.15s; }
+    .typing span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+      40% { transform: translateY(-4px); opacity: 1; }
+    }
+
+    .compare-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      margin-top: 24px;
+      font-size: 13px;
+    }
+    .compare-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+    }
+    .compare-card h3 { margin: 0 0 8px; font-size: 14px; }
+    .compare-card ul { margin: 0; padding-left: 18px; color: #475569; }
+  </style>
+</head>
+<body>
+  <header class="doc-bar">
+    <h1>F10 · 智能规划助手移动端重构预览</h1>
+    <p>参考 ChatGPT 移动端：全屏对话、底部输入、草案以 Chip + 底部抽屉呈现。确认后再接入正式页面。</p>
+  </header>
+
+  <div class="doc-wrap">
+    <div class="state-tabs" role="tablist" aria-label="预览状态">
+      <button type="button" class="state-tab is-on" data-state="empty">空态 · 引导</button>
+      <button type="button" class="state-tab" data-state="chat">对话中 · 有草案 Chip</button>
+      <button type="button" class="state-tab" data-state="draft">草案抽屉展开</button>
+    </div>
+
+    <ul class="notes">
+      <li>侧栏会话列表改为<strong>左滑抽屉</strong>，主区域留给消息流。</li>
+      <li>右侧草案面板在移动端<strong>收起</strong>，改为输入框上方的草案 Chip，点击展开 Bottom Sheet。</li>
+      <li>输入区固定底部，圆角胶囊 + 圆形发送键；Enter 发送 / Shift+Enter 换行。</li>
+      <li>助手回复无重气泡，接近 ChatGPT 纯文本流；用户消息轻灰底右对齐。</li>
+    </ul>
+
+    <div class="phone-stage">
+      <div class="phone" id="phone" data-state="empty">
+        <div class="phone-notch"><span></span></div>
+
+        <!-- empty state -->
+        <div class="panel-empty chat-app">
+          <header class="chat-top">
+            <button type="button" class="icon-btn" id="openDrawerBtn" aria-label="会话列表">☰</button>
+            <div class="chat-top-title">
+              <strong>规划助手</strong>
+              <em>主管 · manager-local-dev</em>
+            </div>
+            <button type="button" class="icon-btn" aria-label="新会话">＋</button>
+          </header>
+          <div class="chat-scroll">
+            <div class="empty-hero">
+              <div class="glyph" aria-hidden="true">任</div>
+              <h2>今天要规划什么？</h2>
+              <p>描述任务背景与期望完成时间，我会帮你拆解子任务并推荐负责人。</p>
+              <div class="starter-chips">
+                <button type="button" class="starter-chip">新品上市推广计划</button>
+                <button type="button" class="starter-chip">季度合规审计整改</button>
+                <button type="button" class="starter-chip">查看进行中的草案</button>
+              </div>
+            </div>
+          </div>
+          <div class="composer-wrap">
+            <div class="composer">
+              <textarea rows="1" placeholder="输入任务描述…"></textarea>
+              <button type="button" class="send-btn" disabled aria-label="发送">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+              </button>
+            </div>
+            <p class="composer-hint">Enter 发送 · Shift+Enter 换行</p>
+          </div>
+        </div>
+
+        <!-- chat with draft chip -->
+        <div class="panel-chat chat-app">
+          <header class="chat-top">
+            <button type="button" class="icon-btn open-drawer" aria-label="会话列表">☰</button>
+            <div class="chat-top-title">
+              <strong>学术推广与品牌活动</strong>
+              <em>主线程 · 3 条子任务草案</em>
+            </div>
+            <button type="button" class="icon-btn" aria-label="新会话">＋</button>
+          </header>
+          <div class="chat-scroll">
+            <div class="msg msg--user">
+              <div class="msg-body">帮我规划 TASK-20260529-0005 的学术推广活动，期望 6 月底前完成，重点覆盖华东三甲医院。</div>
+            </div>
+            <div class="msg msg--assistant">
+              <div class="msg-meta">规划助手</div>
+              <div class="msg-body">
+                <p>已根据你的描述生成草案，共 <strong>3 条子任务</strong>。当前指派进度 <strong>2/3</strong>，最近截止 <strong>2026-06-28</strong>。</p>
+                <p>建议下一步：</p>
+                <ul>
+                  <li>在草案抽屉中确认「KOL 圆桌会」负责人</li>
+                  <li>说「确认发布」或点「发放任务」做预检</li>
+                </ul>
+              </div>
+            </div>
+            <div class="msg msg--assistant">
+              <div class="msg-body">
+                <div class="typing" aria-label="正在输入"><span></span><span></span><span></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="draft-bar">
+            <button type="button" class="draft-chip" id="openDraftSheet">
+              <span class="draft-chip__icon">草</span>
+              <span class="draft-chip__main">
+                <span class="draft-chip__title">学术推广与品牌活动 · 3 子任务</span>
+                <span class="draft-chip__meta">2/3 已指派 · 截止 06-28 · 点按展开</span>
+              </span>
+              <span class="draft-chip__chev">▴</span>
+            </button>
+          </div>
+          <div class="composer-wrap">
+            <div class="composer">
+              <textarea rows="1" placeholder="继续补充或说「确认发布」…">把 KOL 圆桌改派给李明</textarea>
+              <button type="button" class="send-btn" aria-label="发送">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+              </button>
+            </div>
+            <p class="composer-hint">Enter 发送 · Shift+Enter 换行</p>
+          </div>
+        </div>
+
+        <!-- draft sheet open -->
+        <div class="panel-draft-open chat-app">
+          <header class="chat-top">
+            <button type="button" class="icon-btn" aria-label="会话列表">☰</button>
+            <div class="chat-top-title">
+              <strong>学术推广与品牌活动</strong>
+              <em>草案编辑</em>
+            </div>
+            <button type="button" class="icon-btn" aria-label="新会话">＋</button>
+          </header>
+          <div class="chat-scroll" style="opacity:0.35; pointer-events:none;">
+            <div class="msg msg--user"><div class="msg-body">…</div></div>
+          </div>
+          <div class="draft-bar">
+            <button type="button" class="draft-chip">
+              <span class="draft-chip__icon">草</span>
+              <span class="draft-chip__main">
+                <span class="draft-chip__title">学术推广与品牌活动 · 3 子任务</span>
+                <span class="draft-chip__meta">2/3 已指派</span>
+              </span>
+              <span class="draft-chip__chev">▾</span>
+            </button>
+          </div>
+          <div class="composer-wrap" style="opacity:0.35; pointer-events:none;">
+            <div class="composer"><textarea rows="1" placeholder="…"></textarea><button type="button" class="send-btn" disabled>↑</button></div>
+          </div>
+        </div>
+
+        <!-- overlays -->
+        <div class="draft-sheet" id="draftSheet">
+          <div class="draft-sheet__backdrop" id="closeDraftSheet"></div>
+          <div class="draft-sheet__panel" role="dialog" aria-label="草案详情">
+            <div class="draft-sheet__grab"></div>
+            <div class="draft-sheet__head">
+              <h3>草案 · 3 子任务</h3>
+              <button type="button" class="icon-btn" id="closeDraftBtn" aria-label="关闭">×</button>
+            </div>
+            <div class="draft-sheet__body">
+              <div class="draft-item">
+                <div class="draft-item__title">1. 华东三甲医院拜访清单</div>
+                <div class="draft-item__sub">负责人：王芳 · 截止 06-15 · 已指派</div>
+              </div>
+              <div class="draft-item">
+                <div class="draft-item__title">2. KOL 圆桌会筹备</div>
+                <div class="draft-item__sub">负责人：未指派 · 截止 06-28 · <span style="color:var(--warn);">待点将</span></div>
+              </div>
+              <div class="draft-item">
+                <div class="draft-item__title">3. 品牌物料设计与印刷</div>
+                <div class="draft-item__sub">负责人：陈磊 · 截止 06-20 · 已指派</div>
+              </div>
+            </div>
+            <div class="draft-sheet__foot">
+              <button type="button" class="btn-primary">编辑草案表格</button>
+              <button type="button" class="btn-primary" style="background:#059669;">发放任务</button>
+              <button type="button" class="btn-ghost">收起</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="thread-drawer" id="threadDrawer">
+          <div class="thread-drawer__backdrop" id="closeDrawer"></div>
+          <div class="thread-drawer__panel">
+            <div class="thread-drawer__head">
+              <button type="button">＋ 新规划会话</button>
+            </div>
+            <ul class="thread-list">
+              <li class="is-active">主线程 · 学术推广</li>
+              <li>侧会话 · 合规审计</li>
+              <li>侧会话 · Q2 复盘</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="compare-grid">
+      <div class="compare-card">
+        <h3>与现版差异</h3>
+        <ul>
+          <li>三栏布局 → 单栏 + 抽屉/Sheet</li>
+          <li>右侧固定草案面板 → 底部 Chip</li>
+          <li>侧栏常驻 → 汉堡菜单唤起</li>
+        </ul>
+      </div>
+      <div class="compare-card">
+        <h3>保留能力</h3>
+        <ul>
+          <li>多线程 / 侧会话</li>
+          <li>草案表格编辑 / 发放预检</li>
+          <li>花名册上传、发布确认弹窗</li>
+        </ul>
+      </div>
+      <div class="compare-card">
+        <h3>打开方式</h3>
+        <ul>
+          <li>双击本文件，或浏览器打开此 HTML</li>
+          <li>切换上方 Tab 看三种状态</li>
+          <li>在「对话中」态可点草案 Chip 试抽屉</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var phone = document.getElementById('phone');
+      document.querySelectorAll('.state-tab').forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          document.querySelectorAll('.state-tab').forEach(function (t) { t.classList.remove('is-on'); });
+          tab.classList.add('is-on');
+          phone.setAttribute('data-state', tab.getAttribute('data-state') || 'empty');
+          closeDraftSheet();
+          closeDrawer();
+        });
+      });
+
+      var draftSheet = document.getElementById('draftSheet');
+      function openDraftSheet() {
+        if (draftSheet) draftSheet.classList.add('is-open');
+      }
+      function closeDraftSheet() {
+        if (draftSheet) draftSheet.classList.remove('is-open');
+      }
+      var openDraft = document.getElementById('openDraftSheet');
+      if (openDraft) openDraft.addEventListener('click', openDraftSheet);
+      ['closeDraftSheet', 'closeDraftBtn'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('click', closeDraftSheet);
+      });
+
+      var drawer = document.getElementById('threadDrawer');
+      function openDrawer() { if (drawer) drawer.classList.add('is-open'); }
+      function closeDrawer() { if (drawer) drawer.classList.remove('is-open'); }
+      document.querySelectorAll('#openDrawerBtn, .open-drawer').forEach(function (btn) {
+        btn.addEventListener('click', openDrawer);
+      });
+      var closeDrawerEl = document.getElementById('closeDrawer');
+      if (closeDrawerEl) closeDrawerEl.addEventListener('click', closeDrawer);
+
+      document.querySelectorAll('.composer textarea').forEach(function (ta) {
+        ta.addEventListener('input', function () {
+          ta.style.height = 'auto';
+          ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+          var send = ta.closest('.composer').querySelector('.send-btn');
+          if (send) send.disabled = !String(ta.value || '').trim();
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -83,25 +83,34 @@ export function renderManagerTasksPage(params: {
     portfolioEnabled: portfolio,
     extraCss: portfolio ? WORKBENCH_TASKS_PORTFOLIO_CSS + WORKBENCH_TASKS_FILTER_UNIFIED_CSS : "",
     mainHtml: `
-  <div class="card">
+  <div class="card mgr-tasks-card">
     <div class="tabs" role="tablist" aria-label="任务操作">
       <button type="button" class="tabs-btn" role="tab" aria-selected="true" aria-controls="mgrPanelList" id="mgrTabList" data-tab-target="mgrPanelList">任务列表</button>
       <button type="button" class="tabs-btn" role="tab" aria-selected="false" aria-controls="mgrPanelReassign" id="mgrTabReassign" data-tab-target="mgrPanelReassign">调整分配</button>
     </div>
 
     <section class="tab-panel panel-stack" id="mgrPanelList" role="tabpanel" aria-labelledby="mgrTabList">
-      <section class="kpis kpis--5" aria-live="polite">
-        <div class="kpi"><div class="lbl">任务总数</div><div class="val" id="kpiTotal">—</div></div>
+      <section class="kpis kpis--3" aria-live="polite">
         <div class="kpi"><div class="lbl">待您处理</div><div class="val" id="kpiNeedsMgr">—</div></div>
-        <div class="kpi"><div class="lbl">待员工承接</div><div class="val" id="kpiWaiting">—</div></div>
         <div class="kpi"><div class="lbl">员工执行中</div><div class="val" id="kpiRunning">—</div></div>
-        <div class="kpi"><div class="lbl">已完成</div><div class="val" id="kpiDone">—</div></div>
+        <div class="kpi"><div class="lbl">待员工承接</div><div class="val" id="kpiWaiting">—</div></div>
       </section>
-      <div class="mgr-list-toolbar${portfolio ? " mgr-list-toolbar--portfolio" : " form-stack"}" role="search" aria-label="任务筛选">
+      <div class="mgr-filter-seg-wrap">
+      <div class="mgr-filter-seg" role="group" aria-label="快速筛选">
+        <button type="button" data-attention="">全部</button>
+        <button type="button" data-attention="needs_manager" class="is-on">待您处理</button>
+        <button type="button" data-attention="waiting_employee">待承接</button>
+        <button type="button" data-attention="employee_running">执行中</button>
+        <button type="button" data-attention="blocked">阻塞</button>
+      </div>
+      </div>
+      <details class="mgr-filter-advanced">
+        <summary>高级筛选</summary>
+        <div class="mgr-list-toolbar${portfolio ? " mgr-list-toolbar--portfolio" : " form-stack"}" role="search" aria-label="任务筛选" style="margin-top:10px;">
         <label>关注状态
           <select id="filterAttention">
             <option value="">全部</option>
-            <option value="needs_manager">待您处理</option>
+            <option value="needs_manager" selected>待您处理</option>
             <option value="waiting_employee">待员工承接</option>
             <option value="employee_running">员工执行中</option>
             <option value="blocked">阻塞</option>
@@ -128,7 +137,8 @@ export function renderManagerTasksPage(params: {
           <button type="button" class="btn btn-ghost btn-sm" id="filterClearBtn">清除</button>
         </div>
         ${portfolioFilterFooter}
-      </div>
+        </div>
+      </details>
       ${portfolioExtras}
       <p class="muted" id="filterResultMeta" style="margin:0 0 10px;font-size:13px;" role="status" aria-live="polite">—</p>
       <div>
@@ -145,7 +155,15 @@ export function renderManagerTasksPage(params: {
       <p class="page-desc" style="margin:0 0 14px;">选择任务并指定新负责人（按<strong>姓名</strong>查找），保存后立即生效。</p>
       <div class="form-stack">
         <label>任务
-          <select id="reassignPlanId"><option value="">请选择任务</option></select>
+          <div class="reassign-task-picker" id="reassignTaskPickerWrap">
+            <button type="button" class="reassign-task-picker__btn" id="reassignPlanBtn" aria-haspopup="listbox" aria-expanded="false">
+              <span class="reassign-task-picker__text" id="reassignPlanLabel">请选择任务</span>
+              <span class="reassign-task-picker__chev" aria-hidden="true">▾</span>
+            </button>
+            <input type="hidden" id="reassignPlanId" value="" />
+            <input type="hidden" id="reassignPlanTaskNo" value="" />
+            <ul class="reassign-task-picker__list" id="reassignPlanOptions" role="listbox" hidden></ul>
+          </div>
         </label>
         <label>新负责人（输入姓名或部门，弹出候选）
           <div class="combo" style="position:relative;">
@@ -155,9 +173,14 @@ export function renderManagerTasksPage(params: {
           </div>
         </label>
         <label>改派范围（可选）
-          <select id="reassignSubtaskPick" class="reassign-subtask-pick" aria-disabled="true">
-            <option value="">全部子任务（未完成）</option>
-          </select>
+          <div class="reassign-task-picker reassign-subtask-picker" id="reassignSubtaskPickerWrap">
+            <button type="button" class="reassign-task-picker__btn" id="reassignSubtaskBtn" aria-haspopup="listbox" aria-expanded="false" disabled>
+              <span class="reassign-task-picker__text" id="reassignSubtaskLabel">全部子任务（未完成）</span>
+              <span class="reassign-task-picker__chev" aria-hidden="true">▾</span>
+            </button>
+            <input type="hidden" id="reassignSubtaskPick" value="" />
+            <ul class="reassign-task-picker__list" id="reassignSubtaskOptions" role="listbox" hidden></ul>
+          </div>
         </label>
         <label>说明
           <textarea id="reassignNote" placeholder="简要说明改派原因"></textarea>
@@ -246,20 +269,155 @@ ${portfolio ? `<dialog id="assignProjectDialog">
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+  function truncateLabel(s, max) {
+    s = String(s || '').trim();
+    if (s.length <= max) return s;
+    return s.slice(0, Math.max(0, max - 1)) + '…';
+  }
+  function wbReassignTaskShortLabel(t) {
+    var no = String(t.taskNo || '任务');
+    var title = truncateLabel(String(t.title || ''), 22);
+    var st = String(t.statusLabel || t.status || '');
+    return no + ' · ' + title + (st ? ' · ' + st : '');
+  }
+  function wbCloseReassignPlanPicker() {
+    var list = document.getElementById('reassignPlanOptions');
+    var btn = document.getElementById('reassignPlanBtn');
+    var backdrop = document.getElementById('reassignPlanBackdrop');
+    if (list) list.hidden = true;
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    if (backdrop) backdrop.hidden = true;
+  }
+  function wbEnsureReassignPlanBackdrop() {
+    if (document.getElementById('reassignPlanBackdrop')) return;
+    var backdrop = document.createElement('div');
+    backdrop.id = 'reassignPlanBackdrop';
+    backdrop.className = 'reassign-picker-backdrop';
+    backdrop.hidden = true;
+    backdrop.addEventListener('click', wbCloseReassignPlanPicker);
+    document.body.appendChild(backdrop);
+  }
+  function wbOpenReassignPlanPicker() {
+    var list = document.getElementById('reassignPlanOptions');
+    var btn = document.getElementById('reassignPlanBtn');
+    if (!list || !btn || btn.disabled) return;
+    wbEnsureReassignPlanBackdrop();
+    var backdrop = document.getElementById('reassignPlanBackdrop');
+    list.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    if (backdrop && window.innerWidth <= 720) backdrop.hidden = false;
+  }
+  function wbSetReassignPlanPicker(planId, taskNo, label) {
+    var hid = document.getElementById('reassignPlanId');
+    var hidNo = document.getElementById('reassignPlanTaskNo');
+    var lbl = document.getElementById('reassignPlanLabel');
+    if (hid) hid.value = planId || '';
+    if (hidNo) hidNo.value = taskNo || '';
+    if (lbl) lbl.textContent = label || '请选择任务';
+    wbCloseReassignPlanPicker();
+  }
+  function wbPopulateReassignPlanPicker(tasks) {
+    var list = document.getElementById('reassignPlanOptions');
+    var btn = document.getElementById('reassignPlanBtn');
+    if (!list || !btn) return;
+    if (!tasks || !tasks.length) {
+      list.innerHTML = '';
+      wbSetReassignPlanPicker('', '', '暂无任务');
+      btn.disabled = true;
+      return;
+    }
+    btn.disabled = false;
+    list.innerHTML = tasks.map(function (t) {
+      var planId = escapeHtml(t.planId);
+      var taskNo = escapeHtml(t.taskNo || '');
+      var title = escapeHtml(String(t.title || '').trim() || '（无标题）');
+      var st = escapeHtml(String(t.statusLabel || t.status || ''));
+      var full = escapeHtml(wbReassignTaskShortLabel(t));
+      return '<li role="option" tabindex="0" data-plan-id="' + planId + '" data-task-no="' + taskNo + '" data-label="' + full + '">'
+        + '<span class="reassign-task-picker__opt-no">' + escapeHtml(t.taskNo || '—') + '</span>'
+        + '<span class="reassign-task-picker__opt-main"><span class="reassign-task-picker__opt-title">' + title + '</span>'
+        + (st ? '<span class="reassign-task-picker__opt-st">' + st + '</span>' : '') + '</span></li>';
+    }).join('');
+    if (!btn.dataset.boundReassignPicker) {
+      btn.dataset.boundReassignPicker = '1';
+      btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        var open = list.hidden;
+        if (open) wbOpenReassignPlanPicker();
+        else wbCloseReassignPlanPicker();
+      });
+      list.addEventListener('click', function (e) {
+        var li = e.target.closest('[data-plan-id]');
+        if (!li) return;
+        wbSetReassignPlanPicker(li.getAttribute('data-plan-id'), li.getAttribute('data-task-no'), li.getAttribute('data-label'));
+        void loadSubtasksForReassign();
+      });
+      list.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var li = e.target.closest('[data-plan-id]');
+        if (!li) return;
+        e.preventDefault();
+        wbSetReassignPlanPicker(li.getAttribute('data-plan-id'), li.getAttribute('data-task-no'), li.getAttribute('data-label'));
+        void loadSubtasksForReassign();
+      });
+      document.addEventListener('click', function (e) {
+        var wrap = document.getElementById('reassignTaskPickerWrap');
+        if (wrap && !wrap.contains(e.target)) wbCloseReassignPlanPicker();
+      });
+    }
+  }
+  window.wbPopulateReassignPlanPicker = wbPopulateReassignPlanPicker;
+  window.wbSetReassignPlanPicker = wbSetReassignPlanPicker;
 
+  function wbCloseReassignSubtaskPicker() {
+    var list = document.getElementById('reassignSubtaskOptions');
+    var btn = document.getElementById('reassignSubtaskBtn');
+    var backdrop = document.getElementById('reassignSubtaskBackdrop');
+    if (list) list.hidden = true;
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    if (backdrop) backdrop.hidden = true;
+  }
+  function wbSetReassignSubtaskPicker(subtaskId, label) {
+    var hid = document.getElementById('reassignSubtaskPick');
+    var lbl = document.getElementById('reassignSubtaskLabel');
+    if (hid) hid.value = subtaskId || '';
+    if (lbl) lbl.textContent = label || '全部子任务（未完成）';
+    wbCloseReassignSubtaskPicker();
+  }
+  function wbEnsureReassignSubtaskBackdrop() {
+    var wrap = document.getElementById('reassignSubtaskPickerWrap');
+    if (!wrap || document.getElementById('reassignSubtaskBackdrop')) return;
+    var backdrop = document.createElement('div');
+    backdrop.id = 'reassignSubtaskBackdrop';
+    backdrop.className = 'reassign-picker-backdrop';
+    backdrop.hidden = true;
+    backdrop.addEventListener('click', wbCloseReassignSubtaskPicker);
+    document.body.appendChild(backdrop);
+  }
+  function wbOpenReassignSubtaskPicker() {
+    var list = document.getElementById('reassignSubtaskOptions');
+    var btn = document.getElementById('reassignSubtaskBtn');
+    if (!list || !btn || btn.disabled) return;
+    wbEnsureReassignSubtaskBackdrop();
+    var backdrop = document.getElementById('reassignSubtaskBackdrop');
+    list.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    if (backdrop && window.innerWidth <= 720) backdrop.hidden = false;
+  }
   async function loadSubtasksForReassign() {
-    var sel = document.getElementById('reassignPlanId');
-    var st = document.getElementById('reassignSubtaskPick');
-    if (!sel || !st) return;
-    var opt = sel.selectedOptions && sel.selectedOptions[0];
-    var taskNo = opt ? String(opt.getAttribute('data-task-no') || '').trim() : '';
-    st.innerHTML = '<option value="">全部子任务（未完成）</option>';
+    var hidNo = document.getElementById('reassignPlanTaskNo');
+    var list = document.getElementById('reassignSubtaskOptions');
+    var btn = document.getElementById('reassignSubtaskBtn');
+    if (!list || !btn) return;
+    var taskNo = hidNo ? String(hidNo.value || '').trim() : '';
+    list.innerHTML = '';
+    wbSetReassignSubtaskPicker('', '全部子任务（未完成）');
     if (!taskNo) {
-      st.setAttribute('aria-disabled', 'true');
+      btn.disabled = true;
       setFb('reassignFeedback', '', 'muted');
       return;
     }
-    st.removeAttribute('aria-disabled');
+    btn.disabled = false;
     try {
       var res = await fetch('/api/workbench/tasks/detail?taskNo=' + encodeURIComponent(taskNo));
       var data = await res.json().catch(function () { return {}; });
@@ -271,26 +429,51 @@ ${portfolio ? `<dialog id="assignProjectDialog">
       var subs = rawSubs.filter(function (s) {
         return String(s.status || '').toUpperCase() !== 'DONE';
       });
+      var items = [{ id: '', label: '全部子任务（未完成）', title: '全部子任务（未完成）', meta: '' }];
       subs.forEach(function (s, idx) {
-        var o = document.createElement('option');
-        o.value = String(s.subtaskId || '');
         var title = String(s.title || '').trim() || '（无标题）';
         var stLabel = String(s.statusLabel || s.status || '未知').trim();
         var who = String(s.assigneeDisplayName || s.assigneeUserId || '').trim() || '未指定';
-        var line = (idx + 1) + '. ' + title + ' · 【' + stLabel + '】 当前负责人：' + who;
-        o.textContent = line;
-        o.title = line;
-        st.appendChild(o);
+        var line = (idx + 1) + '. ' + title;
+        var meta = '【' + stLabel + '】 当前负责人：' + who;
+        items.push({
+          id: String(s.subtaskId || ''),
+          label: truncateLabel(line + ' · ' + meta, 48),
+          title: line,
+          meta: meta
+        });
       });
-      if (!subs.length) {
-        setFb(
-          'reassignFeedback',
-          '该任务下未完成子任务列表为空（可能均已标记完成）。「改派范围」下拉仅列出未完成子任务。',
-          'muted',
-        );
-      } else {
-        setFb('reassignFeedback', '', 'muted');
+      list.innerHTML = items.map(function (it) {
+        return '<li role="option" tabindex="0" data-subtask-id="' + escapeHtml(it.id) + '" data-label="' + escapeHtml(it.label) + '">'
+          + '<span class="reassign-task-picker__opt-main"><span class="reassign-task-picker__opt-title">' + escapeHtml(it.title) + '</span>'
+          + (it.meta ? '<span class="reassign-task-picker__opt-st">' + escapeHtml(it.meta) + '</span>' : '') + '</span></li>';
+      }).join('');
+      if (!btn.dataset.boundReassignSubPicker) {
+        btn.dataset.boundReassignSubPicker = '1';
+        btn.addEventListener('click', function () {
+          if (btn.disabled) return;
+          var open = list.hidden;
+          if (open) wbOpenReassignSubtaskPicker();
+          else wbCloseReassignSubtaskPicker();
+        });
+        list.addEventListener('click', function (e) {
+          var li = e.target.closest('[data-subtask-id]');
+          if (!li) return;
+          wbSetReassignSubtaskPicker(li.getAttribute('data-subtask-id'), li.getAttribute('data-label'));
+        });
+        list.addEventListener('keydown', function (e) {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          var li = e.target.closest('[data-subtask-id]');
+          if (!li) return;
+          e.preventDefault();
+          wbSetReassignSubtaskPicker(li.getAttribute('data-subtask-id'), li.getAttribute('data-label'));
+        });
+        document.addEventListener('click', function (e) {
+          var wrap = document.getElementById('reassignSubtaskPickerWrap');
+          if (wrap && !wrap.contains(e.target)) wbCloseReassignSubtaskPicker();
+        });
       }
+      setFb('reassignFeedback', subs.length ? ('已加载 ' + subs.length + ' 条未完成子任务') : '该任务暂无未完成子任务', 'muted');
     } catch (e) {
       setFb('reassignFeedback', String(e && e.message ? e.message : e), 'err');
     }
@@ -372,16 +555,26 @@ ${portfolio ? `<dialog id="assignProjectDialog">
     });
     renderTaskTable(list);
   }
-  function clearFilters() {
+  function syncMgrFilterSeg(att) {
+    document.querySelectorAll('.mgr-filter-seg button[data-attention]').forEach(function (btn) {
+      var v = String(btn.getAttribute('data-attention') || '');
+      btn.classList.toggle('is-on', v === String(att || ''));
+    });
+  }
+  function setFilterAttention(att) {
     var fa = document.getElementById('filterAttention');
+    if (fa) fa.value = att || '';
+    syncMgrFilterSeg(att || '');
+    applyFiltersAndSort();
+  }
+  function clearFilters() {
     var fk = document.getElementById('filterKeyword');
     var fas = document.getElementById('filterAssignee');
     var fs = document.getElementById('filterSort');
-    if (fa) fa.value = '';
     if (fk) fk.value = '';
     if (fas) fas.value = '';
     if (fs) fs.value = 'updated_desc';
-    applyFiltersAndSort();
+    setFilterAttention('needs_manager');
   }
   async function loadTasks() {
     setFb('tableFeedback', '加载中…', 'muted');
@@ -394,29 +587,24 @@ ${portfolio ? `<dialog id="assignProjectDialog">
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       allTasksCache = data.tasks || [];
-      var kNeeds = 0, kWait = 0, kRun = 0, kDone = 0;
+      var kNeeds = 0, kWait = 0, kRun = 0;
       allTasksCache.forEach(function (t) {
         var b = String(t.attentionBucket || '');
-        if (b === 'done') kDone++;
-        else if (b === 'needs_manager') kNeeds++;
+        if (b === 'needs_manager') kNeeds++;
         else if (b === 'waiting_employee') kWait++;
         else if (b === 'employee_running' || b === 'blocked') kRun++;
       });
-      setText('kpiTotal', String(allTasksCache.length));
       setText('kpiNeedsMgr', String(kNeeds));
       setText('kpiWaiting', String(kWait));
       setText('kpiRunning', String(kRun));
-      setText('kpiDone', String(kDone));
 
       var sel = document.getElementById('reassignPlanId');
       if (!allTasksCache.length) {
         document.getElementById('taskTableMount').innerHTML = '<div class="empty-state">暂无任务。请到钉钉与机器人发起规划并发布。</div>';
-        sel.innerHTML = '<option value="">暂无任务</option>';
-        setText('kpiTotal', '0');
+        wbPopulateReassignPlanPicker([]);
         setText('kpiNeedsMgr', '0');
         setText('kpiWaiting', '0');
         setText('kpiRunning', '0');
-        setText('kpiDone', '0');
         var meta0 = document.getElementById('filterResultMeta');
         if (meta0) meta0.textContent = '共 0 条 · 当前显示 0 条';
         setFb('tableFeedback', '', 'muted');
@@ -425,15 +613,8 @@ ${portfolio ? `<dialog id="assignProjectDialog">
 
       applyFiltersAndSort();
 
-      sel.innerHTML = '<option value="">请选择任务</option>' + allTasksCache.map(function (t) {
-        var optLabel = escapeHtml(t.taskNo || '任务') + ' · ' + escapeHtml(t.title || '') + ' · ' + escapeHtml(t.statusLabel || t.status);
-        return '<option value="' + escapeHtml(t.planId) + '" data-task-no="' + escapeHtml(t.taskNo || '') + '">' + optLabel + '</option>';
-      }).join('');
+      wbPopulateReassignPlanPicker(allTasksCache);
 
-      if (!sel.dataset.boundReassignTask) {
-        sel.dataset.boundReassignTask = '1';
-        sel.addEventListener('change', function () { void loadSubtasksForReassign(); });
-      }
       var pageQs = '';
       try {
         pageQs = String(window.location.search || '');
@@ -445,23 +626,16 @@ ${portfolio ? `<dialog id="assignProjectDialog">
       var focusTab = String(usp.get('focus') || '').trim().toLowerCase();
       var focusSubtaskId = String(usp.get('subtaskId') || '').trim();
       if (focusPlanId) {
-        var hasOpt = Array.prototype.some.call(sel.options, function (o) {
-          return String(o.value || '') === focusPlanId;
-        });
-        if (hasOpt) sel.value = focusPlanId;
+        var match = allTasksCache.find(function (t) { return String(t.planId || '') === focusPlanId; });
+        if (match) wbSetReassignPlanPicker(match.planId, match.taskNo || '', wbReassignTaskShortLabel(match));
       }
       if (focusTab === 'reassign') {
         setActiveTab('mgrPanelReassign');
       }
       await loadSubtasksForReassign();
       if (focusSubtaskId) {
-        var stPick = document.getElementById('reassignSubtaskPick');
-        if (stPick) {
-          var hasSubOpt = Array.prototype.some.call(stPick.options, function (o) {
-            return String(o.value || '') === focusSubtaskId;
-          });
-          if (hasSubOpt) stPick.value = focusSubtaskId;
-        }
+        var subLi = document.querySelector('#reassignSubtaskOptions [data-subtask-id="' + focusSubtaskId.replace(/"/g, '\\"') + '"]');
+        if (subLi) wbSetReassignSubtaskPicker(focusSubtaskId, subLi.getAttribute('data-label'));
       }
 
       setFb('tableFeedback', '已更新', 'ok');
@@ -512,7 +686,7 @@ ${portfolio ? `<dialog id="assignProjectDialog">
       var reassignOpts = document.getElementById('reassignAssigneeOptions');
       if (reassignOpts) { reassignOpts.hidden = true; reassignOpts.innerHTML = ''; }
       document.getElementById('reassignNote').value = '';
-      if (subPick) subPick.value = '';
+      wbSetReassignSubtaskPicker('', '全部子任务（未完成）');
       await loadTasks();
     } catch (e) {
       setFb('reassignFeedback', String(e && e.message ? e.message : e), 'err');
@@ -532,6 +706,18 @@ ${portfolio ? `<dialog id="assignProjectDialog">
   var filterClearBtn = document.getElementById('filterClearBtn');
   if (filterApplyBtn) filterApplyBtn.addEventListener('click', applyFiltersAndSort);
   if (filterClearBtn) filterClearBtn.addEventListener('click', clearFilters);
+  document.querySelectorAll('.mgr-filter-seg button[data-attention]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setFilterAttention(String(btn.getAttribute('data-attention') || ''));
+    });
+  });
+  var filterAttEl = document.getElementById('filterAttention');
+  if (filterAttEl) {
+    filterAttEl.addEventListener('change', function () {
+      syncMgrFilterSeg(String(filterAttEl.value || ''));
+    });
+    syncMgrFilterSeg(String(filterAttEl.value || 'needs_manager'));
+  }
   ${portfolio ? buildWorkbenchTasksPortfolioClientJs({ initialProjectId, initialView }) : "void loadTasks();"}
 })();
 </script>`,
@@ -561,8 +747,10 @@ export function renderManagerChatPage(params: {
     bodyClass: "page-shell--chat",
     hideMainHead: true,
     mainHtml: `
-  <div class="chat-main">
-    <aside class="chat-sidebar" aria-label="会话列表">
+  <div class="chat-main" id="chatMain">
+    <div class="chat-overlay-backdrop" id="chatOverlayBackdrop" hidden aria-hidden="true"></div>
+
+    <aside class="chat-sidebar" id="chatSidebar" aria-label="会话列表">
       <div class="chat-sidebar-head">
         <button type="button" class="btn btn-primary btn-sm" id="newThreadBtn" style="width:100%;">+ 新规划会话</button>
       </div>
@@ -571,7 +759,16 @@ export function renderManagerChatPage(params: {
     </aside>
 
     <div class="chat-pane">
-      <div class="chat-pane-head">
+      <header class="chat-mobile-top" aria-label="会话导航">
+        <button type="button" class="chat-icon-btn" id="openThreadDrawerBtn" aria-label="打开会话列表" aria-expanded="false">☰</button>
+        <div class="chat-mobile-top__title">
+          <strong id="mobilePaneTitle">${escapeHtml(initialTitle)}</strong>
+          <em id="mobilePaneSub">${initialKind === "main" ? "主线程" : "侧会话"}</em>
+        </div>
+        <button type="button" class="chat-icon-btn" id="newThreadBtnMobile" aria-label="新规划会话">＋</button>
+      </header>
+
+      <div class="chat-pane-head chat-pane-head--desktop">
         <div>
           <h2 class="chat-pane-title" id="paneTitle">${escapeHtml(initialTitle)}</h2>
           <div class="chat-pane-sub chat-pane-sub--hidden" id="paneSub">与规划助手协作</div>
@@ -580,31 +777,48 @@ export function renderManagerChatPage(params: {
           <span class="chat-thread-badge" id="paneBadge">${initialKind === "main" ? "主线程" : "侧会话"}</span>
         </div>
       </div>
+
       <div class="draft-context-bar is-muted" id="draftContextBar">
         <span id="draftContextText">暂无草案</span>
       </div>
+
       <section class="chat-message-pane">
         <div class="chat-stream" id="chatStream" aria-live="polite">
           <ul class="msg-list" id="msgList"></ul>
         </div>
+
+        <div class="draft-mobile-bar" id="draftMobileBar" hidden>
+          <button type="button" class="draft-mobile-chip" id="openDraftSheetBtn" aria-expanded="false">
+            <span class="draft-mobile-chip__icon" aria-hidden="true">草</span>
+            <span class="draft-mobile-chip__main">
+              <span class="draft-mobile-chip__title" id="draftChipTitle">草案</span>
+              <span class="draft-mobile-chip__meta" id="draftChipMeta">—</span>
+            </span>
+            <span class="draft-mobile-chip__chev" aria-hidden="true">▴</span>
+          </button>
+        </div>
+
         <div class="chat-composer-wrap">
-          <div class="chat-composer-card">
-            <textarea id="msgInput" aria-label="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
-            <div class="composer-actions">
-              <div class="composer-secondary">
-                <label class="btn btn-ghost btn-sm" for="rosterFileInput" style="margin:0;cursor:pointer;">上传花名册</label>
-                <input id="rosterFileInput" type="file" accept=".md,.markdown,.txt,.docx,.pdf" style="display:none;" />
-                <span class="muted" id="rosterStatus"></span>
-              </div>
-              <button type="button" class="btn btn-primary btn-sm" id="sendBtn">发送</button>
-            </div>
-            <div class="composer-status muted" id="sendFeedback" hidden></div>
+          <div class="chat-composer-pill">
+            <textarea id="msgInput" rows="1" placeholder="输入任务描述…" aria-label="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+            <button type="button" class="chat-send-btn" id="sendBtn" aria-label="发送" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+            </button>
           </div>
+          <div class="chat-composer-extra">
+            <label class="btn btn-ghost btn-sm chat-roster-btn" for="rosterFileInput">上传花名册</label>
+            <input id="rosterFileInput" type="file" accept=".md,.markdown,.txt,.docx,.pdf" hidden />
+            <span class="muted chat-roster-status" id="rosterStatus"></span>
+          </div>
+          <p class="chat-composer-hint">Enter 发送 · Shift+Enter 换行</p>
+          <div class="composer-status muted" id="sendFeedback" hidden></div>
         </div>
       </section>
     </div>
 
     <aside class="draft-context-panel draft-context-panel--empty" id="draftContextPanel" aria-label="草案上下文" data-state="empty">
+      <button type="button" class="draft-sheet-close chat-icon-btn" id="closeDraftSheetBtn" aria-label="收起草案">×</button>
+      <div class="draft-sheet-grab" aria-hidden="true"></div>
       <div class="draft-panel-empty-wrap" id="draftPanelEmptyWrap">
         <div class="draft-panel-empty-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
@@ -626,9 +840,9 @@ export function renderManagerChatPage(params: {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
               最近截止 <strong id="draftStatDue">—</strong>
             </div>
-            <button type="button" class="btn-draft-edit-table" id="editDraftBtnPanel" hidden title="在弹窗中编辑 10 列草案表格">
+            <button type="button" class="btn-draft-edit-table" id="editDraftBtnPanel" hidden title="编辑草案">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
-              编辑草案表格
+              <span class="draft-edit-label-long">编辑草案表格</span><span class="draft-edit-label-short">编辑草案</span>
             </button>
           </div>
         </div>
@@ -638,6 +852,7 @@ export function renderManagerChatPage(params: {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>
             发放任务
           </button>
+          <button type="button" class="btn btn-ghost btn-sm draft-panel-collapse-btn" id="draftPanelCollapseBtn" aria-expanded="true">收起草案面板</button>
           <p class="draft-foot-caption" id="draftFootCaption">将弹窗确认，预检与预览在对话区展示</p>
         </div>
       </div>
@@ -765,8 +980,19 @@ export function renderManagerChatPage(params: {
     return '/workbench/manager/chat?thread=main';
   }
   function updatePaneHeader(meta) {
-    document.getElementById('paneTitle').textContent = meta.title || '智能规划助手';
+    var title = meta.title || '智能规划助手';
+    document.getElementById('paneTitle').textContent = title;
     document.getElementById('paneBadge').textContent = meta.badge || (meta.kind === 'main' ? '主线程' : '侧会话');
+    var mobileTitle = document.getElementById('mobilePaneTitle');
+    var mobileSub = document.getElementById('mobilePaneSub');
+    if (mobileTitle) mobileTitle.textContent = title;
+    if (mobileSub) {
+      var subParts = [meta.badge || (meta.kind === 'main' ? '主线程' : '侧会话')];
+      if (meta.hasDraft && cachedDraftSummary.count) {
+        subParts.push(cachedDraftSummary.count + ' 条子任务草案');
+      }
+      mobileSub.textContent = subParts.join(' · ');
+    }
     var sub = document.getElementById('paneSub');
     if (sub) {
       if (meta.hasDraft) {
@@ -776,6 +1002,55 @@ export function renderManagerChatPage(params: {
         sub.classList.add('chat-pane-sub--hidden');
       }
     }
+  }
+  function syncSendBtnState() {
+    var sendBtn = document.getElementById('sendBtn');
+    var inputEl = document.getElementById('msgInput');
+    if (!sendBtn || !inputEl) return;
+    var hasText = !!String(inputEl.value || '').trim();
+    sendBtn.disabled = sendInFlight || !hasText;
+  }
+  function setChatOverlay(open) {
+    var backdrop = document.getElementById('chatOverlayBackdrop');
+    var main = document.getElementById('chatMain');
+    if (backdrop) backdrop.hidden = !open;
+    if (main) main.classList.toggle('is-overlay-open', !!open);
+    document.body.classList.toggle('chat-overlay-lock', !!open);
+  }
+  function closeThreadDrawer() {
+    var main = document.getElementById('chatMain');
+    var btn = document.getElementById('openThreadDrawerBtn');
+    if (main) main.classList.remove('is-thread-drawer-open');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    if (!isDraftSheetOpen()) setChatOverlay(false);
+  }
+  function openThreadDrawer() {
+    var main = document.getElementById('chatMain');
+    var btn = document.getElementById('openThreadDrawerBtn');
+    if (main) main.classList.add('is-thread-drawer-open');
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+    setChatOverlay(true);
+  }
+  function isDraftSheetOpen() {
+    var main = document.getElementById('chatMain');
+    return !!(main && main.classList.contains('is-draft-sheet-open'));
+  }
+  function closeDraftSheet() {
+    var main = document.getElementById('chatMain');
+    var chipBtn = document.getElementById('openDraftSheetBtn');
+    if (main) main.classList.remove('is-draft-sheet-open');
+    if (chipBtn) chipBtn.setAttribute('aria-expanded', 'false');
+    if (!main || !main.classList.contains('is-thread-drawer-open')) {
+      setChatOverlay(false);
+    }
+  }
+  function openDraftSheet() {
+    if (!activeHasDraft) return;
+    var main = document.getElementById('chatMain');
+    var chipBtn = document.getElementById('openDraftSheetBtn');
+    if (main) main.classList.add('is-draft-sheet-open');
+    if (chipBtn) chipBtn.setAttribute('aria-expanded', 'true');
+    setChatOverlay(true);
   }
   function openPublishModal(overlayId) {
     var el = document.getElementById(overlayId);
@@ -959,9 +1234,15 @@ export function renderManagerChatPage(params: {
   function updateDraftContext(summary, hasDraft) {
     var bar = document.getElementById('draftContextBar');
     var text = document.getElementById('draftContextText');
+    var mobileBar = document.getElementById('draftMobileBar');
+    var chipTitle = document.getElementById('draftChipTitle');
+    var chipMeta = document.getElementById('draftChipMeta');
+    var paneTitle = document.getElementById('paneTitle');
     if (!hasDraft) {
       if (bar) { bar.classList.add('is-muted'); bar.hidden = false; }
       if (text) text.textContent = '暂无草案';
+      if (mobileBar) mobileBar.hidden = true;
+      closeDraftSheet();
       paintDraftPanelSummary({ count: 0, unassigned: 0, assigned: 0, nearestDue: '', preview: [] }, false);
       var emptyHint = document.getElementById('draftPanelEmpty');
       if (emptyHint) {
@@ -974,10 +1255,29 @@ export function renderManagerChatPage(params: {
     }
     applyDraftPanelUi(true);
     cachedDraftSummary = summary;
+    var assigned = summary.assigned != null ? summary.assigned : Math.max(0, summary.count - summary.unassigned);
     var line = summary.count + ' 条子任务 · ' + summary.unassigned + ' 条未指派';
     if (summary.nearestDue) line += ' · 最近截止 ' + summary.nearestDue;
     if (bar) { bar.classList.remove('is-muted'); bar.hidden = false; }
     if (text) text.textContent = line;
+    if (mobileBar) mobileBar.hidden = false;
+    if (chipTitle) {
+      var t = paneTitle ? String(paneTitle.textContent || '').trim() : '';
+      chipTitle.textContent = (t || '草案') + ' · ' + summary.count + ' 子任务';
+    }
+    if (chipMeta) {
+      var metaLine = assigned + '/' + summary.count + ' 已指派';
+      if (summary.nearestDue) metaLine += ' · 截止 ' + summary.nearestDue;
+      chipMeta.textContent = metaLine;
+    }
+    var mobileSub = document.getElementById('mobilePaneSub');
+    if (mobileSub) {
+      var badgeEl = document.getElementById('paneBadge');
+      var badgeText = badgeEl ? String(badgeEl.textContent || '').trim() : '';
+      var subParts = badgeText ? [badgeText] : [];
+      if (summary.count) subParts.push(summary.count + ' 条子任务草案');
+      mobileSub.textContent = subParts.join(' · ');
+    }
     paintDraftPanelSummary(summary, true);
   }
   function renderSkeleton() {
@@ -992,16 +1292,25 @@ export function renderManagerChatPage(params: {
     var box = document.getElementById('msgList');
     if (!box) return;
     box.innerHTML = '<li class="chat-welcome-wrap"><div class="chat-welcome">'
-      + '<div class="chat-welcome__icon" aria-hidden="true">✦</div>'
-      + '<h3 class="chat-welcome__title">开始规划</h3>'
-      + '<p class="chat-welcome__lead">在下方描述任务目标或粘贴需求，助手将协助拆解 WBS、点将与发布预览。</p>'
-      + '<div class="chat-welcome__steps">'
-      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">1</span><span class="chat-welcome__step-text">说清楚背景、对象、时间与交付物</span></div>'
-      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">2</span><span class="chat-welcome__step-text">确认草案后用「编辑草案表格」批量改字段</span></div>'
-      + '<div class="chat-welcome__step"><span class="chat-welcome__step-num">3</span><span class="chat-welcome__step-text">点将齐全后再发布到工作台</span></div>'
+      + '<div class="chat-welcome__icon" aria-hidden="true">任</div>'
+      + '<h3 class="chat-welcome__title">今天要规划什么？</h3>'
+      + '<p class="chat-welcome__lead">描述任务背景与期望完成时间，助手将协助拆解子任务并推荐负责人。</p>'
+      + '<div class="chat-starter-chips">'
+      + '<button type="button" class="chat-starter-chip" data-starter="帮我规划一项新品上市推广任务，期望本季度末完成。">新品上市推广</button>'
+      + '<button type="button" class="chat-starter-chip" data-starter="季度合规审计发现 3 项整改，请拆解并指派。">合规审计整改</button>'
       + '</div>'
       + '<p class="chat-welcome__hint"><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</p>'
       + '</div></li>';
+    box.querySelectorAll('.chat-starter-chip').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var starter = btn.getAttribute('data-starter') || '';
+        if (!msgInput || !starter) return;
+        msgInput.value = starter;
+        msgInput.dispatchEvent(new Event('input'));
+        syncSendBtnState();
+        focusComposer();
+      });
+    });
   }
   function renderThreadLostState() {
     var box = document.getElementById('msgList');
@@ -1055,9 +1364,12 @@ export function renderManagerChatPage(params: {
       var role = String(m.role || 'system');
       var rl = roleLabel(role);
       var rowClass = role === 'user' ? 'msg-row msg-row--user' : 'msg-row msg-row--assistant';
+      if (role === 'system') rowClass = 'msg-row msg-row--system';
       var bubbleClass = 'msg-bubble ' + roleClass(role);
       var tm = formatMsgTime(m.at);
-      var metaLine = '<div class="msg-meta">' + escapeHtml(rl) + (tm ? ' · ' + escapeHtml(tm) : '') + '</div>';
+      var metaLine = role === 'assistant'
+        ? '<div class="msg-meta">' + escapeHtml(rl) + (tm ? ' · ' + escapeHtml(tm) : '') + '</div>'
+        : '';
       var body = (role === 'assistant' && m.html)
         ? '<div class="msg-body msg-body--assistant">' + m.html + '</div>'
         : '<div class="msg-body">' + escapeHtml(m.content || '') + '</div>';
@@ -1239,6 +1551,7 @@ export function renderManagerChatPage(params: {
           list.querySelectorAll('.chat-thread-item').forEach(function (x) { x.classList.remove('active'); });
           el.classList.add('active');
           resetDraftPanelForThreadSwitch();
+          closeThreadDrawer();
           void loadMessages(mySeq);
         });
         var menuBtn = el.querySelector('.chat-thread-menu-btn');
@@ -1321,7 +1634,7 @@ export function renderManagerChatPage(params: {
     sendInFlight = true;
     updatePublishBtnUi();
     if (fromComposer) {
-      if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '发送中…'; }
+      if (sendBtn) sendBtn.disabled = true;
       setComposerStatus('处理中，请稍候…', 'busy');
     }
     var startedAt = Date.now();
@@ -1331,7 +1644,7 @@ export function renderManagerChatPage(params: {
       if (emptyCard) emptyCard.closest('li').remove();
       var userLi = document.createElement('li');
       userLi.className = 'msg-row msg-row--user';
-      userLi.innerHTML = '<div class="msg-bubble msg-bubble--user"><div class="msg-meta">我</div><div class="msg-body">' + escapeHtml(message) + '</div></div>';
+      userLi.innerHTML = '<div class="msg-bubble msg-bubble--user"><div class="msg-body">' + escapeHtml(message) + '</div></div>';
       box.appendChild(userLi);
     }
     appendPendingBubble(startedAt);
@@ -1374,7 +1687,7 @@ export function renderManagerChatPage(params: {
       return { ok: false, reason: 'error' };
     } finally {
       sendInFlight = false;
-      if (fromComposer && sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '发送'; }
+      syncSendBtnState();
       updatePublishBtnUi();
     }
   }
@@ -1383,10 +1696,47 @@ export function renderManagerChatPage(params: {
     sendBtn.addEventListener('click', function () { void sendChatMessage({ fromComposer: true }); });
   }
   if (msgInput) {
+    msgInput.addEventListener('input', function () {
+      msgInput.style.height = 'auto';
+      msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px';
+      syncSendBtnState();
+    });
     msgInput.addEventListener('keydown', function (ev) {
       if (ev.key !== 'Enter' || ev.shiftKey || ev.isComposing) return;
       ev.preventDefault();
       void sendChatMessage({ fromComposer: true });
+    });
+  }
+  syncSendBtnState();
+  var openThreadDrawerBtn = document.getElementById('openThreadDrawerBtn');
+  if (openThreadDrawerBtn) {
+    openThreadDrawerBtn.addEventListener('click', function () {
+      var main = document.getElementById('chatMain');
+      if (main && main.classList.contains('is-thread-drawer-open')) closeThreadDrawer();
+      else openThreadDrawer();
+    });
+  }
+  var chatOverlayBackdrop = document.getElementById('chatOverlayBackdrop');
+  if (chatOverlayBackdrop) {
+    chatOverlayBackdrop.addEventListener('click', function () {
+      closeThreadDrawer();
+      closeDraftSheet();
+    });
+  }
+  var openDraftSheetBtn = document.getElementById('openDraftSheetBtn');
+  if (openDraftSheetBtn) {
+    openDraftSheetBtn.addEventListener('click', function () {
+      if (isDraftSheetOpen()) closeDraftSheet();
+      else openDraftSheet();
+    });
+  }
+  var closeDraftSheetBtn = document.getElementById('closeDraftSheetBtn');
+  if (closeDraftSheetBtn) closeDraftSheetBtn.addEventListener('click', closeDraftSheet);
+  var newThreadBtnMobile = document.getElementById('newThreadBtnMobile');
+  if (newThreadBtnMobile) {
+    newThreadBtnMobile.addEventListener('click', function () {
+      var btn = document.getElementById('newThreadBtn');
+      if (btn) btn.click();
     });
   }
   var publishDraftBtn = document.getElementById('publishDraftBtnPanel');
@@ -1491,6 +1841,15 @@ export function renderManagerChatPage(params: {
       } finally {
         rosterInput.value = '';
       }
+    });
+  }
+  var draftPanelCollapseBtn = document.getElementById('draftPanelCollapseBtn');
+  var draftContextPanel = document.getElementById('draftContextPanel');
+  if (draftPanelCollapseBtn && draftContextPanel) {
+    draftPanelCollapseBtn.addEventListener('click', function () {
+      var collapsed = draftContextPanel.classList.toggle('is-collapsed');
+      draftPanelCollapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      draftPanelCollapseBtn.textContent = collapsed ? '展开草案面板' : '收起草案面板';
     });
   }
   var editDraftPanelBtn = document.getElementById('editDraftBtnPanel');

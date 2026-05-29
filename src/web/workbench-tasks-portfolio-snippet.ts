@@ -27,11 +27,12 @@ export const WORKBENCH_TASKS_PORTFOLIO_CSS = `
 .wb-bulk-bar__actions { display: flex; gap: 8px; flex-shrink: 0; align-items: center; }
 .wb-bulk-bar__actions .btn-ghost { color: #64748b; }
 .wb-has-selection .btn-row-assign { opacity: 0.35; pointer-events: none; }
-.wb-project-groups { display: flex; flex-direction: column; gap: 8px; }
+.wb-project-groups { display: flex; flex-direction: column; gap: 8px; min-width: 0; max-width: 100%; }
+.wb-project-group { min-width: 0; max-width: 100%; }
 .wb-proj-header {
-  display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center;
+  display: grid; grid-template-columns: 28px minmax(0, 1fr) minmax(0, auto); gap: 10px; align-items: center;
   padding: 12px 14px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
-  cursor: pointer; user-select: none;
+  cursor: pointer; user-select: none; min-width: 0; max-width: 100%;
 }
 .wb-proj-header:hover { background: #f8fafc; }
 .wb-proj-header[aria-expanded="true"] { border-color: #93c5fd; background: #eff6ff; }
@@ -524,12 +525,15 @@ export function buildWorkbenchTasksPortfolioClientJs(opts: {
       var sel = document.getElementById('reassignPlanId');
       if (!allTasksCache.length) {
         document.getElementById('taskTableMount').innerHTML = '<div class="empty-state">暂无任务。请到钉钉与机器人发起规划并发布。</div>';
-        if (sel) sel.innerHTML = '<option value="">暂无任务</option>';
+        if (typeof wbPopulateReassignPlanPicker === 'function') wbPopulateReassignPlanPicker([]);
+        else if (sel) sel.innerHTML = '<option value="">暂无任务</option>';
         setFb('tableFeedback', '', 'muted');
         return;
       }
       applyFiltersAndSort();
-      if (sel) {
+      if (typeof wbPopulateReassignPlanPicker === 'function') {
+        wbPopulateReassignPlanPicker(allTasksCache);
+      } else if (sel) {
         sel.innerHTML = '<option value="">请选择任务</option>' + allTasksCache.map(function (t) {
           return '<option value="' + escapeHtml(t.planId) + '" data-task-no="' + escapeHtml(t.taskNo || '') + '">'
             + escapeHtml(t.taskNo || '任务') + ' · ' + escapeHtml(t.title || '') + ' · ' + escapeHtml(t.statusLabel || t.status) + '</option>';
