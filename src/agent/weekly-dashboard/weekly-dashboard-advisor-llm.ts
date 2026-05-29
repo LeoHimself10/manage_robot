@@ -12,15 +12,25 @@ export function __setWeeklyAdvisorLlmForTest(fn: WeeklyAdvisorLlm | undefined): 
 }
 
 function slimFacts(facts: WeeklyDashboardFacts): Record<string, unknown> {
+  const subtaskRows = facts.tasks.flatMap((g) =>
+    g.subtasks.map((s) => ({
+      taskTitle: g.task.title,
+      subtaskTitle: s.title,
+      status: s.status,
+      dueAt: s.dueAt,
+    })),
+  );
   return {
     week: facts.week,
     approxHistoricalState: facts.approxHistoricalState,
     kpi: facts.kpi,
     taskCount: facts.tasks.length,
-    blockedTasks: facts.tasks
-      .flatMap((g) => g.subtasks.map((s) => ({ taskTitle: g.task.title, subtaskTitle: s.title, status: s.status, dueAt: s.dueAt })))
-      .filter((s) => s.status === "BLOCKED")
+    blockedOrOverdueTasks: subtaskRows
+      .filter((s) => s.status === "BLOCKED" || (s.dueAt && Date.parse(s.dueAt) < Date.now()))
       .slice(0, 8),
+    inProgressTasks: subtaskRows.filter((s) => s.status === "IN_PROGRESS").slice(0, 8),
+    waitingAcceptTasks: subtaskRows.filter((s) => s.status === "ASSIGNED").slice(0, 6),
+    dueNextWeekHint: facts.kpi.dueNextWeek,
     recentEvents: facts.feed.items.slice(0, 12).map((e) => ({
       eventType: e.eventType,
       taskTitle: e.taskTitle,
@@ -65,7 +75,7 @@ async function callDefaultLlm(facts: WeeklyDashboardFacts, policy: WeeklyDashboa
         {
           role: "system",
           content:
-            "你是项目经理周会助手。只基于输入 JSON 生成 JSON：{\"sections\":[{\"title\":\"...\",\"bullets\":[\"...\"]}]}。不要编造不存在的人名、任务或日期。",
+            "你是项目经理周会助手。先根据输入 JSON 中的 KPI、动态与任务状态总结「本周进展」，再给出可执行的「下周推进建议」（按优先级排序）。只输出 JSON：{\"sections\":[{\"title\":\"本周进展\",\"bullets\":[\"...\"]},{\"title\":\"下周推进建议\",\"bullets\":[\"...\"]}]}。不要编造不存在的人名、任务或日期。",
         },
         {
           role: "user",

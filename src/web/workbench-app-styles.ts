@@ -1337,7 +1337,7 @@ body.chat-overlay-lock { overflow: hidden; }
   .chat-pane-head--desktop { display: none; }
   .chat-sidebar {
     position: fixed;
-    top: 0;
+    top: var(--appbar-h);
     left: 0;
     bottom: 0;
     width: min(82%, 300px);
@@ -3681,6 +3681,21 @@ body.wb-has-rail .wb-main-body.app-shell--dashboard {
 }
 
 @media (max-width: 959px) {
+  .wb-appbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+  }
+  .wb-main {
+    padding-top: var(--appbar-h);
+  }
+  .chat-mobile-top {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+  }
   body.wb-has-rail.page-shell--chat {
     height: 100dvh;
     overflow: hidden;

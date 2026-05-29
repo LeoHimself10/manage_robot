@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { __setWeeklyAdvisorLlmForTest, summarizeWeeklyAdvisorWithLlm } from "../../../src/agent/weekly-dashboard/weekly-dashboard-advisor-llm";
+import { renderWeeklyAdvisorTemplate } from "../../../src/agent/weekly-dashboard/weekly-dashboard-advisor-templates";
 import type { WeeklyDashboardFacts } from "../../../src/agent/weekly-dashboard/weekly-dashboard-facts";
 import type { WeeklyDashboardPolicy } from "../../../src/agent/weekly-dashboard/weekly-dashboard-policy";
 
@@ -45,5 +46,12 @@ describe("weekly dashboard advisor", () => {
     const result = await summarizeWeeklyAdvisorWithLlm(facts, policy);
     expect(result.renderSource).toBe("template");
     expect(result.timedOut).toBe(true);
+  });
+
+  it("template summarizes progress and next-week push", () => {
+    const result = renderWeeklyAdvisorTemplate(facts);
+    expect(result.sections.map((s) => s.title)).toEqual(["本周进展", "下周推进建议"]);
+    expect(result.sections[0]?.bullets.some((b) => b.includes("本周完成"))).toBe(true);
+    expect(result.sections[1]?.bullets.length).toBeGreaterThan(0);
   });
 });

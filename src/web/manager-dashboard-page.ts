@@ -140,12 +140,12 @@ export function renderManagerDashboardPage(params: {
       <section class="card advisor-card">
         <div class="advisor-card__head">
           <h2>周会助手</h2>
-          <p class="section-sub">一键生成本周讨论要点，适合投屏过会。</p>
+          <p class="section-sub">基于本周进展，整理下周推进建议，适合投屏过会。</p>
         </div>
         <div class="advisor-card__body" data-advisor-panel>
-          <button type="button" class="btn btn-primary" data-advisor-btn>生成本周要点</button>
+          <button type="button" class="btn btn-primary" data-advisor-btn>生成下周建议</button>
           <p class="advisor-meta" data-advisor-meta></p>
-          <div class="advisor-empty" data-advisor-empty>尚未生成。点击上方按钮，助手会根据本周任务与动态整理过会议程。</div>
+          <div class="advisor-empty" data-advisor-empty>尚未生成。点击上方按钮，助手会先回顾本周进展，再给出下周推进建议。</div>
           <div class="advisor-sections" data-advisor-sections hidden></div>
         </div>
       </section>
@@ -158,15 +158,15 @@ export function renderManagerDashboardPage(params: {
   <div class="advisor-drawer__head">
     <div>
       <h2 id="advisorDrawerTitle">周会助手</h2>
-      <p class="section-sub">一键生成本周讨论要点，适合投屏过会。</p>
+      <p class="section-sub">基于本周进展，整理下周推进建议，适合投屏过会。</p>
     </div>
     <button type="button" class="advisor-drawer__close" id="closeAdvisorDrawerBtn" aria-label="关闭">×</button>
   </div>
   <div class="advisor-drawer__body">
     <div data-advisor-panel>
-      <button type="button" class="btn btn-primary" data-advisor-btn>生成本周要点</button>
+      <button type="button" class="btn btn-primary" data-advisor-btn>生成下周建议</button>
       <p class="advisor-meta" data-advisor-meta></p>
-      <div class="advisor-empty" data-advisor-empty>尚未生成。点击上方按钮，助手会根据本周任务与动态整理过会议程。</div>
+      <div class="advisor-empty" data-advisor-empty>尚未生成。点击上方按钮，助手会先回顾本周进展，再给出下周推进建议。</div>
       <div class="advisor-sections" data-advisor-sections hidden></div>
     </div>
   </div>
@@ -424,8 +424,8 @@ ${buildWorkbenchFmtTimeClientJs()}
   function advisorSectionClass(title) {
     var t = String(title || '');
     if (/阻塞|优先|风险|逾期/.test(t)) return 'advisor-section advisor-section--high';
-    if (/建议|动作|跟进/.test(t)) return 'advisor-section advisor-section--mid';
-    if (/判断|概览|本周/.test(t)) return 'advisor-section advisor-section--low';
+    if (/建议|动作|跟进|下周|推进/.test(t)) return 'advisor-section advisor-section--mid';
+    if (/判断|概览|本周|进展/.test(t)) return 'advisor-section advisor-section--low';
     return 'advisor-section';
   }
   function advisorEls(sel) {
@@ -481,7 +481,7 @@ ${buildWorkbenchFmtTimeClientJs()}
       if (!res.ok || !data.ok) throw new Error(data.error || '生成失败');
       state.advisorGenerated = true;
       setAdvisorEmptyHidden(true);
-      var metaText = data.renderSource === 'llm' ? '已生成本周要点' : (data.timedOut ? '生成较慢，已使用备用提纲' : '已使用备用提纲');
+      var metaText = data.renderSource === 'llm' ? '已生成周会建议' : (data.timedOut ? '生成较慢，已使用备用提纲' : '已使用备用提纲');
       setAdvisorMeta(metaText, Boolean(data.timedOut));
       var sectionsHtml = (data.sections || []).map(function (s) {
         return '<section class="' + advisorSectionClass(s.title) + '"><h3>' + esc(s.title) + '</h3><ul>' + (s.bullets || []).map(function (b) { return '<li>' + esc(b) + '</li>'; }).join('') + '</ul></section>';
@@ -490,7 +490,7 @@ ${buildWorkbenchFmtTimeClientJs()}
     } catch (e) {
       setAdvisorMeta(e.message || '生成失败', false);
     } finally {
-      setAdvisorButtons(false, '生成本周要点');
+      setAdvisorButtons(false, '生成下周建议');
     }
   }
   function shiftWeek(deltaWeeks) {

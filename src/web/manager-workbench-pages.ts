@@ -316,6 +316,14 @@ ${portfolio ? `<dialog id="assignProjectDialog">
     if (lbl) lbl.textContent = label || '请选择任务';
     wbCloseReassignPlanPicker();
   }
+  function wbReassignEligibleTasks(tasks) {
+    return (tasks || []).filter(function (t) {
+      var bucket = String(t.attentionBucket || '');
+      var st = String(t.status || '').toUpperCase();
+      return bucket !== 'stopped' && st !== 'STOPPED';
+    });
+  }
+  window.wbReassignEligibleTasks = wbReassignEligibleTasks;
   function wbPopulateReassignPlanPicker(tasks) {
     var list = document.getElementById('reassignPlanOptions');
     var btn = document.getElementById('reassignPlanBtn');
@@ -613,7 +621,7 @@ ${portfolio ? `<dialog id="assignProjectDialog">
 
       applyFiltersAndSort();
 
-      wbPopulateReassignPlanPicker(allTasksCache);
+      wbPopulateReassignPlanPicker(wbReassignEligibleTasks(allTasksCache));
 
       var pageQs = '';
       try {

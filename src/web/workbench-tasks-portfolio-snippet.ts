@@ -531,10 +531,17 @@ export function buildWorkbenchTasksPortfolioClientJs(opts: {
         return;
       }
       applyFiltersAndSort();
+      var reassignTasks = typeof wbReassignEligibleTasks === 'function'
+        ? wbReassignEligibleTasks(allTasksCache)
+        : allTasksCache.filter(function (t) {
+          var b = String(t.attentionBucket || '');
+          var st = String(t.status || '').toUpperCase();
+          return b !== 'stopped' && st !== 'STOPPED';
+        });
       if (typeof wbPopulateReassignPlanPicker === 'function') {
-        wbPopulateReassignPlanPicker(allTasksCache);
+        wbPopulateReassignPlanPicker(reassignTasks);
       } else if (sel) {
-        sel.innerHTML = '<option value="">请选择任务</option>' + allTasksCache.map(function (t) {
+        sel.innerHTML = '<option value="">请选择任务</option>' + reassignTasks.map(function (t) {
           return '<option value="' + escapeHtml(t.planId) + '" data-task-no="' + escapeHtml(t.taskNo || '') + '">'
             + escapeHtml(t.taskNo || '任务') + ' · ' + escapeHtml(t.title || '') + ' · ' + escapeHtml(t.statusLabel || t.status) + '</option>';
         }).join('');
