@@ -1,4 +1,4 @@
-import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
+import { renderWorkbenchPage } from "./workbench-shell";
 import { buildWorkbenchContactComboClientJs } from "./workbench-contact-combo-snippet";
 import { buildWorkbenchFmtTimeClientJs } from "./workbench-datetime";
 import {
@@ -42,9 +42,6 @@ export function renderManagerTasksPage(params: {
   const portfolio = Boolean(params.projectPortfolioEnabled);
   const initialProjectId = escapeHtml(params.initialProjectId ?? "");
   const initialView = params.initialView === "flat" ? "flat" : "group";
-  const portfolioNav = portfolio
-    ? '<a href="/workbench/manager/projects">项目总览</a>\n        '
-    : "";
   const projectFilter = portfolio
     ? `<label id="filterProjectWrap">所属项目
           <select id="filterProject">
@@ -76,33 +73,16 @@ export function renderManagerTasksPage(params: {
       </div>`
     : "";
 
-  return `<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>历史任务 · 主管工作台</title>
-<style>${WORKBENCH_APP_BASE_CSS}${portfolio ? WORKBENCH_TASKS_PORTFOLIO_CSS + WORKBENCH_TASKS_FILTER_UNIFIED_CSS : ""}</style>
-</head>
-<body>
-<div class="app-shell">
-  <header class="topbar">
-    <div>
-      <div class="brand">主管工作台</div>
-      <h1 class="page-title">历史任务管理</h1>
-      <p class="page-desc">查看已发布任务的进度与负责人，必要时调整分配方案。列表优先突出阻塞与待处理事项。</p>
-    </div>
-    <div class="top-actions">
-      <nav class="nav-pills" aria-label="主管导航">
-        ${portfolioNav}<a class="active" href="/workbench/manager/tasks">历史任务</a>
-        <a href="/workbench/manager/dashboard">周度 Dashboard</a>
-        <a href="/workbench/manager/chat">智能规划助手</a>
-        <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
-      </nav>
-      <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
-    </div>
-  </header>
-
+  return renderWorkbenchPage({
+    role: "manager",
+    activeNav: "mgr-tasks",
+    title: "历史任务管理",
+    pageTitle: "历史任务 · 主管工作台",
+    description: "查看已发布任务的进度与负责人，必要时调整分配方案。列表优先突出阻塞与待处理事项。",
+    userLabel: params.userLabel,
+    portfolioEnabled: portfolio,
+    extraCss: portfolio ? WORKBENCH_TASKS_PORTFOLIO_CSS + WORKBENCH_TASKS_FILTER_UNIFIED_CSS : "",
+    mainHtml: `
   <div class="card">
     <div class="tabs" role="tablist" aria-label="任务操作">
       <button type="button" class="tabs-btn" role="tab" aria-selected="true" aria-controls="mgrPanelList" id="mgrTabList" data-tab-target="mgrPanelList">任务列表</button>
@@ -195,7 +175,6 @@ export function renderManagerTasksPage(params: {
       </div>
     </section>
   </div>
-</div>
 ${portfolio ? `<dialog id="assignProjectDialog">
   <form method="dialog" class="form-stack" style="min-width:360px;padding:8px;" onsubmit="return false;">
     <h2 id="assignProjectDialogTitle" style="margin:0 0 12px;">归入项目</h2>
@@ -209,8 +188,8 @@ ${portfolio ? `<dialog id="assignProjectDialog">
       <button type="button" class="btn btn-primary" id="assignProjectSaveBtn">保存</button>
     </div>
   </form>
-</dialog>` : ""}
-<script>
+</dialog>` : ""}`,
+    scriptHtml: `<script>
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}
   ${buildWorkbenchContactComboClientJs()}
@@ -555,9 +534,8 @@ ${portfolio ? `<dialog id="assignProjectDialog">
   if (filterClearBtn) filterClearBtn.addEventListener('click', clearFilters);
   ${portfolio ? buildWorkbenchTasksPortfolioClientJs({ initialProjectId, initialView }) : "void loadTasks();"}
 })();
-</script>
-</body>
-</html>`;
+</script>`,
+  });
 }
 
 export function renderManagerChatPage(params: {
@@ -573,34 +551,16 @@ export function renderManagerChatPage(params: {
   const initialTitle = params.planTitle ?? (initialKind === "main" ? "钉钉规划助手" : "新规划会话");
   const initialOpenDraftEditor = Boolean(params.openDraftEditor);
   const portfolio = Boolean(params.projectPortfolioEnabled);
-  const portfolioNav = portfolio
-    ? '<a href="/workbench/manager/projects">项目总览</a>\n        '
-    : "";
-  return `<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>智能规划助手 · 主管工作台</title>
-<style>${WORKBENCH_APP_BASE_CSS}</style>
-</head>
-<body class="page-shell--chat">
-<div class="app-shell">
-  <header class="topbar topbar--compact">
-    <div>
-      <div class="brand">主管工作台</div>
-      <h1 class="page-title">智能规划助手</h1>
-    </div>
-    <div class="top-actions">
-      <nav class="nav-pills" aria-label="主管导航">
-        ${portfolioNav}<a href="/workbench/manager/tasks">历史任务</a>
-        <a href="/workbench/manager/dashboard">周度 Dashboard</a>
-        <a class="active" href="/workbench/manager/chat?thread=main">智能规划助手</a>
-        <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
-      </nav>
-      <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
-    </div>
-  </header>
+  return renderWorkbenchPage({
+    role: "manager",
+    activeNav: "mgr-chat",
+    title: "智能规划助手",
+    pageTitle: "智能规划助手 · 主管工作台",
+    userLabel: params.userLabel,
+    portfolioEnabled: portfolio,
+    bodyClass: "page-shell--chat",
+    hideMainHead: true,
+    mainHtml: `
   <div class="chat-main">
     <aside class="chat-sidebar" aria-label="会话列表">
       <div class="chat-sidebar-head">
@@ -683,7 +643,6 @@ export function renderManagerChatPage(params: {
       </div>
     </aside>
   </div>
-</div>
 
 <div class="wb-modal-overlay" id="publishPrepareModalOverlay" role="dialog" aria-modal="true" aria-labelledby="publishPrepareModalTitle">
   <div class="wb-modal" role="document">
@@ -717,9 +676,8 @@ export function renderManagerChatPage(params: {
       <button type="button" class="btn btn-primary" id="publishConfirmOkBtn">确认发放</button>
     </div>
   </div>
-</div>
-
-<script src="/static/workbench-draft-grid.js"></script>
+</div>`,
+    scriptHtml: `<script src="/static/workbench-draft-grid.js"></script>
 <script>
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}
@@ -1549,7 +1507,6 @@ export function renderManagerChatPage(params: {
   });
   void loadThreads(activeThreadId).then(function () { return loadMessages(); });
 })();
-</script>
-</body>
-</html>`;
+</script>`,
+  });
 }

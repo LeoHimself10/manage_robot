@@ -1,5 +1,5 @@
-import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { DASHBOARD_PAGE_CSS } from "./dashboard-page-styles";
+import { renderWorkbenchPage } from "./workbench-shell";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 import { buildWorkbenchFmtTimeClientJs } from "./workbench-datetime";
 
@@ -16,12 +16,9 @@ export function renderManagerDashboardPage(params: {
   projectPortfolioEnabled?: boolean;
   initialProjectId?: string;
 }): string {
-  const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
   const portfolio = Boolean(params.projectPortfolioEnabled);
   const initialProjectId = escapeHtml(params.initialProjectId ?? "");
-  const portfolioNav = portfolio
-    ? '<a href="/workbench/manager/projects">项目总览</a>\n        '
-    : "";
+  const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
   const projectFilterBar = portfolio
     ? `<label class="dash-project-filter">项目筛选
         <select id="projectFilter">
@@ -30,34 +27,17 @@ export function renderManagerDashboardPage(params: {
         </select>
       </label>`
     : "";
-  return `<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Cache-Control" content="no-cache">
-<title>周度 Dashboard · 主管工作台</title>
-<style>${WORKBENCH_APP_BASE_CSS}${DASHBOARD_PAGE_CSS}</style>
-</head>
-<body>
-<div class="app-shell app-shell--dashboard">
-  <header class="topbar">
-    <div>
-      <div class="brand">主管工作台</div>
-      <h1 class="page-title">周度 Dashboard</h1>
-      <p class="page-desc">周会投屏与进展汇报：一屏看清任务节奏、人员负载与关键动态。${who}</p>
-    </div>
-    <div class="top-actions">
-      <nav class="nav-pills" aria-label="主管导航">
-        ${portfolioNav}<a href="/workbench/manager/tasks">历史任务</a>
-        <a class="active" href="/workbench/manager/dashboard">周度 Dashboard</a>
-        <a href="/workbench/manager/chat?thread=main">智能规划助手</a>
-        <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
-      </nav>
-      <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
-    </div>
-  </header>
-
+  return renderWorkbenchPage({
+    role: "manager",
+    activeNav: "mgr-dash",
+    title: "周度 Dashboard",
+    pageTitle: "周度 Dashboard · 主管工作台",
+    description: `周会投屏与进展汇报：一屏看清任务节奏、人员负载与关键动态。${who}`,
+    userLabel: params.userLabel,
+    portfolioEnabled: portfolio,
+    extraCss: DASHBOARD_PAGE_CSS,
+    mainBodyClass: "wb-main-body app-shell--dashboard",
+    mainHtml: `
   <div id="historicalBanner" class="info-banner info-banner--note" hidden>
     您正在查看历史周：部分进行中的状态为推算值，请以下方「本周动态」为准做复盘。
   </div>
@@ -173,7 +153,6 @@ export function renderManagerDashboardPage(params: {
     </aside>
     </div>
   </div>
-</div>
 
 <div class="advisor-drawer-backdrop" id="advisorBackdrop" aria-hidden="true"></div>
 <div class="advisor-drawer" id="advisorDrawer" role="dialog" aria-modal="true" aria-labelledby="advisorDrawerTitle" aria-hidden="true">
@@ -192,9 +171,8 @@ export function renderManagerDashboardPage(params: {
       <div class="advisor-sections" data-advisor-sections hidden></div>
     </div>
   </div>
-</div>
-
-<script>
+</div>`,
+    scriptHtml: `<script>
 ${buildWorkbenchViewSwitchClientJs()}
 ${buildWorkbenchFmtTimeClientJs()}
 (function () {
@@ -585,7 +563,6 @@ ${buildWorkbenchFmtTimeClientJs()}
     return loadDashboard(false);
   }).catch(function (e) { document.getElementById('rangeMeta').textContent = e.message; });
 })();
-</script>
-</body>
-</html>`;
+</script>`,
+  });
 }

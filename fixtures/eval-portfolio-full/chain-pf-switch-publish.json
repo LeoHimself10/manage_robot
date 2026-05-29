@@ -1,0 +1,59 @@
+{
+  "id": "chain_pf_switch_publish",
+  "description": "Bind OCT → assign → switch to 注册申报 → two-step publish",
+  "managerStaffId": "eval-mgr-portfolio",
+  "people": {
+    "张测评": "eval-emp-portfolio-001"
+  },
+  "turns": [
+    {
+      "id": "T1_bind_oct",
+      "userMessage": "属于 OCT 客诉专项，A-2026B 批次焊点开路，拆 3 条子任务，2026-06-15 前完成，不要发放。",
+      "expectProjectTool": true,
+      "expectProjectBinding": true,
+      "expectActiveProjectName": "OCT",
+      "expectMinTasks": 3,
+      "expectPublishForbidden": true,
+      "forbidTools": ["publish_task"],
+      "expectAssistantQuality": true
+    },
+    {
+      "id": "T2_assign",
+      "userMessage": "三条子任务都交给张测评负责，先不要发布。",
+      "expectAssignmentFull": true,
+      "expectNoFakeAssign": true,
+      "expectPublishForbidden": true,
+      "forbidTools": ["publish_task"],
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true
+    },
+    {
+      "id": "T3_switch",
+      "userMessage": "不对，应该归到注册申报那个项目，请同步更新草案里的项目归属，任务内容和负责人不要改。",
+      "expectToolsInclude": ["set_active_project"],
+      "forbidTools": ["start_new_task", "publish_task"],
+      "expectDraftTaskCountUnchanged": true,
+      "expectActiveProjectName": "注册",
+      "expectDraftProjectName": "注册",
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true
+    },
+    {
+      "id": "T4_prepare",
+      "userMessage": "可以准备发放了。",
+      "expectPublishStaged": true,
+      "forbidTools": ["publish_task"],
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true,
+      "allowPublishRetry": false
+    },
+    {
+      "id": "T5_confirm",
+      "userMessage": "确认发布。",
+      "expectPublishOk": true,
+      "expectTaskProjectFromActive": true,
+      "expectAssistantQuality": true,
+      "allowPublishRetry": true
+    }
+  ]
+}

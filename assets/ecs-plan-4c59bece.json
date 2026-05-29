@@ -1,0 +1,106 @@
+{
+  "traceId": "4c59bece-e7e6-47cd-be7a-fdee1e023114",
+  "status": "DRAFT_READY",
+  "draft": {
+    "responseIntent": "DRAFT",
+    "assistantMessage": "请补充任务的期望截止日期。",
+    "classification": {
+      "domain": "",
+      "subtype": "",
+      "confidence": "",
+      "rationale": [],
+      "missingInformation": []
+    },
+    "tasks": [
+      {
+        "id": "task_1",
+        "title": "获取并评估Pro18仿制可行性",
+        "objective": "从苏州迈拓获取Pro18仿制的技术反馈，评估技术路径、周期与风险。",
+        "inputMaterials": [],
+        "actions": [
+          "联系苏州迈拓获取技术资料与反馈",
+          "组织内部技术团队评估仿制难度与风险",
+          "撰写可行性评估报告"
+        ],
+        "deliverables": [
+          "《Pro18仿制可行性评估》"
+        ],
+        "completionCriteria": [
+          "获得供应商书面或会议反馈记录",
+          "完成技术可行性分析报告并通过内部评审"
+        ],
+        "timeNode": {
+          "checkpoints": [],
+          "dueAt": ""
+        },
+        "feedbackFrequency": "每周",
+        "risksAndOpenQuestions": [],
+        "dependencyTaskIds": []
+      },
+      {
+        "id": "task_2",
+        "title": "定义激光光纤微导管需求边界",
+        "objective": "明确激光光纤微导管的技术指标、应用场景及验收标准。",
+        "inputMaterials": [],
+        "actions": [
+          "调研临床与市场对激光微导管的需求",
+          "与技术团队确定关键技术指标",
+          "撰写并确认需求要点文档"
+        ],
+        "deliverables": [
+          "《激光光纤微导管需求要点》"
+        ],
+        "completionCriteria": [
+          "完成需求调研与内部讨论",
+          "输出经确认的需求要点文档"
+        ],
+        "timeNode": {
+          "checkpoints": [],
+          "dueAt": ""
+        },
+        "feedbackFrequency": "每周",
+        "risksAndOpenQuestions": [],
+        "dependencyTaskIds": []
+      },
+      {
+        "id": "task_3",
+        "title": "综合评估与签约决策",
+        "objective": "结合可行性评估与需求定义，与李强、曹杰共同决策是否签约及下单。",
+        "inputMaterials": [],
+        "actions": [
+          "汇总技术评估与需求文档",
+          "与李强、曹杰召开决策会议",
+          "形成最终决策建议并上报"
+        ],
+        "deliverables": [
+          "签约/下单决策建议"
+        ],
+        "completionCriteria": [
+          "召开决策会议并形成会议纪要",
+          "输出明确的决策结论（签约/补充验证/暂停）",
+          "明确激光微导管是否同步下单"
+        ],
+        "timeNode": {
+          "checkpoints": [],
+          "dueAt": ""
+        },
+        "feedbackFrequency": "每周",
+        "risksAndOpenQuestions": [],
+        "dependencyTaskIds": [
+          "task_1",
+          "task_2"
+        ]
+      }
+    ],
+    "openQuestions": [
+      "请补充任务的期望截止日期。"
+    ],
+    "title": "微导管供应商与双管线决策",
+    "description": "获取苏州迈拓Pro18仿制可行性反馈，评估签约可行性；同步定义激光光纤微导管需求边界，形成明确决策。",
+    "stagedBy": "prepare_publish_task",
+    "stagedAt": "2026-05-26T08:23:39.199Z",
+    "stagedDraftHash": "7ab55945e24e5e68",
+    "stagedAssignmentHash": "6e1973b29c383a70"
+  },
+  "messagePreview": "已为任务「微导管供应商与双管线决策」完成负责人指派（李嘉男）并生成发布预览。请确认是否发放给员工承接？"
+}

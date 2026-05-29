@@ -100,6 +100,12 @@ import {
 } from "./manager-workbench-pages";
 import { renderManagerProjectsPage } from "./manager-projects-pages";
 import { renderManagerDashboardPage } from "./manager-dashboard-page";
+import { renderManagerMeetingImportPage } from "./manager-meeting-import-page";
+import {
+  handleMeetingImportAnalyze,
+  handleMeetingImportCommit,
+  handleMeetingImportParse,
+} from "./meeting-import-api";
 import {
   buildWeeklyAdvisorHttpPayload,
   buildWeeklyDashboardHttpPayload,
@@ -111,6 +117,7 @@ import {
 } from "./workbench-project-api";
 import { renderEmployeeWorkbenchPage } from "./employee-workbench-pages";
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
+import { renderWorkbenchPage } from "./workbench-shell";
 import { logStructured } from "../infra/logger";
 import { sendSubtaskReminder } from "../agent/reminders/reminder-send";
 import {
@@ -145,6 +152,7 @@ const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/manager/tasks",
   "/workbench/manager/dashboard",
   "/workbench/manager/chat",
+  "/workbench/manager/meeting-import",
   "/workbench/manager/task",
   "/workbench/manager/task/events",
 ]);
@@ -1036,28 +1044,29 @@ export function renderTaskEventsPage(params: {
   backPath: string;
   detailPath: string;
 }): string {
-  return `<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>全部事件记录</title>
-<style>${WORKBENCH_APP_BASE_CSS}</style>
-</head>
-<body>
-<div class="app-shell" style="max-width:980px;">
-  <div class="card">
-    <div class="brand">工作台</div>
-    <h1 class="page-title" style="font-size:22px;">全部事件记录</h1>
-    <p class="page-desc muted" style="margin-top:8px;font-size:13px;">含系统通知、待办投递等完整日志。</p>
-    <p style="margin-top:10px;"><a href="${params.detailPath}">← 返回任务详情</a> · <a href="${params.backPath}">返回列表</a></p>
-  </div>
+  const shellRole =
+    params.roleLabel === "admin" ? "admin" : params.roleLabel === "employee" ? "employee" : "manager";
+  const activeNav =
+    params.roleLabel === "admin"
+      ? "adm-tasks"
+      : params.roleLabel === "employee"
+        ? "emp-new"
+        : "mgr-tasks";
+  return renderWorkbenchPage({
+    role: shellRole,
+    activeNav,
+    title: "全部事件记录",
+    pageTitle: "全部事件记录",
+    description: "含系统通知、待办投递等完整日志。",
+    breadcrumbHtml: `<a href="${params.detailPath}">任务详情</a> › 全部事件`,
+    headToolbarHtml: `<a class="btn btn-ghost btn-sm" href="${params.detailPath}">← 返回详情</a> <a class="btn btn-ghost btn-sm" href="${params.backPath}">返回列表</a>`,
+    mainBodyClass: "wb-main-body--detail",
+    mainHtml: `
   <div class="card" id="taskMount">加载中…</div>
   <div class="card">
     <div id="eventsMount" class="muted">加载中…</div>
-  </div>
-</div>
-<script>
+  </div>`,
+    scriptHtml: `<script>
 (function(){
   ${buildWorkbenchFmtTimeClientJs()}
   function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -1070,6 +1079,8 @@ export function renderTaskEventsPage(params: {
     if(!res.ok || !data.ok){ document.getElementById('taskMount').textContent = data.error || ('HTTP '+res.status); return; }
     var t = data.task || {};
     document.getElementById('taskMount').innerHTML = '<h2 style="margin:0;font-size:18px;">'+esc(t.title||'—')+'</h2><p class="muted" style="margin:6px 0 0;">业务编号 <code>'+esc(t.taskNo||taskNo)+'</code></p>';
+    var crumb = document.getElementById('detailBreadcrumbTitle');
+    if (crumb) crumb.textContent = t.title || taskNo;
     var events = data.events || [];
     if(!events.length){ document.getElementById('eventsMount').textContent='暂无事件'; return; }
     document.getElementById('eventsMount').innerHTML = '<ul class="event-list">'+events.map(function(e){
@@ -1083,9 +1094,8 @@ export function renderTaskEventsPage(params: {
   }
   void load();
 })();
-</script>
-</body>
-</html>`;
+</script>`,
+  });
 }
 
 export function renderTaskDetailPage(params: {
@@ -1096,32 +1106,41 @@ export function renderTaskDetailPage(params: {
 }): string {
   const employeeActionBar =
     params.roleLabel === "employee"
-      ? `<div class="emp-detail-action-bar" id="empDetailActionBar" role="navigation" aria-label="返回列表操作">
+      ? `<div class="emp-detail-action-bar wb-sticky-foot" id="empDetailActionBar" role="navigation" aria-label="返回列表操作">
     <a class="btn btn-secondary" id="empBackListLink" href="${params.backPath}">返回列表继续操作</a>
     <a class="btn btn-primary" id="empPrimaryActionLink" href="${params.backPath}" style="display:none;">—</a>
   </div>`
       : "";
-  return `<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>任务详情</title>
-<style>${WORKBENCH_APP_BASE_CSS}</style>
-</head>
-<body>
-<div class="app-shell" style="max-width:980px;">
-  <div class="card">
-    <div class="brand">工作台</div>
-    <h1 class="page-title" style="font-size:22px;">任务详情</h1>
-    <p class="page-desc" style="margin-top:4px;">当前角色：${params.roleLabel}</p>
-    ${
-      params.roleLabel === "employee"
-        ? '<p class="page-desc muted" style="margin-top:8px;font-size:13px;">接受、拒绝、进度等操作请在「待承接 / 进行中」列表卡片上完成；本页查看完整背景与分工。</p>'
-        : ""
-    }
-    <div style="margin-top:10px;"><a href="${params.backPath}">返回列表</a></div>
-  </div>
+  const shellRole =
+    params.roleLabel === "admin" ? "admin" : params.roleLabel === "employee" ? "employee" : "manager";
+  const activeNav =
+    params.roleLabel === "admin"
+      ? "adm-tasks"
+      : params.roleLabel === "employee"
+        ? "emp-new"
+        : "mgr-tasks";
+  const backCrumbLabel =
+    params.roleLabel === "employee"
+      ? "待承接"
+      : params.roleLabel === "admin"
+        ? "任务总览"
+        : "历史任务";
+  const infoBar =
+    params.roleLabel === "employee"
+      ? '<div class="wb-info-bar wb-info-bar--emp" role="note">接受、拒绝、进度等操作请在「待承接 / 进行中」列表完成；本页仅供查看完整背景与团队分工。</div>'
+      : params.roleLabel === "admin"
+        ? '<div class="wb-info-bar wb-info-bar--adm" role="note">管理员视图：可改派与停止任务，不含规划助手入口。</div>'
+        : "";
+  const toolbarHtml = `<a class="btn btn-ghost btn-sm" href="${params.backPath}">← 返回列表</a>`;
+  return renderWorkbenchPage({
+    role: shellRole,
+    activeNav,
+    title: "任务详情",
+    pageTitle: "任务详情",
+    breadcrumbHtml: `<a href="${params.backPath}">${backCrumbLabel}</a> › <span id="detailBreadcrumbTitle">加载中…</span>`,
+    headToolbarHtml: toolbarHtml,
+    mainBodyClass: params.roleLabel === "employee" ? "wb-main-body--detail-emp" : "wb-main-body--detail",
+    mainHtml: `${infoBar}
   <div class="card" id="focusContextBanner" style="display:none;" role="status"></div>
   <div class="card" id="taskMount">加载中…</div>
   <div class="card" id="reassignCard" style="display:none;">
@@ -1207,9 +1226,8 @@ export function renderTaskDetailPage(params: {
     <div id="eventsMount" class="muted">加载中…</div>
     <p id="eventsMoreLink" style="margin:12px 0 0;display:none;"><a id="eventsFullPageLink" href="#">查看全部事件记录 →</a></p>
   </div>
-  ${employeeActionBar}
-</div>
-<script>
+  ${employeeActionBar}`,
+    scriptHtml: `<script>
 (function(){
   var ROLE = ${JSON.stringify(params.roleLabel)};
   var ENFORCE_GUARDS = ${params.enforceActionGuards ? "true" : "false"};
@@ -2063,6 +2081,10 @@ export function renderTaskDetailPage(params: {
       + descBlock
       +'<details'+planOpen+' style="margin-top:10px;"><summary>内部编号（排障）</summary>'
       +'<p class="muted" style="margin:6px 0 0;">planId <code>'+esc(t.planId||'—')+'</code></p></details>';
+    var crumbTitle = document.getElementById('detailBreadcrumbTitle');
+    if (crumbTitle) crumbTitle.textContent = t.title || taskNo;
+    var mainTitle = document.querySelector('.wb-main-title');
+    if (mainTitle) mainTitle.textContent = t.title || '任务详情';
     var subs = data.subtasks || [];
     var events = data.events || [];
     function eventTs(ev) {
@@ -2603,21 +2625,16 @@ export function renderTaskDetailPage(params: {
   }
   void load();
 })();
-</script>
-</body>
-</html>`;
+</script>`,
+  });
 }
-
-const NO_STORE_HEADERS = {
-  "Cache-Control": "no-store, must-revalidate",
-  Pragma: "no-cache",
-} as const;
 
 const WORKBENCH_HTML_NO_STORE: Record<string, string> = {
   "Content-Type": "text/html; charset=utf-8",
   "Cache-Control": "no-store, must-revalidate",
   Pragma: "no-cache",
 };
+const NO_STORE_HEADERS = WORKBENCH_HTML_NO_STORE;
 
 const JSON_UTF8 = "application/json; charset=utf-8";
 
@@ -3280,6 +3297,93 @@ export function handleAssignmentHttp(
         writeJson(res, 400, {
           ok: false,
           error: err instanceof Error ? err.message : "invalid request",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/meeting-import/parse") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!requirePortfolioManager(session, res)) return;
+        const body = await readJsonBody(req);
+        const result = await handleMeetingImportParse({
+          taskStore: getFormalTaskStore(),
+          managerUserId: session.userId,
+          pastedText: String(body.pastedText ?? ""),
+          docUrl: String(body.docUrl ?? ""),
+          meetingTitle: String(body.meetingTitle ?? ""),
+          meetingDate: String(body.meetingDate ?? ""),
+        });
+        writeJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "parse failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/meeting-import/analyze") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!requirePortfolioManager(session, res)) return;
+        const body = await readJsonBody(req);
+        const projectId = String(body.projectId ?? "").trim();
+        if (!projectId) {
+          writeJson(res, 400, { ok: false, error: "projectId is required" });
+          return;
+        }
+        const result = await handleMeetingImportAnalyze({
+          taskStore: getFormalTaskStore(),
+          managerUserId: session.userId,
+          batchId: String(body.batchId ?? "").trim(),
+          projectId,
+          projectName: String(body.projectName ?? "").trim(),
+          items: Array.isArray(body.items) ? body.items : [],
+          meetingTitle: String(body.meetingTitle ?? "").trim() || undefined,
+        });
+        writeJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "analyze failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/meeting-import/commit") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!requirePortfolioManager(session, res)) return;
+        const body = await readJsonBody(req);
+        const rows = Array.isArray(body.rows) ? body.rows : [];
+        const result = await handleMeetingImportCommit({
+          taskStore: getFormalTaskStore(),
+          managerUserId: session.userId,
+          batchId: String(body.batchId ?? "").trim(),
+          projectId: String(body.projectId ?? "").trim(),
+          projectName: String(body.projectName ?? "").trim(),
+          meetingTitle: String(body.meetingTitle ?? "").trim() || undefined,
+          rows,
+          actorName: session.dingUser?.name,
+        });
+        writeJson(res, 200, { ok: true, result });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "commit failed",
         });
       }
     })();
@@ -5554,6 +5658,10 @@ export function handleAssignmentHttp(
         redirect(res, "/workbench/manager/tasks");
         return true;
       }
+      if (url.pathname === "/workbench/manager/meeting-import" && !portfolioEnabled) {
+        redirect(res, "/workbench/manager/tasks");
+        return true;
+      }
       let chatThreadId = "main";
       let chatThreadKind: "main" | "side" = "main";
       let planTitle: string | undefined;
@@ -5590,6 +5698,8 @@ export function handleAssignmentHttp(
           ? renderManagerProjectsPage({
             userLabel,
           })
+          : url.pathname === "/workbench/manager/meeting-import"
+            ? renderManagerMeetingImportPage({ userLabel })
           : url.pathname === "/workbench/manager/tasks"
             ? renderManagerTasksPage({
               planId: url.searchParams.get("planId")?.trim(),

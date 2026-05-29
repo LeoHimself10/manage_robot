@@ -1,0 +1,43 @@
+{
+  "id": "chain_pf_oct_wbs",
+  "description": "OCT portfolio bind → WBS expand → formal table (no publish)",
+  "managerStaffId": "eval-mgr-portfolio",
+  "people": {
+    "张测评": "eval-emp-portfolio-001"
+  },
+  "turns": [
+    {
+      "id": "T1_bind_oct",
+      "userMessage": "这批工作属于 OCT 客诉专项，A-2026B 批次焊点开路，先拆 3 条子任务，2026-06-15 前完成，不要发放。",
+      "expectProjectTool": true,
+      "expectProjectBinding": true,
+      "expectActiveProjectName": "OCT",
+      "expectMinTasks": 3,
+      "expectPublishForbidden": true,
+      "forbidTools": ["publish_task", "prepare_publish_task"],
+      "expectAssistantQuality": true
+    },
+    {
+      "id": "T2_wbs_expand",
+      "userMessage": "请把整张草案重新拆解成至少5条独立子任务（整表WBS扩条），涵盖围堵、根因、纠正、验证闭环，截止日期6月15日。不要发布，不要点将。",
+      "expectMinTasks": 5,
+      "expectDraftJson": true,
+      "expectPublishForbidden": true,
+      "forbidTools": ["publish_task", "prepare_publish_task", "start_new_task"],
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true,
+      "assistantMinLength": 0,
+      "allowSplitRetry": true
+    },
+    {
+      "id": "T3_formal_no_publish",
+      "userMessage": "好，就按这版给我看，不要发布，也不要准备发放预览。",
+      "expectMinTasks": 5,
+      "expectPublishForbidden": true,
+      "forbidTools": ["publish_task", "prepare_publish_task"],
+      "expectActiveProjectName": "OCT",
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true
+    }
+  ]
+}

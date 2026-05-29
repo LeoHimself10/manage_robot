@@ -37,6 +37,7 @@ import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
 } from "../src/agent/role-routing";
+import { isWorkbenchProjectPortfolioEnabled } from "../src/security/workbench-project-portfolio";
 
 export interface DingtalkTurnEvalOptions {
   clientConfig: QwenPlannerConfig;
@@ -91,6 +92,10 @@ export async function runDingtalkLikeTurn(
   let allTools: string[] = [];
   const t0 = Date.now();
 
+  const portfolioEnabled = route.trustedActorUserId
+    ? isWorkbenchProjectPortfolioEnabled(route.trustedActorUserId)
+    : false;
+
   const buildConfig = () => ({
     clientConfig: opts.clientConfig,
     employeeRepo,
@@ -100,6 +105,7 @@ export async function runDingtalkLikeTurn(
     managerFollowup:
       opts.managerFollowup
       ?? (route.toolProfile === "manager" || route.toolProfile === "admin"),
+    projectPortfolioEnabled: portfolioEnabled,
     trustedActorUserId: route.trustedActorUserId,
     actorName: opts.actorName,
     actorRole:

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>为何此前少见此问题</title>
+  <style>
+    body { font-family: "Segoe UI", "PingFang SC", sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px; color: #1a1a1a; line-height: 1.55; }
+    h1 { font-size: 1.35rem; margin-bottom: 6px; }
+    .sub { color: #666; font-size: 0.9rem; margin-bottom: 20px; }
+    section { margin-bottom: 18px; }
+    h2 { font-size: 1rem; color: #1565c0; margin: 0 0 8px; }
+    p, li { font-size: 0.92rem; margin: 6px 0; }
+    ul { padding-left: 1.2rem; }
+    .box { background: #f5f7fa; border-left: 3px solid #1565c0; padding: 10px 12px; margin: 10px 0; font-size: 0.9rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+    th { background: #eee; }
+    footer { color: #888; font-size: 0.8rem; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <h1>为何之前很少看到「负责人列显示 userId」？</h1>
+  <p class="sub">曹杰案例 · 2026-05-26 · 已修复（prepare 保留 displayName）</p>
+
+  <section>
+    <h2>一句话</h2>
+    <div class="box">
+      缺陷很早就存在（prepare 重建 assignment 时只存 userId），但<strong>正文里模型仍写人名</strong>，结构化表里 userid 不显眼或很少人看；近期「点将 + 发布预览 + 管道表」用得多了，才集中暴露。
+    </div>
+  </section>
+
+  <section>
+    <h2>时间线</h2>
+    <table>
+      <tr><th>时间</th><th>变化</th><th>影响</th></tr>
+      <tr><td>较早</td><td>prepare 暂存时 primary 只写 userId</td><td>数据层一直有坑</td></tr>
+      <tr><td>5/20 前后</td><td>Scheme C：bulk_assign → prepare 成主路径</td><td>更多会话经过「prepare 覆盖 assignment」</td></tr>
+      <tr><td>5/22</td><td>钉钉改 GFM 管道表，负责人独立一列</td><td>userid 一眼可见（曹杰截图即此）</td></tr>
+      <tr><td>5/23</td><td>ECS 同用户会话已出现纯 userId</td><td>当时未报，说明此前关注度低</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>为何「像没出过问题」</h2>
+    <ul>
+      <li><strong>双层展示</strong>：口播/正文写「李嘉男」，表在下方，很多人只看前半段。</li>
+      <li><strong>以前表格式不同</strong>：卡片列表里「负责人」不如管道表一列数字扎眼。</li>
+      <li><strong>路径没走全</strong>：只点将不 prepare、或直接 publish，不一定看到预览表。</li>
+      <li><strong>工作台不中招</strong>：Web 端用通讯录解析姓名；问题主要在钉钉出站 Markdown。</li>
+      <li><strong>发布/通知仍正常</strong>：落库和通知用 userId + 通讯录，业务不受影响，易误判为「搜人失败」。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>曹杰这次为何触发</h2>
+    <ul>
+      <li>「新任务 + 负责人 李嘉男」→ 同轮 search → bulk_assign → prepare。</li>
+      <li>prepare 把 assignment 收成仅 userId → 管道表读 assignment → 列里出现 02573051084320。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>修复与防再发</h2>
+    <ul>
+      <li>prepare 重建时保留/回填 displayName（已合入）。</li>
+      <li>agent eval 场景 <code>M_micro_assign_prepare</code> 回归。</li>
+    </ul>
+  </section>
+
+  <footer>报告生成：manage_robot · 基于 git 历史与 ECS 会话分析</footer>
+</body>
+</html>

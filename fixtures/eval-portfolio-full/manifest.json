@@ -1,0 +1,9 @@
+{
+  "id": "portfolio_full_v1",
+  "description": "Portfolio manager agent multi-chain eval: project binding, switch, publish.",
+  "chains": [
+    { "file": "chain-pf-oct-wbs.json" },
+    { "file": "chain-pf-switch-publish.json" },
+    { "file": "chain-pf-no-project-ok.json" }
+  ]
+}

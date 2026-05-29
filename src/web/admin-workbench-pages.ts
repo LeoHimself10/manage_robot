@@ -1,99 +1,80 @@
-import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
+import { renderWorkbenchPage } from "./workbench-shell";
 
 export function renderAdminWorkbenchPage(params: { userLabel?: string }): string {
-  const who = params.userLabel ? params.userLabel : "管理员";
-  return `<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>管理员工作台</title>
-<style>${WORKBENCH_APP_BASE_CSS}</style>
-</head>
-<body>
-<div class="app-shell">
-  <header class="topbar">
-    <div>
-      <div class="brand">管理员工作台</div>
-      <h1 class="page-title">任务总览与权限配置</h1>
-      <p class="page-desc">查看全公司正式任务、关键看板，并维护动态主管权限（不覆盖静态名单）。</p>
-    </div>
-    <div class="top-actions">
-      <span class="btn btn-secondary">${who}</span>
-      <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
-    </div>
-  </header>
-
-  <section class="kpis" aria-live="polite">
+  return renderWorkbenchPage({
+    role: "admin",
+    activeNav: "adm-tasks",
+    title: "全公司正式任务",
+    pageTitle: "管理员工作台",
+    description: "跨部门检索 · 只读审计 · 动态主管权限不覆盖静态 env 名单",
+    userLabel: params.userLabel,
+    mainHtml: `
+  <section class="kpis kpis--3" aria-live="polite" style="max-width:480px;margin-bottom:16px;">
     <div class="kpi"><div class="lbl">正式任务总数</div><div class="val" id="kpiTotal">—</div></div>
     <div class="kpi"><div class="lbl">进行中主任务</div><div class="val" id="kpiActive">—</div></div>
     <div class="kpi"><div class="lbl">阻塞子任务</div><div class="val" id="kpiBlocked">—</div></div>
   </section>
 
-  <div class="grid-2">
-    <section class="card">
-      <h2>任务筛选</h2>
-      <div class="form-stack">
-        <label>业务编号
-          <input id="taskNoFilter" placeholder="例如 TASK-20260512-0001" />
-        </label>
-        <label>状态
-          <select id="statusFilter">
-            <option value="">全部</option>
-            <option value="ASSIGNED">待处理</option>
-            <option value="CHANGES_REQUESTED">待修改</option>
-            <option value="IN_PROGRESS">进行中</option>
-            <option value="BLOCKED">阻塞</option>
-            <option value="DONE">已完成</option>
-            <option value="REJECTED">已拒绝</option>
-          </select>
-        </label>
-        <label>发起部门
-          <input id="deptFilter" placeholder="例如 研发部" />
-        </label>
-        <label>负责人（姓名或账号关键词）
-          <input id="assigneeFilter" placeholder="输入姓名的一部分" />
-        </label>
-        <label>标题关键词
-          <input id="keywordFilter" placeholder="任务标题中的关键词" />
-        </label>
-        <div>
-          <button class="btn btn-primary" id="queryBtn" type="button">查询任务</button>
-        </div>
-      </div>
-      <div class="feedback muted" id="taskFeedback"></div>
-      <div id="taskTableMount" class="empty-state" style="margin-top:10px;">暂无数据</div>
-    </section>
-
-    <section class="card">
-      <h2>主管权限维护</h2>
-      <div class="form-stack">
-        <label>搜索员工
-          <input id="employeeKeyword" placeholder="姓名、部门关键词" />
-        </label>
-        <div>
-          <button class="btn btn-secondary" id="searchEmployeeBtn" type="button">查询员工</button>
-        </div>
-        <label>选择员工
-          <select id="employeeSelect"><option value="">请选择员工</option></select>
-        </label>
-        <label>操作
-          <select id="managerEnabled">
-            <option value="1">授予主管权限</option>
-            <option value="0">移除主管权限</option>
-          </select>
-        </label>
-        <div>
-          <button class="btn btn-primary" id="saveManagerBtn" type="button">保存</button>
-        </div>
-      </div>
-      <div class="feedback muted" id="managerFeedback"></div>
-      <div id="managerListMount" class="empty-state" style="margin-top:10px;">加载中…</div>
-    </section>
+  <div class="card mgr-list-toolbar form-stack" role="search" aria-label="任务筛选">
+    <label>业务编号<input id="taskNoFilter" placeholder="例如 TASK-20260512-0001" /></label>
+    <label>状态
+      <select id="statusFilter">
+        <option value="">全部</option>
+        <option value="ASSIGNED">待处理</option>
+        <option value="CHANGES_REQUESTED">待修改</option>
+        <option value="IN_PROGRESS">进行中</option>
+        <option value="BLOCKED">阻塞</option>
+        <option value="DONE">已完成</option>
+        <option value="REJECTED">已拒绝</option>
+      </select>
+    </label>
+    <label>发起部门<input id="deptFilter" placeholder="例如 研发部" /></label>
+    <label>负责人<input id="assigneeFilter" placeholder="输入姓名的一部分" /></label>
+    <label>标题关键词<input id="keywordFilter" placeholder="任务标题中的关键词" /></label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-primary btn-sm" id="queryBtn" type="button">查询任务</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="adminClearFilters">清除</button>
+    </div>
   </div>
-</div>
+  <div class="feedback muted" id="taskFeedback"></div>
+  <div class="card" style="overflow:hidden;margin-top:14px;">
+    <div id="taskTableMount" class="empty-state" style="padding:16px;">暂无数据</div>
+  </div>
 
-<script>
+  <section id="permissions" class="card" style="margin-top:20px;">
+    <h2 style="margin:0 0 8px;font-size:15px;font-weight:700;">主管权限维护</h2>
+    <p class="page-desc" style="margin:0 0 14px;">动态授予 / 移除主管权限，与 env 静态名单合并生效。</p>
+    <div class="admin-perm-split">
+      <div>
+        <div class="form-stack">
+          <label>搜索员工
+            <input id="employeeKeyword" placeholder="姓名、部门关键词" />
+          </label>
+          <div>
+            <button class="btn btn-secondary btn-sm" id="searchEmployeeBtn" type="button">查询员工</button>
+          </div>
+          <label>选择员工
+            <select id="employeeSelect"><option value="">请选择员工</option></select>
+          </label>
+          <label>操作
+            <select id="managerEnabled">
+              <option value="1">授予主管权限</option>
+              <option value="0">移除主管权限</option>
+            </select>
+          </label>
+          <div>
+            <button class="btn btn-primary btn-sm" id="saveManagerBtn" type="button">保存</button>
+          </div>
+        </div>
+        <div class="feedback muted" id="managerFeedback"></div>
+      </div>
+      <div class="admin-perm-list card" style="padding:14px 16px;">
+        <h3 style="margin:0 0 8px;font-size:14px;font-weight:700;">动态主管名单</h3>
+        <div id="managerListMount" class="empty-state" style="margin:0;padding:0;">加载中…</div>
+      </div>
+    </div>
+  </section>`,
+    scriptHtml: `<script>
 (function () {
   function setFb(id, msg, kind) {
     var el = document.getElementById(id);
@@ -107,6 +88,10 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
   }
   function esc(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function permInitial(name) {
+    var t = String(name || '').trim();
+    return t ? t.slice(0, 1) : '—';
   }
 
   async function loadMetrics() {
@@ -146,7 +131,7 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
         return;
       }
       var rows = tasks.map(function (t) {
-        var detail = '<a href="/workbench/admin/task?taskNo=' + encodeURIComponent(t.taskNo || '') + '">详情</a>';
+        var detail = '<a class="btn btn-ghost btn-sm" href="/workbench/admin/task?taskNo=' + encodeURIComponent(t.taskNo || '') + '">详情</a>';
         var mgr = (t.managerDisplayName || '').trim();
         var mgrCell = mgr ? esc(mgr) : esc('—');
         return '<tr>'
@@ -155,10 +140,11 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
           + '<td>' + mgrCell + '</td>'
           + '<td>' + esc(t.initiatorDepartment || '未配置部门') + '</td>'
           + '<td>' + esc(t.statusLabel || t.status) + '</td>'
-          + '<td>' + esc(t.updatedAt || '') + '<br>' + detail + '</td>'
+          + '<td>' + esc(t.updatedAt || '') + '</td>'
+          + '<td>' + detail + '</td>'
           + '</tr>';
       }).join('');
-      document.getElementById('taskTableMount').innerHTML = '<div class="table-wrap"><table class="data"><thead><tr><th>业务编号</th><th>标题</th><th>主管</th><th>发起部门</th><th>状态</th><th>更新时间</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      document.getElementById('taskTableMount').innerHTML = '<div class="table-wrap"><table class="data"><thead><tr><th>业务编号</th><th>标题</th><th>主管</th><th>发起部门</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
       setFb('taskFeedback', '已更新', 'ok');
     } catch (e) {
       setFb('taskFeedback', String(e && e.message ? e.message : e), 'err');
@@ -179,9 +165,9 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
         var id = typeof row === 'string' ? row : (row && row.userId ? row.userId : '');
         var name = typeof row === 'object' && row && row.name ? row.name : '';
         var nameCell = name ? esc(name) : esc('—');
-        return '<tr><td>' + nameCell + (id ? '<br><span class="muted">' + esc(id) + '</span>' : '') + '</td></tr>';
+        return '<div class="perm-row"><span class="admin-perm-av">' + esc(permInitial(nameCell)) + '</span><div><b>' + nameCell + '</b><br><small class="muted">' + esc(id) + '</small></div></div>';
       }).join('');
-      document.getElementById('managerListMount').innerHTML = '<div class="table-wrap"><table class="data"><thead><tr><th>动态主管</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      document.getElementById('managerListMount').innerHTML = rows;
     } catch (e) {
       setFb('managerFeedback', String(e && e.message ? e.message : e), 'err');
     }
@@ -213,6 +199,18 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
   document.getElementById('searchEmployeeBtn').addEventListener('click', function () {
     void searchEmployees();
   });
+  var clearBtn = document.getElementById('adminClearFilters');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function () {
+      ['taskNoFilter','deptFilter','assigneeFilter','keywordFilter'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      var st = document.getElementById('statusFilter');
+      if (st) st.value = '';
+      void loadTasks();
+    });
+  }
   document.getElementById('saveManagerBtn').addEventListener('click', async function () {
     var userId = (document.getElementById('employeeSelect').value || '').trim();
     var enabled = document.getElementById('managerEnabled').value === '1';
@@ -243,12 +241,21 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
     window.location.href = (data && data.redirectTo) ? data.redirectTo : '/workbench';
   });
 
+  if (location.hash === '#permissions') {
+    var permNav = document.querySelector('.wb-rail-link[data-wb-nav="adm-perms"]');
+    if (permNav) {
+      document.querySelectorAll('.wb-rail-link.is-on-adm').forEach(function (a) { a.classList.remove('is-on-adm'); });
+      permNav.classList.add('is-on-adm');
+    }
+    var permSection = document.getElementById('permissions');
+    if (permSection) permSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   void loadMetrics();
   void loadTasks();
   void loadManagers();
   void searchEmployees();
 })();
-</script>
-</body>
-</html>`;
+</script>`,
+  });
 }

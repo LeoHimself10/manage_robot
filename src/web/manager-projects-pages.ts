@@ -1,5 +1,5 @@
-import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { WORKBENCH_PROJECT_OVERVIEW_CSS } from "./workbench-project-overview-styles";
+import { renderWorkbenchPage } from "./workbench-shell";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 
 function escapeHtml(v: string): string {
@@ -13,39 +13,16 @@ function escapeHtml(v: string): string {
 export function renderManagerProjectsPage(params: {
   userLabel?: string;
 }): string {
-  const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
-
-  return `<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>项目总览 · 主管工作台</title>
-<style>
-${WORKBENCH_APP_BASE_CSS}
-${WORKBENCH_PROJECT_OVERVIEW_CSS}
-</style>
-</head>
-<body>
-<div class="app-shell">
-  <header class="topbar">
-    <div>
-      <div class="brand">主管工作台</div>
-      <h1 class="page-title">项目总览</h1>
-      <p class="page-desc">按项目查看主任务整体进展；需要子任务明细请进入历史任务。周会汇报请使用周度 Dashboard。</p>
-    </div>
-    <div class="top-actions">
-      <nav class="nav-pills" aria-label="主管导航">
-        <a class="active" href="/workbench/manager/projects">项目总览</a>
-        <a href="/workbench/manager/tasks">历史任务</a>
-        <a href="/workbench/manager/dashboard">周度 Dashboard</a>
-        <a href="/workbench/manager/chat?thread=main">智能规划助手</a>
-        <a href="/workbench/employee?view=new" id="navMyTasks">我负责的任务</a>
-      </nav>
-      <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
-    </div>
-  </header>
-
+  return renderWorkbenchPage({
+    role: "manager",
+    activeNav: "mgr-proj",
+    title: "项目总览",
+    pageTitle: "项目总览 · 主管工作台",
+    description: "按项目查看主任务整体进展；需要子任务明细请进入历史任务。周会汇报请使用周度 Dashboard。",
+    userLabel: params.userLabel,
+    portfolioEnabled: true,
+    extraCss: WORKBENCH_PROJECT_OVERVIEW_CSS,
+    mainHtml: `
   <div class="card">
     <div class="proj-page-toolbar">
       <button type="button" class="btn btn-primary btn-sm" id="newProjectBtn">新建项目</button>
@@ -63,7 +40,6 @@ ${WORKBENCH_PROJECT_OVERVIEW_CSS}
       <div class="empty-state">加载中…</div>
     </div>
   </div>
-</div>
 
 <dialog id="newProjectDialog">
   <form method="dialog" id="newProjectForm" class="form-stack" style="min-width:320px;padding:8px;">
@@ -76,9 +52,8 @@ ${WORKBENCH_PROJECT_OVERVIEW_CSS}
     </div>
     <p class="feedback muted" id="newProjectFeedback"></p>
   </form>
-</dialog>
-
-<script>
+</dialog>`,
+    scriptHtml: `<script>
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}
   wbBindViewSwitchLink('navMyTasks', 'employee', '/workbench/employee?view=new');
@@ -246,7 +221,6 @@ ${WORKBENCH_PROJECT_OVERVIEW_CSS}
   });
   load();
 })();
-</script>
-</body>
-</html>`;
+</script>`,
+  });
 }

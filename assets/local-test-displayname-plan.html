@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>displayName 修复 · 本地测试方案</title>
+  <style>
+    body { font-family: "Segoe UI", "PingFang SC", sans-serif; max-width: 760px; margin: 28px auto; padding: 0 16px; line-height: 1.5; color: #222; }
+    h1 { font-size: 1.3rem; }
+    h2 { font-size: 1rem; color: #1565c0; margin-top: 22px; }
+    pre { background: #f4f4f4; padding: 10px; overflow-x: auto; font-size: 0.85rem; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #eee; }
+    .ok { color: #2e7d32; }
+    .note { background: #fff8e1; padding: 10px; border-radius: 6px; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>displayName 修复 · 本地测试方案</h1>
+  <p>前提：<code>.env</code> 已存在且 <code>QWEN_API_KEY</code> 已配置（你当前环境已满足）。Node ≥ 22。</p>
+
+  <h2>层级 1 · 秒级（无 LLM）</h2>
+  <p>验证 prepare 后 assignment 与结构化表是否显示姓名。</p>
+  <pre>cd d:\manage_robot
+npm run test:displayname-local</pre>
+  <p class="ok">期望：输出「全部通过」。</p>
+
+  <h2>层级 2 · Agent eval（约 20s，需 API）</h2>
+  <p>与 ECS 曹杰场景一致：点将 → prepare → 表断言。</p>
+  <pre>$env:EVAL_AGENT_FILTER="M_micro_assign_prepare"
+$env:EVAL_DATA_DIR="d:\manage_robot\.eval-agent-displayname"
+npm run eval:agent</pre>
+  <p class="ok">期望：<code>M_micro_assign_prepare: OK</code>，进程 exit 0。</p>
+
+  <h2>层级 3 · 浏览器手工（最接近钉钉）</h2>
+  <p>预置微导管草案 + 通讯录「李嘉男」，在工作台对话里走完整 Agent。</p>
+  <pre>npm run dev:microcatheter-repro</pre>
+  <ol>
+    <li>打开 <a href="http://127.0.0.1:8787/workbench">http://127.0.0.1:8787/workbench</a></li>
+    <li>测试登录 → userId: <code>manager-local-dev</code> → 主管</li>
+    <li>进入智能助手（主线程）</li>
+    <li>发送：<em>请把当前草案全部子任务点将给李嘉男，并做发布预览，不要发布。</em></li>
+    <li>看回复中「结构化任务表」→ 负责人列应为 <strong>李嘉男</strong>，不能是 <code>02573051084320</code></li>
+  </ol>
+
+  <h2>对照表</h2>
+  <table>
+    <tr><th>命令</th><th>耗时</th><th>需要 Key</th><th>测什么</th></tr>
+    <tr><td><code>test:displayname-local</code></td><td>&lt;1s</td><td>否</td><td>代码路径</td></tr>
+    <tr><td><code>eval:agent</code> + filter</td><td>~20s</td><td>是</td><td>LLM + 工具链</td></tr>
+    <tr><td><code>dev:microcatheter-repro</code></td><td>人工</td><td>是</td><td>UI + 真实对话</td></tr>
+  </table>
+
+  <div class="note">
+    <strong>单测（可选）：</strong><code>npx vitest run tests/agent/tools/prepare-publish-task.test.ts</code>
+  </div>
+
+  <h2>数据目录</h2>
+  <ul>
+    <li>确定性脚本：无持久化（内存）</li>
+    <li>Agent eval：<code>.eval-agent-displayname/</code></li>
+    <li>工作台复现：<code>data/local-microcatheter-repro/</code></li>
+  </ul>
+</body>
+</html>

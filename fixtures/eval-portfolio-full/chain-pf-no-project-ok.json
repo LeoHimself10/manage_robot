@@ -1,0 +1,36 @@
+{
+  "id": "chain_pf_no_project_ok",
+  "description": "MVP: draft without project mention → publish with NULL project_id",
+  "managerStaffId": "eval-mgr-portfolio",
+  "people": {
+    "张测评": "eval-emp-portfolio-001"
+  },
+  "turns": [
+    {
+      "id": "T1_draft_no_project",
+      "userMessage": "内审整改：文件更新和现场抽查 2 条子任务，2026-06-20 前完成，先不要发放。",
+      "expectMinTasks": 2,
+      "expectPublishForbidden": true,
+      "forbidTools": ["publish_task"],
+      "expectAssistantQuality": true
+    },
+    {
+      "id": "T2_assign",
+      "userMessage": "两条都给张测评负责，先不要发布。",
+      "expectAssignmentFull": true,
+      "expectNoFakeAssign": true,
+      "expectPublishForbidden": true,
+      "forbidTools": ["publish_task", "prepare_publish_task"],
+      "expectAssistantQuality": true,
+      "draftAlreadyExists": true
+    },
+    {
+      "id": "T3_confirm",
+      "userMessage": "确认发布。",
+      "expectPublishOk": true,
+      "expectTaskProjectNull": true,
+      "expectAssistantQuality": true,
+      "allowPublishRetry": true
+    }
+  ]
+}

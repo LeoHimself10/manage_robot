@@ -50,6 +50,8 @@ export interface WorkbenchTaskRow {
   updatedAt: string;
   /** 大项目归属（可空） */
   projectId?: string;
+  /** 会议入库批次（仅本场新建的父任务） */
+  sourceMeetingBatchId?: string;
 }
 
 export interface WorkbenchSubtaskRow {
@@ -78,6 +80,24 @@ export interface WorkbenchSubtaskRow {
   collaborators?: string[];
   inScope?: string[];
   outOfScope?: string[];
+  /** 会议入库批次溯源 */
+  sourceMeetingBatchId?: string;
+  /** Action Item 原句 */
+  sourceExcerpt?: string;
+}
+
+export type MeetingImportBatchStatus = "analyzed" | "committed" | "failed";
+
+export interface MeetingImportBatchRow {
+  batchId: string;
+  managerUserId: string;
+  meetingTitle?: string;
+  meetingDate?: string;
+  docUrl?: string;
+  sourceTextHash: string;
+  status: MeetingImportBatchStatus;
+  createdAt: string;
+  committedAt?: string;
 }
 
 const RICH_LIST_MAX_ITEMS = 10;
@@ -193,6 +213,42 @@ function ensureAppendSubtaskIdempotencyTable(db: DatabaseSync): void {
       PRIMARY KEY (task_id, client_request_id)
     );
   `);
+}
+
+function ensureMeetingImportSchema(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS meeting_import_batches (
+      batch_id TEXT PRIMARY KEY,
+      manager_user_id TEXT NOT NULL,
+      meeting_title TEXT,
+      meeting_date TEXT,
+      doc_url TEXT,
+      source_text_hash TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      committed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_meeting_import_batches_manager ON meeting_import_batches(manager_user_id);
+  `);
+  const taskCols = new Set(
+    (db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>).map((r) =>
+      String(r.name ?? ""),
+    ),
+  );
+  if (!taskCols.has("source_meeting_batch_id")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN source_meeting_batch_id TEXT");
+  }
+  const subCols = new Set(
+    (db.prepare("PRAGMA table_info(subtasks)").all() as Array<{ name?: string }>).map((r) =>
+      String(r.name ?? ""),
+    ),
+  );
+  if (!subCols.has("source_meeting_batch_id")) {
+    db.exec("ALTER TABLE subtasks ADD COLUMN source_meeting_batch_id TEXT");
+  }
+  if (!subCols.has("source_excerpt")) {
+    db.exec("ALTER TABLE subtasks ADD COLUMN source_excerpt TEXT");
+  }
 }
 
 const APPEND_SUBTASK_CLIENT_REQUEST_ID_MAX = 128;
@@ -508,6 +564,7 @@ export function createWorkbenchFormalTaskStore() {
   ensureTaskProjectIdColumn(db);
   ensureSubtaskReminderStateColumns(db);
   ensureAppendSubtaskIdempotencyTable(db);
+  ensureMeetingImportSchema(db);
 
   const migratedAt = nowIso();
   db.prepare(
@@ -595,6 +652,7 @@ export function createWorkbenchFormalTaskStore() {
       createdAt: String(row.created_at ?? ""),
       updatedAt: String(row.updated_at ?? ""),
       projectId: asString(row.project_id),
+      sourceMeetingBatchId: asString(row.source_meeting_batch_id),
     };
   }
 
@@ -631,6 +689,22 @@ export function createWorkbenchFormalTaskStore() {
       ...(collaborators.length > 0 ? { collaborators } : {}),
       ...(inScope.length > 0 ? { inScope } : {}),
       ...(outOfScope.length > 0 ? { outOfScope } : {}),
+      sourceMeetingBatchId: asString(row.source_meeting_batch_id),
+      sourceExcerpt: asString(row.source_excerpt),
+    };
+  }
+
+  function mapMeetingImportBatchRow(row: Record<string, unknown>): MeetingImportBatchRow {
+    return {
+      batchId: String(row.batch_id ?? ""),
+      managerUserId: String(row.manager_user_id ?? ""),
+      meetingTitle: asString(row.meeting_title),
+      meetingDate: asString(row.meeting_date),
+      docUrl: asString(row.doc_url),
+      sourceTextHash: String(row.source_text_hash ?? ""),
+      status: String(row.status ?? "analyzed") as MeetingImportBatchStatus,
+      createdAt: String(row.created_at ?? ""),
+      committedAt: asString(row.committed_at),
     };
   }
 
@@ -1585,6 +1659,282 @@ export function createWorkbenchFormalTaskStore() {
 
       if (!txResult) throw new Error("appendSubtask transaction produced no result");
       return txResult;
+    },
+
+    appendSubtaskFromMeetingImport(input: {
+      planId: string;
+      managerUserId: string;
+      title: string;
+      assigneeUserId: string;
+      objective: string;
+      deliverables: string;
+      completionCriteria: string;
+      dueAt?: string;
+      note?: string;
+      actorName?: string;
+      clientRequestId?: string;
+      sourceMeetingBatchId: string;
+      sourceExcerpt?: string;
+    }): AppendSubtaskResult {
+      const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
+      if (!taskRow) throw new Error("Task not found for planId");
+      const task = mapTaskRow(taskRow);
+      if (task.managerUserId !== input.managerUserId) {
+        throw new Error("Task does not belong to current manager");
+      }
+      const existingSubtaskRows = qTaskSubtasks.all(task.taskId) as Array<Record<string, unknown>>;
+      const existingStatuses = existingSubtaskRows.map((row) =>
+        normalizeStatus(String(row.status ?? "ASSIGNED")),
+      );
+      if (taskClosedForAppend(existingStatuses)) {
+        throw new Error("Cannot append subtask to a stopped task");
+      }
+      const title = input.title.trim();
+      if (!title) throw new Error("title is required");
+      const assigneeUserId = input.assigneeUserId.trim();
+      if (!assigneeUserId) throw new Error("assigneeUserId is required");
+      const objective = input.objective.trim();
+      if (!objective) throw new Error("objective is required");
+      const deliverables = input.deliverables.trim();
+      if (!deliverables) throw new Error("deliverables is required");
+      const completionCriteria = input.completionCriteria.trim();
+      if (!completionCriteria) throw new Error("completionCriteria is required");
+
+      const dueAtRaw = input.dueAt?.trim();
+      const dueAt = dueAtRaw ? formatDueAtForStorage(dueAtRaw) : null;
+      const clientRequestId = normalizeAppendSubtaskClientRequestId(input.clientRequestId);
+      const batchId = input.sourceMeetingBatchId.trim();
+      if (!batchId) throw new Error("sourceMeetingBatchId is required");
+
+      function appendResultFromSubtaskRow(
+        subtaskRow: Record<string, unknown>,
+        duplicated: boolean,
+      ): AppendSubtaskResult {
+        const updatedTaskRow = qTaskById.get(task.taskId) as Record<string, unknown> | undefined;
+        if (!updatedTaskRow) throw new Error("Failed to reload task after appendSubtaskFromMeetingImport");
+        return {
+          task: mapTaskRow(updatedTaskRow),
+          subtask: mapSubtaskRow(subtaskRow),
+          duplicated,
+        };
+      }
+
+      function resolveByClientRequestId(): AppendSubtaskResult | undefined {
+        if (!clientRequestId) return undefined;
+        const idem = qAppendSubtaskIdem.get(task.taskId, clientRequestId) as
+          | { subtask_id?: string }
+          | undefined;
+        const sid = String(idem?.subtask_id ?? "").trim();
+        if (!sid) return undefined;
+        const subtaskRow = db
+          .prepare(
+            "SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
+          )
+          .get(sid) as Record<string, unknown> | undefined;
+        if (!subtaskRow) return undefined;
+        return appendResultFromSubtaskRow(subtaskRow, true);
+      }
+
+      const earlyIdem = resolveByClientRequestId();
+      if (earlyIdem) return earlyIdem;
+
+      let txResult: AppendSubtaskResult | undefined;
+      runInTransaction(() => {
+        const inTxIdem = resolveByClientRequestId();
+        if (inTxIdem) {
+          txResult = inTxIdem;
+          return;
+        }
+
+        const sourceTaskKey = `mib-${randomUUID().slice(0, 8)}`;
+        const subtaskId = `${task.taskId}:${sourceTaskKey}`;
+        const now = nowIso();
+        const excerpt = asString(input.sourceExcerpt) ?? null;
+
+        db.prepare(
+          `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at, depends_on, checkpoints, risks, input_materials, actions, collaborators, in_scope, out_of_scope, source_meeting_batch_id, source_excerpt)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ).run(
+          subtaskId,
+          task.taskId,
+          sourceTaskKey,
+          title,
+          objective,
+          deliverables,
+          completionCriteria,
+          dueAt ?? null,
+          null,
+          assigneeUserId,
+          "ASSIGNED",
+          null,
+          now,
+          now,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          batchId,
+          excerpt,
+        );
+        db.prepare(
+          "INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id, note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)",
+        ).run(
+          task.taskId,
+          subtaskId,
+          "SUBTASK_ADDED",
+          input.managerUserId,
+          input.note?.trim() || "meeting import",
+          stringify({
+            assigneeUserId,
+            sourceTaskKey,
+            sourceMeetingBatchId: batchId,
+            clientRequestId: clientRequestId ?? null,
+          }),
+          now,
+        );
+        if (clientRequestId) {
+          qInsertAppendSubtaskIdem.run(task.taskId, clientRequestId, subtaskId, now);
+        }
+        updateTaskStatus(task.taskId);
+
+        const subtaskRow = db
+          .prepare(
+            "SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
+          )
+          .get(subtaskId) as Record<string, unknown> | undefined;
+        if (!subtaskRow) throw new Error("Failed to reload rows after meeting import append");
+        txResult = appendResultFromSubtaskRow(subtaskRow, false);
+      });
+
+      if (!txResult) throw new Error("appendSubtaskFromMeetingImport transaction produced no result");
+      return txResult;
+    },
+
+    setTaskSourceMeetingBatch(input: {
+      taskId: string;
+      managerUserId: string;
+      sourceMeetingBatchId: string;
+    }): void {
+      const taskRow = qTaskById.get(input.taskId) as Record<string, unknown> | undefined;
+      if (!taskRow) throw new Error("Task not found");
+      const task = mapTaskRow(taskRow);
+      if (task.managerUserId !== input.managerUserId) {
+        throw new Error("Task does not belong to current manager");
+      }
+      db.prepare("UPDATE tasks SET source_meeting_batch_id = ?, updated_at = ? WHERE task_id = ?").run(
+        input.sourceMeetingBatchId.trim(),
+        nowIso(),
+        input.taskId,
+      );
+    },
+
+    setSubtaskMeetingSource(input: {
+      subtaskId: string;
+      managerUserId: string;
+      sourceMeetingBatchId: string;
+      sourceExcerpt?: string;
+    }): void {
+      const row = db
+        .prepare(
+          `SELECT s.*, t.plan_id, t.manager_user_id FROM subtasks s
+           JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?`,
+        )
+        .get(input.subtaskId) as Record<string, unknown> | undefined;
+      if (!row) throw new Error("Subtask not found");
+      if (String(row.manager_user_id ?? "") !== input.managerUserId.trim()) {
+        throw new Error("Subtask does not belong to current manager");
+      }
+      db.prepare(
+        "UPDATE subtasks SET source_meeting_batch_id = ?, source_excerpt = ?, updated_at = ? WHERE subtask_id = ?",
+      ).run(
+        input.sourceMeetingBatchId.trim(),
+        asString(input.sourceExcerpt) ?? null,
+        nowIso(),
+        input.subtaskId,
+      );
+    },
+
+    createMeetingImportBatch(input: {
+      managerUserId: string;
+      meetingTitle?: string;
+      meetingDate?: string;
+      docUrl?: string;
+      sourceTextHash: string;
+      status?: MeetingImportBatchStatus;
+    }): MeetingImportBatchRow {
+      const now = nowIso();
+      const batchId = `mib:${randomUUID()}`;
+      db.prepare(
+        `INSERT INTO meeting_import_batches(batch_id, manager_user_id, meeting_title, meeting_date, doc_url, source_text_hash, status, created_at)
+         VALUES(?,?,?,?,?,?,?,?)`,
+      ).run(
+        batchId,
+        input.managerUserId.trim(),
+        asString(input.meetingTitle) ?? null,
+        asString(input.meetingDate) ?? null,
+        asString(input.docUrl) ?? null,
+        input.sourceTextHash.trim(),
+        input.status ?? "analyzed",
+        now,
+      );
+      const row = db
+        .prepare("SELECT * FROM meeting_import_batches WHERE batch_id = ?")
+        .get(batchId) as Record<string, unknown> | undefined;
+      if (!row) throw new Error("Failed to create meeting import batch");
+      return mapMeetingImportBatchRow(row);
+    },
+
+    getMeetingImportBatch(batchId: string, managerUserId: string): MeetingImportBatchRow | undefined {
+      const row = db
+        .prepare("SELECT * FROM meeting_import_batches WHERE batch_id = ? AND manager_user_id = ?")
+        .get(batchId.trim(), managerUserId.trim()) as Record<string, unknown> | undefined;
+      return row ? mapMeetingImportBatchRow(row) : undefined;
+    },
+
+    updateMeetingImportBatchStatus(input: {
+      batchId: string;
+      managerUserId: string;
+      status: MeetingImportBatchStatus;
+      committedAt?: string;
+    }): void {
+      const committedAt =
+        input.status === "committed" ? input.committedAt?.trim() || nowIso() : null;
+      db.prepare(
+        "UPDATE meeting_import_batches SET status = ?, committed_at = ? WHERE batch_id = ? AND manager_user_id = ?",
+      ).run(input.status, committedAt, input.batchId.trim(), input.managerUserId.trim());
+    },
+
+    listOpenSubtasksForManagerProject(input: {
+      managerUserId: string;
+      projectId: string;
+    }): Array<
+      WorkbenchSubtaskRow & {
+        taskNo: string;
+        taskTitle: string;
+      }
+    > {
+      const mid = input.managerUserId.trim();
+      const pid = input.projectId.trim();
+      const rows = db
+        .prepare(
+          `SELECT s.*, t.plan_id, t.task_no, t.title AS task_title
+           FROM subtasks s
+           JOIN tasks t ON t.task_id = s.task_id
+           WHERE t.manager_user_id = ?
+             AND t.project_id = ?
+             AND s.status NOT IN ('DONE', 'STOPPED')
+           ORDER BY t.updated_at DESC, s.subtask_id ASC`,
+        )
+        .all(mid, pid) as Array<Record<string, unknown>>;
+      return rows.map((row) => ({
+        ...mapSubtaskRow(row),
+        taskNo: String(row.task_no ?? ""),
+        taskTitle: String(row.task_title ?? ""),
+      }));
     },
 
     reassignTask(input: {

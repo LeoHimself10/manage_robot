@@ -1,0 +1,753 @@
+{
+  "chatKeyHash": "d2b037f0ae6e86a0f3d0838f1fad8a25ec617091645ab6cb164895ba6560171f",
+  "planId": "30c3c9ce-9718-4360-9cff-0342d04eb8f0",
+  "createdAt": "2026-05-23T08:36:29.570Z",
+  "updatedAt": "2026-05-26T08:30:58.029Z",
+  "knownFacts": [],
+  "conversationHistory": [
+    {
+      "role": "assistant",
+      "content": "[system_note] 已切到任务「（发放后新规划）」。旧任务的人员名单 / task_x 编号 / 姓名不应被引用。当前 planId=30c3c9ce-9718-4360-9cff-0342d04eb8f0。",
+      "at": "2026-05-26T06:22:02.652Z"
+    },
+    {
+      "role": "user",
+      "content": "确认发布"
+    },
+    {
+      "role": "assistant",
+      "content": "任务已发放，员工待承接。",
+      "displayContent": "任务已发放，员工待承接。\n\n【已发布】任务编号 TASK-20260526-0003\n标题：创新通道答辩材料制作\n子任务 4 个 → 已钉钉通知 2 名内部员工\n\n---\n**已切换到新任务上下文**：接下来您发的内容会按**新任务**继续编排。\n刚才那条已发布的任务业务编号为 **TASK-20260526-0003**。若还要继续改那条任务的拆解或分配，请直接回复一句：**切回上一条任务**（或说明要接着改刚才那条）。\n"
+    },
+    {
+      "role": "user",
+      "content": "新任务：\n负责人 李嘉男\n任务名称 微导管供应商与双管线决策\n任务内容 获取苏州迈拓Pro18仿制可行性反馈；与李强、曹杰评估是否签约；同步定义激光光纤微导管需求边界。\n交付文件《Pro18仿制可行性评估》；《激光光纤微导管需求要点》；是否签约/下单建议。\n完成标志 形成明确决策：签约/补充验证/暂停；激光微导管是否同步下单有结论。"
+    },
+    {
+      "role": "assistant",
+      "content": "已为任务「微导管供应商与双管线决策」完成负责人指派（李嘉男）并生成发布预览。请确认是否发放给员工承接？",
+      "displayContent": "已为任务「微导管供应商与双管线决策」完成负责人指派（李嘉男）并生成发布预览。请确认是否发放给员工承接？\n\n任务背景：获取苏州迈拓Pro18仿制可行性反馈，评估签约可行性；同步定义激光光纤微导管需求边界，形成明确决策。\n\n### 结构化任务表\n| # | 任务 | 目标 | 交付物 | 完成标准 | 截止 | 执行动作 | 前置依赖 | 负责人 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 1 | 获取并评估Pro18仿制可行性 | 从苏州迈拓获取Pro18仿制的技术反馈，评估技术路径、周期与风险。 | 《Pro18仿制可行性评估》 | 获得供应商书面或会议反馈记录；完成技术可行性分析报告并通过内部评审 | — | 联系苏州迈拓获取技术资料与反馈；组织内部技术团队评估仿制难度与风险；撰写可行性评估报告 | — | 02573051084320 |\n| 2 | 定义激光光纤微导管需求边界 | 明确激光光纤微导管的技术指标、应用场景及验收标准。 | 《激光光纤微导管需求要点》 | 完成需求调研与内部讨论；输出经确认的需求要点文档 | — | 调研临床与市场对激光微导管的需求；与技术团队确定关键技术指标；撰写并确认需求要点文档 | — | 02573051084320 |\n| 3 | 综合评估与签约决策 | 结合可行性评估与需求定义，与李强、曹杰共同决策是否签约及下单。 | 签约/下单决策建议 | 召开决策会议并形成会议纪要；输出明确的决策结论（签约/补充验证/暂停）；明确激光微导管是否同步下单 | — | 汇总技术评估与需求文档；与李强、曹杰召开决策会议；形成最终决策建议并上报 | task_1（获取并评估Pro18仿制可行性）；task_2（定义激光光纤微导管需求边界） | 02573051084320 |\n\n### 更多规划（7 项）\n| # | 反馈频率 | 输入材料 | 协作人 | 范围内 | 范围外 | 检查点 | 风险 |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| 1 | 每周 | — | — | — | — | — | — |\n| 2 | 每周 | — | — | — | — | — | — |\n| 3 | 每周 | — | — | — | — | — | — |\n\n---\n[在工作台继续编辑草案](https://applink.dingtalk.com/page/link?url=https%3A%2F%2Fmanagebot.vivolightsales.com%2Fworkbench%2Fmanager%2Fchat%3Fthread%3Dmain%26openDraftEditor%3D1&target=fullScreen&targetDesktop=workbench)"
+    },
+    {
+      "role": "user",
+      "content": "确认发布"
+    },
+    {
+      "role": "assistant",
+      "content": "任务已发放，员工待承接。",
+      "displayContent": "任务已发放，员工待承接。\n\n---\n[在工作台继续编辑草案](https://applink.dingtalk.com/page/link?url=https%3A%2F%2Fmanagebot.vivolightsales.com%2Fworkbench%2Fmanager%2Fchat%3Fthread%3Dmain%26openDraftEditor%3D1&target=fullScreen&targetDesktop=workbench)"
+    }
+  ],
+  "taskScopes": {
+    "scope:e0352806": {
+      "scopeId": "scope:e0352806",
+      "scopeLabel": "默认任务",
+      "planId": "190a05a3-6ae7-4932-bcd8-054b85cffe34",
+      "createdAt": "2026-05-23T08:36:29.570Z",
+      "updatedAt": "2026-05-26T06:00:20.773Z",
+      "latestDraft": {
+        "responseIntent": "DRAFT",
+        "assistantMessage": "",
+        "classification": {
+          "domain": "",
+          "subtype": "",
+          "confidence": "",
+          "rationale": [],
+          "missingInformation": []
+        },
+        "tasks": [
+          {
+            "id": "task_1",
+            "title": "合作商调研与资质确认",
+            "objective": "筛选并确定1~2家具备微导管研发生产资质及能力的合作商。",
+            "inputMaterials": [],
+            "actions": [],
+            "deliverables": [
+              "潜在合作商清单",
+              "合作商资质审核报告",
+              "合作意向书或协议草案"
+            ],
+            "completionCriteria": [
+              "完成至少3家潜在合作商的背景调查",
+              "确认1~2家合作商具备相关医疗器械生产许可证及研发能力",
+              "输出详细的资质审核报告并获得管理层批准"
+            ],
+            "timeNode": {
+              "checkpoints": [],
+              "dueAt": "2026-06-30"
+            },
+            "feedbackFrequency": "每周",
+            "risksAndOpenQuestions": [],
+            "dependencyTaskIds": []
+          },
+          {
+            "id": "task_2",
+            "title": "产品技术需求定义",
+            "objective": "明确微导管产品的具体技术指标、性能要求及成本控制目标。",
+            "inputMaterials": [],
+            "actions": [],
+            "deliverables": [
+              "微导管产品技术需求书（TRS）",
+              "临床应用场景分析报告"
+            ],
+            "completionCriteria": [
+              "完成对临床迂曲血管推送难点的详细分析",
+              "明确产品尺寸、材质、推送力等关键技术参数",
+              "制定明确的成本控制目标并通过内部评审"
+            ],
+            "timeNode": {
+              "checkpoints": [],
+              "dueAt": "2026-06-15"
+            },
+            "feedbackFrequency": "每周",
+            "risksAndOpenQuestions": [],
+            "dependencyTaskIds": []
+          },
+          {
+            "id": "task_3",
+            "title": "委托研发与样品生产",
+            "objective": "与合作商签订正式合同，启动产品研发并产出首批样品。",
+            "inputMaterials": [],
+            "actions": [],
+            "deliverables": [
+              "委托研发与生产合同",
+              "首批微导管样品",
+              "研发进度周报"
+            ],
+            "completionCriteria": [
+              "完成合同签订并明确知识产权归属",
+              "合作商按计划节点提交设计图纸及工艺方案",
+              "成功生产出符合技术需求书要求的首批样品"
+            ],
+            "timeNode": {
+              "checkpoints": [],
+              "dueAt": "2026-09-30"
+            },
+            "feedbackFrequency": "每两周",
+            "risksAndOpenQuestions": [],
+            "dependencyTaskIds": []
+          },
+          {
+            "id": "task_4",
+            "title": "产品测试与性能验证",
+            "objective": "对合作商提供的样品进行严格的实验室测试及模拟临床验证。",
+            "inputMaterials": [],
+            "actions": [],
+            "deliverables": [
+              "产品性能测试报告",
+              "模拟临床验证报告",
+              "问题整改记录"
+            ],
+            "completionCriteria": [
+              "完成推送力、扭控性、生物相容性等关键指标测试",
+              "在模拟迂曲血管模型中验证通过",
+              "所有测试项符合技术需求书标准，无重大缺陷"
+            ],
+            "timeNode": {
+              "checkpoints": [],
+              "dueAt": "2026-11-30"
+            },
+            "feedbackFrequency": "每周",
+            "risksAndOpenQuestions": [],
+            "dependencyTaskIds": []
+          }
+        ],
+        "openQuestions": [],
+        "title": "微导管产品委托研发与生产项目",
+        "description": "针对临床迂曲血管推送难及成本高的问题，通过委托1~2家具备资质的合作商进行微导管产品的自主研发与生产。项目涵盖合作商调研、需求定义、委托开发及测试验证全流程。",
+        "stagedBy": "prepare_publish_task",
+        "stagedAt": "2026-05-23T09:44:04.850Z",
+        "stagedDraftHash": "26a5033c355af5af",
+        "stagedAssignmentHash": "2063da2e8acb448e"
+      },
+      "latestAssignment": {
+        "assignments": [
+          {
+            "taskId": "task_1",
+            "primary": {
+              "userId": "02573051084320"
+            },
+            "confidence": "HIGH"
+          },
+          {
+            "taskId": "task_2",
+            "primary": {
+              "userId": "0468001250844204"
+            },
+            "confidence": "HIGH"
+          },
+          {
+            "taskId": "task_3",
+            "primary": {
+              "userId": "0468001250844204"
+            },
+            "confidence": "HIGH"
+          },
+          {
+            "taskId": "task_4",
+            "primary": {
+              "userId": "0468001250844204"
+            },
+            "confidence": "HIGH"
+          }
+        ],
+        "stagedBy": "prepare_publish_task",
+        "stagedAt": "2026-05-23T09:44:04.850Z"
+      },
+      "knownFacts": [
+        "项目目标：自研微导管产品，解决迂曲血管推送难度及成本问题",
+        "合作模式：委托1~2家有资质能力的合作商进行研发和生产",
+        "李嘉男职责：调研并确认合作商",
+        "李强职责：确认产品需求，对接合作商进行研发与测试"
+      ]
+    },
+    "scope:c9753310": {
+      "scopeId": "scope:c9753310",
+      "scopeLabel": "创新通道答辩材料制作",
+      "planId": "cace862f-4a3e-4dcc-b88c-ca1657b5755e",
+      "createdAt": "2026-05-26T06:00:20.773Z",
+      "updatedAt": "2026-05-26T06:22:02.652Z",
+      "publishedTaskNo": "TASK-20260526-0003",
+      "latestDraft": {
+        "responseIntent": "DRAFT",
+        "assistantMessage": "",
+        "classification": {
+          "domain": "",
+          "subtype": "",
+          "confidence": "",
+          "rationale": [],
+          "missingInformation": []
+        },
+        "tasks": [
+          {
+            "id": "task_1",
+            "title": "答辩视频录制",
+            "objective": "基于定稿PPT录制符合要求的汇报视频",
+            "inputMaterials": [],
+            "actions": [
+              "检查PPT终版内容",
+              "调试录音设备与环境",
+              "执行录屏并检查音画同步",
+              "导出MP4文件"
+            ],
+            "deliverables": [
+              "答辩汇报视频文件（MP4格式，≤40min，音画清晰）"
+            ],
+            "completionCriteria": [
+              "视频采用录屏方式，仅保留汇报人声音和PPT画面",
+              "汇报人为内部工作人员，声音清晰洪亮",
+              "视频格式兼容普通播放软件，大小适中"
+            ],
+            "timeNode": {
+              "checkpoints": [],
+              "dueAt": "2026-05-28"
+            },
+            "feedbackFrequency": "每日",
+            "risksAndOpenQuestions": [],
+            "dependencyTaskIds": []
+          },
+          {
+            "id": "task_2",
+            "title": "汇报人介绍文档编写",
+            "objective": "输出汇报人姓名及职务的独立文档",
+            "inputMaterials": [],
+            "actions": [
+              "统计参与汇报的人员名单",
+              "核实每人最新职务信息",
+              "编写并保存文档"
+            ],
+            "deliverables": [
+              "汇报人介绍文档（Word或TXT格式）"
+            ],
+            "completionCriteria": [
+              "包含所有出镜/汇报人员的姓名及现任职务",
+              "格式规范，无错别字"
+            ],
+            "timeNode": {
+              "checkpoints": [],
+              "dueAt": "2026-05-28"
+            },
+            "feedbackFrequency": "一次性",
+            "risksAndOpenQuestions": [],
+            "dependencyTaskIds": []
+          },
+          {
+            "id": "task_3",
+            "title": "视频内部审核",
+            "objective": "确保视频内容符合法规与项目管理要求",
+            "inputMaterials": [],
+            "actions": [
+              "发送视频初稿给曹杰、汤金辉",
+              "收集并汇总审核意见",
+              "执行必要的修改或解释说明"
+            ],
+            "deliverables": [
+              "审核确认记录（邮件或聊天截图）"
+            ],
+            "completionCriteria": [
+              "曹杰确认视频内容与项目管理要求一致",
+              "汤金辉确认视频内容符合法规注册要求",
+              "如有修改意见，已完成修正并再次确认"
+            ],
+            "timeNode": {
+              "checkpoints": [],
+              "dueAt": "2026-05-28"
+            },
+            "feedbackFrequency": "实时",
+            "risksAndOpenQuestions": [],
+            "dependencyTaskIds": [
+              "task_1"
+            ]
+          },
+          {
+            "id": "task_4",
+            "title": "材料齐套与移交",
+            "objective": "整理所有交付物并移交曹杰统一提交",
+            "inputMaterials": [],
+            "actions": [
+              "打包视频、文档及清单",
+              "与曹杰进行最终交接确认",
+              "归档本地备份"
+            ],
+            "deliverables": [
+              "材料说明清单",
+              "最终版视频文件",
+              "汇报人介绍文档"
+            ],
+            "completionCriteria": [
+              "曹杰确认收到所有材料且齐套",
+              "材料说明清单列明所有文件名称及版本",
+              "曹杰确认可邮件提交审评中心"
+            ],
+            "timeNode": {
+              "checkpoints": [],
+              "dueAt": "2026-05-28"
+            },
+            "feedbackFrequency": "一次性",
+            "risksAndOpenQuestions": [],
+            "dependencyTaskIds": [
+              "task_2",
+              "task_3"
+            ]
+          }
+        ],
+        "openQuestions": [],
+        "title": "创新通道答辩材料制作",
+        "description": "基于已定稿的创新通道答辩PPT，录制时长不超过40分钟的汇报视频（MP4格式，仅内部人员声音与画面），并编写汇报人介绍文档。视频需经曹杰、汤金辉审核后，由曹杰统一提交审评中心。截止日期：2026-05-28。",
+        "stagedBy": "prepare_publish_task",
+        "stagedAt": "2026-05-26T06:21:52.880Z",
+        "stagedDraftHash": "904d65bd60a47c0c",
+        "stagedAssignmentHash": "2063da2e8acb448e"
+      },
+      "latestAssignment": {
+        "assignments": [
+          {
+            "taskId": "task_1",
+            "primary": {
+              "userId": "02573051084320"
+            },
+            "confidence": "HIGH"
+          },
+          {
+            "taskId": "task_2",
+            "primary": {
+              "userId": "0468001250844204"
+            },
+            "confidence": "HIGH"
+          },
+          {
+            "taskId": "task_3",
+            "primary": {
+              "userId": "0468001250844204"
+            },
+            "confidence": "HIGH"
+          },
+          {
+            "taskId": "task_4",
+            "primary": {
+              "userId": "0468001250844204"
+            },
+            "confidence": "HIGH"
+          }
+        ],
+        "stagedBy": "prepare_publish_task",
+        "stagedAt": "2026-05-26T06:21:52.880Z"
+      },
+      "knownFacts": []
+    },
+    "scope:3541c38e": {
+      "scopeId": "scope:3541c38e",
+      "scopeLabel": "（发放后新规划）",
+      "planId": "30c3c9ce-9718-4360-9cff-0342d04eb8f0",
+      "createdAt": "2026-05-26T06:22:02.652Z",
+      "updatedAt": "2026-05-26T08:30:58.029Z",
+      "latestDraft": {
+        "responseIntent": "DRAFT",
+        "assistantMessage": "请补充任务的期望截止日期。",
+        "classification": {
+          "domain": "",
+          "subtype": "",
+          "confidence": "",
+          "rationale": [],
+          "missingInformation": []
+        },
+        "tasks": [
+          {
+            "id": "task_1",
+            "title": "获取并评估Pro18仿制可行性",
+            "objective": "从苏州迈拓获取Pro18仿制的技术反馈，评估技术路径、周期与风险。",
+            "inputMaterials": [],
+            "actions": [
+              "联系苏州迈拓获取技术资料与反馈",
+              "组织内部技术团队评估仿制难度与风险",
+              "撰写可行性评估报告"
+            ],
+            "deliverables": [
+              "《Pro18仿制可行性评估》"
+            ],
+            "completionCriteria": [
+              "获得供应商书面或会议反馈记录",
+              "完成技术可行性分析报告并通过内部评审"
+            ],
+            "timeNode": {
+              "checkpoints": [],
+              "dueAt": ""
+            },
+            "feedbackFrequency": "每周",
+            "risksAndOpenQuestions": [],
+            "dependencyTaskIds": []
+          },
+          {
+            "id": "task_2",
+            "title": "定义激光光纤微导管需求边界",
+            "objective": "明确激光光纤微导管的技术指标、应用场景及验收标准。",
+            "inputMaterials": [],
+            "actions": [
+              "调研临床与市场对激光微导管的需求",
+              "与技术团队确定关键技术指标",
+              "撰写并确认需求要点文档"
+            ],
+            "deliverables": [
+              "《激光光纤微导管需求要点》"
+            ],
+            "completionCriteria": [
+              "完成需求调研与内部讨论",
+              "输出经确认的需求要点文档"
+            ],
+            "timeNode": {
+              "checkpoints": [],
+              "dueAt": ""
+            },
+            "feedbackFrequency": "每周",
+            "risksAndOpenQuestions": [],
+            "dependencyTaskIds": []
+          },
+          {
+            "id": "task_3",
+            "title": "综合评估与签约决策",
+            "objective": "结合可行性评估与需求定义，与李强、曹杰共同决策是否签约及下单。",
+            "inputMaterials": [],
+            "actions": [
+              "汇总技术评估与需求文档",
+              "与李强、曹杰召开决策会议",
+              "形成最终决策建议并上报"
+            ],
+            "deliverables": [
+              "签约/下单决策建议"
+            ],
+            "completionCriteria": [
+              "召开决策会议并形成会议纪要",
+              "输出明确的决策结论（签约/补充验证/暂停）",
+              "明确激光微导管是否同步下单"
+            ],
+            "timeNode": {
+              "checkpoints": [],
+              "dueAt": ""
+            },
+            "feedbackFrequency": "每周",
+            "risksAndOpenQuestions": [],
+            "dependencyTaskIds": [
+              "task_1",
+              "task_2"
+            ]
+          }
+        ],
+        "openQuestions": [
+          "请补充任务的期望截止日期。"
+        ],
+        "title": "微导管供应商与双管线决策",
+        "description": "获取苏州迈拓Pro18仿制可行性反馈，评估签约可行性；同步定义激光光纤微导管需求边界，形成明确决策。",
+        "stagedBy": "prepare_publish_task",
+        "stagedAt": "2026-05-26T08:23:39.199Z",
+        "stagedDraftHash": "7ab55945e24e5e68",
+        "stagedAssignmentHash": "6e1973b29c383a70"
+      },
+      "latestAssignment": {
+        "assignments": [
+          {
+            "taskId": "task_1",
+            "primary": {
+              "userId": "02573051084320"
+            },
+            "confidence": "HIGH"
+          },
+          {
+            "taskId": "task_2",
+            "primary": {
+              "userId": "02573051084320"
+            },
+            "confidence": "HIGH"
+          },
+          {
+            "taskId": "task_3",
+            "primary": {
+              "userId": "02573051084320"
+            },
+            "confidence": "HIGH"
+          }
+        ],
+        "stagedBy": "prepare_publish_task",
+        "stagedAt": "2026-05-26T08:23:39.199Z"
+      },
+      "knownFacts": []
+    }
+  },
+  "currentTaskScopeId": "scope:3541c38e",
+  "lastAgentProfile": "planner",
+  "conversationId": "cidFQ5iRYgmFPvAJ17F4RMQCOV5LT1BBhSEYJx8oRF/3SQ=",
+  "conversationType": "1",
+  "senderStaffId": "0243556302843671",
+  "sessionWebhookLastSeen": "https://oapi.dingtalk.com/robot/sendBySession?session=7a4a66b2115794c21a7716e02b1d60fa",
+  "lastTraceId": "f8c76af9-0b79-4c86-b0bd-2475cb09a040",
+  "revisionEvents": [
+    {
+      "occurredAt": "2026-05-23T08:36:32.269Z",
+      "eventType": "MESSAGE_ONLY",
+      "userInput": "您好",
+      "traceId": "cc392a24-35c1-4116-9b5f-6ac45eba661b"
+    },
+    {
+      "occurredAt": "2026-05-23T08:39:17.101Z",
+      "eventType": "MESSAGE_ONLY",
+      "userInput": "明思公司要树立知名度，需要进行学术推广和品牌宣传期望在5月底完成公众号搭建，并转载一篇WLCN文章和自发一篇文章",
+      "traceId": "9622f385-6b27-429c-bbe9-fb3b7651db1f"
+    },
+    {
+      "occurredAt": "2026-05-23T08:54:37.443Z",
+      "eventType": "DRAFT_UPDATED",
+      "userInput": "明思公司要自研自己的微导管产品，主要是解决临床在迂曲血管中的推送难度大问题和成本问题，现计划调用1~2家有资质和能力的合作商，将我司的产品需要产品相关技术要求交给合作商委托其研发和生产微导管产品。主要有李嘉男调研确认合作商。李强负责产品需求确认，以及后续与合作商对接研发与测试",
+      "traceId": "ec7d9a47-fb72-4ff6-8cd9-eef2ee18d72f"
+    },
+    {
+      "occurredAt": "2026-05-23T09:44:12.009Z",
+      "eventType": "DRAFT_UPDATED",
+      "userInput": "任务1给李嘉男，任务2、3、4给李强做",
+      "traceId": "50747476-ddf4-40d0-8c45-4d16303e600a"
+    },
+    {
+      "occurredAt": "2026-05-26T06:00:28.765Z",
+      "eventType": "MESSAGE_ONLY",
+      "userInput": "新任务\n负责人 李嘉男\n任务名称  创新通道答辩材料制作\n任务内容 完成创新通道答辩PPT定稿与答辩视频录制，材料交曹杰统一回复审评中心。\n交付文件  答辩PPT终版；答辩视频文件；材料说明清单。\n完成标志  曹杰确认材料齐套并可邮件提交；PPT内容覆盖创新性、临床价值、数据证据和风险控制。",
+      "traceId": "eebd39c4-fffc-4a7b-afb5-0046df1d3806"
+    },
+    {
+      "occurredAt": "2026-05-26T06:02:43.282Z",
+      "eventType": "MESSAGE_ONLY",
+      "userInput": "该任务所属主任务为“创新通道申请”\n1.本次需要完成的子任务截止日期为2026.05.28  2.PPT",
+      "traceId": "c0df1fe7-2e59-4f45-875c-0fccf2ace495"
+    },
+    {
+      "occurredAt": "2026-05-26T06:09:30.960Z",
+      "eventType": "DRAFT_UPDATED",
+      "userInput": "1.PPT之前已定稿，本次仅需讲解录制视频。  \n2.  2.1汇报视频（重要）\n（1）基于“汇报PPT”录制一份时长不超出40min的汇报视频\n（2）采用录屏方式（只保留汇报人声音和PPT画面，汇报人声音清晰洪亮）\n（3）建议适当控制视频大小和格式（普通mp4格式即可，兼容于普通视频播放软件）\n（4）汇报者（包括但不限于PPT汇报者、动物试验或临床试验讲解者等）仅限于申请人内部工作人员\n2.2.汇报者介绍\n（1）内容应包括汇报人姓名及职务\n（2）单独的文档（word或txt均可）\n3.视频需要曹杰和法规汤金辉审核。",
+      "traceId": "f2f6df3c-cee7-40b2-adc1-80ac7b629471"
+    },
+    {
+      "occurredAt": "2026-05-26T06:22:03.313Z",
+      "eventType": "DRAFT_UPDATED",
+      "userInput": "确认发布",
+      "traceId": "c87cd069-4b80-42af-ba31-15f00742f249"
+    },
+    {
+      "occurredAt": "2026-05-26T08:23:42.141Z",
+      "eventType": "DRAFT_UPDATED",
+      "userInput": "新任务：\n负责人 李嘉男\n任务名称 微导管供应商与双管线决策\n任务内容 获取苏州迈拓Pro18仿制可行性反馈；与李强、曹杰评估是否签约；同步定义激光光纤微导管需求边界。\n交付文件《Pro18仿制可行性评估》；《激光光纤微导管需求要点》；是否签约/下单建议。\n完成标志 形成明确决策：签约/补充验证/暂停；激光微导管是否同步下单有结论。",
+      "traceId": "4c59bece-e7e6-47cd-be7a-fdee1e023114"
+    },
+    {
+      "occurredAt": "2026-05-26T08:26:29.337Z",
+      "eventType": "MESSAGE_ONLY",
+      "userInput": "确认发布",
+      "traceId": "f8c76af9-0b79-4c86-b0bd-2475cb09a040"
+    }
+  ],
+  "lastEmployeeSearchHits": [
+    {
+      "userId": "02573051084320",
+      "displayName": "李嘉男",
+      "department": "售后服务部",
+      "hitAt": "2026-05-26T08:23:34.188Z"
+    },
+    {
+      "userId": "0468001250844204",
+      "displayName": "李强",
+      "department": "导管研发",
+      "hitAt": "2026-05-26T08:22:54.542Z"
+    },
+    {
+      "userId": "0243556302843671",
+      "displayName": "曹杰",
+      "department": "项目管理部门",
+      "hitAt": "2026-05-26T08:22:55.533Z"
+    }
+  ],
+  "canonicalUserId": "0243556302843671",
+  "threadKind": "main",
+  "threadId": "main",
+  "scopeAuditTrail": [
+    {
+      "at": "2026-05-26T06:00:20.773Z",
+      "eventType": "SCOPE_CREATED",
+      "fromScopeId": "scope:e0352806",
+      "toScopeId": "scope:c9753310",
+      "scopeLabel": "创新通道答辩材料制作",
+      "reason": "用户明确要求开启新任务，与之前的微导管委托研发项目无关。"
+    },
+    {
+      "at": "2026-05-26T06:22:02.652Z",
+      "eventType": "SCOPE_CREATED",
+      "fromScopeId": "scope:c9753310",
+      "toScopeId": "scope:3541c38e",
+      "scopeLabel": "（发放后新规划）",
+      "reason": "auto_rotate_after_publish"
+    }
+  ],
+  "latestDraft": {
+    "responseIntent": "DRAFT",
+    "assistantMessage": "请补充任务的期望截止日期。",
+    "classification": {
+      "domain": "",
+      "subtype": "",
+      "confidence": "",
+      "rationale": [],
+      "missingInformation": []
+    },
+    "tasks": [
+      {
+        "id": "task_1",
+        "title": "获取并评估Pro18仿制可行性",
+        "objective": "从苏州迈拓获取Pro18仿制的技术反馈，评估技术路径、周期与风险。",
+        "inputMaterials": [],
+        "actions": [
+          "联系苏州迈拓获取技术资料与反馈",
+          "组织内部技术团队评估仿制难度与风险",
+          "撰写可行性评估报告"
+        ],
+        "deliverables": [
+          "《Pro18仿制可行性评估》"
+        ],
+        "completionCriteria": [
+          "获得供应商书面或会议反馈记录",
+          "完成技术可行性分析报告并通过内部评审"
+        ],
+        "timeNode": {
+          "checkpoints": [],
+          "dueAt": ""
+        },
+        "feedbackFrequency": "每周",
+        "risksAndOpenQuestions": [],
+        "dependencyTaskIds": []
+      },
+      {
+        "id": "task_2",
+        "title": "定义激光光纤微导管需求边界",
+        "objective": "明确激光光纤微导管的技术指标、应用场景及验收标准。",
+        "inputMaterials": [],
+        "actions": [
+          "调研临床与市场对激光微导管的需求",
+          "与技术团队确定关键技术指标",
+          "撰写并确认需求要点文档"
+        ],
+        "deliverables": [
+          "《激光光纤微导管需求要点》"
+        ],
+        "completionCriteria": [
+          "完成需求调研与内部讨论",
+          "输出经确认的需求要点文档"
+        ],
+        "timeNode": {
+          "checkpoints": [],
+          "dueAt": ""
+        },
+        "feedbackFrequency": "每周",
+        "risksAndOpenQuestions": [],
+        "dependencyTaskIds": []
+      },
+      {
+        "id": "task_3",
+        "title": "综合评估与签约决策",
+        "objective": "结合可行性评估与需求定义，与李强、曹杰共同决策是否签约及下单。",
+        "inputMaterials": [],
+        "actions": [
+          "汇总技术评估与需求文档",
+          "与李强、曹杰召开决策会议",
+          "形成最终决策建议并上报"
+        ],
+        "deliverables": [
+          "签约/下单决策建议"
+        ],
+        "completionCriteria": [
+          "召开决策会议并形成会议纪要",
+          "输出明确的决策结论（签约/补充验证/暂停）",
+          "明确激光微导管是否同步下单"
+        ],
+        "timeNode": {
+          "checkpoints": [],
+          "dueAt": ""
+        },
+        "feedbackFrequency": "每周",
+        "risksAndOpenQuestions": [],
+        "dependencyTaskIds": [
+          "task_1",
+          "task_2"
+        ]
+      }
+    ],
+    "openQuestions": [
+      "请补充任务的期望截止日期。"
+    ],
+    "title": "微导管供应商与双管线决策",
+    "description": "获取苏州迈拓Pro18仿制可行性反馈，评估签约可行性；同步定义激光光纤微导管需求边界，形成明确决策。",
+    "stagedBy": "prepare_publish_task",
+    "stagedAt": "2026-05-26T08:23:39.199Z",
+    "stagedDraftHash": "7ab55945e24e5e68",
+    "stagedAssignmentHash": "6e1973b29c383a70"
+  },
+  "latestAssignment": {
+    "assignments": [
+      {
+        "taskId": "task_1",
+        "primary": {
+          "userId": "02573051084320"
+        },
+        "confidence": "HIGH"
+      },
+      {
+        "taskId": "task_2",
+        "primary": {
+          "userId": "02573051084320"
+        },
+        "confidence": "HIGH"
+      },
+      {
+        "taskId": "task_3",
+        "primary": {
+          "userId": "02573051084320"
+        },
+        "confidence": "HIGH"
+      }
+    ],
+    "stagedBy": "prepare_publish_task",
+    "stagedAt": "2026-05-26T08:23:39.199Z"
+  }
+}

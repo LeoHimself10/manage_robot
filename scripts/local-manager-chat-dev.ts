@@ -25,6 +25,8 @@ import { canonicalMainChatKey } from "../src/web/canonical-main-session";
 
 const LOCAL_PORT = Number(process.env.ASSIGNMENT_WEB_PORT ?? "8787") || 8787;
 const LOCAL_MANAGER_ID = "manager-local-dev";
+const LOCAL_ADMIN_ID = "admin-local-dev";
+const LOCAL_EMPLOYEE_ID = "u_lisi";
 const DATA_ROOT = join(process.cwd(), "data", "local-manager-chat-dev");
 const LOCAL_PLAN_ID = "local-chat-ux-demo-plan";
 
@@ -74,6 +76,20 @@ function mergeLocalManagerWhitelist(): void {
   process.env.WORKBENCH_MANAGER_USER_IDS = Array.from(ids).join(",");
 }
 
+function mergeLocalAdminWhitelist(): void {
+  const ids = new Set<string>();
+  const raw = process.env.WORKBENCH_ADMIN_USER_IDS?.trim();
+  if (raw) {
+    raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((id) => ids.add(id));
+  }
+  ids.add(LOCAL_ADMIN_ID);
+  process.env.WORKBENCH_ADMIN_USER_IDS = Array.from(ids).join(",");
+}
+
 function ensureLocalEnv(resetData: boolean): void {
   if (resetData && existsSync(DATA_ROOT)) {
     rmSync(DATA_ROOT, { recursive: true, force: true });
@@ -87,6 +103,7 @@ function ensureLocalEnv(resetData: boolean): void {
   process.env.WORKBENCH_ENFORCE_ACTION_GUARDS ??= "1";
   mergeLocalManagerWhitelist();
   mergePortfolioWhitelist();
+  mergeLocalAdminWhitelist();
   process.env.WORKBENCH_SESSION_SECRET ??= "local-dev-session-secret-min-32-chars!!";
   process.env.ASSIGNMENT_WEB_SECRET ??= "local-dev-assignment-secret-min-32-chars!!";
   process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL ??= `http://127.0.0.1:${LOCAL_PORT}`;
@@ -113,6 +130,17 @@ function seedDirectory(): void {
       position: "Manager",
       active: true,
       isAdmin: false,
+      isBoss: false,
+      isSenior: false,
+    });
+    store.upsertContact({
+      userId: LOCAL_ADMIN_ID,
+      name: "本地测试管理员",
+      departmentIds: ["管理部"],
+      departmentNames: ["管理部"],
+      position: "Admin",
+      active: true,
+      isAdmin: true,
       isBoss: false,
       isSenior: false,
     });
@@ -511,7 +539,9 @@ function printBanner(): void {
   console.log("");
   console.log("1) 浏览器打开登录页");
   console.log(`   http://127.0.0.1:${LOCAL_PORT}/workbench`);
-  console.log(`   userId: ${LOCAL_MANAGER_ID}  身份: 自动判定（推荐）或 主管`);
+  console.log(`   主管 userId: ${LOCAL_MANAGER_ID}`);
+  console.log(`   管理员 userId: ${LOCAL_ADMIN_ID}`);
+  console.log(`   员工 userId: ${LOCAL_EMPLOYEE_ID}（李四）`);
   console.log(`   （脚本已强制将 ${LOCAL_MANAGER_ID} 并入 WORKBENCH_MANAGER_USER_IDS）`);
   console.log("");
   console.log("2) 智能规划助手（主线程，已预置草案 + 2 条历史消息）");
@@ -527,7 +557,13 @@ function printBanner(): void {
   console.log("5) 周度 Dashboard（已预置演示正式任务）");
   console.log(`   http://127.0.0.1:${LOCAL_PORT}/workbench/manager/dashboard`);
   console.log("");
-  console.log("6) UI 预览稿（静态 HTML，无需服务）");
+  console.log("6) 员工工作台");
+  console.log(`   http://127.0.0.1:${LOCAL_PORT}/workbench/employee?view=new`);
+  console.log("");
+  console.log("7) 管理员工作台");
+  console.log(`   http://127.0.0.1:${LOCAL_PORT}/workbench/admin`);
+  console.log("");
+  console.log("8) UI 预览稿（静态 HTML，无需服务）");
   console.log("   docs/mockups/manager-weekly-dashboard-ui-v3-preview.html");
   console.log("");
   console.log("已启用: WORKBENCH_PROJECT_PORTFOLIO_USER_IDS 含 manager-local-dev");

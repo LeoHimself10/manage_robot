@@ -14,6 +14,9 @@ Eval 启动时设置独立 `EVAL_DATA_DIR` 与 SQLite；角色 A 预置 OCT / �
 ```bash
 npm run eval:portfolio-regression   # 角色 B：禁止 project 工具与追问项目
 npm run eval:project-portfolio      # 角色 A：P1–P4 场景
+npm run eval:portfolio-full        # L0 vitest + L2 spot + L3 chains（推荐发版）
+npm run eval:portfolio-spot        # 10 单轮
+npm run eval:portfolio-chains      # 3 链 11 turn
 npm run eval:portfolio-suite        # 上两者 + eval:assignment-gate
 ```
 

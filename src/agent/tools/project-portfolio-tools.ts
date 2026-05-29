@@ -190,6 +190,11 @@ export function buildProjectPortfolioToolHandlers(deps: {
       return { ok: false, reason: "invalid_project", hint: "project_id 无效或非本人 active 项目" };
     }
     session.activeProjectId = pid;
+    if (session.latestDraft && typeof session.latestDraft === "object" && !Array.isArray(session.latestDraft)) {
+      const draft = session.latestDraft as Record<string, unknown>;
+      draft.projectId = pid;
+      draft.projectName = proj.name;
+    }
     deps.onSessionMutated?.(session);
     return { ok: true, projectId: pid, projectName: proj.name };
   };

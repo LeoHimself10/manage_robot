@@ -1,45 +1,23 @@
-import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
+import { renderWorkbenchPage } from "./workbench-shell";
 import { buildSubtaskPlanningFieldsClientJs } from "./workbench-subtask-fields-snippet";
 import { buildWorkbenchEmployeeAuthClientJs } from "./workbench-employee-auth-snippet";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 
 /** Single-page employee workbench: `?view=new|current|history|profile|security` */
 export function renderEmployeeWorkbenchPage(): string {
-  return `<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>员工工作台</title>
-<style>${WORKBENCH_APP_BASE_CSS}</style>
-</head>
-<body>
-<div class="app-shell">
-  <header class="topbar topbar--compact">
-    <div>
-      <div class="brand">员工工作台</div>
-      <h1 class="page-title" id="empPageTitle">工作台</h1>
-    </div>
-    <div class="top-actions">
-      <nav class="nav-pills" aria-label="员工导航">
-        <a id="navManager" href="/workbench/manager/tasks" hidden>主管工作台</a>
-        <a id="navNew" href="/workbench/employee?view=new">待承接</a>
-        <a id="navCur" href="/workbench/employee?view=current">进行中</a>
-        <a id="navHist" href="/workbench/employee?view=history">已完成</a>
-        <a id="navProf" href="/workbench/employee?view=profile">能力画像</a>
-        <a id="navSecurity" href="/workbench/employee?view=security" hidden>账号安全</a>
-      </nav>
-      <button type="button" class="btn btn-ghost" id="logoutBtn">退出</button>
-    </div>
-  </header>
-
-  <div id="panelNew" hidden>
+  return renderWorkbenchPage({
+    role: "employee",
+    activeNav: "emp-new",
+    title: "待承接",
+    pageTitle: "员工工作台",
+    description: "主管发布后的正式子任务。请在接受前核对执行要点。",
+    mainHtml: `
+  <div id="panelNew">
     <p class="page-desc" id="empPageDescNew">主管发布后的正式子任务。请在接受前核对下方六项要点；拒绝或需要主管协助时请填写说明。</p>
     <section class="kpis kpis--2" aria-live="polite">
       <div class="kpi"><div class="lbl">待您处理</div><div class="val" id="kpiNewActionable">—</div></div>
       <div class="kpi"><div class="lbl">已处理 · 等主管</div><div class="val" id="kpiNewWaiting">—</div></div>
     </section>
-    <div class="info-banner" role="note">提示：请先核对执行要点与截止，再接受或拒绝；需要主管协助时请选协助类型并填写说明。</div>
     <div class="emp-list-toolbar">
       <input id="searchNew" type="search" placeholder="搜索任务标题 / 编号 / 说明" autocomplete="off" />
     </div>
@@ -53,7 +31,6 @@ export function renderEmployeeWorkbenchPage(): string {
       <div class="kpi"><div class="lbl">执行中</div><div class="val" id="kpiCurDoing">—</div></div>
       <div class="kpi"><div class="lbl">阻塞</div><div class="val" id="kpiCurBlocked">—</div></div>
     </section>
-    <div class="info-banner" role="note">提示：及时更新进度便于主管掌握风险；申请调整后请关注「待主管回复」状态。</div>
     <div class="emp-list-toolbar">
       <input id="searchCur" type="search" placeholder="搜索任务标题 / 编号 / 说明" autocomplete="off" />
     </div>
@@ -140,7 +117,6 @@ export function renderEmployeeWorkbenchPage(): string {
       <div class="feedback muted" id="passwordFeedback" role="alert"></div>
     </div>
   </div>
-</div>
 
 <!-- 弹窗：协助/拒绝 -->
 <div class="wb-modal-overlay" id="actionModalOverlay" role="dialog" aria-modal="true" aria-labelledby="actionModalTitle">
@@ -217,9 +193,8 @@ export function renderEmployeeWorkbenchPage(): string {
       <button type="button" class="btn btn-secondary" id="noteModalOkBtn">关闭</button>
     </div>
   </div>
-</div>
-
-<script>
+</div>`,
+    scriptHtml: `<script>
 (function () {
   ${buildWorkbenchEmployeeAuthClientJs()}
   ${buildWorkbenchViewSwitchClientJs()}
@@ -413,14 +388,14 @@ export function renderEmployeeWorkbenchPage(): string {
     closeModal('progressModalOverlay');
     closeModal('noteModalOverlay');
     if (view === 'security') {
-      var navSec = document.getElementById('navSecurity');
+      var navSec = document.querySelector('.wb-rail-link[data-wb-nav="emp-security"]');
       if (navSec && navSec.hidden) view = 'new';
     }
-    document.querySelectorAll('.nav-pills a').forEach(function (a) { a.classList.remove('active'); });
-    var map = { new: 'navNew', current: 'navCur', history: 'navHist', profile: 'navProf', security: 'navSecurity' };
-    var nid = map[view] || 'navNew';
-    var na = document.getElementById(nid);
-    if (na) na.classList.add('active');
+    document.querySelectorAll('.wb-rail-link[data-wb-nav]').forEach(function (a) { a.classList.remove('is-on-emp'); });
+    var map = { new: 'emp-new', current: 'emp-cur', history: 'emp-hist', profile: 'emp-prof', security: 'emp-security' };
+    var navKey = map[view] || 'emp-new';
+    var na = document.querySelector('.wb-rail-link[data-wb-nav="' + navKey + '"]');
+    if (na) na.classList.add('is-on-emp');
     document.getElementById('panelNew').hidden = view !== 'new';
     document.getElementById('panelCur').hidden = view !== 'current';
     document.getElementById('panelHist').hidden = view !== 'history';
@@ -939,7 +914,7 @@ export function renderEmployeeWorkbenchPage(): string {
     window.location.href = (data && data.redirectTo) ? data.redirectTo : '/workbench';
   });
 
-  document.querySelectorAll('.nav-pills a[href*="view="]').forEach(function (a) {
+  document.querySelectorAll('.wb-rail-link[href*="view="]').forEach(function (a) {
     a.addEventListener('click', function (ev) {
       ev.preventDefault();
       try {
@@ -952,7 +927,6 @@ export function renderEmployeeWorkbenchPage(): string {
   window.addEventListener('popstate', function () { showView(getView()); });
   showView(getView());
 })();
-</script>
-</body>
-</html>`;
+</script>`,
+  });
 }

@@ -29,7 +29,7 @@
 
 - **接口**：DashScope OpenAI 兼容；默认策略见 `model-policy.ts`；线上可 `QWEN_MODEL` 切换（如 `qwen3.6-flash` 降延迟，需自行验证工具调用质量）。
 - **Prompt 版本**：`orchestrator-agent-v5.23.17`（`src/agent/demo/qwen-prompt.ts`）。对用户口径统一「发放/已发放」；内部工具名仍为 `prepare_publish_task` / `publish_task`。
-- **项目（Portfolio，可选）**：`WORKBENCH_PROJECT_PORTFOLIO_*` 白名单内主管启用 `projects` 表 + `tasks.project_id`（可空）、**项目总览** + **历史任务（默认按项目归档、批量/行内归入）**、`list_projects` / `create_project` / `suggest_project` / `set_active_project`；周会投屏用 **周度 Dashboard**（非项目总览）；名单外主管（角色 B）界面与 Agent 与现网一致。
+- **项目（Portfolio，可选）**：`WORKBENCH_PROJECT_PORTFOLIO_*` 白名单内主管启用 `projects` 表 + `tasks.project_id`（可空）、**项目总览** + **历史任务（默认按项目归档、批量/行内归入）**、`list_projects` / `create_project` / `suggest_project` / `set_active_project`；**会议待办入库**（`/workbench/manager/meeting-import`，粘贴/链接 → 预览 → 按父任务批量发布/追加，仅 Portfolio 主管）；周会投屏用 **周度 Dashboard**（非项目总览）；名单外主管（角色 B）界面与 Agent 与现网一致。
 - **子任务防重复**：`appendSubtask` 支持 `clientRequestId` + 内容 dedup（`WORKBENCH_APPEND_SUBTASK_DEDUP_SECONDS`）；建议生产 `WORKBENCH_ENFORCE_ACTION_GUARDS=1`；`add_draft_subtask` 单轮配额 `ADD_DRAFT_SUBTASK_PER_ORCHESTRATOR_MAX`（默认 4）。
 - **Prompt profile**（`buildQwenPlannerSystemPrompt`）：仅 **`planner`** 与 **`employee`** 两套正文；主管/admin **共用 planner 正文** + `managerFollowup` 注入第六模式 **FOLLOWUP**（见 qwen-prompt.ts 注释，勿回退独立 manager prompt）。
 - **Tool profile**（`buildToolRegistry`）：`planner` / `manager` / `admin` / `employee` / `full`；与 prompt profile **解耦**——例如 `DINGTALK_ROLE_ROUTING_ENABLED=1` 时主管路由为 `promptProfile=planner` + `toolProfile=manager`。

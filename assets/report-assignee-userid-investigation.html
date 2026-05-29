@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>负责人列显示 userId 问题分析报告</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #4da3ff;
+      --danger: #ff6b6b;
+      --warn: #ffb020;
+      --ok: #3dd68c;
+      --code-bg: #0d1117;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 1.75rem; margin: 0 0 8px; }
+    .subtitle { color: var(--muted); margin-bottom: 28px; }
+    .verdict {
+      background: linear-gradient(135deg, #2a1f1f 0%, #1a2332 100%);
+      border: 1px solid #5c3030;
+      border-left: 4px solid var(--danger);
+      border-radius: 10px;
+      padding: 18px 20px;
+      margin-bottom: 28px;
+    }
+    .verdict strong { color: #ff8a8a; }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 22px;
+      margin-bottom: 18px;
+    }
+    h2 { font-size: 1.15rem; margin: 0 0 14px; color: var(--accent); }
+    h3 { font-size: 1rem; margin: 18px 0 8px; }
+    p, li { color: #c8d3e0; }
+    ul { padding-left: 1.2rem; }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 10px;
+    }
+    .meta-item {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .meta-item .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta-item .value { font-size: 0.95rem; margin-top: 4px; word-break: break-all; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #121a24; color: var(--muted); font-weight: 600; }
+    code, pre {
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 0.82rem;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      color: #b8c5d6;
+    }
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .tag-ok { background: #1a3d2e; color: var(--ok); }
+    .tag-bad { background: #3d1a1a; color: var(--danger); }
+    .tag-warn { background: #3d301a; color: var(--warn); }
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin: 12px 0;
+    }
+    .flow-step {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+    }
+    .flow-arrow { color: var(--muted); }
+    .highlight { color: #ffd166; }
+    footer { margin-top: 32px; color: var(--muted); font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>负责人列显示 userId 而非姓名 — 根因分析报告</h1>
+    <p class="subtitle">案件：曹杰反馈 · 任务「微导管供应商与双管线决策」· ECS 47.243.199.153 · 2026-05-26 16:23（北京时间）</p>
+
+    <div class="verdict">
+      <strong>结论（已确认）：</strong>
+      模型与口播文案正确识别「李嘉男」，<code>search_employees</code> 也命中了姓名；
+      但同轮 <code>prepare_publish_task</code> 重建 <code>latestAssignment</code> 时<strong>只写入 userId、丢弃 displayName</strong>，
+      结构化任务表渲染层在无 displayName 时回退为 userId，故钉钉表内出现 <code>02573051084320</code>。
+      <strong>不是搜人失败，也不是模型幻觉。</strong>
+    </div>
+
+    <section>
+      <h2>1. 现象复述</h2>
+      <table>
+        <thead>
+          <tr><th>位置</th><th>期望</th><th>实际</th><th>状态</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>用户输入「负责人 李嘉男」</td>
+            <td>李嘉男</td>
+            <td>李嘉男</td>
+            <td><span class="tag tag-ok">正常</span></td>
+          </tr>
+          <tr>
+            <td>助手回复正文「完成负责人指派（李嘉男）」</td>
+            <td>李嘉男</td>
+            <td>李嘉男</td>
+            <td><span class="tag tag-ok">正常</span></td>
+          </tr>
+          <tr>
+            <td>结构化任务表「负责人」列（3 行）</td>
+            <td>李嘉男</td>
+            <td><code>02573051084320</code></td>
+            <td><span class="tag tag-bad">异常</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>2. ECS 日志时间线（traceId: 4c59bece-e7e6-47cd-be7a-fdee1e023114）</h2>
+      <div class="meta-grid" style="margin-bottom: 16px;">
+        <div class="meta-item"><div class="label">容器</div><div class="value">manage-robot-dingtalk @ 47.243.199.153</div></div>
+        <div class="meta-item"><div class="label">用户消息 ID</div><div class="value">b5200bd_632_19d43597628_93bb99c</div></div>
+        <div class="meta-item"><div class="label">会话文件</div><div class="value">data/sessions/d2b037f0…0171f.json</div></div>
+        <div class="meta-item"><div class="label">Plan 快照</div><div class="value">data/plans/4c59bece….json</div></div>
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>UTC 时间</th><th>北京时间</th><th>事件</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>08:23:34.189</td><td>16:23:34</td>
+            <td><code>search_employees</code></td>
+            <td>iteration 1，13ms</td>
+          </tr>
+          <tr>
+            <td>08:23:36.832</td><td>16:23:36</td>
+            <td><code>bulk_assign_tasks</code></td>
+            <td>iteration 2，2ms，ok</td>
+          </tr>
+          <tr>
+            <td>08:23:39.200</td><td>16:23:39</td>
+            <td><code>prepare_publish_task</code></td>
+            <td>iteration 3，11ms — <span class="highlight">此处覆盖 latestAssignment</span></td>
+          </tr>
+          <tr>
+            <td>08:23:41.452</td><td>16:23:41</td>
+            <td><code>orchestrator_done</code></td>
+            <td>messagePreview 含「李嘉男」</td>
+          </tr>
+          <tr>
+            <td>08:23:42.141</td><td>16:23:42</td>
+            <td><code>dingtalk_handler_timing</code></td>
+            <td><code>renderedTaskTable: true</code>，出站 Markdown 已含 userid 列</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>关键 stdout 片段</h3>
+      <pre>{
+  "event": "orchestrator_done",
+  "traceId": "4c59bece-e7e6-47cd-be7a-fdee1e023114",
+  "toolCallsTotal": 3,
+  "messagePreview": "已为任务「微导管供应商与双管线决策」完成负责人指派（李嘉男）并生成发布预览。请确认是否发放给员工承接？"
+}
+
+{
+  "event": "dingtalk_handler_timing",
+  "traceId": "4c59bece-e7e6-47cd-be7a-fdee1e023114",
+  "renderedTaskTable": true,
+  "orchestratorMs": 52053,
+  "sendReplyMs": 678
+}</pre>
+    </section>
+
+    <section>
+      <h2>3. 会话落库证据</h2>
+
+      <h3>3.1 搜人缓存 — 姓名存在</h3>
+      <pre>"lastEmployeeSearchHits": [
+  { "userId": "02573051084320", "displayName": "李嘉男", ... },
+  { "userId": "...", "displayName": "李强", ... },
+  { "userId": "...", "displayName": "曹杰", ... }
+]</pre>
+      <p>说明：<code>search_employees</code> 成功，系统知道 userid ↔ 姓名映射。</p>
+
+      <h3>3.2 指派落库 — displayName 被抹掉</h3>
+      <pre>"latestAssignment": {
+  "assignments": [
+    { "taskId": "task_1", "primary": { "userId": "02573051084320" }, "confidence": "HIGH" },
+    { "taskId": "task_2", "primary": { "userId": "02573051084320" }, "confidence": "HIGH" },
+    { "taskId": "task_3", "primary": { "userId": "02573051084320" }, "confidence": "HIGH" }
+  ],
+  "stagedBy": "prepare_publish_task",
+  "stagedAt": "2026-05-26T08:23:39.199Z"
+}</pre>
+      <p>三条 assignment 的 <code>primary</code> 均<strong>无 displayName 字段</strong>。同会话内 <code>lastEmployeeSearchHits</code> 有「李嘉男」，但 assignment 未保留。</p>
+
+      <h3>3.3 实际发出的 displayContent（节选）</h3>
+      <pre>| 1 | 获取并评估Pro18仿制可行性 | … | 02573051084320 |
+| 2 | 定义激光光纤微导管需求边界 | … | 02573051084320 |
+| 3 | 综合评估与签约决策 | … | 02573051084320 |</pre>
+    </section>
+
+    <section>
+      <h2>4. 代码链路（根因）</h2>
+
+      <div class="flow">
+        <div class="flow-step">bulk_assign_tasks<br><span class="tag tag-ok">写入 displayName</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">prepare_publish_task<br><span class="tag tag-bad">重建 assignment，仅 userId</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">renderDingtalkTaskMarkdown<br><span class="tag tag-warn">无 displayName 则回退 userId</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">钉钉结构化任务表<br><span class="tag tag-bad">02573051084320</span></div>
+      </div>
+
+      <h3>4.1 prepare_publish_task 覆盖 assignment（问题引入点）</h3>
+      <p>文件：<code>src/agent/tools/prepare-publish-task.ts</code></p>
+      <pre>const stagedAssignment = {
+  assignments: subtasks.map((s) => ({
+    taskId: s.taskId,
+    primary: { userId: s.assigneeUserId },  // ← 未写入 displayName
+    confidence: "HIGH",
+  })),
+  stagedBy: "prepare_publish_task",
+  ...
+};
+deps.currentSession.latestAssignment = stagedAssignment;</pre>
+
+      <h3>4.2 表渲染回退逻辑（问题表现点）</h3>
+      <p>文件：<code>src/view/dingtalk-task-markdown.ts</code> → <code>buildAssignmentMaps()</code></p>
+      <pre>const displayName = String(primary?.displayName ?? "").trim();
+const userId = String(primary?.userId ?? "").trim();
+if (displayName) assigneeByTaskId.set(taskId, displayName);
+else if (userId) assigneeByTaskId.set(taskId, userId);  // ← 触发回退</pre>
+
+      <h3>4.3 bulk_assign_tasks 原本会写姓名（被后续步骤覆盖）</h3>
+      <p>文件：<code>src/agent/tools/bulk-assign-tasks.ts</code></p>
+      <pre>const displayName =
+  hit?.displayName
+  ?? deps.getContact?.(row.assigneeUserId)?.name?.trim()
+  ?? row.assigneeUserId;
+upsertAssignmentRow(session, row.taskId, {
+  assigneeUserId: row.assigneeUserId,
+  assigneeDisplayName: displayName,
+});</pre>
+    </section>
+
+    <section>
+      <h2>5. 排除项</h2>
+      <ul>
+        <li><strong>不是</strong>模型未识别负责人 — 正文与 messagePreview 均为「李嘉男」。</li>
+        <li><strong>不是</strong><code>search_employees</code> 失败 — 会话 <code>lastEmployeeSearchHits</code> 含正确映射。</li>
+        <li><strong>不是</strong>钉钉 Markdown 渲染 bug — 服务端 deterministic 渲染，逻辑为「无 displayName 用 userId」。</li>
+        <li><strong>不是</strong>用户输入格式问题 — 「负责人 李嘉男」已被正常解析并点将。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>6. 影响范围</h2>
+      <ul>
+        <li>凡走 <strong>bulk_assign / ASSIGN → prepare_publish_task → 结构化任务表</strong> 的路径，均可能在「负责人」列展示 userid。</li>
+        <li>同会话历史任务（如 2026-05-23「微导管产品委托研发」）归档 scope 中 <code>latestAssignment.primary</code> 同样仅有 userId，说明为<strong>系统性缺陷</strong>，非偶发。</li>
+        <li>发布到 SQLite 正式任务、钉钉工作通知卡片可能另有通讯录解析；本问题主要影响<strong>草案预览表 / 发布前确认消息</strong>的可读性。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>7. 修复建议（按优先级）</h2>
+      <table>
+        <thead>
+          <tr><th>优先级</th><th>方案</th><th>改动点</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>P0</td>
+            <td><code>prepare_publish_task</code> 重建 stagedAssignment 时保留/回填 <code>primary.displayName</code>（从原 latestAssignment、search hit 或 getContact）</td>
+            <td><code>prepare-publish-task.ts</code></td>
+          </tr>
+          <tr>
+            <td>P1</td>
+            <td>渲染层兜底：<code>buildAssignmentMaps</code> 在缺 displayName 时用 search hit / 通讯录 name 解析</td>
+            <td><code>dingtalk-task-markdown.ts</code> + 注入 resolver</td>
+          </tr>
+          <tr>
+            <td>P2</td>
+            <td>回归测试：prepare 后 assignment 必含 displayName；表渲染断言为姓名非 userid</td>
+            <td>vitest</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>8. 复现条件（最小）</h2>
+      <ol>
+        <li>主管发送含「负责人 XXX」的新任务。</li>
+        <li>Orchestrator 调用 <code>search_employees</code> + <code>bulk_assign_tasks</code>。</li>
+        <li>同轮或下一轮调用 <code>prepare_publish_task</code> 生成发布预览。</li>
+        <li>出站 <code>renderDingtalkTaskMarkdown</code> 追加结构化任务表 → 负责人列显示 userid。</li>
+      </ol>
+    </section>
+
+    <footer>
+      报告生成：Cursor Agent · 数据来源：ECS docker logs、/opt/manage_robot/data/sessions/、/opt/manage_robot/data/plans/ · 本地副本：assets/ecs-session-d2b037f0.json、assets/ecs-plan-4c59bece.json
+    </footer>
+  </div>
+</body>
+</html>
