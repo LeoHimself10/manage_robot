@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import {
   allowsEmployeeSession,
   allowsManagerSession,
+  defaultLoginViewRole,
   normalizeWorkbenchSession,
   refreshSessionFromWhitelist,
   resolveWorkbenchCapabilities,
@@ -92,5 +93,15 @@ describe("workbench-capabilities", () => {
     expect(caps.alsoManager).toBe(true);
     expect(caps.canAccessAdmin).toBe(true);
     expect(caps.canManage).toBe(true);
+  });
+
+  it("dual admin+manager defaults login view to manager", () => {
+    const adminFile = join(tmpdir(), `wb-admin-${Date.now()}.json`);
+    const mgrFile = join(tmpdir(), `wb-mgr2-${Date.now()}.json`);
+    writeFileSync(adminFile, JSON.stringify(["dual-user"]), "utf8");
+    writeFileSync(mgrFile, JSON.stringify(["dual-user"]), "utf8");
+    vi.stubEnv("WORKBENCH_ADMIN_IDS_FILE", adminFile);
+    vi.stubEnv("WORKBENCH_MANAGER_IDS_FILE", mgrFile);
+    expect(defaultLoginViewRole("dual-user")).toBe("manager");
   });
 });

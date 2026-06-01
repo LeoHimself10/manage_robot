@@ -140,3 +140,10 @@ export function defaultRedirectForView(viewRole: WorkbenchRole): string {
   if (viewRole === "manager") return "/workbench/manager/tasks";
   return "/workbench/employee?view=new";
 }
+
+/** DingTalk / test login landing: dual admin+manager users default to manager daily workbench. */
+export function defaultLoginViewRole(userId: string): WorkbenchRole {
+  const caps = resolveWorkbenchCapabilities(userId);
+  if (caps.primaryRole === "admin" && caps.alsoManager) return "manager";
+  return caps.primaryRole;
+}

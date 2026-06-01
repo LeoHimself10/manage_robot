@@ -82,6 +82,7 @@ import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist
 import {
   allowsEmployeeSession,
   allowsManagerSession,
+  defaultLoginViewRole,
   defaultRedirectForView,
   normalizeWorkbenchSession,
   refreshSessionFromWhitelist,
@@ -2768,7 +2769,7 @@ export function handleAssignmentHttp(
           return;
         }
         const dingIdentity = await dingtalkAuthClient.resolveIdentityByAuthCode(authCode);
-        const role = resolveRoleForUser(dingIdentity.userId);
+        const role = defaultLoginViewRole(dingIdentity.userId);
         logStructured({
           event: "workbench_dingtalk_auth_ok",
           userId: dingIdentity.userId,
@@ -2865,8 +2866,8 @@ export function handleAssignmentHttp(
           writeJson(res, 400, { ok: false, error: "userId is required" });
           return;
         }
-        const autoRole = resolveRoleForUser(userId);
-        if (roleInput === "admin" && autoRole !== "admin") {
+        const autoRole = defaultLoginViewRole(userId);
+        if (roleInput === "admin" && !resolveWorkbenchCapabilities(userId).canAccessAdmin) {
           writeJson(res, 403, {
             ok: false,
             error: "userId is not in admin whitelist",
@@ -3083,7 +3084,9 @@ export function handleAssignmentHttp(
       role: session.role,
       primaryRole: session.primaryRole ?? caps.primaryRole,
       canExecuteAsManager: caps.canExecuteAsManager,
-      canSwitchView: caps.canExecuteAsManager,
+      canSwitchView: caps.canExecuteAsManager || caps.canAccessAdmin,
+      canSwitchToAdmin: caps.canAccessAdmin && session.role !== "admin",
+      canSwitchToManager: caps.canManage && session.role !== "manager",
       alsoManager: caps.alsoManager,
       canAccessAdmin: caps.canAccessAdmin,
       canManage: caps.canManage,
@@ -3106,11 +3109,15 @@ export function handleAssignmentHttp(
         }
         const body = await readJsonBody(req);
         const view = String(body.view ?? "").trim();
-        if (view !== "manager" && view !== "employee") {
-          writeJson(res, 400, { ok: false, error: "view must be manager or employee" });
+        if (view !== "manager" && view !== "employee" && view !== "admin") {
+          writeJson(res, 400, { ok: false, error: "view must be manager, employee, or admin" });
           return;
         }
         const caps = resolveWorkbenchCapabilities(session.userId);
+        if (view === "admin" && !caps.canAccessAdmin) {
+          writeJson(res, 403, { ok: false, error: "User is not an admin" });
+          return;
+        }
         if (view === "manager" && !caps.canManage) {
           writeJson(res, 403, { ok: false, error: "User is not a manager" });
           return;
@@ -3127,12 +3134,17 @@ export function handleAssignmentHttp(
             return;
           }
         }
-        const nextRole: WorkbenchRole = view === "manager" ? "manager" : "employee";
+        const nextRole: WorkbenchRole =
+          view === "admin" ? "admin" : view === "manager" ? "manager" : "employee";
         const refreshed = normalizeWorkbenchSession({
           ...session,
           primaryRole: caps.primaryRole,
           role: nextRole,
         });
+        const redirectTo =
+          view === "admin"
+            ? "/workbench/admin/ops"
+            : defaultPathForRole(refreshed.role, session.userId);
         res.writeHead(200, {
           "Content-Type": "application/json; charset=utf-8",
           "Set-Cookie": buildSessionCookie(refreshed),
@@ -3142,7 +3154,7 @@ export function handleAssignmentHttp(
             ok: true,
             role: refreshed.role,
             primaryRole: refreshed.primaryRole,
-            redirectTo: defaultPathForRole(refreshed.role),
+            redirectTo,
           }),
         );
       } catch (err) {

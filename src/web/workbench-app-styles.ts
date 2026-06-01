@@ -3034,6 +3034,15 @@ body.wb-rail-is-open .wb-rail {
   background: #dbeafe !important;
   color: #1e40af !important;
 }
+.wb-role-switch--to-adm {
+  background: #faf5ff !important;
+  border: 1px solid #c4b5fd !important;
+  color: #6d28d9 !important;
+}
+.wb-role-switch--to-adm:hover {
+  background: #f3e8ff !important;
+  color: #5b21b6 !important;
+}
 
 .wb-main {
   flex: 1;

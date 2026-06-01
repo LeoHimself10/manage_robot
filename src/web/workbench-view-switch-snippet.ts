@@ -1,4 +1,4 @@
-/** Shared client JS for manager ↔ employee workbench view switching. */
+/** Shared client JS for manager ↔ employee ↔ admin workbench view switching. */
 export function buildWorkbenchViewSwitchClientJs(): string {
   return `
   async function wbSwitchView(view, redirectTo) {
@@ -22,6 +22,25 @@ export function buildWorkbenchViewSwitchClientJs(): string {
         alert(err && err.message ? err.message : String(err));
       });
     });
+  }
+  function wbBindViewSwitchLinks() {
+    document.querySelectorAll('[data-wb-view]').forEach(function (el) {
+      if (el.getAttribute('data-wb-view-bound') === '1') return;
+      el.setAttribute('data-wb-view-bound', '1');
+      el.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        var view = el.getAttribute('data-wb-view') || '';
+        var redirectTo = el.getAttribute('data-wb-redirect') || '';
+        void wbSwitchView(view, redirectTo || undefined).catch(function (err) {
+          alert(err && err.message ? err.message : String(err));
+        });
+      });
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wbBindViewSwitchLinks);
+  } else {
+    wbBindViewSwitchLinks();
   }
 `;
 }

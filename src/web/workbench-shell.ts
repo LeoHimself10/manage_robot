@@ -1,4 +1,5 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
+import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 
 export type WorkbenchShellRole = "manager" | "employee" | "admin";
 
@@ -58,7 +59,7 @@ function buildManagerRail(activeNav: WorkbenchNavId, portfolioEnabled: boolean, 
   const adminOpsLink = showAdminOpsLink
     ? `<div class="wb-rail-grp">
   <div class="wb-rail-grp-lbl">管理</div>
-  ${railLink("/workbench/admin/ops", "运营看板", "adm-ops", activeNav, "admin")}
+  <a class="wb-rail-link${activeNav === "adm-ops" ? " is-on-adm" : ""}" href="/workbench/admin/ops" data-wb-nav="adm-ops" data-wb-view="admin" data-wb-redirect="/workbench/admin/ops">运营看板</a>
 </div>`
     : "";
   return `<div class="wb-rail-grp">
@@ -107,19 +108,27 @@ function roleMeta(role: WorkbenchShellRole): { mark: string; subtitle: string; m
   return { mark: "任", subtitle: "主管工作台", markClass: "" };
 }
 
-function roleSwitchHtml(role: WorkbenchShellRole, compact = false): string {
+function roleSwitchHtml(
+  role: WorkbenchShellRole,
+  compact = false,
+  opts?: { showAdminOpsLink?: boolean },
+): string {
+  const sm = compact ? " btn-sm" : "";
   if (role === "manager") {
-    return `<a class="btn wb-role-switch wb-role-switch--to-emp${compact ? " btn-sm" : ""}" href="/workbench/employee?view=new" id="navMyTasks" data-wb-view="employee" data-wb-redirect="/workbench/employee?view=new"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">我负责的任务</span></a>`;
+    const adminBtn = opts?.showAdminOpsLink
+      ? `<a class="btn wb-role-switch wb-role-switch--to-adm${sm}" href="/workbench/admin/ops" data-wb-view="admin" data-wb-redirect="/workbench/admin/ops"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">运营看板</span></a>`
+      : "";
+    return `${adminBtn}<a class="btn wb-role-switch wb-role-switch--to-emp${sm}" href="/workbench/employee?view=new" id="navMyTasks" data-wb-view="employee" data-wb-redirect="/workbench/employee?view=new"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">我负责的任务</span></a>`;
   }
   if (role === "employee") {
-    return `<a class="btn wb-role-switch wb-role-switch--to-mgr${compact ? " btn-sm" : ""}" href="/workbench/manager/tasks" id="navManager" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks" hidden><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`;
+    return `<a class="btn wb-role-switch wb-role-switch--to-mgr${sm}" href="/workbench/manager/tasks" id="navManager" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks" hidden><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`;
   }
-  return `<a class="btn wb-role-switch wb-role-switch--to-mgr${compact ? " btn-sm" : ""}" href="/workbench/manager/tasks" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`;
+  return `<a class="btn wb-role-switch wb-role-switch--to-mgr${sm}" href="/workbench/manager/tasks" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`;
 }
 
-function defaultHeadActionsHtml(role: WorkbenchShellRole): string {
+function defaultHeadActionsHtml(role: WorkbenchShellRole, showAdminOpsLink = false): string {
   const logout = `<button type="button" class="btn btn-ghost btn-sm wb-appbar-logout" id="logoutBtn">退出</button>`;
-  return `${roleSwitchHtml(role, true)}${logout}`;
+  return `${roleSwitchHtml(role, true, { showAdminOpsLink })}${logout}`;
 }
 
 function buildAppBar(role: WorkbenchShellRole, headActionsHtml: string): string {
@@ -144,6 +153,9 @@ function railToggleBtn(extraClass = ""): string {
 
 export function buildWorkbenchShellClientJs(): string {
   return `<script>
+${buildWorkbenchViewSwitchClientJs()}
+</script>
+<script>
 (function () {
   var KEY = 'wb-rail-open';
   var MOBILE_MQ = window.matchMedia('(max-width: 767px)');
@@ -238,7 +250,9 @@ export function renderWorkbenchPage(params: {
       : params.breadcrumbHtml
         ? `<div class="wb-crumb">${params.breadcrumbHtml}</div>`
         : `<div class="wb-crumb">${escapeHtml(params.title)}</div>`;
-  const headActions = params.headActionsHtml ?? defaultHeadActionsHtml(params.role);
+  const headActions =
+    params.headActionsHtml
+    ?? defaultHeadActionsHtml(params.role, Boolean(params.showAdminOpsLink));
   const toolbar = params.headToolbarHtml ? `<div class="wb-main-toolbar">${params.headToolbarHtml}</div>` : "";
 
   const pageHead = params.hideMainHead
