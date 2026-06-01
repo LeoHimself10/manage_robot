@@ -12,6 +12,7 @@ function escapeHtml(v: string): string {
 
 export function renderManagerProjectsPage(params: {
   userLabel?: string;
+  showAdminOpsLink?: boolean;
 }): string {
   return renderWorkbenchPage({
     role: "manager",
@@ -21,6 +22,7 @@ export function renderManagerProjectsPage(params: {
     description: "按项目查看主任务整体进展；需要子任务明细请进入历史任务。周会汇报请使用周度 Dashboard。",
     userLabel: params.userLabel,
     portfolioEnabled: true,
+    showAdminOpsLink: params.showAdminOpsLink,
     extraCss: WORKBENCH_PROJECT_OVERVIEW_CSS,
     mainHtml: `
   <div class="card">

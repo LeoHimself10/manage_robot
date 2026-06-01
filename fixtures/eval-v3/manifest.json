@@ -1,0 +1,78 @@
+{
+  "id": "eval_matrix_v3",
+  "version": "3.0.0",
+  "description": "Unified eval fixture registry — chains, spot, integration groups",
+  "groups": {
+    "core": {
+      "label": "Natural-language core chains (28 turns)",
+      "runner": "natural-full-chains",
+      "fixtureRoot": "fixtures/eval-natural-full",
+      "manifestFile": "manifest.json",
+      "chainIds": [
+        "chain_oct_wbs",
+        "chain_url_mixed",
+        "chain_roster10",
+        "chain_transport",
+        "chain_roster15",
+        "chain_gate_extras"
+      ],
+      "tags": ["wbs", "draft", "read_url", "roster", "assign", "publish"]
+    },
+    "portfolio": {
+      "label": "Portfolio manager chains (11 turns)",
+      "runner": "portfolio-chains",
+      "fixtureRoot": "fixtures/eval-portfolio-full",
+      "manifestFile": "manifest.json",
+      "chainIds": [
+        "chain_pf_oct_wbs",
+        "chain_pf_no_project_ok",
+        "chain_pf_switch_publish"
+      ],
+      "tags": ["portfolio"]
+    },
+    "cross": {
+      "label": "Cross-channel workbench chain",
+      "runner": "cross-channel",
+      "chainIds": ["chain_xchannel_full"],
+      "crossFilter": "CHAIN_full",
+      "tags": ["workbench", "canonical"]
+    }
+  },
+  "spotTags": {
+    "assignment": {
+      "label": "Assignment gate single-turn (7 scenarios)",
+      "runner": "assignment-gate-llm",
+      "scenarioIds": ["A1_roster_assign_all", "A2_reassign_same_split", "A4a_split_first_task", "A4_prod_split_task2", "A4b_assign_after_split", "A5_ordinal_patch_task2", "A6_assign_from_scratch"]
+    },
+    "portfolio": {
+      "label": "Portfolio spot + role B regression",
+      "runners": ["portfolio-regression", "portfolio-spot"]
+    },
+    "misc": {
+      "label": "Publish confirm + scope switch",
+      "runners": ["publish-short", "assignment-scope-switch-llm"]
+    },
+    "read-url": {
+      "label": "read_url edge cases (non-chain)",
+      "runner": "read-url"
+    },
+    "roles": {
+      "label": "Role routing smoke (planner/manager/admin/employee)",
+      "runner": "agent-smoke"
+    },
+    "wbs-domain": {
+      "label": "WBS domain spots unique to wbs-manager",
+      "runner": "wbs-manager",
+      "scenarioFilter": "W3_rd_release,W6_eco_hardware,W7_supplier_iqc,W9_line_changeover"
+    }
+  },
+  "integration": {
+    "meeting-import": {
+      "scenarios": ["M1", "M2", "M3", "M4"]
+    }
+  },
+  "release": {
+    "criticalStages": ["unit", "integration", "portfolio-regression", "chains-core"],
+    "nonCriticalStages": ["chains-portfolio", "chains-cross", "meeting-import"]
+  }
+}

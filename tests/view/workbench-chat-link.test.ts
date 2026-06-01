@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  appendAdminOpsLinkFooter,
   appendWorkbenchChatLinkFooter,
+  buildAdminOpsDeepLinkForDingtalkOutbound,
   buildManagerChatDeepLink,
   buildManagerChatDeepLinkForDingtalkOutbound,
   normalizePublicPageUrl,
@@ -91,5 +93,17 @@ describe("workbench-chat-link", () => {
   it("appendWorkbenchChatLinkFooter adds markdown link", () => {
     const out = appendWorkbenchChatLinkFooter("hello", "https://wb.example.com/chat");
     expect(out).toContain("[在工作台继续编辑草案](https://wb.example.com/chat)");
+  });
+
+  it("buildAdminOpsDeepLinkForDingtalkOutbound wraps admin ops URL", () => {
+    process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL = "https://wb.example.com";
+    const link = buildAdminOpsDeepLinkForDingtalkOutbound();
+    expect(link).toContain("applink.dingtalk.com/page/link");
+    expect(link).toContain(encodeURIComponent("/workbench/admin/ops"));
+  });
+
+  it("appendAdminOpsLinkFooter adds admin ops link", () => {
+    const out = appendAdminOpsLinkFooter("hello", "https://wb.example.com/admin/ops");
+    expect(out).toContain("[打开运营看板（Admin）]");
   });
 });

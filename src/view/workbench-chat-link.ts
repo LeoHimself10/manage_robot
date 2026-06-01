@@ -134,3 +134,28 @@ export function appendWorkbenchChatLinkFooter(markdown: string, link: string | n
   const footer = `\n\n---\n[在工作台继续编辑草案](${link})`;
   return trimmed ? `${trimmed}${footer}` : footer.trimStart();
 }
+
+/** Public workbench admin ops dashboard URL. */
+export function buildAdminOpsDeepLink(): string | null {
+  const base = readPublicBaseUrl();
+  if (!base) return null;
+  const basePath = base.replace(/\/+$/, "");
+  const underWorkbench = basePath.endsWith("/workbench");
+  const path = underWorkbench
+    ? `${basePath}/admin/ops`
+    : `${basePath}/workbench/admin/ops`;
+  return normalizePublicPageUrl(path);
+}
+
+export function buildAdminOpsDeepLinkForDingtalkOutbound(): string | null {
+  const direct = buildAdminOpsDeepLink();
+  if (!direct) return null;
+  return wrapUrlForDingtalkClient(direct);
+}
+
+export function appendAdminOpsLinkFooter(markdown: string, link: string | null): string {
+  if (!link) return markdown;
+  const trimmed = markdown.trim();
+  const footer = `\n\n---\n[打开运营看板（Admin）](${link})`;
+  return trimmed ? `${trimmed}${footer}` : footer.trimStart();
+}

@@ -37,6 +37,7 @@ export function renderManagerTasksPage(params: {
   projectPortfolioEnabled?: boolean;
   initialProjectId?: string;
   initialView?: "group" | "flat";
+  showAdminOpsLink?: boolean;
 }): string {
   const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
   const portfolio = Boolean(params.projectPortfolioEnabled);
@@ -81,6 +82,7 @@ export function renderManagerTasksPage(params: {
     description: "查看已发布任务的进度与负责人，必要时调整分配方案。列表优先突出阻塞与待处理事项。",
     userLabel: params.userLabel,
     portfolioEnabled: portfolio,
+    showAdminOpsLink: params.showAdminOpsLink,
     extraCss: portfolio ? WORKBENCH_TASKS_PORTFOLIO_CSS + WORKBENCH_TASKS_FILTER_UNIFIED_CSS : "",
     mainHtml: `
   <div class="card mgr-tasks-card">
@@ -739,6 +741,7 @@ export function renderManagerChatPage(params: {
   userLabel?: string;
   openDraftEditor?: boolean;
   projectPortfolioEnabled?: boolean;
+  showAdminOpsLink?: boolean;
 }): string {
   const initialThreadId = params.threadId ?? "main";
   const initialKind = params.threadKind ?? "main";
@@ -752,6 +755,7 @@ export function renderManagerChatPage(params: {
     pageTitle: "智能规划助手 · 主管工作台",
     userLabel: params.userLabel,
     portfolioEnabled: portfolio,
+    showAdminOpsLink: params.showAdminOpsLink,
     bodyClass: "page-shell--chat",
     hideMainHead: true,
     mainHtml: `

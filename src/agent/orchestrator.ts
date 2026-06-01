@@ -105,6 +105,15 @@ export interface OrchestratorResult {
   toolCallsTotal: number;
   /** 本次 ReAct 实际执行过的工具名（按调用顺序，含重复）。供 eval / 观测使用。 */
   toolInvocationNames?: string[];
+  /** 可观测事件 flags（max turns、draft without json 等）。 */
+  observabilityFlags?: string[];
+  timing?: {
+    totalMs?: number;
+    llmMsTotal?: number;
+    toolsMsTotal?: number;
+    parseMsTotal?: number;
+    iterations?: Array<Record<string, unknown>>;
+  };
 }
 
 export async function runOrchestrator(
@@ -320,6 +329,7 @@ export async function runOrchestrator(
         traceId,
         toolCallsTotal: err.toolCallsExecuted,
         toolInvocationNames: toolNames,
+        observabilityFlags: [eventName],
       };
     }
     throw err;
@@ -352,7 +362,9 @@ export async function runOrchestrator(
 
   const draftLikeMessageWithoutJson =
     !draft && msg.length > 0 && looksLikeDraftStyleMessage(msg);
+  const observabilityFlags: string[] = [];
   if (draftLikeMessageWithoutJson) {
+    observabilityFlags.push("orchestrator_draft_message_without_json");
     logStructured({
       event: "orchestrator_draft_message_without_json",
       traceId,
@@ -386,6 +398,8 @@ export async function runOrchestrator(
     traceId,
     toolCallsTotal,
     toolInvocationNames,
+    timing,
+    observabilityFlags: observabilityFlags.length ? observabilityFlags : undefined,
   };
 }
 

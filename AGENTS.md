@@ -202,7 +202,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 
 - **单元 / 集成**：`npm test`（Vitest；`vitest.setup.ts` 默认关闭审计写盘与后台 scheduler）。
 - **类型检查**：`npm run typecheck`。
-- **Eval 脚本**：`npm test` → `npm run eval:assignment-gate`（L2 点将）→ `npm run eval:wbs-manager`（L3 全链）→ `npm run eval:natural-full`（28 turn 自然语言 + 现网 parity；见 `docs/eval-natural-full-plan.md`）→ Portfolio 合并后 **`npm run eval:portfolio-suite`**（`eval:portfolio-regression` 角色 B 零影响 + `eval:project-portfolio` 角色 A + `eval:assignment-gate`；见 `docs/eval-project-portfolio-plan.md`）→ 可选 `eval:read-url` / `eval:agent` / `eval:publish-short`（需 `QWEN_API_KEY`）。Eval 对齐现网见 `scripts/eval-production-parity-env.ts`。
+- **Eval 脚本（v3 矩阵）**：`npm run eval:unit`（PR）→ `npm run eval:spot`（`EVAL_TAG=` 调试）→ `npm run eval:chains`（多轮 fixture）→ **`npm run eval:release`**（发版/nightly）。Legacy 别名 `eval:deployment-parity` / `eval:natural-full` 转发至 v3。见 `docs/eval-matrix-v3.md`、`docs/agent-usage-and-eval-ops.md`。Eval 对齐现网见 `scripts/eval-production-parity-env.ts`。Admin 运营看板 `/workbench/admin/ops`。**在线 Eval**：规则 L0/L1 + **LLM Judge**（`qwen-doc-turbo`，默认 ON，5% 与异常 100%）→ `eval_candidates` → `promote-eval-candidate` → `fixtures/eval-v3/promoted`；校准 `npm run eval:judge-calibrate`。**Admin+主管双角色**：同 userId 写入 admin 与 manager 白名单；钉钉附 Admin 深链、Agent 仍 manager tools。
 - **Demo 回归**：`npm run demo:eval` / `demo:scenarios`。
 - **线上观测**：容器 stdout 结构化事件 + `data/plans` 快照；demo JSONL 主要用于 CLI 回归。
 

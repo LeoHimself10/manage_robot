@@ -1,5 +1,7 @@
 # Eval：大项目（Portfolio）双角色
 
+> **矩阵 v3**：发版用 `npm run eval:release`；Portfolio 场景见下文。详见 [eval-matrix-v3.md](./eval-matrix-v3.md)。
+
 ## 身份
 
 | 身份 | userId | 配置 |

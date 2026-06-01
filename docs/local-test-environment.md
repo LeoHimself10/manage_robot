@@ -91,13 +91,13 @@ $env:ASSIGNMENT_WEB_PORT=8788; npm run dev:manager-chat
 
 ```mermaid
 flowchart LR
-  L0[L0 自动化冒烟<br/>npm test 子集] --> L1[L1 本地 UI<br/>dev:manager-chat]
-  L1 --> L2[L2 Agent 门禁<br/>eval:assignment-gate]
-  L2 --> L3[L3 拟真全链<br/>eval:natural-full]
-  L3 --> L4[L4 发版前<br/>eval:deployment-parity]
+  L0[L0 eval:unit<br/>Vitest 无LLM] --> L1[L1 本地 UI<br/>dev:manager-chat]
+  L1 --> L2[L2 eval:spot<br/>单轮 LLM]
+  L2 --> L3[L3 eval:chains<br/>多轮 28+ turn]
+  L3 --> L4[L4 eval:release<br/>发版/nightly]
 ```
 
-按改动类型选层，不必每次都跑 L4。
+按改动类型选层，不必每次都跑 L4。详见 [eval-matrix-v3.md](./eval-matrix-v3.md) 与 [agent-usage-and-eval-ops.md](./agent-usage-and-eval-ops.md)。
 
 ---
 

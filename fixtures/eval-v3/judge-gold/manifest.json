@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "jg-pass-draft",
+      "humanPass": true,
+      "userMessage": "请把 CAPA 拆成 3 条子任务，先不要发布",
+      "assistantReply": "已整理草案，请确认截止与范围后我再帮您点将或发布。"
+    },
+    {
+      "id": "jg-fail-tool-leak",
+      "humanPass": false,
+      "userMessage": "查询我管理的任务",
+      "assistantReply": "请稍等，我将调用 list_managed_tasks 为您查询。"
+    },
+    {
+      "id": "jg-pass-clarify",
+      "humanPass": true,
+      "userMessage": "帮我规划质量改进",
+      "assistantReply": "为便于拆解，请补充：涉及产品型号、截止时间与是否需跨部门协同。"
+    }
+  ]
+}

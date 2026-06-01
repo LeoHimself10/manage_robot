@@ -1,5 +1,7 @@
 # 自然语言全场景 Eval 计划（v2）
 
+> **矩阵 v3**：发版请用 `npm run eval:release`；本文件保留场景矩阵说明。见 [eval-matrix-v3.md](./eval-matrix-v3.md)。
+
 ## 目标
 
 在 **fileNotes 方案 A + read_url + prompt v5.23.13** 上线后回归，用**真实主管话术**（不含工具名、内部 id）覆盖主链路，并以**话术质量**为硬门槛——仅「调了工具」不算通过。Eval 环境与 ECS 现网对齐见 `scripts/eval-production-parity-env.ts`（`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=30` 等）。

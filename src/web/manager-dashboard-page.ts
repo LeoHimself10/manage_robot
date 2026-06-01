@@ -15,6 +15,7 @@ export function renderManagerDashboardPage(params: {
   userLabel?: string;
   projectPortfolioEnabled?: boolean;
   initialProjectId?: string;
+  showAdminOpsLink?: boolean;
 }): string {
   const portfolio = Boolean(params.projectPortfolioEnabled);
   const initialProjectId = escapeHtml(params.initialProjectId ?? "");
@@ -36,6 +37,7 @@ export function renderManagerDashboardPage(params: {
     description: `周会投屏与进展汇报：一屏看清任务节奏、人员负载与关键动态。${who}`,
     userLabel: params.userLabel,
     portfolioEnabled: portfolio,
+    showAdminOpsLink: params.showAdminOpsLink,
     extraCss: DASHBOARD_PAGE_CSS,
     mainBodyClass: "wb-main-body app-shell--dashboard",
     mainHtml: `

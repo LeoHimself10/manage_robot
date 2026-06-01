@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent 评估与用量统计 · 交付汇报</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #171e26;
+      --surface2: #1e2832;
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #e8edf2;
+      --muted: #8b9aab;
+      --accent: #e8a838;
+      --accent-dim: rgba(232, 168, 56, 0.15);
+      --ok: #3dd68c;
+      --ok-dim: rgba(61, 214, 140, 0.12);
+      --warn: #f0b429;
+      --line: rgba(232, 168, 56, 0.35);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "IBM Plex Sans", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      min-height: 100vh;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 10% -10%, rgba(232, 168, 56, 0.08), transparent 50%),
+        radial-gradient(ellipse 60% 40% at 90% 100%, rgba(61, 214, 140, 0.05), transparent 45%),
+        repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.012) 2px, rgba(255,255,255,0.012) 3px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .wrap {
+      position: relative;
+      z-index: 1;
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    header {
+      border-left: 3px solid var(--accent);
+      padding-left: 24px;
+      margin-bottom: 48px;
+      animation: rise 0.7s ease both;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .eyebrow {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      font-family: "Newsreader", Georgia, serif;
+      font-size: clamp(2rem, 5vw, 2.75rem);
+      font-weight: 600;
+      line-height: 1.15;
+      margin-bottom: 16px;
+    }
+
+    .lede {
+      font-size: 1.05rem;
+      color: var(--muted);
+      max-width: 640px;
+    }
+
+    .hero-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px 32px;
+      margin-bottom: 40px;
+      animation: rise 0.7s 0.1s ease both;
+    }
+
+    .hero-card p {
+      font-family: "Newsreader", Georgia, serif;
+      font-size: 1.2rem;
+      font-style: italic;
+      color: var(--text);
+    }
+
+    .hero-card strong { color: var(--accent); font-style: normal; }
+
+    section {
+      margin-bottom: 44px;
+      animation: rise 0.6s ease both;
+    }
+
+    section:nth-of-type(1) { animation-delay: 0.15s; }
+    section:nth-of-type(2) { animation-delay: 0.2s; }
+    section:nth-of-type(3) { animation-delay: 0.25s; }
+    section:nth-of-type(4) { animation-delay: 0.3s; }
+    section:nth-of-type(5) { animation-delay: 0.35s; }
+    section:nth-of-type(6) { animation-delay: 0.4s; }
+    section:nth-of-type(7) { animation-delay: 0.45s; }
+    section:nth-of-type(8) { animation-delay: 0.5s; }
+
+    h2 {
+      font-family: "Newsreader", Georgia, serif;
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    h2 .num {
+      font-family: "IBM Plex Sans", sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--bg);
+      background: var(--accent);
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .section-desc {
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-bottom: 20px;
+    }
+
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 640px) {
+      .compare { grid-template-columns: 1fr; }
+    }
+
+    .box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+    }
+
+    .box.before { border-color: rgba(255, 100, 100, 0.2); }
+    .box.after { border-color: rgba(61, 214, 140, 0.25); }
+
+    .box-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .box.before .box-label { color: #f08080; }
+    .box.after .box-label { color: var(--ok); }
+
+    .box ul {
+      list-style: none;
+      font-size: 0.92rem;
+    }
+
+    .box li {
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .box li:last-child { border-bottom: none; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    th, td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: var(--surface2);
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.75rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    td:first-child { font-weight: 500; color: var(--text); }
+
+    .tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    .tag.green {
+      background: var(--ok-dim);
+      color: var(--ok);
+    }
+
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin: 16px 0;
+    }
+
+    .flow-step {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    .flow-arrow { color: var(--accent); font-weight: 700; }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    @media (max-width: 640px) {
+      .kpi-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    .kpi {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .kpi .lbl {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+
+    .kpi .val {
+      font-family: "Newsreader", serif;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+
+    .steps {
+      counter-reset: step;
+      list-style: none;
+    }
+
+    .steps li {
+      position: relative;
+      padding: 16px 16px 16px 52px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 10px;
+      font-size: 0.92rem;
+    }
+
+    .steps li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 16px;
+      top: 16px;
+      width: 24px;
+      height: 24px;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 12px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .steps li strong { color: var(--text); }
+
+    .steps li span { color: var(--muted); display: block; margin-top: 4px; font-size: 0.85rem; }
+
+    .callout {
+      background: linear-gradient(135deg, var(--accent-dim), transparent);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin-top: 20px;
+    }
+
+    .callout h3 {
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    footer {
+      margin-top: 56px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">manage_robot · 交付汇报</div>
+      <h1>Agent 评估管道<br>与上线用量统计</h1>
+      <p class="lede">面向非技术同事的说明：我们解决了什么问题、现在能看什么、日常该怎么用。</p>
+    </header>
+
+    <div class="hero-card">
+      <p>以前评估脚本<strong>多且重复</strong>，发版前同一能力测好几遍；上线后也看不清谁在用、Token 花多少、质量好不好。<br>
+      现在变成<strong>五层清晰流程 + 统一成绩单 + Admin 运营看板 + 线上质量记录</strong>，发版更省 API，运营有数可看。</p>
+    </div>
+
+    <section>
+      <h2><span class="num">1</span>评估体系：从 18 个脚本到 5 个入口</h2>
+      <p class="section-desc">记住下面五层即可，不必再记十几个 eval 命令。</p>
+      <div class="compare">
+        <div class="box before">
+          <div class="box-label">以前</div>
+          <ul>
+            <li>18 个 eval 命令，很多测同一件事</li>
+            <li>发版一次评估重复跑 2～3 遍</li>
+            <li>约 60+ 轮大模型对话，耗时长、耗 API</li>
+            <li>报告格式不统一，难对比历史</li>
+          </ul>
+        </div>
+        <div class="box after">
+          <div class="box-label">现在</div>
+          <ul>
+            <li>5 个主入口：unit → integration → spot → chains → release</li>
+            <li>发版编排不重复跑同一套</li>
+            <li>约 45 轮，节省约 25% API</li>
+            <li>统一 eval-summary.json + 历史记录</li>
+          </ul>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>层级</th>
+            <th>命令</th>
+            <th>做什么</th>
+            <th>要 API Key</th>
+            <th>时长</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>L0</td><td><code>eval:unit</code></td><td>自动化检查，不调大模型</td><td><span class="tag green">否</span></td><td>~2 分钟</td></tr>
+          <tr><td>L1</td><td><code>eval:integration</code></td><td>会议待办等 mock 全链路</td><td><span class="tag green">否</span></td><td>~3 分钟</td></tr>
+          <tr><td>L2</td><td><code>eval:spot</code></td><td>单轮专项（点将、Portfolio 等）</td><td><span class="tag">是</span></td><td>~15 分钟</td></tr>
+          <tr><td>L3</td><td><code>eval:chains</code></td><td>多轮真实话术（28+ 轮）</td><td><span class="tag">是</span></td><td>~25 分钟</td></tr>
+          <tr><td>L4</td><td><code>eval:release</code></td><td>发版 /  nightly 唯一编排</td><td><span class="tag">是</span></td><td>~35 分钟</td></tr>
+        </tbody>
+      </table>
+      <div class="callout">
+        <h3>发版硬门槛（不过关 = 发版 eval 失败）</h3>
+        L0 全过 · 非 Portfolio 回归全过 · <strong>6 条核心多轮链（28 轮）全过</strong>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">2</span>合并代码前的自动检查（CI）</h2>
+      <p class="section-desc">GitHub Actions 已配置，减少「忘了跑测试就合并」。</p>
+      <table>
+        <thead><tr><th>时机</th><th>自动跑什么</th></tr></thead>
+        <tbody>
+          <tr><td>每次 Pull Request</td><td><code>eval:unit</code>（约 2 分钟，不需 Key）</td></tr>
+          <tr><td>每周定时 / 手动触发</td><td><code>eval:release</code>（需仓库配置 QWEN_API_KEY）</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2><span class="num">3</span>上线后的用量统计</h2>
+      <p class="section-desc">每一轮 Agent 对话在后台异步记录，<strong>不拖慢用户回复</strong>。</p>
+      <div class="kpi-grid">
+        <div class="kpi"><div class="lbl">记录谁在用</div><div class="val">用户 ID / DAU·WAU</div></div>
+        <div class="kpi"><div class="lbl">记录从哪来</div><div class="val">钉钉 / 工作台</div></div>
+        <div class="kpi"><div class="lbl">记录成本</div><div class="val">Token 消耗</div></div>
+        <div class="kpi"><div class="lbl">记录性能</div><div class="val">响应耗时 p90</div></div>
+        <div class="kpi"><div class="lbl">记录质量</div><div class="val">误发布、泄露等</div></div>
+        <div class="kpi"><div class="lbl">存储位置</div><div class="val">SQLite 日汇总</div></div>
+      </div>
+      <div class="flow" style="margin-top:20px">
+        <span class="flow-step">生产日志</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">导入脚本</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">指标表</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">周报 / 看板</span>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">4</span>Admin 运营看板（Web UI）</h2>
+      <p class="section-desc">与「任务总览」分开：那边看业务任务，这边看 Agent 软件运营。</p>
+      <table>
+        <thead><tr><th>项目</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>入口</td><td>Admin 登录 → 侧栏「运营看板」→ <code>/workbench/admin/ops</code></td></tr>
+          <tr><td>顶部 KPI</td><td>DAU/WAU、轮次、Token、p90、异常次数、Eval 是否通过</td></tr>
+          <tr><td>趋势与明细</td><td>每日趋势、渠道占比、活跃用户 Top、异常列表、Eval 历史</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2><span class="num">5</span>线上质量评分（不挡用户）</h2>
+      <p class="section-desc">后台规则检查；约 5% 随机抽样，异常事件 100% 记录。不会因评分让用户多等或撤回回复。</p>
+      <div class="compare">
+        <div class="box after">
+          <div class="box-label">会记录</div>
+          <ul>
+            <li>话术是否泄露内部工具名</li>
+            <li>是否误发布</li>
+            <li>是否超轮次</li>
+          </ul>
+        </div>
+        <div class="box after">
+          <div class="box-label">告警 SLO（可配置）</div>
+          <ul>
+            <li>超轮次比例 &lt; 2%/天</li>
+            <li>误发布 = 0</li>
+            <li>p90 响应 &lt; 120 秒</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">6</span>失败案例 → 测试用例（闭环）</h2>
+      <p class="section-desc">线上发现质量问题 → 待处理队列 → 一键生成测试骨架 → 纳入发版 eval，防止再犯。</p>
+      <div class="flow">
+        <span class="flow-step">线上评分失败</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">待处理队列</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">晋升 fixture</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">下次发版自动测</span>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">7</span>您日常怎么用</h2>
+      <ol class="steps">
+        <li><strong>改 Prompt / 工具后本地试</strong><span>跑 eval:spot 或 eval:chains</span></li>
+        <li><strong>合并 PR 前</strong><span>看 CI 是否跑过 eval:unit（或本地跑一遍）</span></li>
+        <li><strong>发版前 / 每周</strong><span>跑 eval:release（需要 QWEN_API_KEY）</span></li>
+        <li><strong>看运营数据</strong><span>浏览器打开 Admin → 运营看板；或跑用量周报脚本</span></li>
+        <li><strong>对比两次发版</strong><span>eval:compare 看哪一 stage 变差</span></li>
+      </ol>
+    </section>
+
+    <section>
+      <h2><span class="num">8</span>还需您这边配合的</h2>
+      <table>
+        <thead><tr><th>事项</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>GitHub Secret</td><td>nightly 全量 eval 需配置 QWEN_API_KEY</td></tr>
+          <tr><td>ECS 定时任务</td><td>建议每日：日志导入 → 周报 → release → 告警（文档已写）</td></tr>
+          <tr><td>首次全量 eval:release</td><td>需在有 API Key 的环境跑一次确认</td></tr>
+        </tbody>
+      </table>
+      <div class="callout">
+        <h3>已验证</h3>
+        eval:unit 本地已通过：12 个测试文件、79 条用例全部绿色。
+      </div>
+    </section>
+
+    <footer>
+      文档：<code>docs/eval-matrix-v3.md</code> · <code>docs/agent-usage-and-eval-ops.md</code><br>
+      本页路径：<code>docs/reports/agent-eval-pipeline-report.html</code> · 用浏览器直接打开即可
+    </footer>
+  </div>
+</body>
+</html>

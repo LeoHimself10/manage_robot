@@ -1,7 +1,13 @@
-import { resolveWorkbenchRole, type WorkbenchRole } from "./workbench-role-resolver";
+import {
+  isAlsoWorkbenchManager,
+  resolveWorkbenchRole,
+  type WorkbenchRole,
+} from "./workbench-role-resolver";
 
 export interface WorkbenchCapabilities {
   primaryRole: WorkbenchRole;
+  alsoManager: boolean;
+  canAccessAdmin: boolean;
   canManage: boolean;
   canExecuteAsManager: boolean;
 }
@@ -14,10 +20,14 @@ export interface WorkbenchSessionView {
 
 export function resolveWorkbenchCapabilities(userId: string): WorkbenchCapabilities {
   const primaryRole = resolveWorkbenchRole(userId);
+  const alsoManager = primaryRole !== "manager" && isAlsoWorkbenchManager(userId);
+  const canManage = primaryRole === "manager" || alsoManager;
   return {
     primaryRole,
-    canManage: primaryRole === "manager",
-    canExecuteAsManager: primaryRole === "manager",
+    alsoManager,
+    canAccessAdmin: primaryRole === "admin",
+    canManage,
+    canExecuteAsManager: canManage,
   };
 }
 
@@ -52,14 +62,20 @@ export function normalizeWorkbenchSession<T extends WorkbenchSessionView>(
   const caps = resolveWorkbenchCapabilities(session.userId);
   const primaryRole = caps.primaryRole;
 
-  if (primaryRole === "manager") {
+  if (primaryRole === "manager" || (primaryRole === "admin" && caps.alsoManager)) {
     const view =
       session.primaryRole !== undefined
         ? session.role
         : session.role === "employee"
           ? "employee"
-          : "manager";
-    const safeView: WorkbenchRole = view === "employee" ? "employee" : "manager";
+          : primaryRole === "admin"
+            ? "admin"
+            : "manager";
+    let safeView: WorkbenchRole;
+    if (view === "employee") safeView = "employee";
+    else if (view === "manager" && caps.canManage) safeView = "manager";
+    else if (primaryRole === "admin") safeView = "admin";
+    else safeView = "manager";
     return { ...session, primaryRole, role: safeView };
   }
 
@@ -70,6 +86,20 @@ export function refreshSessionFromWhitelist<T extends WorkbenchSessionView>(
   session: T,
 ): { session: T; changed: boolean } {
   const caps = resolveWorkbenchCapabilities(session.userId);
+
+  if (caps.primaryRole === "admin" && caps.alsoManager) {
+    const normalized = normalizeWorkbenchSession(session);
+    const next = {
+      ...session,
+      primaryRole: "admin" as const,
+      role: normalized.role,
+    };
+    const changed =
+      session.primaryRole !== next.primaryRole
+      || session.role !== next.role
+      || session.primaryRole === undefined;
+    return { session: next, changed };
+  }
 
   if (caps.primaryRole !== "manager") {
     const next = { ...session, primaryRole: caps.primaryRole, role: caps.primaryRole };

@@ -14,7 +14,8 @@ export type WorkbenchNavId =
   | "emp-prof"
   | "emp-security"
   | "adm-tasks"
-  | "adm-perms";
+  | "adm-perms"
+  | "adm-ops";
 
 function escapeHtml(v: string): string {
   return v
@@ -50,9 +51,15 @@ function railLink(
   return `<a class="${cls}" href="${href}" data-wb-nav="${navId}"${idAttr}${hidden}>${escapeHtml(label)}${badge}</a>`;
 }
 
-function buildManagerRail(activeNav: WorkbenchNavId, portfolioEnabled: boolean): string {
+function buildManagerRail(activeNav: WorkbenchNavId, portfolioEnabled: boolean, showAdminOpsLink = false): string {
   const portfolioLinks = portfolioEnabled
     ? `${railLink("/workbench/manager/projects", "项目总览", "mgr-proj", activeNav, "manager")}`
+    : "";
+  const adminOpsLink = showAdminOpsLink
+    ? `<div class="wb-rail-grp">
+  <div class="wb-rail-grp-lbl">管理</div>
+  ${railLink("/workbench/admin/ops", "运营看板", "adm-ops", activeNav, "admin")}
+</div>`
     : "";
   return `<div class="wb-rail-grp">
   <div class="wb-rail-grp-lbl">工作</div>
@@ -68,7 +75,7 @@ ${
   ${portfolioLinks}
 </div>`
     : ""
-}`;
+}${adminOpsLink}`;
 }
 
 function buildEmployeeRail(activeNav: WorkbenchNavId): string {
@@ -85,6 +92,7 @@ function buildAdminRail(activeNav: WorkbenchNavId): string {
   return `<div class="wb-rail-grp">
   <div class="wb-rail-grp-lbl">全局</div>
   ${railLink("/workbench/admin", "任务总览", "adm-tasks", activeNav, "admin")}
+  ${railLink("/workbench/admin/ops", "运营看板", "adm-ops", activeNav, "admin")}
   ${railLink("/workbench/admin#permissions", "主管权限", "adm-perms", activeNav, "admin", { id: "navAdminPerms" })}
 </div>`;
 }
@@ -205,6 +213,7 @@ export function renderWorkbenchPage(params: {
   headToolbarHtml?: string;
   userLabel?: string;
   portfolioEnabled?: boolean;
+  showAdminOpsLink?: boolean;
   bodyClass?: string;
   mainClass?: string;
   mainBodyClass?: string;
@@ -215,7 +224,7 @@ export function renderWorkbenchPage(params: {
 }): string {
   const railNav =
     params.role === "manager"
-      ? buildManagerRail(params.activeNav, Boolean(params.portfolioEnabled))
+      ? buildManagerRail(params.activeNav, Boolean(params.portfolioEnabled), Boolean(params.showAdminOpsLink))
       : params.role === "employee"
         ? buildEmployeeRail(params.activeNav)
         : buildAdminRail(params.activeNav);

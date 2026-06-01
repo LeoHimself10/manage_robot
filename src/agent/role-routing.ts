@@ -1,5 +1,5 @@
 import type { EmployeeProfileRecord } from "../integrations/repos/employee-profile-repo";
-import { resolveWorkbenchRole } from "../security/workbench-role-resolver";
+import { isAlsoWorkbenchManager, resolveWorkbenchRole } from "../security/workbench-role-resolver";
 import type { AgentPromptProfile } from "./demo/qwen-prompt";
 import type { ToolProfile } from "./tools/registry";
 
@@ -18,6 +18,7 @@ export interface DingtalkAgentRoutingResult {
     | "routing_disabled"
     | "missing_sender"
     | "manager_role"
+    | "admin_also_manager"
     | "employee_directory_match"
     | "employee_directory_miss";
 }
@@ -49,6 +50,15 @@ export function resolveDingtalkAgentRouting(
   }
 
   const resolved = resolveWorkbenchRole(sender);
+  if (resolved === "admin" && isAlsoWorkbenchManager(sender)) {
+    return {
+      resolvedRole: "admin",
+      promptProfile: "planner",
+      toolProfile: "manager",
+      trustedActorUserId: sender,
+      reason: "admin_also_manager",
+    };
+  }
   if (resolved === "admin" || resolved === "manager") {
     return {
       resolvedRole: resolved,

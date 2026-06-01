@@ -79,4 +79,18 @@ describe("workbench-capabilities", () => {
     expect(allowsEmployeeSession(session)).toBe(true);
     expect(allowsManagerSession(session)).toBe(false);
   });
+
+  it("admin also on manager whitelist gets canManage and canAccessAdmin", () => {
+    const adminFile = join(tmpdir(), `wb-admin-${Date.now()}.json`);
+    const mgrFile = join(tmpdir(), `wb-mgr2-${Date.now()}.json`);
+    writeFileSync(adminFile, JSON.stringify(["dual-user"]), "utf8");
+    writeFileSync(mgrFile, JSON.stringify(["dual-user"]), "utf8");
+    vi.stubEnv("WORKBENCH_ADMIN_IDS_FILE", adminFile);
+    vi.stubEnv("WORKBENCH_MANAGER_IDS_FILE", mgrFile);
+    const caps = resolveWorkbenchCapabilities("dual-user");
+    expect(caps.primaryRole).toBe("admin");
+    expect(caps.alsoManager).toBe(true);
+    expect(caps.canAccessAdmin).toBe(true);
+    expect(caps.canManage).toBe(true);
+  });
 });

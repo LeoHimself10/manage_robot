@@ -56,6 +56,19 @@ describe("resolveDingtalkAgentRouting", () => {
     expect(managerResult.trustedActorUserId).toBe("mgr_1");
   });
 
+  it("routes admin also on manager whitelist to manager tools", () => {
+    process.env.WORKBENCH_ADMIN_USER_IDS = "dual_1";
+    process.env.WORKBENCH_MANAGER_USER_IDS = "dual_1,mgr_1";
+    const result = resolveDingtalkAgentRouting({
+      senderStaffId: "dual_1",
+      employeeRepo: fakeRepo([]) as any,
+      roleRoutingEnabled: true,
+    });
+    expect(result.resolvedRole).toBe("admin");
+    expect(result.toolProfile).toBe("manager");
+    expect(result.reason).toBe("admin_also_manager");
+  });
+
   it("routes employee to employee profile only when in people directory", () => {
     const employeeResult = resolveDingtalkAgentRouting({
       senderStaffId: "emp_001",

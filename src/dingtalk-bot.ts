@@ -26,10 +26,16 @@ import {
   runManagerOrchestratorTurn,
 } from "./agent/manager-orchestrator-turn";
 import {
-  detectFalsePublish,
-  detectFalsePublishOnConfirm,
-  formatFalsePublishObservedNotice,
-} from "./agent/publish-staging";
+  appendAdminOpsLinkFooter,
+  appendWorkbenchChatLinkFooter,
+  buildAdminOpsDeepLinkForDingtalkOutbound,
+  buildManagerChatDeepLinkForDingtalkOutbound,
+} from "./view/workbench-chat-link";
+import { isWorkbenchAdmin } from "./security/workbench-role-resolver";
+import {
+  buildRecentContextFromHistory,
+  recordAgentTurnMetricsAsync,
+} from "./agent/online-eval/record-turn-metrics";
 import { publishResultSucceeded } from "./agent/publish-helpers";
 import { buildToolRegistry } from "./agent/tools/registry";
 import {
@@ -47,9 +53,10 @@ import {
   renderDingtalkTaskMarkdown,
 } from "./view/dingtalk-task-markdown";
 import {
-  appendWorkbenchChatLinkFooter,
-  buildManagerChatDeepLinkForDingtalkOutbound,
-} from "./view/workbench-chat-link";
+  detectFalsePublish,
+  detectFalsePublishOnConfirm,
+  formatFalsePublishObservedNotice,
+} from "./agent/publish-staging";
 import { resolveCanonicalMainSession } from "./web/canonical-main-session";
 import { markSessionAsMainThread } from "./web/conversation-thread-resolver";
 import { parseRosterFile } from "./agent/assignment/roster-parser";
@@ -680,34 +687,6 @@ async function main(): Promise<void> {
         let planRotatedAfterPublish = turn.planRotatedAfterPublish;
         const snapshotPlanId = turn.preRotatePlanId;
 
-        {
-          const initialOutbound = orchResult.messages.join("\n\n");
-          const falsePublish =
-            detectFalsePublish({
-              userMessage: background,
-              preTurnLatestDraft: preTurnDraft,
-              toolInvocationNames: orchResult.toolInvocationNames ?? [],
-              hasPublishResult: publishResultSucceeded(publishResult),
-              outboundMarkdown: initialOutbound,
-            })
-            || detectFalsePublishOnConfirm({
-              userMessage: background,
-              preTurnLatestDraft: preTurnDraft,
-              toolInvocationNames: orchResult.toolInvocationNames ?? [],
-              hasPublishResult: publishResultSucceeded(publishResult),
-              outboundMarkdown: initialOutbound,
-            });
-          if (falsePublish) {
-            logStructured({
-              event: "false_publish_observed",
-              messageId,
-              traceId: orchResult.traceId,
-              planId: session.planId,
-              initialMessagePreview: initialOutbound.slice(0, 160),
-            });
-          }
-        }
-
         const assignmentStartedAt = Date.now();
         const showAssignment =
           process.env.ASSIGNMENT_PHASE_ENABLED === "1"
@@ -891,6 +870,10 @@ async function main(): Promise<void> {
             workbenchLink,
           );
         }
+        if (!isAnonymousSender && isWorkbenchAdmin(senderStaffId)) {
+          const adminOpsLink = buildAdminOpsDeepLinkForDingtalkOutbound();
+          displayContentForUser = appendAdminOpsLinkFooter(displayContentForUser, adminOpsLink);
+        }
         // history 中只保留模型原话（不含本轮 bot 渲染的「任务补充信息」/ 结构化任务表 / 分配建议段），
         // 否则下一轮模型读 conversationHistory 会把上一轮的 latestDraft.description 等内容
         // 一字不漏地「复读」到新回复里造成跨任务串台（即用户看到的污染）。
@@ -920,6 +903,24 @@ async function main(): Promise<void> {
           assignmentMs,
           sendReplyMs,
           totalMs,
+        });
+
+        recordAgentTurnMetricsAsync({
+          traceId: orchResult.traceId,
+          userId: senderStaffId,
+          channel: "dingtalk",
+          userMessage: background,
+          orchResult,
+          outboundMarkdown,
+          preTurnDraft,
+          recentContext: buildRecentContextFromHistory(session.conversationHistory),
+          handlerMs: totalMs,
+          publishOk: publishResultSucceeded(publishResult),
+          judgeModelConfig: {
+            apiKey: dingtalkQwenConfig.apiKey,
+            baseUrl: dingtalkQwenConfig.baseUrl,
+            timeoutMs: dingtalkQwenConfig.timeoutMs,
+          },
         });
 
         const nextRevisionEvents = [

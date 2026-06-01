@@ -93,6 +93,13 @@ import { verifyAssignmentEntry } from "../security/web-entry-token";
 import { parseRosterFile } from "../agent/assignment/roster-parser";
 import { readMultipartSingleFile } from "./multipart-single-file";
 import { renderAdminWorkbenchPage } from "./admin-workbench-pages";
+import { renderAdminOpsDashboardPage } from "./admin-ops-dashboard-page";
+import { handleOpsDashboardApi } from "./ops-dashboard-api";
+import {
+  buildRecentContextFromHistory,
+  recordAgentTurnMetricsAsync,
+} from "../agent/online-eval/record-turn-metrics";
+import { publishResultSucceeded } from "../agent/publish-helpers";
 import {
   renderManagerChatPage,
   renderManagerTasksPage,
@@ -166,6 +173,7 @@ const EMPLOYEE_WORKBENCH_PAGE_PATHS = new Set([
 ]);
 const ADMIN_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/admin",
+  "/workbench/admin/ops",
   "/workbench/admin/task",
   "/workbench/admin/task/events",
 ]);
@@ -431,9 +439,13 @@ function createWorkbenchSession(params: {
     });
   }
   const primaryRole = resolveRoleForUser(params.userId);
+  const caps = resolveWorkbenchCapabilities(params.userId);
   let role = params.role;
   if (primaryRole === "manager") {
     role = params.role === "employee" ? "employee" : "manager";
+  } else if (primaryRole === "admin" && caps.alsoManager) {
+    role =
+      params.role === "manager" || params.role === "employee" ? params.role : "admin";
   } else {
     role = primaryRole;
   }
@@ -3072,6 +3084,9 @@ export function handleAssignmentHttp(
       primaryRole: session.primaryRole ?? caps.primaryRole,
       canExecuteAsManager: caps.canExecuteAsManager,
       canSwitchView: caps.canExecuteAsManager,
+      alsoManager: caps.alsoManager,
+      canAccessAdmin: caps.canAccessAdmin,
+      canManage: caps.canManage,
       loginSource: session.loginSource,
       dingUser: session.dingUser ?? null,
       externalAccount: externalAccount ?? null,
@@ -3658,6 +3673,14 @@ export function handleAssignmentHttp(
     const session = requireSession(req, res, "admin");
     if (!session) return true;
     writeJson(res, 200, { ok: true, metrics: getFormalTaskStore().getMetrics() });
+    return true;
+  }
+
+  const opsPayload = handleOpsDashboardApi(url);
+  if (opsPayload && isGetOrHead) {
+    const session = requireSession(req, res, "admin");
+    if (!session) return true;
+    writeJson(res, 200, opsPayload);
     return true;
   }
 
@@ -5517,6 +5540,22 @@ export function handleAssignmentHttp(
             timeoutMs: qwenConfig.timeoutMs,
           },
         }).catch(() => {});
+        recordAgentTurnMetricsAsync({
+          traceId: orch.traceId,
+          userId: session.userId,
+          channel: "workbench",
+          userMessage: message,
+          orchResult: orch,
+          outboundMarkdown: turnDisplay.pureAssistantMessage,
+          preTurnDraft: turn.preTurnDraft,
+          recentContext: buildRecentContextFromHistory(target.conversationHistory),
+          publishOk: publishResultSucceeded(turn.publishResult),
+          judgeModelConfig: {
+            apiKey: qwenConfig.apiKey,
+            baseUrl: qwenConfig.baseUrl,
+            timeoutMs: qwenConfig.timeoutMs,
+          },
+        });
         writeJson(res, 200, {
           ok: true,
           planId,
@@ -5594,6 +5633,7 @@ export function handleAssignmentHttp(
         planTitle = meta.title;
       }
       const userLabel = session.dingUser?.name ?? session.userId;
+      const showAdminOpsLink = resolveWorkbenchCapabilities(session.userId).canAccessAdmin;
       const mgrTaskNo = url.searchParams.get("taskNo")?.trim() ?? "";
       const initialProjectId = url.searchParams.get("projectId")?.trim() ?? "";
       const tasksViewParam = url.searchParams.get("view")?.trim().toLowerCase();
@@ -5604,13 +5644,15 @@ export function handleAssignmentHttp(
             userLabel,
             projectPortfolioEnabled: portfolioEnabled,
             initialProjectId,
+            showAdminOpsLink,
           })
           : url.pathname === "/workbench/manager/projects"
           ? renderManagerProjectsPage({
             userLabel,
+            showAdminOpsLink,
           })
           : url.pathname === "/workbench/manager/meeting-import"
-            ? renderManagerMeetingImportPage({ userLabel })
+            ? renderManagerMeetingImportPage({ userLabel, showAdminOpsLink })
           : url.pathname === "/workbench/manager/tasks"
             ? renderManagerTasksPage({
               planId: url.searchParams.get("planId")?.trim(),
@@ -5619,6 +5661,7 @@ export function handleAssignmentHttp(
               projectPortfolioEnabled: portfolioEnabled,
               initialProjectId,
               initialView: portfolioEnabled ? initialTasksView : undefined,
+              showAdminOpsLink,
             })
             : url.pathname === "/workbench/manager/chat"
               ? renderManagerChatPage({
@@ -5628,6 +5671,7 @@ export function handleAssignmentHttp(
                 userLabel,
                 openDraftEditor: url.searchParams.get("openDraftEditor") === "1",
                 projectPortfolioEnabled: portfolioEnabled,
+                showAdminOpsLink,
               })
               : url.pathname === "/workbench/manager/task/events"
               ? renderTaskEventsPage({
@@ -5657,6 +5701,7 @@ export function handleAssignmentHttp(
         return true;
       }
       const userLabel = session.dingUser?.name ?? session.userId;
+      const showAdminOpsLink = resolveWorkbenchCapabilities(session.userId).canAccessAdmin;
       const adminTaskNo = url.searchParams.get("taskNo")?.trim() ?? "";
       const html =
         url.pathname === "/workbench/admin/task/events"
@@ -5672,7 +5717,9 @@ export function handleAssignmentHttp(
               enforceActionGuards: shouldEnforceActionGuards(),
               eventsPagePath: "/workbench/admin/task/events",
             })
-            : renderAdminWorkbenchPage({ userLabel });
+            : url.pathname === "/workbench/admin/ops"
+              ? renderAdminOpsDashboardPage({ userLabel })
+              : renderAdminWorkbenchPage({ userLabel });
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(html);

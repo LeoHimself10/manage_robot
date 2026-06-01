@@ -416,6 +416,7 @@ npm run dingtalk-bot
 - **合规**：CAPA 等字段仍为建议性质，与 PRD v1.3 一致；正式记录以公司 QMS 为准。
 - **同会话限速**：短时内重复发问可能收到「请稍后再试」（`RATE_LIMIT_WINDOW_MS`）。
 - **可观测**：容器标准输出可见结构化事件（如 `orchestrator_done`、assignment 相关事件）；钉钉主链路建议重点看容器日志 + `data/plans` 快照。`createTaskPlanningDemo` 的 JSONL 审计（`demo-runs.jsonl`）主要用于 CLI demo/eval 回归。
+- **Admin+主管双角色**（如运营负责人兼主管）：同一钉钉 `userId` 同时写入 `WORKBENCH_ADMIN_USER_IDS` 与 `WORKBENCH_MANAGER_USER_IDS`（或 `_IDS_FILE` JSON 数组）。工作台可切主管视图并访问 `/workbench/admin/ops`；钉钉回复末尾附运营看板深链，Agent 仍用 manager 工具集。
 
 ## 五、后续可选增强
 

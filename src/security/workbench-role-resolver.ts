@@ -33,6 +33,13 @@ export function isWorkbenchAdmin(userId: string): boolean {
   return listWorkbenchAdminIds().has(normalized);
 }
 
+/** True when user is on manager whitelist (independent of primaryRole). */
+export function isAlsoWorkbenchManager(userId: string): boolean {
+  const normalized = String(userId ?? "").trim();
+  if (!normalized) return false;
+  return listWorkbenchManagerIds().has(normalized);
+}
+
 export function resolveWorkbenchRole(userId: string): WorkbenchRole {
   const normalized = String(userId ?? "").trim();
   if (!normalized) return "employee";
