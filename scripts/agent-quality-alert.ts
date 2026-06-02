@@ -3,10 +3,11 @@
  * Run: npx tsx scripts/agent-quality-alert.ts [--date=YYYY-MM-DD]
  */
 import { getAgentMetricsStore } from "../src/infra/agent-metrics-store";
+import { localDayUtcRange, todayYmdInMetricsTz } from "../src/infra/metrics-day-bounds";
 import { logStructured } from "../src/infra/logger";
 
 const date = process.argv.find((a) => a.startsWith("--date="))?.split("=")[1]
-  ?? new Date().toISOString().slice(0, 10);
+  ?? todayYmdInMetricsTz();
 
 const maxTurnsRateMax = Number(process.env.SLO_MAX_TURNS_RATE_MAX ?? "0.02");
 const p90LoopMsMax = Number(process.env.SLO_P90_LOOP_MS_MAX ?? "120000");
@@ -18,8 +19,7 @@ store.rollupDailyForDate(date);
 const rows = store.queryUsageDaily(date, date);
 const alerts: string[] = [];
 
-const fromIso = `${date}T00:00:00.000Z`;
-const toIso = `${date}T23:59:59.999Z`;
+const { fromIso, toIso } = localDayUtcRange(date);
 const quality = store.queryQualitySummary(fromIso, toIso);
 if (quality.sampled > 0) {
   const failRate = quality.qualityFail / quality.sampled;

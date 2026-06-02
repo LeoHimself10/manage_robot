@@ -43,7 +43,7 @@ describe("workbench draft revision", () => {
       toolCalls: [],
       iterations: 1,
       totalTokens: 100,
-    } as orchestratorMod.OrchestratorResult);
+    } as unknown as orchestratorMod.OrchestratorResult);
 
     const session = {
       planId: "plan-1",
@@ -58,7 +58,15 @@ describe("workbench draft revision", () => {
       draft,
       assignment: { assignments: [] },
       orchestratorConfig: {
-        clientConfig: { apiKey: "k", model: "m", baseUrl: "https://x" },
+        clientConfig: {
+          apiKey: "k",
+          model: "m",
+          baseUrl: "https://x",
+          timeoutMs: 5000,
+          maxRetries: 0,
+          temperature: 0,
+          maxTokens: 2000,
+        },
         employeeRepo: { list: () => [], getByUserId: () => undefined } as never,
         toolProfile: "manager",
         promptProfile: "planner",
@@ -81,7 +89,7 @@ describe("workbench draft revision", () => {
       toolCalls: [],
       iterations: 1,
       totalTokens: 50,
-    } as orchestratorMod.OrchestratorResult);
+    } as unknown as orchestratorMod.OrchestratorResult);
 
     const draft = {
       title: "T",
@@ -92,7 +100,15 @@ describe("workbench draft revision", () => {
       session: { planId: "p", latestDraft: draft } as never,
       draft,
       orchestratorConfig: {
-        clientConfig: { apiKey: "k", model: "m", baseUrl: "https://x" },
+        clientConfig: {
+          apiKey: "k",
+          model: "m",
+          baseUrl: "https://x",
+          timeoutMs: 5000,
+          maxRetries: 0,
+          temperature: 0,
+          maxTokens: 2000,
+        },
         employeeRepo: { list: () => [] } as never,
         toolProfile: "manager",
         promptProfile: "planner",

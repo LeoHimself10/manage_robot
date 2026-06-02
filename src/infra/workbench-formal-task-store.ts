@@ -762,7 +762,7 @@ export function createWorkbenchFormalTaskStore() {
       planId: string;
       session: PlanSession;
       managerUserId: string;
-      initiatorDepartment: string;
+      initiatorDepartment?: string;
       actorUserId: string;
       actorName?: string;
       /** 大项目 id；非 portfolio 路径应省略，落库为 NULL */

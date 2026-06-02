@@ -358,8 +358,11 @@ describe("createWorkbenchPublishNotifier", () => {
     const notifier = createWorkbenchPublishNotifier(fetchImpl);
     const result = await notifier.notifySubtaskReminder({
       taskNo: "TK-9",
+      taskTitle: "测试任务",
       subtaskId: "sub-1",
+      subtaskTitle: "子任务一",
       assigneeUserId: "emp-1",
+      managerUserId: "mgr-1",
       unionId: "uni-emp-1",
       subject: "催办",
       markdown: "请尽快完成",
@@ -389,8 +392,11 @@ describe("createWorkbenchPublishNotifier", () => {
     const notifier = createWorkbenchPublishNotifier(fetchImpl);
     const result = await notifier.notifySubtaskReminder({
       taskNo: "TK-9",
+      taskTitle: "测试任务",
       subtaskId: "sub-1",
+      subtaskTitle: "子任务一",
       assigneeUserId: "emp-1",
+      managerUserId: "mgr-1",
       unionId: "uni-emp-1",
       subject: "催办",
       markdown: "请尽快完成",

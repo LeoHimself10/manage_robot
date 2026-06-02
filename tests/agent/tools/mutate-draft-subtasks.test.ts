@@ -18,7 +18,7 @@ function sessionWithDraft(tasks: Array<Record<string, unknown>>): PlanSession {
         primary: { userId: "u1", displayName: "张三" },
       })),
     },
-  } as PlanSession;
+  } as unknown as PlanSession;
 }
 
 describe("mutate-draft-subtasks", () => {

@@ -119,7 +119,9 @@ describe("assignment gate invariants (deterministic)", () => {
       requireFullCoverage: true,
     });
     expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/partial|missing|coverage/i);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/partial|missing|coverage/i);
+    }
   });
 
   it("assertNaturalUserMessage rejects tool names in user script", async () => {

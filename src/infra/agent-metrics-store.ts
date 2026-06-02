@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { localDayUtcRange, resolveMetricsTimezone } from "./metrics-day-bounds";
 import { resolveWorkbenchSqlitePath } from "./workbench-db-path";
 
 export type AgentMetricsChannel = "dingtalk" | "workbench" | "unknown";
@@ -169,14 +170,15 @@ export function createAgentMetricsStore(dbPath = resolveWorkbenchSqlitePath()) {
       return id;
     },
 
-    rollupDailyForDate(dateYmd: string): void {
+    rollupDailyForDate(dateYmd: string, timezone = resolveMetricsTimezone()): void {
+      const { fromIso, toIso } = localDayUtcRange(dateYmd, timezone);
       const rows = db
         .prepare(
           `SELECT channel, user_id, loop_ms, prompt_tokens, completion_tokens, flags_json
            FROM agent_turn_metrics
            WHERE occurred_at >= ? AND occurred_at < ?`,
         )
-        .all(`${dateYmd}T00:00:00.000Z`, `${dateYmd}T23:59:59.999Z`) as Array<{
+        .all(fromIso, toIso) as Array<{
           channel: string;
           user_id: string;
           loop_ms: number | null;
@@ -312,6 +314,62 @@ export function createAgentMetricsStore(dbPath = resolveWorkbenchSqlitePath()) {
       return Number(row?.c ?? 0);
     },
 
+    countDistinctUsersByChannel(
+      fromIso: string,
+      toIso: string,
+      channel: AgentMetricsChannel,
+    ): number {
+      const row = db
+        .prepare(
+          `SELECT COUNT(DISTINCT user_id) AS c FROM agent_turn_metrics
+           WHERE occurred_at >= ? AND occurred_at < ? AND channel = ?`,
+        )
+        .get(fromIso, toIso, channel) as { c: number };
+      return Number(row?.c ?? 0);
+    },
+
+    aggregateTurnStats(
+      fromIso: string,
+      toIso: string,
+    ): {
+      turnCount: number;
+      promptTokens: number;
+      completionTokens: number;
+      avgLoopMs: number;
+      p90LoopMs: number;
+    } {
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) AS turn_count,
+                  COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+                  COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+                  AVG(loop_ms) AS avg_loop_ms
+           FROM agent_turn_metrics
+           WHERE occurred_at >= ? AND occurred_at < ?`,
+        )
+        .get(fromIso, toIso) as {
+          turn_count: number;
+          prompt_tokens: number;
+          completion_tokens: number;
+          avg_loop_ms: number | null;
+        };
+      const loops = db
+        .prepare(
+          `SELECT loop_ms FROM agent_turn_metrics
+           WHERE occurred_at >= ? AND occurred_at < ? AND loop_ms IS NOT NULL
+           ORDER BY loop_ms ASC`,
+        )
+        .all(fromIso, toIso) as Array<{ loop_ms: number }>;
+      const loopValues = loops.map((r) => Number(r.loop_ms));
+      return {
+        turnCount: Number(row?.turn_count ?? 0),
+        promptTokens: Number(row?.prompt_tokens ?? 0),
+        completionTokens: Number(row?.completion_tokens ?? 0),
+        avgLoopMs: Number(row?.avg_loop_ms ?? 0),
+        p90LoopMs: percentile(loopValues, 0.9),
+      };
+    },
+
     insertEvalCandidate(input: {
       traceId: string;
       planSnapshotPath?: string;
@@ -426,4 +484,9 @@ let sharedStore: AgentMetricsStore | undefined;
 export function getAgentMetricsStore(): AgentMetricsStore {
   if (!sharedStore) sharedStore = createAgentMetricsStore();
   return sharedStore;
+}
+
+/** Test-only: clear singleton so WORKBENCH_SQLITE_PATH can vary per case. */
+export function resetAgentMetricsStoreForTests(): void {
+  sharedStore = undefined;
 }

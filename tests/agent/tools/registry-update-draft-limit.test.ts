@@ -6,6 +6,8 @@ describe("buildToolRegistry update_draft_task soft limit", () => {
   const session: PlanSession = {
     chatKeyHash: "h",
     planId: "p1",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     senderStaffId: "mgr",
     conversationHistory: [],
     knownFacts: [],

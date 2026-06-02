@@ -10,9 +10,14 @@ export function renderAdminOpsDashboardPage(params: { userLabel?: string }): str
     userLabel: params.userLabel,
     mainHtml: `
   <section class="kpis kpis--3" aria-live="polite" style="margin-bottom:16px;">
-    <div class="kpi"><div class="lbl">DAU / WAU</div><div class="val" id="kpiUsers">—</div></div>
+    <div class="kpi"><div class="lbl">DAU（当日）/ WAU（本周）</div><div class="val" id="kpiUsers">—</div><div class="muted" style="font-size:12px;margin-top:4px;" id="kpiDauDate"></div></div>
     <div class="kpi"><div class="lbl">对话轮次</div><div class="val" id="kpiTurns">—</div></div>
     <div class="kpi"><div class="lbl">Token 消耗</div><div class="val" id="kpiTokens">—</div></div>
+  </section>
+  <section class="kpis kpis--3" style="margin-bottom:16px;">
+    <div class="kpi"><div class="lbl">工作台整体 DAU / WAU</div><div class="val" id="kpiWorkbenchAll">—</div></div>
+    <div class="kpi"><div class="lbl">主管端 DAU / WAU</div><div class="val" id="kpiWorkbenchManager">—</div></div>
+    <div class="kpi"><div class="lbl">员工端 DAU / WAU</div><div class="val" id="kpiWorkbenchEmployee">—</div></div>
   </section>
   <section class="kpis kpis--3" style="margin-bottom:16px;">
     <div class="kpi"><div class="lbl">p90 响应 (ms)</div><div class="val" id="kpiP90">—</div></div>
@@ -83,6 +88,13 @@ export function renderAdminOpsDashboardPage(params: { userLabel?: string }): str
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var k = data.kpi || {};
       setText('kpiUsers', (k.dau || 0) + ' / ' + (k.wau || 0));
+      setText('kpiDauDate', k.dauDate ? ('统计日 ' + k.dauDate) : '');
+      var wb = k.workbench || {};
+      var mgr = wb.manager || {};
+      var emp = wb.employee || {};
+      setText('kpiWorkbenchAll', (wb.dau || 0) + ' / ' + (wb.wau || 0));
+      setText('kpiWorkbenchManager', (mgr.dau || 0) + ' / ' + (mgr.wau || 0));
+      setText('kpiWorkbenchEmployee', (emp.dau || 0) + ' / ' + (emp.wau || 0));
       setText('kpiTurns', k.turnCount || 0);
       setText('kpiTokens', (k.totalTokens || 0).toLocaleString());
       setText('kpiP90', Math.round(k.p90LoopMs || 0));

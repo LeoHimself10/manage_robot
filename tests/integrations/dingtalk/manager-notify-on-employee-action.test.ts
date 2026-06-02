@@ -17,7 +17,7 @@ describe("notifyManagerOfEmployeeActionAfterUpdate", () => {
           subtask: { subtaskId: "s1", title: "S" },
         }),
         appendTaskEvent: vi.fn(),
-      } as Parameters<typeof notifyManagerOfEmployeeActionAfterUpdate>[0]["taskStore"],
+      } as unknown as Parameters<typeof notifyManagerOfEmployeeActionAfterUpdate>[0]["taskStore"],
       notifier: { notifyManagerOfEmployeeAction } as unknown as WorkbenchPublishNotifier,
       subtaskId: "s1",
       actorUserId: "mgr-self",

@@ -114,6 +114,7 @@ describe("update_draft_task tool", () => {
         source: "eval",
         entries: [{ userId: "u-yang", displayName: "杨贺新" }],
         unresolved: [],
+        updatedAt: now,
       },
       latestDraft: {
         tasks: [

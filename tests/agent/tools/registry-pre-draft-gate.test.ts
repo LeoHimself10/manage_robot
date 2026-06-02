@@ -26,7 +26,7 @@ describe("registry pre-draft gate", () => {
       shouldBlockPreDraftTool({
         session: {
           latestDraft: { tasks: [{ id: "task_1", title: "t" }] },
-        } as PlanSession,
+        } as unknown as PlanSession,
         userMessage: USB_DESC,
         toolName: "search_employees",
         args: {},

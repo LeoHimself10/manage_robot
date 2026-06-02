@@ -19,6 +19,10 @@ function contact(
     departmentIds: ["d1"],
     unionId: `u_${userId}`,
     position: "Engineer",
+    isAdmin: false,
+    isBoss: false,
+    isSenior: false,
+    lastSyncedAt: new Date().toISOString(),
   };
 }
 
@@ -71,6 +75,8 @@ describe("buildResolveRosterNamesHandler", () => {
     const session: PlanSession = {
       chatKeyHash: "h",
       planId: "p1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       senderStaffId: "mgr",
       conversationHistory: [],
       knownFacts: [],

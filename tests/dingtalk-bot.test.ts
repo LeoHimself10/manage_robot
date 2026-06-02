@@ -48,7 +48,7 @@ describe("dingtalk bot helpers", () => {
       toolProfile: "planner",
       currentSession: {
         latestDraft: { tasks: [{ id: "task_1", title: "测试" }] },
-      } as import("../../src/infra/plan-session-store").PlanSession,
+      } as unknown as import("../src/infra/plan-session-store").PlanSession,
       knownFactsStore: {
         get: () => facts,
         update: (next) => {

@@ -31,7 +31,8 @@ import {
   buildAdminOpsDeepLinkForDingtalkOutbound,
   buildManagerChatDeepLinkForDingtalkOutbound,
 } from "./view/workbench-chat-link";
-import { isWorkbenchAdmin } from "./security/workbench-role-resolver";
+import { shouldAppendAdminOpsLinkToDingtalkOutbound } from "./security/workbench-role-resolver";
+import { isTaskInitiatorAllowed } from "./security/initiator-whitelist";
 import {
   buildRecentContextFromHistory,
   recordAgentTurnMetricsAsync,
@@ -143,6 +144,7 @@ export function buildDingtalkOrchestratorRoutingParams(input: {
     | "routing_disabled"
     | "missing_sender"
     | "manager_role"
+    | "admin_also_manager"
     | "employee_directory_match"
     | "employee_directory_miss";
   toolProfile: "planner" | "manager" | "employee" | "admin" | "full";
@@ -436,6 +438,24 @@ async function main(): Promise<void> {
           senderStaffId,
           employeeRepo,
         });
+
+        if (
+          !isAnonymousSender
+          && routing.promptProfile !== "employee"
+          && !isTaskInitiatorAllowed(senderStaffId)
+        ) {
+          dingtalkResponse = await sendMarkdownReply({
+            client,
+            sessionWebhook,
+            messageId,
+            senderStaffId,
+            title: "暂无任务规划权限",
+            markdownText:
+              "您的账号暂未开通**任务规划与分配**权限。如需使用，请联系系统管理员开通。\n\n"
+              + "若您仅需处理已指派给自己的子任务，请确认已在员工目录中。",
+          });
+          return;
+        }
 
         // === DingTalk 文件消息：仅主管/管理员的 file 消息走花名册流程 ===
         const msgtypeRaw = String((payload as { msgtype?: unknown }).msgtype ?? "").trim();
@@ -870,7 +890,7 @@ async function main(): Promise<void> {
             workbenchLink,
           );
         }
-        if (!isAnonymousSender && isWorkbenchAdmin(senderStaffId)) {
+        if (!isAnonymousSender && shouldAppendAdminOpsLinkToDingtalkOutbound(senderStaffId)) {
           const adminOpsLink = buildAdminOpsDeepLinkForDingtalkOutbound();
           displayContentForUser = appendAdminOpsLinkFooter(displayContentForUser, adminOpsLink);
         }
@@ -912,7 +932,7 @@ async function main(): Promise<void> {
           userMessage: background,
           orchResult,
           outboundMarkdown,
-          preTurnDraft,
+          preTurnDraft: preTurnDraft as Record<string, unknown> | undefined,
           recentContext: buildRecentContextFromHistory(session.conversationHistory),
           handlerMs: totalMs,
           publishOk: publishResultSucceeded(publishResult),

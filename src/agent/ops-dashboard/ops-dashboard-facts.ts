@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentMetricsStore } from "../../infra/agent-metrics-store";
+import { localDayUtcRange, resolveMetricsTimezone } from "../../infra/metrics-day-bounds";
+import { queryWorkbenchUsageCounts } from "../../infra/workbench-usage-stats";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import { resolveEvalHistoryPath } from "../../infra/eval-history";
 import { addDaysToYmd, formatDateInTz } from "../reminders/reminder-policy";
@@ -12,6 +14,7 @@ export interface OpsDashboardFacts {
   kpi: {
     dau: number;
     wau: number;
+    dauDate: string;
     turnCount: number;
     promptTokens: number;
     completionTokens: number;
@@ -20,6 +23,12 @@ export interface OpsDashboardFacts {
     p90LoopMs: number;
     incidentCount: Record<string, number>;
     tasksPublished: number;
+    workbench: {
+      dau: number;
+      wau: number;
+      manager: { dau: number; wau: number };
+      employee: { dau: number; wau: number };
+    };
     evalHealth: {
       lastReleaseOk?: boolean;
       lastReleaseAt?: string;
@@ -43,17 +52,6 @@ export interface OpsDashboardFacts {
   evalRuns: Array<Record<string, unknown>>;
 }
 
-function mondayOfWeekYmd(weekYmd: string, timezone: string): string {
-  const d = new Date(`${weekYmd}T12:00:00`);
-  if (Number.isNaN(d.getTime())) {
-    return formatDateInTz(new Date().toISOString(), timezone);
-  }
-  const day = d.getUTCDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setUTCDate(d.getUTCDate() + diff);
-  return d.toISOString().slice(0, 10);
-}
-
 function loadEvalRuns(limit = 10): Array<Record<string, unknown>> {
   const path = resolveEvalHistoryPath();
   if (!existsSync(path)) return [];
@@ -70,44 +68,74 @@ function loadEvalRuns(limit = 10): Array<Record<string, unknown>> {
     .reverse();
 }
 
+function listYmdRange(fromYmd: string, toYmd: string): string[] {
+  const out: string[] = [];
+  let cur = fromYmd;
+  while (cur <= toYmd) {
+    out.push(cur);
+    cur = addDaysToYmd(cur, 1);
+  }
+  return out;
+}
+
+function buildDailyTrendFromTurns(
+  turns: Array<{
+    occurredAt?: string;
+    promptTokens?: number;
+    completionTokens?: number;
+  }>,
+  timezone: string,
+  fromYmd: string,
+  toYmd: string,
+): OpsDashboardFacts["dailyTrend"] {
+  const byDate = new Map<string, { turnCount: number; promptTokens: number; completionTokens: number }>();
+  for (const ymd of listYmdRange(fromYmd, toYmd)) {
+    byDate.set(ymd, { turnCount: 0, promptTokens: 0, completionTokens: 0 });
+  }
+  for (const t of turns) {
+    const raw = t.occurredAt?.trim();
+    if (!raw) continue;
+    const ymd = formatDateInTz(raw, timezone);
+    if (!byDate.has(ymd)) continue;
+    const agg = byDate.get(ymd)!;
+    agg.turnCount += 1;
+    agg.promptTokens += Number(t.promptTokens ?? 0);
+    agg.completionTokens += Number(t.completionTokens ?? 0);
+  }
+  return [...byDate.entries()].map(([date, v]) => ({ date, ...v }));
+}
+
 export function buildOpsDashboardFacts(input: {
   weekYmd?: string;
   span?: number;
   timezone?: string;
 }): OpsDashboardFacts {
-  const timezone = input.timezone?.trim() || process.env.WEEKLY_DASHBOARD_TIMEZONE?.trim() || "Asia/Shanghai";
+  const timezone = input.timezone?.trim() || resolveMetricsTimezone();
   const span = Math.max(1, Math.min(4, input.span ?? 1));
   const anchor =
     input.weekYmd?.trim() ||
     formatDateInTz(new Date().toISOString(), timezone);
-  const monday = mondayOfWeekYmd(anchor, timezone);
+
   const weekSpan = buildWeekSpanRange({
-    centerWeek: monday,
+    centerWeek: anchor,
     span: span - 1,
     timezone,
   });
   const fromIso = weekSpan.rangeStartIso;
   const toIso = weekSpan.rangeEndIso;
-  const fromYmd = fromIso.slice(0, 10);
-  const toYmd = addDaysToYmd(toIso.slice(0, 10), -1);
+  const fromYmd = weekSpan.rangeStartYmd;
+  const lastWeek = weekSpan.weeks[weekSpan.weeks.length - 1] ?? weekSpan.center;
+  const sundayYmd = addDaysToYmd(lastWeek.mondayYmd, 6);
 
   const metrics = getAgentMetricsStore();
-  const daily = metrics.queryUsageDaily(fromYmd, toYmd);
-  const turns = metrics.queryTurnMetrics(fromIso, toIso, 2000);
+  const turns = metrics.queryTurnMetrics(fromIso, toIso, 5000);
+  const agg = metrics.aggregateTurnStats(fromIso, toIso);
 
-  let turnCount = 0;
-  let promptTokens = 0;
-  let completionTokens = 0;
-  const loops: number[] = [];
   const incidents: Record<string, number> = {};
   const byChannel = new Map<string, { turnCount: number; tokens: number }>();
   const byUser = new Map<string, { turnCount: number; tokens: number }>();
 
   for (const t of turns) {
-    turnCount += 1;
-    promptTokens += Number(t.promptTokens ?? 0);
-    completionTokens += Number(t.completionTokens ?? 0);
-    if (t.loopMs != null) loops.push(t.loopMs);
     const ch = t.channel || "unknown";
     if (!byChannel.has(ch)) byChannel.set(ch, { turnCount: 0, tokens: 0 });
     const cagg = byChannel.get(ch)!;
@@ -123,10 +151,15 @@ export function buildOpsDashboardFacts(input: {
   }
 
   const wau = metrics.countDistinctUsers(fromIso, toIso);
-  const lastDay = toYmd;
-  const dau =
-    daily.find((d) => d.date === lastDay)?.activeUsers
-    ?? metrics.countDistinctUsers(`${lastDay}T00:00:00.000Z`, `${lastDay}T23:59:59.999Z`);
+  const dauDate = anchor;
+  const { fromIso: dauFromIso, toIso: dauToIso } = localDayUtcRange(dauDate, timezone);
+  const dau = metrics.countDistinctUsers(dauFromIso, dauToIso);
+  const workbench = queryWorkbenchUsageCounts({
+    dayFromIso: dauFromIso,
+    dayToIso: dauToIso,
+    weekFromIso: fromIso,
+    weekToIso: toIso,
+  });
 
   const taskStore = createWorkbenchFormalTaskStore();
   const tasksPublished = taskStore.listAdminTasks().filter((t) => {
@@ -178,20 +211,20 @@ export function buildOpsDashboardFacts(input: {
 
   return {
     generatedAt: new Date().toISOString(),
-    week: { mondayYmd: fromYmd, sundayYmd: toYmd },
+    week: { mondayYmd: fromYmd, sundayYmd },
     kpi: {
       dau,
       wau,
-      turnCount,
-      promptTokens,
-      completionTokens,
-      totalTokens: promptTokens + completionTokens,
-      avgLoopMs: loops.length ? loops.reduce((s, v) => s + v, 0) / loops.length : 0,
-      p90LoopMs: loops.length
-        ? [...loops].sort((a, b) => a - b)[Math.ceil(loops.length * 0.9) - 1] ?? 0
-        : 0,
+      dauDate,
+      turnCount: agg.turnCount,
+      promptTokens: agg.promptTokens,
+      completionTokens: agg.completionTokens,
+      totalTokens: agg.promptTokens + agg.completionTokens,
+      avgLoopMs: agg.avgLoopMs,
+      p90LoopMs: agg.p90LoopMs,
       incidentCount: incidents,
       tasksPublished,
+      workbench,
       evalHealth: {
         lastReleaseOk: lastRelease?.allOk as boolean | undefined,
         lastReleaseAt: lastRelease?.startedAt as string | undefined,
@@ -201,12 +234,7 @@ export function buildOpsDashboardFacts(input: {
       qualityPassRate,
       judgePassRate,
     },
-    dailyTrend: daily.map((d) => ({
-      date: d.date,
-      turnCount: d.turnCount,
-      promptTokens: d.promptTokens,
-      completionTokens: d.completionTokens,
-    })),
+    dailyTrend: buildDailyTrendFromTurns(turns, timezone, fromYmd, sundayYmd),
     byChannel: [...byChannel.entries()].map(([channel, v]) => ({ channel, ...v })),
     byUser: [...byUser.entries()]
       .map(([userId, v]) => ({ userId, ...v }))

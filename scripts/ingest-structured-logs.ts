@@ -6,6 +6,7 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { getAgentMetricsStore } from "../src/infra/agent-metrics-store";
+import { todayYmdInMetricsTz } from "../src/infra/metrics-day-bounds";
 
 interface ParsedEvent {
   event?: string;
@@ -127,7 +128,7 @@ async function main(): Promise<void> {
     lines += 1;
     ingestLine(line, store);
   }
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayYmdInMetricsTz();
   store.rollupDailyForDate(today);
   console.log(`Ingested ${lines} log line(s); rollup for ${today}`);
 }

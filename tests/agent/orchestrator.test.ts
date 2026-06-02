@@ -346,7 +346,7 @@ describe("runOrchestrator", () => {
       employeeRepo: { list: () => [] },
       currentSession: {
         latestDraft: { tasks: [{ id: "task_1", title: "测试" }] },
-      } as import("../../src/infra/plan-session-store").PlanSession,
+      } as unknown as import("../../src/infra/plan-session-store").PlanSession,
       sessionContext: {
         latestDraft: { tasks: [{ id: "task_1", title: "测试" }] },
       },

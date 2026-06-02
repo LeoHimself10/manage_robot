@@ -588,7 +588,7 @@ describe("callWithTools", () => {
       toolHandlers: { search_employees: async () => ({ ok: true }) },
     });
 
-    expect(result.payload.message).toBe("请补充型号和批次？");
+    expect((result.payload as { message?: string }).message).toBe("请补充型号和批次？");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

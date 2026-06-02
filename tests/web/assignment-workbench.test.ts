@@ -18,6 +18,7 @@ import { signAssignmentEntry } from "../../src/security/web-entry-token";
 import { __resetExternalLoginRateLimitsForTest } from "../../src/web/external-workbench-login";
 import { DingTalkAuthError, type DingTalkAuthClient } from "../../src/integrations/dingtalk/dingtalk-auth";
 import type { WorkbenchPublishNotifier } from "../../src/integrations/dingtalk/workbench-notify";
+import { stubWorkbenchPublishNotifier } from "../helpers/stub-workbench-notifier";
 import { __setWeeklyAdvisorLlmForTest } from "../../src/agent/weekly-dashboard/weekly-dashboard-advisor-llm";
 
 /** Minimal IncomingMessage stub for tests */
@@ -413,40 +414,9 @@ describe("assignment-workbench HTTP handler", () => {
       success: [],
       failed: [],
     }));
-    __setWorkbenchPublishNotifierForTest({
-      notifyPublishedTask: vi.fn(async () => ({
-        enabled: false,
-        success: [],
-        failed: [],
-      })),
+    __setWorkbenchPublishNotifierForTest(stubWorkbenchPublishNotifier({
       notifyReassignedAssignee,
-      notifyTaskStopped: vi.fn(async () => ({
-        enabled: false,
-        success: [],
-        failed: [],
-      })),
-      notifyManagerOfEmployeeAction: vi.fn(async () => ({
-        enabled: false,
-        success: [],
-        failed: [],
-      })),
-      notifyEmployeeOfManagerAction: vi.fn(async () => ({
-        enabled: false,
-        success: [],
-        failed: [],
-      })),
-      notifySubtaskReminder: vi.fn(async () => ({
-        enabled: false,
-        success: [],
-        failed: [],
-      })),
-      notifyProgressDigest: vi.fn(async () => ({
-        enabled: false,
-        success: [],
-        failed: [],
-      })),
-      notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
-    });
+    }));
     await seedPublishedTask({
       planId: "plan-reassign-notify",
       managerUserId: "manager-1",
@@ -574,16 +544,7 @@ describe("assignment-workbench HTTP handler", () => {
       success: [{ userId: "emp-3", robotMessageKey: "rk-crid" }],
       failed: [],
     }));
-    __setWorkbenchPublishNotifierForTest({
-      notifyPublishedTask,
-      notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyTaskStopped: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyProgressDigest: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
-    });
+    __setWorkbenchPublishNotifierForTest(stubWorkbenchPublishNotifier({ notifyPublishedTask }));
     seedContact("emp-3", "执行部", "Engineer");
     await seedPublishedTask({
       planId: "plan-add-crid-api",
@@ -651,16 +612,7 @@ describe("assignment-workbench HTTP handler", () => {
       success: [{ userId: "emp-3", robotMessageKey: "rk-add" }],
       failed: [],
     }));
-    __setWorkbenchPublishNotifierForTest({
-      notifyPublishedTask,
-      notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyTaskStopped: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyManagerOfEmployeeAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyProgressDigest: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
-    });
+    __setWorkbenchPublishNotifierForTest(stubWorkbenchPublishNotifier({ notifyPublishedTask }));
     seedContact("emp-3", "执行部", "Engineer");
     await seedPublishedTask({
       planId: "plan-add-dedup-api",
@@ -1545,15 +1497,7 @@ describe("assignment-workbench HTTP handler", () => {
       success: [{ userId: "manager-1", robotMessageKey: "rk-reject-test" }],
       failed: [],
     }));
-    __setWorkbenchPublishNotifierForTest({
-      notifyPublishedTask: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyReassignedAssignee: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyTaskStopped: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyManagerOfEmployeeAction,
-      notifyEmployeeOfManagerAction: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifySubtaskReminder: vi.fn(async () => ({ enabled: false, success: [], failed: [] })),
-      notifyEmployeeTodoOnAccept: vi.fn(async () => ({ enabled: false })),
-    });
+    __setWorkbenchPublishNotifierForTest(stubWorkbenchPublishNotifier({ notifyManagerOfEmployeeAction }));
     await seedPublishedTask({
       planId: "plan-rej-notify",
       managerUserId: "manager-1",
@@ -1593,9 +1537,12 @@ describe("assignment-workbench HTTP handler", () => {
     await flushAsync();
     expect(actionRes.captured().statusCode).toBe(200);
     expect(notifyManagerOfEmployeeAction).toHaveBeenCalledTimes(1);
-    const arg0 = notifyManagerOfEmployeeAction.mock.calls[0]?.[0] as { kind?: string; managerUserId?: string };
-    expect(arg0.kind).toBe("rejected");
-    expect(arg0.managerUserId).toBe("manager-1");
+    expect(notifyManagerOfEmployeeAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "rejected",
+        managerUserId: "manager-1",
+      }),
+    );
 
     const events = store.getTaskDetail(taskNo)?.events ?? [];
     expect(events.some((e) => String(e.event_type ?? "") === "EMPLOYEE_RESPONSE_SUMMARY")).toBe(true);

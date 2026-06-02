@@ -40,6 +40,15 @@ export function isAlsoWorkbenchManager(userId: string): boolean {
   return listWorkbenchManagerIds().has(normalized);
 }
 
+/** DingTalk outbound footer: admin-only users; dual admin+manager use workbench nav instead. */
+export function shouldAppendAdminOpsLinkToDingtalkOutbound(userId: string): boolean {
+  const normalized = String(userId ?? "").trim();
+  if (!normalized) return false;
+  if (!isWorkbenchAdmin(normalized)) return false;
+  if (isAlsoWorkbenchManager(normalized)) return false;
+  return true;
+}
+
 export function resolveWorkbenchRole(userId: string): WorkbenchRole {
   const normalized = String(userId ?? "").trim();
   if (!normalized) return "employee";

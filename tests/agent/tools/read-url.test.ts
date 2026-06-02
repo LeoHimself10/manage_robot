@@ -25,8 +25,8 @@ describe("read_url tool", () => {
       const first = await handler({ url: "https://example.com/a" });
       const second = await handler({ url: "https://example.com/b" });
       const third = await handler({ url: "https://example.com/c" });
-      expect(first.ok).toBe(true);
-      expect(second.ok).toBe(true);
+      expect((first as { ok?: boolean }).ok).toBe(true);
+      expect((second as { ok?: boolean }).ok).toBe(true);
       expect(third).toMatchObject({ ok: false, reason: "read_url_quota_exhausted" });
     } finally {
       vi.unstubAllGlobals();

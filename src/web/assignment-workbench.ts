@@ -126,6 +126,11 @@ import { renderEmployeeWorkbenchPage } from "./employee-workbench-pages";
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { renderWorkbenchPage } from "./workbench-shell";
 import { logStructured } from "../infra/logger";
+import {
+  recordWorkbenchUsageAsync,
+  resolveWorkbenchSurfaceFromPath,
+  resolveWorkbenchSurfaceFromRole,
+} from "../infra/record-workbench-activity";
 import { sendSubtaskReminder } from "../agent/reminders/reminder-send";
 import {
   attentionBadgeClass,
@@ -418,6 +423,24 @@ function resolveEffectiveSession(
     syncSessionCookieIfChanged(req, res, session, refreshed);
   }
   return refreshed;
+}
+
+function emitWorkbenchPageView(session: WorkbenchSession, pathname: string): void {
+  recordWorkbenchUsageAsync({
+    userId: session.userId,
+    surface: resolveWorkbenchSurfaceFromPath(pathname),
+    path: pathname,
+    kind: "page_view",
+  });
+}
+
+function emitWorkbenchAgentTurn(session: WorkbenchSession, traceId: string): void {
+  recordWorkbenchUsageAsync({
+    userId: session.userId,
+    surface: resolveWorkbenchSurfaceFromRole(session.role),
+    path: `/workbench/agent-turn/${traceId}`,
+    kind: "agent_turn",
+  });
 }
 
 function createWorkbenchSession(params: {
@@ -4218,10 +4241,10 @@ export function handleAssignmentHttp(
           );
           if (!result.ok) {
             const status = result.error === "forbidden" ? 403 : result.skipped ? 200 : 400;
-            writeJson(res, status, result);
+            writeJson(res, status, { ...result });
             return;
           }
-          writeJson(res, 200, result);
+          writeJson(res, 200, { ...result });
         } finally {
           peopleStore.close();
         }
@@ -5559,7 +5582,7 @@ export function handleAssignmentHttp(
           userMessage: message,
           orchResult: orch,
           outboundMarkdown: turnDisplay.pureAssistantMessage,
-          preTurnDraft: turn.preTurnDraft,
+          preTurnDraft: turn.preTurnDraft as Record<string, unknown> | undefined,
           recentContext: buildRecentContextFromHistory(target.conversationHistory),
           publishOk: publishResultSucceeded(turn.publishResult),
           judgeModelConfig: {
@@ -5568,6 +5591,7 @@ export function handleAssignmentHttp(
             timeoutMs: qwenConfig.timeoutMs,
           },
         });
+        emitWorkbenchAgentTurn(session, orch.traceId);
         writeJson(res, 200, {
           ok: true,
           planId,
@@ -5697,6 +5721,7 @@ export function handleAssignmentHttp(
                 enforceActionGuards: shouldEnforceActionGuards(),
                 eventsPagePath: "/workbench/manager/task/events",
               });
+      emitWorkbenchPageView(session, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(html);
@@ -5732,6 +5757,7 @@ export function handleAssignmentHttp(
             : url.pathname === "/workbench/admin/ops"
               ? renderAdminOpsDashboardPage({ userLabel })
               : renderAdminWorkbenchPage({ userLabel });
+      emitWorkbenchPageView(session, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(html);
@@ -5780,6 +5806,7 @@ export function handleAssignmentHttp(
               eventsPagePath: "/workbench/employee/task/events",
             })
             : renderEmployeeWorkbenchPage();
+      emitWorkbenchPageView(employeeSession, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
       else res.end(html);

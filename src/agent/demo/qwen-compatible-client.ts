@@ -560,9 +560,8 @@ export class QwenCompatibleClient {
                 `Invalid JSON in tool_call arguments for ${toolName}: ${tc.function.arguments}`,
               );
             }
-            const handler = request.toolHandlers[toolName];
-            if (handler) {
-              return { tc, handler, parsedArgs };
+            if (toolName in request.toolHandlers) {
+              return { tc, handler: request.toolHandlers[toolName], parsedArgs };
             }
             if (isOrchestratorPseudoModeToolName(toolName)) {
               return {

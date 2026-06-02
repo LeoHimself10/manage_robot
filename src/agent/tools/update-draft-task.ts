@@ -302,20 +302,6 @@ export function buildUpdateDraftTaskHandler(
       target.dependencyTaskIds = patch.dependencyTaskIds;
       updatedFields.push("dependencyTaskIds");
     }
-    if (patch.checkpoints !== undefined) {
-      const tn = (target.timeNode as Record<string, unknown> | undefined) ?? {};
-      tn.checkpoints = patch.checkpoints;
-      target.timeNode = tn;
-      updatedFields.push("checkpoints");
-    }
-    if (patch.risks !== undefined) {
-      target.risksAndOpenQuestions = patch.risks;
-      updatedFields.push("risksAndOpenQuestions");
-    }
-    if (patch.inputMaterials !== undefined) {
-      target.inputMaterials = patch.inputMaterials;
-      updatedFields.push("inputMaterials");
-    }
     if (patch.actions !== undefined) {
       target.actions = patch.actions;
       updatedFields.push("actions");

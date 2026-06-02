@@ -38,7 +38,6 @@
     "eval:portfolio-chains": "tsx scripts/run-portfolio-chains-eval.ts",
     "eval:portfolio-full": "tsx scripts/run-portfolio-full-eval.ts",
     "eval:portfolio-suite": "npm run eval:portfolio-regression && npm run eval:project-portfolio && npm run eval:assignment-gate",
-    "eval:deployment-parity": "tsx scripts/run-deployment-parity-eval.ts",
     "eval:meeting-import": "tsx scripts/run-meeting-import-eval.ts",
     "eval:judge-calibrate": "tsx scripts/calibrate-online-judge.ts",
     "dingtalk-bot": "tsx src/dingtalk-bot.ts",

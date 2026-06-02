@@ -370,7 +370,9 @@ export async function runDingtalkLikeTurn(
     assignState,
     publishResult,
     publishOk: publishResultSucceeded(publishResult),
-    stopReason: orchResult.stopReason,
+    stopReason: orchResult.observabilityFlags?.includes("orchestrator_max_turns_exceeded")
+      ? "max_turns_exceeded"
+      : "end_turn",
   };
 }
 

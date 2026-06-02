@@ -6,7 +6,8 @@ import {
 
 describe("fetchDingTalkFile / resolveDownloadUrl diagnostics", () => {
   it("includes raw= in message when resolve returns HTTP 400 with non-JSON body", async () => {
-    const fetchImpl = async (url: string) => {
+    const fetchImpl = async (input: RequestInfo | URL) => {
+      const url = String(input);
       if (String(url).includes("messageFiles/download")) {
         return {
           ok: false,
@@ -36,7 +37,8 @@ describe("fetchDingTalkFile / resolveDownloadUrl diagnostics", () => {
   });
 
   it("includes errcode and errmsg in resolve failure detail when JSON body present", async () => {
-    const fetchImpl = async (url: string) => {
+    const fetchImpl = async (input: RequestInfo | URL) => {
+      const url = String(input);
       if (String(url).includes("messageFiles/download")) {
         return {
           ok: false,

@@ -71,13 +71,23 @@ describe("reminder-send", () => {
     peopleStore.upsertContact({
       userId: "emp-1",
       name: "E1",
+      departmentIds: ["1"],
+      departmentNames: ["执行部"],
       active: true,
+      isAdmin: false,
+      isBoss: false,
+      isSenior: false,
       lastSyncedAt: now,
     });
     peopleStore.upsertContact({
       userId: "mgr-1",
       name: "Mgr",
+      departmentIds: ["1"],
+      departmentNames: ["管理部"],
       active: true,
+      isAdmin: false,
+      isBoss: false,
+      isSenior: false,
       lastSyncedAt: now,
     });
     return { taskStore, peopleStore, sid };
@@ -91,12 +101,12 @@ describe("reminder-send", () => {
     notifyEmployeeOfManagerAction: async () => ({ enabled: true, success: [], failed: [] }),
     notifySubtaskReminder: async () => ({
       enabled: true,
-      success: [{ robotMessageKey: "mock-robot" }],
+      success: [{ userId: "emp-1", robotMessageKey: "mock-robot" }],
       failed: [],
     }),
     notifyManagerSubtaskOverdue: async () => ({
       enabled: true,
-      success: [{ robotMessageKey: "mock-mgr" }],
+      success: [{ userId: "mgr-1", robotMessageKey: "mock-mgr" }],
       failed: [],
     }),
     notifyProgressDigest: async () => ({ enabled: true, success: [], failed: [] }),

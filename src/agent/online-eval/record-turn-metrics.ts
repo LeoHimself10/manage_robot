@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { logStructured } from "../../infra/logger";
 import { getAgentMetricsStore, type AgentMetricsChannel } from "../../infra/agent-metrics-store";
+import { resolveMetricsTimezone, todayYmdInMetricsTz } from "../../infra/metrics-day-bounds";
 import type { OrchestratorResult } from "../orchestrator";
 import { runOnlineJudge, shouldRunOnlineJudge } from "./online-judge";
 import { buildRecentContextFromHistory, redactTurnText, type RedactedTurnContext } from "./recent-context";
@@ -125,10 +126,12 @@ export function recordAgentTurnMetricsAsync(input: RecordAgentTurnMetricsInput):
           : undefined;
 
         const tokens = sumTokens(input.orchResult);
+        const occurredAt = new Date().toISOString();
         store.insertTurnMetric({
           traceId: input.traceId,
           userId: input.userId,
           channel: input.channel,
+          occurredAt,
           loopMs: input.orchResult.timing?.totalMs,
           handlerMs: input.handlerMs,
           toolCalls: input.orchResult.toolCallsTotal,
@@ -141,6 +144,13 @@ export function recordAgentTurnMetricsAsync(input: RecordAgentTurnMetricsInput):
           qualityScores,
           outcome: ruleScore.sampled ? (passed ? "ok" : "quality_fail") : "unsampled",
         });
+        try {
+          const tz = resolveMetricsTimezone();
+          const dayYmd = todayYmdInMetricsTz(new Date(occurredAt));
+          store.rollupDailyForDate(dayYmd, tz);
+        } catch {
+          // rollup is best-effort
+        }
 
         if (ruleScore.sampled && !passed) {
           const planSnapshotPath = resolvePlanSnapshotPath(input.traceId);
