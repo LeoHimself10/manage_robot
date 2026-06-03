@@ -127,6 +127,7 @@ import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { renderWorkbenchPage } from "./workbench-shell";
 import { logStructured } from "../infra/logger";
 import {
+  recordWorkbenchApiActivityAsync,
   recordWorkbenchUsageAsync,
   resolveWorkbenchSurfaceFromPath,
   resolveWorkbenchSurfaceFromRole,
@@ -440,6 +441,14 @@ function emitWorkbenchAgentTurn(session: WorkbenchSession, traceId: string): voi
     surface: resolveWorkbenchSurfaceFromRole(session.role),
     path: `/workbench/agent-turn/${traceId}`,
     kind: "agent_turn",
+  });
+}
+
+function emitWorkbenchApiActivity(session: WorkbenchSession, apiPath: string): void {
+  recordWorkbenchApiActivityAsync({
+    userId: session.userId,
+    role: session.role,
+    path: apiPath,
   });
 }
 
@@ -3781,6 +3790,7 @@ export function handleAssignmentHttp(
   if (isGetOrHead && url.pathname === "/api/workbench/employee/tasks/new") {
     const session = requireSession(req, res, "employee");
     if (!session) return true;
+    emitWorkbenchApiActivity(session, url.pathname);
     const subs = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
       .filter((t) => t.status === "ASSIGNED" || t.status === "REJECTED");
@@ -3806,6 +3816,7 @@ export function handleAssignmentHttp(
   if (isGetOrHead && url.pathname === "/api/workbench/employee/tasks/current") {
     const session = requireSession(req, res, "employee");
     if (!session) return true;
+    emitWorkbenchApiActivity(session, url.pathname);
     const tasks = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
       .filter((t) => t.status === "IN_PROGRESS" || t.status === "BLOCKED");
@@ -3824,6 +3835,7 @@ export function handleAssignmentHttp(
   if (isGetOrHead && url.pathname === "/api/workbench/employee/tasks/history") {
     const session = requireSession(req, res, "employee");
     if (!session) return true;
+    emitWorkbenchApiActivity(session, url.pathname);
     const tasks = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
       .filter((t) => t.status === "DONE" || t.status === "STOPPED");
@@ -4772,6 +4784,7 @@ export function handleAssignmentHttp(
             getContact: (uid) => withPeopleDirectoryStore((s) => s.getContact(uid)) ?? undefined,
           });
         }
+        emitWorkbenchApiActivity(session, url.pathname);
         writeJson(res, 200, {
           ok: true,
           planId: updated.task.planId,
@@ -4910,6 +4923,7 @@ export function handleAssignmentHttp(
           });
         }
 
+        emitWorkbenchApiActivity(session, url.pathname);
         writeJson(res, 200, {
           ok: true,
           planId: updated.task.planId,

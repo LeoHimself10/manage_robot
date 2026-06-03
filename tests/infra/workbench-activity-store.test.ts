@@ -46,4 +46,23 @@ describe("workbench activity store", () => {
     expect(store.countDistinctUsersForAudience(from, to, "employee")).toBe(1);
     expect(store.countDistinctUsers(from, to)).toBe(2);
   });
+
+  it("lists active users with surfaces", () => {
+    const store = createWorkbenchActivityStore(dbPath);
+    const tz = "Asia/Shanghai";
+    const day = "2026-06-03";
+    const from = zonedMidnightUtcIso(day, tz);
+    const to = zonedMidnightUtcIso("2026-06-04", tz);
+    const at = new Date(Date.parse(from) + 3600_000).toISOString();
+
+    store.recordEvent({ userId: "u1", surface: "manager", path: "/a", occurredAt: at });
+    store.recordEvent({ userId: "u1", surface: "employee", path: "/b", occurredAt: at });
+    store.recordEvent({ userId: "u2", surface: "employee", path: "/c", occurredAt: at });
+
+    const rows = store.listActiveUsers({ fromIso: from, toIso: to, limit: 5 });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.userId).toBe("u1");
+    expect(rows[0]?.eventCount).toBe(2);
+    expect(rows[0]?.surfaces.sort()).toEqual(["employee", "manager"]);
+  });
 });

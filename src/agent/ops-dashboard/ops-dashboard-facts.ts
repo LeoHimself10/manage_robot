@@ -2,7 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentMetricsStore } from "../../infra/agent-metrics-store";
 import { localDayUtcRange, resolveMetricsTimezone } from "../../infra/metrics-day-bounds";
-import { queryWorkbenchUsageCounts } from "../../infra/workbench-usage-stats";
+import { resolveWorkbenchUserDisplayNames } from "../../infra/workbench-user-labels";
+import {
+  queryWorkbenchActiveUsers,
+  queryWorkbenchUsageCounts,
+  type WorkbenchActiveUserRow,
+} from "../../infra/workbench-usage-stats";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import { resolveEvalHistoryPath } from "../../infra/eval-history";
 import { addDaysToYmd, formatDateInTz } from "../reminders/reminder-policy";
@@ -45,9 +50,25 @@ export interface OpsDashboardFacts {
     completionTokens: number;
   }>;
   byChannel: Array<{ channel: string; turnCount: number; tokens: number }>;
-  byUser: Array<{ userId: string; turnCount: number; tokens: number }>;
-  incidents: Array<{ traceId: string; userId: string; occurredAt: string; flags: string[] }>;
-  qualityFails: Array<{ traceId: string; userId: string; occurredAt: string; reasons: string[] }>;
+  byUser: Array<{ userId: string; displayName: string; turnCount: number; tokens: number }>;
+  workbenchActiveUsersDay: WorkbenchActiveUserRow[];
+  workbenchActiveUsersWeek: WorkbenchActiveUserRow[];
+  workbenchActiveUsersDayManager: WorkbenchActiveUserRow[];
+  workbenchActiveUsersDayEmployee: WorkbenchActiveUserRow[];
+  incidents: Array<{
+    traceId: string;
+    userId: string;
+    displayName: string;
+    occurredAt: string;
+    flags: string[];
+  }>;
+  qualityFails: Array<{
+    traceId: string;
+    userId: string;
+    displayName: string;
+    occurredAt: string;
+    reasons: string[];
+  }>;
   evalCandidates: Array<{ id: string; traceId: string; createdAt: string; failReasons: string[] }>;
   evalRuns: Array<Record<string, unknown>>;
 }
@@ -160,6 +181,28 @@ export function buildOpsDashboardFacts(input: {
     weekFromIso: fromIso,
     weekToIso: toIso,
   });
+  const workbenchActiveUsersDay = queryWorkbenchActiveUsers({
+    fromIso: dauFromIso,
+    toIso: dauToIso,
+    limit: 20,
+  });
+  const workbenchActiveUsersWeek = queryWorkbenchActiveUsers({
+    fromIso: fromIso,
+    toIso: toIso,
+    limit: 20,
+  });
+  const workbenchActiveUsersDayManager = queryWorkbenchActiveUsers({
+    fromIso: dauFromIso,
+    toIso: dauToIso,
+    audience: "manager",
+    limit: 20,
+  });
+  const workbenchActiveUsersDayEmployee = queryWorkbenchActiveUsers({
+    fromIso: dauFromIso,
+    toIso: dauToIso,
+    audience: "employee",
+    limit: 20,
+  });
 
   const taskStore = createWorkbenchFormalTaskStore();
   const tasksPublished = taskStore.listAdminTasks().filter((t) => {
@@ -209,6 +252,12 @@ export function buildOpsDashboardFacts(input: {
     failReasons: c.failReasons.slice(0, 5),
   }));
 
+  const nameIds = new Set<string>();
+  for (const [userId] of byUser) nameIds.add(userId);
+  for (const row of incidentRows) nameIds.add(row.userId);
+  for (const row of qualityFailRows) nameIds.add(row.userId);
+  const displayNames = resolveWorkbenchUserDisplayNames(nameIds);
+
   return {
     generatedAt: new Date().toISOString(),
     week: { mondayYmd: fromYmd, sundayYmd },
@@ -237,11 +286,25 @@ export function buildOpsDashboardFacts(input: {
     dailyTrend: buildDailyTrendFromTurns(turns, timezone, fromYmd, sundayYmd),
     byChannel: [...byChannel.entries()].map(([channel, v]) => ({ channel, ...v })),
     byUser: [...byUser.entries()]
-      .map(([userId, v]) => ({ userId, ...v }))
+      .map(([userId, v]) => ({
+        userId,
+        displayName: displayNames.get(userId) ?? userId,
+        ...v,
+      }))
       .sort((a, b) => b.turnCount - a.turnCount)
       .slice(0, 20),
-    incidents: incidentRows,
-    qualityFails: qualityFailRows,
+    workbenchActiveUsersDay,
+    workbenchActiveUsersWeek,
+    workbenchActiveUsersDayManager,
+    workbenchActiveUsersDayEmployee,
+    incidents: incidentRows.map((row) => ({
+      ...row,
+      displayName: displayNames.get(row.userId) ?? row.userId,
+    })),
+    qualityFails: qualityFailRows.map((row) => ({
+      ...row,
+      displayName: displayNames.get(row.userId) ?? row.userId,
+    })),
     evalCandidates,
     evalRuns,
   };

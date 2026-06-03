@@ -139,6 +139,13 @@ export function renderManagerDashboardPage(params: {
     </main>
 
     <aside class="dashboard-side">
+      <section class="card">
+        <div class="advisor-card__head">
+          <h2>工作台活跃</h2>
+          <p class="section-sub">本周在您名下任务相关人员中有工作台访问记录（打开页面、对话或任务操作）。</p>
+        </div>
+        <div id="wbActiveMount" class="empty-state">加载中…</div>
+      </section>
       <section class="card advisor-card">
         <div class="advisor-card__head">
           <h2>周会助手</h2>
@@ -308,6 +315,24 @@ ${buildWorkbenchFmtTimeClientJs()}
     renderTaskDetails(d);
     renderPeople(d);
     renderFeed(d);
+    renderWorkbenchActive(d);
+  }
+  function renderWorkbenchActive(d) {
+    var mount = document.getElementById('wbActiveMount');
+    if (!mount) return;
+    var rows = d.workbenchActiveUsers || [];
+    if (!rows.length) {
+      mount.innerHTML = '<p class="muted" style="font-size:13px;margin:0;">本周暂无工作台访问记录。</p>';
+      return;
+    }
+    var body = rows.map(function (r) {
+      var name = esc(r.displayName || r.userId);
+      var sub = (r.displayName && r.displayName !== r.userId)
+        ? '<div class="muted" style="font-size:12px;">' + esc(r.userId) + '</div>'
+        : '';
+      return '<tr><td><strong>' + name + '</strong>' + sub + '</td><td>' + esc(r.surfaceLabel || '—') + '</td><td>' + esc(r.eventCount) + '</td></tr>';
+    }).join('');
+    mount.innerHTML = '<div class="table-wrap"><table class="data"><thead><tr><th>姓名</th><th>端</th><th>次数</th></tr></thead><tbody>' + body + '</tbody></table></div>';
   }
   function ganttTrackCells(days, centerMonday) {
     return days.map(function (day) {

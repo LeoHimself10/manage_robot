@@ -12,6 +12,7 @@ import {
 } from "../../src/infra/workbench-activity-store";
 import { buildOpsDashboardFacts } from "../../src/agent/ops-dashboard/ops-dashboard-facts";
 import { zonedMidnightUtcIso } from "../../src/agent/reminders/reminder-policy";
+import { createPeopleDirectoryStore } from "../../src/infra/people-directory-store";
 
 describe("buildOpsDashboardFacts", () => {
   let dbPath = "";
@@ -108,6 +109,68 @@ describe("buildOpsDashboardFacts", () => {
     expect(wb.manager.dau).toBe(2);
     expect(wb.employee.dau).toBe(1);
     expect(wb.wau).toBe(3);
+  });
+
+  it("enriches agent and workbench active users with display names", () => {
+    const metrics = createAgentMetricsStore(dbPath);
+    const activity = createWorkbenchActivityStore(dbPath);
+    const people = createPeopleDirectoryStore(dbPath);
+    const tz = "Asia/Shanghai";
+    const day = "2026-06-02";
+    const noon = new Date(
+      Date.parse(zonedMidnightUtcIso(day, tz)) + 7 * 60 * 60 * 1000,
+    ).toISOString();
+
+    people.upsertContact({
+      userId: "u-yao",
+      name: "姚凯珩",
+      active: true,
+      departmentIds: [],
+      departmentNames: [],
+      isAdmin: false,
+      isBoss: false,
+      isSenior: false,
+    });
+    metrics.insertTurnMetric({
+      traceId: "trace-yao",
+      userId: "u-yao",
+      channel: "dingtalk",
+      occurredAt: noon,
+    });
+    activity.recordEvent({
+      userId: "u-yao",
+      surface: "manager",
+      path: "/workbench/manager/chat",
+      kind: "page_view",
+      occurredAt: noon,
+    });
+
+    const facts = buildOpsDashboardFacts({ weekYmd: day, span: 1, timezone: tz });
+
+    expect(facts.byUser[0]?.displayName).toBe("姚凯珩");
+    expect(facts.workbenchActiveUsersDay[0]?.displayName).toBe("姚凯珩");
+    expect(facts.workbenchActiveUsersDay[0]?.surfaceLabel).toContain("主管");
+  });
+
+  it("counts employee API actions in workbench employee DAU", () => {
+    const activity = createWorkbenchActivityStore(dbPath);
+    const tz = "Asia/Shanghai";
+    const day = "2026-06-02";
+    const noon = new Date(
+      Date.parse(zonedMidnightUtcIso(day, tz)) + 6 * 60 * 60 * 1000,
+    ).toISOString();
+
+    activity.recordEvent({
+      userId: "emp-tong",
+      surface: "employee",
+      path: "/api/workbench/employee/progress",
+      kind: "api",
+      occurredAt: noon,
+    });
+
+    const facts = buildOpsDashboardFacts({ weekYmd: day, span: 1, timezone: tz });
+    expect(facts.kpi.workbench.employee.dau).toBe(1);
+    expect(facts.kpi.workbench.dau).toBe(1);
   });
 
   it("uses SQL aggregate for turnCount beyond queryTurnMetrics sample", () => {

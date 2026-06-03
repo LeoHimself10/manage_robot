@@ -6,7 +6,7 @@ export function renderAdminOpsDashboardPage(params: { userLabel?: string }): str
     activeNav: "adm-ops",
     title: "运营看板",
     pageTitle: "Agent 运营看板",
-    description: "Agent 用量、Token 消耗、质量异常与 Eval 健康度（软件运营指标）",
+    description: "Agent 用量、Token 消耗、质量异常与 Eval 健康度。工作台 DAU 统计打开页面、智能助手对话与任务 API 操作，不含「仅任务库更新时间」被动变更。",
     userLabel: params.userLabel,
     mainHtml: `
   <section class="kpis kpis--3" aria-live="polite" style="margin-bottom:16px;">
@@ -15,10 +15,11 @@ export function renderAdminOpsDashboardPage(params: { userLabel?: string }): str
     <div class="kpi"><div class="lbl">Token 消耗</div><div class="val" id="kpiTokens">—</div></div>
   </section>
   <section class="kpis kpis--3" style="margin-bottom:16px;">
-    <div class="kpi"><div class="lbl">工作台整体 DAU / WAU</div><div class="val" id="kpiWorkbenchAll">—</div></div>
+    <div class="kpi"><div class="lbl">工作台整体 DAU / WAU（去重）</div><div class="val" id="kpiWorkbenchAll">—</div></div>
     <div class="kpi"><div class="lbl">主管端 DAU / WAU</div><div class="val" id="kpiWorkbenchManager">—</div></div>
     <div class="kpi"><div class="lbl">员工端 DAU / WAU</div><div class="val" id="kpiWorkbenchEmployee">—</div></div>
   </section>
+  <p class="muted" style="font-size:12px;margin:-8px 0 14px;">整体为去重人数，不等于主管端 + 员工端；同一人两端都活跃只计 1 次。</p>
   <section class="kpis kpis--3" style="margin-bottom:16px;">
     <div class="kpi"><div class="lbl">p90 响应 (ms)</div><div class="val" id="kpiP90">—</div></div>
     <div class="kpi"><div class="lbl">质量异常</div><div class="val" id="kpiIncidents">—</div></div>
@@ -43,7 +44,15 @@ export function renderAdminOpsDashboardPage(params: { userLabel?: string }): str
     <div id="channelMount" class="empty-state">—</div>
   </div>
   <div class="card" style="margin-bottom:14px;">
-    <h2 style="margin:0 0 10px;font-size:15px;">活跃用户 Top</h2>
+    <h2 style="margin:0 0 10px;font-size:15px;">工作台活跃用户（统计日）</h2>
+    <div id="workbenchUserDayMount" class="empty-state">—</div>
+  </div>
+  <div class="card" style="margin-bottom:14px;">
+    <h2 style="margin:0 0 10px;font-size:15px;">工作台活跃用户（本周）</h2>
+    <div id="workbenchUserWeekMount" class="empty-state">—</div>
+  </div>
+  <div class="card" style="margin-bottom:14px;">
+    <h2 style="margin:0 0 10px;font-size:15px;">Agent 对话活跃用户 Top</h2>
     <div id="userMount" class="empty-state">—</div>
   </div>
   <div class="card" style="margin-bottom:14px;">
@@ -77,6 +86,22 @@ export function renderAdminOpsDashboardPage(params: { userLabel?: string }): str
   function setText(id, v) {
     var el = document.getElementById(id);
     if (el) el.textContent = String(v);
+  }
+  function userNameCell(r) {
+    var name = esc(r.displayName || r.userId);
+    var id = esc(r.userId || '');
+    if (r.displayName && r.displayName !== r.userId) {
+      return '<td><strong>' + name + '</strong><div class="muted" style="font-size:12px;"><code>' + id + '</code></div></td>';
+    }
+    return '<td><code>' + id + '</code></td>';
+  }
+  function renderWorkbenchUsers(rows) {
+    if (!rows || !rows.length) return '暂无数据';
+    var body = rows.map(function (r) {
+      return '<tr>' + userNameCell(r)
+        + '<td>' + esc(r.surfaceLabel || '—') + '</td><td>' + esc(r.eventCount) + '</td></tr>';
+    }).join('');
+    return '<div class="table-wrap"><table class="data"><thead><tr><th>姓名</th><th>端</th><th>事件数</th></tr></thead><tbody>' + body + '</tbody></table></div>';
   }
   async function load() {
     setFb('加载中…', 'muted');
@@ -119,23 +144,25 @@ export function renderAdminOpsDashboardPage(params: { userLabel?: string }): str
       document.getElementById('channelMount').innerHTML = ch
         ? '<div class="table-wrap"><table class="data"><thead><tr><th>渠道</th><th>轮次</th><th>Tokens</th></tr></thead><tbody>' + ch + '</tbody></table></div>'
         : '暂无数据';
+      document.getElementById('workbenchUserDayMount').innerHTML = renderWorkbenchUsers(data.workbenchActiveUsersDay || []);
+      document.getElementById('workbenchUserWeekMount').innerHTML = renderWorkbenchUsers(data.workbenchActiveUsersWeek || []);
       var users = (data.byUser || []).map(function (r) {
-        return '<tr><td><code>' + esc(r.userId) + '</code></td><td>' + esc(r.turnCount) + '</td><td>' + esc(r.tokens) + '</td></tr>';
+        return '<tr>' + userNameCell(r) + '<td>' + esc(r.turnCount) + '</td><td>' + esc(r.tokens) + '</td></tr>';
       }).join('');
       document.getElementById('userMount').innerHTML = users
-        ? '<div class="table-wrap"><table class="data"><thead><tr><th>用户</th><th>轮次</th><th>Tokens</th></tr></thead><tbody>' + users + '</tbody></table></div>'
+        ? '<div class="table-wrap"><table class="data"><thead><tr><th>姓名</th><th>轮次</th><th>Tokens</th></tr></thead><tbody>' + users + '</tbody></table></div>'
         : '暂无数据';
       var incRows = (data.incidents || []).map(function (r) {
-        return '<tr><td><code>' + esc(r.traceId) + '</code></td><td>' + esc(r.userId) + '</td><td>' + esc((r.flags || []).join(', ')) + '</td></tr>';
+        return '<tr><td><code>' + esc(r.traceId) + '</code></td>' + userNameCell(r) + '<td>' + esc((r.flags || []).join(', ')) + '</td></tr>';
       }).join('');
       document.getElementById('incidentMount').innerHTML = incRows
-        ? '<div class="table-wrap"><table class="data"><thead><tr><th>traceId</th><th>用户</th><th>flags</th></tr></thead><tbody>' + incRows + '</tbody></table></div>'
+        ? '<div class="table-wrap"><table class="data"><thead><tr><th>traceId</th><th>姓名</th><th>flags</th></tr></thead><tbody>' + incRows + '</tbody></table></div>'
         : '暂无异常';
       var qf = (data.qualityFails || []).map(function (r) {
-        return '<tr><td><code>' + esc(r.traceId) + '</code></td><td>' + esc(r.userId) + '</td><td>' + esc((r.reasons || []).join('; ')) + '</td></tr>';
+        return '<tr><td><code>' + esc(r.traceId) + '</code></td>' + userNameCell(r) + '<td>' + esc((r.reasons || []).join('; ')) + '</td></tr>';
       }).join('');
       document.getElementById('qualityFailMount').innerHTML = qf
-        ? '<div class="table-wrap"><table class="data"><thead><tr><th>traceId</th><th>用户</th><th>原因</th></tr></thead><tbody>' + qf + '</tbody></table></div>'
+        ? '<div class="table-wrap"><table class="data"><thead><tr><th>traceId</th><th>姓名</th><th>原因</th></tr></thead><tbody>' + qf + '</tbody></table></div>'
         : '暂无失败';
       var cand = (data.evalCandidates || []).map(function (r) {
         return '<tr><td><code>' + esc(r.traceId) + '</code></td><td>' + esc(r.createdAt) + '</td><td>' + esc((r.failReasons || []).join('; ')) + '</td></tr>';

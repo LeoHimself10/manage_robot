@@ -7,7 +7,7 @@ import { resolveWorkbenchSqlitePath } from "./workbench-db-path";
 /** Stored surface; admin rolls up to manager audience in queries. */
 export type WorkbenchActivitySurface = "manager" | "employee" | "admin";
 
-export type WorkbenchActivityKind = "page_view" | "agent_turn";
+export type WorkbenchActivityKind = "page_view" | "agent_turn" | "api";
 
 export type WorkbenchAudience = "manager" | "employee";
 
@@ -98,6 +98,57 @@ export function createWorkbenchActivityStore(dbPath = resolveWorkbenchSqlitePath
         )
         .get(fromIso, toIso, ...surfaces) as { c: number };
       return Number(row?.c ?? 0);
+    },
+
+    listActiveUsers(input: {
+      fromIso: string;
+      toIso: string;
+      audience?: WorkbenchAudience;
+      userIds?: string[];
+      limit?: number;
+    }): Array<{ userId: string; eventCount: number; surfaces: string[] }> {
+      const limit = Math.max(1, Math.min(50, input.limit ?? 20));
+      const clauses = ["occurred_at >= ?", "occurred_at < ?"];
+      const params: Array<string | number> = [input.fromIso, input.toIso];
+
+      if (input.audience) {
+        const surfaces = surfacesForAudience(input.audience);
+        clauses.push(`surface IN (${surfaces.map(() => "?").join(", ")})`);
+        params.push(...surfaces);
+      }
+
+      const userIds = (input.userIds ?? [])
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean);
+      if (userIds.length > 0) {
+        clauses.push(`user_id IN (${userIds.map(() => "?").join(", ")})`);
+        params.push(...userIds);
+      }
+
+      params.push(limit);
+      const rows = db
+        .prepare(
+          `SELECT user_id, COUNT(*) AS event_count, GROUP_CONCAT(DISTINCT surface) AS surfaces
+           FROM workbench_activity_events
+           WHERE ${clauses.join(" AND ")}
+           GROUP BY user_id
+           ORDER BY event_count DESC, user_id ASC
+           LIMIT ?`,
+        )
+        .all(...params) as Array<{
+        user_id?: string;
+        event_count?: number;
+        surfaces?: string;
+      }>;
+
+      return rows.map((row) => ({
+        userId: String(row.user_id ?? ""),
+        eventCount: Number(row.event_count ?? 0),
+        surfaces: String(row.surfaces ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      }));
     },
   };
 }

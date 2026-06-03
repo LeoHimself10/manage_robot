@@ -9,6 +9,7 @@ import {
 import { summarizeWeeklyAdvisorWithLlm } from "../agent/weekly-dashboard/weekly-dashboard-advisor-llm";
 import { presentWorkbenchTaskEvent } from "../infra/workbench-event-present";
 import type { createWorkbenchFormalTaskStore } from "../infra/workbench-formal-task-store";
+import { queryManagerTeamWorkbenchActiveUsers } from "../infra/workbench-usage-stats";
 
 type TaskStore = ReturnType<typeof createWorkbenchFormalTaskStore>;
 
@@ -37,6 +38,7 @@ function enrichFeedActionLabels(
 export function serializeWeeklyDashboardForClient(input: {
   facts: ReturnType<typeof buildWeeklyDashboardFacts>;
   timeline: ReturnType<typeof buildWeeklyDashboardTimeline>;
+  taskStore: TaskStore;
   resolveName?: (uid: string) => string | undefined;
   feedOnly?: boolean;
 }): Record<string, unknown> {
@@ -62,12 +64,21 @@ export function serializeWeeklyDashboardForClient(input: {
     })),
   }));
 
+  const workbenchActiveUsers = queryManagerTeamWorkbenchActiveUsers({
+    taskStore: input.taskStore,
+    managerUserId: facts.managerUserId,
+    fromIso: facts.weekSpan.rangeStartIso,
+    toIso: facts.weekSpan.rangeEndIso,
+    limit: 12,
+  });
+
   return {
     ok: true,
     week: facts.week,
     span: facts.span,
     approxHistoricalState: facts.approxHistoricalState,
     kpi: facts.kpi,
+    workbenchActiveUsers,
     tasks,
     timeline: {
       days: timeline.days,
@@ -115,14 +126,25 @@ export function buildWeeklyDashboardHttpPayload(input: {
     resolveName: input.resolveName,
   });
   if (input.feedOnly) {
-    return serializeWeeklyDashboardForClient({ facts, timeline: { days: [], byTask: [], byPerson: [] }, resolveName: input.resolveName, feedOnly: true });
+    return serializeWeeklyDashboardForClient({
+      facts,
+      timeline: { days: [], byTask: [], byPerson: [] },
+      taskStore: input.taskStore,
+      resolveName: input.resolveName,
+      feedOnly: true,
+    });
   }
   const timeline = buildWeeklyDashboardTimeline({
     facts,
     taskStore: input.taskStore,
     resolveName: input.resolveName,
   });
-  return serializeWeeklyDashboardForClient({ facts, timeline, resolveName: input.resolveName });
+  return serializeWeeklyDashboardForClient({
+    facts,
+    timeline,
+    taskStore: input.taskStore,
+    resolveName: input.resolveName,
+  });
 }
 
 export async function buildWeeklyAdvisorHttpPayload(input: {

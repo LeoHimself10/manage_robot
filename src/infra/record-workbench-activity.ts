@@ -44,3 +44,17 @@ export function resolveWorkbenchSurfaceFromRole(
   if (pathname) return resolveWorkbenchSurfaceFromPath(pathname);
   return "manager";
 }
+
+/** Task actions / API usage (employee accept, progress, manager APIs, etc.). */
+export function recordWorkbenchApiActivityAsync(input: {
+  userId: string;
+  role: string;
+  path: string;
+}): void {
+  recordWorkbenchUsageAsync({
+    userId: input.userId,
+    surface: resolveWorkbenchSurfaceFromRole(input.role, input.path),
+    path: input.path,
+    kind: "api",
+  });
+}
