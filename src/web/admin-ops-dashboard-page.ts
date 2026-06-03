@@ -19,7 +19,6 @@ export function renderAdminOpsDashboardPage(params: { userLabel?: string }): str
     <div class="kpi"><div class="lbl">主管端 DAU / WAU</div><div class="val" id="kpiWorkbenchManager">—</div></div>
     <div class="kpi"><div class="lbl">员工端 DAU / WAU</div><div class="val" id="kpiWorkbenchEmployee">—</div></div>
   </section>
-  <p class="muted" style="font-size:12px;margin:-8px 0 14px;">整体为去重人数，不等于主管端 + 员工端；同一人两端都活跃只计 1 次。</p>
   <section class="kpis kpis--3" style="margin-bottom:16px;">
     <div class="kpi"><div class="lbl">p90 响应 (ms)</div><div class="val" id="kpiP90">—</div></div>
     <div class="kpi"><div class="lbl">质量异常</div><div class="val" id="kpiIncidents">—</div></div>
