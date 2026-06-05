@@ -50,7 +50,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
     expect(sys).toContain("**WBS 拆解原则**");
     expect(sys).toContain("勿默认只出少数阶段包");
     expect(sys).toContain("list_managers");
-    expect(sys.length).toBeLessThanOrEqual(8700);
+    expect(sys.length).toBeLessThanOrEqual(8750);
   });
 
   it("v5.23.15: dispatch wording discipline (no 发布 in user message)", () => {

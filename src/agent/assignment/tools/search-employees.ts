@@ -189,11 +189,6 @@ export interface GetEmployeeDetailsHandlerContext {
   candidatePool?: () => CandidatePoolEntryRef[];
 }
 
-/** 每次 orchestrator 调用允许的最大 get_employee_details 调用次数（默认 2）。 */
-function getEmployeeDetailsPerOrchestratorQuota(): number {
-  const raw = Number(process.env.GET_EMPLOYEE_DETAILS_PER_ORCHESTRATOR_MAX ?? "2");
-  return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 2;
-}
 
 export const SEARCH_EMPLOYEES_TOOL: ToolDefinition = {
   type: "function",
@@ -283,21 +278,7 @@ export function buildGetEmployeeDetailsHandler(
   },
   ctx: GetEmployeeDetailsHandlerContext = {},
 ): ToolHandler {
-  // 每个 handler 实例（= 每次 orchestrator）独立计数，防止花名册场景逐人遍历爆迭代。
-  let callCount = 0;
-  const quota = getEmployeeDetailsPerOrchestratorQuota();
-
   return (args: Record<string, unknown>) => {
-    callCount += 1;
-    if (callCount > quota) {
-      return {
-        ok: false,
-        reason: "get_employee_details_quota_exhausted",
-        callCount,
-        quota,
-        hint: `get_employee_details 在本轮已调用 ${quota} 次，已达上限。请直接根据已获取的 fileNotes 判断并调用 bulk_assign_tasks，不要继续逐人查询。`,
-      };
-    }
     const raw = args.userIds;
     const userIds = Array.isArray(raw)
       ? raw.map((id) => String(id ?? "").trim()).filter(Boolean).slice(0, 8)
