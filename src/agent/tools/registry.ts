@@ -638,11 +638,6 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "bulk_assign_tasks",
       "add_draft_subtask",
       "remove_draft_subtask",
-      "read_uploaded_roster_text",
-      "resolve_roster_names",
-      "set_candidate_pool",
-      "clear_candidate_pool",
-      "list_candidate_pool",
     ],
     admin: [
       "prepare_publish_task",
@@ -670,11 +665,6 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "bulk_assign_tasks",
       "add_draft_subtask",
       "remove_draft_subtask",
-      "read_uploaded_roster_text",
-      "resolve_roster_names",
-      "set_candidate_pool",
-      "clear_candidate_pool",
-      "list_candidate_pool",
     ],
     employee: [
       "list_my_tasks",
@@ -707,6 +697,26 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     });
     for (const [name, entry] of Object.entries(portfolioHandlers)) {
       out[name] = entry;
+    }
+  }
+
+  // 花名册工具（read_uploaded_roster_text / resolve_roster_names / set/clear/list_candidate_pool）
+  // 仅在会话中存在待处理花名册或候选池时暴露，避免无关场景下膨胀 tool schema。
+  const hasRosterContext = !!(
+    deps.currentSession?.pendingRosterText
+    || deps.currentSession?.candidatePool
+  );
+  if (hasRosterContext && (profile === "manager" || profile === "admin" || profile === "full")) {
+    const rosterTools: (keyof typeof all)[] = [
+      "read_uploaded_roster_text",
+      "resolve_roster_names",
+      "set_candidate_pool",
+      "clear_candidate_pool",
+      "list_candidate_pool",
+    ];
+    for (const name of rosterTools) {
+      const entry = all[name];
+      if (entry) out[name] = entry;
     }
   }
 

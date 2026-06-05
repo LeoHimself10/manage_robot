@@ -16,8 +16,8 @@ export interface EvalProductionParityOptions {
 
 /** Orchestrator / Qwen / tool quota vars mirrored from live dingtalk-bot (+ code defaults where ECS omits). */
 export const PRODUCTION_ORCHESTRATOR_ENV: Record<string, string> = {
-  DINGTALK_ORCHESTRATOR_MAX_ITERATIONS: "30",
-  AGENT_MAX_TOOL_CALLS: "16",
+  DINGTALK_ORCHESTRATOR_MAX_ITERATIONS: "12",
+  AGENT_MAX_TOOL_CALLS: "10",
   AGENT_MAX_TOTAL_MS: "180000",
   AGENT_MAX_TOTAL_TOKENS: "24000",
   DINGTALK_QWEN_MAX_TOKENS: "8000",

@@ -27,10 +27,10 @@
 - **`DEMO_LLM_CORRECTION`**：默认**开启**（未设置或 `1` / `true` / `yes`）。设为 **`0` / `false` / `no`** 时，`createTaskPlanningDemo` **不进行**校验失败后的第二轮自纠正（`enableLlmCorrection: false`）。该变量主要影响 CLI demo/eval/pipeline 路径，不是钉钉 `runOrchestrator` 主链路的关键开关。
 - **`SESSION_DIGEST_MAX_CHARS`**：钉钉多轮会话里，上轮摘要注入 Qwen user prompt 的**最大字符数**（默认 `2000`，有效范围 `200`–`8000`；非法或未解析的数字回退默认）。仅影响**同会话第二轮及以后**的 prompt 体积，对首条消息无影响。
 - **`DINGTALK_QWEN_MAX_TOKENS`** / **`AGENT_MAX_TOTAL_TOKENS`**：钉钉 orchestrator 单次输出与整轮 ReAct token 预算（默认 `8000` / `24000`）。
-- **`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS`**：ReAct 工具循环上限（代码默认 `6`；ECS 现网 `30`）。
+- **`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS`**：ReAct 工具循环上限（代码默认 `6`；ECS 现网推荐 `12`）。
 - **`UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX`**：单轮 orchestrator 内 `update_draft_task` 调用上限（默认 `4`；ECS 现网 `12`）。
 - **`READ_URL_*`**：外链读取超时/体积/次数；见 `docs/deploy-aliyun-dingtalk.md`。
-- **`ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS`**：有未发布草案时 `[memory_context]` 注入完整 `latestDraft` 的字符上限（默认 `32000`）。
+- **`ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS`**：有未发布草案时 `[memory_context]` 注入完整 `latestDraft` 的字符上限（默认 `12000`）。
 
 本地可将变量写在项目根目录 `**.env`**，CLI 已 `import "dotenv/config"` 自动加载。可参考 `.env.example`。
 
@@ -53,7 +53,7 @@ MVP 试点可先使用“快速档”：`QWEN_MAX_RETRIES=0`、`DEMO_LLM_CORRECT
 ## 3. 调用链路
 
 1. **钉钉主链路**：`src/dingtalk-bot.ts` 调 `runOrchestrator`，由 `QwenCompatibleClient.callWithTools` 驱动 ReAct（tool_calls 循环）生成最终 `message + draft`。
-2. **工具循环**：`callWithTools` 轮数由 `DINGTALK_ORCHESTRATOR_MAX_ITERATIONS` 控制（代码默认 **6**；ECS 现网 **30**）；每轮都可继续使用工具，直到模型不再返回 `tool_calls`。
+2. **工具循环**：`callWithTools` 轮数由 `DINGTALK_ORCHESTRATOR_MAX_ITERATIONS` 控制（代码默认 **6**；ECS 现网 **12**）；每轮都可继续使用工具，直到模型不再返回 `tool_calls`。
 3. **prompt 版本**：当前 `QWEN_PLANNER_PROMPT_VERSION` 为 `orchestrator-agent-v5.23.13`（见 `src/agent/demo/qwen-prompt.ts`）；`runOrchestrator` 使用 `buildQwenPlannerSystemPrompt`，`generateStructuredPlan`（demo/eval）使用 `buildLegacyDemoPlannerSystemPrompt`，二者解耦。
 4. **外链读取**：用户消息含 http(s) URL 时模型可调 **`read_url`**（`READ_URL_ENABLED=1` 默认开；内网/localhost/需登录页由 guard 拒绝或读失败后引导粘贴，禁止编造）。入站文本统一经 `extractDingtalkMessageText` 解析。
 5. **草案落盘**：主链路由模型在最终 JSON 顶层输出 `draft`；`save_draft` 工具仍保留于 registry 实现但**不对任何 profile 开放**。`prepare_publish_task` 在校验通过时会兜底写入 `latestDraft` / `latestAssignment`。
