@@ -46,6 +46,8 @@
     "dev:external-workbench": "tsx scripts/local-external-workbench-dev.ts",
     "dev:manager-chat": "tsx scripts/local-manager-chat-dev.ts",
     "dev:manager-chat:keep": "tsx scripts/local-manager-chat-dev.ts --keep-data",
+    "dev:task-intake": "tsx scripts/local-task-intake-dev.ts",
+    "dev:task-intake:keep": "tsx scripts/local-task-intake-dev.ts --keep-data",
     "dev:microcatheter-repro": "tsx scripts/local-microcatheter-repro-dev.ts",
     "test:displayname-local": "tsx scripts/local-test-displayname-fix.ts",
     "test:assignment-scope": "vitest run tests/agent/assignment/resolve-turn-assignment.test.ts tests/agent/assignment/assignment-scope-conversation.test.ts tests/agent/assignment/assignment-gate-invariants.test.ts tests/agent/manager-orchestrator-turn.test.ts tests/agent/workbench/conversation-turn-display.test.ts tests/agent/tools/start-new-task.test.ts tests/agent/tools/switch-back-task.test.ts tests/view/draft-outbound.test.ts tests/agent/scope-message-truncate.test.ts",

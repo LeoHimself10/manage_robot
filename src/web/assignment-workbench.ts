@@ -113,6 +113,9 @@ import {
   handleMeetingImportCommit,
   handleMeetingImportParse,
 } from "./meeting-import-api";
+import { renderManagerTaskIntakePage } from "./manager-task-intake-page";
+import { handleTaskIntakeCommit, handleTaskIntakePreview } from "./task-intake-api";
+import { isTaskIntakeEnabled } from "../agent/task-intake/task-intake-flag";
 import {
   buildWeeklyAdvisorHttpPayload,
   buildWeeklyDashboardHttpPayload,
@@ -167,6 +170,7 @@ const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/manager/dashboard",
   "/workbench/manager/chat",
   "/workbench/manager/meeting-import",
+  "/workbench/manager/task-intake",
   "/workbench/manager/task",
   "/workbench/manager/task/events",
 ]);
@@ -3360,6 +3364,90 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/task-intake/preview") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!isTaskIntakeEnabled()) {
+          writeJson(res, 404, { ok: false, error: "task_intake_disabled" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const result = await handleTaskIntakePreview({
+          pastedText: String(body.pastedText ?? ""),
+          parentTitle: String(body.parentTitle ?? ""),
+        });
+        writeJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "preview failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/task-intake/commit") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!isTaskIntakeEnabled()) {
+          writeJson(res, 404, { ok: false, error: "task_intake_disabled" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const rows = Array.isArray(body.rows) ? body.rows : [];
+        // Project archiving is optional and only meaningful for portfolio managers.
+        const portfolioEnabled = isWorkbenchProjectPortfolioEnabled(session.userId);
+        const projectId = portfolioEnabled ? String(body.projectId ?? "").trim() : "";
+        const projectName = portfolioEnabled ? String(body.projectName ?? "").trim() : "";
+        const stageDraft = (staged: {
+          draft: Record<string, unknown>;
+          assignment: Record<string, unknown>;
+        }): void => {
+          const target = findMainThreadSession(session.userId);
+          const nowIso = new Date().toISOString();
+          planSessionStore.save({
+            ...target,
+            senderStaffId: session.userId,
+            latestDraft: staged.draft,
+            latestAssignment: staged.assignment as PlanSession["latestAssignment"],
+            updatedAt: nowIso,
+            revisionEvents: [
+              ...(target.revisionEvents ?? []),
+              {
+                occurredAt: nowIso,
+                eventType: "TASK_INTAKE_STAGED",
+                planId: target.planId,
+              },
+            ].slice(-60),
+          });
+        };
+        const result = await handleTaskIntakeCommit({
+          taskStore: getFormalTaskStore(),
+          managerUserId: session.userId,
+          parentTitle: String(body.parentTitle ?? "").trim(),
+          parentDescription: String(body.parentDescription ?? "").trim(),
+          projectId: projectId || undefined,
+          projectName: projectName || undefined,
+          rows,
+          actorName: session.dingUser?.name,
+          stageDraft,
+        });
+        writeJson(res, 200, { ok: true, result });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "commit failed",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (isGetOrHead && url.pathname === "/api/workbench/manager/projects") {
     const session = requireSession(req, res, "manager");
     if (!session) return true;
@@ -5662,6 +5750,10 @@ export function handleAssignmentHttp(
         redirect(res, "/workbench/manager/tasks");
         return true;
       }
+      if (url.pathname === "/workbench/manager/task-intake" && !isTaskIntakeEnabled()) {
+        redirect(res, "/workbench/manager/tasks");
+        return true;
+      }
       let chatThreadId = "main";
       let chatThreadKind: "main" | "side" = "main";
       let planTitle: string | undefined;
@@ -5703,6 +5795,8 @@ export function handleAssignmentHttp(
           })
           : url.pathname === "/workbench/manager/meeting-import"
             ? renderManagerMeetingImportPage({ userLabel, showAdminOpsLink })
+          : url.pathname === "/workbench/manager/task-intake"
+            ? renderManagerTaskIntakePage({ userLabel, showAdminOpsLink, portfolioEnabled })
           : url.pathname === "/workbench/manager/tasks"
             ? renderManagerTasksPage({
               planId: url.searchParams.get("planId")?.trim(),

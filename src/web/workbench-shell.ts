@@ -1,5 +1,6 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
+import { isTaskIntakeEnabled } from "../agent/task-intake/task-intake-flag";
 
 export type WorkbenchShellRole = "manager" | "employee" | "admin";
 
@@ -9,6 +10,7 @@ export type WorkbenchNavId =
   | "mgr-chat"
   | "mgr-proj"
   | "mgr-meeting-import"
+  | "mgr-task-intake"
   | "emp-new"
   | "emp-cur"
   | "emp-hist"
@@ -67,6 +69,7 @@ function buildManagerRail(activeNav: WorkbenchNavId, portfolioEnabled: boolean, 
   ${railLink("/workbench/manager/tasks", "历史任务", "mgr-tasks", activeNav, "manager")}
   ${railLink("/workbench/manager/dashboard", "周度 Dashboard", "mgr-dash", activeNav, "manager")}
   ${railLink("/workbench/manager/chat?thread=main", "智能规划助手", "mgr-chat", activeNav, "manager")}
+  ${isTaskIntakeEnabled() ? railLink("/workbench/manager/task-intake", "任务快录入库", "mgr-task-intake", activeNav, "manager") : ""}
   ${portfolioEnabled ? railLink("/workbench/manager/meeting-import", "会议入库", "mgr-meeting-import", activeNav, "manager") : ""}
 </div>
 ${
