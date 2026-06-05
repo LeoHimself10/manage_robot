@@ -603,11 +603,9 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
   const profileTools: Record<ToolProfile, string[]> = {
     planner: [
       "search_employees",
-      "get_employee_details",
       "search_similar_plans",
       "search_web",
       "read_url",
-      "get_current_time",
       "update_known_facts",
       "list_known_facts",
       "start_new_task",
@@ -625,11 +623,9 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "list_follow_up_candidates",
       "send_subtask_reminder",
       "search_employees",
-      "get_employee_details",
       "search_similar_plans",
       "search_web",
       "read_url",
-      "get_current_time",
       "update_known_facts",
       "list_known_facts",
       "start_new_task",
@@ -652,11 +648,9 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "list_managers",
       "set_manager_permission",
       "search_employees",
-      "get_employee_details",
       "search_similar_plans",
       "search_web",
       "read_url",
-      "get_current_time",
       "update_known_facts",
       "list_known_facts",
       "start_new_task",
@@ -700,14 +694,16 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     }
   }
 
-  // 花名册工具（read_uploaded_roster_text / resolve_roster_names / set/clear/list_candidate_pool）
-  // 仅在会话中存在待处理花名册或候选池时暴露，避免无关场景下膨胀 tool schema。
+  // 花名册工具 + get_employee_details：仅在候选池场景暴露。
+  // get_employee_details 提供 fileNotes（候选池技能摘要），仅花名册 browse 时有意义；
+  // 直接点名指派（search_employees 已返回 userId/name/dept）无需调用。
   const hasRosterContext = !!(
     deps.currentSession?.pendingRosterText
     || deps.currentSession?.candidatePool
   );
   if (hasRosterContext && (profile === "manager" || profile === "admin" || profile === "full")) {
     const rosterTools: (keyof typeof all)[] = [
+      "get_employee_details",
       "read_uploaded_roster_text",
       "resolve_roster_names",
       "set_candidate_pool",

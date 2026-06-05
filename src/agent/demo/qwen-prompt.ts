@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.24.0";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.24.1";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -60,7 +60,7 @@ function buildProjectPortfolioDiscipline(): string[] {
 
 function buildPlannerToolCheatsheet(opts?: QwenPlannerPromptOpts): string {
   const common =
-    "通用：search_employees / get_employee_details / search_similar_plans / search_web / read_url / get_current_time / update_known_facts / list_known_facts / start_new_task / switch_back_task / update_draft_task / add_draft_subtask / remove_draft_subtask。";
+    "通用：search_employees / search_similar_plans / search_web / read_url / update_known_facts / list_known_facts / start_new_task / switch_back_task / update_draft_task / add_draft_subtask / remove_draft_subtask。（get_employee_details / get_current_time 仅花名册场景可用）";
   const portfolio =
     opts?.projectPortfolioContext
       ? "大项目：用户本轮出现“项目/专项/属于/归属/不是A是B/新建项目”时，必须先 tool_call：list_projects / create_project / suggest_project / set_active_project；禁止仅口播“已记录归属”。"
@@ -109,9 +109,9 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "",
     "## 人员指派纪律（scheme C，一处规则）",
     "- **责任人必须**（每个 subtask 发放前须有 primary）；**协作人非必须**（子任务≥3 或跨部门动作时可加）。",
-    "- **搜人前提**：仅当用户**本轮已提到具体姓名/岗位**或明确要求**点将/指派/改派/由你分派**，且处于 **ASSIGN 或 DRAFT+ASSIGN** 时 → 先 `search_employees`（`department`/`role` 为硬过滤）；browse 后 shortlisted 须 `get_employee_details` 再写入 assignment；无命中 → CLARIFY 换关键词/上传花名册。**CLARIFY / QUERY / 纯 DRAFT（无点将）** → 禁止 `search_employees`、`get_employee_details`。",
-    "- **多 subtask 分派**：N 条 draft → **bulk_assign_tasks 或顶层 assignment JSON 一次覆盖全部 taskId**；≤2 次 search + 1 次 get_employee_details；**禁止**花名册 resolve 后多次 update_draft_task(assigneeUserId)（第 2 次会被拒）。",
-    "- **花名册候选池技能匹配**：候选池生效（尤其 source 为 uploaded:*）时，子任务技能/职责匹配**以 `get_employee_details` 返回的 `fileNotes` 为准**；`selfProfile` 为空**不阻断**指派；与 fileNotes 冲突时**以 fileNotes 为准**。",
+    "- **搜人前提**：仅当用户**本轮已提到具体姓名/岗位**或明确要求**点将/指派/改派/由你分派**，且处于 **ASSIGN 或 DRAFT+ASSIGN** 时 → 先 `search_employees`（`department`/`role` 为硬过滤）；无命中 → CLARIFY 换关键词/上传花名册。**CLARIFY / QUERY / 纯 DRAFT（无点将）** → 禁止 `search_employees`。",
+    "- **多 subtask 分派**：N 条 draft → **bulk_assign_tasks 或顶层 assignment JSON 一次覆盖全部 taskId**；直接点名时 search → bulk（**无需** get_employee_details）；**禁止**花名册 resolve 后多次 update_draft_task(assigneeUserId)（第 2 次会被拒）。",
+    "- **花名册候选池技能匹配**：候选池生效（source 为 uploaded:*）时，`get_employee_details` 可用，以其返回的 `fileNotes` 做匹配；`selfProfile` 为空**不阻断**指派；与 fileNotes 冲突时**以 fileNotes 为准**。",
     "- message 提到的负责人/协作人**必须**已写入 latestAssignment（工具 ok）；禁止口播指派。",
     "- prepare_publish_task 只传 planId/title/description；subtasks 由服务端从 session 读取。",
     "- publish 返回 stale_staging 时：同轮自动 prepare → 再 publish。",
@@ -127,7 +127,7 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "**工具后衔接**：`start_new_task` ok → **本回合剩余禁止 tool_calls**；若用户尚未描述新需求，下一条 assistant **仅 CLARIFY JSON**（仅 message，无 draft/tasks[]）。`switch_back_task` ok → 有 draft 走 **DRAFT**，无 draft 走 **CLARIFY**；本回合剩余禁止 tool_calls。",
     "",
     "## 分模式纪律",
-    "**CLARIFY**：只追问；缺截止日期/时间范围时**必须**追问；≤6 条；**禁止** draft/assignment/表；**本回合禁止任何 tool_calls**（含 search_employees、update_known_facts、search_similar_plans、get_current_time 等；portfolio 项目工具除外），只输出 `{\"message\":\"...\"}`。寒暄/打招呼（你好/在吗）→ 简短回复或追问，**禁止** draft。客诉/质量/OCT 场景若缺**型号或批次** → **CLARIFY-only**（无 draft JSON）。",
+    "**CLARIFY**：只追问；缺截止日期/时间范围时**必须**追问；≤6 条；**禁止** draft/assignment/表；**本回合禁止任何 tool_calls**（含 search_employees、update_known_facts、search_similar_plans 等；portfolio 项目工具除外），只输出 `{\"message\":\"...\"}`。寒暄/打招呼（你好/在吗）→ 简短回复或追问，**禁止** draft。客诉/质量/OCT 场景若缺**型号或批次** → **CLARIFY-only**（无 draft JSON）。",
     "**QUERY**：先 `list_managed_tasks`/`get_task_detail`/`list_my_tasks`/`admin_list_all_tasks`/`get_metrics`/`list_managers`（按题选用）；须工具 ok 后再转述；**禁止**编造 TASK-xxxx/主管名单；**禁止**凭 memory 猜配置；**禁止** draft/表。",
     ...(opts?.managerFollowup ? buildManagerFollowupDiscipline() : []),
     ...(opts?.projectPortfolioContext ? buildProjectPortfolioDiscipline() : []),
@@ -139,14 +139,14 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "**TABLE REDRAFT（有草案时整表拆细/扩条）**：整表/全部子任务/WBS/重新拆解/拆得更细/扩成 N 条（**无单一 task 锚点**）→ **DRAFT 整表重做**；须按 WBS 原则拆破旧大包（粒度优于 memory 中 latestDraft，条数须≥旧草案）；**本回合禁止 tool_calls**，直接输出 JSON；**同轮必须**顶层完整 `draft`（`tasks[]` 全量替换）。**禁止**仅 message 口播新条数/拆解逻辑而无 draft JSON、手画表、用 add/update 拼整表重拆。",
     "**ROW_SPLIT（有草案时单行拆成多条）**：用户点名任务 N / task_x / 第 N 条且要求拆成/分成 M 条 → **必须 tool_calls**：先 `update_draft_task` 收窄原行（若需），再 `add_draft_subtask(title=…, insertAfterSubtaskId=该行 id)` 共 M-1 次（未传 dueAt 继承父行）；**禁止**仅在 message 用 1.2. 列表代替增行；message 简述已增行与新 task id。",
     "**PATCH REVISE（有草案时单点改）**：用户明确 `task_x` 且只改少量字段（**不增行**）→ `update_draft_task`；删一条 → `remove_draft_subtask`；**assignee 改派走 ASSIGN（bulk_assign_tasks）**；数组 patch 为**整表替换**；**禁止**无工具声称已改、**禁止**为单点改整表重拆。",
-    "**ASSIGN**：点将须 search（或 candidate_pool browse）→ get_employee_details → **bulk_assign_tasks 或顶层 assignment JSON 一次覆盖全部 taskId**；多 task **禁止**逐条 update_draft_task(assigneeUserId)；花名册 resolve 后下一步必须 bulk/JSON；REDRAFT 后 assignment 不自动补齐须 ASSIGN 回合；search 空 → CLARIFY；**仅点将**不得 prepare/publish。",
+    "**ASSIGN**：直接点名 → search → **bulk_assign_tasks 或顶层 assignment JSON 一次覆盖全部 taskId**；候选池 browse → search + get_employee_details（fileNotes）→ bulk；多 task **禁止**逐条 update_draft_task(assigneeUserId)；花名册 resolve 后下一步必须 bulk/JSON；REDRAFT 后 assignment 不自动补齐须 ASSIGN 回合；search 空 → CLARIFY；**仅点将**不得 prepare/publish。",
     "",
     "## 跨场景红线",
     "0. message 禁「发布/已发布/已发布并/发布前/发布后/正式发布/未发布」；用「发放/已发放/待员工承接」。prepare 后引导回复「确认发放」，禁写「确认发布/发布吧」。publish_task 仅 tool_calls。",
     "1. 工具-话术一致：工具未 ok → 禁止口播该动作已完成（假发放时服务端会追加未落库提示，不替模型 publish）。",
     "2. 发放：`prepare_publish_task` → 用户确认 → `publish_task`（**确认时可同轮**）；其他场景禁直接 publish。",
     "3. 搜人纪律见 scheme C；**CLARIFY / 纯 DRAFT（无点将）不适用**搜人规则。",
-    "4. 主题切换：新话题与 latestDraft 无关 → **必须先** `start_new_task` ok；**禁止**未归档时输出 `draft.tasks[]`；旧 scope 人名/task_x 不得引用。",
+    "4. 主题切换：**有 latestDraft** 且新话题与其无关 → **必须先** `start_new_task` ok；**无 latestDraft 时直接 DRAFT，禁止调 start_new_task**；**禁止**未归档时输出 `draft.tasks[]`；旧 scope 人名/task_x 不得引用。",
     "5. userId 不入 message；只写「姓名（部门）」。",
     "6. 花名册：pendingRoster → read_uploaded_roster_text → **resolve_roster_names**（一次批量，禁止逐一 search_employees(name=...)）→ set_candidate_pool（**须**为每人填 entries[*].fileNotes：部门/岗位/技能原文摘要）；已有 draft.tasks 时**严禁**反问上传名单。",
     "7. 外链：用户消息含 **http(s) URL** → **先** `read_url`，与用户同条文字**合并理解**（链接可仅作背景）。用户**明确仅提供背景/先不拆/不用出表** → 确认已读 + 追问后续意图，**禁止**同轮 output draft；用户要求规划 → 结合已读内容与文字 CLARIFY/DRAFT。**禁止**用 `search_web` 读指定 URL。读失败（内网/登录墙/钉钉文档）→ 引导复制正文或导出文件；**禁止编造**未读到的页面内容。",
@@ -158,7 +158,7 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "示例3 PATCH REVISE：用户「task_2 改到 6/30」→ `update_draft_task` patch dueAt；message 简述已改（不全量重拆）。",
     "示例3b ROW_SPLIT：用户「任务2拆成2条」→ `update_draft_task(task_2)` + `add_draft_subtask(insertAfterSubtaskId=task_2)`；tasks[] 增 1 行；message 简述新 task id（禁止 message 内 1.2. 代替增行）。",
     "示例4 TABLE REDRAFT：memory 已有 5 条草案；用户「拆得更细/整表重出 tasks[]」→ 无 tool_calls，直接 DRAFT 四段 message + 顶层完整 draft（tasks[] ≥8 条且更细）；② 说明阶段与依赖，tasks[] 为工作包级。",
-    "示例5 ASSIGN：用户「由你分派」→ ≤2 search + get_employee_details → bulk_assign_tasks 或顶层 assignment JSON（N 行）；禁止花名册后 5× update_draft_task。",
+    "示例5 ASSIGN：用户「由你分派」→ search → bulk_assign_tasks 或顶层 assignment JSON（N 行）；候选池 browse 时再加 get_employee_details；禁止花名册后 5× update_draft_task。",
     "示例6 PUBLISH：用户「确认发放」→ publish_task；ok 后 message「已发放，员工待承接」。",
     "反例：空 message 仅 draft；CLARIFY 同轮出 draft；缺截止却调 search_employees；CLARIFY 轮调 update_known_facts；输出 draft 时 message ④ 仍写「以便我生成正式草案/请补充以下信息」；客诉无型号批次却同轮出 draft+CLARIFY 混写；tool_calls 调用 CLARIFY/DRAFT/QUERY 等模式名；有草案时「扩成 7 条/拆更细」仅口播无顶层 draft JSON；用户「任务2拆成2条」仅 message 两条 bullet 而 tasks[] 行数未增。",
     ...(opts?.managerFollowup
