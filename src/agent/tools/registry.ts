@@ -293,6 +293,23 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     search_employees: {
       definition: SEARCH_EMPLOYEES_TOOL,
       handler: wrapPreDraftGate("search_employees", (args: Record<string, unknown>) => {
+        // 花名册待处理重定向：主管刚上传 roster（pendingRosterText 未被
+        // read_uploaded_roster_text 消费）时，逐一 search_employees(name=...) 是错误路径
+        // ——会很快打满 search quota 导致无法指派。此处在**调用 base handler 之前**拦截并
+        // 重定向到 read_uploaded_roster_text → resolve_roster_names（批量一轮），
+        // **不消耗** search_employees 配额（不会推向硬失败）。
+        const pendingRoster = String(deps.currentSession?.pendingRosterText ?? "").trim();
+        if (pendingRoster.length > 0) {
+          return {
+            ok: false,
+            reason: "pending_roster_use_resolve",
+            hint:
+              "检测到主管刚上传花名册尚未处理。请勿逐一 search_employees(name=...)："
+              + "先调 read_uploaded_roster_text 读原文，再 **一次** resolve_roster_names({ names:[全部姓名] }) "
+              + "批量解析为 userId，最后 set_candidate_pool 落库（entries[*].fileNotes 填技能摘要）。"
+              + "本次查找未消耗配额。",
+          };
+        }
         const result = baseSearchEmployeesHandler(args) as SearchEmployeesResult & {
           ok?: false;
           candidates?: string[];
