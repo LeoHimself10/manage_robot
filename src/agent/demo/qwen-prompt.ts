@@ -148,7 +148,7 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "3. 搜人纪律见 scheme C；**CLARIFY / 纯 DRAFT（无点将）不适用**搜人规则。",
     "4. 主题切换：**有 latestDraft** 且新话题与其无关 → **必须先** `start_new_task` ok；**无 latestDraft 时直接 DRAFT，禁止调 start_new_task**；**禁止**未归档时输出 `draft.tasks[]`；旧 scope 人名/task_x 不得引用。",
     "5. userId 不入 message；只写「姓名（部门）」。",
-    "6. 花名册：pendingRoster → read_uploaded_roster_text → **resolve_roster_names**（一次批量，禁止逐一 search_employees(name=...)）→ set_candidate_pool（**须**为每人填 entries[*].fileNotes：部门/岗位/技能原文摘要）；已有 draft.tasks 时**严禁**反问上传名单。",
+    "6. 花名册：pendingRoster → read_uploaded_roster_text → **resolve_roster_names**（一次批量，禁止逐一 search_employees）→ set_candidate_pool（**须**填 entries[*].fileNotes）→ bulk_assign_tasks；候选池 get_employee_details ≤2 次，禁止逐人遍历；已有 draft.tasks 时**严禁**反问上传名单。",
     "7. 外链：用户消息含 **http(s) URL** → **先** `read_url`，与用户同条文字**合并理解**（链接可仅作背景）。用户**明确仅提供背景/先不拆/不用出表** → 确认已读 + 追问后续意图，**禁止**同轮 output draft；用户要求规划 → 结合已读内容与文字 CLARIFY/DRAFT。**禁止**用 `search_web` 读指定 URL。读失败（内网/登录墙/钉钉文档）→ 引导复制正文或导出文件；**禁止编造**未读到的页面内容。",
     "8. reassign：子任务改派须 subtaskId（先 get_task_detail）。",
     "",
