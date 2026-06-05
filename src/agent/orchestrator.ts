@@ -248,7 +248,7 @@ export async function runOrchestrator(
   const history = normalizeConversationHistoryForModel(
     config.sessionContext?.conversationHistory ?? [],
   );
-  const historyWindowRaw = Number(process.env.AGENT_HISTORY_TURNS ?? "6");
+  const historyWindowRaw = Number(process.env.AGENT_HISTORY_TURNS ?? "8");
   const historyWindow = Number.isFinite(historyWindowRaw) && historyWindowRaw > 0
     ? Math.floor(historyWindowRaw)
     : 10;
