@@ -324,8 +324,8 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `READ_URL_MAX_BYTES` | 否 | 响应体最大字节（默认 `524288`，即 512KB） |
 | `READ_URL_MAX_TEXT_CHARS` | 否 | 注入模型的正文最大字符（默认 `12000`） |
 | `READ_URL_PER_ORCHESTRATOR_MAX` | 否 | 单轮 orchestrator 最多调用 `read_url` 次数（默认 `2`） |
-| `DINGTALK_ORCHESTRATOR_MAX_ITERATIONS` | 否 | ReAct 工具循环上限（代码默认 `6`；**ECS 现网推荐 `12`**） |
-| `AGENT_MAX_TOOL_CALLS` | 否 | 单轮 orchestrator 工具调用总次数上限（ECS 现网 `10`） |
+| `DINGTALK_ORCHESTRATOR_MAX_ITERATIONS` | 否 | ReAct 工具循环上限（代码默认 `6`；**ECS 现网 `30`**；勿调低——复杂 WBS 逐行 add/update 会超限崩溃） |
+| `AGENT_MAX_TOOL_CALLS` | 否 | 单轮 orchestrator 工具调用总次数上限（ECS 现网 `16`；勿调低——超限抛错中断本轮） |
 | `MANAGER_TURN_MAX_RERUNS` | 否 | 每条用户消息最多完整重跑 orchestrator 次数（默认 `1`；0 = 禁止重跑） |
 | `AGENT_HISTORY_TURNS` | 否 | 注入历史对话轮数（默认 `6`） |
 | `ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS` | 否 | memory_context 草案注入字符上限（默认 `12000`） |
