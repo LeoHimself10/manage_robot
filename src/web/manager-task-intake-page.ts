@@ -303,9 +303,14 @@ export function renderManagerTaskIntakePage(params: {
 
 /* ── Assignee combo ───────────────────────────────── */
 .ti-assignee-wrap { position: relative; }
+/* Elevate stacking context while searching so dropdown paints above sibling fields */
+.ti-assignee-wrap:focus-within { z-index: 200; }
 .combo-options {
   position: absolute;
-  z-index: 10050;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 201;
   min-width: 220px;
   max-height: 240px;
   overflow-y: auto;
@@ -314,8 +319,13 @@ export function renderManagerTaskIntakePage(params: {
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(15,23,42,.13), 0 2px 6px rgba(15,23,42,.06);
   list-style: none;
-  margin: 4px 0 0;
+  margin: 0;
   padding: 4px 0;
+}
+.combo-options.combo-options--fixed {
+  position: fixed;
+  right: auto;
+  z-index: 20000;
 }
 .combo-options[hidden] { display: none; }
 .combo-options li {
@@ -473,7 +483,7 @@ export function renderManagerTaskIntakePage(params: {
 .ti-tp-no { font-family: var(--ti-mono); font-size: 10.5px; color: var(--ti-ink-3); flex-shrink: 0; }
 
 /* ── Group view ───────────────────────────────── */
-.ti-group { margin-bottom: 14px; border: 1.5px solid var(--ti-border); border-radius: 12px; overflow: hidden; }
+.ti-group { margin-bottom: 14px; border: 1.5px solid var(--ti-border); border-radius: 12px; overflow: visible; }
 .ti-group-head {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 16px;

@@ -276,6 +276,90 @@ curl -sf http://127.0.0.1:8080/health && echo OK
 
 恢复后再查：`docker logs --tail 50 manage-robot-dingtalk`（应见 Stream 已连接），并排查本次 deploy 为何中断（SSH 超时、`git pull` 冲突、`docker build` 报错等）。
 
+#### 双容器部署（dingtalk + mingsibot）
+
+现网 ECS 上通常跑 **两个业务容器**，共用同一镜像 `manage-robot:dingtalk`：
+
+| 容器 | 端口 | 数据卷 | 环境文件 |
+|------|------|--------|----------|
+| `manage-robot-dingtalk` | `8080` | `/opt/manage_robot/data` | `/etc/manage-robot.env` |
+| `manage-robot-mingsibot` | `8081` | `/opt/manage_robot-mingsibot/data` | `/etc/manage-robot-mingsibot.env` |
+
+代码仓库只有一份：`/opt/manage_robot`（Git 托管）。**mingsibot 不单独 clone**，重建镜像后两个容器各 restart 一次即可加载新代码。
+
+**推荐发版流程（两个容器都更新）**：
+
+```powershell
+# ① 本机：先 push 到 GitHub
+git push origin feat/draft-full-memory-mutate   # 或你的 ECS 跟踪分支
+
+# ② 本机：dingtalk 容器（git pull + build + swap）
+.\scripts\ecs-deploy-dingtalk.ps1 -PublicIp 你的ECS公网IP -PemPath "c:\Users\EDY\Downloads\hh.pem"
+
+# ③ ECS 上：用新镜像重启 mingsibot（共用同一 tag）
+ssh -i hh.pem root@你的ECS公网IP "
+  docker stop manage-robot-mingsibot && docker rm manage-robot-mingsibot
+  docker run -d --name manage-robot-mingsibot --restart unless-stopped \
+    --env-file /etc/manage-robot-mingsibot.env \
+    -v /opt/manage_robot-mingsibot/data:/app/data \
+    -p 8081:8081 manage-robot:dingtalk
+  curl -sf http://127.0.0.1:8081/health && echo OK
+"
+```
+
+**勿与 `ecs-deploy-dingtalk.ps1` 并行跑 `ecs-deploy-followup.ps1`**（见下节）。
+
+#### 两种部署路径：git pull vs SCP（重要）
+
+仓库有两个 Windows 部署脚本，机制不同：
+
+| 脚本 | 同步代码方式 | 是否弄脏 Git 工作区 | 适用场景 |
+|------|-------------|---------------------|----------|
+| `ecs-deploy-dingtalk.ps1` | **`git pull --ff-only`** | 否（与 GitHub 一致） | **日常发版（推荐）** |
+| `ecs-deploy-followup.ps1` | **`scp` 本机文件直接覆盖** | **是**（Git 认为整仓被改） | 历史遗留；仅催办 env 补丁时可单独用，**不要与 dingtalk 脚本并行** |
+
+`ecs-deploy-followup.ps1` 会把本机 `src/`、`tests/`、`scripts/`、`docs/` 等 **整目录 SCP 到 `/opt/manage_robot`**，不经过 git commit。后果：
+
+1. **`git pull` 失败** — 下次跑 `ecs-deploy-dingtalk.ps1` 时 Git 报 `Your local changes would be overwritten by merge`。
+2. **CRLF 换行污染** — 从 Windows SCP 的 `.sh` 文件带 `\r\n`，Linux shebang 失效，容器启动报 `./scripts/docker-entrypoint-dingtalk.sh: not found`。
+3. **假阳性大量 Modified** — `git status` 可能显示 200+ 文件改动，但 `git diff --ignore-cr-at-eol` 后内容往往与 HEAD 一致，**仅是换行符差异**。
+
+#### 事故复盘：followup SCP 弄脏工作区（2026-06-08）
+
+**现象**：
+
+- `ecs-deploy-dingtalk.ps1` 在 `git pull` 阶段失败，提示 `resolve-assignees.ts`、`suggest-targets.ts` 等将被覆盖。
+- 并行跑完的 `ecs-deploy-followup.ps1` 重建了容器，但容器 **Restarting**，日志为 `docker-entrypoint-dingtalk.sh: not found`。
+- `git status` 显示 200+ `M` 文件；`git diff package.json` 为整文件 `-`/`+` 对等行数（CRLF vs LF）。
+
+**根因**：followup 脚本用 SCP 覆盖 ECS 工作区 + Windows CRLF；dingtalk 脚本依赖 `git pull`，二者冲突。
+
+**恢复步骤**（在 ECS 上）：
+
+```bash
+cd /opt/manage_robot
+git fetch origin
+git reset --hard origin/feat/draft-full-memory-mutate   # 对齐远程分支
+git clean -fd
+
+# 去掉 shell 脚本的 Windows 换行（若曾 SCP 过）
+find scripts -name '*.sh' -exec sed -i 's/\r$//' {} \;
+chmod +x scripts/docker-entrypoint-dingtalk.sh
+
+# 必须 --no-cache 重建，否则 Docker 可能沿用带 CRLF 的 scripts 层缓存
+docker build --no-cache -t manage-robot:dingtalk .
+# 再按 2.6 / 2.7  swap dingtalk 容器，并 restart mingsibot
+```
+
+**纪律（新增）**：
+
+| 纪律 | 说明 |
+|------|------|
+| **发版只用 `ecs-deploy-dingtalk.ps1`** | 两个容器共用镜像，build 一次、分别 restart |
+| **勿并行跑 followup SCP** | 会与 `git pull` 冲突并引入 CRLF |
+| **`git pull` 冲突时先 `reset --hard`** | 确认 ECS 无需要保留的手工改动后再重置 |
+| **容器 entrypoint not found** | 优先查 `head -1 scripts/docker-entrypoint-dingtalk.sh \| od -c` 是否含 `\r` |
+
 ### 2.8 暂不配钉钉，只想在云上验证 Qwen
 
 当前常驻镜像入口是 **`npm run dingtalk-bot`**，没有钉钉凭证时进程会退出。若仅验证模型与网络，可在 ECS 上临时进入一次性容器（不配钉钉变量会失败，故改用 **`demo`**）：
