@@ -116,6 +116,21 @@ describe("get_employee_performance tool", () => {
     handler({});
     expect(fakeStore.loadPerformanceDataset).toHaveBeenCalledWith({ projectId: "proj-1" });
   });
+
+  it("returns periodLabel for natural month queries", () => {
+    const fakeStore = { loadPerformanceDataset: vi.fn(() => AS_OF_DATASET) };
+    const handler = buildGetEmployeePerformanceHandler({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      taskStore: fakeStore as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      peopleStore: { getContact: () => undefined } as any,
+      scope: { kind: "all" },
+    });
+    const res = handler({ periodKind: "month", periodAnchor: "2026-05" }) as Record<string, unknown>;
+    expect(res.periodKind).toBe("month");
+    expect(res.periodLabel).toBe("2026年5月");
+    expect(res.periodAnchor).toBe("2026-05");
+  });
 });
 
 describe("performance tool profile isolation", () => {

@@ -114,7 +114,7 @@ import {
   isPerformanceDashboardEnabled,
   parsePerformanceConversationHistory,
   resolvePerformanceScopeFromSession,
-  resolvePerformanceWindowDays,
+  parsePerformanceQueryInput,
 } from "./performance-dashboard-api";
 import { runPerformanceAgentTurn } from "../agent/performance-agent-turn";
 import { renderManagerMeetingImportPage } from "./manager-meeting-import-page";
@@ -2718,6 +2718,15 @@ function requirePerformanceDashboardSession(
   return undefined;
 }
 
+function performanceQueryFromUrl(url: URL) {
+  return {
+    windowDays: url.searchParams.get("windowDays"),
+    periodKind: url.searchParams.get("periodKind"),
+    periodAnchor: url.searchParams.get("periodAnchor"),
+    projectId: url.searchParams.get("projectId") ?? undefined,
+  };
+}
+
 function handlePerformanceDashboardGet(
   req: IncomingMessage,
   res: ServerResponse,
@@ -2735,8 +2744,7 @@ function handlePerformanceDashboardGet(
     const payload = buildPerformanceDashboardPayload({
       taskStore: getFormalTaskStore(),
       scope,
-      windowDays: url.searchParams.get("windowDays"),
-      projectId: url.searchParams.get("projectId") ?? undefined,
+      ...performanceQueryFromUrl(url),
       resolveName: (uid) => peopleStore.getContact(uid)?.name?.trim(),
     });
     writeJson(res, 200, payload);
@@ -2769,8 +2777,7 @@ function handlePerformanceEmployeeDetailGet(
       taskStore: getFormalTaskStore(),
       scope,
       userId,
-      windowDays: url.searchParams.get("windowDays"),
-      projectId: url.searchParams.get("projectId") ?? undefined,
+      ...performanceQueryFromUrl(url),
       resolveName: (uid) => peopleStore.getContact(uid)?.name?.trim(),
     });
     writeJson(res, payload.ok ? 200 : 404, payload);
@@ -2804,8 +2811,13 @@ async function handlePerformanceChatPost(
     return;
   }
   const scope = resolvePerformanceScopeFromSession(session);
+  const periodOpts = parsePerformanceQueryInput({
+    windowDays: body.windowDays,
+    periodKind: body.periodKind,
+    periodAnchor: body.periodAnchor,
+  });
   const pageQuery = {
-    windowDays: resolvePerformanceWindowDays(body.windowDays),
+    ...periodOpts,
     projectId: String(body.projectId ?? "").trim() || undefined,
   };
   const conversationHistory = parsePerformanceConversationHistory(body.conversationHistory);

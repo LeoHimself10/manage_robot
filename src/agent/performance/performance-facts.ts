@@ -12,6 +12,11 @@
  * 公正性说明：被改派过的子任务以 reassignedInvolved 标注，催办/逾期提醒计数按子任务归到当前负责人（近似）。
  */
 import { parseDueAtMs } from "../reminders/due-at-parse";
+import {
+  type PerformancePeriodKind,
+  type ResolvedPerformancePeriod,
+  resolvePerformancePeriod,
+} from "./performance-period";
 
 const TERMINAL_STATUSES = new Set(["DONE", "STOPPED"]);
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -79,6 +84,9 @@ export interface EmployeePerformanceFacts {
   generatedAt: string;
   scopeKind: "manager" | "all";
   windowDays: number;
+  periodKind: PerformancePeriodKind;
+  periodLabel: string;
+  periodAnchor: string;
   asOf: string;
   /** 参与统计的有截止子任务总数。 */
   totalSubtasksConsidered: number;
@@ -88,6 +96,8 @@ export interface EmployeePerformanceFacts {
 export interface BuildPerformanceFactsOptions {
   scopeKind?: "manager" | "all";
   windowDays?: number;
+  periodKind?: PerformancePeriodKind;
+  periodAnchor?: string;
   asOf?: string | number;
   /** userId -> 展示名。 */
   resolveName?: (userId: string) => string | undefined;
@@ -102,13 +112,17 @@ export function buildEmployeePerformanceFacts(
   dataset: PerformanceDataset,
   options: BuildPerformanceFactsOptions = {},
 ): EmployeePerformanceFacts {
-  const asOfMs = options.asOf === undefined
-    ? Date.now()
-    : typeof options.asOf === "number"
-      ? options.asOf
-      : Date.parse(options.asOf);
-  const windowDays = options.windowDays && options.windowDays > 0 ? Math.floor(options.windowDays) : 90;
-  const cutoffMs = asOfMs - windowDays * MS_PER_DAY;
+  const period = resolvePerformancePeriod({
+    windowDays: options.windowDays,
+    periodKind: options.periodKind,
+    periodAnchor: options.periodAnchor,
+    asOf: options.asOf,
+  });
+  const asOfMs = Date.parse(period.asOf);
+  const windowDays = period.windowDays ?? Math.max(
+    1,
+    Math.ceil((period.rangeEndMs - period.rangeStartMs) / MS_PER_DAY),
+  );
 
   const remindersBySubtask = new Map<string, number>();
   for (const r of dataset.reminders) remindersBySubtask.set(r.subtaskId, r.total);
@@ -161,8 +175,8 @@ export function buildEmployeePerformanceFacts(
     if (status === "STOPPED") continue;
     const dueMs = parseDueAtMs(sub.dueAt);
     if (dueMs === undefined) continue;
-    // 窗口：按截止时间落在 [cutoff, asOf] 内（聚焦近期表现）。
-    if (dueMs < cutoffMs || dueMs > asOfMs) continue;
+    // 窗口：按截止时间落在统计周期内。
+    if (dueMs < period.rangeStartMs || dueMs > period.rangeEndMs) continue;
     const userId = sub.assigneeUserId;
     if (!userId) continue;
     totalConsidered += 1;
@@ -248,7 +262,10 @@ export function buildEmployeePerformanceFacts(
     generatedAt: new Date().toISOString(),
     scopeKind: options.scopeKind ?? "all",
     windowDays,
-    asOf: new Date(asOfMs).toISOString(),
+    periodKind: period.kind,
+    periodLabel: period.label,
+    periodAnchor: period.periodAnchor,
+    asOf: period.asOf,
     totalSubtasksConsidered: totalConsidered,
     rows,
   };
@@ -315,13 +332,11 @@ export interface PerformanceSummaryKpi {
   avgLateRateAmongScored: number | null;
 }
 
-function filterSubtasksInWindow(
+function filterSubtasksInPeriod(
   dataset: PerformanceDataset,
-  windowDays: number,
-  asOfMs: number,
+  period: ResolvedPerformancePeriod,
   filters?: { userId?: string; projectId?: string },
 ): PerformanceSubtaskInput[] {
-  const cutoffMs = asOfMs - windowDays * MS_PER_DAY;
   const projectFilter = String(filters?.projectId ?? "").trim();
   const userFilter = String(filters?.userId ?? "").trim();
   return dataset.subtasks.filter((sub) => {
@@ -334,7 +349,7 @@ function filterSubtasksInWindow(
     }
     const dueMs = parseDueAtMs(sub.dueAt);
     if (dueMs === undefined) return false;
-    return dueMs >= cutoffMs && dueMs <= asOfMs;
+    return dueMs >= period.rangeStartMs && dueMs <= period.rangeEndMs;
   });
 }
 
@@ -374,13 +389,14 @@ export function buildProjectPerformanceRollup(
   dataset: PerformanceDataset,
   options: BuildPerformanceFactsOptions & { projectId?: string } = {},
 ): PerformanceProjectRollup[] {
-  const asOfMs = options.asOf === undefined
-    ? Date.now()
-    : typeof options.asOf === "number"
-      ? options.asOf
-      : Date.parse(options.asOf);
-  const windowDays = options.windowDays && options.windowDays > 0 ? Math.floor(options.windowDays) : 90;
-  const subs = filterSubtasksInWindow(dataset, windowDays, asOfMs, { projectId: options.projectId });
+  const period = resolvePerformancePeriod({
+    windowDays: options.windowDays,
+    periodKind: options.periodKind,
+    periodAnchor: options.periodAnchor,
+    asOf: options.asOf,
+  });
+  const asOfMs = Date.parse(period.asOf);
+  const subs = filterSubtasksInPeriod(dataset, period, { projectId: options.projectId });
   const byProject = new Map<string, PerformanceProjectRollup & { assignees: Set<string> }>();
   for (const sub of subs) {
     const pid = sub.projectId ?? "__unassigned__";
@@ -428,8 +444,14 @@ export function buildEmployeePerformanceDetail(
   const facts = buildEmployeePerformanceFacts(dataset, options);
   const employee = facts.rows.find((r) => r.userId === userId);
   if (!employee) return undefined;
+  const period = resolvePerformancePeriod({
+    windowDays: options.windowDays ?? facts.windowDays,
+    periodKind: options.periodKind ?? facts.periodKind,
+    periodAnchor: options.periodAnchor ?? facts.periodAnchor,
+    asOf: facts.asOf,
+  });
   const asOfMs = Date.parse(facts.asOf);
-  const subs = filterSubtasksInWindow(dataset, facts.windowDays, asOfMs, { userId });
+  const subs = filterSubtasksInPeriod(dataset, period, { userId });
   const remindersBySubtask = new Map(dataset.reminders.map((r) => [r.subtaskId, r.total]));
   const reassignedSet = new Set(dataset.reassignedSubtaskIds);
 
@@ -487,7 +509,13 @@ export function buildEmployeePerformanceDetail(
 
   const byProject = buildProjectPerformanceRollup(
     { ...dataset, subtasks: subs },
-    { ...options, asOf: facts.asOf, windowDays: facts.windowDays },
+    {
+      ...options,
+      asOf: facts.asOf,
+      windowDays: facts.periodKind === "rolling" ? facts.windowDays : undefined,
+      periodKind: facts.periodKind,
+      periodAnchor: facts.periodAnchor,
+    },
   );
 
   return { employee, subtasks, byProject, byTask };

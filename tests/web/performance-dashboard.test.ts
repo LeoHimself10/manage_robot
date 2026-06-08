@@ -99,8 +99,8 @@ describe("performance dashboard api", () => {
 
   it("resolvePerformanceWindowDays falls back to default", () => {
     expect(resolvePerformanceWindowDays(30)).toBe(30);
-    expect(resolvePerformanceWindowDays("abc")).toBe(90);
-    expect(resolvePerformanceWindowDays(undefined)).toBe(90);
+    expect(resolvePerformanceWindowDays("abc")).toBe(30);
+    expect(resolvePerformanceWindowDays(undefined)).toBe(30);
   });
 
   it("enabled by default", () => {

@@ -61,10 +61,11 @@ export function renderPerformanceDashboardPage(params: {
         <div class="perf-seg-block">
           <span class="perf-filter-lbl">统计窗口</span>
           <div class="perf-segmented" id="perfWindow" role="group" aria-label="统计窗口">
-            <button type="button" data-window="30">30 天</button>
-            <button type="button" data-window="90" class="is-on">90 天</button>
-            <button type="button" data-window="180">180 天</button>
-            <button type="button" data-window="365">1 年</button>
+            <button type="button" data-period="rolling" data-window="30" class="is-on">30 天</button>
+            <button type="button" data-period="rolling" data-window="90">90 天</button>
+            <button type="button" data-period="month">本月</button>
+            <button type="button" data-period="quarter">本季</button>
+            <button type="button" data-period="year">本年</button>
           </div>
         </div>
         ${projectFilter}
@@ -207,7 +208,9 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
   var lastRows = [];
   var selectedUserId = null;
   var selectedName = null;
-  var windowDays = 90;
+  var windowDays = 30;
+  var periodKind = 'rolling';
+  var periodAnchor = '';
   var streaming = false;
   var CHAT_STORE_KEY = 'perf_chat_history_v1:' + API_BASE;
   var chatHistory = [];
@@ -326,7 +329,7 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
 
   function detailQueryParams(userId){
     var p = new URLSearchParams();
-    p.set('windowDays', windowDays);
+    appendPeriodParams(p);
     p.set('userId', userId);
     if(detailProjectId) p.set('projectId', detailProjectId);
     return p.toString();
@@ -334,9 +337,17 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
 
   function currentProjectId(){ return (PORTFOLIO && projectSel && projectSel.value) ? projectSel.value : ''; }
 
+  function appendPeriodParams(p){
+    if(periodKind === 'rolling') p.set('windowDays', windowDays);
+    else {
+      p.set('periodKind', periodKind);
+      if(periodAnchor) p.set('periodAnchor', periodAnchor);
+    }
+  }
+
   function queryParams(extra){
     var p = new URLSearchParams();
-    p.set('windowDays', windowDays);
+    appendPeriodParams(p);
     var pid = currentProjectId();
     if(pid) p.set('projectId', pid);
     if(extra) Object.keys(extra).forEach(function(k){ if(extra[k]!=null) p.set(k, extra[k]); });
@@ -527,7 +538,7 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
         renderKpi(d.kpi);
         fillProjectOptions(d.projectOptions || d.projects);
         var asOf = d.asOf ? new Date(d.asOf).toLocaleString('zh-CN') : '';
-        meta.textContent = (d.scopeLabel||'')+' · 窗口 '+d.windowDays+' 天 · 参与统计子任务 '+d.totalSubtasksConsidered+' 条（不含已停止）· 截至 '+asOf;
+        meta.textContent = (d.scopeLabel||'')+' · '+(d.periodLabel||('窗口 '+d.windowDays+' 天'))+' · 参与统计子任务 '+d.totalSubtasksConsidered+' 条（不含已停止）· 截至 '+asOf;
         render(lastRows);
         if(selectedUserId){
           var row = lastRows.find(function(r){return r.userId===selectedUserId;});
@@ -596,9 +607,11 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
     var finalMessage = '';
     var payload = {
       message: msg,
-      windowDays: windowDays,
       stream: true,
-      conversationHistory: chatHistory.slice()
+      conversationHistory: chatHistory.slice(),
+      periodKind: periodKind,
+      windowDays: windowDays,
+      periodAnchor: periodAnchor || undefined
     };
     var pid = currentProjectId();
     if(pid) payload.projectId = pid;
@@ -665,7 +678,9 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
     btn.addEventListener('click', function(){
       Array.prototype.forEach.call(windowSeg.querySelectorAll('button'), function(b){ b.classList.remove('is-on'); });
       btn.classList.add('is-on');
-      windowDays = Number(btn.dataset.window)||90;
+      periodKind = btn.dataset.period || 'rolling';
+      windowDays = Number(btn.dataset.window) || 30;
+      periodAnchor = '';
       load();
     });
   });

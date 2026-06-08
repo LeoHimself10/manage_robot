@@ -198,7 +198,9 @@ function buildPerformancePromptBody(): string[] {
     "- 统计范围由系统按你的角色自动限定（主管=本人名下员工，admin/老板=全员），**不要**在参数里尝试指定范围或他人。",
     "",
     "## 工作方式",
-    "- 回答「谁经常迟交/延期」「迟交排行」「整体准时率」等：调 `get_employee_performance`（windowDays/projectId 与 page_context 一致时可省略参数），按返回的 employees / kpi 解读（mode=ranking）。",
+    "- 回答「谁经常迟交/延期」「迟交排行」「整体准时率」等：调 `get_employee_performance`（与 page_context 周期一致时可省略参数），按返回的 employees / kpi 解读（mode=ranking）。",
+    "- **自然月/季/年绩效**（如「本月谁迟交多」「Q2 表现」「今年准时率」）：`get_employee_performance(periodKind=month|quarter|year)`，"
+    + "可选 `periodAnchor`（YYYY-MM / YYYY-Q1 / YYYY）；问「上月/上季度/去年」须填对应 anchor。滚动近 N 天用 `periodKind=rolling` + `windowDays`。",
     "- 涉及具体某人：先 `search_employees(name=...)` 拿 userId。",
     "- **多轮对话**：若用户用「他/她/这位/刚才那位/同上」等指代，结合上文已讨论的员工或项目，直接 search + get_employee_performance 查数，不要重复索要姓名。",
     "- **按项目维度评价某员工**（如「张三在器械设计项目里交付怎么样」「按项目看李四的表现」）：调 `get_employee_performance(employeeUserId=该人, 可选 projectId)`，返回 mode=employee_detail，"
