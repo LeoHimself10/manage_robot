@@ -198,8 +198,10 @@ function buildPerformancePromptBody(): string[] {
     "- 统计范围由系统按你的角色自动限定（主管=本人名下员工，admin/老板=全员），**不要**在参数里尝试指定范围或他人。",
     "",
     "## 工作方式",
-    "- 回答「谁经常迟交/延期」「迟交排行」「整体准时率」等：调 `get_employee_performance`（windowDays/projectId 与 page_context 一致时可省略参数），按返回的 employees / kpi 解读。",
-    "- 涉及具体某人：先 `search_employees(name=...)` 拿 userId，再在统计结果中定位该人。",
+    "- 回答「谁经常迟交/延期」「迟交排行」「整体准时率」等：调 `get_employee_performance`（windowDays/projectId 与 page_context 一致时可省略参数），按返回的 employees / kpi 解读（mode=ranking）。",
+    "- 涉及具体某人：先 `search_employees(name=...)` 拿 userId。",
+    "- **按项目维度评价某员工**（如「张三在器械设计项目里交付怎么样」「按项目看李四的表现」）：调 `get_employee_performance(employeeUserId=该人, 可选 projectId)`，返回 mode=employee_detail，"
+    + "用 `byProject`（每个项目的 withDueTotal/doneTotal/lateDone/currentlyOverdue）与 `byTask`（任务级）解读；逐项目说明其准时/迟交/逾期，避免只给一个总数。",
     "- 指标含义：`lateRateLabel`=展示用迟交率（无样本时为「—」/「无完成样本」）；`sampleStatus`=scored|insufficient|inactive；"
     + "`lateRate`=迟交完成率(0~1，无样本为 null)；`doneTotal`=已完成数；`withDueTotal`=有效子任务数（**不含 STOPPED**）；"
     + "`avgLateDays`=平均迟交天数；`currentlyOverdue`=当前进行中已逾期数；`remindedCount`=被催办次数；"

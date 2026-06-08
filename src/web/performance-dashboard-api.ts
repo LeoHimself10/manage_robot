@@ -48,18 +48,29 @@ export function buildPerformanceDashboardPayload(input: {
 }): Record<string, unknown> {
   const windowDays = resolvePerformanceWindowDays(input.windowDays);
   const projectId = String(input.projectId ?? "").trim() || undefined;
-  const dataset = loadScopedDataset(input.taskStore, input.scope, projectId);
+  // 项目下拉选项必须独立于当前 projectId 过滤，否则筛选某项目后其它项目会从下拉里消失。
+  const fullDataset = loadScopedDataset(input.taskStore, input.scope);
+  const dataset = projectId
+    ? loadScopedDataset(input.taskStore, input.scope, projectId)
+    : fullDataset;
   const facts: EmployeePerformanceFacts = buildEmployeePerformanceFacts(dataset, {
     scopeKind: input.scope.kind,
     windowDays,
     resolveName: input.resolveName,
   });
   const kpi = buildPerformanceSummaryKpi(facts.rows);
-  const projects = buildProjectPerformanceRollup(dataset, {
+  const projectOptions = buildProjectPerformanceRollup(fullDataset, {
     scopeKind: input.scope.kind,
     windowDays,
     asOf: facts.asOf,
   });
+  const projects = projectId
+    ? buildProjectPerformanceRollup(dataset, {
+        scopeKind: input.scope.kind,
+        windowDays,
+        asOf: facts.asOf,
+      })
+    : projectOptions;
   return {
     ok: true,
     scopeKind: facts.scopeKind,
@@ -71,6 +82,7 @@ export function buildPerformanceDashboardPayload(input: {
     projectId: projectId ?? "",
     kpi,
     projects,
+    projectOptions,
     employees: facts.rows,
   };
 }

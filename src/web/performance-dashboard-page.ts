@@ -25,8 +25,8 @@ export function renderPerformanceDashboardPage(params: {
   const portfolio = Boolean(params.portfolioEnabled);
   const pageTitle = role === "admin" ? "交付绩效 · 管理员" : "交付绩效 · 主管工作台";
   const projectFilter = portfolio
-    ? `<label class="perf-filter-block">
-        <span class="perf-filter-lbl">项目筛选</span>
+    ? `<label class="perf-filter-block is-grow">
+        <span class="perf-filter-lbl">项目</span>
         <select class="dash-select" id="perfProject">
           <option value="">全部项目</option>
           <option value="__unassigned__">未归类</option>
@@ -50,23 +50,23 @@ export function renderPerformanceDashboardPage(params: {
     mainHtml: `
   <div class="perf-stack">
     <section class="perf-kpi-grid" id="perfKpiGrid" aria-live="polite">
-      <div class="perf-kpi"><div class="perf-kpi-lbl">统计员工</div><div class="perf-kpi-val" id="kpiEmployees">—</div><div class="perf-kpi-sub" id="kpiScoredSub">—</div></div>
-      <div class="perf-kpi"><div class="perf-kpi-lbl">有迟交记录</div><div class="perf-kpi-val is-warn" id="kpiLate">—</div><div class="perf-kpi-sub">有完成样本且至少 1 次迟交</div></div>
-      <div class="perf-kpi"><div class="perf-kpi-lbl">当前逾期子任务</div><div class="perf-kpi-val is-danger" id="kpiOverdue">—</div><div class="perf-kpi-sub">进行中且已过截止</div></div>
-      <div class="perf-kpi"><div class="perf-kpi-lbl">平均迟交率</div><div class="perf-kpi-val" id="kpiAvgRate">—</div><div class="perf-kpi-sub">仅含「有完成样本」员工</div></div>
+      <div class="perf-kpi is-primary"><div class="perf-kpi-lbl">统计员工</div><div class="perf-kpi-val" id="kpiEmployees">—</div><div class="perf-kpi-sub" id="kpiScoredSub">—</div></div>
+      <div class="perf-kpi is-warn"><div class="perf-kpi-lbl">有迟交记录</div><div class="perf-kpi-val" id="kpiLate">—</div><div class="perf-kpi-sub">有完成样本且至少 1 次迟交</div></div>
+      <div class="perf-kpi is-danger"><div class="perf-kpi-lbl">当前逾期子任务</div><div class="perf-kpi-val" id="kpiOverdue">—</div><div class="perf-kpi-sub">进行中且已过截止</div></div>
+      <div class="perf-kpi is-accent"><div class="perf-kpi-lbl">平均迟交率</div><div class="perf-kpi-val" id="kpiAvgRate">—</div><div class="perf-kpi-sub">仅含「有完成样本」员工</div></div>
     </section>
 
     <section class="card perf-toolbar-card">
-      <div class="perf-filter-grid">
-        <label class="perf-filter-block">
+      <div class="perf-toolbar-top">
+        <div class="perf-seg-block">
           <span class="perf-filter-lbl">统计窗口</span>
-          <select class="dash-select" id="perfWindow">
-            <option value="30">近 30 天</option>
-            <option value="90" selected>近 90 天</option>
-            <option value="180">近 180 天</option>
-            <option value="365">近 1 年</option>
-          </select>
-        </label>
+          <div class="perf-segmented" id="perfWindow" role="group" aria-label="统计窗口">
+            <button type="button" data-window="30">30 天</button>
+            <button type="button" data-window="90" class="is-on">90 天</button>
+            <button type="button" data-window="180">180 天</button>
+            <button type="button" data-window="365">1 年</button>
+          </div>
+        </div>
         ${projectFilter}
         <label class="perf-filter-block">
           <span class="perf-filter-lbl">列表筛选</span>
@@ -78,9 +78,10 @@ export function renderPerformanceDashboardPage(params: {
             <option value="insufficient">待完成（样本不足）</option>
           </select>
         </label>
+        <span class="perf-toolbar-spacer"></span>
         <div class="perf-filter-block">
           <span class="perf-filter-lbl">&nbsp;</span>
-          <button type="button" class="btn btn-primary" id="perfRefresh">刷新</button>
+          <button type="button" class="btn btn-secondary" id="perfRefresh">刷新</button>
         </div>
       </div>
       <p class="perf-meta" id="perfMeta" aria-live="polite">加载中...</p>
@@ -93,7 +94,7 @@ export function renderPerformanceDashboardPage(params: {
               <th>迟交</th>
               <th>已完成</th>
               <th>进行中</th>
-              <th title="迟交子任务的平均迟交天数">均迟交(天)</th>
+              <th title="迟交子任务的平均迟交天数">均迟交</th>
               <th>当前逾期</th>
               <th title="自动+手动催办累计">被催</th>
               <th title="名下被改派过的子任务数">改派</th>
@@ -102,19 +103,24 @@ export function renderPerformanceDashboardPage(params: {
           <tbody id="perfBody"></tbody>
         </table>
       </div>
-      <div class="perf-empty" id="perfEmpty" hidden>暂无可统计的交付数据（仅统计有截止时间的子任务）。</div>
+      <div class="perf-empty" id="perfEmpty" hidden>暂无可统计的交付数据（仅统计有截止时间、未停止的子任务）。</div>
     </section>
 
     <section class="card perf-detail" id="perfDetail" aria-live="polite">
       <div class="perf-detail-head">
-        <div>
-          <h2 class="perf-detail-title" id="detailTitle">员工详情</h2>
-          <p class="perf-meta" id="detailMeta" style="margin:4px 0 0;border:0;padding:0;"></p>
+        <div class="perf-detail-id">
+          <div class="perf-detail-avatar" id="detailAvatar">—</div>
+          <div>
+            <h2 class="perf-detail-title" id="detailTitle">员工详情</h2>
+            <p class="perf-detail-meta" id="detailMeta"></p>
+          </div>
         </div>
         <div class="perf-detail-actions">
-          <button type="button" class="btn btn-ghost btn-sm" id="detailClose">关闭详情</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="detailAsk">让助手按项目点评</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="detailClose">关闭</button>
         </div>
       </div>
+      <div class="perf-mini-kpis" id="detailMiniKpis"></div>
       <div class="perf-chart-row">
         <div class="perf-chart-card">
           <h3>完成交付构成</h3>
@@ -124,22 +130,16 @@ export function renderPerformanceDashboardPage(params: {
           </div>
         </div>
         <div class="perf-chart-card">
-          <h3>按项目分布（迟交/逾期）</h3>
+          <h3>按项目分布（迟交 / 逾期）</h3>
           <div class="perf-bar-list" id="detailProjectBars"></div>
         </div>
       </div>
       <div class="perf-chart-card" style="margin-bottom:14px;">
         <h3>按任务展开</h3>
-        <div style="overflow-x:auto;">
+        <div class="perf-subtable-wrap">
           <table class="perf-task-table">
             <thead>
-              <tr>
-                <th>任务</th>
-                <th>项目</th>
-                <th class="num">子任务</th>
-                <th class="num">迟交</th>
-                <th class="num">逾期</th>
-              </tr>
+              <tr><th>任务</th><th>项目</th><th class="num">子任务</th><th class="num">迟交</th><th class="num">逾期</th></tr>
             </thead>
             <tbody id="detailTaskBody"></tbody>
           </table>
@@ -147,17 +147,10 @@ export function renderPerformanceDashboardPage(params: {
       </div>
       <div class="perf-chart-card">
         <h3>子任务明细</h3>
-        <div style="overflow-x:auto;max-height:320px;overflow-y:auto;">
+        <div class="perf-subtable-wrap is-scroll">
           <table class="perf-task-table">
             <thead>
-              <tr>
-                <th>子任务</th>
-                <th>任务</th>
-                <th>项目</th>
-                <th>状态</th>
-                <th class="num">迟交(天)</th>
-                <th class="num">被催</th>
-              </tr>
+              <tr><th>子任务</th><th>任务</th><th>项目</th><th>状态</th><th class="num">迟交(天)</th><th class="num">被催</th></tr>
             </thead>
             <tbody id="detailSubBody"></tbody>
           </table>
@@ -165,13 +158,30 @@ export function renderPerformanceDashboardPage(params: {
       </div>
     </section>
 
-    <section class="card perf-chat-card perf-chat">
-      <h2>绩效问答助手</h2>
-      <p class="perf-meta">向助手提问，例如「谁最近经常迟交？」「张三的准时率怎么样？」（只读分析，不会修改任何任务）。</p>
-      <div class="perf-chat-log" id="perfChatLog"></div>
-      <div class="perf-chat-row">
-        <textarea id="perfChatInput" placeholder="输入问题，回车发送（Shift+Enter 换行）"></textarea>
-        <button type="button" class="btn btn-primary" id="perfChatSend">发送</button>
+    <section class="card perf-chat-card">
+      <div class="perf-chat-head">
+        <div class="perf-chat-head-avatar">AI</div>
+        <div>
+          <h2>绩效问答助手</h2>
+          <p>只读分析，不会修改任何任务 · 口径与上表一致</p>
+        </div>
+        <span class="perf-chat-status">在线</span>
+      </div>
+      <div class="perf-chat-log" id="perfChatLog">
+        <div class="perf-chat-empty" id="perfChatEmpty">
+          <p>问我关于团队交付的任何问题 👇</p>
+          <div class="perf-chips" id="perfChips">
+            <button type="button" class="perf-chip" data-q="谁最近经常迟交？">谁最近经常迟交？</button>
+            <button type="button" class="perf-chip" data-q="整体准时率怎么样？">整体准时率怎么样？</button>
+            <button type="button" class="perf-chip" data-q="当前有哪些逾期需要关注？">当前有哪些逾期？</button>
+          </div>
+        </div>
+      </div>
+      <div class="perf-composer">
+        <textarea id="perfChatInput" rows="1" placeholder="输入问题，回车发送（Shift+Enter 换行）"></textarea>
+        <button type="button" class="perf-send" id="perfChatSend" aria-label="发送" title="发送">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4 20-7z"></path></svg>
+        </button>
       </div>
     </section>
   </div>`,
@@ -189,21 +199,27 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
   var body = document.getElementById('perfBody');
   var meta = document.getElementById('perfMeta');
   var empty = document.getElementById('perfEmpty');
-  var windowSel = document.getElementById('perfWindow');
+  var windowSeg = document.getElementById('perfWindow');
   var filterSel = document.getElementById('perfFilter');
   var projectSel = document.getElementById('perfProject');
   var refreshBtn = document.getElementById('perfRefresh');
   var chatLog = document.getElementById('perfChatLog');
+  var chatEmpty = document.getElementById('perfChatEmpty');
   var chatInput = document.getElementById('perfChatInput');
   var chatSend = document.getElementById('perfChatSend');
   var detailPanel = document.getElementById('perfDetail');
   var detailClose = document.getElementById('detailClose');
+  var detailAsk = document.getElementById('detailAsk');
   var lastRows = [];
-  var lastProjects = [];
   var selectedUserId = null;
+  var selectedName = null;
+  var windowDays = 90;
+  var streaming = false;
 
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function fmt(s){ return esc(s).replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>'); }
   function pct(r){ return (r*100).toFixed(r>=0.1?0:1) + '%'; }
+  function initials(name){ var n=String(name||'').trim(); return n? n.slice(0,2) : '—'; }
   function rateClass(r, status){
     if(status && status!=='scored') return 'is-muted';
     if(r==null) return 'is-muted';
@@ -214,17 +230,16 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
     if(s==='insufficient') return '<span class="perf-badge info">待完成</span>';
     return '<span class="perf-badge muted">无活跃</span>';
   }
-  function tagLabel(t){
-    return {on_time:'准时',late:'迟交',overdue:'逾期',pending:'进行中',stopped:'已终止'}[t]||t;
-  }
-  function tagClass(t){
-    return {on_time:'perf-tag-ok',late:'perf-tag-late',overdue:'perf-tag-late',pending:'perf-tag-pending'}[t]||'';
-  }
+  function tagLabel(t){ return {on_time:'准时',late:'迟交',overdue:'逾期',pending:'进行中',stopped:'已终止'}[t]||t; }
+  function tagClass(t){ return {on_time:'ok',late:'late',overdue:'late',pending:'pending',stopped:'stopped'}[t]||''; }
+
+  function currentProjectId(){ return (PORTFOLIO && projectSel && projectSel.value) ? projectSel.value : ''; }
 
   function queryParams(extra){
     var p = new URLSearchParams();
-    p.set('windowDays', windowSel.value);
-    if(PORTFOLIO && projectSel && projectSel.value) p.set('projectId', projectSel.value);
+    p.set('windowDays', windowDays);
+    var pid = currentProjectId();
+    if(pid) p.set('projectId', pid);
     if(extra) Object.keys(extra).forEach(function(k){ if(extra[k]!=null) p.set(k, extra[k]); });
     return p.toString();
   }
@@ -246,27 +261,28 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
     document.getElementById('kpiOverdue').textContent = kpi.totalCurrentlyOverdue;
     var avg = kpi.avgLateRateAmongScored;
     document.getElementById('kpiAvgRate').textContent = avg==null ? '—' : pct(avg);
-    document.getElementById('kpiAvgRate').className = 'perf-kpi-val' + (avg!=null && avg>=0.2 ? ' is-warn' : avg!=null && avg>=0.4 ? ' is-danger' : '');
   }
 
-  function fillProjectOptions(projects){
+  function fillProjectOptions(projectOptions){
     if(!PORTFOLIO || !projectSel) return;
     var cur = projectSel.value;
     while(projectSel.options.length > 2) projectSel.remove(2);
-    (projects||[]).forEach(function(p){
+    (projectOptions||[]).forEach(function(p){
       if(p.projectId==='__unassigned__') return;
       var opt = document.createElement('option');
       opt.value = p.projectId;
       opt.textContent = p.projectName + ' (' + p.employeeCount + '人)';
       projectSel.appendChild(opt);
     });
-    if(cur) projectSel.value = cur;
+    if(cur){
+      var has = Array.prototype.some.call(projectSel.options, function(o){return o.value===cur;});
+      projectSel.value = has ? cur : '';
+    }
   }
 
   function render(rows){
     var shown = applyFilter(rows);
     body.innerHTML = '';
-    document.querySelectorAll('#perfBody tr.is-active').forEach(function(tr){ tr.classList.remove('is-active'); });
     if(!shown.length){ empty.hidden=false; return; }
     empty.hidden=true;
     shown.forEach(function(r){
@@ -285,7 +301,7 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
         '<td>'+r.lateDone+'</td>'+
         '<td>'+r.doneTotal+'</td>'+
         '<td>'+r.inFlightTotal+'</td>'+
-        '<td>'+(r.sampleStatus==='scored'?(r.avgLateDays||0).toFixed(2):'—')+'</td>'+
+        '<td>'+(r.sampleStatus==='scored'?(r.avgLateDays||0).toFixed(1):'—')+'</td>'+
         '<td>'+r.currentlyOverdue+'</td>'+
         '<td>'+r.remindedCount+'</td>'+
         '<td>'+reassign+'</td>';
@@ -294,10 +310,18 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
     });
   }
 
+  function miniKpi(lbl, val){ return '<div class="perf-mini"><div class="perf-mini-lbl">'+esc(lbl)+'</div><div class="perf-mini-val">'+esc(val)+'</div></div>'; }
+
+  function renderMiniKpis(emp){
+    document.getElementById('detailMiniKpis').innerHTML =
+      miniKpi('迟交率', emp.lateRateLabel||'—')+
+      miniKpi('已完成', emp.doneTotal)+
+      miniKpi('当前逾期', emp.currentlyOverdue)+
+      miniKpi('平均迟交(天)', emp.sampleStatus==='scored'?(emp.avgLateDays||0).toFixed(1):'—');
+  }
+
   function renderDonut(emp){
-    var onTime = emp.onTimeDone||0;
-    var late = emp.lateDone||0;
-    var total = onTime+late;
+    var onTime = emp.onTimeDone||0, late = emp.lateDone||0, total = onTime+late;
     var hole = document.getElementById('detailDonutPct');
     var donut = document.getElementById('detailDonut');
     var legend = document.getElementById('detailDonutLegend');
@@ -309,40 +333,42 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
     }
     var latePct = late/total;
     hole.textContent = pct(latePct);
-    donut.style.background = 'conic-gradient(#dc2626 0 '+ (latePct*100) +'%, #16a34a '+ (latePct*100) +'% 100%)';
+    donut.style.background = 'conic-gradient(#dc2626 0 '+(latePct*100)+'%, #059669 '+(latePct*100)+'% 100%)';
     legend.innerHTML =
-      '<div class="perf-legend-row"><span class="perf-legend-dot" style="background:#16a34a"></span>准时 '+onTime+'</div>'+
+      '<div class="perf-legend-row"><span class="perf-legend-dot" style="background:#059669"></span>准时 '+onTime+'</div>'+
       '<div class="perf-legend-row"><span class="perf-legend-dot" style="background:#dc2626"></span>迟交 '+late+'</div>';
   }
 
   function renderProjectBars(byProject){
     var el = document.getElementById('detailProjectBars');
-    if(!byProject||!byProject.length){ el.innerHTML='<div class="perf-meta">暂无项目维度数据</div>'; return; }
-    var max = Math.max.apply(null, byProject.map(function(p){ return p.lateDone+p.currentlyOverdue; }).concat([1]));
-    el.innerHTML = byProject.slice(0,8).map(function(p){
+    if(!byProject||!byProject.length){ el.innerHTML='<div class="perf-meta" style="border:0;padding:0;margin:0;">暂无项目维度数据</div>'; return; }
+    var max = Math.max.apply(null, byProject.map(function(p){ return p.withDueTotal; }).concat([1]));
+    el.innerHTML = byProject.slice(0,10).map(function(p){
       var score = p.lateDone+p.currentlyOverdue;
-      var w = Math.round(score/max*100);
-      var cls = p.currentlyOverdue>0?' is-danger':(p.lateDone>0?' is-warn':'');
-      return '<div class="perf-bar-row"><div class="perf-bar-label"><span>'+esc(p.projectName)+'</span><span>'+p.lateDone+'迟 / '+p.currentlyOverdue+'逾</span></div><div class="perf-bar-track"><div class="perf-bar-fill'+cls+'" style="width:'+w+'%"></div></div></div>';
+      var w = Math.max(4, Math.round(p.withDueTotal/max*100));
+      var cls = p.currentlyOverdue>0?' is-danger':(p.lateDone>0?' is-warn':' is-ok');
+      return '<div class="perf-bar-row"><div class="perf-bar-label"><span>'+esc(p.projectName)+'</span><span class="muted">'+p.doneTotal+'完成 · '+p.lateDone+'迟 · '+p.currentlyOverdue+'逾</span></div><div class="perf-bar-track"><div class="perf-bar-fill'+cls+'" style="width:'+w+'%"></div></div></div>';
     }).join('');
   }
 
   function renderDetailTables(byTask, subtasks){
-    var taskBody = document.getElementById('detailTaskBody');
-    var subBody = document.getElementById('detailSubBody');
-    taskBody.innerHTML = (byTask||[]).map(function(t){
+    document.getElementById('detailTaskBody').innerHTML = (byTask||[]).map(function(t){
       var label = esc(t.taskNo ? t.taskNo+' · '+t.taskTitle : t.taskTitle);
       return '<tr><td>'+label+'</td><td>'+esc(t.projectName||'—')+'</td><td class="num">'+t.withDueTotal+'</td><td class="num">'+t.lateDone+'</td><td class="num">'+t.currentlyOverdue+'</td></tr>';
-    }).join('') || '<tr><td colspan="5">暂无任务数据</td></tr>';
-    subBody.innerHTML = (subtasks||[]).slice(0,100).map(function(s){
-      return '<tr><td>'+esc(s.subtaskTitle)+'</td><td>'+esc(s.taskTitle)+'</td><td>'+esc(s.projectName||'—')+'</td><td><span class="'+tagClass(s.deliveryTag)+'">'+tagLabel(s.deliveryTag)+'</span></td><td class="num">'+(s.lateDays!=null?s.lateDays.toFixed(2):'—')+'</td><td class="num">'+s.remindedCount+'</td></tr>';
-    }).join('') || '<tr><td colspan="6">暂无子任务</td></tr>';
+    }).join('') || '<tr><td colspan="5" style="color:var(--muted);">暂无任务数据</td></tr>';
+    document.getElementById('detailSubBody').innerHTML = (subtasks||[]).slice(0,100).map(function(s){
+      return '<tr><td>'+esc(s.subtaskTitle)+'</td><td>'+esc(s.taskTitle)+'</td><td>'+esc(s.projectName||'—')+'</td><td><span class="perf-pill '+tagClass(s.deliveryTag)+'">'+tagLabel(s.deliveryTag)+'</span></td><td class="num">'+(s.lateDays!=null?s.lateDays.toFixed(1):'—')+'</td><td class="num">'+s.remindedCount+'</td></tr>';
+    }).join('') || '<tr><td colspan="6" style="color:var(--muted);">暂无子任务</td></tr>';
   }
 
   function openDetail(userId, displayName){
     selectedUserId = userId;
-    render(lastRows);
+    selectedName = displayName;
+    Array.prototype.forEach.call(document.querySelectorAll('#perfBody tr'), function(tr){
+      tr.classList.toggle('is-active', tr.dataset.userId===userId);
+    });
     detailPanel.classList.add('is-open');
+    document.getElementById('detailAvatar').textContent = initials(displayName);
     document.getElementById('detailTitle').textContent = displayName + ' · 交付详情';
     document.getElementById('detailMeta').textContent = '加载中...';
     fetch(API_BASE+'/employee?'+queryParams({userId:userId}), {headers:{'Accept':'application/json'}})
@@ -351,11 +377,12 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
         if(!d||d.ok===false){ document.getElementById('detailMeta').textContent='加载失败'; return; }
         var emp = d.employee;
         document.getElementById('detailMeta').textContent =
-          (emp.lateRateLabel||'—')+' · 已完成 '+emp.doneTotal+' · 进行中 '+emp.inFlightTotal+' · 当前逾期 '+emp.currentlyOverdue;
+          '迟交率 '+(emp.lateRateLabel||'—')+' · 进行中 '+emp.inFlightTotal+' · 被催 '+emp.remindedCount+(currentProjectId()?' · 已按项目筛选':'');
+        renderMiniKpis(emp);
         renderDonut(emp);
         renderProjectBars(d.byProject);
         renderDetailTables(d.byTask, d.subtasks);
-        detailPanel.scrollIntoView({behavior:'smooth',block:'nearest'});
+        detailPanel.scrollIntoView({behavior:'smooth',block:'start'});
       })
       .catch(function(e){ document.getElementById('detailMeta').textContent='加载失败：'+(e.message||e); });
   }
@@ -367,38 +394,48 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
       .then(function(d){
         if(!d || d.ok===false){ meta.textContent = '加载失败：'+esc((d&&d.error)||'未知错误'); return; }
         lastRows = d.employees || [];
-        lastProjects = d.projects || [];
         renderKpi(d.kpi);
-        fillProjectOptions(lastProjects);
+        fillProjectOptions(d.projectOptions || d.projects);
         var asOf = d.asOf ? new Date(d.asOf).toLocaleString('zh-CN') : '';
-        meta.textContent = (d.scopeLabel||'')+' · 窗口 '+d.windowDays+' 天 · 参与统计子任务 '+d.totalSubtasksConsidered+' 条 · 截至 '+asOf;
+        meta.textContent = (d.scopeLabel||'')+' · 窗口 '+d.windowDays+' 天 · 参与统计子任务 '+d.totalSubtasksConsidered+' 条（不含已停止）· 截至 '+asOf;
         render(lastRows);
         if(selectedUserId){
           var row = lastRows.find(function(r){return r.userId===selectedUserId;});
           if(row) openDetail(row.userId, row.name||row.userId);
+          else { detailPanel.classList.remove('is-open'); selectedUserId=null; }
         }
       })
       .catch(function(e){ meta.textContent = '加载失败：'+esc(e.message||e); });
   }
 
-  function addMsg(text, who){
-    var div = document.createElement('div');
-    div.className = 'perf-msg '+(who==='user'?'user':'bot');
-    div.textContent = text;
-    chatLog.appendChild(div);
+  /* ---------- chat ---------- */
+  function hideEmpty(){ if(chatEmpty){ chatEmpty.style.display='none'; } }
+
+  function addMsg(who){
+    hideEmpty();
+    var row = document.createElement('div');
+    row.className = 'perf-msg-row '+(who==='user'?'is-user':'is-bot');
+    var avatar = document.createElement('div');
+    avatar.className = 'perf-avatar '+(who==='user'?'is-user':'is-bot');
+    avatar.textContent = who==='user' ? '我' : 'AI';
+    var bubble = document.createElement('div');
+    bubble.className = 'perf-bubble';
+    row.appendChild(avatar);
+    row.appendChild(bubble);
+    chatLog.appendChild(row);
     chatLog.scrollTop = chatLog.scrollHeight;
-    return div;
+    return bubble;
   }
 
-  function chatPageQuery(){
-    var q = { message: '', windowDays: Number(windowSel.value)||90, stream: true };
-    if(PORTFOLIO && projectSel && projectSel.value) q.projectId = projectSel.value;
-    return q;
+  function showTyping(bubble){ bubble.innerHTML = '<span class="perf-dots"><i></i><i></i><i></i></span>'; }
+
+  function autoGrow(){
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(140, chatInput.scrollHeight) + 'px';
   }
 
   function parseSseBlock(block){
-    var event = 'message';
-    var data = '';
+    var event='message', data='';
     block.split('\\n').forEach(function(line){
       if(line.indexOf('event:')===0) event = line.slice(6).trim();
       else if(line.indexOf('data:')===0) data = line.slice(5).trim();
@@ -407,15 +444,19 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
     try { return { event: event, data: JSON.parse(data) }; } catch(e){ return null; }
   }
 
-  function sendChat(){
-    var msg = (chatInput.value||'').trim();
-    if(!msg) return;
-    chatInput.value='';
-    addMsg(msg,'user');
-    var pending = addMsg('正在分析...','bot');
+  function sendChat(text){
+    var msg = (text!=null?text:chatInput.value||'').trim();
+    if(!msg || streaming) return;
+    streaming = true;
+    chatInput.value=''; autoGrow();
+    var u = addMsg('user'); u.textContent = msg;
+    var bubble = addMsg('bot');
+    showTyping(bubble);
     chatSend.disabled = true;
-    var payload = chatPageQuery();
-    payload.message = msg;
+    var hasText = false;
+    var payload = { message: msg, windowDays: windowDays, stream: true };
+    var pid = currentProjectId();
+    if(pid) payload.projectId = pid;
     fetch(API_BASE+'/chat', {
       method:'POST',
       headers:{'Content-Type':'application/json','Accept':'text/event-stream'},
@@ -425,12 +466,12 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
       var reader = r.body.getReader();
       var decoder = new TextDecoder();
       var buf = '';
+      function setStream(t){ hasText=true; bubble.innerHTML = fmt(t)+'<span class="perf-stream-cursor"></span>'; chatLog.scrollTop = chatLog.scrollHeight; }
       function pump(){
         return reader.read().then(function(chunk){
           if(chunk.done){
-            if(!pending.textContent || pending.textContent==='正在分析...' || pending.textContent==='正在查询数据...'){
-              pending.textContent = '未收到回复，请重试。';
-            }
+            if(!hasText) bubble.textContent = '未收到回复，请重试。';
+            else bubble.innerHTML = bubble.innerHTML.replace(/<span class="perf-stream-cursor"><\\/span>/,'');
             return;
           }
           buf += decoder.decode(chunk.value, { stream: true });
@@ -440,36 +481,52 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
             var ev = parseSseBlock(block);
             if(!ev) return;
             if(ev.event==='status'){
-              if(ev.data.phase==='thinking') pending.textContent = '正在分析...';
-              if(ev.data.phase==='querying') pending.textContent = '正在查询数据...';
+              if(!hasText) showTyping(bubble);
             } else if(ev.event==='delta' && ev.data.message){
-              pending.textContent = ev.data.message;
-              chatLog.scrollTop = chatLog.scrollHeight;
+              setStream(ev.data.message);
             } else if(ev.event==='done' && ev.data.message){
-              pending.textContent = ev.data.message;
+              hasText=true; bubble.innerHTML = fmt(ev.data.message);
             } else if(ev.event==='error'){
-              pending.textContent = '出错了：'+(ev.data.error||'未知错误');
+              bubble.textContent = '出错了：'+(ev.data.error||'未知错误');
             }
           });
           return pump();
         });
       }
       return pump();
-    }).catch(function(e){ pending.textContent = '请求失败：'+(e.message||e); })
-      .finally(function(){ chatSend.disabled=false; });
+    }).catch(function(e){ bubble.textContent = '请求失败：'+(e.message||e); })
+      .finally(function(){ streaming=false; chatSend.disabled=false; chatInput.focus(); });
   }
 
+  /* ---------- wiring ---------- */
+  Array.prototype.forEach.call(windowSeg.querySelectorAll('button'), function(btn){
+    btn.addEventListener('click', function(){
+      Array.prototype.forEach.call(windowSeg.querySelectorAll('button'), function(b){ b.classList.remove('is-on'); });
+      btn.classList.add('is-on');
+      windowDays = Number(btn.dataset.window)||90;
+      load();
+    });
+  });
   refreshBtn.addEventListener('click', load);
-  windowSel.addEventListener('change', load);
   if(projectSel) projectSel.addEventListener('change', load);
   filterSel.addEventListener('change', function(){ render(lastRows); });
   detailClose.addEventListener('click', function(){
     selectedUserId=null;
     detailPanel.classList.remove('is-open');
-    render(lastRows);
+    Array.prototype.forEach.call(document.querySelectorAll('#perfBody tr.is-active'), function(tr){ tr.classList.remove('is-active'); });
   });
-  chatSend.addEventListener('click', sendChat);
+  detailAsk.addEventListener('click', function(){
+    if(!selectedName) return;
+    var proj = (PORTFOLIO && projectSel && projectSel.value && projectSel.selectedIndex>1) ? ('在「'+projectSel.options[projectSel.selectedIndex].text.replace(/\\s*\\(\\d+人\\)$/,'')+'」项目中') : '按项目维度';
+    sendChat('请'+proj+'点评 '+selectedName+' 最近的交付表现。');
+    document.querySelector('.perf-chat-card').scrollIntoView({behavior:'smooth',block:'start'});
+  });
+  chatSend.addEventListener('click', function(){ sendChat(); });
+  chatInput.addEventListener('input', autoGrow);
   chatInput.addEventListener('keydown', function(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendChat(); } });
+  Array.prototype.forEach.call(document.querySelectorAll('.perf-chip'), function(chip){
+    chip.addEventListener('click', function(){ sendChat(chip.dataset.q); });
+  });
   load();
 })();
 `;

@@ -65,6 +65,44 @@ describe("get_employee_performance tool", () => {
     expect(res.excludesStoppedTasks).toBe(true);
   });
 
+  it("returns employee_detail with byProject/byTask when employeeUserId is provided", () => {
+    const detailDataset = {
+      subtasks: [
+        { subtaskId: "A", assigneeUserId: "emp-1", status: "DONE", dueAt: "2026-06-01T10:00:00.000Z", completedAt: "2026-06-03T10:00:00.000Z", taskId: "t1", taskTitle: "任务一", projectId: "p1", projectName: "器械设计" },
+        { subtaskId: "C", assigneeUserId: "emp-1", status: "DONE", dueAt: "2026-06-02T10:00:00.000Z", completedAt: "2026-06-02T09:00:00.000Z", taskId: "t2", taskTitle: "任务二", projectId: "p2", projectName: "test" },
+      ],
+      reminders: [], overdueAlerts: [], reassignedSubtaskIds: [],
+    };
+    const fakeStore = { loadPerformanceDataset: vi.fn(() => detailDataset) };
+    const handler = buildGetEmployeePerformanceHandler({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      taskStore: fakeStore as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      peopleStore: { getContact: () => ({ name: "张三" }) } as any,
+      scope: { kind: "all" },
+    });
+    const res = handler({ windowDays: 365, employeeUserId: "emp-1" }) as Record<string, unknown>;
+    expect(res.mode).toBe("employee_detail");
+    expect(res.found).toBe(true);
+    expect(Array.isArray(res.byProject)).toBe(true);
+    expect((res.byProject as unknown[]).length).toBe(2);
+    expect(Array.isArray(res.byTask)).toBe(true);
+  });
+
+  it("reports not found in employee_detail mode when no sample", () => {
+    const fakeStore = { loadPerformanceDataset: vi.fn(() => AS_OF_DATASET) };
+    const handler = buildGetEmployeePerformanceHandler({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      taskStore: fakeStore as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      peopleStore: { getContact: () => undefined } as any,
+      scope: { kind: "all" },
+    });
+    const res = handler({ windowDays: 365, employeeUserId: "nobody" }) as Record<string, unknown>;
+    expect(res.mode).toBe("employee_detail");
+    expect(res.found).toBe(false);
+  });
+
   it("uses queryDefaults for windowDays and projectId when args omitted", () => {
     const fakeStore = { loadPerformanceDataset: vi.fn(() => AS_OF_DATASET) };
     const handler = buildGetEmployeePerformanceHandler({

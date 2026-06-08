@@ -48,6 +48,37 @@ describe("performance dashboard api", () => {
     expect(kpi.employeeCount).toBe(1);
     const projects = payload.projects as Array<Record<string, unknown>>;
     expect(projects.length).toBeGreaterThan(0);
+    expect(Array.isArray(payload.projectOptions)).toBe(true);
+  });
+
+  it("keeps full projectOptions stable when filtered to one project", () => {
+    const multiProject = {
+      subtasks: [
+        { subtaskId: "A", assigneeUserId: "e1", status: "DONE", dueAt: "2026-06-01T10:00:00.000Z", completedAt: "2026-06-01T09:00:00.000Z", taskId: "t1", taskTitle: "T1", projectId: "p1", projectName: "器械设计" },
+        { subtaskId: "B", assigneeUserId: "e2", status: "DONE", dueAt: "2026-06-02T10:00:00.000Z", completedAt: "2026-06-02T09:00:00.000Z", taskId: "t2", taskTitle: "T2", projectId: "p2", projectName: "test" },
+      ],
+      reminders: [], overdueAlerts: [], reassignedSubtaskIds: [],
+    };
+    const fakeStore = {
+      // 模拟存储层：projectId 过滤只返回该项目子任务；无过滤返回全部。
+      loadPerformanceDataset: (scope?: { projectId?: string }) => {
+        if (scope?.projectId) {
+          return { ...multiProject, subtasks: multiProject.subtasks.filter((s) => s.projectId === scope.projectId) };
+        }
+        return multiProject;
+      },
+    };
+    const payload = buildPerformanceDashboardPayload({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      taskStore: fakeStore as any,
+      scope: { kind: "all" },
+      windowDays: 365,
+      projectId: "p1",
+    });
+    const opts = payload.projectOptions as Array<Record<string, unknown>>;
+    const names = opts.map((p) => p.projectName);
+    expect(names).toContain("器械设计");
+    expect(names).toContain("test");
   });
 
   it("builds employee detail payload", () => {
