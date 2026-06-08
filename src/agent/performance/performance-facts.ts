@@ -6,6 +6,7 @@
  * - 迟交完成：status=DONE 且 completedAt > effectiveDue。
  * - 准时完成：status=DONE 且 completedAt <= effectiveDue（无 completedAt 时回退按未迟交处理并计入 unknownCompletion）。
  * - 当前逾期：status 非终结态（DONE/STOPPED）且 effectiveDue < asOf。
+ * - **已停止（STOPPED）子任务不参与任何绩效统计**（与看板表格一致）。
  * - effectiveDue 用 parseDueAtMs（纯日期 YYYY-MM-DD = 北京时间当天 18:00）。
  *
  * 公正性说明：被改派过的子任务以 reassignedInvolved 标注，催办/逾期提醒计数按子任务归到当前负责人（近似）。
@@ -156,6 +157,8 @@ export function buildEmployeePerformanceFacts(
 
   let totalConsidered = 0;
   for (const sub of dataset.subtasks) {
+    const status = String(sub.status ?? "").toUpperCase();
+    if (status === "STOPPED") continue;
     const dueMs = parseDueAtMs(sub.dueAt);
     if (dueMs === undefined) continue;
     // 窗口：按截止时间落在 [cutoff, asOf] 内（聚焦近期表现）。
@@ -169,7 +172,6 @@ export function buildEmployeePerformanceFacts(
     acc.managerOverdueAlerts += alertsBySubtask.get(sub.subtaskId) ?? 0;
     if (reassignedSet.has(sub.subtaskId)) acc.reassignedInvolved += 1;
 
-    const status = String(sub.status ?? "").toUpperCase();
     if (status === "DONE") {
       acc.doneTotal += 1;
       const completedMs = sub.completedAt ? Date.parse(sub.completedAt) : NaN;
@@ -318,6 +320,7 @@ function filterSubtasksInWindow(
   const projectFilter = String(filters?.projectId ?? "").trim();
   const userFilter = String(filters?.userId ?? "").trim();
   return dataset.subtasks.filter((sub) => {
+    if (String(sub.status ?? "").toUpperCase() === "STOPPED") return false;
     if (userFilter && sub.assigneeUserId !== userFilter) return false;
     if (projectFilter) {
       const pid = sub.projectId ?? "__unassigned__";

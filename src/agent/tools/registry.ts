@@ -66,6 +66,7 @@ import {
 import {
   GET_EMPLOYEE_PERFORMANCE_TOOL,
   buildGetEmployeePerformanceHandler,
+  type PerformanceQueryDefaults,
   type PerformanceScope,
 } from "./performance-tools";
 import {
@@ -172,6 +173,8 @@ export interface ToolRegistryDeps {
    * manager → 仅 managerUserId 名下；all → 全员（admin/老板）。
    */
   performanceScope?: PerformanceScope;
+  /** 绩效页当前筛选（窗口/项目），供 get_employee_performance 默认对齐看板表格。 */
+  performanceQueryDefaults?: PerformanceQueryDefaults;
 }
 
 export type ToolProfile = "planner" | "employee" | "manager" | "admin" | "full" | "performance";
@@ -599,6 +602,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
         taskStore,
         peopleStore,
         scope: deps.performanceScope,
+        queryDefaults: deps.performanceQueryDefaults,
       }),
     };
   }

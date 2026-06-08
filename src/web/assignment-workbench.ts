@@ -113,6 +113,7 @@ import {
   buildPerformanceEmployeeDetailPayload,
   isPerformanceDashboardEnabled,
   resolvePerformanceScopeFromSession,
+  resolvePerformanceWindowDays,
 } from "./performance-dashboard-api";
 import { runPerformanceAgentTurn } from "../agent/performance-agent-turn";
 import { renderManagerMeetingImportPage } from "./manager-meeting-import-page";
@@ -2774,6 +2775,67 @@ function handlePerformanceEmployeeDetailGet(
   return true;
 }
 
+function writePerformanceChatSse(res: ServerResponse, event: string, data: Record<string, unknown>): void {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+async function handlePerformanceChatPost(
+  req: IncomingMessage,
+  res: ServerResponse,
+  session: WorkbenchSession,
+): Promise<void> {
+  if (!isPerformanceDashboardEnabled()) {
+    writeJson(res, 404, { ok: false, error: "performance dashboard disabled" });
+    return;
+  }
+  if (!qwenConfig) {
+    writeJson(res, 503, { ok: false, error: "LLM not configured" });
+    return;
+  }
+  const body = await readJsonBody(req);
+  const message = String(body.message ?? "").trim();
+  if (!message) {
+    writeJson(res, 400, { ok: false, error: "message is required" });
+    return;
+  }
+  const scope = resolvePerformanceScopeFromSession(session);
+  const pageQuery = {
+    windowDays: resolvePerformanceWindowDays(body.windowDays),
+    projectId: String(body.projectId ?? "").trim() || undefined,
+  };
+  const wantStream = body.stream === true
+    || String(req.headers.accept ?? "").includes("text/event-stream");
+
+  const turnInput = {
+    userMessage: message,
+    clientConfig: buildManagerQwenClientConfig(qwenConfig),
+    employeeRepo,
+    actorUserId: session.userId,
+    scope,
+    pageQuery,
+  } as const;
+
+  if (wantStream) {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    });
+    writePerformanceChatSse(res, "status", { phase: "thinking" });
+    const turn = await runPerformanceAgentTurn({
+      ...turnInput,
+      onStreamStatus: (phase) => writePerformanceChatSse(res, "status", { phase }),
+      onStreamDelta: (messagePreview) => writePerformanceChatSse(res, "delta", { message: messagePreview }),
+    });
+    writePerformanceChatSse(res, "done", { ok: true, message: turn.message });
+    res.end();
+    return;
+  }
+
+  const turn = await runPerformanceAgentTurn(turnInput);
+  writeJson(res, 200, { ok: true, message: turn.message });
+}
+
 async function readJsonBody(
   req: IncomingMessage,
   maxBytes = 64 * 1024,
@@ -3406,34 +3468,19 @@ export function handleAssignmentHttp(
           ? requireSession(req, res, "admin")
           : requirePerformanceDashboardSession(req, res);
         if (!session) return;
-        if (!isPerformanceDashboardEnabled()) {
-          writeJson(res, 404, { ok: false, error: "performance dashboard disabled" });
-          return;
-        }
-        if (!qwenConfig) {
-          writeJson(res, 503, { ok: false, error: "LLM not configured" });
-          return;
-        }
-        const body = await readJsonBody(req);
-        const message = String(body.message ?? "").trim();
-        if (!message) {
-          writeJson(res, 400, { ok: false, error: "message is required" });
-          return;
-        }
-        const scope = resolvePerformanceScopeFromSession(session);
-        const turn = await runPerformanceAgentTurn({
-          userMessage: message,
-          clientConfig: buildManagerQwenClientConfig(qwenConfig),
-          employeeRepo,
-          actorUserId: session.userId,
-          scope,
-        });
-        writeJson(res, 200, { ok: true, message: turn.message });
+        await handlePerformanceChatPost(req, res, session);
       } catch (err) {
-        writeJson(res, 400, {
-          ok: false,
-          error: err instanceof Error ? err.message : "chat failed",
-        });
+        if (!res.headersSent) {
+          writeJson(res, 400, {
+            ok: false,
+            error: err instanceof Error ? err.message : "chat failed",
+          });
+        } else {
+          writePerformanceChatSse(res, "error", {
+            error: err instanceof Error ? err.message : "chat failed",
+          });
+          res.end();
+        }
       }
     })();
     return true;

@@ -390,21 +390,72 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
     return div;
   }
 
+  function chatPageQuery(){
+    var q = { message: '', windowDays: Number(windowSel.value)||90, stream: true };
+    if(PORTFOLIO && projectSel && projectSel.value) q.projectId = projectSel.value;
+    return q;
+  }
+
+  function parseSseBlock(block){
+    var event = 'message';
+    var data = '';
+    block.split('\\n').forEach(function(line){
+      if(line.indexOf('event:')===0) event = line.slice(6).trim();
+      else if(line.indexOf('data:')===0) data = line.slice(5).trim();
+    });
+    if(!data) return null;
+    try { return { event: event, data: JSON.parse(data) }; } catch(e){ return null; }
+  }
+
   function sendChat(){
     var msg = (chatInput.value||'').trim();
     if(!msg) return;
     chatInput.value='';
     addMsg(msg,'user');
-    var pending = addMsg('思考中...','bot');
+    var pending = addMsg('正在分析...','bot');
     chatSend.disabled = true;
+    var payload = chatPageQuery();
+    payload.message = msg;
     fetch(API_BASE+'/chat', {
-      method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
-      body: JSON.stringify({ message: msg })
-    }).then(function(r){return r.json();})
-      .then(function(d){
-        pending.textContent = (d && d.ok!==false && d.message) ? d.message : ('出错了：'+((d&&d.error)||'未知错误'));
-      })
-      .catch(function(e){ pending.textContent = '请求失败：'+(e.message||e); })
+      method:'POST',
+      headers:{'Content-Type':'application/json','Accept':'text/event-stream'},
+      body: JSON.stringify(payload)
+    }).then(function(r){
+      if(!r.ok || !r.body) throw new Error('HTTP '+r.status);
+      var reader = r.body.getReader();
+      var decoder = new TextDecoder();
+      var buf = '';
+      function pump(){
+        return reader.read().then(function(chunk){
+          if(chunk.done){
+            if(!pending.textContent || pending.textContent==='正在分析...' || pending.textContent==='正在查询数据...'){
+              pending.textContent = '未收到回复，请重试。';
+            }
+            return;
+          }
+          buf += decoder.decode(chunk.value, { stream: true });
+          var parts = buf.split('\\n\\n');
+          buf = parts.pop() || '';
+          parts.forEach(function(block){
+            var ev = parseSseBlock(block);
+            if(!ev) return;
+            if(ev.event==='status'){
+              if(ev.data.phase==='thinking') pending.textContent = '正在分析...';
+              if(ev.data.phase==='querying') pending.textContent = '正在查询数据...';
+            } else if(ev.event==='delta' && ev.data.message){
+              pending.textContent = ev.data.message;
+              chatLog.scrollTop = chatLog.scrollHeight;
+            } else if(ev.event==='done' && ev.data.message){
+              pending.textContent = ev.data.message;
+            } else if(ev.event==='error'){
+              pending.textContent = '出错了：'+(ev.data.error||'未知错误');
+            }
+          });
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function(e){ pending.textContent = '请求失败：'+(e.message||e); })
       .finally(function(){ chatSend.disabled=false; });
   }
 

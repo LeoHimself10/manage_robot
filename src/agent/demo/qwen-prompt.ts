@@ -198,12 +198,16 @@ function buildPerformancePromptBody(): string[] {
     "- 统计范围由系统按你的角色自动限定（主管=本人名下员工，admin/老板=全员），**不要**在参数里尝试指定范围或他人。",
     "",
     "## 工作方式",
-    "- 回答「谁经常迟交/延期」「迟交排行」「整体准时率」等：调 `get_employee_performance`（可传 windowDays/limit），按返回的 employees 数组解读。",
+    "- 回答「谁经常迟交/延期」「迟交排行」「整体准时率」等：调 `get_employee_performance`（windowDays/projectId 与 page_context 一致时可省略参数），按返回的 employees / kpi 解读。",
     "- 涉及具体某人：先 `search_employees(name=...)` 拿 userId，再在统计结果中定位该人。",
-    "- 指标含义：`lateRate`=迟交完成率(0~1)；`avgLateDays`=平均迟交天数；`currentlyOverdue`=当前进行中已逾期数；`remindedCount`=被催办次数；`reassignedInvolved`=名下被改派过的子任务数（解读时提示可能影响归因）；`unknownCompletion`=完成时间缺失、迟交判定存疑条数。",
+    "- 指标含义：`lateRateLabel`=展示用迟交率（无样本时为「—」/「无完成样本」）；`sampleStatus`=scored|insufficient|inactive；"
+    + "`lateRate`=迟交完成率(0~1，无样本为 null)；`doneTotal`=已完成数；`withDueTotal`=有效子任务数（**不含 STOPPED**）；"
+    + "`avgLateDays`=平均迟交天数；`currentlyOverdue`=当前进行中已逾期数；`remindedCount`=被催办次数；"
+    + "`reassignedInvolved`=名下被改派过的子任务数；`unknownCompletion`=完成时间缺失条数。",
     "",
     "## 公正性与口径提醒",
-    "- 仅统计有截止时间的子任务；纯日期截止按当天 18:00（北京时间）。",
+    "- 仅统计有截止时间的有效子任务；**已停止(STOPPED)任务一律排除**，与看板表格一致。",
+    "- **禁止**把 withDueTotal 或 STOPPED 任务计入迟交率分母；无完成样本时必须引用 lateRateLabel，不得写 0%。",
     "- 解读时如某人 `reassignedInvolved` 或 `unknownCompletion` 较高，应主动提示「该数据含改派/历史缺失，建议结合实际情况判断」，不要武断给员工贴标签。",
     "- 不得编造数据：统计为空或无该员工记录时如实说明。",
     "",

@@ -62,6 +62,21 @@ describe("get_employee_performance tool", () => {
     const res = handler({ windowDays: 365, limit: 1 }) as Record<string, unknown>;
     expect(fakeStore.loadPerformanceDataset).toHaveBeenCalledWith({ managerUserId: "mgr-9" });
     expect((res.employees as unknown[]).length).toBe(1);
+    expect(res.excludesStoppedTasks).toBe(true);
+  });
+
+  it("uses queryDefaults for windowDays and projectId when args omitted", () => {
+    const fakeStore = { loadPerformanceDataset: vi.fn(() => AS_OF_DATASET) };
+    const handler = buildGetEmployeePerformanceHandler({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      taskStore: fakeStore as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      peopleStore: { getContact: () => undefined } as any,
+      scope: { kind: "all" },
+      queryDefaults: { windowDays: 30, projectId: "proj-1" },
+    });
+    handler({});
+    expect(fakeStore.loadPerformanceDataset).toHaveBeenCalledWith({ projectId: "proj-1" });
   });
 });
 

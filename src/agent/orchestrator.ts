@@ -7,7 +7,7 @@ import {
 } from "./demo/qwen-compatible-client";
 import { coerceLlmPlanPayload } from "./demo/llm-schema";
 import { buildToolRegistry, type ToolProfile } from "./tools/registry";
-import type { PerformanceScope } from "./tools/performance-tools";
+import type { PerformanceQueryDefaults, PerformanceScope } from "./tools/performance-tools";
 import { logStructured } from "../infra/logger";
 import type { EmployeeProfileRecord } from "../integrations/repos/employee-profile-repo";
 import {
@@ -53,6 +53,8 @@ export interface OrchestratorConfig {
   projectPortfolioEnabled?: boolean;
   /** toolProfile=performance 时的统计范围（manager 名下 / 全员）。 */
   performanceScope?: PerformanceScope;
+  /** 绩效看板页筛选默认值，与表格 API 对齐。 */
+  performanceQueryDefaults?: PerformanceQueryDefaults;
   trustedActorUserId?: string;
   allowSearchWeb?: boolean;
   knownFactsStore?: KnownFactsStore;
@@ -135,6 +137,7 @@ export async function runOrchestrator(
     toolProfile: config.toolProfile ?? "planner",
     projectPortfolioEnabled: config.projectPortfolioEnabled,
     performanceScope: config.performanceScope,
+    performanceQueryDefaults: config.performanceQueryDefaults,
     trustedActorUserId: config.trustedActorUserId,
     allowSearchWeb: config.allowSearchWeb,
     knownFactsStore: config.knownFactsStore,
