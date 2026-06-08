@@ -16,6 +16,28 @@ import type {
 
 type TaskStore = ReturnType<typeof createWorkbenchFormalTaskStore>;
 
+/** When only one new-parent group is suggested, reuse structure's parentDescription as fallback. */
+function applyNewGroupDescriptionFallback(
+  rows: TaskIntakePreviewRow[],
+  parentDescription: string,
+): TaskIntakePreviewRow[] {
+  const desc = String(parentDescription ?? "").trim();
+  if (!desc) return rows;
+
+  const groupIds = new Set(
+    rows.map((r) => r.suggestedNewGroupId).filter((id): id is string => Boolean(id)),
+  );
+  if (groupIds.size !== 1) return rows;
+
+  const gid = [...groupIds][0]!;
+  const hasAnyDesc = rows.some((r) => r.suggestedNewGroupId === gid && r.suggestedNewGroupDescription?.trim());
+  if (hasAnyDesc) return rows;
+
+  return rows.map((r) =>
+    r.suggestedNewGroupId === gid ? { ...r, suggestedNewGroupDescription: desc } : r,
+  );
+}
+
 export async function handleTaskIntakePreview(input: {
   pastedText?: string;
   parentTitle?: string;
@@ -39,14 +61,13 @@ export async function handleTaskIntakePreview(input: {
     title: s.title,
     objective: s.objective,
   }));
-  const suggestions = input.existingTasks?.length
-    ? await suggestTaskTargets({
-        subtasks: subtaskStubs,
-        existingTasks: input.existingTasks,
-      }).catch(() => undefined)
-    : undefined;
+  const suggestions = await suggestTaskTargets({
+    subtasks: subtaskStubs,
+    existingTasks: input.existingTasks ?? [],
+  }).catch(() => undefined);
 
-  const rows = buildPreviewRows(result.structured, suggestions);
+  let rows = buildPreviewRows(result.structured, suggestions);
+  rows = applyNewGroupDescriptionFallback(rows, result.structured.parentDescription);
   return {
     parentTitle: result.structured.parentTitle,
     parentDescription: result.structured.parentDescription,

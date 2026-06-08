@@ -1142,13 +1142,13 @@ ${buildWorkbenchContactComboClientJs()}
       state.newGroupCounter = 0;
 
       if (hasSuggestions) {
-        // Build state.newGroups from AI suggestions
+        // Build state.newGroups from AI suggestions (title + description per group)
         rows.forEach(function (r) {
           var conf = r.suggestedConfidence || 0;
           if (conf >= 0.6 && r.suggestedNewGroupId && !state.newGroups[r.suggestedNewGroupId]) {
             state.newGroups[r.suggestedNewGroupId] = {
               title: r.suggestedNewGroupTitle || "",
-              description: "",
+              description: r.suggestedNewGroupDescription || "",
               projectId: "",
               projectName: "",
             };
@@ -1159,6 +1159,17 @@ ${buildWorkbenchContactComboClientJs()}
           var n = parseInt(gid.replace("ng_", ""), 10);
           if (!isNaN(n) && n >= state.newGroupCounter) state.newGroupCounter = n;
         });
+        // Fallback: single new group without per-group description → use structure parentDescription
+        var sugGroupIds = Object.keys(state.newGroups);
+        if (sugGroupIds.length === 1) {
+          var onlyGid = sugGroupIds[0];
+          if (!String(state.newGroups[onlyGid].description || "").trim()) {
+            state.newGroups[onlyGid].description = data.parentDescription || "";
+          }
+          if (!String(state.newGroups[onlyGid].title || "").trim()) {
+            state.newGroups[onlyGid].title = data.parentTitle || "";
+          }
+        }
       } else {
         // No AI suggestions — put everything in one default new group
         state.newGroups[DEFAULT_GROUP] = {

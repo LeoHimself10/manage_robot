@@ -36,6 +36,7 @@ export interface TaskIntakePreviewRow {
   /** AI-suggested new parent group ID (e.g. "ng_1"). Mutually exclusive with suggestedTargetPlanId. */
   suggestedNewGroupId?: string;
   suggestedNewGroupTitle?: string;
+  suggestedNewGroupDescription?: string;
   /** 0–1; <0.6 means "unassigned" */
   suggestedConfidence?: number;
   suggestedReason?: string;

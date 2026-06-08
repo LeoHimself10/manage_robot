@@ -20,6 +20,7 @@ export interface TargetSuggestion {
   /** Set when the subtask should go into a newly-created parent task group. */
   newGroupId?: string;   // e.g. "ng_1"
   newGroupTitle?: string;
+  newGroupDescription?: string;
   confidence: number;
   reason?: string;
 }
@@ -29,12 +30,12 @@ const SUGGEST_TIMEOUT_MS = 12_000;
 const SYSTEM_PROMPT = [
   "你是任务归属规划助手。给定一批「新子任务」和一批「已有父任务」，为每条子任务决定最优归属方案：",
   "  A) 归属到某个已有父任务（targetPlanId）",
-  "  B) 与其他新子任务合并到一个新建父任务组（newGroupId + newGroupTitle）",
+  "  B) 与其他新子任务合并到一个新建父任务组（newGroupId + newGroupTitle + newGroupDescription）",
   "  C) 不确定，留给用户手动分配（两者均为 null）",
   "",
   "规则：",
   "1. 已有父任务匹配：仅当子任务标题/目标与已有父任务标题语义明确重叠时才选 A，confidence ≥ 0.6。",
-  "2. 新建分组：对于不归属已有任务的子任务，按语义相似性聚类，同类子任务分配相同 newGroupId（如 ng_1、ng_2…）并给出合适的父任务标题 newGroupTitle。一个子任务只属于一个新建组。",
+  "2. 新建分组：对于不归属已有任务的子任务，按语义相似性聚类，同类子任务分配相同 newGroupId（如 ng_1、ng_2…），并给出合适的父任务标题 newGroupTitle 与描述/背景 newGroupDescription（1-2 句，说明该组子任务的整体目标与来由）。同一 newGroupId 的条目 newGroupTitle/newGroupDescription 须一致。一个子任务只属于一个新建组。",
   "3. 不确定：若既无法匹配已有任务、又无法确定新建组归属（confidence < 0.6），则 targetPlanId 和 newGroupId 均输出 null。",
   "4. confidence 表示对当前决策的把握程度（0~1）。",
   "5. reason 用一句简短中文说明依据（≤20字）。",
@@ -42,7 +43,7 @@ const SYSTEM_PROMPT = [
   "7. targetPlanId 和 newGroupId 互斥：若 targetPlanId 非 null，则 newGroupId 必须为 null，反之亦然。",
   "",
   "输出严格 JSON 数组，不要任何解释或 markdown：",
-  '[{"itemId":string,"targetPlanId":string|null,"newGroupId":string|null,"newGroupTitle":string|null,"confidence":number,"reason":string}]',
+  '[{"itemId":string,"targetPlanId":string|null,"newGroupId":string|null,"newGroupTitle":string|null,"newGroupDescription":string|null,"confidence":number,"reason":string}]',
 ].join("\n");
 
 function buildUserMessage(input: {
@@ -73,16 +74,17 @@ function coerceSuggestions(
 ): TargetSuggestion[] {
   if (!Array.isArray(parsed)) return subtasks.map((s) => ({ itemId: s.itemId, confidence: 0 }));
 
-  // Collect all newGroupTitles keyed by newGroupId from the raw array
+  // Collect newGroupTitle / newGroupDescription keyed by newGroupId from the raw array
   const newGroupTitleMap = new Map<string, string>();
+  const newGroupDescriptionMap = new Map<string, string>();
   for (const item of parsed) {
     if (!item || typeof item !== "object") continue;
     const r = item as Record<string, unknown>;
     const gid = String(r.newGroupId ?? "").trim();
     const gtitle = String(r.newGroupTitle ?? "").trim();
-    if (gid && gtitle && !newGroupTitleMap.has(gid)) {
-      newGroupTitleMap.set(gid, gtitle);
-    }
+    const gdesc = String(r.newGroupDescription ?? "").trim().slice(0, 2000);
+    if (gid && gtitle && !newGroupTitleMap.has(gid)) newGroupTitleMap.set(gid, gtitle);
+    if (gid && gdesc && !newGroupDescriptionMap.has(gid)) newGroupDescriptionMap.set(gid, gdesc);
   }
 
   const byItemId = new Map<string, TargetSuggestion>();
@@ -123,6 +125,7 @@ function coerceSuggestions(
         itemId,
         newGroupId: rawGroupId,
         newGroupTitle: newGroupTitleMap.get(rawGroupId),
+        newGroupDescription: newGroupDescriptionMap.get(rawGroupId),
         confidence,
         reason,
       });

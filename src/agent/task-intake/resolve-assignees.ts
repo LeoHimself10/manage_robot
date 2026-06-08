@@ -46,6 +46,7 @@ export function buildPreviewRows(
         suggestedTargetNo: sug?.targetNo,
         suggestedNewGroupId: sug?.newGroupId,
         suggestedNewGroupTitle: sug?.newGroupTitle,
+        suggestedNewGroupDescription: sug?.newGroupDescription,
         suggestedConfidence: sug?.confidence,
         suggestedReason: sug?.reason,
       };
