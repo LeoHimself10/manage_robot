@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildEmployeePerformanceDetail,
   buildEmployeePerformanceFacts,
+  buildProjectPerformanceRollup,
   type PerformanceDataset,
 } from "../../../src/agent/performance/performance-facts";
 
@@ -131,5 +133,48 @@ describe("buildEmployeePerformanceFacts", () => {
       resolveName: (uid) => (uid === "emp-9" ? "张三" : undefined),
     });
     expect(findRow(facts, "emp-9").name).toBe("张三");
+  });
+
+  it("buildProjectPerformanceRollup tracks four delivery states", () => {
+    const asOf = "2026-06-08T18:00:00.000Z";
+    const dataset: PerformanceDataset = {
+      subtasks: [
+        { subtaskId: "A", assigneeUserId: "u1", status: "DONE", dueAt: "2026-06-01T10:00:00.000Z", completedAt: "2026-06-01T09:00:00.000Z", projectId: "p1", projectName: "项目甲" },
+        { subtaskId: "B", assigneeUserId: "u1", status: "DONE", dueAt: "2026-06-02T10:00:00.000Z", completedAt: "2026-06-04T10:00:00.000Z", projectId: "p1", projectName: "项目甲" },
+        { subtaskId: "C", assigneeUserId: "u1", status: "IN_PROGRESS", dueAt: "2026-06-08T18:00:00.000Z", projectId: "p1", projectName: "项目甲" },
+        { subtaskId: "D", assigneeUserId: "u1", status: "IN_PROGRESS", dueAt: "2026-06-05T10:00:00.000Z", projectId: "p1", projectName: "项目甲" },
+      ],
+      reminders: [],
+      overdueAlerts: [],
+      reassignedSubtaskIds: [],
+    };
+    const rows = buildProjectPerformanceRollup(dataset, { asOf, windowDays: 90 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      onTimeDone: 1,
+      lateDone: 1,
+      pendingInFlight: 1,
+      currentlyOverdue: 1,
+      withDueTotal: 4,
+    });
+  });
+
+  it("buildEmployeePerformanceDetail exposes four-state task rollups", () => {
+    const dataset: PerformanceDataset = {
+      subtasks: [
+        { subtaskId: "A", assigneeUserId: "u1", status: "DONE", dueAt: "2026-06-01T10:00:00.000Z", completedAt: "2026-06-01T09:00:00.000Z", taskId: "t1", taskTitle: "任务一" },
+        { subtaskId: "B", assigneeUserId: "u1", status: "IN_PROGRESS", dueAt: "2026-06-05T10:00:00.000Z", taskId: "t1", taskTitle: "任务一" },
+      ],
+      reminders: [],
+      overdueAlerts: [],
+      reassignedSubtaskIds: [],
+    };
+    const detail = buildEmployeePerformanceDetail(dataset, "u1", { asOf: AS_OF, windowDays: 90 });
+    expect(detail?.byTask[0]).toMatchObject({
+      onTimeDone: 1,
+      pendingInFlight: 0,
+      currentlyOverdue: 1,
+      withDueTotal: 2,
+    });
   });
 });

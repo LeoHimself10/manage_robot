@@ -117,12 +117,27 @@ export function buildPerformanceEmployeeDetailPayload(input: {
 }): Record<string, unknown> {
   const windowDays = resolvePerformanceWindowDays(input.windowDays);
   const projectId = String(input.projectId ?? "").trim() || undefined;
-  const dataset = loadScopedDataset(input.taskStore, input.scope, projectId);
-  const detail = buildEmployeePerformanceDetail(dataset, input.userId, {
+  const fullDataset = loadScopedDataset(input.taskStore, input.scope);
+  const fullDetail = buildEmployeePerformanceDetail(fullDataset, input.userId, {
     scopeKind: input.scope.kind,
     windowDays,
     resolveName: input.resolveName,
   });
+  if (!fullDetail) {
+    return { ok: false, error: "employee_not_found_in_scope" };
+  }
+  const employeeProjectOptions = fullDetail.byProject.map((p) => ({
+    projectId: p.projectId,
+    projectName: p.projectName,
+    withDueTotal: p.withDueTotal,
+  }));
+  const detail = projectId
+    ? buildEmployeePerformanceDetail(
+        loadScopedDataset(input.taskStore, input.scope, projectId),
+        input.userId,
+        { scopeKind: input.scope.kind, windowDays, resolveName: input.resolveName },
+      )
+    : fullDetail;
   if (!detail) {
     return { ok: false, error: "employee_not_found_in_scope" };
   }
@@ -132,6 +147,7 @@ export function buildPerformanceEmployeeDetailPayload(input: {
     scopeLabel: performanceScopeLabel(input.scope),
     windowDays,
     projectId: projectId ?? "",
+    employeeProjectOptions,
     ...detail,
   };
 }

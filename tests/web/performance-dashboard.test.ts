@@ -144,6 +144,11 @@ describe("performance dashboard page", () => {
     expect(html).toContain("mgr-perf");
     expect(html).toContain("conversationHistory");
     expect(html).toContain("perf_chat_history_v1");
+    expect(html).toContain("/static/performance-chat-markdown.js");
+    expect(html).toContain("formatPerfAssistantHtml");
+    expect(html).toContain("detailProject");
+    expect(html).toContain("detailTotalStack");
+    expect(html).toContain("detailTasksToggle");
   });
 
   it("renders admin page with admin nav and api base", () => {

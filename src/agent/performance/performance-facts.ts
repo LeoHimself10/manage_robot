@@ -277,7 +277,10 @@ export interface PerformanceProjectRollup {
   projectName: string;
   withDueTotal: number;
   doneTotal: number;
+  onTimeDone: number;
   lateDone: number;
+  /** 进行中且截止未到。 */
+  pendingInFlight: number;
   currentlyOverdue: number;
   employeeCount: number;
 }
@@ -290,7 +293,9 @@ export interface PerformanceTaskRollup {
   projectName?: string;
   withDueTotal: number;
   doneTotal: number;
+  onTimeDone: number;
   lateDone: number;
+  pendingInFlight: number;
   currentlyOverdue: number;
   subtasks: PerformanceSubtaskDetailRow[];
 }
@@ -387,7 +392,9 @@ export function buildProjectPerformanceRollup(
         projectName: pname,
         withDueTotal: 0,
         doneTotal: 0,
+        onTimeDone: 0,
         lateDone: 0,
+        pendingInFlight: 0,
         currentlyOverdue: 0,
         employeeCount: 0,
         assignees: new Set(),
@@ -397,11 +404,15 @@ export function buildProjectPerformanceRollup(
     row.withDueTotal += 1;
     row.assignees.add(sub.assigneeUserId);
     const cls = classifySubtask(sub, asOfMs);
-    if (String(sub.status).toUpperCase() === "DONE") {
+    const status = String(sub.status ?? "").toUpperCase();
+    if (status === "DONE") {
       row.doneTotal += 1;
       if (cls.tag === "late") row.lateDone += 1;
+      else row.onTimeDone += 1;
     } else if (cls.tag === "overdue") {
       row.currentlyOverdue += 1;
+    } else if (cls.tag === "pending") {
+      row.pendingInFlight += 1;
     }
   }
   return Array.from(byProject.values())
@@ -454,7 +465,9 @@ export function buildEmployeePerformanceDetail(
         projectName: st.projectName,
         withDueTotal: 0,
         doneTotal: 0,
+        onTimeDone: 0,
         lateDone: 0,
+        pendingInFlight: 0,
         currentlyOverdue: 0,
         subtasks: [],
       };
@@ -463,7 +476,9 @@ export function buildEmployeePerformanceDetail(
     task.withDueTotal += 1;
     task.subtasks.push(st);
     if (st.deliveryTag === "late") task.lateDone += 1;
-    if (st.deliveryTag === "overdue") task.currentlyOverdue += 1;
+    else if (st.deliveryTag === "on_time" && String(st.status).toUpperCase() === "DONE") task.onTimeDone += 1;
+    else if (st.deliveryTag === "overdue") task.currentlyOverdue += 1;
+    else if (st.deliveryTag === "pending") task.pendingInFlight += 1;
     if (st.status === "DONE") task.doneTotal += 1;
   }
   const byTask = Array.from(byTaskMap.values()).sort(

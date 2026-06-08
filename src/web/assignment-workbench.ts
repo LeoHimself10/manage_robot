@@ -270,6 +270,10 @@ function resolveWorkbenchDraftGridBundlePath(): string {
   return join(assignmentWorkbenchDir, "..", "..", "dist", "workbench-draft-grid.js");
 }
 
+function resolvePerformanceChatMarkdownBundlePath(): string {
+  return join(assignmentWorkbenchDir, "..", "..", "dist", "performance-chat-markdown.js");
+}
+
 export const WORKBENCH_DRAFT_REVISE_HISTORY_USER = "[工作台] 已提交草案表格编辑";
 
 const planSessionStore = createPlanSessionStore();
@@ -2899,6 +2903,28 @@ export function handleAssignmentHttp(
       res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
       res.end(
         "// Workbench draft grid bundle missing. Run: npm run build:workbench-draft-grid\n",
+      );
+      return true;
+    }
+    const body = readFileSync(bundlePath);
+    res.writeHead(200, {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    });
+    if (req.method === "HEAD") {
+      res.end();
+    } else {
+      res.end(body);
+    }
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/static/performance-chat-markdown.js") {
+    const bundlePath = resolvePerformanceChatMarkdownBundlePath();
+    if (!existsSync(bundlePath)) {
+      res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end(
+        "// Performance chat markdown bundle missing. Run: npm run build:performance-chat-markdown\n",
       );
       return true;
     }
