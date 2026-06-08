@@ -247,6 +247,11 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
     return fmt(s);
   }
   function pct(r){ return (r*100).toFixed(r>=0.1?0:1) + '%'; }
+  function formatDays(n){
+    if(n==null || !Number.isFinite(Number(n))) return '—';
+    var v = Number(n);
+    return Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : v.toFixed(1);
+  }
   function initials(name){ var n=String(name||'').trim(); return n? n.slice(0,2) : '—'; }
   function rateClass(r, status){
     if(status && status!=='scored') return 'is-muted';
@@ -395,7 +400,7 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
         '<td>'+r.lateDone+'</td>'+
         '<td>'+r.doneTotal+'</td>'+
         '<td>'+r.inFlightTotal+'</td>'+
-        '<td>'+(r.sampleStatus==='scored'?(r.avgLateDays||0).toFixed(1):'—')+'</td>'+
+        '<td>'+(r.sampleStatus==='scored'?formatDays(r.avgLateDays):'—')+'</td>'+
         '<td>'+r.currentlyOverdue+'</td>'+
         '<td>'+r.remindedCount+'</td>'+
         '<td>'+reassign+'</td>';
@@ -447,7 +452,7 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
         var c = deliveryCounts(t);
         var headSub = c.total+' 子任务 · '+c.onTime+'准 · '+c.late+'迟 · '+c.pending+'进行 · '+c.overdue+'逾';
         var subs = (t.subtasks||[]).map(function(s){
-          return '<tr><td>'+esc(s.subtaskTitle)+'</td><td><span class="perf-pill '+tagClass(s.deliveryTag)+'">'+tagLabel(s.deliveryTag)+'</span></td><td class="num">'+(s.lateDays!=null?s.lateDays.toFixed(1):'—')+'</td><td class="num">'+s.remindedCount+'</td></tr>';
+          return '<tr><td>'+esc(s.subtaskTitle)+'</td><td><span class="perf-pill '+tagClass(s.deliveryTag)+'">'+tagLabel(s.deliveryTag)+'</span></td><td class="num">'+formatDays(s.lateDays)+'</td><td class="num">'+s.remindedCount+'</td></tr>';
         }).join('');
         return '<div class="perf-task-group" data-task-idx="'+idx+'">'+
           '<button type="button" class="perf-task-head" aria-expanded="false">'+
