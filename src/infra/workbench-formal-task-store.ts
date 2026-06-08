@@ -2132,38 +2132,64 @@ export function createWorkbenchFormalTaskStore() {
      * scope.managerUserId 为空 → 全员（admin/老板视角）；否则仅该主管名下任务的子任务。
      * 仅返回 due_at 非空的子任务（无截止无法判定迟交）。
      */
-    loadPerformanceDataset(scope?: { managerUserId?: string }): {
+    loadPerformanceDataset(scope?: { managerUserId?: string; projectId?: string }): {
       subtasks: Array<{
         subtaskId: string;
         assigneeUserId: string;
         status: WorkbenchTaskStatus;
         dueAt?: string;
         completedAt?: string;
+        subtaskTitle?: string;
+        taskId?: string;
+        taskNo?: string;
+        taskTitle?: string;
+        planId?: string;
+        managerUserId?: string;
+        projectId?: string;
+        projectName?: string;
       }>;
       reminders: Array<{ subtaskId: string; total: number }>;
       overdueAlerts: Array<{ subtaskId: string; count: number }>;
       reassignedSubtaskIds: string[];
     } {
       const managerUserId = String(scope?.managerUserId ?? "").trim();
-      const subtaskRows = (
-        managerUserId
-          ? db
-              .prepare(
-                "SELECT s.subtask_id, s.assignee_user_id, s.status, s.due_at, s.completed_at FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE t.manager_user_id = ? AND s.due_at IS NOT NULL",
-              )
-              .all(managerUserId)
-          : db
-              .prepare(
-                "SELECT s.subtask_id, s.assignee_user_id, s.status, s.due_at, s.completed_at FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.due_at IS NOT NULL",
-              )
-              .all()
-      ) as Array<Record<string, unknown>>;
+      const projectId = String(scope?.projectId ?? "").trim();
+      const baseSql = `
+        SELECT s.subtask_id, s.assignee_user_id, s.status, s.due_at, s.completed_at, s.title AS subtask_title,
+               t.task_id, t.task_no, t.title AS task_title, t.plan_id, t.manager_user_id, t.project_id,
+               p.name AS project_name
+        FROM subtasks s
+        JOIN tasks t ON t.task_id = s.task_id
+        LEFT JOIN projects p ON p.project_id = t.project_id
+        WHERE s.due_at IS NOT NULL`;
+      const clauses: string[] = [];
+      const params: string[] = [];
+      if (managerUserId) {
+        clauses.push("t.manager_user_id = ?");
+        params.push(managerUserId);
+      }
+      if (projectId === "__unassigned__") {
+        clauses.push("(t.project_id IS NULL OR t.project_id = '')");
+      } else if (projectId) {
+        clauses.push("t.project_id = ?");
+        params.push(projectId);
+      }
+      const sql = clauses.length > 0 ? `${baseSql} AND ${clauses.join(" AND ")}` : baseSql;
+      const subtaskRows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
       const subtasks = subtaskRows.map((row) => ({
         subtaskId: String(row.subtask_id ?? ""),
         assigneeUserId: String(row.assignee_user_id ?? ""),
         status: normalizeStatus(String(row.status ?? "ASSIGNED")),
         dueAt: asString(row.due_at),
         completedAt: asString(row.completed_at),
+        subtaskTitle: asString(row.subtask_title),
+        taskId: asString(row.task_id),
+        taskNo: asString(row.task_no),
+        taskTitle: asString(row.task_title),
+        planId: asString(row.plan_id),
+        managerUserId: asString(row.manager_user_id),
+        projectId: asString(row.project_id),
+        projectName: asString(row.project_name),
       }));
       const reminders = (
         db.prepare("SELECT subtask_id, remind_count, manual_remind_count FROM subtask_reminder_state").all() as Array<

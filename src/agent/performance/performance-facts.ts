@@ -21,6 +21,14 @@ export interface PerformanceSubtaskInput {
   status: string;
   dueAt?: string;
   completedAt?: string;
+  subtaskTitle?: string;
+  taskId?: string;
+  taskNo?: string;
+  taskTitle?: string;
+  planId?: string;
+  managerUserId?: string;
+  projectId?: string;
+  projectName?: string;
 }
 
 export interface PerformanceDataset {
@@ -33,6 +41,8 @@ export interface PerformanceDataset {
   reassignedSubtaskIds: string[];
 }
 
+export type PerformanceSampleStatus = "scored" | "insufficient" | "inactive";
+
 export interface EmployeePerformanceRow {
   userId: string;
   name?: string;
@@ -41,14 +51,19 @@ export interface EmployeePerformanceRow {
   doneTotal: number;
   onTimeDone: number;
   lateDone: number;
-  /** lateDone / doneTotal，0~1；doneTotal=0 时为 0。 */
-  lateRate: number;
+  /** lateDone / doneTotal，0~1；doneTotal=0 时为 null（无有效迟交率）。 */
+  lateRate: number | null;
+  /** 展示用迟交率文案（样本不足时为「—」）。 */
+  lateRateLabel: string;
+  sampleStatus: PerformanceSampleStatus;
   /** 迟交子任务的平均迟交天数（向上以小数天计），无迟交时为 0。 */
   avgLateDays: number;
   /** 最大迟交天数。 */
   maxLateDays: number;
   /** 当前进行中且已逾期的子任务数。 */
   currentlyOverdue: number;
+  /** 进行中/待承接（非 DONE/STOPPED）且有截止的子任务数。 */
+  inFlightTotal: number;
   /** 催办累计（该员工名下子任务 reminders 之和）。 */
   remindedCount: number;
   /** 主管逾期提醒累计。 */
@@ -109,6 +124,7 @@ export function buildEmployeePerformanceFacts(
     lateDaysSum: number;
     maxLateDays: number;
     currentlyOverdue: number;
+    inFlightTotal: number;
     remindedCount: number;
     managerOverdueAlerts: number;
     reassignedInvolved: number;
@@ -127,6 +143,7 @@ export function buildEmployeePerformanceFacts(
         lateDaysSum: 0,
         maxLateDays: 0,
         currentlyOverdue: 0,
+        inFlightTotal: 0,
         remindedCount: 0,
         managerOverdueAlerts: 0,
         reassignedInvolved: 0,
@@ -168,13 +185,29 @@ export function buildEmployeePerformanceFacts(
         acc.onTimeDone += 1;
       }
     } else if (!TERMINAL_STATUSES.has(status)) {
+      acc.inFlightTotal += 1;
       if (dueMs < asOfMs) acc.currentlyOverdue += 1;
     }
   }
 
-  const rows: EmployeePerformanceRow[] = Array.from(accs.values()).map((acc) => {
-    const lateRate = acc.doneTotal > 0 ? acc.lateDone / acc.doneTotal : 0;
+  function buildRow(acc: Acc): EmployeePerformanceRow {
+    const scored = acc.doneTotal > 0;
+    const lateRate = scored ? acc.lateDone / acc.doneTotal : null;
     const avgLateDays = acc.lateDone > 0 ? acc.lateDaysSum / acc.lateDone : 0;
+    let sampleStatus: PerformanceSampleStatus;
+    if (scored) sampleStatus = "scored";
+    else if (acc.inFlightTotal > 0 || acc.currentlyOverdue > 0) sampleStatus = "insufficient";
+    else sampleStatus = "inactive";
+
+    let lateRateLabel = "—";
+    if (scored && lateRate !== null) {
+      lateRateLabel = `${(lateRate * 100).toFixed(lateRate >= 0.1 ? 0 : 1)}%`;
+    } else if (sampleStatus === "insufficient") {
+      lateRateLabel = acc.currentlyOverdue > 0 ? "待完成·有逾期" : "待完成";
+    } else if (acc.withDueTotal > 0) {
+      lateRateLabel = "无完成样本";
+    }
+
     return {
       userId: acc.userId,
       name: options.resolveName?.(acc.userId),
@@ -182,20 +215,29 @@ export function buildEmployeePerformanceFacts(
       doneTotal: acc.doneTotal,
       onTimeDone: acc.onTimeDone,
       lateDone: acc.lateDone,
-      lateRate: roundTo(lateRate, 4),
+      lateRate: lateRate === null ? null : roundTo(lateRate, 4),
+      lateRateLabel,
+      sampleStatus,
       avgLateDays: roundTo(avgLateDays, 2),
       maxLateDays: roundTo(acc.maxLateDays, 2),
       currentlyOverdue: acc.currentlyOverdue,
+      inFlightTotal: acc.inFlightTotal,
       remindedCount: acc.remindedCount,
       managerOverdueAlerts: acc.managerOverdueAlerts,
       reassignedInvolved: acc.reassignedInvolved,
       unknownCompletion: acc.unknownCompletion,
     };
-  });
+  }
 
-  // 「经常迟交」排序：先迟交率，再迟交数，再当前逾期数。
+  const rows: EmployeePerformanceRow[] = Array.from(accs.values()).map(buildRow);
+
+  const sampleRank = (s: PerformanceSampleStatus) => (s === "scored" ? 0 : s === "insufficient" ? 1 : 2);
   rows.sort((a, b) => {
-    if (b.lateRate !== a.lateRate) return b.lateRate - a.lateRate;
+    const sr = sampleRank(a.sampleStatus) - sampleRank(b.sampleStatus);
+    if (sr !== 0) return sr;
+    const ar = a.lateRate ?? -1;
+    const br = b.lateRate ?? -1;
+    if (br !== ar) return br - ar;
     if (b.lateDone !== a.lateDone) return b.lateDone - a.lateDone;
     return b.currentlyOverdue - a.currentlyOverdue;
   });
@@ -208,4 +250,227 @@ export function buildEmployeePerformanceFacts(
     totalSubtasksConsidered: totalConsidered,
     rows,
   };
+}
+
+export interface PerformanceSubtaskDetailRow {
+  subtaskId: string;
+  subtaskTitle: string;
+  taskId: string;
+  taskNo?: string;
+  taskTitle: string;
+  projectId?: string;
+  projectName?: string;
+  status: string;
+  dueAt?: string;
+  completedAt?: string;
+  /** on_time | late | overdue | pending | stopped */
+  deliveryTag: string;
+  lateDays?: number;
+  remindedCount: number;
+  reassigned: boolean;
+}
+
+export interface PerformanceProjectRollup {
+  projectId: string;
+  projectName: string;
+  withDueTotal: number;
+  doneTotal: number;
+  lateDone: number;
+  currentlyOverdue: number;
+  employeeCount: number;
+}
+
+export interface PerformanceTaskRollup {
+  taskId: string;
+  taskNo?: string;
+  taskTitle: string;
+  projectId?: string;
+  projectName?: string;
+  withDueTotal: number;
+  doneTotal: number;
+  lateDone: number;
+  currentlyOverdue: number;
+  subtasks: PerformanceSubtaskDetailRow[];
+}
+
+export interface EmployeePerformanceDetail {
+  employee: EmployeePerformanceRow;
+  subtasks: PerformanceSubtaskDetailRow[];
+  byProject: PerformanceProjectRollup[];
+  byTask: PerformanceTaskRollup[];
+}
+
+export interface PerformanceSummaryKpi {
+  employeeCount: number;
+  scoredEmployeeCount: number;
+  employeesWithLate: number;
+  totalCurrentlyOverdue: number;
+  avgLateRateAmongScored: number | null;
+}
+
+function filterSubtasksInWindow(
+  dataset: PerformanceDataset,
+  windowDays: number,
+  asOfMs: number,
+  filters?: { userId?: string; projectId?: string },
+): PerformanceSubtaskInput[] {
+  const cutoffMs = asOfMs - windowDays * MS_PER_DAY;
+  const projectFilter = String(filters?.projectId ?? "").trim();
+  const userFilter = String(filters?.userId ?? "").trim();
+  return dataset.subtasks.filter((sub) => {
+    if (userFilter && sub.assigneeUserId !== userFilter) return false;
+    if (projectFilter) {
+      const pid = sub.projectId ?? "__unassigned__";
+      if (projectFilter === "__unassigned__" && sub.projectId) return false;
+      if (projectFilter !== "__unassigned__" && pid !== projectFilter) return false;
+    }
+    const dueMs = parseDueAtMs(sub.dueAt);
+    if (dueMs === undefined) return false;
+    return dueMs >= cutoffMs && dueMs <= asOfMs;
+  });
+}
+
+function classifySubtask(
+  sub: PerformanceSubtaskInput,
+  asOfMs: number,
+): { tag: string; lateDays?: number } {
+  const status = String(sub.status ?? "").toUpperCase();
+  const dueMs = parseDueAtMs(sub.dueAt);
+  if (status === "STOPPED") return { tag: "stopped" };
+  if (status === "DONE") {
+    const completedMs = sub.completedAt ? Date.parse(sub.completedAt) : NaN;
+    if (!Number.isFinite(completedMs) || dueMs === undefined) return { tag: "on_time" };
+    if (completedMs > dueMs) {
+      return { tag: "late", lateDays: roundTo((completedMs - dueMs) / MS_PER_DAY, 2) };
+    }
+    return { tag: "on_time" };
+  }
+  if (dueMs !== undefined && dueMs < asOfMs) return { tag: "overdue" };
+  return { tag: "pending" };
+}
+
+export function buildPerformanceSummaryKpi(rows: EmployeePerformanceRow[]): PerformanceSummaryKpi {
+  const scored = rows.filter((r) => r.sampleStatus === "scored");
+  const withLate = scored.filter((r) => r.lateDone > 0);
+  const rateSum = scored.reduce((s, r) => s + (r.lateRate ?? 0), 0);
+  return {
+    employeeCount: rows.length,
+    scoredEmployeeCount: scored.length,
+    employeesWithLate: withLate.length,
+    totalCurrentlyOverdue: rows.reduce((s, r) => s + r.currentlyOverdue, 0),
+    avgLateRateAmongScored: scored.length > 0 ? roundTo(rateSum / scored.length, 4) : null,
+  };
+}
+
+export function buildProjectPerformanceRollup(
+  dataset: PerformanceDataset,
+  options: BuildPerformanceFactsOptions & { projectId?: string } = {},
+): PerformanceProjectRollup[] {
+  const asOfMs = options.asOf === undefined
+    ? Date.now()
+    : typeof options.asOf === "number"
+      ? options.asOf
+      : Date.parse(options.asOf);
+  const windowDays = options.windowDays && options.windowDays > 0 ? Math.floor(options.windowDays) : 90;
+  const subs = filterSubtasksInWindow(dataset, windowDays, asOfMs, { projectId: options.projectId });
+  const byProject = new Map<string, PerformanceProjectRollup & { assignees: Set<string> }>();
+  for (const sub of subs) {
+    const pid = sub.projectId ?? "__unassigned__";
+    const pname = sub.projectName?.trim() || (pid === "__unassigned__" ? "未归类" : pid);
+    let row = byProject.get(pid);
+    if (!row) {
+      row = {
+        projectId: pid,
+        projectName: pname,
+        withDueTotal: 0,
+        doneTotal: 0,
+        lateDone: 0,
+        currentlyOverdue: 0,
+        employeeCount: 0,
+        assignees: new Set(),
+      };
+      byProject.set(pid, row);
+    }
+    row.withDueTotal += 1;
+    row.assignees.add(sub.assigneeUserId);
+    const cls = classifySubtask(sub, asOfMs);
+    if (String(sub.status).toUpperCase() === "DONE") {
+      row.doneTotal += 1;
+      if (cls.tag === "late") row.lateDone += 1;
+    } else if (cls.tag === "overdue") {
+      row.currentlyOverdue += 1;
+    }
+  }
+  return Array.from(byProject.values())
+    .map(({ assignees, ...rest }) => ({ ...rest, employeeCount: assignees.size }))
+    .sort((a, b) => b.lateDone - a.lateDone || b.currentlyOverdue - a.currentlyOverdue);
+}
+
+export function buildEmployeePerformanceDetail(
+  dataset: PerformanceDataset,
+  userId: string,
+  options: BuildPerformanceFactsOptions = {},
+): EmployeePerformanceDetail | undefined {
+  const facts = buildEmployeePerformanceFacts(dataset, options);
+  const employee = facts.rows.find((r) => r.userId === userId);
+  if (!employee) return undefined;
+  const asOfMs = Date.parse(facts.asOf);
+  const subs = filterSubtasksInWindow(dataset, facts.windowDays, asOfMs, { userId });
+  const remindersBySubtask = new Map(dataset.reminders.map((r) => [r.subtaskId, r.total]));
+  const reassignedSet = new Set(dataset.reassignedSubtaskIds);
+
+  const subtasks: PerformanceSubtaskDetailRow[] = subs.map((sub) => {
+    const cls = classifySubtask(sub, asOfMs);
+    return {
+      subtaskId: sub.subtaskId,
+      subtaskTitle: sub.subtaskTitle ?? sub.subtaskId,
+      taskId: sub.taskId ?? "",
+      taskNo: sub.taskNo,
+      taskTitle: sub.taskTitle ?? "",
+      projectId: sub.projectId,
+      projectName: sub.projectName,
+      status: sub.status,
+      dueAt: sub.dueAt,
+      completedAt: sub.completedAt,
+      deliveryTag: cls.tag,
+      lateDays: cls.lateDays,
+      remindedCount: remindersBySubtask.get(sub.subtaskId) ?? 0,
+      reassigned: reassignedSet.has(sub.subtaskId),
+    };
+  });
+
+  const byTaskMap = new Map<string, PerformanceTaskRollup>();
+  for (const st of subtasks) {
+    let task = byTaskMap.get(st.taskId);
+    if (!task) {
+      task = {
+        taskId: st.taskId,
+        taskNo: st.taskNo,
+        taskTitle: st.taskTitle,
+        projectId: st.projectId,
+        projectName: st.projectName,
+        withDueTotal: 0,
+        doneTotal: 0,
+        lateDone: 0,
+        currentlyOverdue: 0,
+        subtasks: [],
+      };
+      byTaskMap.set(st.taskId, task);
+    }
+    task.withDueTotal += 1;
+    task.subtasks.push(st);
+    if (st.deliveryTag === "late") task.lateDone += 1;
+    if (st.deliveryTag === "overdue") task.currentlyOverdue += 1;
+    if (st.status === "DONE") task.doneTotal += 1;
+  }
+  const byTask = Array.from(byTaskMap.values()).sort(
+    (a, b) => b.lateDone - a.lateDone || b.currentlyOverdue - a.currentlyOverdue,
+  );
+
+  const byProject = buildProjectPerformanceRollup(
+    { ...dataset, subtasks: subs },
+    { ...options, asOf: facts.asOf, windowDays: facts.windowDays },
+  );
+
+  return { employee, subtasks, byProject, byTask };
 }

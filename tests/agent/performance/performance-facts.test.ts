@@ -55,9 +55,28 @@ describe("buildEmployeePerformanceFacts", () => {
     expect(e2.doneTotal).toBe(1); // F excluded
     expect(e2.lateDone).toBe(0);
     expect(e2.lateRate).toBe(0);
+    expect(e2.sampleStatus).toBe("scored");
+    expect(e2.lateRateLabel).toBe("0.0%");
 
     // sorted: emp-1 (higher late rate) before emp-2
     expect(facts.rows[0].userId).toBe("emp-1");
+  });
+
+  it("inactive employee without completions shows null late rate, not 0%", () => {
+    const dataset: PerformanceDataset = {
+      subtasks: [
+        { subtaskId: "Z", assigneeUserId: "idle", status: "STOPPED", dueAt: "2026-05-15T10:00:00.000Z" },
+      ],
+      reminders: [],
+      overdueAlerts: [],
+      reassignedSubtaskIds: [],
+    };
+    const facts = buildEmployeePerformanceFacts(dataset, { asOf: AS_OF, windowDays: 90 });
+    const row = findRow(facts, "idle");
+    expect(row.doneTotal).toBe(0);
+    expect(row.lateRate).toBeNull();
+    expect(row.sampleStatus).toBe("inactive");
+    expect(row.lateRateLabel).toBe("无完成样本");
   });
 
   it("honors date-only due (18:00 Asia/Shanghai = 10:00 UTC) for late判定", () => {

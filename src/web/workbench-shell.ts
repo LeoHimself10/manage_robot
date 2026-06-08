@@ -19,7 +19,8 @@ export type WorkbenchNavId =
   | "emp-security"
   | "adm-tasks"
   | "adm-perms"
-  | "adm-ops";
+  | "adm-ops"
+  | "adm-perf";
 
 function escapeHtml(v: string): string {
   return v
@@ -99,6 +100,7 @@ function buildAdminRail(activeNav: WorkbenchNavId): string {
   <div class="wb-rail-grp-lbl">全局</div>
   ${railLink("/workbench/admin", "任务总览", "adm-tasks", activeNav, "admin")}
   ${railLink("/workbench/admin/ops", "运营看板", "adm-ops", activeNav, "admin")}
+  ${railLink("/workbench/admin/performance", "交付绩效", "adm-perf", activeNav, "admin")}
   ${railLink("/workbench/admin#permissions", "主管权限", "adm-perms", activeNav, "admin", { id: "navAdminPerms" })}
 </div>`;
 }

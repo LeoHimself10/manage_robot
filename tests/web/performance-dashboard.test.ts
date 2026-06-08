@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPerformanceDashboardPayload,
+  buildPerformanceEmployeeDetailPayload,
   resolvePerformanceWindowDays,
   isPerformanceDashboardEnabled,
 } from "../../src/web/performance-dashboard-api";
@@ -8,15 +9,25 @@ import { renderPerformanceDashboardPage } from "../../src/web/performance-dashbo
 
 const DATASET = {
   subtasks: [
-    { subtaskId: "A", assigneeUserId: "emp-1", status: "DONE", dueAt: "2026-06-01T10:00:00.000Z", completedAt: "2026-06-03T10:00:00.000Z" },
+    {
+      subtaskId: "A",
+      assigneeUserId: "emp-1",
+      status: "DONE",
+      dueAt: "2026-06-01T10:00:00.000Z",
+      completedAt: "2026-06-03T10:00:00.000Z",
+      taskId: "t1",
+      taskTitle: "任务一",
+      projectId: "p1",
+      projectName: "项目甲",
+    },
   ],
-  reminders: [],
+  reminders: [{ subtaskId: "A", total: 2 }],
   overdueAlerts: [],
   reassignedSubtaskIds: [],
 };
 
 describe("performance dashboard api", () => {
-  it("builds payload from store dataset with names and scope", () => {
+  it("builds payload from store dataset with names, kpi and projects", () => {
     const fakeStore = { loadPerformanceDataset: () => DATASET };
     const payload = buildPerformanceDashboardPayload({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,10 +38,31 @@ describe("performance dashboard api", () => {
     });
     expect(payload.ok).toBe(true);
     expect(payload.scopeKind).toBe("manager");
+    expect(payload.scopeLabel).toContain("名下");
     expect(payload.windowDays).toBe(365);
     const employees = payload.employees as Array<Record<string, unknown>>;
     expect(employees[0].name).toBe("张三");
     expect(employees[0].lateDone).toBe(1);
+    expect(employees[0].lateRateLabel).toBeTruthy();
+    const kpi = payload.kpi as Record<string, unknown>;
+    expect(kpi.employeeCount).toBe(1);
+    const projects = payload.projects as Array<Record<string, unknown>>;
+    expect(projects.length).toBeGreaterThan(0);
+  });
+
+  it("builds employee detail payload", () => {
+    const fakeStore = { loadPerformanceDataset: () => DATASET };
+    const payload = buildPerformanceEmployeeDetailPayload({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      taskStore: fakeStore as any,
+      scope: { kind: "all" },
+      userId: "emp-1",
+      windowDays: 365,
+    });
+    expect(payload.ok).toBe(true);
+    expect((payload.employee as Record<string, unknown>).userId).toBe("emp-1");
+    expect((payload.byTask as unknown[]).length).toBeGreaterThan(0);
+    expect((payload.subtasks as unknown[]).length).toBe(1);
   });
 
   it("resolvePerformanceWindowDays falls back to default", () => {
@@ -45,17 +77,32 @@ describe("performance dashboard api", () => {
 });
 
 describe("performance dashboard page", () => {
-  it("renders nav, table and chat scaffolding", () => {
-    const html = renderPerformanceDashboardPage({ userLabel: "王主管", canViewAll: false });
+  it("renders manager nav, kpi, table and chat scaffolding", () => {
+    const html = renderPerformanceDashboardPage({
+      userLabel: "王主管",
+      role: "manager",
+      scopeLabel: "您名下员工",
+      apiBase: "/api/workbench/manager/performance",
+    });
     expect(html).toContain("交付绩效");
     expect(html).toContain("perfBody");
+    expect(html).toContain("perfKpiGrid");
+    expect(html).toContain("perfDetail");
     expect(html).toContain("/api/workbench/manager/performance");
-    expect(html).toContain("/api/workbench/manager/performance/chat");
     expect(html).toContain("您名下员工");
+    expect(html).toContain("mgr-perf");
   });
 
-  it("shows all-employee scope label for admins", () => {
-    const html = renderPerformanceDashboardPage({ userLabel: "老板", canViewAll: true });
+  it("renders admin page with admin nav and api base", () => {
+    const html = renderPerformanceDashboardPage({
+      userLabel: "老板",
+      role: "admin",
+      scopeLabel: "全员（管理员视角）",
+      apiBase: "/api/workbench/admin/performance",
+    });
     expect(html).toContain("全员（管理员视角）");
+    expect(html).toContain("/api/workbench/admin/performance");
+    expect(html).toContain("adm-perf");
+    expect(html).toContain("/workbench/admin/performance");
   });
 });

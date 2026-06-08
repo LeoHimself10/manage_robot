@@ -110,10 +110,11 @@ import { renderManagerDashboardPage } from "./manager-dashboard-page";
 import { renderPerformanceDashboardPage } from "./performance-dashboard-page";
 import {
   buildPerformanceDashboardPayload,
+  buildPerformanceEmployeeDetailPayload,
   isPerformanceDashboardEnabled,
+  resolvePerformanceScopeFromSession,
 } from "./performance-dashboard-api";
 import { runPerformanceAgentTurn } from "../agent/performance-agent-turn";
-import type { PerformanceScope } from "../agent/tools/performance-tools";
 import { renderManagerMeetingImportPage } from "./manager-meeting-import-page";
 import {
   handleMeetingImportAnalyze,
@@ -193,6 +194,7 @@ const EMPLOYEE_WORKBENCH_PAGE_PATHS = new Set([
 const ADMIN_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/admin",
   "/workbench/admin/ops",
+  "/workbench/admin/performance",
   "/workbench/admin/task",
   "/workbench/admin/task/events",
 ]);
@@ -2684,6 +2686,94 @@ function requireSession(
   return normalized;
 }
 
+/** 交付绩效：主管视角或 admin 视角均可访问；范围由 session.role 决定。 */
+function requirePerformanceDashboardSession(
+  req: IncomingMessage,
+  res: ServerResponse,
+): WorkbenchSession | undefined {
+  const session = requireSession(req, res);
+  if (!session) return undefined;
+  if (session.role === "admin" && resolveRoleForUser(session.userId) === "admin") {
+    return session;
+  }
+  if (allowsManagerSession(session)) return session;
+  logStructured({
+    event: "workbench_role_forbidden",
+    path: req.url ?? "",
+    expectedRole: "manager|admin",
+    runtimeRole: session.role,
+    sessionRole: session.role,
+    primaryRole: session.primaryRole,
+    userId: session.userId,
+    loginSource: session.loginSource,
+    reason: "performance_dashboard",
+  });
+  writeAuthError(res, 403, "Role forbidden");
+  return undefined;
+}
+
+function handlePerformanceDashboardGet(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): boolean {
+  const session = requirePerformanceDashboardSession(req, res);
+  if (!session) return true;
+  if (!isPerformanceDashboardEnabled()) {
+    writeJson(res, 404, { ok: false, error: "performance dashboard disabled" });
+    return true;
+  }
+  const scope = resolvePerformanceScopeFromSession(session);
+  const peopleStore = createPeopleDirectoryStore();
+  try {
+    const payload = buildPerformanceDashboardPayload({
+      taskStore: getFormalTaskStore(),
+      scope,
+      windowDays: url.searchParams.get("windowDays"),
+      projectId: url.searchParams.get("projectId") ?? undefined,
+      resolveName: (uid) => peopleStore.getContact(uid)?.name?.trim(),
+    });
+    writeJson(res, 200, payload);
+  } finally {
+    peopleStore.close();
+  }
+  return true;
+}
+
+function handlePerformanceEmployeeDetailGet(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): boolean {
+  const session = requirePerformanceDashboardSession(req, res);
+  if (!session) return true;
+  if (!isPerformanceDashboardEnabled()) {
+    writeJson(res, 404, { ok: false, error: "performance dashboard disabled" });
+    return true;
+  }
+  const userId = url.searchParams.get("userId")?.trim() ?? "";
+  if (!userId) {
+    writeJson(res, 400, { ok: false, error: "userId is required" });
+    return true;
+  }
+  const scope = resolvePerformanceScopeFromSession(session);
+  const peopleStore = createPeopleDirectoryStore();
+  try {
+    const payload = buildPerformanceEmployeeDetailPayload({
+      taskStore: getFormalTaskStore(),
+      scope,
+      userId,
+      windowDays: url.searchParams.get("windowDays"),
+      projectId: url.searchParams.get("projectId") ?? undefined,
+      resolveName: (uid) => peopleStore.getContact(uid)?.name?.trim(),
+    });
+    writeJson(res, payload.ok ? 200 : 404, payload);
+  } finally {
+    peopleStore.close();
+  }
+  return true;
+}
+
 async function readJsonBody(
   req: IncomingMessage,
   maxBytes = 64 * 1024,
@@ -3286,35 +3376,35 @@ export function handleAssignmentHttp(
   }
 
   if (isGetOrHead && url.pathname === "/api/workbench/manager/performance") {
-    const session = requireSession(req, res, "manager");
-    if (!session) return true;
-    if (!isPerformanceDashboardEnabled()) {
-      writeJson(res, 404, { ok: false, error: "performance dashboard disabled" });
-      return true;
-    }
-    const canViewAll = resolveWorkbenchCapabilities(session.userId).canAccessAdmin;
-    const scope: PerformanceScope = canViewAll
-      ? { kind: "all" }
-      : { kind: "manager", managerUserId: session.userId };
-    const peopleStore = createPeopleDirectoryStore();
-    try {
-      const payload = buildPerformanceDashboardPayload({
-        taskStore: getFormalTaskStore(),
-        scope,
-        windowDays: url.searchParams.get("windowDays"),
-        resolveName: (uid) => peopleStore.getContact(uid)?.name?.trim(),
-      });
-      writeJson(res, 200, payload);
-    } finally {
-      peopleStore.close();
-    }
-    return true;
+    return handlePerformanceDashboardGet(req, res, url);
   }
 
-  if (req.method === "POST" && url.pathname === "/api/workbench/manager/performance/chat") {
+  if (isGetOrHead && url.pathname === "/api/workbench/admin/performance") {
+    const session = requireSession(req, res, "admin");
+    if (!session) return true;
+    return handlePerformanceDashboardGet(req, res, url);
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/manager/performance/employee") {
+    return handlePerformanceEmployeeDetailGet(req, res, url);
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/admin/performance/employee") {
+    const session = requireSession(req, res, "admin");
+    if (!session) return true;
+    return handlePerformanceEmployeeDetailGet(req, res, url);
+  }
+
+  if (req.method === "POST" && (
+    url.pathname === "/api/workbench/manager/performance/chat"
+    || url.pathname === "/api/workbench/admin/performance/chat"
+  )) {
     void (async () => {
       try {
-        const session = requireSession(req, res, "manager");
+        const isAdminChat = url.pathname.startsWith("/api/workbench/admin/");
+        const session = isAdminChat
+          ? requireSession(req, res, "admin")
+          : requirePerformanceDashboardSession(req, res);
         if (!session) return;
         if (!isPerformanceDashboardEnabled()) {
           writeJson(res, 404, { ok: false, error: "performance dashboard disabled" });
@@ -3330,10 +3420,7 @@ export function handleAssignmentHttp(
           writeJson(res, 400, { ok: false, error: "message is required" });
           return;
         }
-        const canViewAll = resolveWorkbenchCapabilities(session.userId).canAccessAdmin;
-        const scope: PerformanceScope = canViewAll
-          ? { kind: "all" }
-          : { kind: "manager", managerUserId: session.userId };
+        const scope = resolvePerformanceScopeFromSession(session);
         const turn = await runPerformanceAgentTurn({
           userMessage: message,
           clientConfig: buildManagerQwenClientConfig(qwenConfig),
@@ -5866,7 +5953,9 @@ export function handleAssignmentHttp(
           : url.pathname === "/workbench/manager/performance"
           ? renderPerformanceDashboardPage({
             userLabel,
-            canViewAll: showAdminOpsLink,
+            role: "manager",
+            scopeLabel: "您名下员工",
+            apiBase: "/api/workbench/manager/performance",
             showAdminOpsLink,
             portfolioEnabled,
           })
@@ -5946,6 +6035,15 @@ export function handleAssignmentHttp(
             })
             : url.pathname === "/workbench/admin/ops"
               ? renderAdminOpsDashboardPage({ userLabel })
+              : url.pathname === "/workbench/admin/performance"
+                ? renderPerformanceDashboardPage({
+                  userLabel,
+                  role: "admin",
+                  scopeLabel: "全员（管理员视角）",
+                  apiBase: "/api/workbench/admin/performance",
+                  showAdminOpsLink,
+                  portfolioEnabled: false,
+                })
               : renderAdminWorkbenchPage({ userLabel });
       emitWorkbenchPageView(session, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
