@@ -29,6 +29,16 @@ export interface TaskIntakePreviewRow {
   assigneeDisplayName?: string;
   assigneeNameRaw?: string;
   needsConfirm: boolean;
+  /** AI-suggested target: planId of an existing task. Mutually exclusive with suggestedNewGroupId. */
+  suggestedTargetPlanId?: string;
+  suggestedTargetTitle?: string;
+  suggestedTargetNo?: string;
+  /** AI-suggested new parent group ID (e.g. "ng_1"). Mutually exclusive with suggestedTargetPlanId. */
+  suggestedNewGroupId?: string;
+  suggestedNewGroupTitle?: string;
+  /** 0–1; <0.6 means "unassigned" */
+  suggestedConfidence?: number;
+  suggestedReason?: string;
 }
 
 export interface TaskIntakeCommitRow {

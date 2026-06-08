@@ -5,6 +5,7 @@ import { createWorkbenchPublishNotifier } from "../integrations/dingtalk/workben
 import { createWorkbenchFormalTaskStore } from "../infra/workbench-formal-task-store";
 import { structureTasksFromText } from "../agent/task-intake/structure-input";
 import { buildPreviewRows } from "../agent/task-intake/resolve-assignees";
+import { suggestTaskTargets, type ExistingTaskStub } from "../agent/task-intake/suggest-targets";
 import { appendTaskIntake, commitTaskIntake } from "../agent/task-intake/commit-task-intake";
 import type {
   TaskIntakeAppendResult,
@@ -18,6 +19,7 @@ type TaskStore = ReturnType<typeof createWorkbenchFormalTaskStore>;
 export async function handleTaskIntakePreview(input: {
   pastedText?: string;
   parentTitle?: string;
+  existingTasks?: ExistingTaskStub[];
 }): Promise<{
   parentTitle: string;
   parentDescription: string;
@@ -25,11 +27,26 @@ export async function handleTaskIntakePreview(input: {
   warnings: string[];
   usedFallback: boolean;
 }> {
-  const result = await structureTasksFromText({
-    pastedText: String(input.pastedText ?? ""),
-    parentTitleHint: String(input.parentTitle ?? ""),
-  });
-  const rows = buildPreviewRows(result.structured);
+  const pastedText = String(input.pastedText ?? "");
+  const parentTitleHint = String(input.parentTitle ?? "");
+
+  // Structure first (faithfully maps pasted text to subtasks).
+  const result = await structureTasksFromText({ pastedText, parentTitleHint });
+
+  // Then suggest targets — depends on structured subtask list; failure is non-fatal.
+  const subtaskStubs = result.structured.subtasks.map((s, i) => ({
+    itemId: `ti_${i + 1}`,
+    title: s.title,
+    objective: s.objective,
+  }));
+  const suggestions = input.existingTasks?.length
+    ? await suggestTaskTargets({
+        subtasks: subtaskStubs,
+        existingTasks: input.existingTasks,
+      }).catch(() => undefined)
+    : undefined;
+
+  const rows = buildPreviewRows(result.structured, suggestions);
   return {
     parentTitle: result.structured.parentTitle,
     parentDescription: result.structured.parentDescription,

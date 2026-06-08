@@ -151,8 +151,8 @@ describe("task-intake HTTP", () => {
         parentTitle: "本周任务",
         parentDescription: "本周注册申报整体推进",
         rows: [
-          { itemId: "ti_1", selected: true, title: "整理资料", objective: "整理临床资料", deliverables: "资料整理报告", completionCriteria: "资料已归档", actions: "", dependsOn: "", dueAt: "2026-12-31", assigneeUserId: "u-a" },
-          { itemId: "ti_2", selected: true, title: "提交申请", objective: "提交注册申请", deliverables: "申请材料", completionCriteria: "申请已受理", actions: "", dependsOn: "", dueAt: "2026-12-31", assigneeUserId: "u-b" },
+          { itemId: "ti_1", selected: true, title: "整理资料", objective: "整理资料目标", deliverables: "资料整理报告", completionCriteria: "资料已归档", actions: "", dependsOn: "", dueAt: "2026-12-31", assigneeUserId: "u-a" },
+          { itemId: "ti_2", selected: true, title: "提交申请", objective: "提交申请目标", deliverables: "申请材料", completionCriteria: "申请已受理", actions: "", dependsOn: "", dueAt: "2026-12-31", assigneeUserId: "u-b" },
         ],
       }),
     });
@@ -176,8 +176,8 @@ describe("task-intake HTTP", () => {
         parentTitle: "本周任务",
         parentDescription: "本周注册申报整体推进",
         rows: [
-          { itemId: "ti_1", selected: true, title: "整理资料", objective: "整理临床资料", deliverables: "资料整理报告", completionCriteria: "资料已归档", actions: "", dependsOn: "", dueAt: "2026-12-31", assigneeUserId: "u-a" },
-          { itemId: "ti_2", selected: true, title: "提交申请", objective: "提交注册申请", deliverables: "申请材料", completionCriteria: "申请已受理", actions: "", dependsOn: "", dueAt: "2026-12-31", assigneeUserId: "" },
+          { itemId: "ti_1", selected: true, title: "整理资料", objective: "整理资料目标", deliverables: "资料整理报告", completionCriteria: "资料已归档", actions: "", dependsOn: "", dueAt: "2026-12-31", assigneeUserId: "u-a" },
+          { itemId: "ti_2", selected: true, title: "提交申请", objective: "提交申请目标", deliverables: "申请材料", completionCriteria: "申请已受理", actions: "", dependsOn: "", dueAt: "2026-12-31", assigneeUserId: "" },
         ],
       }),
     });
@@ -205,7 +205,7 @@ describe("task-intake HTTP", () => {
         parentTitle: "本周任务",
         parentDescription: "",
         rows: [
-          { itemId: "ti_1", selected: true, title: "整理资料", objective: "", deliverables: "资料包", completionCriteria: "已完成", actions: "", dependsOn: "", assigneeUserId: "u-a" },
+          { itemId: "ti_1", selected: true, title: "整理资料", objective: "整理目标", deliverables: "资料包", completionCriteria: "已完成", actions: "", dependsOn: "", dueAt: "2026-12-31", assigneeUserId: "u-a" },
         ],
       }),
     });

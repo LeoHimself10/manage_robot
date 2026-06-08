@@ -3631,9 +3631,14 @@ export function handleAssignmentHttp(
           return;
         }
         const body = await readJsonBody(req);
+        const existing = getFormalTaskStore()
+          .listManagerTasks(session.userId)
+          .filter((t) => t.status !== "DONE" && t.status !== "STOPPED")
+          .map((t) => ({ planId: t.planId, title: t.title, taskNo: t.taskNo }));
         const result = await handleTaskIntakePreview({
           pastedText: String(body.pastedText ?? ""),
           parentTitle: String(body.parentTitle ?? ""),
+          existingTasks: existing,
         });
         writeJson(res, 200, { ok: true, ...result });
       } catch (err) {
