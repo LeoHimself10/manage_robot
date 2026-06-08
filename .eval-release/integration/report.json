@@ -1,0 +1,31 @@
+{
+  "ranAt": "2026-06-02T04:43:07.791Z",
+  "filter": "M1,M2,M3,M4",
+  "results": [
+    {
+      "id": "M1_fallback_extract",
+      "ok": true,
+      "detail": "skipped (filter)",
+      "durationMs": 0
+    },
+    {
+      "id": "M2_duplicate_relation",
+      "ok": true,
+      "detail": "skipped (filter)",
+      "durationMs": 0
+    },
+    {
+      "id": "M3_full_commit",
+      "ok": true,
+      "detail": "skipped (filter)",
+      "durationMs": 0
+    },
+    {
+      "id": "M4_real_llm",
+      "ok": true,
+      "detail": "skipped (filter)",
+      "durationMs": 0
+    }
+  ],
+  "llmConfigured": true
+}

@@ -1,0 +1,20 @@
+{
+  "chatKeyHash": "ae3db4a6fcf222d1af562a424220b541c333a633a116eb5be5157ee588253300",
+  "planId": "c8ec5266-b457-491a-a055-b8b2223cf909",
+  "createdAt": "2026-06-02T04:43:08.582Z",
+  "updatedAt": "2026-06-02T04:43:08.584Z",
+  "knownFacts": [],
+  "conversationHistory": [],
+  "taskScopes": {
+    "scope:6b5e1f2a": {
+      "scopeId": "scope:6b5e1f2a",
+      "scopeLabel": "默认任务",
+      "planId": "c8ec5266-b457-491a-a055-b8b2223cf909",
+      "createdAt": "2026-06-02T04:43:08.582Z",
+      "updatedAt": "2026-06-02T04:43:08.584Z",
+      "knownFacts": []
+    }
+  },
+  "currentTaskScopeId": "scope:6b5e1f2a",
+  "senderStaffId": "eval-mgr-baseline"
+}

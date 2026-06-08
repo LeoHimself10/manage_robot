@@ -1,0 +1,207 @@
+{
+  "schemaVersion": "eval-report-v1",
+  "parityEnv": "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=30, AGENT_MAX_TOOL_CALLS=16, AGENT_MAX_TOTAL_MS=180000, DINGTALK_QWEN_MAX_TOKENS=8000, DINGTALK_QWEN_TIMEOUT_MS=120000, QWEN_MODEL=qwen3.6-plus, READ_URL_ENABLED=1, UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12",
+  "suite": "release",
+  "startedAt": "2026-06-02T04:43:02.226Z",
+  "allOk": false,
+  "criticalOk": false,
+  "stages": [
+    {
+      "id": "unit",
+      "label": "L0 eval:unit",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 4180,
+      "critical": true
+    },
+    {
+      "id": "integration",
+      "label": "L1 eval:integration",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 1441,
+      "critical": true
+    },
+    {
+      "id": "portfolio-regression",
+      "label": "Portfolio role B regression",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 21570,
+      "critical": true
+    },
+    {
+      "id": "chains-core",
+      "label": "L3 core chains (28 turn)",
+      "ok": false,
+      "exitCode": 1,
+      "durationMs": 1228,
+      "critical": true
+    },
+    {
+      "id": "chains-portfolio",
+      "label": "L3 portfolio chains",
+      "ok": false,
+      "exitCode": 1,
+      "durationMs": 136812
+    },
+    {
+      "id": "chains-cross",
+      "label": "L3 cross-channel chain",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 3743
+    },
+    {
+      "id": "meeting-import",
+      "label": "Meeting import M1–M4",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 31047
+    }
+  ],
+  "artifacts": {
+    "unit": {
+      "schemaVersion": "eval-report-v1",
+      "parityEnv": "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=30, AGENT_MAX_TOOL_CALLS=16, AGENT_MAX_TOTAL_MS=180000, DINGTALK_QWEN_MAX_TOKENS=8000, DINGTALK_QWEN_TIMEOUT_MS=120000, QWEN_MODEL=qwen3.6-plus, READ_URL_ENABLED=1, UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12",
+      "suite": "unit",
+      "startedAt": "2026-06-02T04:43:02.904Z",
+      "allOk": true,
+      "stages": [
+        {
+          "id": "vitest",
+          "label": "Eval-related vitest",
+          "ok": true,
+          "exitCode": 0,
+          "durationMs": 3478,
+          "critical": true
+        }
+      ],
+      "finishedAt": "2026-06-02T04:43:06.384Z"
+    },
+    "integration": {
+      "schemaVersion": "eval-report-v1",
+      "parityEnv": "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=30, AGENT_MAX_TOOL_CALLS=16, AGENT_MAX_TOTAL_MS=180000, DINGTALK_QWEN_MAX_TOKENS=8000, DINGTALK_QWEN_TIMEOUT_MS=120000, QWEN_MODEL=qwen3.6-plus, READ_URL_ENABLED=1, UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12",
+      "suite": "integration",
+      "startedAt": "2026-06-02T04:43:07.056Z",
+      "allOk": true,
+      "stages": [
+        {
+          "id": "meeting-import",
+          "label": "Meeting import pipeline",
+          "ok": true,
+          "exitCode": 0,
+          "durationMs": 763,
+          "critical": true
+        }
+      ],
+      "finishedAt": "2026-06-02T04:43:07.820Z"
+    },
+    "chainsCore": {
+      "schemaVersion": "eval-report-v1",
+      "parityEnv": "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=30, AGENT_MAX_TOOL_CALLS=16, AGENT_MAX_TOTAL_MS=180000, DINGTALK_QWEN_MAX_TOKENS=8000, DINGTALK_QWEN_TIMEOUT_MS=120000, QWEN_MODEL=qwen3.6-plus, READ_URL_ENABLED=1, UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12",
+      "suite": "chains",
+      "startedAt": "2026-06-02T04:43:30.299Z",
+      "allOk": false,
+      "criticalOk": false,
+      "meta": {
+        "group": "core",
+        "filter": null
+      },
+      "stages": [
+        {
+          "id": "chains-core",
+          "label": "Natural-language core chains (28 turns)",
+          "ok": false,
+          "exitCode": 1,
+          "durationMs": 312,
+          "critical": true
+        }
+      ],
+      "finishedAt": "2026-06-02T04:43:30.613Z"
+    },
+    "chainsPortfolio": {
+      "schemaVersion": "eval-report-v1",
+      "parityEnv": "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=30, AGENT_MAX_TOOL_CALLS=16, AGENT_MAX_TOTAL_MS=180000, DINGTALK_QWEN_MAX_TOKENS=8000, DINGTALK_QWEN_TIMEOUT_MS=120000, QWEN_MODEL=qwen3.6-plus, READ_URL_ENABLED=1, UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12",
+      "suite": "chains",
+      "startedAt": "2026-06-02T04:43:31.525Z",
+      "allOk": false,
+      "criticalOk": true,
+      "meta": {
+        "group": "portfolio",
+        "filter": null
+      },
+      "stages": [
+        {
+          "id": "chains-portfolio",
+          "label": "Portfolio manager chains (11 turns)",
+          "ok": false,
+          "exitCode": 1,
+          "durationMs": 135904
+        }
+      ],
+      "finishedAt": "2026-06-02T04:45:47.431Z"
+    },
+    "chainsCross": {
+      "schemaVersion": "eval-report-v1",
+      "parityEnv": "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=30, AGENT_MAX_TOOL_CALLS=16, AGENT_MAX_TOTAL_MS=180000, DINGTALK_QWEN_MAX_TOKENS=8000, DINGTALK_QWEN_TIMEOUT_MS=120000, QWEN_MODEL=qwen3.6-plus, READ_URL_ENABLED=1, UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12",
+      "suite": "chains",
+      "startedAt": "2026-06-02T04:45:48.348Z",
+      "allOk": true,
+      "criticalOk": true,
+      "meta": {
+        "group": "cross",
+        "filter": null
+      },
+      "stages": [
+        {
+          "id": "cross-vitest",
+          "label": "Canonical vitest",
+          "ok": true,
+          "exitCode": 0,
+          "durationMs": 1298
+        },
+        {
+          "id": "chains-cross",
+          "label": "Cross-channel workbench chain",
+          "ok": true,
+          "exitCode": 0,
+          "durationMs": 1521
+        }
+      ],
+      "finishedAt": "2026-06-02T04:45:51.169Z"
+    },
+    "meetingImport": {
+      "ranAt": "2026-06-02T04:45:52.228Z",
+      "filter": null,
+      "results": [
+        {
+          "id": "M1_fallback_extract",
+          "ok": true,
+          "detail": "items=5, project=OCT 客诉专项 (high)",
+          "durationMs": 45
+        },
+        {
+          "id": "M2_duplicate_relation",
+          "ok": true,
+          "detail": "contained=整理OCT客诉遏制报告, appendable=完成供应商书面反馈, rows=4",
+          "durationMs": 43
+        },
+        {
+          "id": "M3_full_commit",
+          "ok": true,
+          "detail": "created=2, appended=0, skipped=1",
+          "durationMs": 67
+        },
+        {
+          "id": "M4_real_llm",
+          "ok": true,
+          "detail": "llm items=5, assigneeNamed=3, previewRows=5, parentGroups=1, model=qwen3.6-flash",
+          "durationMs": 83
+        }
+      ],
+      "llmConfigured": true
+    }
+  },
+  "finishedAt": "2026-06-02T04:46:22.251Z"
+}

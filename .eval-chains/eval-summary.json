@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "eval-report-v1",
+  "parityEnv": "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=(unset), AGENT_MAX_TOOL_CALLS=(unset), AGENT_MAX_TOTAL_MS=(unset), DINGTALK_QWEN_MAX_TOKENS=(unset), DINGTALK_QWEN_TIMEOUT_MS=(unset), QWEN_MODEL=(unset), READ_URL_ENABLED=(unset), UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=(unset)",
+  "suite": "chains",
+  "startedAt": "2026-06-05T03:55:19.373Z",
+  "allOk": false,
+  "criticalOk": false,
+  "meta": {
+    "group": "all",
+    "filter": null
+  },
+  "stages": [
+    {
+      "id": "chains-core",
+      "label": "Natural-language core chains (28 turns)",
+      "ok": false,
+      "exitCode": 1,
+      "durationMs": 479,
+      "critical": true
+    },
+    {
+      "id": "chains-portfolio",
+      "label": "Portfolio manager chains (11 turns)",
+      "ok": false,
+      "exitCode": 1,
+      "durationMs": 150611
+    },
+    {
+      "id": "cross-vitest",
+      "label": "Canonical vitest",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 2041
+    },
+    {
+      "id": "chains-cross",
+      "label": "Cross-channel workbench chain",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 2372
+    }
+  ],
+  "finishedAt": "2026-06-05T03:57:54.880Z"
+}

@@ -78,6 +78,152 @@ export const ADMIN_PERMISSIONS_CSS = `
   font-weight: 600;
   color: var(--muted);
 }
+.admin-perm-combo {
+  position: relative;
+}
+.admin-perm-combo input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  background: #fff;
+}
+.admin-perm-combo input:focus {
+  outline: none;
+  border-color: var(--accent, #2563eb);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+.admin-perm-combo__menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+  padding: 4px;
+}
+.admin-perm-combo__opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.admin-perm-combo__opt:hover,
+.admin-perm-combo__opt.is-active {
+  background: rgba(37, 99, 235, 0.08);
+}
+.admin-perm-combo__av {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4338ca;
+  background: rgba(99, 102, 241, 0.14);
+}
+.admin-perm-combo__txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.admin-perm-combo__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.admin-perm-combo__dept {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.admin-perm-combo__tags {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0f766e;
+  background: rgba(15, 118, 110, 0.1);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.admin-perm-combo__empty {
+  padding: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+.admin-perm-selected {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.05), #fff 72%);
+}
+.admin-perm-selected__av {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #4338ca;
+  background: rgba(99, 102, 241, 0.16);
+}
+.admin-perm-selected__meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.admin-perm-selected__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.admin-perm-selected__sub {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.admin-perm-selected__clear {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.admin-perm-selected__clear:hover {
+  background: rgba(15, 23, 42, 0.12);
+  color: var(--text);
+}
 .admin-perm-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -243,28 +389,99 @@ function buildAdminPermissionsClientJs(): string {
     }).join('');
   }
 
-  async function searchEmployees() {
-    var keyword = (document.getElementById('employeeKeyword').value || '').trim();
+  var selectedUser = null;
+  var searchTimer = null;
+  var activeIndex = -1;
+  var currentResults = [];
+
+  function comboInput() { return document.getElementById('employeeKeyword'); }
+  function comboMenu() { return document.getElementById('employeeOptions'); }
+
+  function closeMenu() {
+    var menu = comboMenu();
+    if (menu) { menu.hidden = true; menu.innerHTML = ''; }
+    comboInput().setAttribute('aria-expanded', 'false');
+    activeIndex = -1;
+    currentResults = [];
+  }
+
+  function renderSelected() {
+    var box = document.getElementById('employeeSelected');
+    if (!box) return;
+    if (!selectedUser) { box.hidden = true; return; }
+    box.hidden = false;
+    document.getElementById('selectedAvatar').textContent = permInitial(selectedUser.name || selectedUser.userId);
+    document.getElementById('selectedName').textContent = selectedUser.name || selectedUser.userId;
+    var tags = [];
+    if (selectedUser.isManager) tags.push('主管');
+    if (selectedUser.isPortfolioManager) tags.push('项目管理主管');
+    var sub = (selectedUser.departmentName || '-') + (tags.length ? ' · ' + tags.join('、') : '') + ' · ' + selectedUser.userId;
+    document.getElementById('selectedSub').textContent = sub;
+  }
+
+  function pickUser(emp) {
+    selectedUser = emp;
+    comboInput().value = emp.name || emp.userId;
+    renderSelected();
+    closeMenu();
+  }
+
+  function clearSelected() {
+    selectedUser = null;
+    comboInput().value = '';
+    renderSelected();
+    closeMenu();
+  }
+
+  function renderMenu() {
+    var menu = comboMenu();
+    if (!menu) return;
+    if (!currentResults.length) {
+      menu.innerHTML = '<div class="admin-perm-combo__empty">未找到匹配员工</div>';
+      menu.hidden = false;
+      comboInput().setAttribute('aria-expanded', 'true');
+      return;
+    }
+    menu.innerHTML = currentResults.map(function (e, i) {
+      var tags = [];
+      if (e.isManager) tags.push('主管');
+      if (e.isPortfolioManager) tags.push('项目管理主管');
+      var tagHtml = tags.length ? '<span class="admin-perm-combo__tags">' + esc(tags.join('、')) + '</span>' : '';
+      return '<div class="admin-perm-combo__opt' + (i === activeIndex ? ' is-active' : '') + '" role="option" data-idx="' + i + '">'
+        + '<span class="admin-perm-combo__av">' + esc(permInitial(e.name || e.userId)) + '</span>'
+        + '<span class="admin-perm-combo__txt"><span class="admin-perm-combo__name">' + esc(e.name || e.userId) + '</span>'
+        + '<span class="admin-perm-combo__dept">' + esc(e.departmentName || '-') + '</span></span>'
+        + tagHtml
+        + '</div>';
+    }).join('');
+    menu.hidden = false;
+    comboInput().setAttribute('aria-expanded', 'true');
+    Array.prototype.forEach.call(menu.querySelectorAll('.admin-perm-combo__opt'), function (node) {
+      node.addEventListener('mousedown', function (ev) {
+        ev.preventDefault();
+        var idx = parseInt(node.getAttribute('data-idx'), 10);
+        if (currentResults[idx]) pickUser(currentResults[idx]);
+      });
+    });
+  }
+
+  async function runSearch() {
+    var keyword = (comboInput().value || '').trim();
     try {
       var res = await fetch('/api/workbench/admin/employees?keyword=' + encodeURIComponent(keyword));
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-      var list = data.employees || [];
-      var sel = document.getElementById('employeeSelect');
-      if (!list.length) {
-        sel.innerHTML = '<option value="">未找到员工</option>';
-        return;
-      }
-      sel.innerHTML = '<option value="">请选择员工</option>' + list.map(function (e) {
-        var tags = [];
-        if (e.isManager) tags.push('主管');
-        if (e.isPortfolioManager) tags.push('项目管理主管');
-        var suffix = tags.length ? '（' + tags.join('、') + '）' : '';
-        return '<option value="' + esc(e.userId) + '">' + esc(e.name || e.userId) + ' · ' + esc(e.departmentName || '-') + suffix + '</option>';
-      }).join('');
+      currentResults = data.employees || [];
+      activeIndex = -1;
+      renderMenu();
     } catch (e) {
       setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
     }
+  }
+
+  function scheduleSearch() {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () { void runSearch(); }, 220);
   }
 
   async function loadManagers() {
@@ -272,13 +489,12 @@ function buildAdminPermissionsClientJs(): string {
     var data = await res.json().catch(function () { return {}; });
     if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
     var dynamicIds = new Set((data.dynamicManagers || []).map(function (row) { return row.userId; }));
-    var nameById = {};
-    (data.dynamicManagers || []).forEach(function (row) { nameById[row.userId] = row.name || ''; });
-    var rows = (data.effectiveManagers || []).map(function (id) {
+    var rows = (data.effectiveManagers || []).map(function (row) {
+      var item = typeof row === 'string' ? { userId: row, name: '' } : row;
       return {
-        userId: id,
-        name: nameById[id] || '',
-        source: dynamicIds.has(id) ? 'dynamic' : 'env',
+        userId: item.userId,
+        name: item.name || '',
+        source: dynamicIds.has(item.userId) ? 'dynamic' : 'env',
       };
     });
     renderRows('managerListMount', 'managerCount', rows, '暂无主管', '');
@@ -300,11 +516,11 @@ function buildAdminPermissionsClientJs(): string {
   }
 
   async function savePermission(kind, enabled) {
-    var userId = (document.getElementById('employeeSelect').value || '').trim();
-    if (!userId) {
-      setFb('permFeedback', '请先从列表中选择一位员工', 'err');
+    if (!selectedUser || !selectedUser.userId) {
+      setFb('permFeedback', '请先搜索并点选一位员工', 'err');
       return;
     }
+    var userId = selectedUser.userId;
     var url = kind === 'portfolio' ? '/api/workbench/admin/portfolio-managers' : '/api/workbench/admin/managers';
     setFb('permFeedback', '保存中…', 'muted');
     var res = await fetch(url, {
@@ -314,14 +530,52 @@ function buildAdminPermissionsClientJs(): string {
     });
     var data = await res.json().catch(function () { return {}; });
     if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-    setFb('permFeedback', '已更新权限', 'ok');
-    document.getElementById('employeeSelect').value = '';
-    await Promise.all([loadManagers(), loadPortfolioManagers(), searchEmployees()]);
+    var label = kind === 'portfolio' ? '项目管理主管' : '主管';
+    setFb('permFeedback', (enabled ? '已授予' : '已移除') + (selectedUser.name || userId) + ' 的' + label + '权限', 'ok');
+    if (kind === 'portfolio') selectedUser.isPortfolioManager = enabled;
+    else selectedUser.isManager = enabled;
+    renderSelected();
+    await Promise.all([loadManagers(), loadPortfolioManagers()]);
   }
 
-  document.getElementById('searchEmployeeBtn').addEventListener('click', function () {
-    void searchEmployees();
+  var inputEl = comboInput();
+  inputEl.addEventListener('input', function () {
+    if (selectedUser && inputEl.value !== (selectedUser.name || selectedUser.userId)) {
+      selectedUser = null;
+      renderSelected();
+    }
+    scheduleSearch();
   });
+  inputEl.addEventListener('focus', function () {
+    if (!comboMenu().hidden) return;
+    void runSearch();
+  });
+  inputEl.addEventListener('keydown', function (ev) {
+    var menu = comboMenu();
+    if (menu.hidden || !currentResults.length) return;
+    if (ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      activeIndex = Math.min(activeIndex + 1, currentResults.length - 1);
+      renderMenu();
+    } else if (ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      activeIndex = Math.max(activeIndex - 1, 0);
+      renderMenu();
+    } else if (ev.key === 'Enter') {
+      if (activeIndex >= 0 && currentResults[activeIndex]) {
+        ev.preventDefault();
+        pickUser(currentResults[activeIndex]);
+      }
+    } else if (ev.key === 'Escape') {
+      closeMenu();
+    }
+  });
+  document.addEventListener('click', function (ev) {
+    var combo = document.querySelector('.admin-perm-combo');
+    if (combo && !combo.contains(ev.target)) closeMenu();
+  });
+  document.getElementById('clearSelectedBtn').addEventListener('click', clearSelected);
+
   document.getElementById('grantManagerBtn').addEventListener('click', function () {
     void savePermission('manager', true).catch(function (e) {
       setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
@@ -349,7 +603,7 @@ function buildAdminPermissionsClientJs(): string {
     window.location.href = (data && data.redirectTo) ? data.redirectTo : '/workbench';
   });
 
-  void Promise.all([loadManagers(), loadPortfolioManagers(), searchEmployees()]).catch(function (e) {
+  void Promise.all([loadManagers(), loadPortfolioManagers()]).catch(function (e) {
     setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
   });
 })();
@@ -376,19 +630,26 @@ export function renderAdminPermissionsPage(params: { userLabel?: string }): stri
       <section class="admin-perm-panel">
         <div class="admin-perm-panel__head">
           <h3>添加或调整权限</h3>
-          <p>先搜索并选择员工，再选择要授予或移除的权限类型。</p>
+          <p>输入姓名或部门即时搜索，点选员工后选择要授予或移除的权限。</p>
         </div>
         <div class="admin-perm-panel__body">
           <div class="admin-perm-search">
-            <label>搜索员工
-              <input id="employeeKeyword" placeholder="姓名、部门关键词" />
+            <label>员工
+              <div class="admin-perm-combo">
+                <input id="employeeKeyword" type="text" autocomplete="off" role="combobox"
+                  aria-expanded="false" aria-controls="employeeOptions"
+                  placeholder="输入姓名或部门即时搜索…" />
+                <div class="admin-perm-combo__menu" id="employeeOptions" role="listbox" hidden></div>
+              </div>
             </label>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn btn-secondary btn-sm" id="searchEmployeeBtn" type="button">查询员工</button>
+            <div class="admin-perm-selected" id="employeeSelected" hidden>
+              <span class="admin-perm-selected__av" id="selectedAvatar">—</span>
+              <div class="admin-perm-selected__meta">
+                <div class="admin-perm-selected__name" id="selectedName">—</div>
+                <div class="admin-perm-selected__sub" id="selectedSub">—</div>
+              </div>
+              <button type="button" class="admin-perm-selected__clear" id="clearSelectedBtn" aria-label="清除选择">×</button>
             </div>
-            <label>选择员工
-              <select id="employeeSelect"><option value="">请选择员工</option></select>
-            </label>
           </div>
           <div class="admin-perm-actions">
             <div class="admin-perm-action">

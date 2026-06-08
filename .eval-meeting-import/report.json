@@ -1,0 +1,31 @@
+{
+  "ranAt": "2026-05-29T06:34:42.766Z",
+  "filter": null,
+  "results": [
+    {
+      "id": "M1_fallback_extract",
+      "ok": true,
+      "detail": "items=5, project=OCT 客诉专项 (high)",
+      "durationMs": 41
+    },
+    {
+      "id": "M2_duplicate_relation",
+      "ok": true,
+      "detail": "contained=整理OCT客诉遏制报告, appendable=完成供应商书面反馈, rows=4",
+      "durationMs": 149
+    },
+    {
+      "id": "M3_full_commit",
+      "ok": true,
+      "detail": "created=2, appended=0, skipped=1",
+      "durationMs": 126
+    },
+    {
+      "id": "M4_real_llm",
+      "ok": true,
+      "detail": "llm items=3, assigneeNamed=3, previewRows=3, parentGroups=2, model=qwen3.6-flash",
+      "durationMs": 5326
+    }
+  ],
+  "llmConfigured": true
+}

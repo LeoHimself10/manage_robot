@@ -1,0 +1,217 @@
+{
+  "chatKeyHash": "7a02715bc3fa1412f3dc4e13c11d88d2644a710ffc14230f27472d933a81b018",
+  "planId": "a13255be-06d2-4f45-a599-56953402d2d9",
+  "createdAt": "2026-06-02T03:57:58.262Z",
+  "updatedAt": "2026-06-02T03:58:30.908Z",
+  "knownFacts": [],
+  "conversationHistory": [
+    {
+      "role": "user",
+      "content": "内审整改：文件更新和现场抽查 2 条子任务，2026-06-20 前完成，先不要发放。"
+    },
+    {
+      "role": "assistant",
+      "content": "已为您生成内审整改任务草案，包含“文件更新”和“现场抽查”两条子任务，截止日期设定为 2026-06-20。目前处于草稿状态，尚未发放。\n\n**① 已采纳要点**\n- 任务主题：内审整改（文件更新 + 现场抽查）\n- 子任务数量：2 条\n- 截止时间：2026-06-20\n- 状态：暂不发放，等待进一步指令（如指派负责人或确认发放）\n\n**② 拆解逻辑**\n- **文件更新**：针对内审发现的不符合项，修订相关程序文件、作业指导书或记录表格，确保体系文件与实际操作一致。\n- **现场抽查**：在文件更新后，对生产/检验现场进行实地核查，验证整改措施是否落地执行，确保持续合规。\n\n**③ 阅读导览**\n下方「结构化任务表（列表）」展示了子任务的标题、目标、交付物及完成标准。您可以直接查看草案细节。\n\n**④ 下一步**\n- 若需指定负责人，请回复“由你分派”或提供具体姓名/部门。\n- 若确认无误并准备发放，请回复“确认发放”。"
+    },
+    {
+      "role": "user",
+      "content": "两条都给张测评负责，先不要发布。"
+    },
+    {
+      "role": "assistant",
+      "content": "已将两条子任务（文件更新、现场抽查）的负责人均指派为 **张测评（研发部）**。\n\n目前任务仍处于草稿状态，尚未发放。您可以继续调整或直接回复“确认发放”以通知员工承接。"
+    },
+    {
+      "role": "user",
+      "content": "确认发布。"
+    },
+    {
+      "role": "assistant",
+      "content": "任务已发放，员工待承接。\n\n**任务编号**：TASK-20260602-0001\n**负责人**：张测评（研发部）\n**子任务**：\n1. 内审不符合项文件更新（截止：2026-06-20）\n2. 整改现场执行情况抽查（截止：2026-06-20）\n\n系统已向负责人发送通知，请留意后续进展。"
+    }
+  ],
+  "taskScopes": {
+    "scope:4d471429": {
+      "scopeId": "scope:4d471429",
+      "scopeLabel": "默认任务",
+      "planId": "a13255be-06d2-4f45-a599-56953402d2d9",
+      "createdAt": "2026-06-02T03:57:58.262Z",
+      "updatedAt": "2026-06-02T03:58:30.908Z",
+      "latestDraft": {
+        "responseIntent": "DRAFT",
+        "assistantMessage": "",
+        "classification": {
+          "domain": "",
+          "subtype": "",
+          "confidence": "",
+          "rationale": [],
+          "missingInformation": []
+        },
+        "tasks": [
+          {
+            "id": "task_1",
+            "title": "内审不符合项文件更新",
+            "objective": "根据内审报告中的不符合项，修订和完善相关质量管理体系文件，确保文件内容的适宜性和充分性。",
+            "actions": [],
+            "deliverables": [
+              "修订后的程序文件/作业指导书",
+              "文件修订记录单",
+              "文件培训签到表"
+            ],
+            "completionCriteria": [
+              "所有涉及不符合项的文件已完成修订并审批通过",
+              "相关文件已分发至使用部门",
+              "完成对相关人员的文件培训并保留记录"
+            ],
+            "timeNode": {
+              "dueAt": "2026-06-20"
+            },
+            "dependencyTaskIds": []
+          },
+          {
+            "id": "task_2",
+            "title": "整改现场执行情况抽查",
+            "objective": "对生产、检验等关键现场进行实地抽查，验证内审整改措施的实际执行效果，确保操作与新版文件一致。",
+            "actions": [],
+            "deliverables": [
+              "现场抽查记录表",
+              "整改验证报告",
+              "现场问题照片（如有）"
+            ],
+            "completionCriteria": [
+              "完成至少 3 个关键工序/岗位的现场抽查",
+              "抽查结果证实操作人员已按新文件执行",
+              "无新增严重不符合项，或发现的问题已立即纠正"
+            ],
+            "timeNode": {
+              "dueAt": "2026-06-20"
+            },
+            "dependencyTaskIds": []
+          }
+        ],
+        "openQuestions": [],
+        "title": "内审整改：文件更新和现场抽查",
+        "description": "针对内审发现的问题进行整改，包括相关体系文件的修订更新以及现场执行情况的抽查验证，确保整改措施有效落地并符合法规要求。",
+        "stagedBy": "prepare_publish_task",
+        "stagedAt": "2026-06-02T03:58:21.977Z",
+        "stagedDraftHash": "b94dc215aa3260c9",
+        "stagedAssignmentHash": "2bc9f2e11223b306"
+      },
+      "latestAssignment": {
+        "assignments": [
+          {
+            "taskId": "task_1",
+            "primary": {
+              "userId": "eval-emp-portfolio-001",
+              "displayName": "张测评"
+            },
+            "confidence": "HIGH"
+          },
+          {
+            "taskId": "task_2",
+            "primary": {
+              "userId": "eval-emp-portfolio-001",
+              "displayName": "张测评"
+            },
+            "confidence": "HIGH"
+          }
+        ],
+        "stagedBy": "prepare_publish_task",
+        "stagedAt": "2026-06-02T03:58:21.977Z"
+      },
+      "knownFacts": []
+    }
+  },
+  "currentTaskScopeId": "scope:4d471429",
+  "senderStaffId": "eval-mgr-portfolio",
+  "latestDraft": {
+    "responseIntent": "DRAFT",
+    "assistantMessage": "",
+    "classification": {
+      "domain": "",
+      "subtype": "",
+      "confidence": "",
+      "rationale": [],
+      "missingInformation": []
+    },
+    "tasks": [
+      {
+        "id": "task_1",
+        "title": "内审不符合项文件更新",
+        "objective": "根据内审报告中的不符合项，修订和完善相关质量管理体系文件，确保文件内容的适宜性和充分性。",
+        "actions": [],
+        "deliverables": [
+          "修订后的程序文件/作业指导书",
+          "文件修订记录单",
+          "文件培训签到表"
+        ],
+        "completionCriteria": [
+          "所有涉及不符合项的文件已完成修订并审批通过",
+          "相关文件已分发至使用部门",
+          "完成对相关人员的文件培训并保留记录"
+        ],
+        "timeNode": {
+          "dueAt": "2026-06-20"
+        },
+        "dependencyTaskIds": []
+      },
+      {
+        "id": "task_2",
+        "title": "整改现场执行情况抽查",
+        "objective": "对生产、检验等关键现场进行实地抽查，验证内审整改措施的实际执行效果，确保操作与新版文件一致。",
+        "actions": [],
+        "deliverables": [
+          "现场抽查记录表",
+          "整改验证报告",
+          "现场问题照片（如有）"
+        ],
+        "completionCriteria": [
+          "完成至少 3 个关键工序/岗位的现场抽查",
+          "抽查结果证实操作人员已按新文件执行",
+          "无新增严重不符合项，或发现的问题已立即纠正"
+        ],
+        "timeNode": {
+          "dueAt": "2026-06-20"
+        },
+        "dependencyTaskIds": []
+      }
+    ],
+    "openQuestions": [],
+    "title": "内审整改：文件更新和现场抽查",
+    "description": "针对内审发现的问题进行整改，包括相关体系文件的修订更新以及现场执行情况的抽查验证，确保整改措施有效落地并符合法规要求。",
+    "stagedBy": "prepare_publish_task",
+    "stagedAt": "2026-06-02T03:58:21.977Z",
+    "stagedDraftHash": "b94dc215aa3260c9",
+    "stagedAssignmentHash": "2bc9f2e11223b306"
+  },
+  "lastEmployeeSearchHits": [
+    {
+      "userId": "eval-emp-portfolio-001",
+      "displayName": "张测评",
+      "department": "研发部",
+      "hitAt": "2026-06-02T03:58:14.697Z"
+    }
+  ],
+  "latestAssignment": {
+    "assignments": [
+      {
+        "taskId": "task_1",
+        "primary": {
+          "userId": "eval-emp-portfolio-001",
+          "displayName": "张测评"
+        },
+        "confidence": "HIGH"
+      },
+      {
+        "taskId": "task_2",
+        "primary": {
+          "userId": "eval-emp-portfolio-001",
+          "displayName": "张测评"
+        },
+        "confidence": "HIGH"
+      }
+    ],
+    "stagedBy": "prepare_publish_task",
+    "stagedAt": "2026-06-02T03:58:21.977Z"
+  }
+}

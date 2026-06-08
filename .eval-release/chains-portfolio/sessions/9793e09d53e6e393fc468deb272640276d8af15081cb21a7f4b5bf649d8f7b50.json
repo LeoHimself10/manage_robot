@@ -1,0 +1,298 @@
+{
+  "chatKeyHash": "9793e09d53e6e393fc468deb272640276d8af15081cb21a7f4b5bf649d8f7b50",
+  "planId": "f4cd8f84-1b3e-40b5-ae99-67fd157cce91",
+  "createdAt": "2026-06-02T03:56:54.356Z",
+  "updatedAt": "2026-06-02T03:57:58.226Z",
+  "knownFacts": [],
+  "conversationHistory": [
+    {
+      "role": "user",
+      "content": "属于 OCT 客诉专项，A-2026B 批次焊点开路，拆 3 条子任务，2026-06-15 前完成，不要发放。"
+    },
+    {
+      "role": "assistant",
+      "content": "已记录归属至「OCT 客诉专项」。针对 A-2026B 批次焊点开路问题，已按您的要求拆解为 3 条子任务，截止日期设定为 2026-06-15。请查阅下方草案，如有需要调整的地方请告知，或直接指示进行人员分派。"
+    },
+    {
+      "role": "user",
+      "content": "三条子任务都交给张测评负责，先不要发布。"
+    },
+    {
+      "role": "assistant",
+      "content": "已将 3 条子任务全部指派给张测评（研发部）。目前草案已准备就绪，尚未发布。您可以随时指示进行发放或进一步调整。"
+    },
+    {
+      "role": "user",
+      "content": "不对，应该归到注册申报那个项目，请同步更新草案里的项目归属，任务内容和负责人不要改。"
+    },
+    {
+      "role": "assistant",
+      "content": "已将当前草案的项目归属更新为「2026 注册申报」。任务内容（3 条子任务）及负责人（张测评）保持不变，尚未发布。"
+    },
+    {
+      "role": "user",
+      "content": "可以准备发放了。"
+    },
+    {
+      "role": "assistant",
+      "content": "发布预览已生成。任务标题为“A-2026B 批次 OCT 焊点开路客诉处置”，包含 3 条子任务，负责人均为张测评，项目归属为“2026 注册申报”。\n\n请确认是否发放？"
+    },
+    {
+      "role": "user",
+      "content": "确认发布。"
+    },
+    {
+      "role": "assistant",
+      "content": "任务已发放，员工待承接。"
+    }
+  ],
+  "taskScopes": {
+    "scope:a6956551": {
+      "scopeId": "scope:a6956551",
+      "scopeLabel": "默认任务",
+      "planId": "f4cd8f84-1b3e-40b5-ae99-67fd157cce91",
+      "createdAt": "2026-06-02T03:56:54.356Z",
+      "updatedAt": "2026-06-02T03:57:58.226Z",
+      "latestDraft": {
+        "responseIntent": "DRAFT",
+        "assistantMessage": "",
+        "classification": {
+          "domain": "",
+          "subtype": "",
+          "confidence": "",
+          "rationale": [],
+          "missingInformation": []
+        },
+        "tasks": [
+          {
+            "id": "task_1",
+            "title": "不良品复现与根本原因分析",
+            "objective": "对退回的 A-2026B 批次不良品进行物理/电气分析，定位焊点开路的具体位置及成因（如虚焊、应力断裂等）。",
+            "actions": [],
+            "deliverables": [
+              "失效分析报告",
+              "显微镜/切片图片证据"
+            ],
+            "completionCriteria": [
+              "明确开路点的物理形态",
+              "锁定导致开路的工艺或设计根本原因",
+              "报告经技术负责人审核通过"
+            ],
+            "timeNode": {
+              "dueAt": "2026-06-10"
+            },
+            "dependencyTaskIds": []
+          },
+          {
+            "id": "task_2",
+            "title": "库存及在制品围堵排查",
+            "objective": "对同批次库存、在制品及已发货未使用产品进行排查，防止不良品继续流出或使用。",
+            "actions": [],
+            "deliverables": [
+              "围堵排查记录表",
+              "隔离/退货处理单"
+            ],
+            "completionCriteria": [
+              "完成所有相关批次库存盘点",
+              "确认并隔离潜在风险品",
+              "输出围堵结论"
+            ],
+            "timeNode": {
+              "dueAt": "2026-06-12"
+            },
+            "dependencyTaskIds": [
+              "task_1"
+            ]
+          },
+          {
+            "id": "task_3",
+            "title": "纠正预防措施（CAPA）制定与验证",
+            "objective": "根据根本原因制定长期纠正措施，并验证其有效性，更新相关作业指导书。",
+            "actions": [],
+            "deliverables": [
+              "CAPA 计划表",
+              "更新后的作业指导书（SOP）",
+              "措施验证报告"
+            ],
+            "completionCriteria": [
+              "措施能从根本上消除开路风险",
+              "相关文件已完成修订并审批",
+              "小批量验证合格"
+            ],
+            "timeNode": {
+              "dueAt": "2026-06-15"
+            },
+            "dependencyTaskIds": [
+              "task_1"
+            ]
+          }
+        ],
+        "openQuestions": [],
+        "title": "A-2026B 批次 OCT 焊点开路客诉处置",
+        "description": "针对 A-2026B 批次 OCT 产品出现的焊点开路客诉，需在 2026-06-15 前完成原因排查、围堵措施及纠正预防方案的制定与初步验证。项目归属：2026 注册申报。",
+        "projectId": "proj:c598d818-b4d6-4702-8a40-595f2cb38d65",
+        "projectName": "2026 注册申报",
+        "stagedBy": "prepare_publish_task",
+        "stagedAt": "2026-06-02T03:57:50.197Z",
+        "stagedDraftHash": "81fffda3d0dc3975",
+        "stagedAssignmentHash": "bdfee452d55b7c14"
+      },
+      "latestAssignment": {
+        "assignments": [
+          {
+            "taskId": "task_1",
+            "primary": {
+              "userId": "eval-emp-portfolio-001",
+              "displayName": "张测评"
+            },
+            "confidence": "HIGH"
+          },
+          {
+            "taskId": "task_2",
+            "primary": {
+              "userId": "eval-emp-portfolio-001",
+              "displayName": "张测评"
+            },
+            "confidence": "HIGH"
+          },
+          {
+            "taskId": "task_3",
+            "primary": {
+              "userId": "eval-emp-portfolio-001",
+              "displayName": "张测评"
+            },
+            "confidence": "HIGH"
+          }
+        ],
+        "stagedBy": "prepare_publish_task",
+        "stagedAt": "2026-06-02T03:57:50.197Z"
+      },
+      "knownFacts": []
+    }
+  },
+  "currentTaskScopeId": "scope:a6956551",
+  "senderStaffId": "eval-mgr-portfolio",
+  "activeProjectId": "proj:c598d818-b4d6-4702-8a40-595f2cb38d65",
+  "latestDraft": {
+    "responseIntent": "DRAFT",
+    "assistantMessage": "",
+    "classification": {
+      "domain": "",
+      "subtype": "",
+      "confidence": "",
+      "rationale": [],
+      "missingInformation": []
+    },
+    "tasks": [
+      {
+        "id": "task_1",
+        "title": "不良品复现与根本原因分析",
+        "objective": "对退回的 A-2026B 批次不良品进行物理/电气分析，定位焊点开路的具体位置及成因（如虚焊、应力断裂等）。",
+        "actions": [],
+        "deliverables": [
+          "失效分析报告",
+          "显微镜/切片图片证据"
+        ],
+        "completionCriteria": [
+          "明确开路点的物理形态",
+          "锁定导致开路的工艺或设计根本原因",
+          "报告经技术负责人审核通过"
+        ],
+        "timeNode": {
+          "dueAt": "2026-06-10"
+        },
+        "dependencyTaskIds": []
+      },
+      {
+        "id": "task_2",
+        "title": "库存及在制品围堵排查",
+        "objective": "对同批次库存、在制品及已发货未使用产品进行排查，防止不良品继续流出或使用。",
+        "actions": [],
+        "deliverables": [
+          "围堵排查记录表",
+          "隔离/退货处理单"
+        ],
+        "completionCriteria": [
+          "完成所有相关批次库存盘点",
+          "确认并隔离潜在风险品",
+          "输出围堵结论"
+        ],
+        "timeNode": {
+          "dueAt": "2026-06-12"
+        },
+        "dependencyTaskIds": [
+          "task_1"
+        ]
+      },
+      {
+        "id": "task_3",
+        "title": "纠正预防措施（CAPA）制定与验证",
+        "objective": "根据根本原因制定长期纠正措施，并验证其有效性，更新相关作业指导书。",
+        "actions": [],
+        "deliverables": [
+          "CAPA 计划表",
+          "更新后的作业指导书（SOP）",
+          "措施验证报告"
+        ],
+        "completionCriteria": [
+          "措施能从根本上消除开路风险",
+          "相关文件已完成修订并审批",
+          "小批量验证合格"
+        ],
+        "timeNode": {
+          "dueAt": "2026-06-15"
+        },
+        "dependencyTaskIds": [
+          "task_1"
+        ]
+      }
+    ],
+    "openQuestions": [],
+    "title": "A-2026B 批次 OCT 焊点开路客诉处置",
+    "description": "针对 A-2026B 批次 OCT 产品出现的焊点开路客诉，需在 2026-06-15 前完成原因排查、围堵措施及纠正预防方案的制定与初步验证。项目归属：2026 注册申报。",
+    "projectId": "proj:c598d818-b4d6-4702-8a40-595f2cb38d65",
+    "projectName": "2026 注册申报",
+    "stagedBy": "prepare_publish_task",
+    "stagedAt": "2026-06-02T03:57:50.197Z",
+    "stagedDraftHash": "81fffda3d0dc3975",
+    "stagedAssignmentHash": "bdfee452d55b7c14"
+  },
+  "lastEmployeeSearchHits": [
+    {
+      "userId": "eval-emp-portfolio-001",
+      "displayName": "张测评",
+      "department": "研发部",
+      "hitAt": "2026-06-02T03:57:18.888Z"
+    }
+  ],
+  "latestAssignment": {
+    "assignments": [
+      {
+        "taskId": "task_1",
+        "primary": {
+          "userId": "eval-emp-portfolio-001",
+          "displayName": "张测评"
+        },
+        "confidence": "HIGH"
+      },
+      {
+        "taskId": "task_2",
+        "primary": {
+          "userId": "eval-emp-portfolio-001",
+          "displayName": "张测评"
+        },
+        "confidence": "HIGH"
+      },
+      {
+        "taskId": "task_3",
+        "primary": {
+          "userId": "eval-emp-portfolio-001",
+          "displayName": "张测评"
+        },
+        "confidence": "HIGH"
+      }
+    ],
+    "stagedBy": "prepare_publish_task",
+    "stagedAt": "2026-06-02T03:57:50.197Z"
+  }
+}

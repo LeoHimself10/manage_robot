@@ -4181,7 +4181,10 @@ export function handleAssignmentHttp(
         userId: id,
         name: withPeopleDirectoryStore((s) => s.getContact(id)?.name?.trim() ?? ""),
       })),
-      effectiveManagers: [...listWorkbenchManagerIds()].sort(),
+      effectiveManagers: [...listWorkbenchManagerIds()].sort().map((id) => ({
+        userId: id,
+        name: withPeopleDirectoryStore((s) => s.getContact(id)?.name?.trim() ?? ""),
+      })),
     });
     return true;
   }

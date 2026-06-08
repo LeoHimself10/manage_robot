@@ -1,0 +1,177 @@
+{
+  "ranAt": "2026-05-29T06:42:16.452Z",
+  "fallback": {
+    "mode": "fallback",
+    "llmEnabled": false,
+    "durationMs": 21,
+    "projectSuggestion": {
+      "projectId": "proj:84ca9299-57e2-44f6-a967-415ebb500e34",
+      "projectName": "AI文档审核与合规检查",
+      "confidence": "high",
+      "reason": "名称匹配「AI文档审核与合规检查」；关键词「AI审核」；关键词「合规检查」；关键词「文档审核」",
+      "alternatives": [
+        {
+          "projectId": "proj:74dbeed5-5202-488c-9f72-9ec0317d07f0",
+          "projectName": "OCT 产品线",
+          "reason": "关键词「OCT」"
+        }
+      ]
+    },
+    "itemCount": 7,
+    "items": [
+      {
+        "id": "item-1",
+        "title": "AI审核与AI合规检查的功能区分",
+        "excerpt": "AI审核与AI合规检查的功能区分"
+      },
+      {
+        "id": "item-2",
+        "title": "原数据定义与软判断机制",
+        "excerpt": "原数据定义与软判断机制"
+      },
+      {
+        "id": "item-3",
+        "title": "规则可编辑性与Prompt配置设计",
+        "excerpt": "规则可编辑性与Prompt配置设计"
+      },
+      {
+        "id": "item-4",
+        "title": "系统架构与数据存储方案",
+        "excerpt": "系统架构与数据存储方案"
+      },
+      {
+        "id": "item-5",
+        "title": "版本控制与文档同步机制",
+        "excerpt": "版本控制与文档同步机制"
+      },
+      {
+        "id": "item-6",
+        "title": "文档依赖关系与Playbook初始化问题",
+        "excerpt": "文档依赖关系与Playbook初始化问题"
+      },
+      {
+        "id": "item-7",
+        "title": "文件访问与加密问题",
+        "excerpt": "文件访问与加密问题"
+      }
+    ],
+    "previewRows": [
+      {
+        "title": "AI审核与AI合规检查的功能区分",
+        "selected": true,
+        "relationKind": "none",
+        "assignee": "(未识别)",
+        "parentKind": "new",
+        "parentTitle": "AI文档审核与合规检查系统功能设计讨论",
+        "themeKey": "meeting-default",
+        "objective": "AI审核与AI合规检查的功能区分"
+      },
+      {
+        "title": "原数据定义与软判断机制",
+        "selected": true,
+        "relationKind": "none",
+        "assignee": "(未识别)",
+        "parentKind": "new",
+        "parentTitle": "AI文档审核与合规检查系统功能设计讨论",
+        "themeKey": "meeting-default",
+        "objective": "原数据定义与软判断机制"
+      },
+      {
+        "title": "规则可编辑性与Prompt配置设计",
+        "selected": true,
+        "relationKind": "none",
+        "assignee": "(未识别)",
+        "parentKind": "new",
+        "parentTitle": "AI文档审核与合规检查系统功能设计讨论",
+        "themeKey": "meeting-default",
+        "objective": "规则可编辑性与Prompt配置设计"
+      },
+      {
+        "title": "系统架构与数据存储方案",
+        "selected": true,
+        "relationKind": "none",
+        "assignee": "(未识别)",
+        "parentKind": "new",
+        "parentTitle": "AI文档审核与合规检查系统功能设计讨论",
+        "themeKey": "meeting-default",
+        "objective": "系统架构与数据存储方案"
+      },
+      {
+        "title": "版本控制与文档同步机制",
+        "selected": true,
+        "relationKind": "none",
+        "assignee": "(未识别)",
+        "parentKind": "new",
+        "parentTitle": "AI文档审核与合规检查系统功能设计讨论",
+        "themeKey": "meeting-default",
+        "objective": "版本控制与文档同步机制"
+      },
+      {
+        "title": "文档依赖关系与Playbook初始化问题",
+        "selected": true,
+        "relationKind": "none",
+        "assignee": "(未识别)",
+        "parentKind": "new",
+        "parentTitle": "AI文档审核与合规检查系统功能设计讨论",
+        "themeKey": "meeting-default",
+        "objective": "文档依赖关系与Playbook初始化问题"
+      },
+      {
+        "title": "文件访问与加密问题",
+        "selected": true,
+        "relationKind": "none",
+        "assignee": "(未识别)",
+        "parentKind": "new",
+        "parentTitle": "AI文档审核与合规检查系统功能设计讨论",
+        "themeKey": "meeting-default",
+        "objective": "文件访问与加密问题"
+      }
+    ],
+    "warnings": []
+  },
+  "llm": {
+    "mode": "llm",
+    "llmEnabled": true,
+    "durationMs": 3773,
+    "projectSuggestion": {
+      "projectId": "proj:0bdbeba2-9348-41d6-93ad-3bd0216f7735",
+      "projectName": "AI文档审核与合规检查",
+      "confidence": "high",
+      "reason": "名称匹配「AI文档审核与合规检查」；关键词「AI审核」；关键词「合规检查」；关键词「文档审核」",
+      "alternatives": [
+        {
+          "projectId": "proj:84ca9299-57e2-44f6-a967-415ebb500e34",
+          "projectName": "AI文档审核与合规检查",
+          "reason": "名称匹配「AI文档审核与合规检查」；关键词「AI审核」；关键词「合规检查」；关键词「文档审核」"
+        },
+        {
+          "projectId": "proj:fa7b41a2-79e0-45c4-965d-d2d8bbc5d602",
+          "projectName": "OCT 产品线",
+          "reason": "关键词「OCT」"
+        }
+      ]
+    },
+    "itemCount": 1,
+    "items": [
+      {
+        "id": "item-1",
+        "title": "重新发送可读文档以推进需求确认",
+        "excerpt": "待重新发送可读文件，当前因文件不可用导致需求细节无法确认，状态为未知/待确认。",
+        "assigneeName": "文档提供方"
+      }
+    ],
+    "previewRows": [
+      {
+        "title": "重新发送可读文档以推进需求确认",
+        "selected": true,
+        "relationKind": "none",
+        "assignee": "文档提供方",
+        "parentKind": "new",
+        "parentTitle": "AI文档审核与合规检查系统功能设计讨论",
+        "themeKey": "meeting-default",
+        "objective": "待重新发送可读文件，当前因文件不可用导致需求细节无法确认，状态为未知/待确认。"
+      }
+    ],
+    "warnings": []
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "scenario": {
+    "id": "B1_wbs_draft",
+    "userMessage": "帮我拆一下 OCT 客诉遏制与根因分析，先出 3 条子任务，下月底完成，不要发放。"
+  },
+  "tools": [],
+  "result": {
+    "messages": [
+      "已为您拆解「OCT 客诉遏制与根因分析」任务草案，包含 3 条子任务，截止日期设定为下月底（2026-06-30）。当前状态为草稿，尚未发放。\n\n**① 已采纳要点**\n- **任务主题**：OCT 客诉遏制与根因分析\n- **子任务数量**：3 条\n- **截止时间**：2026-06-30\n- **状态**：草稿（未发放）\n\n**② 拆解逻辑**\n按照质量客诉处理的标准流程，将任务拆分为三个关键阶段：\n1. **紧急遏制**：优先控制风险扩散，确保在途及库存产品安全，防止不良品继续流出。\n2. **根因调查**：通过技术复盘、留样复测及生产记录追溯，定位根本原因（人、机、料、法、环）。\n3. **纠正预防**：制定并验证长期纠正措施（CAPA），更新相关文件，关闭客诉闭环。\n\n**③ 阅读导览**\n下方「结构化任务表（列表）」展示了各子任务的标题、目标、交付物及完成标准。您可以查看细节，若需调整内容或指派负责人，请告诉我。\n\n**④ 下一步**\n- 如需修改子任务内容，请直接指出（例如：“task_1 的交付物增加一份报告”）。\n- 如需指派负责人，请提供具体姓名或岗位（例如：“由质量部张三负责”）。\n- 确认无误后，可回复“确认发放”以通知相关人员。"
+    ],
+    "draft": {
+      "responseIntent": "DRAFT",
+      "assistantMessage": "",
+      "classification": {
+        "domain": "",
+        "subtype": "",
+        "confidence": "",
+        "rationale": [],
+        "missingInformation": []
+      },
+      "tasks": [
+        {
+          "id": "task_1",
+          "title": "客诉紧急遏制与围堵",
+          "objective": "立即识别受影响批次，实施库存冻结与在途拦截，防止不良品继续流入市场。",
+          "actions": [],
+          "deliverables": [
+            "受影响批次清单",
+            "库存冻结与在途拦截记录",
+            "紧急遏制行动报告"
+          ],
+          "completionCriteria": [
+            "所有疑似受影响批次已完成盘点并冻结",
+            "在途产品已完成拦截或通知客户暂停使用",
+            "遏制报告经质量经理审核批准"
+          ],
+          "timeNode": {
+            "dueAt": "2026-06-30"
+          },
+          "dependencyTaskIds": []
+        },
+        {
+          "id": "task_2",
+          "title": "根因调查与技术分析",
+          "objective": "通过留样复测、生产记录追溯及失效件分析，确定客诉产生的根本原因。",
+          "actions": [],
+          "deliverables": [
+            "失效件分析报告",
+            "生产全过程追溯记录",
+            "根因分析结论（5Why/鱼骨图）"
+          ],
+          "completionCriteria": [
+            "完成失效件物理/化学性能复测",
+            "锁定导致异常的具体工序或参数",
+            "根因结论得到研发与质量部门共同确认"
+          ],
+          "timeNode": {
+            "dueAt": "2026-06-30"
+          },
+          "dependencyTaskIds": []
+        },
+        {
+          "id": "task_3",
+          "title": "纠正预防措施（CAPA）制定与验证",
+          "objective": "针对根因制定长期纠正措施，验证有效性并更新相关文件，实现闭环。",
+          "actions": [],
+          "deliverables": [
+            "CAPA 计划表",
+            "措施有效性验证报告",
+            "更新后的作业指导书或技术标准"
+          ],
+          "completionCriteria": [
+            "纠正措施已实施并完成至少一批次验证",
+            "相关 SOP/技术标准已完成修订并发布",
+            "客诉结案报告经管理者代表批准"
+          ],
+          "timeNode": {
+            "dueAt": "2026-06-30"
+          },
+          "dependencyTaskIds": []
+        }
+      ],
+      "openQuestions": [],
+      "title": "OCT 客诉遏制与根因分析",
+      "description": "针对近期 OCT 客诉进行紧急遏制、根因分析及纠正预防措施落地，确保在 2026-06-30 前完成闭环。"
+    },
+    "traceId": "fdd85f27-e909-4218-9340-cc21222c5561",
+    "toolCallsTotal": 0,
+    "toolInvocationNames": [],
+    "timing": {
+      "totalMs": 20793,
+      "llmMsTotal": 20793,
+      "toolsMsTotal": 0,
+      "parseMsTotal": 0,
+      "iterations": [
+        {
+          "iteration": 1,
+          "llmMs": 20793,
+          "parseMs": 0,
+          "toolsMs": 0,
+          "toolCalls": 0,
+          "totalMs": 20793,
+          "tools": [],
+          "afterHeadersMs": 3606,
+          "firstBodyChunkMs": 3607,
+          "firstSseDataLineMs": 3607,
+          "firstAssistantTokenMs": 3607,
+          "promptTokens": 8422,
+          "completionTokens": 958,
+          "totalTokens": 9380
+        }
+      ]
+    }
+  }
+}

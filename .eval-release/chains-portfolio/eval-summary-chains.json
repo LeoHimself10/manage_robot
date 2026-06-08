@@ -1,0 +1,145 @@
+{
+  "manifest": "portfolio_full_v1",
+  "prompt": "orchestrator-agent-v5.23.17",
+  "filter": null,
+  "results": [
+    {
+      "chainId": "chain_pf_oct_wbs",
+      "id": "T1_bind_oct",
+      "pass": true,
+      "ms": 22763,
+      "taskCount": 3,
+      "assignmentCoverage": 0,
+      "publishOk": false,
+      "tools": [
+        "list_projects",
+        "set_active_project"
+      ]
+    },
+    {
+      "chainId": "chain_pf_oct_wbs",
+      "id": "T2_wbs_expand",
+      "pass": true,
+      "ms": 68407,
+      "taskCount": 5,
+      "assignmentCoverage": 0,
+      "publishOk": false,
+      "tools": [
+        "get_current_time",
+        "list_projects",
+        "set_active_project"
+      ]
+    },
+    {
+      "chainId": "chain_pf_oct_wbs",
+      "id": "T3_formal_no_publish",
+      "pass": true,
+      "ms": 25715,
+      "taskCount": 5,
+      "assignmentCoverage": 0,
+      "publishOk": false,
+      "tools": []
+    },
+    {
+      "chainId": "chain_pf_switch_publish",
+      "id": "T1_bind_oct",
+      "pass": true,
+      "ms": 21109,
+      "taskCount": 3,
+      "assignmentCoverage": 0,
+      "publishOk": false,
+      "tools": [
+        "list_projects",
+        "set_active_project"
+      ]
+    },
+    {
+      "chainId": "chain_pf_switch_publish",
+      "id": "T2_assign",
+      "pass": true,
+      "ms": 8406,
+      "taskCount": 3,
+      "assignmentCoverage": 1,
+      "publishOk": false,
+      "tools": [
+        "search_employees",
+        "bulk_assign_tasks"
+      ]
+    },
+    {
+      "chainId": "chain_pf_switch_publish",
+      "id": "T3_switch",
+      "pass": true,
+      "ms": 22102,
+      "taskCount": 3,
+      "assignmentCoverage": 1,
+      "publishOk": false,
+      "tools": [
+        "list_projects",
+        "set_active_project"
+      ]
+    },
+    {
+      "chainId": "chain_pf_switch_publish",
+      "id": "T4_prepare",
+      "pass": true,
+      "ms": 7733,
+      "taskCount": 3,
+      "assignmentCoverage": 1,
+      "publishOk": false,
+      "tools": [
+        "prepare_publish_task"
+      ]
+    },
+    {
+      "chainId": "chain_pf_switch_publish",
+      "id": "T5_confirm",
+      "pass": true,
+      "ms": 4510,
+      "taskCount": 3,
+      "assignmentCoverage": 1,
+      "publishOk": true,
+      "tools": [
+        "publish_task"
+      ]
+    },
+    {
+      "chainId": "chain_pf_no_project_ok",
+      "id": "T1_draft_no_project",
+      "pass": true,
+      "ms": 13797,
+      "taskCount": 2,
+      "assignmentCoverage": 0,
+      "publishOk": false,
+      "tools": []
+    },
+    {
+      "chainId": "chain_pf_no_project_ok",
+      "id": "T2_assign",
+      "pass": true,
+      "ms": 7384,
+      "taskCount": 2,
+      "assignmentCoverage": 1,
+      "publishOk": false,
+      "tools": [
+        "search_employees",
+        "bulk_assign_tasks"
+      ]
+    },
+    {
+      "chainId": "chain_pf_no_project_ok",
+      "id": "T3_confirm",
+      "pass": true,
+      "ms": 11457,
+      "taskCount": 2,
+      "assignmentCoverage": 1,
+      "publishOk": true,
+      "tools": [
+        "prepare_publish_task",
+        "publish_task"
+      ]
+    }
+  ],
+  "passed": 11,
+  "total": 11
+}

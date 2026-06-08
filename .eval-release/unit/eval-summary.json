@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "eval-report-v1",
+  "parityEnv": "DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=30, AGENT_MAX_TOOL_CALLS=16, AGENT_MAX_TOTAL_MS=180000, DINGTALK_QWEN_MAX_TOKENS=8000, DINGTALK_QWEN_TIMEOUT_MS=120000, QWEN_MODEL=qwen3.6-plus, READ_URL_ENABLED=1, UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12",
+  "suite": "unit",
+  "startedAt": "2026-06-02T04:43:02.904Z",
+  "allOk": true,
+  "stages": [
+    {
+      "id": "vitest",
+      "label": "Eval-related vitest",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 3478,
+      "critical": true
+    }
+  ],
+  "finishedAt": "2026-06-02T04:43:06.384Z"
+}
