@@ -40,7 +40,8 @@ describe("tool registry profiles", () => {
     expect(registry.list_my_tasks).toBeUndefined();
     expect(registry.submit_employee_response).toBeUndefined();
     expect(registry.search_web).toBeUndefined();
-    expect(registry.get_current_time).toBeDefined();
+    // get_current_time 已从 planner/manager/admin 下线（日期由 system context 注入）。
+    expect(registry.get_current_time).toBeUndefined();
   });
 
   it("employee profile includes employee tools and rejects without trusted actor", async () => {
@@ -94,6 +95,47 @@ describe("tool registry profiles", () => {
     expect(registry.publish_task).toBeDefined();
     const res = await registry.publish_task.handler({ planId: "plan-1" });
     expect(res).toEqual({ ok: false, error: "trusted_actor_required" });
+  });
+
+  it("redirects search_employees to roster flow while a roster is pending, without consuming quota", async () => {
+    const session = {
+      chatKeyHash: "hash",
+      planId: "plan-roster",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      senderStaffId: "manager-1",
+      knownFacts: [],
+      conversationHistory: [],
+      // 主管刚上传花名册，尚未被 read_uploaded_roster_text 消费。
+      pendingRosterText: "张三 研发部 资深工程师\n李四 测试部 测试经理",
+      pendingRosterSource: "uploaded:roster.md",
+    };
+    const registry = buildToolRegistry({
+      employeeRepo: { list: () => [] },
+      toolProfile: "manager",
+      trustedActorUserId: "manager-1",
+      currentSession: session,
+      // 提供点将意图，确保 pre-draft gate 放行，能命中 roster 重定向逻辑。
+      orchestratorUserMessage: "按这份名单把任务指派下去",
+    });
+
+    // 调用 5 次（> search quota 3）。若 quota 被消耗，第 4 次起应返回
+    // search_employees_quota_exhausted；实际应每次都返回 roster 重定向，证明
+    // 重定向发生在 quota 计数之前、且完全不扣额度。
+    for (let i = 0; i < 5; i += 1) {
+      const res = (await registry.search_employees.handler({
+        name: `候选${i}`,
+      })) as { ok?: boolean; reason?: string };
+      expect(res.ok).toBe(false);
+      expect(res.reason).toBe("pending_roster_use_resolve");
+    }
+
+    // 花名册被消费后（pendingRosterText 清空），重定向不再触发。
+    (session as { pendingRosterText?: string }).pendingRosterText = undefined;
+    const afterConsume = (await registry.search_employees.handler({
+      name: "张三",
+    })) as { reason?: string };
+    expect(afterConsume.reason).not.toBe("pending_roster_use_resolve");
   });
 
   it("search_similar_plans is gated by SEARCH_SIMILAR_PLANS_ENABLED", () => {

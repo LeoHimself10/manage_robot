@@ -189,6 +189,7 @@ export interface GetEmployeeDetailsHandlerContext {
   candidatePool?: () => CandidatePoolEntryRef[];
 }
 
+
 export const SEARCH_EMPLOYEES_TOOL: ToolDefinition = {
   type: "function",
   function: {

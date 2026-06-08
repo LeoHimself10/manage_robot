@@ -264,7 +264,9 @@ export function formatScopeBoundaryHint(input: {
 
 export function formatPendingRosterHint(roster: { sourceLabel: string; chars: number }): string {
   return (
-    `pendingRoster: ${JSON.stringify(roster)} → read_uploaded_roster_text → resolve_roster_names → set_candidate_pool；` +
-    "禁止逐一 search_employees(name=...)；set_candidate_pool 时 entries[*].fileNotes 须含文档技能摘要。"
+    `pendingRoster: ${JSON.stringify(roster)} → 固定三步：①read_uploaded_roster_text 读原文 ` +
+    "→ ②**一次** resolve_roster_names({names:[全部姓名]}) 批量解析（不计 search 配额）" +
+    "→ ③set_candidate_pool（entries[*].fileNotes 含文档技能摘要）。" +
+    "**禁止逐一 search_employees(name=...)**：roster 未处理前 search_employees 会被系统重定向且不返回结果。"
   );
 }

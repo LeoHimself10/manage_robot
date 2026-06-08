@@ -30,7 +30,7 @@
 - **`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS`**：ReAct 工具循环上限（代码默认 `6`；ECS 现网 `30`）。
 - **`UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX`**：单轮 orchestrator 内 `update_draft_task` 调用上限（默认 `4`；ECS 现网 `12`）。
 - **`READ_URL_*`**：外链读取超时/体积/次数；见 `docs/deploy-aliyun-dingtalk.md`。
-- **`ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS`**：有未发布草案时 `[memory_context]` 注入完整 `latestDraft` 的字符上限（默认 `32000`）。
+- **`ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS`**：有未发布草案时 `[memory_context]` 注入完整 `latestDraft` 的字符上限（默认 `12000`）。
 
 本地可将变量写在项目根目录 `**.env`**，CLI 已 `import "dotenv/config"` 自动加载。可参考 `.env.example`。
 

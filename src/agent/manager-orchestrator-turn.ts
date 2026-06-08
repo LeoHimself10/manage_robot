@@ -1,11 +1,7 @@
 import type { QwenPlannerConfig } from "./demo/qwen-planner";
 import {
   buildScopeSwitchRetryUserMessage,
-  buildTopicSwitchRetryUserMessage,
-  buildDraftClarifyMixRetryUserMessage,
-  detectDraftClarifyMix,
   detectFalseScopeSwitch,
-  detectTopicSwitchWithoutArchive,
 } from "./publish-staging";
 import { runOrchestrator, type OrchestratorConfig, type OrchestratorResult } from "./orchestrator";
 import {
@@ -62,6 +58,20 @@ function readEnvInt(name: string, fallback: number): number {
   const value = Number(raw);
   if (!Number.isFinite(value)) return fallback;
   return Math.max(1, Math.trunc(value));
+}
+
+/**
+ * 用于「有草案 + 模型只口播不出 JSON」场景的重跑提示。
+ * 不依赖用户消息正则；判断逻辑在调用处纯用状态字段完成。
+ */
+export function buildTableRedraftRetryMessage(originalUserMessage: string): string {
+  return (
+    `[draft_json_required] 用户要求：「${originalUserMessage}」\n` +
+    "你刚才只在 message 里描述了子任务，但没有输出 draft JSON。请立刻重新输出完整草案：\n" +
+    "- draft.tasks[] 须包含全量子任务（不得减少条数）\n" +
+    "- message 简要说明变更点即可\n" +
+    "禁止只口播不出 JSON。"
+  );
 }
 
 export function isExplicitSearchRequest(input: string): boolean {
@@ -252,47 +262,30 @@ export async function runManagerOrchestratorTurn(
     },
   });
 
+  /** 每个 user turn 最多允许的 orchestrator 重跑次数（默认 1）。 */
+  const maxReruns = readEnvInt("MANAGER_TURN_MAX_RERUNS", 1);
+  let rerunsUsed = 0;
+
   let orchResult = await runOrchestrator(input.userMessage, buildOrchestratorConfig());
 
-  const initialOutbound = () => orchResult.messages.join("\n\n");
-
+  // 假口播归档（话术说已归档但未调 start_new_task）→ 数据完整性问题，保留重跑。
   if (
-    detectFalseScopeSwitch({
+    rerunsUsed < maxReruns
+    && detectFalseScopeSwitch({
       userMessage: input.userMessage,
       toolInvocationNames: orchResult.toolInvocationNames ?? [],
-      outboundMarkdown: initialOutbound(),
+      outboundMarkdown: orchResult.messages.join("\n\n"),
     })
   ) {
     orchResult = await runOrchestrator(
       buildScopeSwitchRetryUserMessage(input.userMessage),
       buildOrchestratorConfig(),
     );
+    rerunsUsed++;
   }
 
-  if (
-    detectTopicSwitchWithoutArchive({
-      userMessage: input.userMessage,
-      preTurnLatestDraft: preTurnDraft,
-      toolInvocationNames: orchResult.toolInvocationNames ?? [],
-    })
-  ) {
-    orchResult = await runOrchestrator(
-      buildTopicSwitchRetryUserMessage(input.userMessage),
-      buildOrchestratorConfig(),
-    );
-  }
-
-  if (
-    detectDraftClarifyMix({
-      message: initialOutbound(),
-      hasDraft: orchResult.draft !== undefined,
-    })
-  ) {
-    orchResult = await runOrchestrator(
-      buildDraftClarifyMixRetryUserMessage(input.userMessage),
-      buildOrchestratorConfig(),
-    );
-  }
+  // 话术类问题（topic-switch-without-archive、draft-clarify-mix）已由 prompt 单一事实源预防，
+  // 不再重跑，避免串联多次完整 orchestrator 调用。
 
   const applyDraftFromOrchestrator = (result: OrchestratorResult) => {
     const outbound = resolveDraftForOutbound({
@@ -311,8 +304,10 @@ export async function runManagerOrchestratorTurn(
   let draftOutbound = applyDraftFromOrchestrator(orchResult);
   let { draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound;
 
+  // 假拆分（话术声称已拆但 tasks.length 未增）→ 落库正确性问题，保留重跑。
   if (
-    detectFalseSplit({
+    rerunsUsed < maxReruns
+    && detectFalseSplit({
       userMessage: input.userMessage,
       preTurnDraft: preTurnDraft as Record<string, unknown> | undefined,
       postTurnDraft: persistedDraft as Record<string, unknown> | undefined,
@@ -328,6 +323,30 @@ export async function runManagerOrchestratorTurn(
       }),
       buildOrchestratorConfig(),
     );
+    rerunsUsed++;
+    draftOutbound = applyDraftFromOrchestrator(orchResult);
+    ({ draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound);
+  }
+
+  // 有草案 + 模型口播了草案式内容但没出 JSON + 本轮未发布、未切换 scope
+  // → 纯状态判断，无需解析用户意图。
+  const preTurnHasDraftTasks =
+    Array.isArray((preTurnDraft as { tasks?: unknown[] } | undefined)?.tasks)
+    && (preTurnDraft as { tasks: unknown[] }).tasks.length > 0;
+
+  if (
+    rerunsUsed < maxReruns
+    && preTurnHasDraftTasks
+    && !publishResult
+    && orchResult.draft === undefined
+    && !(orchResult.toolInvocationNames ?? []).includes("start_new_task")
+    && (orchResult.observabilityFlags ?? []).includes("orchestrator_draft_message_without_json")
+  ) {
+    orchResult = await runOrchestrator(
+      buildTableRedraftRetryMessage(input.userMessage),
+      buildOrchestratorConfig(),
+    );
+    rerunsUsed++;
     draftOutbound = applyDraftFromOrchestrator(orchResult);
     ({ draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound);
   }
@@ -375,8 +394,10 @@ export async function runManagerOrchestratorTurn(
 
   let assignState = runAssignmentProcessing(orchResult, draftOutbound);
 
+  // 指派覆盖不足 → 落库正确性问题，保留重跑（受 maxReruns 上限约束）。
   const needsAssignRetry =
     process.env.ASSIGNMENT_PHASE_ENABLED === "1"
+    && rerunsUsed < maxReruns
     && hasAssigneeIntentInUserMessage(input.userMessage)
     && assignState.coverage.total > 0
     && assignState.coverage.covered < assignState.coverage.total;
@@ -390,6 +411,7 @@ export async function runManagerOrchestratorTurn(
       }),
       buildOrchestratorConfig(),
     );
+    rerunsUsed++;
     draftOutbound = applyDraftFromOrchestrator(orchResult);
     ({ draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound);
     assignState = runAssignmentProcessing(orchResult, draftOutbound);

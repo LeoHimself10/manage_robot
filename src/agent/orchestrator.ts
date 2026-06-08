@@ -207,9 +207,6 @@ export async function runOrchestrator(
     memoryParts.push(
       "publishedTasksLookup: 用户问已发放/我管理的正式任务时，必须调 list_managed_tasks 取库内真实数据；不得用 latestDraft 充数。",
     );
-    memoryParts.push(
-      "draftReviseDiscipline: TABLE REDRAFT（整表/WBS/扩成N条，无单一task锚点）→禁止 tool_calls，顶层完整 draft JSON；ROW_SPLIT（任务N拆成M条）→update_draft_task+add_draft_subtask(insertAfterSubtaskId) 增行；PATCH（单点改不增行）→update_draft_task/remove_draft_subtask；禁止仅 message 口播拆分而无增行或整表 JSON。",
-    );
   }
   if (
     config.sessionContext?.latestAssignment
@@ -251,7 +248,7 @@ export async function runOrchestrator(
   const history = normalizeConversationHistoryForModel(
     config.sessionContext?.conversationHistory ?? [],
   );
-  const historyWindowRaw = Number(process.env.AGENT_HISTORY_TURNS ?? "10");
+  const historyWindowRaw = Number(process.env.AGENT_HISTORY_TURNS ?? "8");
   const historyWindow = Number.isFinite(historyWindowRaw) && historyWindowRaw > 0
     ? Math.floor(historyWindowRaw)
     : 10;
@@ -422,7 +419,7 @@ function looksLikeDraftStyleMessage(message: string): boolean {
 
 function serializeDraftForMemory(draft: Record<string, unknown>): Record<string, unknown> {
   const normalized = normalizeDraftTasksForSession(draft);
-  const maxChars = Number(process.env.ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS ?? "32000");
+  const maxChars = Number(process.env.ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS ?? "12000");
   const cap = Number.isFinite(maxChars) && maxChars > 500 ? Math.floor(maxChars) : 32000;
   const full = JSON.stringify(normalized);
   if (full.length <= cap) return normalized;
