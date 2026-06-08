@@ -78,6 +78,11 @@ import {
   loadMemoryContextForPlan,
 } from "../infra/workbench-memory-store";
 import { listDynamicWorkbenchManagers, setDynamicWorkbenchManager } from "../security/workbench-manager-directory";
+import {
+  listDynamicWorkbenchPortfolioManagers,
+  setDynamicWorkbenchPortfolioManager,
+} from "../security/workbench-portfolio-directory";
+import { listWorkbenchProjectPortfolioUserIds } from "../security/workbench-project-portfolio";
 import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
 import {
   allowsEmployeeSession,
@@ -93,7 +98,7 @@ import { resolveWorkbenchRole, type WorkbenchRole } from "../security/workbench-
 import { verifyAssignmentEntry } from "../security/web-entry-token";
 import { parseRosterFile } from "../agent/assignment/roster-parser";
 import { readMultipartSingleFile } from "./multipart-single-file";
-import { renderAdminWorkbenchPage } from "./admin-workbench-pages";
+import { renderAdminPermissionsPage, renderAdminWorkbenchPage } from "./admin-workbench-pages";
 import { renderAdminOpsDashboardPage } from "./admin-ops-dashboard-page";
 import { handleOpsDashboardApi } from "./ops-dashboard-api";
 import {
@@ -124,7 +129,7 @@ import {
   handleMeetingImportParse,
 } from "./meeting-import-api";
 import { renderManagerTaskIntakePage } from "./manager-task-intake-page";
-import { handleTaskIntakeCommit, handleTaskIntakePreview } from "./task-intake-api";
+import { handleTaskIntakeAppend, handleTaskIntakeCommit, handleTaskIntakePreview } from "./task-intake-api";
 import { isTaskIntakeEnabled } from "../agent/task-intake/task-intake-flag";
 import {
   buildWeeklyAdvisorHttpPayload,
@@ -197,6 +202,7 @@ const ADMIN_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/admin",
   "/workbench/admin/ops",
   "/workbench/admin/performance",
+  "/workbench/admin/permissions",
   "/workbench/admin/task",
   "/workbench/admin/task/events",
 ]);
@@ -206,6 +212,7 @@ const LEGACY_WORKBENCH_REDIRECTS: Record<string, string> = {
   "/workbench/manager": "/workbench/manager/tasks",
   "/workbench/in-progress": "/workbench/manager/tasks",
   "/workbench/conversation": "/workbench/manager/chat",
+  "/workbench/admin#permissions": "/workbench/admin/permissions",
 };
 
 function legacyRedirectRequiresManager(fromPath: string): boolean {
@@ -3698,6 +3705,40 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/task-intake/append") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!isTaskIntakeEnabled()) {
+          writeJson(res, 404, { ok: false, error: "task_intake_disabled" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const rows = Array.isArray(body.rows) ? body.rows : [];
+        const targetPlanId = String(body.targetPlanId ?? "").trim();
+        if (!targetPlanId) {
+          writeJson(res, 400, { ok: false, error: "targetPlanId is required" });
+          return;
+        }
+        const result = await handleTaskIntakeAppend({
+          taskStore: getFormalTaskStore(),
+          managerUserId: session.userId,
+          targetPlanId,
+          rows,
+          actorName: session.dingUser?.name,
+        });
+        writeJson(res, 200, { ok: true, result });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "append failed",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (isGetOrHead && url.pathname === "/api/workbench/manager/projects") {
     const session = requireSession(req, res, "manager");
     if (!session) return true;
@@ -4046,8 +4087,73 @@ export function handleAssignmentHttp(
         title: contact.position ?? "Employee",
         active: contact.active,
         isManager: listWorkbenchManagerIds().has(contact.userId),
+        isPortfolioManager: listWorkbenchProjectPortfolioUserIds().has(contact.userId),
       }));
     writeJson(res, 200, { ok: true, employees });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/admin/portfolio-managers") {
+    const session = requireSession(req, res, "admin");
+    if (!session) return true;
+    const effective = [...listWorkbenchProjectPortfolioUserIds()].sort();
+    writeJson(res, 200, {
+      ok: true,
+      dynamicPortfolioManagers: listDynamicWorkbenchPortfolioManagers().map((id) => ({
+        userId: id,
+        name: withPeopleDirectoryStore((s) => s.getContact(id)?.name?.trim() ?? ""),
+      })),
+      effectivePortfolioManagers: effective.map((id) => ({
+        userId: id,
+        name: withPeopleDirectoryStore((s) => s.getContact(id)?.name?.trim() ?? ""),
+      })),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/admin/portfolio-managers") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "admin");
+        if (!session) return;
+        const body = await readJsonBody(req);
+        const userId = String(body.userId ?? "").trim();
+        const enabled = Boolean(body.enabled);
+        const contact = withPeopleDirectoryStore((store) => store.getContact(userId));
+        if (!contact) {
+          writeJson(res, 404, { ok: false, error: "contact not found" });
+          return;
+        }
+        if (enabled && !contact.active) {
+          writeJson(res, 400, { ok: false, error: "cannot grant portfolio manager to inactive contact" });
+          return;
+        }
+        const mutation = setDynamicWorkbenchPortfolioManager(userId, enabled);
+        getFormalTaskStore().appendPermissionEvent({
+          actorUserId: session.userId,
+          targetUserId: userId,
+          before: mutation.before,
+          after: mutation.after,
+          payload: {
+            changed: mutation.changed,
+            source: "admin_api",
+            permissionKind: "portfolio_manager",
+          },
+        });
+        writeJson(res, 200, {
+          ok: true,
+          userId,
+          before: mutation.before,
+          after: mutation.after,
+          changed: mutation.changed,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "update portfolio manager permission failed",
+        });
+      }
+    })();
     return true;
   }
 
@@ -6123,6 +6229,8 @@ export function handleAssignmentHttp(
             })
             : url.pathname === "/workbench/admin/ops"
               ? renderAdminOpsDashboardPage({ userLabel })
+              : url.pathname === "/workbench/admin/permissions"
+                ? renderAdminPermissionsPage({ userLabel })
               : url.pathname === "/workbench/admin/performance"
                 ? renderPerformanceDashboardPage({
                   userLabel,

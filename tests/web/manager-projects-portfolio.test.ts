@@ -17,6 +17,7 @@ describe("manager project portfolio UI guards", () => {
       projectPortfolioEnabled: true,
       initialView: "group",
     });
+    expect(html).toContain("项目管理主管");
     expect(html).toContain("项目总览");
     expect(html).toContain('id="filterProject"');
     expect(html).toContain("bulkAssignBar");

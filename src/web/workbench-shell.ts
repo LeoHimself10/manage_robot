@@ -73,13 +73,13 @@ function buildManagerRail(activeNav: WorkbenchNavId, portfolioEnabled: boolean, 
   ${railLink("/workbench/manager/performance", "交付绩效", "mgr-perf", activeNav, "manager")}
   ${railLink("/workbench/manager/chat?thread=main", "智能规划助手", "mgr-chat", activeNav, "manager")}
   ${isTaskIntakeEnabled() ? railLink("/workbench/manager/task-intake", "任务快录入库", "mgr-task-intake", activeNav, "manager") : ""}
-  ${portfolioEnabled ? railLink("/workbench/manager/meeting-import", "会议入库", "mgr-meeting-import", activeNav, "manager") : ""}
 </div>
 ${
   portfolioEnabled
     ? `<div class="wb-rail-grp">
-  <div class="wb-rail-grp-lbl">项目</div>
+  <div class="wb-rail-grp-lbl">项目管理主管</div>
   ${portfolioLinks}
+  ${railLink("/workbench/manager/meeting-import", "会议入库", "mgr-meeting-import", activeNav, "manager")}
 </div>`
     : ""
 }${adminOpsLink}`;
@@ -101,7 +101,7 @@ function buildAdminRail(activeNav: WorkbenchNavId): string {
   ${railLink("/workbench/admin", "任务总览", "adm-tasks", activeNav, "admin")}
   ${railLink("/workbench/admin/ops", "运营看板", "adm-ops", activeNav, "admin")}
   ${railLink("/workbench/admin/performance", "交付绩效", "adm-perf", activeNav, "admin")}
-  ${railLink("/workbench/admin#permissions", "主管权限", "adm-perms", activeNav, "admin", { id: "navAdminPerms" })}
+  ${railLink("/workbench/admin/permissions", "权限中心", "adm-perms", activeNav, "admin", { id: "navAdminPerms" })}
 </div>`;
 }
 

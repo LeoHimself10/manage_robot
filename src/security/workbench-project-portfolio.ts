@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { resolveWorkbenchDynamicPortfolioManagersPath } from "./workbench-portfolio-dynamic-path";
 
 /**
  * Workbench project portfolio view (大项目).
@@ -31,6 +32,18 @@ export function listWorkbenchProjectPortfolioUserIds(): Set<string> {
       .map((s) => s.trim())
       .filter(Boolean)
       .forEach((id) => allow.add(id));
+  }
+
+  const dynamicFile = resolveWorkbenchDynamicPortfolioManagersPath();
+  if (existsSync(dynamicFile)) {
+    try {
+      const arr = JSON.parse(readFileSync(dynamicFile, "utf8")) as unknown;
+      if (Array.isArray(arr)) {
+        arr.map((x) => String(x).trim()).filter(Boolean).forEach((id) => allow.add(id));
+      }
+    } catch {
+      // ignore malformed dynamic list
+    }
   }
   return allow;
 }
