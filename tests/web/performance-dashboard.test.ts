@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPerformanceDashboardPayload,
   buildPerformanceEmployeeDetailPayload,
+  parsePerformanceConversationHistory,
   resolvePerformanceWindowDays,
   isPerformanceDashboardEnabled,
 } from "../../src/web/performance-dashboard-api";
@@ -105,6 +106,25 @@ describe("performance dashboard api", () => {
   it("enabled by default", () => {
     expect(isPerformanceDashboardEnabled()).toBe(true);
   });
+
+  it("parsePerformanceConversationHistory keeps user/assistant turns with caps", () => {
+    expect(parsePerformanceConversationHistory(null)).toEqual([]);
+    expect(parsePerformanceConversationHistory([
+      { role: "user", content: " 曹杰怎么样 " },
+      { role: "assistant", content: "迟交率 20%" },
+      { role: "system", content: "ignored" },
+      { role: "user", content: "" },
+    ])).toEqual([
+      { role: "user", content: "曹杰怎么样" },
+      { role: "assistant", content: "迟交率 20%" },
+    ]);
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: `turn-${i}`,
+    }));
+    expect(parsePerformanceConversationHistory(many)).toHaveLength(20);
+    expect(parsePerformanceConversationHistory(many)[0].content).toBe("turn-5");
+  });
 });
 
 describe("performance dashboard page", () => {
@@ -122,6 +142,8 @@ describe("performance dashboard page", () => {
     expect(html).toContain("/api/workbench/manager/performance");
     expect(html).toContain("您名下员工");
     expect(html).toContain("mgr-perf");
+    expect(html).toContain("conversationHistory");
+    expect(html).toContain("perf_chat_history_v1");
   });
 
   it("renders admin page with admin nav and api base", () => {

@@ -112,6 +112,7 @@ import {
   buildPerformanceDashboardPayload,
   buildPerformanceEmployeeDetailPayload,
   isPerformanceDashboardEnabled,
+  parsePerformanceConversationHistory,
   resolvePerformanceScopeFromSession,
   resolvePerformanceWindowDays,
 } from "./performance-dashboard-api";
@@ -2792,7 +2793,7 @@ async function handlePerformanceChatPost(
     writeJson(res, 503, { ok: false, error: "LLM not configured" });
     return;
   }
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req, 256 * 1024);
   const message = String(body.message ?? "").trim();
   if (!message) {
     writeJson(res, 400, { ok: false, error: "message is required" });
@@ -2803,6 +2804,7 @@ async function handlePerformanceChatPost(
     windowDays: resolvePerformanceWindowDays(body.windowDays),
     projectId: String(body.projectId ?? "").trim() || undefined,
   };
+  const conversationHistory = parsePerformanceConversationHistory(body.conversationHistory);
   const wantStream = body.stream === true
     || String(req.headers.accept ?? "").includes("text/event-stream");
 
@@ -2813,6 +2815,7 @@ async function handlePerformanceChatPost(
     actorUserId: session.userId,
     scope,
     pageQuery,
+    conversationHistory,
   } as const;
 
   if (wantStream) {

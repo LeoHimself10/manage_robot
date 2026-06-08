@@ -215,6 +215,34 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
   var selectedName = null;
   var windowDays = 90;
   var streaming = false;
+  var CHAT_STORE_KEY = 'perf_chat_history_v1:' + API_BASE;
+  var chatHistory = [];
+
+  function loadChatHistory(){
+    try {
+      var raw = sessionStorage.getItem(CHAT_STORE_KEY);
+      if(!raw) return [];
+      var parsed = JSON.parse(raw);
+      if(!Array.isArray(parsed)) return [];
+      return parsed.filter(function(t){
+        return t && (t.role==='user' || t.role==='assistant') && String(t.content||'').trim();
+      }).slice(-20);
+    } catch(e){ return []; }
+  }
+
+  function saveChatHistory(){
+    try { sessionStorage.setItem(CHAT_STORE_KEY, JSON.stringify(chatHistory.slice(-20))); } catch(e){}
+  }
+
+  function pushChatTurn(role, content){
+    var text = String(content||'').trim();
+    if(!text) return;
+    chatHistory.push({ role: role, content: text.slice(0, 4000) });
+    if(chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+    saveChatHistory();
+  }
+
+  chatHistory = loadChatHistory();
 
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
   function fmt(s){ return esc(s).replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>'); }
@@ -444,6 +472,15 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
     try { return { event: event, data: JSON.parse(data) }; } catch(e){ return null; }
   }
 
+  function restoreChatFromHistory(){
+    if(!chatHistory.length) return;
+    chatHistory.forEach(function(turn){
+      var bubble = addMsg(turn.role === 'user' ? 'user' : 'bot');
+      if(turn.role === 'user') bubble.textContent = turn.content;
+      else bubble.innerHTML = fmt(turn.content);
+    });
+  }
+
   function sendChat(text){
     var msg = (text!=null?text:chatInput.value||'').trim();
     if(!msg || streaming) return;
@@ -454,7 +491,13 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
     showTyping(bubble);
     chatSend.disabled = true;
     var hasText = false;
-    var payload = { message: msg, windowDays: windowDays, stream: true };
+    var finalMessage = '';
+    var payload = {
+      message: msg,
+      windowDays: windowDays,
+      stream: true,
+      conversationHistory: chatHistory.slice()
+    };
     var pid = currentProjectId();
     if(pid) payload.projectId = pid;
     fetch(API_BASE+'/chat', {
@@ -471,7 +514,12 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
         return reader.read().then(function(chunk){
           if(chunk.done){
             if(!hasText) bubble.textContent = '未收到回复，请重试。';
-            else bubble.innerHTML = bubble.innerHTML.replace(/<span class="perf-stream-cursor"><\\/span>/,'');
+            else {
+              bubble.innerHTML = bubble.innerHTML.replace(/<span class="perf-stream-cursor"><\\/span>/,'');
+              if(!finalMessage){
+                finalMessage = bubble.textContent || '';
+              }
+            }
             return;
           }
           buf += decoder.decode(chunk.value, { stream: true });
@@ -485,7 +533,9 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
             } else if(ev.event==='delta' && ev.data.message){
               setStream(ev.data.message);
             } else if(ev.event==='done' && ev.data.message){
-              hasText=true; bubble.innerHTML = fmt(ev.data.message);
+              hasText=true;
+              finalMessage = String(ev.data.message||'');
+              bubble.innerHTML = fmt(finalMessage);
             } else if(ev.event==='error'){
               bubble.textContent = '出错了：'+(ev.data.error||'未知错误');
             }
@@ -495,8 +545,18 @@ function buildPerformanceClientJs(apiBase: string, portfolioEnabled: boolean): s
       }
       return pump();
     }).catch(function(e){ bubble.textContent = '请求失败：'+(e.message||e); })
-      .finally(function(){ streaming=false; chatSend.disabled=false; chatInput.focus(); });
+      .finally(function(){
+        if(finalMessage){
+          pushChatTurn('user', msg);
+          pushChatTurn('assistant', finalMessage);
+        }
+        streaming=false;
+        chatSend.disabled=false;
+        chatInput.focus();
+      });
   }
+
+  restoreChatFromHistory();
 
   /* ---------- wiring ---------- */
   Array.prototype.forEach.call(windowSeg.querySelectorAll('button'), function(btn){

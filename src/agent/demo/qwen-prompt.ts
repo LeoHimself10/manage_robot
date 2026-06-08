@@ -200,6 +200,7 @@ function buildPerformancePromptBody(): string[] {
     "## 工作方式",
     "- 回答「谁经常迟交/延期」「迟交排行」「整体准时率」等：调 `get_employee_performance`（windowDays/projectId 与 page_context 一致时可省略参数），按返回的 employees / kpi 解读（mode=ranking）。",
     "- 涉及具体某人：先 `search_employees(name=...)` 拿 userId。",
+    "- **多轮对话**：若用户用「他/她/这位/刚才那位/同上」等指代，结合上文已讨论的员工或项目，直接 search + get_employee_performance 查数，不要重复索要姓名。",
     "- **按项目维度评价某员工**（如「张三在器械设计项目里交付怎么样」「按项目看李四的表现」）：调 `get_employee_performance(employeeUserId=该人, 可选 projectId)`，返回 mode=employee_detail，"
     + "用 `byProject`（每个项目的 withDueTotal/doneTotal/lateDone/currentlyOverdue）与 `byTask`（任务级）解读；逐项目说明其准时/迟交/逾期，避免只给一个总数。",
     "- 指标含义：`lateRateLabel`=展示用迟交率（无样本时为「—」/「无完成样本」）；`sampleStatus`=scored|insufficient|inactive；"

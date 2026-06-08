@@ -28,6 +28,26 @@ export function resolvePerformanceWindowDays(raw?: unknown): number {
 
 export { resolvePerformanceScope, performanceScopeLabel };
 
+export type PerformanceChatTurn = { role: "user" | "assistant"; content: string };
+
+const PERF_CHAT_HISTORY_MAX_TURNS = 20;
+const PERF_CHAT_TURN_MAX_CHARS = 4000;
+
+/** 解析绩效助手 POST /chat 的 conversationHistory（仅 user/assistant，截断长度与轮数）。 */
+export function parsePerformanceConversationHistory(raw: unknown): PerformanceChatTurn[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PerformanceChatTurn[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const role = r.role === "user" ? "user" : r.role === "assistant" ? "assistant" : null;
+    const content = String(r.content ?? "").trim();
+    if (!role || !content) continue;
+    out.push({ role, content: content.slice(0, PERF_CHAT_TURN_MAX_CHARS) });
+  }
+  return out.slice(-PERF_CHAT_HISTORY_MAX_TURNS);
+}
+
 function loadScopedDataset(
   taskStore: TaskStore,
   scope: PerformanceScope,
