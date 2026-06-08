@@ -62,7 +62,7 @@ describe("scope-message-truncate", () => {
   });
 
   describe("refreshMemoryContextAfterScopeSwitch", () => {
-    it("strips stale draft/assignment/candidate hints and updates planId", () => {
+    it("strips stale draft/assignment/candidate/plan-memory hints and updates planId", () => {
       const messages: Array<Record<string, unknown>> = [
         { role: "system", content: "sys" },
         {
@@ -70,20 +70,29 @@ describe("scope-message-truncate", () => {
           content: [
             "[memory_context]",
             "planId: old-plan",
+            "memorySummary: OCT 客诉专项处理中",
+            "topFacts: [\"deadline:6/25\"]",
+            "taskIndexMap (表序号→taskId): [{\"index\":1,\"taskId\":\"task_1\"}]",
             "latestDraft: {\"tasks\":[]}",
             "latestAssignmentSummary: 宋元勋",
             "candidatePool: 3 entries",
-            "knownFact: 测评组倾向",
+            "assignAction: 用户要求分派",
+            "currentTime: 2026-06-08T10:00:00.000Z",
           ].join("\n"),
         },
       ];
       refreshMemoryContextAfterScopeSwitch(messages, "plan-new");
       const mem = String(messages[1].content);
-      expect(mem).toContain("planId: plan-new");
+      expect(mem).toBe(
+        "[memory_context]\nplanId: plan-new\ncurrentTime: 2026-06-08T10:00:00.000Z",
+      );
+      expect(mem).not.toContain("memorySummary");
+      expect(mem).not.toContain("topFacts");
+      expect(mem).not.toContain("taskIndexMap");
       expect(mem).not.toContain("latestDraft:");
       expect(mem).not.toContain("latestAssignmentSummary");
       expect(mem).not.toContain("candidatePool");
-      expect(mem).toContain("knownFact: 测评组倾向");
+      expect(mem).not.toContain("assignAction");
     });
   });
 

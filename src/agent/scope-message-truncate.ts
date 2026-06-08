@@ -55,7 +55,11 @@ export function truncateMessagesAfterScopeSwitch(
   messages.splice(0, messages.length, ...head, ...tail);
 }
 
-/** Strip stale draft/assignment/candidate hints from memory_context after scope rotation. */
+/** Lines tied to the previous plan/scope; must not survive in-ReAct scope rotation. */
+const STALE_SCOPE_MEMORY_LINE_RE =
+  /^latestDraft\b|^latestAssignmentSummary|^candidatePool|^pendingRoster|^publishStaging|^draftReviseDiscipline|^memorySummary\b|^topFacts\b|^taskIndexMap\b|^publishedTasksLookup|^assignAction|^splitAction|^clarifyAction|^postClarifyDraftAction|^explicitDraftRequest|^scopeBoundary|^portfolioArchiveAction/;
+
+/** Strip stale draft/assignment/candidate/plan-memory hints from memory_context after scope rotation. */
 export function refreshMemoryContextAfterScopeSwitch(
   messages: Array<Record<string, unknown>>,
   planId: string,
@@ -70,9 +74,7 @@ export function refreshMemoryContextAfterScopeSwitch(
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("[memory_context]")) continue;
       if (/^planId:/.test(trimmed)) continue;
-      if (/^latestDraft\b|^latestAssignmentSummary|^candidatePool|^pendingRoster|^publishStaging|^draftReviseDiscipline/.test(trimmed)) {
-        continue;
-      }
+      if (STALE_SCOPE_MEMORY_LINE_RE.test(trimmed)) continue;
       kept.push(trimmed);
     }
     m.content = `[memory_context]\n${kept.join("\n")}`;

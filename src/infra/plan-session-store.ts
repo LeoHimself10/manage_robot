@@ -227,6 +227,8 @@ export function startNewTaskScope(
   session.pendingRosterText = undefined;
   session.pendingRosterSource = undefined;
   session.lastEmployeeSearchHits = [];
+  // portfolio 项目归属按当前规划上下文生效，新 scope 须清，避免无关任务继承旧项目。
+  session.activeProjectId = undefined;
   // 清空对话历史，防止模型将上一条任务的人名/编号/上下文带入新任务。
   // 保留单条 [system_note] 作为 scope 边界锚点，让模型知道自己已切换到新任务。
   const history = session.conversationHistory ?? [];
@@ -354,6 +356,7 @@ export function restoreTaskScope(
   session.candidatePool = undefined;
   session.pendingRosterText = undefined;
   session.pendingRosterSource = undefined;
+  session.activeProjectId = undefined;
 
   const now = new Date().toISOString();
   // 清空对话历史，防止跨 scope 污染。

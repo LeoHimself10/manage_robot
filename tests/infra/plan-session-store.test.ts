@@ -260,6 +260,7 @@ describe("plan-session-store", () => {
     } as never;
     session.pendingRosterText = "stale roster";
     session.pendingRosterSource = "uploaded:roster.md";
+    session.activeProjectId = "proj:oct-complaint";
     const r = markPublishedAndRotatePlanSession(session, { taskNo: "T-001" });
     expect("skipped" in r).toBe(false);
     const ok = r as { fromPlanId: string; toPlanId: string; toScopeId: string };
@@ -271,6 +272,7 @@ describe("plan-session-store", () => {
     expect(session.candidatePool).toBeUndefined();
     expect(session.pendingRosterText).toBeUndefined();
     expect(session.pendingRosterSource).toBeUndefined();
+    expect(session.activeProjectId).toBeUndefined();
     const archived = session.taskScopes?.["scope:a"];
     expect(archived?.publishedTaskNo).toBe("T-001");
     expect(archived?.planId).toBe("p-old");
@@ -285,6 +287,7 @@ describe("plan-session-store", () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       knownFacts: [],
+      activeProjectId: "proj:register-2026",
       conversationHistory: [
         { role: "user", content: "hello" },
         { role: "assistant", content: "world" },
@@ -292,6 +295,7 @@ describe("plan-session-store", () => {
       ],
     };
     const result = startNewTaskScope(session, { scopeLabel: "新任务B" });
+    expect(session.activeProjectId).toBeUndefined();
     expect(result.clearedHistoryEntries).toBe(3);
     expect(session.conversationHistory).toHaveLength(1);
     expect(session.conversationHistory[0].role).toBe("assistant");
@@ -306,6 +310,7 @@ describe("plan-session-store", () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       knownFacts: [],
+      activeProjectId: "proj:task-b-only",
       conversationHistory: [
         { role: "user", content: "task B msg 1" },
         { role: "assistant", content: "reply B" },
@@ -335,6 +340,7 @@ describe("plan-session-store", () => {
     if (result.ok) {
       expect(result.clearedHistoryEntries).toBe(2);
     }
+    expect(session.activeProjectId).toBeUndefined();
     expect(session.conversationHistory).toHaveLength(1);
     expect(session.conversationHistory[0].role).toBe("assistant");
     expect(session.conversationHistory[0].content).toContain("[system_note]");
