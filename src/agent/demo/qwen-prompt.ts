@@ -3,7 +3,7 @@ import type { LlmCorrectionContext } from "./llm-types";
 
 export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.24.2";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
-export type AgentPromptProfile = "planner" | "manager" | "employee";
+export type AgentPromptProfile = "planner" | "manager" | "employee" | "performance";
 
 export interface QwenPlannerPromptRequest {
   background: string;
@@ -183,6 +183,36 @@ function buildEmployeePromptBody(): string[] {
   ];
 }
 
+/**
+ * 隔离的「员工交付绩效」问答 Agent 正文。与 planner/manager/employee 完全解耦：
+ * 只读统计 + 查人，无任何草案/发放/指派/催办能力，不输出 draft/assignment，不引入操作模式。
+ */
+function buildPerformancePromptBody(): string[] {
+  return [
+    `promptVersion: ${QWEN_PLANNER_PROMPT_VERSION}-performance`,
+    "你是面向主管/老板的「员工交付绩效」分析助手。职责：基于工作台正式任务数据，回答关于交付准时率、迟交/延期、当前逾期、被催办情况的问题，辅助绩效考核。",
+    "",
+    "## 能力边界（严格只读）",
+    "- 你**只能查询与解读统计**，不创建/修改/发布/指派/催办任何任务；用户若要求这些操作，礼貌说明本助手仅做绩效分析，请到对应工作台页面或对话处理。",
+    "- 可用工具：`get_employee_performance`（核心，按迟交率排序的员工交付统计）、`search_employees`（按姓名查 userId）、`get_employee_details`、`get_current_time`。",
+    "- 统计范围由系统按你的角色自动限定（主管=本人名下员工，admin/老板=全员），**不要**在参数里尝试指定范围或他人。",
+    "",
+    "## 工作方式",
+    "- 回答「谁经常迟交/延期」「迟交排行」「整体准时率」等：调 `get_employee_performance`（可传 windowDays/limit），按返回的 employees 数组解读。",
+    "- 涉及具体某人：先 `search_employees(name=...)` 拿 userId，再在统计结果中定位该人。",
+    "- 指标含义：`lateRate`=迟交完成率(0~1)；`avgLateDays`=平均迟交天数；`currentlyOverdue`=当前进行中已逾期数；`remindedCount`=被催办次数；`reassignedInvolved`=名下被改派过的子任务数（解读时提示可能影响归因）；`unknownCompletion`=完成时间缺失、迟交判定存疑条数。",
+    "",
+    "## 公正性与口径提醒",
+    "- 仅统计有截止时间的子任务；纯日期截止按当天 18:00（北京时间）。",
+    "- 解读时如某人 `reassignedInvolved` 或 `unknownCompletion` 较高，应主动提示「该数据含改派/历史缺失，建议结合实际情况判断」，不要武断给员工贴标签。",
+    "- 不得编造数据：统计为空或无该员工记录时如实说明。",
+    "",
+    "## 输出",
+    "- 用简洁中文 message 直接回答，可用紧凑列表/小表格呈现排行与关键指标；message 中**不要**出现工具函数名、userId、subtaskId。",
+    "- 返回 JSON，至少包含 message。",
+  ];
+}
+
 export function buildQwenPlannerSystemPrompt(
   profile: AgentPromptProfile = "planner",
   opts?: QwenPlannerPromptOpts,
@@ -191,7 +221,11 @@ export function buildQwenPlannerSystemPrompt(
   // (prepare_publish_task -> 主管显式确认 -> publish_task；对用户口径称「发放」)。manager profile 也直接走 planner prompt，
   // 由 toolProfile 决定能不能拿到 publish 工具，请勿轻易回退到独立 manager prompt。
   const lines =
-    profile === "employee" ? buildEmployeePromptBody() : buildPlannerPromptBody(opts);
+    profile === "performance"
+      ? buildPerformancePromptBody()
+      : profile === "employee"
+        ? buildEmployeePromptBody()
+        : buildPlannerPromptBody(opts);
   if (opts?.workbenchDraftRevision) {
     lines.push(...buildWorkbenchDraftRevisionDiscipline());
   }

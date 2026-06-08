@@ -7,6 +7,7 @@ import {
 } from "./demo/qwen-compatible-client";
 import { coerceLlmPlanPayload } from "./demo/llm-schema";
 import { buildToolRegistry, type ToolProfile } from "./tools/registry";
+import type { PerformanceScope } from "./tools/performance-tools";
 import { logStructured } from "../infra/logger";
 import type { EmployeeProfileRecord } from "../integrations/repos/employee-profile-repo";
 import {
@@ -50,6 +51,8 @@ export interface OrchestratorConfig {
   managerFollowup?: boolean;
   /** When true, append project portfolio tools + prompt (role A only). */
   projectPortfolioEnabled?: boolean;
+  /** toolProfile=performance 时的统计范围（manager 名下 / 全员）。 */
+  performanceScope?: PerformanceScope;
   trustedActorUserId?: string;
   allowSearchWeb?: boolean;
   knownFactsStore?: KnownFactsStore;
@@ -131,6 +134,7 @@ export async function runOrchestrator(
     employeeRepo: config.employeeRepo,
     toolProfile: config.toolProfile ?? "planner",
     projectPortfolioEnabled: config.projectPortfolioEnabled,
+    performanceScope: config.performanceScope,
     trustedActorUserId: config.trustedActorUserId,
     allowSearchWeb: config.allowSearchWeb,
     knownFactsStore: config.knownFactsStore,

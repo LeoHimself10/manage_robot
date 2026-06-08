@@ -157,6 +157,14 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 - **内容**：任务×周甘特（仅画有 `due_at` 子任务）+ 人员负载摘要 + 任务/人员明细 + 事件 feed 分页；历史周活跃态无快照时使用当前状态近似并在 UI 标注。
 - **建议助手**：工作台内按需 POST，不走钉钉机器人、不定时推送；`WEEKLY_ADVISOR_LLM_*` 8s 默认超时，失败走模板 fallback。
 
+## 员工交付绩效看板（v1）
+
+- **页面**：`/workbench/manager/performance`（`PERFORMANCE_DASHBOARD_ENABLED=1` 默认开）；主管看本人名下、admin/老板看全员（`resolveWorkbenchCapabilities().canAccessAdmin` 判定 scope）。迟交/延期绩效画像：准时率、迟交数、平均/最大迟交天数、当前逾期、被催次数、被改派标注。
+- **隔离 Agent**：页内问答框走**独立** `promptProfile=performance` + `toolProfile=performance`（仅 `get_employee_performance` / `search_employees` / `get_employee_details` / `get_current_time`，**无**草案/发放/指派/催办），不污染 planner/manager orchestrator、不接钉钉路由、不动 PlanSession 草案。入口 `runPerformanceAgentTurn`（`src/agent/performance-agent-turn.ts`）。
+- **数据/口径**：`subtasks.completed_at`（DONE 时写入、迁出 DONE 清空、启动从 `SUBTASK_PROGRESS(DONE)` 事件回填）；迟交=`completed_at > effectiveDue`（纯日期截止=当天 18:00 北京）；仅统计有 `due_at` 的子任务，窗口 `PERFORMANCE_WINDOW_DAYS=90` 按截止回溯。聚合纯函数 `src/agent/performance/performance-facts.ts`，SQL 在 `loadPerformanceDataset`。
+- **公正性**：`due_at` 发布后不可改；审计型 `setSubtaskDueAt` + `SUBTASK_DUE_CHANGED` 为未来「改期」预留基础设施；画像以 `reassignedInvolved` / `unknownCompletion` 标注，避免武断贴标签。
+- **API**：`GET /api/workbench/manager/performance`、`POST /api/workbench/manager/performance/chat`。
+
 ## 承接指派（v0.2 MVP）
 
 `ASSIGNMENT_PHASE_ENABLED=1` 时，orchestrator **同一次 ReAct 请求**产出 `assignment` JSON → `extractLightAssignment` → 拼入回复 Markdown。**无第二次独立 LLM**（`runAssignmentRecommendation` 仅测试/独立调用）。

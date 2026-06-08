@@ -38,7 +38,8 @@ import {
   recordAgentTurnMetricsAsync,
 } from "./agent/online-eval/record-turn-metrics";
 import { publishResultSucceeded } from "./agent/publish-helpers";
-import { buildToolRegistry } from "./agent/tools/registry";
+import { buildToolRegistry, type ToolProfile } from "./agent/tools/registry";
+import type { AgentPromptProfile } from "./agent/demo/qwen-prompt";
 import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
@@ -138,7 +139,7 @@ export function buildDingtalkOrchestratorRoutingParams(input: {
   employeeRepo: ReturnType<typeof createEmployeeProfileRepo>;
 }): {
   roleRoutingEnabled: boolean;
-  selectedProfile: "planner" | "manager" | "employee";
+  selectedProfile: AgentPromptProfile;
   resolvedRole: "admin" | "manager" | "employee" | "unknown";
   reason:
     | "routing_disabled"
@@ -147,8 +148,8 @@ export function buildDingtalkOrchestratorRoutingParams(input: {
     | "admin_also_manager"
     | "employee_directory_match"
     | "employee_directory_miss";
-  toolProfile: "planner" | "manager" | "employee" | "admin" | "full";
-  promptProfile: "planner" | "manager" | "employee";
+  toolProfile: ToolProfile;
+  promptProfile: AgentPromptProfile;
   trustedActorUserId?: string;
 } {
   const roleRoutingEnabled = isDingtalkRoleRoutingEnabled();

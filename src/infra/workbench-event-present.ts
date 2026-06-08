@@ -175,6 +175,19 @@ export function presentWorkbenchTaskEvent(
             ? JSON.stringify(payload, null, 0)
             : undefined,
       };
+    case "SUBTASK_DUE_CHANGED": {
+      const from = asString(payload?.from);
+      const to = asString(payload?.to);
+      const change = from && to ? `${from} → ${to}` : to ? `截止改为 ${to}` : "截止时间已调整";
+      return {
+        occurredAt,
+        type,
+        severity: "warn",
+        title: "截止时间变更",
+        summary: withSubtaskCtx(`${actor} 调整了截止时间（${change}）`),
+        detail: note || undefined,
+      };
+    }
     case "TASK_STOPPED":
       return {
         occurredAt,

@@ -7,6 +7,7 @@ export type WorkbenchShellRole = "manager" | "employee" | "admin";
 export type WorkbenchNavId =
   | "mgr-tasks"
   | "mgr-dash"
+  | "mgr-perf"
   | "mgr-chat"
   | "mgr-proj"
   | "mgr-meeting-import"
@@ -68,6 +69,7 @@ function buildManagerRail(activeNav: WorkbenchNavId, portfolioEnabled: boolean, 
   <div class="wb-rail-grp-lbl">工作</div>
   ${railLink("/workbench/manager/tasks", "历史任务", "mgr-tasks", activeNav, "manager")}
   ${railLink("/workbench/manager/dashboard", "周度 Dashboard", "mgr-dash", activeNav, "manager")}
+  ${railLink("/workbench/manager/performance", "交付绩效", "mgr-perf", activeNav, "manager")}
   ${railLink("/workbench/manager/chat?thread=main", "智能规划助手", "mgr-chat", activeNav, "manager")}
   ${isTaskIntakeEnabled() ? railLink("/workbench/manager/task-intake", "任务快录入库", "mgr-task-intake", activeNav, "manager") : ""}
   ${portfolioEnabled ? railLink("/workbench/manager/meeting-import", "会议入库", "mgr-meeting-import", activeNav, "manager") : ""}

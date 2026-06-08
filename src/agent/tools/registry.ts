@@ -64,6 +64,11 @@ import {
   buildGetMetricsHandler,
 } from "./get-metrics";
 import {
+  GET_EMPLOYEE_PERFORMANCE_TOOL,
+  buildGetEmployeePerformanceHandler,
+  type PerformanceScope,
+} from "./performance-tools";
+import {
   LIST_MANAGERS_TOOL,
   buildListManagersHandler,
 } from "./list-managers";
@@ -162,9 +167,14 @@ export interface ToolRegistryDeps {
   orchestratorUserMessage?: string;
   /** 大项目 portfolio 主管：动态挂载 list/create/suggest/set_active_project */
   projectPortfolioEnabled?: boolean;
+  /**
+   * 绩效 Agent 范围：仅 toolProfile=performance 使用，决定 get_employee_performance 的统计范围。
+   * manager → 仅 managerUserId 名下；all → 全员（admin/老板）。
+   */
+  performanceScope?: PerformanceScope;
 }
 
-export type ToolProfile = "planner" | "employee" | "manager" | "admin" | "full";
+export type ToolProfile = "planner" | "employee" | "manager" | "admin" | "full" | "performance";
 
 export const KNOWN_TOOL_NAMES = [
   "search_employees",
@@ -191,6 +201,7 @@ export const KNOWN_TOOL_NAMES = [
   "get_my_profile",
   "admin_list_all_tasks",
   "get_metrics",
+  "get_employee_performance",
   "list_managers",
   "set_manager_permission",
   "get_current_time",
@@ -581,6 +592,17 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     };
   }
 
+  if (deps.performanceScope) {
+    all.get_employee_performance = {
+      definition: GET_EMPLOYEE_PERFORMANCE_TOOL,
+      handler: buildGetEmployeePerformanceHandler({
+        taskStore,
+        peopleStore,
+        scope: deps.performanceScope,
+      }),
+    };
+  }
+
   // Never trust actor identity from model arguments.
   const sensitiveTools = [
     "list_my_tasks",
@@ -687,6 +709,13 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "get_current_time",
       "update_known_facts",
       "list_known_facts",
+    ],
+    // 隔离的绩效问答 Agent：仅只读统计 + 查人 + 时间，无任何草案/发布/指派/催办能力。
+    performance: [
+      "get_employee_performance",
+      "search_employees",
+      "get_employee_details",
+      "get_current_time",
     ],
     full: Object.keys(all),
   };

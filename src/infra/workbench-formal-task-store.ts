@@ -71,6 +71,8 @@ export interface WorkbenchSubtaskRow {
   progressNote?: string;
   createdAt: string;
   updatedAt: string;
+  /** 子任务完成时间（status=DONE 时写入；迁出 DONE 时清空）。用于迟交/绩效统计。 */
+  completedAt?: string;
   /** 前置依赖任务 ID 列表（JSON 数组字符串）。 */
   dependsOn?: string[];
   checkpoints?: string[];
@@ -151,6 +153,50 @@ function ensureSubtaskRichColumns(db: DatabaseSync): void {
     } catch {
       // SQLite < 3.35 fallback: leave extra_json in place (harmless)
     }
+  }
+}
+
+function ensureSubtaskCompletedAtColumn(db: DatabaseSync): void {
+  const rows = db.prepare("PRAGMA table_info(subtasks)").all() as Array<{ name?: string }>;
+  if (!rows.some((r) => String(r.name ?? "") === "completed_at")) {
+    db.exec("ALTER TABLE subtasks ADD COLUMN completed_at TEXT");
+  }
+}
+
+/**
+ * 历史 DONE 行回填 completed_at：取该子任务最早一条 `SUBTASK_PROGRESS` 且
+ * payload.progressStatus='DONE' 的 occurred_at；缺失则回退 updated_at。
+ * 仅处理 completed_at IS NULL 的 DONE 行，避免覆盖已写入值。
+ */
+function backfillSubtaskCompletedAt(db: DatabaseSync): void {
+  const targets = db
+    .prepare("SELECT subtask_id, task_id, updated_at FROM subtasks WHERE status = 'DONE' AND completed_at IS NULL")
+    .all() as Array<{ subtask_id?: unknown; task_id?: unknown; updated_at?: unknown }>;
+  if (targets.length === 0) return;
+  const qDoneEvent = db.prepare(
+    "SELECT payload_json, occurred_at FROM task_events WHERE subtask_id = ? AND event_type = 'SUBTASK_PROGRESS' ORDER BY id ASC",
+  );
+  const setCompleted = db.prepare("UPDATE subtasks SET completed_at = ? WHERE subtask_id = ?");
+  for (const target of targets) {
+    const subtaskId = String(target.subtask_id ?? "");
+    if (!subtaskId) continue;
+    let resolved: string | undefined;
+    const events = qDoneEvent.all(subtaskId) as Array<{ payload_json?: unknown; occurred_at?: unknown }>;
+    for (const ev of events) {
+      let progressStatus = "";
+      try {
+        const payload = JSON.parse(String(ev.payload_json ?? "{}")) as Record<string, unknown>;
+        progressStatus = String(payload.progressStatus ?? "").toUpperCase();
+      } catch {
+        progressStatus = "";
+      }
+      if (progressStatus === "DONE") {
+        resolved = String(ev.occurred_at ?? "") || undefined;
+        break;
+      }
+    }
+    const completedAt = resolved ?? (String(target.updated_at ?? "") || undefined);
+    if (completedAt) setCompleted.run(completedAt, subtaskId);
   }
 }
 
@@ -559,6 +605,7 @@ export function createWorkbenchFormalTaskStore() {
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_task_no ON tasks(task_no)");
 
   ensureSubtaskRichColumns(db);
+  ensureSubtaskCompletedAtColumn(db);
   ensureTaskDescriptionColumn(db);
   ensureProjectsTable(db);
   ensureTaskProjectIdColumn(db);
@@ -573,6 +620,7 @@ export function createWorkbenchFormalTaskStore() {
   db.prepare("UPDATE tasks SET status = 'IN_PROGRESS', updated_at = ? WHERE status = 'ACCEPTED'").run(
     migratedAt,
   );
+  backfillSubtaskCompletedAt(db);
 
   const qTaskByPlan = db.prepare("SELECT * FROM tasks WHERE plan_id = ?");
   const qTaskById = db.prepare("SELECT * FROM tasks WHERE task_id = ?");
@@ -681,6 +729,7 @@ export function createWorkbenchFormalTaskStore() {
       progressNote: asString(row.progress_note),
       createdAt: String(row.created_at ?? ""),
       updatedAt: String(row.updated_at ?? ""),
+      completedAt: asString(row.completed_at),
       ...(dependsOn.length > 0 ? { dependsOn } : {}),
       ...(checkpoints.length > 0 ? { checkpoints } : {}),
       ...(risks.length > 0 ? { risks } : {}),
@@ -1213,12 +1262,25 @@ export function createWorkbenchFormalTaskStore() {
       }
       const now = nowIso();
       runInTransaction(() => {
-        db.prepare("UPDATE subtasks SET status = ?, progress_note = ?, updated_at = ? WHERE subtask_id = ?").run(
-          nextStatus,
-          input.note?.trim() || null,
-          now,
-          input.subtaskId,
-        );
+        if (nextStatus === "DONE" && previousStatus !== "DONE") {
+          // 首次进入 DONE：记录完成时间。
+          db.prepare(
+            "UPDATE subtasks SET status = ?, progress_note = ?, updated_at = ?, completed_at = ? WHERE subtask_id = ?",
+          ).run(nextStatus, input.note?.trim() || null, now, now, input.subtaskId);
+        } else if (nextStatus !== "DONE") {
+          // 迁出 DONE（或非完成态变更）：清空完成时间，保证迟交统计准确。
+          db.prepare(
+            "UPDATE subtasks SET status = ?, progress_note = ?, updated_at = ?, completed_at = NULL WHERE subtask_id = ?",
+          ).run(nextStatus, input.note?.trim() || null, now, input.subtaskId);
+        } else {
+          // DONE→DONE（如 customize 备注、重复进度）：保留既有 completed_at。
+          db.prepare("UPDATE subtasks SET status = ?, progress_note = ?, updated_at = ? WHERE subtask_id = ?").run(
+            nextStatus,
+            input.note?.trim() || null,
+            now,
+            input.subtaskId,
+          );
+        }
         db.prepare(
           "INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id, note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)",
         ).run(
@@ -2018,6 +2080,114 @@ export function createWorkbenchFormalTaskStore() {
       const updated = qTaskById.get(task.taskId) as Record<string, unknown> | undefined;
       if (!updated) throw new Error("Task not found after reassign");
       return mapTaskRow(updated);
+    },
+
+    /**
+     * 审计型截止时间变更：更新 subtasks.due_at 并写入 SUBTASK_DUE_CHANGED 事件（payload {from,to}）。
+     * 当前无 UI 触发（发布后 due_at 不可改），保留为绩效公正性基础设施——任何未来「改期」入口都应走此方法，
+     * 以便绩效聚合能识别 committed due 的变更、避免静默移动考核基线。
+     */
+    setSubtaskDueAt(input: {
+      subtaskId: string;
+      actorUserId: string;
+      dueAt: string;
+      note?: string;
+    }): WorkbenchSubtaskRow {
+      const row = db
+        .prepare(
+          "SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
+        )
+        .get(input.subtaskId) as Record<string, unknown> | undefined;
+      if (!row) throw new Error("Subtask not found");
+      const from = asString(row.due_at);
+      const to = input.dueAt?.trim() ? formatDueAtForStorage(input.dueAt) : "";
+      const now = nowIso();
+      runInTransaction(() => {
+        db.prepare("UPDATE subtasks SET due_at = ?, updated_at = ? WHERE subtask_id = ?").run(
+          to || null,
+          now,
+          input.subtaskId,
+        );
+        db.prepare(
+          "INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id, note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)",
+        ).run(
+          String(row.task_id ?? ""),
+          input.subtaskId,
+          "SUBTASK_DUE_CHANGED",
+          input.actorUserId,
+          input.note?.trim() || null,
+          stringify({ from, to }),
+          now,
+        );
+      });
+      const updated = db
+        .prepare("SELECT s.*, t.plan_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?")
+        .get(input.subtaskId) as Record<string, unknown> | undefined;
+      if (!updated) throw new Error("Failed to reload subtask after due change");
+      return mapSubtaskRow(updated);
+    },
+
+    /**
+     * 绩效统计原始数据集（只读）。SQL 留在 store，时间/迟交口径计算放 performance-facts（纯函数、可测）。
+     * scope.managerUserId 为空 → 全员（admin/老板视角）；否则仅该主管名下任务的子任务。
+     * 仅返回 due_at 非空的子任务（无截止无法判定迟交）。
+     */
+    loadPerformanceDataset(scope?: { managerUserId?: string }): {
+      subtasks: Array<{
+        subtaskId: string;
+        assigneeUserId: string;
+        status: WorkbenchTaskStatus;
+        dueAt?: string;
+        completedAt?: string;
+      }>;
+      reminders: Array<{ subtaskId: string; total: number }>;
+      overdueAlerts: Array<{ subtaskId: string; count: number }>;
+      reassignedSubtaskIds: string[];
+    } {
+      const managerUserId = String(scope?.managerUserId ?? "").trim();
+      const subtaskRows = (
+        managerUserId
+          ? db
+              .prepare(
+                "SELECT s.subtask_id, s.assignee_user_id, s.status, s.due_at, s.completed_at FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE t.manager_user_id = ? AND s.due_at IS NOT NULL",
+              )
+              .all(managerUserId)
+          : db
+              .prepare(
+                "SELECT s.subtask_id, s.assignee_user_id, s.status, s.due_at, s.completed_at FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.due_at IS NOT NULL",
+              )
+              .all()
+      ) as Array<Record<string, unknown>>;
+      const subtasks = subtaskRows.map((row) => ({
+        subtaskId: String(row.subtask_id ?? ""),
+        assigneeUserId: String(row.assignee_user_id ?? ""),
+        status: normalizeStatus(String(row.status ?? "ASSIGNED")),
+        dueAt: asString(row.due_at),
+        completedAt: asString(row.completed_at),
+      }));
+      const reminders = (
+        db.prepare("SELECT subtask_id, remind_count, manual_remind_count FROM subtask_reminder_state").all() as Array<
+          Record<string, unknown>
+        >
+      ).map((row) => ({
+        subtaskId: String(row.subtask_id ?? ""),
+        total: Number(row.remind_count ?? 0) + Number(row.manual_remind_count ?? 0),
+      }));
+      const overdueAlerts = (
+        db
+          .prepare(
+            "SELECT subtask_id, COUNT(*) AS count FROM task_events WHERE event_type = 'MANAGER_OVERDUE_ALERT_SENT' AND subtask_id IS NOT NULL GROUP BY subtask_id",
+          )
+          .all() as Array<Record<string, unknown>>
+      ).map((row) => ({ subtaskId: String(row.subtask_id ?? ""), count: Number(row.count ?? 0) }));
+      const reassignedSubtaskIds = (
+        db
+          .prepare(
+            "SELECT DISTINCT subtask_id FROM task_events WHERE event_type = 'MANAGER_REASSIGN' AND subtask_id IS NOT NULL",
+          )
+          .all() as Array<Record<string, unknown>>
+      ).map((row) => String(row.subtask_id ?? "")).filter(Boolean);
+      return { subtasks, reminders, overdueAlerts, reassignedSubtaskIds };
     },
 
     getMetrics(): {

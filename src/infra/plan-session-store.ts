@@ -76,7 +76,7 @@ export interface PlanSession {
   threadId?: string;
   /** Default side-thread label before first user message (e.g. 新规划会话 · MM-DD HH:mm). */
   threadLabel?: string;
-  lastAgentProfile?: "planner" | "manager" | "employee";
+  lastAgentProfile?: "planner" | "manager" | "employee" | "performance";
   conversationId?: string;
   conversationType?: string;
   senderStaffId?: string;

@@ -107,6 +107,13 @@ import {
 } from "./manager-workbench-pages";
 import { renderManagerProjectsPage } from "./manager-projects-pages";
 import { renderManagerDashboardPage } from "./manager-dashboard-page";
+import { renderPerformanceDashboardPage } from "./performance-dashboard-page";
+import {
+  buildPerformanceDashboardPayload,
+  isPerformanceDashboardEnabled,
+} from "./performance-dashboard-api";
+import { runPerformanceAgentTurn } from "../agent/performance-agent-turn";
+import type { PerformanceScope } from "../agent/tools/performance-tools";
 import { renderManagerMeetingImportPage } from "./manager-meeting-import-page";
 import {
   handleMeetingImportAnalyze,
@@ -168,6 +175,7 @@ const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/manager/projects",
   "/workbench/manager/tasks",
   "/workbench/manager/dashboard",
+  "/workbench/manager/performance",
   "/workbench/manager/chat",
   "/workbench/manager/meeting-import",
   "/workbench/manager/task-intake",
@@ -3277,6 +3285,73 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (isGetOrHead && url.pathname === "/api/workbench/manager/performance") {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    if (!isPerformanceDashboardEnabled()) {
+      writeJson(res, 404, { ok: false, error: "performance dashboard disabled" });
+      return true;
+    }
+    const canViewAll = resolveWorkbenchCapabilities(session.userId).canAccessAdmin;
+    const scope: PerformanceScope = canViewAll
+      ? { kind: "all" }
+      : { kind: "manager", managerUserId: session.userId };
+    const peopleStore = createPeopleDirectoryStore();
+    try {
+      const payload = buildPerformanceDashboardPayload({
+        taskStore: getFormalTaskStore(),
+        scope,
+        windowDays: url.searchParams.get("windowDays"),
+        resolveName: (uid) => peopleStore.getContact(uid)?.name?.trim(),
+      });
+      writeJson(res, 200, payload);
+    } finally {
+      peopleStore.close();
+    }
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/performance/chat") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!isPerformanceDashboardEnabled()) {
+          writeJson(res, 404, { ok: false, error: "performance dashboard disabled" });
+          return;
+        }
+        if (!qwenConfig) {
+          writeJson(res, 503, { ok: false, error: "LLM not configured" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const message = String(body.message ?? "").trim();
+        if (!message) {
+          writeJson(res, 400, { ok: false, error: "message is required" });
+          return;
+        }
+        const canViewAll = resolveWorkbenchCapabilities(session.userId).canAccessAdmin;
+        const scope: PerformanceScope = canViewAll
+          ? { kind: "all" }
+          : { kind: "manager", managerUserId: session.userId };
+        const turn = await runPerformanceAgentTurn({
+          userMessage: message,
+          clientConfig: buildManagerQwenClientConfig(qwenConfig),
+          employeeRepo,
+          actorUserId: session.userId,
+          scope,
+        });
+        writeJson(res, 200, { ok: true, message: turn.message });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "chat failed",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/workbench/manager/meeting-import/parse") {
     void (async () => {
       try {
@@ -5787,6 +5862,13 @@ export function handleAssignmentHttp(
             projectPortfolioEnabled: portfolioEnabled,
             initialProjectId,
             showAdminOpsLink,
+          })
+          : url.pathname === "/workbench/manager/performance"
+          ? renderPerformanceDashboardPage({
+            userLabel,
+            canViewAll: showAdminOpsLink,
+            showAdminOpsLink,
+            portfolioEnabled,
           })
           : url.pathname === "/workbench/manager/projects"
           ? renderManagerProjectsPage({
