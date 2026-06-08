@@ -5,8 +5,9 @@ import { createWorkbenchPublishNotifier } from "../integrations/dingtalk/workben
 import { createWorkbenchFormalTaskStore } from "../infra/workbench-formal-task-store";
 import { structureTasksFromText } from "../agent/task-intake/structure-input";
 import { buildPreviewRows } from "../agent/task-intake/resolve-assignees";
-import { commitTaskIntake } from "../agent/task-intake/commit-task-intake";
+import { appendTaskIntake, commitTaskIntake } from "../agent/task-intake/commit-task-intake";
 import type {
+  TaskIntakeAppendResult,
   TaskIntakeCommitResult,
   TaskIntakeCommitRow,
   TaskIntakePreviewRow,
@@ -36,6 +37,22 @@ export async function handleTaskIntakePreview(input: {
     warnings: result.warnings,
     usedFallback: result.usedFallback,
   };
+}
+
+export async function handleTaskIntakeAppend(input: {
+  taskStore: TaskStore;
+  managerUserId: string;
+  targetPlanId: string;
+  rows: TaskIntakeCommitRow[];
+  actorName?: string;
+}): Promise<TaskIntakeAppendResult> {
+  return appendTaskIntake({
+    taskStore: input.taskStore,
+    managerUserId: input.managerUserId,
+    targetPlanId: input.targetPlanId,
+    rows: input.rows,
+    actorName: input.actorName,
+  });
 }
 
 export async function handleTaskIntakeCommit(input: {

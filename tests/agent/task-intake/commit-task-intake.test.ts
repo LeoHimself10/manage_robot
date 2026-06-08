@@ -21,13 +21,13 @@ function row(over: Partial<TaskIntakeCommitRow>): TaskIntakeCommitRow {
     itemId: over.itemId ?? "ti_1",
     selected: over.selected ?? true,
     title: over.title ?? "任务",
-    objective: over.objective ?? "",
-    // deliverables / completionCriteria are required — defaults to non-empty stubs
+    // objective / deliverables / completionCriteria / dueAt are required — defaults to non-empty stubs
+    objective: over.objective !== undefined ? over.objective : "默认目标",
     deliverables: over.deliverables ?? "默认交付物",
     completionCriteria: over.completionCriteria ?? "默认完成标准",
     actions: over.actions ?? "",
     dependsOn: over.dependsOn ?? "",
-    dueAt: over.dueAt,
+    dueAt: over.dueAt !== undefined ? over.dueAt : "2026-12-31",
     assigneeUserId: over.assigneeUserId ?? "",
   };
 }

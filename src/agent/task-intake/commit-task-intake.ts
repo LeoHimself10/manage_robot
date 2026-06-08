@@ -13,7 +13,12 @@ import {
   createRecentPublishStore,
 } from "../tools/publish-task";
 import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
-import type { TaskIntakeCommitResult, TaskIntakeCommitRow } from "./types";
+import type {
+  TaskIntakeAppendInput,
+  TaskIntakeAppendResult,
+  TaskIntakeCommitResult,
+  TaskIntakeCommitRow,
+} from "./types";
 
 type TaskStore = ReturnType<typeof createWorkbenchFormalTaskStore>;
 
@@ -221,4 +226,87 @@ export async function commitTaskIntake(input: {
     },
     errors,
   };
+}
+
+/** Append subtasks to an existing parent task directly (no new parent created). */
+export async function appendTaskIntake(
+  input: TaskIntakeAppendInput & {
+    taskStore: TaskStore;
+  },
+): Promise<TaskIntakeAppendResult> {
+  const selected = input.rows.filter((r) => r.selected);
+  if (selected.length === 0) {
+    return { mode: "empty", appendedCount: 0, errors: [] };
+  }
+
+  const validationErrors: TaskIntakeAppendResult["errors"] = [];
+  for (const row of selected) {
+    const label = row.title || row.itemId;
+    if (!row.title.trim()) {
+      validationErrors.push({ itemId: row.itemId, message: "子任务标题不能为空（必填）" });
+    }
+    if (!(row.objective ?? "").trim()) {
+      validationErrors.push({ itemId: row.itemId, message: `「${label}」目标不能为空（必填）` });
+    }
+    if (!row.deliverables.trim()) {
+      validationErrors.push({ itemId: row.itemId, message: `「${label}」交付物不能为空（必填）` });
+    }
+    if (!row.completionCriteria.trim()) {
+      validationErrors.push({ itemId: row.itemId, message: `「${label}」完成标准不能为空（必填）` });
+    }
+    if (!(row.dueAt ?? "").trim()) {
+      validationErrors.push({ itemId: row.itemId, message: `「${label}」截止日期不能为空（必填）` });
+    }
+    // Append mode always requires assignee — no staged path for existing tasks.
+    if (!row.assigneeUserId?.trim()) {
+      validationErrors.push({
+        itemId: row.itemId,
+        message: `「${label}」追加模式下负责人为必填项`,
+      });
+    }
+  }
+  if (validationErrors.length > 0) {
+    return { mode: "invalid", appendedCount: 0, errors: validationErrors };
+  }
+
+  const errors: TaskIntakeAppendResult["errors"] = [];
+  let appendedCount = 0;
+  let targetTask: TaskIntakeAppendResult["targetTask"];
+
+  for (const row of selected) {
+    try {
+      const result = input.taskStore.appendSubtask({
+        planId: input.targetPlanId,
+        managerUserId: input.managerUserId,
+        title: row.title,
+        assigneeUserId: row.assigneeUserId,
+        objective: row.objective,
+        deliverables: row.deliverables,
+        completionCriteria: row.completionCriteria,
+        dueAt: row.dueAt,
+        actions: splitListCell(row.actions),
+        dependsOn: splitListCell(row.dependsOn),
+        actorName: input.actorName,
+      });
+      appendedCount++;
+      if (!targetTask) {
+        targetTask = {
+          taskNo: String(result.task.taskNo ?? ""),
+          title: result.task.title,
+          planId: result.task.planId,
+        };
+      }
+    } catch (err) {
+      errors.push({
+        itemId: row.itemId,
+        message: `「${row.title}」追加失败：${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+
+  if (appendedCount === 0) {
+    return { mode: "invalid", appendedCount: 0, errors };
+  }
+
+  return { mode: "appended", appendedCount, targetTask, errors };
 }

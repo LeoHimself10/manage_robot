@@ -427,6 +427,50 @@ export function renderManagerTaskIntakePage(params: {
 }
 .ti-result-icon { font-size: 28px; margin-bottom: 10px; }
 .ti-result strong { color: var(--ti-ink); }
+
+/* ── Per-card target badge ────────────────────── */
+.ti-target-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid var(--ti-border); border-radius: 5px;
+  font-family: var(--ti-mono); font-size: 10.5px; font-weight: 500;
+  color: var(--ti-ink-3); background: var(--ti-bg);
+  cursor: pointer; flex-shrink: 0; white-space: nowrap;
+  transition: border-color .12s, color .12s, background .12s;
+  user-select: none; max-width: 140px; overflow: hidden; text-overflow: ellipsis;
+}
+.ti-target-badge:hover { border-color: var(--ti-accent); color: var(--ti-accent); background: var(--ti-accent-pale); }
+.ti-target-badge.is-append { border-color: var(--ti-accent); color: var(--ti-accent); background: var(--ti-accent-pale); }
+.ti-target-badge .ti-tb-icon { font-size: 10px; }
+
+/* ── Target picker popover ────────────────────── */
+.ti-target-popover {
+  position: fixed; z-index: 20000;
+  width: 280px;
+  background: var(--ti-surface);
+  border: 1px solid var(--ti-border); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15,23,42,.15), 0 2px 8px rgba(15,23,42,.08);
+  padding: 10px 0 6px;
+}
+.ti-target-popover[hidden] { display: none !important; }
+.ti-tp-search {
+  margin: 0 10px 6px;
+  font-family: var(--ti-sans); font-size: 13px;
+  border: 1.5px solid var(--ti-border); border-radius: 8px;
+  padding: 7px 10px; width: calc(100% - 20px); box-sizing: border-box;
+  background: var(--ti-bg);
+}
+.ti-tp-search:focus { outline: none; border-color: var(--ti-accent); }
+.ti-tp-list { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow-y: auto; }
+.ti-tp-list li {
+  padding: 8px 14px; cursor: pointer;
+  font-family: var(--ti-sans); font-size: 13px; color: var(--ti-ink-2);
+  display: flex; align-items: baseline; gap: 8px;
+  transition: background .1s;
+}
+.ti-tp-list li:hover { background: var(--ti-accent-pale); color: var(--ti-accent); }
+.ti-tp-list li.is-new { font-weight: 600; color: var(--ti-ink); border-bottom: 1px solid var(--ti-border); }
+.ti-tp-no { font-family: var(--ti-mono); font-size: 10.5px; color: var(--ti-ink-3); flex-shrink: 0; }
 `;
 
   return renderWorkbenchPage({
@@ -460,13 +504,19 @@ export function renderManagerTaskIntakePage(params: {
     </div>
   </nav>
 
+  <!-- Target picker popover (shared, positioned by JS) -->
+  <div class="ti-target-popover" id="targetPopover" hidden>
+    <input class="ti-tp-search" id="tpSearch" type="search" placeholder="搜索已有任务…" autocomplete="off" />
+    <ul class="ti-tp-list" id="tpList"></ul>
+  </div>
+
   <!-- Step 1 -->
   <div class="ti-panel" id="step1Panel">
     <div class="ti-panel-inner">
       <div class="ti-section-head"><h2>粘贴已拆好的任务清单</h2></div>
       <div class="ti-section-body" style="display:flex;flex-direction:column;gap:14px;">
         <div class="ti-field-wrap">
-          <span class="ti-lbl">父任务标题 <span class="ti-lbl-hint">可选，留空由系统提炼</span></span>
+          <span class="ti-lbl">父任务标题 <span class="ti-lbl-hint">可选，留空由系统提炼；若全部子任务追加到已有任务可忽略</span></span>
           <input id="parentTitle" type="text" class="ti-box-input" placeholder="如：6月注册申报准备" />
         </div>
         <div class="ti-field-wrap">
@@ -483,8 +533,9 @@ export function renderManagerTaskIntakePage(params: {
 
   <!-- Step 2 -->
   <div class="ti-panel" id="step2Panel" hidden>
-    <!-- Parent task form -->
-    <div class="ti-panel-inner" style="margin-bottom:16px;">
+
+    <!-- Parent task form (new mode) -->
+    <div class="ti-panel-inner" style="margin-bottom:16px;" id="parentFormPanel">
       <div class="ti-section-head"><h2>父任务信息</h2></div>
       <div class="ti-section-body">
         <div class="ti-parent-form" id="parentForm">
@@ -532,7 +583,13 @@ ${buildWorkbenchViewSwitchClientJs()}
 ${buildWorkbenchContactComboClientJs()}
 (function () {
   var PORTFOLIO = ${portfolio ? "true" : "false"};
-  var state = { rows: [], parentTitle: "", parentDescription: "" };
+  var state = {
+    rows: [],           // TaskIntakePreviewRow + targetPlanId field
+    parentTitle: "",
+    parentDescription: "",
+    allTasks: null,     // { planId, title, taskNo, status }[] cached
+    pickerForIdx: -1,   // which card is currently picking a target
+  };
 
   /* ── utils ── */
   function setStep(n) {
@@ -584,11 +641,21 @@ ${buildWorkbenchContactComboClientJs()}
       /* ── head ── */
       var head = document.createElement("div");
       head.className = "ti-card-head";
+      var targetTitle = row.targetTitle || "";
+      var badgeHtml = row.targetPlanId
+        ? '<span class="ti-target-badge is-append" title="' + esc(targetTitle) + '"><span class="ti-tb-icon">↪</span>' + esc(targetTitle.length > 12 ? targetTitle.slice(0, 12) + "…" : targetTitle) + '</span>'
+        : '<span class="ti-target-badge" title="新建父任务"><span class="ti-tb-icon">＋</span>新建</span>';
       head.innerHTML =
         '<input type="checkbox" class="ti-card-check row-selected" ' + (row.selected !== false ? "checked" : "") + ' aria-label="入库此条" />' +
         '<span class="ti-card-num">' + String(idx + 1).padStart(2, "0") + '</span>' +
+        badgeHtml +
         '<input type="text" class="ti-card-title row-title" value="' + esc(row.title || "") + '" placeholder="子任务标题（必填）" />';
       card.appendChild(head);
+      // wire target badge click
+      head.querySelector(".ti-target-badge").addEventListener("click", function (e) {
+        e.stopPropagation();
+        openPopoverFor(idx, e.currentTarget);
+      });
 
       /* ── body ── */
       var body = document.createElement("div");
@@ -602,7 +669,7 @@ ${buildWorkbenchContactComboClientJs()}
       assigneeWrap.className = "ti-assignee-wrap ti-ifield";
       var aLbl = document.createElement("span");
       aLbl.className = "ti-lbl";
-      aLbl.innerHTML = '负责人 <span style="color:var(--ti-req-color);font-weight:700;">·</span> <span class="ti-lbl-hint">输入姓名 1 字起搜索；留空→暂存草案</span>';
+      aLbl.innerHTML = '负责人 <span style="color:var(--ti-req-color);font-weight:700;">·</span> <span class="ti-lbl-hint">输入姓名搜索；追加模式必填，新建可留空→暂存草案</span>';
       var aInput = document.createElement("input");
       aInput.type = "search";
       aInput.autocomplete = "off";
@@ -688,14 +755,16 @@ ${buildWorkbenchContactComboClientJs()}
       var chk = head.querySelector(".row-selected");
       chk.addEventListener("change", function () {
         card.classList.toggle("is-unchecked", !chk.checked);
+        state.rows[idx].selected = chk.checked;
+        updateParentFormVisibility();
+        updateStats();
       });
       if (row.selected === false) card.classList.add("is-unchecked");
 
       container.appendChild(card);
     });
 
-    document.getElementById("previewStats").textContent =
-      state.rows.length + " 条子任务 · 全部有负责人 → 直接入库正式任务 · 有缺项 → 暂存草案供点将后发布";
+    updateStats();
   }
 
   function collectRows() {
@@ -715,9 +784,133 @@ ${buildWorkbenchContactComboClientJs()}
         dependsOn: card.querySelector(".row-depends").value,
         dueAt: card.querySelector(".row-due").value || undefined,
         assigneeUserId: card.querySelector(".row-assignee-id").value.trim(),
+        targetPlanId: base.targetPlanId || undefined,
+        targetTitle: base.targetTitle || undefined,
       });
     });
     return out;
+  }
+
+  /* ── load existing tasks (cached) ── */
+  async function loadAllTasks() {
+    if (state.allTasks) return state.allTasks;
+    try {
+      var res = await fetch("/api/workbench/manager/tasks");
+      var data = await res.json();
+      if (!data.ok) return [];
+      state.allTasks = (data.tasks || []).filter(function (t) {
+        return t.status !== "DONE" && t.status !== "STOPPED";
+      });
+      return state.allTasks;
+    } catch (e) { return []; }
+  }
+
+  /* ── per-card target popover ── */
+  var popover = document.getElementById("targetPopover");
+  var tpSearch = document.getElementById("tpSearch");
+  var tpList = document.getElementById("tpList");
+  var tpSearchTimer = null;
+
+  function closePopover() {
+    popover.hidden = true;
+    state.pickerForIdx = -1;
+    tpSearch.value = "";
+  }
+
+  function renderTpList(tasks, kw) {
+    tpList.innerHTML = "";
+    // "新建父任务" option always first
+    var newLi = document.createElement("li");
+    newLi.className = "is-new";
+    newLi.innerHTML = '<span style="margin-right:4px;">＋</span> 新建父任务';
+    newLi.addEventListener("mousedown", function (e) { e.preventDefault(); setCardTarget(state.pickerForIdx, null); closePopover(); });
+    tpList.appendChild(newLi);
+
+    var filtered = kw ? tasks.filter(function (t) { return (t.title || "").includes(kw); }) : tasks;
+    filtered.slice(0, 10).forEach(function (t) {
+      var li = document.createElement("li");
+      li.innerHTML = '<span class="ti-tp-no">' + esc(t.taskNo || "") + '</span>' + esc(t.title || "");
+      li.addEventListener("mousedown", function (e) { e.preventDefault(); setCardTarget(state.pickerForIdx, t); closePopover(); });
+      tpList.appendChild(li);
+    });
+    if (!filtered.length && kw) {
+      var empty = document.createElement("li");
+      empty.style.cssText = "color:var(--ti-ink-3);cursor:default;";
+      empty.textContent = "无匹配任务";
+      tpList.appendChild(empty);
+    }
+  }
+
+  async function openPopoverFor(idx, badgeEl) {
+    state.pickerForIdx = idx;
+    tpSearch.value = "";
+    var tasks = await loadAllTasks();
+    renderTpList(tasks, "");
+    // position near badge
+    var rect = badgeEl.getBoundingClientRect();
+    var top = rect.bottom + window.scrollY + 4;
+    var left = rect.left + window.scrollX;
+    // keep within viewport
+    if (left + 280 > window.innerWidth - 8) left = window.innerWidth - 288;
+    popover.style.top = top + "px";
+    popover.style.left = left + "px";
+    popover.hidden = false;
+    tpSearch.focus();
+  }
+
+  tpSearch.addEventListener("input", async function () {
+    var kw = this.value.trim();
+    clearTimeout(tpSearchTimer);
+    tpSearchTimer = setTimeout(async function () {
+      var tasks = await loadAllTasks();
+      renderTpList(tasks, kw);
+    }, 150);
+  });
+
+  document.addEventListener("click", function (e) {
+    if (!popover.hidden && !popover.contains(e.target)) closePopover();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closePopover();
+  });
+
+  function setCardTarget(idx, task) {
+    if (idx < 0 || idx >= state.rows.length) return;
+    state.rows[idx].targetPlanId = task ? task.planId : undefined;
+    state.rows[idx].targetTitle = task ? task.title : undefined;
+    state.rows[idx].targetNo = task ? task.taskNo : undefined;
+    // update badge
+    var card = document.querySelector('.ti-card[data-idx="' + idx + '"]');
+    if (!card) return;
+    var badge = card.querySelector(".ti-target-badge");
+    if (!badge) return;
+    if (task) {
+      badge.className = "ti-target-badge is-append";
+      badge.title = task.title;
+      badge.innerHTML = '<span class="ti-tb-icon">↪</span>' + esc(task.title.length > 12 ? task.title.slice(0, 12) + "…" : task.title);
+    } else {
+      badge.className = "ti-target-badge";
+      badge.title = "新建父任务";
+      badge.innerHTML = '<span class="ti-tb-icon">＋</span>新建';
+    }
+    updateParentFormVisibility();
+    updateStats();
+  }
+
+  function updateParentFormVisibility() {
+    var anyNew = state.rows.some(function (r) { return r.selected !== false && !r.targetPlanId; });
+    document.getElementById("parentFormPanel").hidden = !anyNew;
+  }
+
+  function updateStats() {
+    var sel = state.rows.filter(function (r) { return r.selected !== false; });
+    var newCount = sel.filter(function (r) { return !r.targetPlanId; }).length;
+    var appendCount = sel.length - newCount;
+    var parts = [sel.length + " 条子任务已勾选"];
+    if (newCount) parts.push(newCount + " 条新建父任务");
+    if (appendCount) parts.push(appendCount + " 条追加到已有任务");
+    parts.push("· 点击卡片左上角「归属」可逐条切换");
+    document.getElementById("previewStats").textContent = parts.join(" · ");
   }
 
   /* ── step 1: parse ── */
@@ -734,7 +927,9 @@ ${buildWorkbenchContactComboClientJs()}
       });
       var data = await res.json();
       if (!data.ok) throw new Error(data.error || "解析失败");
-      state.rows = data.rows || [];
+      state.rows = (data.rows || []).map(function (r) {
+        r.targetPlanId = undefined; r.targetTitle = undefined; r.targetNo = undefined; return r;
+      });
       state.parentTitle = data.parentTitle || "";
       state.parentDescription = data.parentDescription || "";
       if (!state.rows.length) { setFb("parseFeedback", "未识别到任务，请检查粘贴内容", true); return; }
@@ -743,34 +938,48 @@ ${buildWorkbenchContactComboClientJs()}
       document.getElementById("parentDesc2").value = state.parentDescription;
       await loadProjects();
       renderCards();
+      updateParentFormVisibility();
       setStep(2);
     } catch (err) {
       setFb("parseFeedback", err.message || String(err), true);
     }
   });
 
-  /* ── step 2: commit ── */
+  /* ── step 2: commit (mixed-batch) ── */
   document.getElementById("commitBtn").addEventListener("click", async function () {
     setFb("commitFeedback", "", false);
-    var parentTitle = document.getElementById("parentTitle2").value.trim();
-    var parentDescription = document.getElementById("parentDesc2").value.trim();
     var rows = collectRows();
     var selected = rows.filter(function (r) { return r.selected; });
 
+    // Basic validation
     var problems = [];
-    if (!parentTitle) problems.push("父任务标题必填");
-    if (!parentDescription) problems.push("父任务描述/背景必填");
     if (!selected.length) problems.push("请至少勾选 1 条子任务");
     var noTitle = selected.filter(function (r) { return !r.title; });
     if (noTitle.length) problems.push(noTitle.length + " 条子任务标题为空");
     var noObj = selected.filter(function (r) { return !String(r.objective || "").trim(); });
-    if (noObj.length) problems.push(noObj.length + " 条子任务目标为空（必填，可修改模型草稿）");
+    if (noObj.length) problems.push(noObj.length + " 条子任务目标为空（必填）");
     var noDel = selected.filter(function (r) { return !String(r.deliverables || "").trim(); });
-    if (noDel.length) problems.push(noDel.length + " 条子任务交付物为空（必填，可修改模型草稿）");
+    if (noDel.length) problems.push(noDel.length + " 条子任务交付物为空（必填）");
     var noCrit = selected.filter(function (r) { return !String(r.completionCriteria || "").trim(); });
-    if (noCrit.length) problems.push(noCrit.length + " 条子任务完成标准为空（必填，可修改模型草稿）");
+    if (noCrit.length) problems.push(noCrit.length + " 条子任务完成标准为空（必填）");
     var noDue = selected.filter(function (r) { return !r.dueAt; });
     if (noDue.length) problems.push(noDue.length + " 条子任务截止日期为空（必填）");
+
+    // Append rows must have an assignee
+    var appendRows = selected.filter(function (r) { return r.targetPlanId; });
+    var noAssigneeAppend = appendRows.filter(function (r) { return !r.assigneeUserId; });
+    if (noAssigneeAppend.length) problems.push(noAssigneeAppend.length + " 条「追加到已有任务」的子任务负责人为空（必填）");
+
+    // New parent rows need parent title/desc
+    var newRows = selected.filter(function (r) { return !r.targetPlanId; });
+    var parentTitle = "", parentDescription = "";
+    if (newRows.length) {
+      parentTitle = document.getElementById("parentTitle2").value.trim();
+      parentDescription = document.getElementById("parentDesc2").value.trim();
+      if (!parentTitle) problems.push("新建父任务标题必填");
+      if (!parentDescription) problems.push("新建父任务描述/背景必填");
+    }
+
     if (problems.length) {
       setFb("commitFeedback", "请先补齐：" + problems.join("；"), true);
       return;
@@ -778,43 +987,87 @@ ${buildWorkbenchContactComboClientJs()}
 
     setFb("commitFeedback", "提交中…", false);
     try {
-      var projectSel = document.getElementById("projectSelect");
-      var res = await fetch("/api/workbench/manager/task-intake/commit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          parentTitle: parentTitle,
-          parentDescription: parentDescription,
-          projectId: projectSel ? projectSel.value : "",
-          projectName: projectSel && projectSel.value ? ((projectSel.options[projectSel.selectedIndex] || {}).text || "") : "",
-          rows: rows,
-        }),
+      var htmlParts = [];
+      var firstTaskLink = "/workbench/manager/tasks";
+      var firstLinkText = "查看任务";
+
+      // 1) New parent group
+      if (newRows.length) {
+        var projectSel = document.getElementById("projectSelect");
+        var commitRes = await fetch("/api/workbench/manager/task-intake/commit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            parentTitle: parentTitle,
+            parentDescription: parentDescription,
+            projectId: projectSel ? projectSel.value : "",
+            projectName: projectSel && projectSel.value ? ((projectSel.options[projectSel.selectedIndex] || {}).text || "") : "",
+            rows: rows.map(function (r) { return Object.assign({}, r, { selected: r.selected && !r.targetPlanId }); }),
+          }),
+        });
+        var cd = await commitRes.json();
+        if (!cd.ok) throw new Error(cd.error || "新建父任务录入失败");
+        var cr = cd.result || {};
+        if (cr.mode === "invalid") {
+          setFb("commitFeedback", "新建父任务必填项未通过：" + (cr.errors || []).map(function (e) { return e.message; }).join("；"), true);
+          return;
+        }
+        if (cr.mode === "published") {
+          htmlParts.push('<p>✅ 已入库正式任务 <strong>' + esc(cr.task ? cr.task.title : "") + '</strong>（' + esc(cr.task ? cr.task.taskNo : "") + '），含 <strong>' + cr.subtaskCount + '</strong> 条子任务。</p>');
+          firstTaskLink = "/workbench/manager/tasks";
+          firstLinkText = "查看任务";
+        } else if (cr.mode === "staged") {
+          htmlParts.push('<p>📋 ' + newRows.length + ' 条子任务（新建父任务）有负责人缺项，已暂存草案。</p>');
+          firstTaskLink = cr.stagedDeepLink || "/workbench/manager/chat?thread=main&openDraftEditor=1";
+          firstLinkText = "去点将发布 →";
+        }
+      }
+
+      // 2) Append groups (one per unique targetPlanId)
+      var appendGroups = {};
+      appendRows.forEach(function (r) {
+        if (!appendGroups[r.targetPlanId]) appendGroups[r.targetPlanId] = [];
+        appendGroups[r.targetPlanId].push(r);
       });
-      var data = await res.json();
-      if (!data.ok) throw new Error(data.error || "录入失败");
-      var r = data.result || {};
-      if (r.mode === "invalid") {
-        setFb("commitFeedback", "必填项未通过：" + (r.errors || []).map(function (e) { return e.message; }).join("；"), true);
-        return;
+      for (var planId in appendGroups) {
+        var grpRows = appendGroups[planId];
+        // pass all rows with selected=true only for this group
+        var appendPayloadRows = rows.map(function (r) { return Object.assign({}, r, { selected: r.selected && r.targetPlanId === planId }); });
+        var appendRes = await fetch("/api/workbench/manager/task-intake/append", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetPlanId: planId, rows: appendPayloadRows }),
+        });
+        var ad = await appendRes.json();
+        if (!ad.ok) {
+          htmlParts.push('<p style="color:var(--ti-req-color);">追加失败（' + esc(planId) + '）：' + esc(ad.error || "未知错误") + '</p>');
+          continue;
+        }
+        var ar = ad.result || {};
+        if (ar.mode === "invalid") {
+          setFb("commitFeedback", "追加必填项未通过：" + (ar.errors || []).map(function (e) { return e.message; }).join("；"), true);
+          return;
+        }
+        var tTitle = ar.targetTask ? ar.targetTask.title : (grpRows[0] && grpRows[0].targetTitle) || "";
+        var tNo = ar.targetTask ? ar.targetTask.taskNo : "";
+        var tPlanId = ar.targetTask ? ar.targetTask.planId : planId;
+        htmlParts.push('<p>✅ 已追加 <strong>' + ar.appendedCount + '</strong> 条子任务到「<strong>' + esc(tTitle) + '</strong>」' + (tNo ? '（' + esc(tNo) + '）' : '') + '。</p>');
+        if (!firstTaskLink || firstTaskLink === "/workbench/manager/tasks") {
+          firstTaskLink = "/workbench/manager/tasks?planId=" + encodeURIComponent(tPlanId);
+          firstLinkText = "查看任务详情";
+        }
+        if (ar.errors && ar.errors.length) {
+          htmlParts.push('<p style="color:var(--ti-ink-3);font-size:12px;">' + ar.errors.map(function (e) { return esc(e.message); }).join("；") + '</p>');
+        }
       }
-      var html = "";
-      if (r.mode === "published") {
-        html = '<div class="ti-result-icon">✅</div>' +
-          '<p>已入库正式任务 <strong>' + esc(r.task ? r.task.title : "") + '</strong>' +
-          '（' + esc(r.task ? r.task.taskNo : "") + '），含 <strong>' + r.subtaskCount + '</strong> 条子任务。</p>' +
-          (r.errors && r.errors.length ? '<p style="color:var(--ti-ink-3);font-size:12px;">' + r.errors.map(function (e) { return esc(e.message); }).join("；") + '</p>' : '');
-        document.getElementById("tasksLink").href = "/workbench/manager/tasks";
-        document.getElementById("tasksLink").textContent = "查看任务";
-      } else if (r.mode === "staged") {
-        html = '<div class="ti-result-icon">📋</div>' +
-          '<p>有子任务未指定负责人，已将草案（<strong>' + r.subtaskCount + '</strong> 条子任务）暂存至智能规划助手，请在 Excel 编辑器中点将后发布。</p>' +
-          (r.errors && r.errors.length ? '<p style="color:var(--ti-ink-3);font-size:12px;">' + r.errors.map(function (e) { return esc(e.message); }).join("；") + '</p>' : '');
-        document.getElementById("tasksLink").href = r.stagedDeepLink || "/workbench/manager/chat?thread=main&openDraftEditor=1";
-        document.getElementById("tasksLink").textContent = "去点将发布 →";
+
+      if (!htmlParts.length) {
+        document.getElementById("resultBody").innerHTML = "<p>没有选中任何子任务。</p>";
       } else {
-        html = "<p>没有选中任何子任务。</p>";
+        document.getElementById("resultBody").innerHTML = '<div class="ti-result-icon">✅</div>' + htmlParts.join("");
       }
-      document.getElementById("resultBody").innerHTML = html;
+      document.getElementById("tasksLink").href = firstTaskLink;
+      document.getElementById("tasksLink").textContent = firstLinkText;
       setStep(3);
     } catch (err) {
       setFb("commitFeedback", err.message || String(err), true);
