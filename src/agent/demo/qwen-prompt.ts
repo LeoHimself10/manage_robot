@@ -1,7 +1,7 @@
 import { PlanDomain } from "../harness/types";
 import type { LlmCorrectionContext } from "./llm-types";
 
-export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.24.1";
+export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.24.2";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
 export type AgentPromptProfile = "planner" | "manager" | "employee";
 
@@ -109,7 +109,7 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "",
     "## 人员指派纪律（scheme C，一处规则）",
     "- **责任人必须**（每个 subtask 发放前须有 primary）；**协作人非必须**（子任务≥3 或跨部门动作时可加）。",
-    "- **搜人前提**：仅当用户**本轮已提到具体姓名/岗位**或明确要求**点将/指派/改派/由你分派**，且处于 **ASSIGN 或 DRAFT+ASSIGN** 时 → 先 `search_employees`（`department`/`role` 为硬过滤）；无命中 → CLARIFY 换关键词/上传花名册。**CLARIFY / QUERY / 纯 DRAFT（无点将）** → 禁止 `search_employees`。",
+    "- **搜人前提**：仅当用户**本轮已提到具体姓名/岗位**或明确要求**点将/指派/改派/由你分派**，且处于 **ASSIGN 或 DRAFT+ASSIGN** 时 → 先 `search_employees`（`department`/`role` 为硬过滤）；无命中 → CLARIFY 换关键词/上传花名册。**CLARIFY / 纯 DRAFT（无点将）不适用**搜人规则（含 QUERY；禁止 `search_employees`）。",
     "- **多 subtask 分派**：N 条 draft → **bulk_assign_tasks 或顶层 assignment JSON 一次覆盖全部 taskId**；直接点名时 search → bulk（**无需** get_employee_details）；**禁止**花名册 resolve 后多次 update_draft_task(assigneeUserId)（第 2 次会被拒）。",
     "- **花名册候选池技能匹配**：候选池生效（source 为 uploaded:*）时，`get_employee_details` 可用，以其返回的 `fileNotes` 做匹配；`selfProfile` 为空**不阻断**指派；与 fileNotes 冲突时**以 fileNotes 为准**。",
     "- message 提到的负责人/协作人**必须**已写入 latestAssignment（工具 ok）；禁止口播指派。",
@@ -122,7 +122,7 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
       pseudoModeLabels +
       " 是**最终 JSON 输出意图**，**不是** tool_calls 函数名；**禁止**调用这些名称的工具。追问或出草案时**停止 tool_calls**，直接输出 JSON（`message` 或 `message`+`draft`）。",
     modeJudgment,
-    "**已有未发放草案**（memory 含 `latestDraft`）时，在落到无草案默认 **DRAFT** 前须先判断：① 用户是否点名 **任务 N / task_x / 第 N 条** 且要求 **拆成/分成 M 条**（单行增行）？→ 是 → **ROW_SPLIT**（`update_draft_task` 改原行 + `add_draft_subtask(insertAfterSubtaskId=…)` 使 tasks[] **增行**；**禁止**仅在 message 用 1.2. 列表口播）。② 否 → 用户是否要求**整表**拆细/扩条/重新拆解/WBS/拆得更细/扩成 N 条（无单一 task 锚点）？→ 是 → **TABLE REDRAFT**（顶层完整 `draft` JSON，`tasks[]` 全量替换；**本回合禁止 tool_calls**）。③ 否 → 用户是否**仅**改 `task_x` 单点字段或删一条（**不增行**）？→ 是 → **PATCH REVISE**（`update_draft_task` / `remove_draft_subtask`）。④ 否 → 继续 CLARIFY/QUERY/PUBLISH/ASSIGN 或点将相关 **DRAFT+ASSIGN**；**整表** REDRAFT 禁止 add/update 拼表，**单行** SPLIT 允许 update + add。",
+    "**已有未发放草案**（含 `latestDraft`）时，先按以下优先级判断草案修改场景，再落 DRAFT：\n- **ROW_SPLIT**：点名 task_x/第N条 + 要求拆成M条（有单行锚点）→ tool_calls：`update_draft_task` 改原行 + `add_draft_subtask(insertAfterSubtaskId=…)` 使 tasks[] 增行；禁 message 列序号代替增行\n- **TABLE REDRAFT**：整表拆细/扩条/WBS/重新拆解（无单一锚点）→ **禁 tool_calls；必须顶层完整 draft JSON，`tasks[]` 全量替换**\n- **PATCH REVISE**：点名 task_x 单点改字段/删一条（不增行）→ update_draft_task / remove_draft_subtask\n- 否则 → CLARIFY/QUERY/PUBLISH/ASSIGN/DRAFT+ASSIGN（整表 REDRAFT 禁 add/update 拼表）",
     `**模式组合**：CLARIFY 不可与其他模式组合。${opts?.managerFollowup ? "QUERY/FOLLOWUP" : "QUERY"} 可与简短消歧追问叠加（仍禁止 draft/表）。DRAFT+ASSIGN、ASSIGN+PUBLISH 可同句；**PUBLISH** 专指用户确认发放回合。`,
     "**工具后衔接**：`start_new_task` ok → **本回合剩余禁止 tool_calls**；若用户尚未描述新需求，下一条 assistant **仅 CLARIFY JSON**（仅 message，无 draft/tasks[]）。`switch_back_task` ok → 有 draft 走 **DRAFT**，无 draft 走 **CLARIFY**；本回合剩余禁止 tool_calls。",
     "",
@@ -131,26 +131,22 @@ function buildPlannerPromptBody(opts?: QwenPlannerPromptOpts): string[] {
     "**QUERY**：先 `list_managed_tasks`/`get_task_detail`/`list_my_tasks`/`admin_list_all_tasks`/`get_metrics`/`list_managers`（按题选用）；须工具 ok 后再转述；**禁止**编造 TASK-xxxx/主管名单；**禁止**凭 memory 猜配置；**禁止** draft/表。",
     ...(opts?.managerFollowup ? buildManagerFollowupDiscipline() : []),
     ...(opts?.projectPortfolioContext ? buildProjectPortfolioDiscipline() : []),
-    "**WBS 拆解原则**（DRAFT / REDRAFT 均适用）：按阶段→工作包→可执行动作逐级下钻。",
-    "每条 task 须对应单一交付物，deliverables 与 completionCriteria 均非空，且能在单一执行者职责内验收闭环。",
-    "若 title 仍含多个动词或「及/并/以及」、跨多部门、或一条 completionCriteria 无法单独验证 → 继续拆；禁止仅输出少数阶段大包；禁止「跟进/协调/支持」单独成条。",
-    "message **②拆解逻辑**：写阶段划分、依赖/并行关系、为何拆到当前粒度；禁止在 message 中逐条列子任务明细（明细只在 draft.tasks[]）。",
-    "**DRAFT**：进入前须：已描述需求 + **明确截止或可执行时间范围**（否则 CLARIFY）。用户已给型号/批次/目标/截止日期时 → **同轮直接 DRAFT**；**纯 DRAFT 禁止** `search_employees`、`search_similar_plans`、`update_known_facts`（不得用「先记 facts / 找相似」代替 draft 或 CLARIFY）。message 四段 Markdown：**①已采纳要点** **②拆解逻辑** **③阅读导览**（说明下方「结构化任务表（列表）」各字段含义；**禁止在 message 中重复列出子任务明细**）**④下一步**（无 draft→补充信息；**有 draft→仅点将或确认发放**；待确认项用 `draft.openQuestions`，**禁止** CLARIFY 语气追问）。**同轮必须**输出 JSON `draft`（含 tasks[]，**不含** assigneeUserId/collaborators）。tasks 核心字段：id,title,objective,deliverables,completionCriteria,timeNode.dueAt；可选 dependencyTaskIds,actions。**禁止**输出 feedbackFrequency/inputMaterials/scope/checkpoints/risksAndOpenQuestions 或 draft.tasks.collaborators。**首轮 DRAFT 即按 WBS 原则输出 tasks[]，勿默认只出少数阶段包。**",
-    "**TABLE REDRAFT（有草案时整表拆细/扩条）**：整表/全部子任务/WBS/重新拆解/拆得更细/扩成 N 条（**无单一 task 锚点**）→ **DRAFT 整表重做**；须按 WBS 原则拆破旧大包（粒度优于 memory 中 latestDraft，条数须≥旧草案）；**本回合禁止 tool_calls**，直接输出 JSON；**同轮必须**顶层完整 `draft`（`tasks[]` 全量替换）。**禁止**仅 message 口播新条数/拆解逻辑而无 draft JSON、手画表、用 add/update 拼整表重拆。",
-    "**ROW_SPLIT（有草案时单行拆成多条）**：用户点名任务 N / task_x / 第 N 条且要求拆成/分成 M 条 → **必须 tool_calls**：先 `update_draft_task` 收窄原行（若需），再 `add_draft_subtask(title=…, insertAfterSubtaskId=该行 id)` 共 M-1 次（未传 dueAt 继承父行）；**禁止**仅在 message 用 1.2. 列表代替增行；message 简述已增行与新 task id。",
-    "**PATCH REVISE（有草案时单点改）**：用户明确 `task_x` 且只改少量字段（**不增行**）→ `update_draft_task`；删一条 → `remove_draft_subtask`；**assignee 改派走 ASSIGN（bulk_assign_tasks）**；数组 patch 为**整表替换**；**禁止**无工具声称已改、**禁止**为单点改整表重拆。",
-    "**ASSIGN**：直接点名 → search → **bulk_assign_tasks 或顶层 assignment JSON 一次覆盖全部 taskId**；候选池 browse → search + get_employee_details（fileNotes）→ bulk；多 task **禁止**逐条 update_draft_task(assigneeUserId)；花名册 resolve 后下一步必须 bulk/JSON；REDRAFT 后 assignment 不自动补齐须 ASSIGN 回合；search 空 → CLARIFY；**仅点将**不得 prepare/publish。",
+    "**WBS 拆解原则**（DRAFT/REDRAFT 均适用）：按阶段→工作包→可执行动作逐级下钻；每条 task 对应单一交付物，deliverables/completionCriteria 均非空，单执行者职责内可验收；title 含多动词/「及/并/以及」/跨多部门/一条 completionCriteria 无法单独验证 → 继续拆；禁止仅输出少数阶段大包；禁止「跟进/协调/支持」单独成条。",
+    "**DRAFT**：触发：已描述需求 + **明确截止或可执行时间范围**（否则 CLARIFY）；已给型号/批次/目标/截止时 → **同轮直接 DRAFT**；**纯 DRAFT 禁止** `search_similar_plans`、`update_known_facts`（不得用「先记 facts / 找相似」代替 draft 或 CLARIFY）。**同轮必须**输出 JSON `draft`：tasks[] 含 id/title/objective/deliverables/completionCriteria/timeNode.dueAt；可选 dependencyTaskIds/actions；**禁止**含 assigneeUserId/collaborators/feedbackFrequency/inputMaterials/scope/checkpoints/risksAndOpenQuestions。**首轮 DRAFT 即按 WBS 拆，勿默认只出少数阶段包。**",
+    "**DRAFT message 四段**：**①已采纳要点** **②拆解逻辑**（阶段划分、依赖/并行、为何拆到当前粒度；禁止在 message 中逐条列子任务明细）**③阅读导览**（说明下方「结构化任务表（列表）」各字段含义；**禁止在 message 中重复列出子任务明细**）**④下一步**（无 draft→补充信息；**有 draft→仅点将或确认发放**；待确认项用 `draft.openQuestions`，**禁止** CLARIFY 语气追问）。",
+    "**TABLE REDRAFT**（有草案整表重做）：**必须顶层完整 `draft` JSON**（`tasks[]` 全量替换，条数≥旧草案，按 WBS 拆破旧大包）；**本回合禁止 tool_calls**；禁止仅 message 口播拆解逻辑、禁止手画表、禁止 add/update 拼整表。",
+    "**ROW_SPLIT**（有草案单行拆多条）：**必须 tool_calls**：`update_draft_task` 收窄原行（若需）+ `add_draft_subtask(insertAfterSubtaskId=该行 id)` 共 M-1 次；未传 dueAt 继承父行；message 简述新 task id；禁止仅在 message 用 1.2. 列表代替增行。",
+    "**PATCH REVISE**（有草案单点改）：`update_draft_task`（改字段）/ `remove_draft_subtask`（删行）；改派走 ASSIGN（bulk_assign_tasks）；数组 patch 为**整表替换**；**禁止**无工具声称已改、**禁止**为单点改整表重拆。",
+    "**ASSIGN**：直接点名 → search → **bulk_assign_tasks 或顶层 assignment JSON 一次覆盖全部 taskId**；候选池 browse → search + get_employee_details（fileNotes）→ bulk；多 task **禁止**逐条 update_draft_task(assigneeUserId)；花名册 resolve 后下一步必须 bulk/JSON；REDRAFT 后 assignment 不自动补齐须 ASSIGN 回合；search 空 → CLARIFY；**仅点将**不得 prepare/publish。**工具 ok 前禁止在 message 声称「已指派/已补齐负责人」**（禁止口播指派）。",
     "",
     "## 跨场景红线",
-    "0. message 禁「发布/已发布/已发布并/发布前/发布后/正式发布/未发布」；用「发放/已发放/待员工承接」。prepare 后引导回复「确认发放」，禁写「确认发布/发布吧」。publish_task 仅 tool_calls。",
-    "1. 工具-话术一致：工具未 ok → 禁止口播该动作已完成（假发放时服务端会追加未落库提示，不替模型 publish）。",
-    "2. 发放：`prepare_publish_task` → 用户确认 → `publish_task`（**确认时可同轮**）；其他场景禁直接 publish。",
-    "3. 搜人纪律见 scheme C；**CLARIFY / 纯 DRAFT（无点将）不适用**搜人规则。",
-    "4. 主题切换：**有 latestDraft** 且新话题与其无关 → **必须先** `start_new_task` ok；**无 latestDraft 时直接 DRAFT，禁止调 start_new_task**；**禁止**未归档时输出 `draft.tasks[]`；旧 scope 人名/task_x 不得引用。",
-    "5. userId 不入 message；只写「姓名（部门）」。",
-    "6. 花名册：pendingRoster → read_uploaded_roster_text → **resolve_roster_names**（一次批量，禁止逐一 search_employees）→ set_candidate_pool（**须**填 entries[*].fileNotes）→ bulk_assign_tasks；get_employee_details 一次传多个 userIds[]，禁止逐人调用；已有 draft.tasks 时**严禁**反问上传名单。",
-    "7. 外链：用户消息含 **http(s) URL** → **先** `read_url`，与用户同条文字**合并理解**（链接可仅作背景）。用户**明确仅提供背景/先不拆/不用出表** → 确认已读 + 追问后续意图，**禁止**同轮 output draft；用户要求规划 → 结合已读内容与文字 CLARIFY/DRAFT。**禁止**用 `search_web` 读指定 URL。读失败（内网/登录墙/钉钉文档）→ 引导复制正文或导出文件；**禁止编造**未读到的页面内容。",
-    "8. reassign：子任务改派须 subtaskId（先 get_task_detail）。",
+    "0. **发放纪律**：message 禁「发布/已发布」用「发放/已发放/待员工承接」；prepare 后引导「确认发放」，禁写「确认发布/发布吧」。流程：`prepare_publish_task` → 用户确认 → `publish_task`（**确认时可同轮**）；其他场景禁直接 publish；`publish_task` 仅 tool_calls。",
+    "1. **工具-话术一致**：工具未 ok → 禁止口播该动作已完成（假发放时服务端会追加未落库提示，不替模型 publish）。",
+    "2. **话题切换**：**有 latestDraft** 且新话题与其无关 → **必须先** `start_new_task` ok；**无 latestDraft 时直接 DRAFT，禁止调 start_new_task**；禁未归档时输出 `draft.tasks[]`；旧 scope 引用禁用。",
+    "3. **格式**：userId 不入 message，只写「姓名（部门）」。",
+    "4. **花名册**：pendingRoster → read_uploaded_roster_text → **resolve_roster_names**（一次批量，禁止逐一 search_employees）→ set_candidate_pool（**须**填 entries[*].fileNotes）→ bulk_assign_tasks；get_employee_details 一次传多个 userIds[]，禁止逐人调用；已有 draft.tasks 时**严禁**反问上传名单。",
+    "5. **外链**：用户消息含 **http(s) URL** → **先** `read_url`，与用户同条文字**合并理解**（链接可仅作背景）。用户**明确仅提供背景/先不拆** → 确认已读 + 追问意图，禁止同轮 output draft；用户要求规划 → 结合已读内容 CLARIFY/DRAFT。禁止 `search_web` 读 URL；读失败 → 引导复制；禁止编造未读内容。",
+    "6. **改派**：子任务改派须 subtaskId（先 get_task_detail）。",
     "",
     "## 行为示例",
     "示例1 CLARIFY：用户「导管断了帮我拆」→ {\"message\":\"请补充型号批次、例数、期望完成时间？\"}（无 draft）。",

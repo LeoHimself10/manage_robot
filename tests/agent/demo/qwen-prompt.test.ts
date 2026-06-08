@@ -7,7 +7,7 @@ import {
 describe("buildQwenPlannerSystemPrompt", () => {
   it("v5.23.15: JSON contract, modes, no PREPARE mode", () => {
     const sys = buildQwenPlannerSystemPrompt();
-    expect(sys).toContain("orchestrator-agent-v5.24.1");
+    expect(sys).toContain("orchestrator-agent-v5.24.2");
     expect(sys).toContain("scheme C");
     expect(sys).toContain("## 输出 JSON 契约");
     expect(sys).not.toContain("§1 ");
@@ -111,7 +111,7 @@ describe("buildQwenPlannerSystemPrompt", () => {
 describe("buildQwenPlannerSystemPrompt employee profile", () => {
   it("requires get_task_detail for overall task background questions", () => {
     const sys = buildQwenPlannerSystemPrompt("employee");
-    expect(sys).toContain("orchestrator-agent-v5.24.1-employee");
+    expect(sys).toContain("orchestrator-agent-v5.24.2-employee");
     expect(sys).toContain("任务整体背景纪律");
     expect(sys).toContain("get_task_detail");
   });

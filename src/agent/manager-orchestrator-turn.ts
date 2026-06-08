@@ -60,6 +60,20 @@ function readEnvInt(name: string, fallback: number): number {
   return Math.max(1, Math.trunc(value));
 }
 
+/**
+ * 用于「有草案 + 模型只口播不出 JSON」场景的重跑提示。
+ * 不依赖用户消息正则；判断逻辑在调用处纯用状态字段完成。
+ */
+export function buildTableRedraftRetryMessage(originalUserMessage: string): string {
+  return (
+    `[draft_json_required] 用户要求：「${originalUserMessage}」\n` +
+    "你刚才只在 message 里描述了子任务，但没有输出 draft JSON。请立刻重新输出完整草案：\n" +
+    "- draft.tasks[] 须包含全量子任务（不得减少条数）\n" +
+    "- message 简要说明变更点即可\n" +
+    "禁止只口播不出 JSON。"
+  );
+}
+
 export function isExplicitSearchRequest(input: string): boolean {
   const text = input.trim().toLowerCase();
   if (!text) return false;
@@ -307,6 +321,29 @@ export async function runManagerOrchestratorTurn(
         originalUserMessage: input.userMessage,
         taskIndexMap: buildTaskIndexMap(persistedDraft as Record<string, unknown> | undefined),
       }),
+      buildOrchestratorConfig(),
+    );
+    rerunsUsed++;
+    draftOutbound = applyDraftFromOrchestrator(orchResult);
+    ({ draftTouchedThisTurn, draftForRender, persistedDraft } = draftOutbound);
+  }
+
+  // 有草案 + 模型口播了草案式内容但没出 JSON + 本轮未发布、未切换 scope
+  // → 纯状态判断，无需解析用户意图。
+  const preTurnHasDraftTasks =
+    Array.isArray((preTurnDraft as { tasks?: unknown[] } | undefined)?.tasks)
+    && (preTurnDraft as { tasks: unknown[] }).tasks.length > 0;
+
+  if (
+    rerunsUsed < maxReruns
+    && preTurnHasDraftTasks
+    && !publishResult
+    && orchResult.draft === undefined
+    && !(orchResult.toolInvocationNames ?? []).includes("start_new_task")
+    && (orchResult.observabilityFlags ?? []).includes("orchestrator_draft_message_without_json")
+  ) {
+    orchResult = await runOrchestrator(
+      buildTableRedraftRetryMessage(input.userMessage),
       buildOrchestratorConfig(),
     );
     rerunsUsed++;
