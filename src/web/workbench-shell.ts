@@ -17,11 +17,13 @@ export type WorkbenchNavId =
   | "emp-new"
   | "emp-cur"
   | "emp-hist"
+  | "emp-daily-reports"
   | "emp-prof"
   | "emp-security"
   | "adm-tasks"
   | "adm-perms"
   | "adm-ops"
+  | "adm-daily-reports"
   | "adm-perf";
 
 function escapeHtml(v: string): string {
@@ -94,6 +96,7 @@ function buildEmployeeRail(activeNav: WorkbenchNavId): string {
   ${railLink("/workbench/employee?view=new", "待承接", "emp-new", activeNav, "employee", { id: "navNew" })}
   ${railLink("/workbench/employee?view=current", "进行中", "emp-cur", activeNav, "employee", { id: "navCur" })}
   ${railLink("/workbench/employee?view=history", "已完成", "emp-hist", activeNav, "employee", { id: "navHist" })}
+  ${isDailyReportsPageEnabled() ? railLink("/workbench/employee/daily-reports", "日报汇总", "emp-daily-reports", activeNav, "employee") : ""}
   ${railLink("/workbench/employee?view=profile", "能力画像", "emp-prof", activeNav, "employee", { id: "navProf" })}
 </div>`;
 }
@@ -104,6 +107,7 @@ function buildAdminRail(activeNav: WorkbenchNavId): string {
   ${railLink("/workbench/admin", "任务总览", "adm-tasks", activeNav, "admin")}
   ${railLink("/workbench/admin/ops", "运营看板", "adm-ops", activeNav, "admin")}
   ${railLink("/workbench/admin/performance", "交付绩效", "adm-perf", activeNav, "admin")}
+  ${isDailyReportsPageEnabled() ? railLink("/workbench/admin/daily-reports", "日报汇总", "adm-daily-reports", activeNav, "admin") : ""}
   ${railLink("/workbench/admin/permissions", "权限中心", "adm-perms", activeNav, "admin", { id: "navAdminPerms" })}
 </div>`;
 }

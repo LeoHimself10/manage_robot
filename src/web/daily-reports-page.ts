@@ -1,123 +1,101 @@
 import { DAILY_REPORTS_PAGE_CSS } from "./daily-reports-page-styles";
-import { renderWorkbenchPage, type WorkbenchNavId } from "./workbench-shell";
+import {
+  renderWorkbenchPage,
+  type WorkbenchNavId,
+  type WorkbenchShellRole,
+} from "./workbench-shell";
+
+const DAILY_REPORTS_API = "/api/workbench/daily-reports";
 
 export function renderDailyReportsPage(params: {
+  role: WorkbenchShellRole;
+  activeNav: WorkbenchNavId;
   userLabel?: string;
   showAdminOpsLink?: boolean;
   portfolioEnabled?: boolean;
   apiBase?: string;
   initialDate?: string;
+  canManageRoster?: boolean;
 }): string {
-  const activeNav: WorkbenchNavId = "mgr-daily-reports";
-  const apiBase = params.apiBase ?? "/api/workbench/manager/daily-reports";
+  const apiBase = params.apiBase ?? DAILY_REPORTS_API;
+  const canManage = Boolean(params.canManageRoster);
+  const roleClass =
+    params.role === "employee"
+      ? "dr-role-employee"
+      : params.role === "admin"
+        ? "dr-role-admin"
+        : "dr-role-manager";
+  const pageTitle =
+    params.role === "employee"
+      ? "日报汇总 · 员工工作台"
+      : params.role === "admin"
+        ? "日报汇总 · 管理员"
+        : "日报汇总 · 主管工作台";
+  const description = canManage
+    ? "跨组织日报汇总：实时读取各组织目标员工在钉钉提交的日志（含未提交名单），默认查看昨天，可切换日期。管理员可在「管理名单」里分企业搜人、增删被统计的员工。"
+    : "跨组织日报汇总：实时读取各组织目标员工在钉钉提交的日志（含未提交名单），默认查看昨天，可切换日期。";
+
+  const rosterToolbar = canManage
+    ? `<span class="dr-spacer"></span>
+      <button type="button" class="dr-btn dr-btn-primary" id="drmToggle" aria-expanded="false" aria-controls="drmPanel">管理名单</button>`
+    : "";
+  const rosterPanel = canManage
+    ? `<div class="drm-panel" id="drmPanel" aria-hidden="true">
+      <div class="drm-inner">
+        <div class="drm-head">
+          <h3>管理统计名单</h3>
+          <span class="drm-hint">分企业搜人 · 加入即校验近 7 天日报</span>
+        </div>
+        <div class="drm-banner" id="drmBanner" role="status"></div>
+        <div class="drm-cols" id="drmCols"><div class="drm-note"><span class="drm-spin"></span> 载入名单…</div></div>
+      </div>
+    </div>`
+    : "";
 
   return renderWorkbenchPage({
-    role: "manager",
-    activeNav,
+    role: params.role,
+    activeNav: params.activeNav,
     title: "日报汇总",
-    pageTitle: "日报汇总 · 主管工作台",
-    description:
-      "跨组织日报汇总：实时读取各组织目标员工在钉钉提交的日志（含未提交名单），默认查看昨天，可切换日期。可在「管理名单」里分企业搜人、增删被统计的员工。",
+    pageTitle,
+    description,
     userLabel: params.userLabel,
     portfolioEnabled: Boolean(params.portfolioEnabled),
     showAdminOpsLink: params.showAdminOpsLink,
     extraCss: DAILY_REPORTS_PAGE_CSS,
     mainHtml: `
-  <div class="dr-root">
+  <div class="dr-root ${roleClass}">
     <div class="dr-toolbar">
       <label class="dr-filter">
         <span class="dr-field-k">日期</span>
         <input type="date" class="dr-date-input" id="drDate" aria-label="日报日期" />
       </label>
       <button type="button" class="dr-btn" id="drRefresh">刷新</button>
-      <span class="dr-spacer"></span>
-      <button type="button" class="dr-btn dr-btn-seal" id="drmToggle" aria-expanded="false" aria-controls="drmPanel">管理名单</button>
+      ${rosterToolbar}
     </div>
     <p class="dr-meta" id="drMeta" aria-live="polite">加载中…</p>
-    <div class="drm-panel" id="drmPanel" aria-hidden="true">
-      <div class="drm-inner">
-        <div class="drm-head">
-          <h3 class="dr-serif">管理统计名单</h3>
-          <span class="drm-hint">分企业搜人 · 加入即校验近 7 天日报</span>
-        </div>
-        <div class="drm-banner" id="drmBanner" role="status"></div>
-        <div class="drm-cols" id="drmCols"><div class="drm-note"><span class="drm-spin"></span> 载入名单…</div></div>
-      </div>
-    </div>
+    ${rosterPanel}
     <div class="dr-stack" id="drContent"></div>
   </div>`,
-    scriptHtml: `<script>${buildDailyReportsClientJs(apiBase, params.initialDate ?? "")}</script>`,
+    scriptHtml: `<script>${buildDailyReportsClientJs(apiBase, params.initialDate ?? "", canManage)}</script>`,
   });
 }
 
-function buildDailyReportsClientJs(apiBase: string, initialDate: string): string {
+function buildDailyReportsClientJs(
+  apiBase: string,
+  initialDate: string,
+  canManageRoster: boolean,
+): string {
   const api = apiBase.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const initDate = initialDate.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  return `
-(function(){
-  var API = '${api}';
-  var INIT_DATE = '${initDate}';
+  const canManage = canManageRoster ? "true" : "false";
+  const rosterBlock = canManageRoster
+    ? `
   var ROSTER = API + '/roster';
   var CONTACTS = API + '/contacts';
-  var dateInput = document.getElementById('drDate');
-  var refreshBtn = document.getElementById('drRefresh');
-  var meta = document.getElementById('drMeta');
-  var content = document.getElementById('drContent');
   var toggle = document.getElementById('drmToggle');
   var panel = document.getElementById('drmPanel');
   var cols = document.getElementById('drmCols');
   var banner = document.getElementById('drmBanner');
-  if (INIT_DATE && dateInput) dateInput.value = INIT_DATE;
-  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
-  function fmtTime(ms){ if(!ms) return ''; try { return new Date(Number(ms)).toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}); } catch(e){ return ''; } }
-
-  /* ----- daily report view ----- */
-  function renderReport(r){
-    var head = r.templateName ? ('<div class="dr-rpt-tmpl">'+esc(r.templateName)+(r.createTime?(' · '+esc(fmtTime(r.createTime))):'')+'</div>') : '';
-    var rows = (r.contents||[]).map(function(f){
-      var k = esc(f.key); var v = esc(f.value);
-      if(k && v) return '<div class="dr-field"><span class="dr-field-k">'+k+'</span><span class="dr-field-v">'+v+'</span></div>';
-      return '<div class="dr-field"><span class="dr-field-v">'+(k||v)+'</span></div>';
-    }).join('');
-    if(!rows) rows = '<div class="dr-field"><span class="dr-field-v dr-muted">（无内容）</span></div>';
-    return '<div class="dr-rpt">'+head+rows+'</div>';
-  }
-  function renderOrg(org){
-    var subCount = org.submitted ? org.submitted.length : 0;
-    var missCount = org.missing ? org.missing.length : 0;
-    var mark = esc((org.label||'·').slice(0,1));
-    var subs = (org.submitted||[]).map(function(emp){
-      var multi = (emp.reports && emp.reports.length>1) ? (' <span class="dr-count">'+emp.reports.length+' 篇</span>') : '';
-      return '<div class="dr-emp"><div class="dr-emp-name">'+esc(emp.name||emp.userid)+multi+'</div>'+(emp.reports||[]).map(renderReport).join('')+'</div>';
-    }).join('');
-    if(!subs) subs = '<div class="dr-empty">本组织该日暂无已提交日报</div>';
-    var missing = missCount ? ('<div class="dr-missing"><span class="dr-missing-lbl">未提交（'+missCount+'）</span>'+org.missing.map(function(m){return esc(m.name||m.userid);}).join('、')+'</div>') : '';
-    var errs = (org.errors && org.errors.length) ? ('<div class="dr-errline">读取失败：'+org.errors.map(function(e){return esc(e.name||e.userid);}).join('、')+'</div>') : '';
-    return '<section class="dr-org">'
-      + '<div class="dr-org-head"><div class="dr-org-title"><span class="dr-seal-mark">'+mark+'</span><h2 class="dr-serif">'+esc(org.label)+'</h2></div>'
-      + '<span class="dr-org-stat"><span class="dr-pill dr-pill-ok">已交 '+subCount+'</span><span class="dr-pill dr-pill-miss">未交 '+missCount+'</span></span></div>'
-      + subs + missing + errs + '</section>';
-  }
-  function load(){
-    meta.textContent = '加载中…';
-    content.innerHTML = '';
-    var p = new URLSearchParams();
-    var d = dateInput && dateInput.value;
-    if(d) p.set('date', d);
-    fetch(API+'?'+p.toString(), {headers:{Accept:'application/json'}})
-      .then(function(r){return r.json();})
-      .then(function(data){
-        if(!data || data.ok===false){ meta.textContent = '加载失败：'+esc((data&&data.error)||'未知错误'); return; }
-        if(dateInput && data.date && !dateInput.value) dateInput.value = data.date;
-        var tail = data.errorCount ? (' · 读取失败 '+data.errorCount) : '';
-        meta.textContent = (data.dateLabel||data.date||'')+' 汇总 · 已交 '+(data.submittedCount||0)+' · 未交 '+(data.missingCount||0)+tail;
-        var html = (data.orgs||[]).map(renderOrg).join('');
-        content.innerHTML = html || '<div class="dr-empty">暂无组织配置</div>';
-      })
-      .catch(function(e){ meta.textContent='加载失败：'+esc(e.message||e); });
-  }
-
-  /* ----- roster manager ----- */
   var rosterLoaded = false;
   function showBanner(kind, msg){
     banner.className = 'drm-banner show ' + kind;
@@ -139,7 +117,7 @@ function buildDailyReportsClientJs(apiBase: string, initialDate: string): string
       }).join('');
       if(!members) members = '<div class="drm-members-empty">暂无成员</div>';
       return '<section class="drm-col">'
-        + '<div class="drm-col-head"><span class="dr-seal-mark">'+mark+'</span><h4 class="dr-serif">'+esc(o.label)+'</h4>'+cred+'</div>'
+        + '<div class="drm-col-head"><span class="dr-org-mark">'+mark+'</span><h4>'+esc(o.label)+'</h4>'+cred+'</div>'
         + '<div class="drm-members">'+members+'</div>'
         + '<div class="drm-search-wrap"><input class="drm-search" data-org="'+esc(o.label)+'" placeholder="在'+esc(o.label)+'里按姓名搜索…" autocomplete="off" />'
         + '<div class="drm-results" data-results="'+esc(o.label)+'"></div></div>'
@@ -211,8 +189,6 @@ function buildDailyReportsClientJs(apiBase: string, initialDate: string): string
       load();
     }).catch(function(e){ showBanner('err', '移除失败：'+esc(e.message||e)); });
   }
-
-  /* event delegation */
   cols.addEventListener('click', function(e){
     var btn = e.target.closest('[data-action]');
     if(!btn) return;
@@ -231,7 +207,6 @@ function buildDailyReportsClientJs(apiBase: string, initialDate: string): string
     clearTimeout(searchTimers[org]);
     searchTimers[org] = setTimeout(function(){ doSearch(org, q); }, 320);
   });
-
   function openPanel(){
     panel.classList.add('open');
     panel.setAttribute('aria-hidden','false');
@@ -245,8 +220,66 @@ function buildDailyReportsClientJs(apiBase: string, initialDate: string): string
   }
   if(toggle) toggle.addEventListener('click', function(){
     if(panel.classList.contains('open')) closePanel(); else openPanel();
-  });
+  });`
+    : "";
 
+  return `
+(function(){
+  var API = '${api}';
+  var INIT_DATE = '${initDate}';
+  var CAN_MANAGE = ${canManage};
+  var dateInput = document.getElementById('drDate');
+  var refreshBtn = document.getElementById('drRefresh');
+  var meta = document.getElementById('drMeta');
+  var content = document.getElementById('drContent');
+  if (INIT_DATE && dateInput) dateInput.value = INIT_DATE;
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function fmtTime(ms){ if(!ms) return ''; try { return new Date(Number(ms)).toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}); } catch(e){ return ''; } }
+
+  function renderReport(r){
+    var head = r.templateName ? ('<div class="dr-rpt-tmpl">'+esc(r.templateName)+(r.createTime?(' · '+esc(fmtTime(r.createTime))):'')+'</div>') : '';
+    var rows = (r.contents||[]).map(function(f){
+      var k = esc(f.key); var v = esc(f.value);
+      if(k && v) return '<div class="dr-field"><span class="dr-field-k">'+k+'</span><span class="dr-field-v">'+v+'</span></div>';
+      return '<div class="dr-field"><span class="dr-field-v">'+(k||v)+'</span></div>';
+    }).join('');
+    if(!rows) rows = '<div class="dr-field"><span class="dr-field-v dr-muted">（无内容）</span></div>';
+    return '<div class="dr-rpt">'+head+rows+'</div>';
+  }
+  function renderOrg(org){
+    var subCount = org.submitted ? org.submitted.length : 0;
+    var missCount = org.missing ? org.missing.length : 0;
+    var mark = esc((org.label||'·').slice(0,1));
+    var subs = (org.submitted||[]).map(function(emp){
+      var multi = (emp.reports && emp.reports.length>1) ? (' <span class="dr-count">'+emp.reports.length+' 篇</span>') : '';
+      return '<div class="dr-emp"><div class="dr-emp-name">'+esc(emp.name||emp.userid)+multi+'</div>'+(emp.reports||[]).map(renderReport).join('')+'</div>';
+    }).join('');
+    if(!subs) subs = '<div class="dr-empty">本组织该日暂无已提交日报</div>';
+    var missing = missCount ? ('<div class="dr-missing"><span class="dr-missing-lbl">未提交（'+missCount+'）</span>'+org.missing.map(function(m){return esc(m.name||m.userid);}).join('、')+'</div>') : '';
+    var errs = (org.errors && org.errors.length) ? ('<div class="dr-errline">读取失败：'+org.errors.map(function(e){return esc(e.name||e.userid);}).join('、')+'</div>') : '';
+    return '<section class="dr-org">'
+      + '<div class="dr-org-head"><div class="dr-org-title"><span class="dr-org-mark">'+mark+'</span><h2>'+esc(org.label)+'</h2></div>'
+      + '<span class="dr-org-stat"><span class="dr-pill dr-pill-ok">已交 '+subCount+'</span><span class="dr-pill dr-pill-miss">未交 '+missCount+'</span></span></div>'
+      + subs + missing + errs + '</section>';
+  }
+  function load(){
+    meta.textContent = '加载中…';
+    content.innerHTML = '';
+    var p = new URLSearchParams();
+    var d = dateInput && dateInput.value;
+    if(d) p.set('date', d);
+    fetch(API+'?'+p.toString(), {headers:{Accept:'application/json'}})
+      .then(function(r){return r.json();})
+      .then(function(data){
+        if(!data || data.ok===false){ meta.textContent = '加载失败：'+esc((data&&data.error)||'未知错误'); return; }
+        if(dateInput && data.date && !dateInput.value) dateInput.value = data.date;
+        var tail = data.errorCount ? (' · 读取失败 '+data.errorCount) : '';
+        meta.textContent = (data.dateLabel||data.date||'')+' 汇总 · 已交 '+(data.submittedCount||0)+' · 未交 '+(data.missingCount||0)+tail;
+        content.innerHTML = (data.orgs||[]).map(renderOrg).join('') || '<div class="dr-empty">暂无组织配置</div>';
+      })
+      .catch(function(e){ meta.textContent='加载失败：'+esc(e.message||e); });
+  }
+  ${rosterBlock}
   if(dateInput) dateInput.addEventListener('change', load);
   if(refreshBtn) refreshBtn.addEventListener('click', load);
   load();

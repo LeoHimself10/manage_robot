@@ -205,6 +205,7 @@ const EMPLOYEE_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/employee",
   "/workbench/employee/new",
   "/workbench/employee/current",
+  "/workbench/employee/daily-reports",
   "/workbench/employee/task",
   "/workbench/employee/task/events",
 ]);
@@ -212,6 +213,7 @@ const ADMIN_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/admin",
   "/workbench/admin/ops",
   "/workbench/admin/performance",
+  "/workbench/admin/daily-reports",
   "/workbench/admin/permissions",
   "/workbench/admin/task",
   "/workbench/admin/task/events",
@@ -2735,6 +2737,75 @@ function requirePerformanceDashboardSession(
   return undefined;
 }
 
+/** 日报汇总：主管 / 员工 / 管理员均可查看（实例开关开启时）。 */
+function requireDailyReportsViewSession(
+  req: IncomingMessage,
+  res: ServerResponse,
+): WorkbenchSession | undefined {
+  const session = requireSession(req, res);
+  if (!session) return undefined;
+  if (!isDailyReportsPageEnabled()) {
+    writeJson(res, 404, { ok: false, error: "daily reports page disabled" });
+    return undefined;
+  }
+  return session;
+}
+
+/** 日报名单管理：仅 admin（WORKBENCH_ADMIN_USER_IDS）可增删 / 搜人。 */
+function requireDailyReportsAdminSession(
+  req: IncomingMessage,
+  res: ServerResponse,
+): WorkbenchSession | undefined {
+  const session = requireDailyReportsViewSession(req, res);
+  if (!session) return undefined;
+  if (!resolveWorkbenchCapabilities(session.userId).canAccessAdmin) {
+    writeJson(res, 403, { ok: false, error: "admin required" });
+    return undefined;
+  }
+  return session;
+}
+
+function renderDailyReportsWorkbenchPage(params: {
+  role: "manager" | "employee" | "admin";
+  activeNav: "mgr-daily-reports" | "emp-daily-reports" | "adm-daily-reports";
+  userId: string;
+  userLabel?: string;
+  showAdminOpsLink?: boolean;
+  portfolioEnabled?: boolean;
+  initialDate?: string;
+}): string {
+  return renderDailyReportsPage({
+    role: params.role,
+    activeNav: params.activeNav,
+    userLabel: params.userLabel,
+    showAdminOpsLink: params.showAdminOpsLink,
+    portfolioEnabled: params.portfolioEnabled,
+    initialDate: params.initialDate,
+    canManageRoster: resolveWorkbenchCapabilities(params.userId).canAccessAdmin,
+  });
+}
+
+function isDailyReportsDataApiPath(pathname: string): boolean {
+  return (
+    pathname === "/api/workbench/daily-reports"
+    || pathname === "/api/workbench/manager/daily-reports"
+  );
+}
+
+function isDailyReportsContactsApiPath(pathname: string): boolean {
+  return (
+    pathname === "/api/workbench/daily-reports/contacts"
+    || pathname === "/api/workbench/manager/daily-reports/contacts"
+  );
+}
+
+function isDailyReportsRosterApiPath(pathname: string): boolean {
+  return (
+    pathname === "/api/workbench/daily-reports/roster"
+    || pathname === "/api/workbench/manager/daily-reports/roster"
+  );
+}
+
 function performanceQueryFromUrl(url: URL) {
   return {
     windowDays: url.searchParams.get("windowDays"),
@@ -3495,13 +3566,9 @@ export function handleAssignmentHttp(
     return true;
   }
 
-  if (isGetOrHead && url.pathname === "/api/workbench/manager/daily-reports") {
-    const session = requireSession(req, res, "manager");
+  if (isGetOrHead && isDailyReportsDataApiPath(url.pathname)) {
+    const session = requireDailyReportsViewSession(req, res);
     if (!session) return true;
-    if (!isDailyReportsPageEnabled()) {
-      writeJson(res, 404, { ok: false, error: "daily reports page disabled" });
-      return true;
-    }
     const date = String(url.searchParams.get("date") ?? "").trim() || undefined;
     void (async () => {
       try {
@@ -3517,13 +3584,9 @@ export function handleAssignmentHttp(
     return true;
   }
 
-  if (isGetOrHead && url.pathname === "/api/workbench/manager/daily-reports/contacts") {
-    const session = requireSession(req, res, "manager");
+  if (isGetOrHead && isDailyReportsContactsApiPath(url.pathname)) {
+    const session = requireDailyReportsAdminSession(req, res);
     if (!session) return true;
-    if (!isDailyReportsPageEnabled()) {
-      writeJson(res, 404, { ok: false, error: "daily reports page disabled" });
-      return true;
-    }
     const org = String(url.searchParams.get("org") ?? "").trim();
     const q = String(url.searchParams.get("q") ?? "").trim();
     void (async () => {
@@ -3540,13 +3603,9 @@ export function handleAssignmentHttp(
     return true;
   }
 
-  if (isGetOrHead && url.pathname === "/api/workbench/manager/daily-reports/roster") {
-    const session = requireSession(req, res, "manager");
+  if (isGetOrHead && isDailyReportsRosterApiPath(url.pathname)) {
+    const session = requireDailyReportsAdminSession(req, res);
     if (!session) return true;
-    if (!isDailyReportsPageEnabled()) {
-      writeJson(res, 404, { ok: false, error: "daily reports page disabled" });
-      return true;
-    }
     try {
       writeJson(res, 200, { ok: true, ...getRosterView() });
     } catch (err) {
@@ -3558,13 +3617,9 @@ export function handleAssignmentHttp(
     return true;
   }
 
-  if (req.method === "POST" && url.pathname === "/api/workbench/manager/daily-reports/roster") {
-    const session = requireSession(req, res, "manager");
+  if (req.method === "POST" && isDailyReportsRosterApiPath(url.pathname)) {
+    const session = requireDailyReportsAdminSession(req, res);
     if (!session) return true;
-    if (!isDailyReportsPageEnabled()) {
-      writeJson(res, 404, { ok: false, error: "daily reports page disabled" });
-      return true;
-    }
     void (async () => {
       try {
         const body = await readJsonBody(req);
@@ -6276,11 +6331,13 @@ export function handleAssignmentHttp(
             portfolioEnabled,
           })
           : url.pathname === "/workbench/manager/daily-reports"
-          ? renderDailyReportsPage({
+          ? renderDailyReportsWorkbenchPage({
+            role: "manager",
+            activeNav: "mgr-daily-reports",
+            userId: session.userId,
             userLabel,
             showAdminOpsLink,
             portfolioEnabled,
-            apiBase: "/api/workbench/manager/daily-reports",
             initialDate: url.searchParams.get("date")?.trim() ?? "",
           })
           : url.pathname === "/workbench/manager/projects"
@@ -6340,6 +6397,10 @@ export function handleAssignmentHttp(
         redirect(res, defaultPathForRole(session.role));
         return true;
       }
+      if (url.pathname === "/workbench/admin/daily-reports" && !isDailyReportsPageEnabled()) {
+        redirect(res, "/workbench/admin");
+        return true;
+      }
       const userLabel = session.dingUser?.name ?? session.userId;
       const showAdminOpsLink = resolveWorkbenchCapabilities(session.userId).canAccessAdmin;
       const adminTaskNo = url.searchParams.get("taskNo")?.trim() ?? "";
@@ -6370,6 +6431,16 @@ export function handleAssignmentHttp(
                   showAdminOpsLink,
                   portfolioEnabled: false,
                 })
+              : url.pathname === "/workbench/admin/daily-reports"
+                ? renderDailyReportsWorkbenchPage({
+                  role: "admin",
+                  activeNav: "adm-daily-reports",
+                  userId: session.userId,
+                  userLabel,
+                  showAdminOpsLink,
+                  portfolioEnabled: false,
+                  initialDate: url.searchParams.get("date")?.trim() ?? "",
+                })
               : renderAdminWorkbenchPage({ userLabel });
       emitWorkbenchPageView(session, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
@@ -6398,7 +6469,12 @@ export function handleAssignmentHttp(
         redirect(res, "/workbench/employee?view=new");
         return true;
       }
+      if (url.pathname === "/workbench/employee/daily-reports" && !isDailyReportsPageEnabled()) {
+        redirect(res, "/workbench/employee?view=new");
+        return true;
+      }
       const fromView = url.searchParams.get("fromView")?.trim() || "current";
+      const empUserLabel = employeeSession.dingUser?.name ?? employeeSession.userId;
       const empListBack =
         fromView === "new"
           ? "/workbench/employee?view=new"
@@ -6419,6 +6495,14 @@ export function handleAssignmentHttp(
               enforceActionGuards: shouldEnforceActionGuards(),
               eventsPagePath: "/workbench/employee/task/events",
             })
+            : url.pathname === "/workbench/employee/daily-reports"
+              ? renderDailyReportsWorkbenchPage({
+                role: "employee",
+                activeNav: "emp-daily-reports",
+                userId: employeeSession.userId,
+                userLabel: empUserLabel,
+                initialDate: url.searchParams.get("date")?.trim() ?? "",
+              })
             : renderEmployeeWorkbenchPage();
       emitWorkbenchPageView(employeeSession, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);

@@ -105,13 +105,34 @@ describe("daily-reports-api", () => {
 });
 
 describe("daily-reports-page render", () => {
-  it("renders the manager page with date input, content container and nav", () => {
+  it("renders the manager page with date input and unified API", () => {
     process.env.DAILY_REPORTS_PAGE_ENABLED = "1";
-    const html = renderDailyReportsPage({ userLabel: "测试" });
+    const html = renderDailyReportsPage({
+      role: "manager",
+      activeNav: "mgr-daily-reports",
+      userLabel: "测试",
+    });
     expect(html).toContain('id="drDate"');
     expect(html).toContain('id="drContent"');
-    expect(html).toContain("/api/workbench/manager/daily-reports");
+    expect(html).toContain("/api/workbench/daily-reports");
     expect(html).toContain('data-wb-nav="mgr-daily-reports"');
+  });
+
+  it("shows roster controls only for admin-capable users", () => {
+    process.env.DAILY_REPORTS_PAGE_ENABLED = "1";
+    const adminHtml = renderDailyReportsPage({
+      role: "admin",
+      activeNav: "adm-daily-reports",
+      canManageRoster: true,
+    });
+    const empHtml = renderDailyReportsPage({
+      role: "employee",
+      activeNav: "emp-daily-reports",
+      canManageRoster: false,
+    });
+    expect(adminHtml).toContain('id="drmToggle"');
+    expect(empHtml).not.toContain('id="drmToggle"');
+    expect(empHtml).toContain("dr-role-employee");
   });
 });
 
