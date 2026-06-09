@@ -106,7 +106,7 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
   const errors: string[] = [];
   const obj = (raw ?? {}) as Record<string, unknown>;
 
-  // webhook 仅 8:30 群推需要；只看工作台页面时可不填（见 loadDailyReportDigestConfig 的 enabled 门禁）。
+  // webhook 仅定时群推需要；只看工作台页面时可不填（见 loadDailyReportDigestConfig 的 enabled 门禁）。
   const webhookRaw = (obj.webhook ?? {}) as Record<string, unknown>;
   const webhook: DailyReportWebhookConfig = {
     accessToken: asString(webhookRaw.accessToken),
@@ -184,8 +184,8 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
     enabled: false,
     scanIntervalMs: envInt("DAILY_REPORT_DIGEST_SCAN_INTERVAL_MS", 300_000),
     timezone: asString(obj.timezone) || env("DAILY_REPORT_DIGEST_TIMEZONE") || "Asia/Shanghai",
-    sendHour: clampHour(obj.sendHour ?? (env("DAILY_REPORT_DIGEST_HOUR") || 8), 8),
-    sendMinute: clampMinute(obj.sendMinute ?? (env("DAILY_REPORT_DIGEST_MINUTE") || 30), 30),
+    sendHour: clampHour(obj.sendHour ?? (env("DAILY_REPORT_DIGEST_HOUR") || 7), 7),
+    sendMinute: clampMinute(obj.sendMinute ?? (env("DAILY_REPORT_DIGEST_MINUTE") || 0), 0),
     weekdaysOnly:
       typeof obj.weekdaysOnly === "boolean"
         ? obj.weekdaysOnly

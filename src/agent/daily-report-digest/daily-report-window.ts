@@ -21,7 +21,7 @@ export interface ReportTimeRange {
 }
 
 /** 是否处于「每天 sendHour:sendMinute」的发送窗口。
- * 规则：周二–周六 08:30 发「昨日」汇总；周六发周五；周日、周一不发。
+ * 规则：周二–周六 07:00 发「昨日」汇总；周六发周五；周日、周一不发。
  */
 export function isDailyReportSendWindow(
   now: Date,

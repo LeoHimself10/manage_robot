@@ -25,8 +25,8 @@ import type { ReportEntry } from "../../../src/agent/daily-report-digest/dingtal
 const VALID_CONFIG = {
   title: "每日日报汇总",
   timezone: "Asia/Shanghai",
-  sendHour: 8,
-  sendMinute: 30,
+  sendHour: 7,
+  sendMinute: 0,
   weekdaysOnly: true,
   webhook: { accessToken: "tok123", secret: "SECabc" },
   orgs: [
@@ -96,8 +96,8 @@ describe("daily-report-config", () => {
     expect(config.orgs).toHaveLength(2);
     expect(config.orgs[0]!.employees).toHaveLength(2);
     expect(config.webhook.accessToken).toBe("tok123");
-    expect(config.sendHour).toBe(8);
-    expect(config.sendMinute).toBe(30);
+    expect(config.sendHour).toBe(7);
+    expect(config.sendMinute).toBe(0);
   });
 
   it("reports errors for missing orgs creds / employees", () => {
@@ -213,26 +213,26 @@ describe("group-robot-webhook signing", () => {
 describe("daily-report-window", () => {
   const config = parseDailyReportDigestConfig(VALID_CONFIG).config;
 
-  it("is in window at 08:30 on a weekday (Asia/Shanghai)", () => {
-    // 2026-06-09 is Tuesday; 08:30 CST == 00:30 UTC
-    expect(isDailyReportSendWindow(new Date("2026-06-09T00:30:00Z"), config)).toBe(true);
+  it("is in window at 07:00 on a weekday (Asia/Shanghai)", () => {
+    // 2026-06-09 is Tuesday; 07:00 CST == 2026-06-08T23:00:00Z
+    expect(isDailyReportSendWindow(new Date("2026-06-08T23:00:00Z"), config)).toBe(true);
   });
 
   it("is out of window off-hour", () => {
     expect(isDailyReportSendWindow(new Date("2026-06-09T01:30:00Z"), config)).toBe(false); // 09:30
   });
 
-  it("sends on Saturday 08:30 (Friday report); skips Sunday and Monday", () => {
-    // 2026-06-13 is Saturday; 08:30 CST == 00:30 UTC
-    expect(isDailyReportSendWindow(new Date("2026-06-13T00:30:00Z"), config)).toBe(true);
+  it("sends on Saturday 07:00 (Friday report); skips Sunday and Monday", () => {
+    // 2026-06-13 is Saturday; 07:00 CST == 2026-06-12T23:00:00Z
+    expect(isDailyReportSendWindow(new Date("2026-06-12T23:00:00Z"), config)).toBe(true);
     // 2026-06-14 Sunday
-    expect(isDailyReportSendWindow(new Date("2026-06-14T00:30:00Z"), config)).toBe(false);
+    expect(isDailyReportSendWindow(new Date("2026-06-13T23:00:00Z"), config)).toBe(false);
     // 2026-06-15 Monday
-    expect(isDailyReportSendWindow(new Date("2026-06-15T00:30:00Z"), config)).toBe(false);
+    expect(isDailyReportSendWindow(new Date("2026-06-14T23:00:00Z"), config)).toBe(false);
   });
 
   it("resolves yesterday's full-day range in timezone", () => {
-    const range = resolveReportRange(new Date("2026-06-09T00:30:00Z"), "Asia/Shanghai");
+    const range = resolveReportRange(new Date("2026-06-08T23:00:00Z"), "Asia/Shanghai");
     expect(range.labelYmd).toBe("2026-06-08");
     expect(range.startTime).toBe(Date.parse("2026-06-08T00:00:00+08:00"));
     expect(range.endTime).toBe(Date.parse("2026-06-09T00:00:00+08:00") - 1);
@@ -337,7 +337,7 @@ describe("daily-report-scheduler", () => {
     };
     const scheduler = createDailyReportDigestScheduler({ config, stateStore, fetchImpl });
 
-    const inWindow = new Date("2026-06-09T00:30:00Z");
+    const inWindow = new Date("2026-06-08T23:00:00Z"); // 07:00 CST Tue
     await scheduler.runScan(inWindow);
     await scheduler.runScan(inWindow);
     expect(sent).toHaveLength(1);

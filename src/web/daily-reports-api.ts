@@ -36,7 +36,7 @@ export interface DailyReportsHttpPayload {
 
 /**
  * 工作台「跨组织日报」页面的数据源：实时拉取两个组织目标员工某天的钉钉日志并聚合。
- * 与每日 8:30 群推共用配置与采集逻辑（`collectOrgDigests`），但此处只读、不发送。
+ * 与每日 7:00 群推共用配置与采集逻辑（`collectOrgDigests`），但此处只读、不发送。
  */
 export async function buildDailyReportsHttpPayload(input?: {
   date?: string;

@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 /**
- * One-off manual daily-report digest send (ops). Skips the 8:30 window and daily dedup.
+ * One-off manual daily-report digest send (ops). Skips the send window and daily dedup.
  * Reads config from DAILY_REPORT_DIGEST_CONFIG_FILE (does NOT require the master switch).
  *
  *   DAILY_REPORT_DIGEST_CONFIG_FILE=/path/config.json npx tsx scripts/send-daily-report-digest-now.ts
