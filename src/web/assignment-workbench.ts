@@ -115,6 +115,12 @@ import { renderManagerDashboardPage } from "./manager-dashboard-page";
 import { renderPerformanceDashboardPage } from "./performance-dashboard-page";
 import { renderDailyReportsPage } from "./daily-reports-page";
 import { buildDailyReportsHttpPayload } from "./daily-reports-api";
+import {
+  addToRoster,
+  getRosterView,
+  removeFromRoster,
+  searchOrgCandidates,
+} from "./daily-reports-roster";
 import { isDailyReportsPageEnabled } from "../agent/daily-report-digest/daily-reports-page-flag";
 import {
   buildPerformanceDashboardPayload,
@@ -3501,6 +3507,84 @@ export function handleAssignmentHttp(
       try {
         const payload = await buildDailyReportsHttpPayload({ date });
         writeJson(res, 200, payload as unknown as Record<string, unknown>);
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/manager/daily-reports/contacts") {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    if (!isDailyReportsPageEnabled()) {
+      writeJson(res, 404, { ok: false, error: "daily reports page disabled" });
+      return true;
+    }
+    const org = String(url.searchParams.get("org") ?? "").trim();
+    const q = String(url.searchParams.get("q") ?? "").trim();
+    void (async () => {
+      try {
+        const result = await searchOrgCandidates(org, q);
+        writeJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/manager/daily-reports/roster") {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    if (!isDailyReportsPageEnabled()) {
+      writeJson(res, 404, { ok: false, error: "daily reports page disabled" });
+      return true;
+    }
+    try {
+      writeJson(res, 200, { ok: true, ...getRosterView() });
+    } catch (err) {
+      writeJson(res, 400, {
+        ok: false,
+        error: err instanceof Error ? err.message : "invalid request",
+      });
+    }
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/daily-reports/roster") {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    if (!isDailyReportsPageEnabled()) {
+      writeJson(res, 404, { ok: false, error: "daily reports page disabled" });
+      return true;
+    }
+    void (async () => {
+      try {
+        const body = await readJsonBody(req);
+        const action = String(body.action ?? "").trim();
+        const org = String(body.org ?? "").trim();
+        const userid = String(body.userid ?? "").trim();
+        const name = String(body.name ?? "").trim() || undefined;
+        if (!org || !userid) {
+          writeJson(res, 400, { ok: false, error: "org 与 userid 必填" });
+          return;
+        }
+        if (action === "add") {
+          const result = await addToRoster(org, userid, name);
+          writeJson(res, 200, { ok: true, ...result });
+        } else if (action === "remove") {
+          const result = removeFromRoster(org, userid);
+          writeJson(res, 200, { ok: true, ...result });
+        } else {
+          writeJson(res, 400, { ok: false, error: "action 必须为 add 或 remove" });
+        }
       } catch (err) {
         writeJson(res, 400, {
           ok: false,
