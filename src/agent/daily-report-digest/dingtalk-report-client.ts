@@ -7,10 +7,21 @@
  * - 日志列表: POST https://oapi.dingtalk.com/topapi/report/list?access_token=...
  *   需应用申请「查询企业员工日志权限」。size 上限 20，cursor 游标分页。
  */
+import {
+  REPORT_ATTACHMENT_FIELD_TYPE,
+  type ReportAttachment,
+  parseAttachmentsFromValue,
+  parseReportImages,
+} from "./daily-report-attachments";
+
+export type { ReportAttachment };
 
 export interface ReportContentField {
   key: string;
   value: string;
+  /** 钉钉 contents.type，如 9=附件 */
+  type?: string;
+  attachments?: ReportAttachment[];
 }
 
 export interface ReportEntry {
@@ -21,6 +32,8 @@ export interface ReportEntry {
   /** 日志创建时间，Unix 毫秒 */
   createTime: number;
   contents: ReportContentField[];
+  /** 日志顶层图片列表（report/list images） */
+  images?: ReportAttachment[];
 }
 
 export interface FetchUserReportsParams {
@@ -66,9 +79,16 @@ function normalizeContents(raw: unknown): ReportContentField[] {
   return raw
     .map((item) => {
       const o = (item ?? {}) as Record<string, unknown>;
-      return { key: asString(o.key).trim(), value: asString(o.value).trim() };
+      const type = asString(o.type) || undefined;
+      const key = asString(o.key).trim();
+      const value = asString(o.value).trim();
+      let attachments = undefined as ReportContentField["attachments"];
+      if (type === REPORT_ATTACHMENT_FIELD_TYPE || key.includes("附件")) {
+        attachments = parseAttachmentsFromValue(value);
+      }
+      return { key, value, type, attachments };
     })
-    .filter((f) => f.key.length > 0 || f.value.length > 0);
+    .filter((f) => f.key.length > 0 || f.value.length > 0 || (f.attachments?.length ?? 0) > 0);
 }
 
 function normalizeEntry(raw: Record<string, unknown>): ReportEntry {
@@ -79,6 +99,7 @@ function normalizeEntry(raw: Record<string, unknown>): ReportEntry {
     templateName: asString(raw.template_name ?? raw.templateName),
     createTime: Number(raw.create_time ?? raw.createTime ?? 0) || 0,
     contents: normalizeContents(raw.contents),
+    images: parseReportImages(raw.images),
   };
 }
 

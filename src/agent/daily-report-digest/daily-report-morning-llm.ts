@@ -1,6 +1,7 @@
 import { logStructured } from "../../infra/logger";
 import type { OrgDigest } from "./daily-report-build";
 import { filterReportContentsWithBody } from "./daily-report-content-filter";
+import { countReportAttachments } from "./daily-report-attachments";
 
 export interface DailyReportMorningLlmConfig {
   enabled: boolean;
@@ -54,23 +55,28 @@ export function loadDailyReportMorningLlmConfig(): DailyReportMorningLlmConfig |
 export function slimOrgDigestsForLlm(orgDigests: OrgDigest[]): Record<string, unknown> {
   const people: Array<{
     name: string;
+    attachmentCount?: number;
     reports: Array<{ template?: string; fields: Array<{ k: string; v: string }> }>;
   }> = [];
   const missing: string[] = [];
 
   for (const org of orgDigests) {
     for (const emp of org.submitted) {
+      const attCount = emp.reports.reduce((n, r) => n + countReportAttachments(r), 0);
       people.push({
         name: emp.name,
-        reports: emp.reports.map((r) => ({
-          template: r.templateName || undefined,
-          fields: filterReportContentsWithBody(r.contents)
-            .slice(0, 12)
-            .map((f) => ({
-              k: f.key.slice(0, 40),
-              v: f.value.slice(0, 200),
-            })),
-        })).filter((r) => r.fields.length > 0),
+        ...(attCount > 0 ? { attachmentCount: attCount } : {}),
+        reports: emp.reports
+          .map((r) => ({
+            template: r.templateName || undefined,
+            fields: filterReportContentsWithBody(r.contents)
+              .slice(0, 12)
+              .map((f) => ({
+                k: f.key.slice(0, 40),
+                v: f.value.slice(0, 200),
+              })),
+          }))
+          .filter((r) => r.fields.length > 0),
       });
     }
     for (const m of org.missing) missing.push(m.name);
@@ -85,7 +91,7 @@ const SYSTEM_PROMPT = `你是企业内部早报编辑。根据 JSON 中员工的
 规则：
 - overview：2-3 句中文，概括整体进展，不超过 180 字
 - personBriefs：每位已交员工一条，brief 不超过 50 字，按重要性排序；只写姓名，禁止出现组织/部门/公司名
-- closing：1-2 句收束；未交、阻塞、风险写在这里；无则写一句鼓励或展望
+- closing：1-2 句收束；未交、阻塞、风险写在这里；若 people[].attachmentCount>0 可写「部分日报含附件，详见总表/钉钉原文」
 - 禁止在任意字段出现「明思」「微光」等组织标签
 - 只基于 JSON 事实，禁止编造
 - 只输出 JSON，不要 markdown`;

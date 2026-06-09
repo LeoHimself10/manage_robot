@@ -25,8 +25,9 @@ export interface DailyReportsHttpPayload {
       reports: Array<{
         templateName: string;
         createTime: number;
-        contents: Array<{ key: string; value: string }>;
+        contents: Array<{ key: string; value: string; type?: string; attachments?: Array<{ name: string; url?: string }> }>;
       }>;
+      images?: Array<{ name: string; url?: string }>;
     }>;
     missing: Array<{ userid: string; name: string }>;
     errors: Array<{ userid: string; name: string; reason: string }>;
@@ -78,6 +79,7 @@ export async function buildDailyReportsHttpPayload(input?: {
           templateName: r.templateName,
           createTime: r.createTime,
           contents: r.contents,
+          images: r.images,
         })),
       })),
       missing: org.missing,

@@ -1,15 +1,19 @@
 import type { OrgDigest } from "./daily-report-build";
+import { fieldHasDisplayBody, reportHasDisplayBody } from "./daily-report-attachments";
 import type { ReportContentField, ReportEntry } from "./dingtalk-report-client";
 
-/** 仅保留 value 非空的工作模块（key 可为空）。 */
+/** 保留 value 非空或含附件的工作模块。 */
 export function filterReportContentsWithBody(
   contents: ReportContentField[],
 ): ReportContentField[] {
-  return contents.filter((f) => f.value.trim().length > 0);
+  return contents.filter(fieldHasDisplayBody);
 }
 
 export function filterReportEntry(entry: ReportEntry): ReportEntry {
   const contents = filterReportContentsWithBody(entry.contents);
+  if (!reportHasDisplayBody({ ...entry, contents })) {
+    return { ...entry, contents: [] };
+  }
   if (contents.length === entry.contents.length) return entry;
   return { ...entry, contents };
 }
@@ -19,7 +23,7 @@ export function filterOrgDigestsContents(orgDigests: OrgDigest[]): OrgDigest[] {
     ...org,
     submitted: org.submitted.map((emp) => ({
       ...emp,
-      reports: emp.reports.map(filterReportEntry).filter((r) => r.contents.length > 0),
+      reports: emp.reports.map(filterReportEntry).filter(reportHasDisplayBody),
     })),
   }));
 }

@@ -1,5 +1,9 @@
 import type { DailyReportOrgConfig } from "./daily-report-config";
 import { filterReportContentsWithBody } from "./daily-report-content-filter";
+import {
+  formatAttachmentSummary,
+  formatFieldDisplayValue,
+} from "./daily-report-attachments";
 import type { ReportEntry } from "./dingtalk-report-client";
 
 export interface EmployeeReports {
@@ -68,12 +72,15 @@ function renderReportBody(report: ReportEntry): string {
   const lines: string[] = [];
   for (const field of filterReportContentsWithBody(report.contents)) {
     const key = field.key.trim();
-    const value = field.value.trim();
+    const display = formatFieldDisplayValue(field);
     if (key) {
-      lines.push(`- **${key}**：${value}`);
+      lines.push(`- **${key}**：${display}`);
     } else {
-      lines.push(`- ${value}`);
+      lines.push(`- ${display}`);
     }
+  }
+  if ((report.images?.length ?? 0) > 0) {
+    lines.push(`- **图片**：${formatAttachmentSummary(report.images!)}`);
   }
   if (lines.length === 0) lines.push("- （无内容）");
   return lines.join("\n");

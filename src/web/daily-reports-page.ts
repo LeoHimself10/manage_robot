@@ -236,12 +236,28 @@ function buildDailyReportsClientJs(
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function fmtTime(ms){ if(!ms) return ''; try { return new Date(Number(ms)).toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}); } catch(e){ return ''; } }
 
+  function fieldDisplay(f){
+    var parts = [];
+    if (String(f.value||'').trim()) parts.push(String(f.value));
+    var att = f.attachments || [];
+    if (att.length) {
+      var names = att.map(function(a){ return a.name||'附件'; }).join('、');
+      parts.push('附件 ' + att.length + ' 个：' + names);
+    }
+    return parts.join('\\n');
+  }
   function renderReport(r){
     var head = r.templateName ? ('<div class="dr-rpt-tmpl">'+esc(r.templateName)+(r.createTime?(' · '+esc(fmtTime(r.createTime))):'')+'</div>') : '';
-    var rows = (r.contents||[]).filter(function(f){ return String(f.value||'').trim(); }).map(function(f){
-      var k = esc(f.key); var v = esc(f.value);
+    var rows = (r.contents||[]).filter(function(f){
+      return String(f.value||'').trim() || (f.attachments && f.attachments.length);
+    }).map(function(f){
+      var k = esc(f.key); var v = esc(fieldDisplay(f));
       return '<div class="dr-field"><span class="dr-field-k">'+k+'</span><span class="dr-field-v">'+v+'</span></div>';
     }).join('');
+    if (r.images && r.images.length) {
+      var imgNames = r.images.map(function(a){ return esc(a.name||'图片'); }).join('、');
+      rows += '<div class="dr-field"><span class="dr-field-k">图片</span><span class="dr-field-v">附件 '+r.images.length+' 个：'+imgNames+'</span></div>';
+    }
     if(!rows) rows = '<div class="dr-field"><span class="dr-field-v dr-muted">（无内容）</span></div>';
     return '<div class="dr-rpt">'+head+rows+'</div>';
   }

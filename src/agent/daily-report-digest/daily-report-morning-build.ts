@@ -1,4 +1,8 @@
 import { filterReportContentsWithBody } from "./daily-report-content-filter";
+import {
+  formatAttachmentSummary,
+  formatFieldDisplayValue,
+} from "./daily-report-attachments";
 import type { ReportEntry } from "./dingtalk-report-client";
 import type { OrgDigest } from "./daily-report-build";
 import type { DailyReportMorningSummary } from "./daily-report-morning-llm";
@@ -42,8 +46,12 @@ export function reportEntriesToSheetRows(reports: ReportEntry[]): string[][] {
     }
     for (const field of contents) {
       const k = field.key.trim();
-      const v = field.value.trim();
+      const v = formatFieldDisplayValue(field);
       rows.push([k || "内容", v]);
+      hasBody = true;
+    }
+    if ((report.images?.length ?? 0) > 0) {
+      rows.push(["图片", formatAttachmentSummary(report.images!)]);
       hasBody = true;
     }
   }
