@@ -1,0 +1,214 @@
+import * as fs from "fs";
+
+/**
+ * 单个钉钉组织的读取凭证 + 目标员工。
+ * 每个组织是独立的钉钉企业，使用各自的企业内部应用 appKey/appSecret，
+ * 且该应用需在开发者后台申请「查询企业员工日志权限」。
+ *
+ * 复用现网部署的应用（如明思 manage-robot 本身）时，可省略 appKey/appSecret，
+ * 或显式 `useDeployedAppCredentials: true`，自动回退到部署进程的
+ * DINGTALK_CLIENT_ID / DINGTALK_CLIENT_SECRET。
+ */
+export interface DailyReportOrgConfig {
+  /** 组织展示名，如 "微光" / "明思"，仅用于群消息分组展示 */
+  label: string;
+  appKey: string;
+  appSecret: string;
+  /** 是否复用部署进程的 DINGTALK_CLIENT_ID/SECRET（明思本机器人）；缺省时若未填 appKey/appSecret 也会自动回退 */
+  useDeployedAppCredentials?: boolean;
+  /** 可选：仅统计该日志模板（如 "日报"）；留空=该员工当天所有日志都算 */
+  templateName?: string;
+  /** 需要汇总日报的目标员工（该组织内的 userid） */
+  employees: Array<{ userid: string; name?: string }>;
+}
+
+/** 明思群里「自定义群机器人」的 Webhook 凭证（与企业应用凭证无关）。 */
+export interface DailyReportWebhookConfig {
+  /** Webhook 地址里 access_token= 后面的值 */
+  accessToken: string;
+  /** 加签 secret（机器人安全设置里 SEC 开头的串）；留空=未开启加签 */
+  secret?: string;
+}
+
+export interface DailyReportDigestConfig {
+  enabled: boolean;
+  scanIntervalMs: number;
+  timezone: string;
+  sendHour: number;
+  sendMinute: number;
+  weekdaysOnly: boolean;
+  /** 群消息标题（钉钉 markdown 折叠摘要用） */
+  title: string;
+  /** 当日去重状态目录（文件标记，单实例假设） */
+  stateDir: string;
+  webhook: DailyReportWebhookConfig;
+  orgs: DailyReportOrgConfig[];
+}
+
+export interface DailyReportConfigParseResult {
+  config: DailyReportDigestConfig;
+  errors: string[];
+}
+
+function env(name: string): string {
+  return String(process.env[name] ?? "").trim();
+}
+
+function envFlag(name: string, defaultValue: boolean): boolean {
+  const raw = env(name).toLowerCase();
+  if (raw === "") return defaultValue;
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function envInt(name: string, defaultValue: number): number {
+  const n = Number(env(name));
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : defaultValue;
+}
+
+function clampHour(value: unknown, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(23, Math.max(0, Math.floor(n)));
+}
+
+function clampMinute(value: unknown, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(59, Math.max(0, Math.floor(n)));
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * 解析配置 JSON（纯函数，便于测试）。
+ * schedule 类字段优先取 JSON，缺省回退到默认值；`enabled` 由调用方按 env 主开关叠加。
+ */
+export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigParseResult {
+  const errors: string[] = [];
+  const obj = (raw ?? {}) as Record<string, unknown>;
+
+  const webhookRaw = (obj.webhook ?? {}) as Record<string, unknown>;
+  const webhook: DailyReportWebhookConfig = {
+    accessToken: asString(webhookRaw.accessToken),
+    secret: asString(webhookRaw.secret) || undefined,
+  };
+  if (!webhook.accessToken) {
+    errors.push("webhook.accessToken 缺失（自定义群机器人 Webhook 的 access_token）");
+  }
+
+  const orgsRaw = Array.isArray(obj.orgs) ? obj.orgs : [];
+  const orgs: DailyReportOrgConfig[] = [];
+  const deployedAppKey = env("DINGTALK_CLIENT_ID");
+  const deployedAppSecret = env("DINGTALK_CLIENT_SECRET");
+  orgsRaw.forEach((entry, idx) => {
+    const o = (entry ?? {}) as Record<string, unknown>;
+    const label = asString(o.label) || `组织${idx + 1}`;
+    let appKey = asString(o.appKey);
+    let appSecret = asString(o.appSecret);
+    const wantsDeployed =
+      o.useDeployedAppCredentials === true || (!appKey && !appSecret);
+    let useDeployedAppCredentials = false;
+    if (wantsDeployed) {
+      if (deployedAppKey && deployedAppSecret) {
+        appKey = deployedAppKey;
+        appSecret = deployedAppSecret;
+        useDeployedAppCredentials = true;
+      }
+    }
+    const templateName = asString(o.templateName) || undefined;
+    const employeesRaw = Array.isArray(o.employees) ? o.employees : [];
+    const employees = employeesRaw
+      .map((e) => {
+        const er = (e ?? {}) as Record<string, unknown>;
+        return { userid: asString(er.userid), name: asString(er.name) || undefined };
+      })
+      .filter((e) => e.userid.length > 0);
+    if (!appKey || !appSecret) {
+      errors.push(
+        wantsDeployed
+          ? `orgs[${idx}] (${label}) 复用部署应用凭证失败：DINGTALK_CLIENT_ID/SECRET 未配置`
+          : `orgs[${idx}] (${label}) 缺少 appKey/appSecret`,
+      );
+    }
+    if (employees.length === 0) {
+      errors.push(`orgs[${idx}] (${label}) employees 为空（需要至少一个 userid）`);
+    }
+    orgs.push({ label, appKey, appSecret, useDeployedAppCredentials, templateName, employees });
+  });
+  if (orgs.length === 0) {
+    errors.push("orgs 为空（至少配置一个组织）");
+  }
+
+  const config: DailyReportDigestConfig = {
+    enabled: false,
+    scanIntervalMs: envInt("DAILY_REPORT_DIGEST_SCAN_INTERVAL_MS", 300_000),
+    timezone: asString(obj.timezone) || env("DAILY_REPORT_DIGEST_TIMEZONE") || "Asia/Shanghai",
+    sendHour: clampHour(obj.sendHour ?? (env("DAILY_REPORT_DIGEST_HOUR") || 8), 8),
+    sendMinute: clampMinute(obj.sendMinute ?? (env("DAILY_REPORT_DIGEST_MINUTE") || 30), 30),
+    weekdaysOnly:
+      typeof obj.weekdaysOnly === "boolean"
+        ? obj.weekdaysOnly
+        : envFlag("DAILY_REPORT_DIGEST_WEEKDAYS_ONLY", true),
+    title: asString(obj.title) || "每日日报汇总",
+    stateDir:
+      asString(obj.stateDir) ||
+      env("DAILY_REPORT_DIGEST_STATE_DIR") ||
+      "data/daily-report-digest",
+    webhook,
+    orgs,
+  };
+
+  return { config, errors };
+}
+
+/**
+ * 从 DAILY_REPORT_DIGEST_CONFIG_FILE 指向的 JSON 文件加载配置。
+ * - `enabled` = env 主开关 DAILY_REPORT_DIGEST_ENABLED && 文件解析无致命错误。
+ * - 文件缺失/解析失败 → 返回 enabled:false（不抛异常，调度器静默不启动）。
+ */
+export function loadDailyReportDigestConfig(opts?: {
+  filePath?: string;
+  readFileImpl?: (path: string) => string;
+}): DailyReportConfigParseResult {
+  const masterEnabled = envFlag("DAILY_REPORT_DIGEST_ENABLED", false);
+  const filePath = opts?.filePath ?? env("DAILY_REPORT_DIGEST_CONFIG_FILE");
+
+  if (!filePath) {
+    const fallback = parseDailyReportDigestConfig({});
+    return {
+      config: { ...fallback.config, enabled: false },
+      errors: ["DAILY_REPORT_DIGEST_CONFIG_FILE 未配置"],
+    };
+  }
+
+  let rawText: string;
+  try {
+    const reader = opts?.readFileImpl ?? ((p: string) => fs.readFileSync(p, "utf8"));
+    rawText = reader(filePath);
+  } catch (err) {
+    const fallback = parseDailyReportDigestConfig({});
+    return {
+      config: { ...fallback.config, enabled: false },
+      errors: [`读取配置文件失败: ${err instanceof Error ? err.message : String(err)}`],
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch (err) {
+    const fallback = parseDailyReportDigestConfig({});
+    return {
+      config: { ...fallback.config, enabled: false },
+      errors: [`配置文件 JSON 解析失败: ${err instanceof Error ? err.message : String(err)}`],
+    };
+  }
+
+  const result = parseDailyReportDigestConfig(parsed);
+  return {
+    config: { ...result.config, enabled: masterEnabled && result.errors.length === 0 },
+    errors: result.errors,
+  };
+}

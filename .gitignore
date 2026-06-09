@@ -39,6 +39,11 @@ docs/*.pem
 # Local git worktrees
 .worktrees/
 
+# Daily-report digest real config (contains two orgs' appSecret + group webhook secret)
+config/daily-report-digest.json
+config/daily-report-digest.*.json
+!config/daily-report-digest.example.json
+
 # IDE (optional — remove lines if you prefer to commit these)
 .idea/
 .claude/

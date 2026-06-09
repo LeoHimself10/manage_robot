@@ -1,6 +1,7 @@
 import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 import { isTaskIntakeEnabled } from "../agent/task-intake/task-intake-flag";
+import { isDailyReportsPageEnabled } from "../agent/daily-report-digest/daily-reports-page-flag";
 
 export type WorkbenchShellRole = "manager" | "employee" | "admin";
 
@@ -8,6 +9,7 @@ export type WorkbenchNavId =
   | "mgr-tasks"
   | "mgr-dash"
   | "mgr-perf"
+  | "mgr-daily-reports"
   | "mgr-chat"
   | "mgr-proj"
   | "mgr-meeting-import"
@@ -71,6 +73,7 @@ function buildManagerRail(activeNav: WorkbenchNavId, portfolioEnabled: boolean, 
   ${railLink("/workbench/manager/tasks", "历史任务", "mgr-tasks", activeNav, "manager")}
   ${railLink("/workbench/manager/dashboard", "周度 Dashboard", "mgr-dash", activeNav, "manager")}
   ${railLink("/workbench/manager/performance", "交付绩效", "mgr-perf", activeNav, "manager")}
+  ${isDailyReportsPageEnabled() ? railLink("/workbench/manager/daily-reports", "日报汇总", "mgr-daily-reports", activeNav, "manager") : ""}
   ${railLink("/workbench/manager/chat?thread=main", "智能规划助手", "mgr-chat", activeNav, "manager")}
   ${isTaskIntakeEnabled() ? railLink("/workbench/manager/task-intake", "任务快录入库", "mgr-task-intake", activeNav, "manager") : ""}
 </div>

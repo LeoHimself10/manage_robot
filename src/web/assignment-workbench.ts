@@ -113,6 +113,9 @@ import {
 import { renderManagerProjectsPage } from "./manager-projects-pages";
 import { renderManagerDashboardPage } from "./manager-dashboard-page";
 import { renderPerformanceDashboardPage } from "./performance-dashboard-page";
+import { renderDailyReportsPage } from "./daily-reports-page";
+import { buildDailyReportsHttpPayload } from "./daily-reports-api";
+import { isDailyReportsPageEnabled } from "../agent/daily-report-digest/daily-reports-page-flag";
 import {
   buildPerformanceDashboardPayload,
   buildPerformanceEmployeeDetailPayload,
@@ -184,6 +187,7 @@ const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/manager/tasks",
   "/workbench/manager/dashboard",
   "/workbench/manager/performance",
+  "/workbench/manager/daily-reports",
   "/workbench/manager/chat",
   "/workbench/manager/meeting-import",
   "/workbench/manager/task-intake",
@@ -3485,6 +3489,28 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (isGetOrHead && url.pathname === "/api/workbench/manager/daily-reports") {
+    const session = requireSession(req, res, "manager");
+    if (!session) return true;
+    if (!isDailyReportsPageEnabled()) {
+      writeJson(res, 404, { ok: false, error: "daily reports page disabled" });
+      return true;
+    }
+    const date = String(url.searchParams.get("date") ?? "").trim() || undefined;
+    void (async () => {
+      try {
+        const payload = await buildDailyReportsHttpPayload({ date });
+        writeJson(res, 200, payload as unknown as Record<string, unknown>);
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (isGetOrHead && url.pathname === "/api/workbench/manager/performance") {
     return handlePerformanceDashboardGet(req, res, url);
   }
@@ -6118,6 +6144,10 @@ export function handleAssignmentHttp(
         redirect(res, "/workbench/manager/tasks");
         return true;
       }
+      if (url.pathname === "/workbench/manager/daily-reports" && !isDailyReportsPageEnabled()) {
+        redirect(res, "/workbench/manager/tasks");
+        return true;
+      }
       let chatThreadId = "main";
       let chatThreadKind: "main" | "side" = "main";
       let planTitle: string | undefined;
@@ -6160,6 +6190,14 @@ export function handleAssignmentHttp(
             apiBase: "/api/workbench/manager/performance",
             showAdminOpsLink,
             portfolioEnabled,
+          })
+          : url.pathname === "/workbench/manager/daily-reports"
+          ? renderDailyReportsPage({
+            userLabel,
+            showAdminOpsLink,
+            portfolioEnabled,
+            apiBase: "/api/workbench/manager/daily-reports",
+            initialDate: url.searchParams.get("date")?.trim() ?? "",
           })
           : url.pathname === "/workbench/manager/projects"
           ? renderManagerProjectsPage({

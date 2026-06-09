@@ -1,0 +1,32 @@
+{
+  "title": "每日日报汇总",
+  "timezone": "Asia/Shanghai",
+  "sendHour": 8,
+  "sendMinute": 30,
+  "weekdaysOnly": true,
+  "stateDir": "data/daily-report-digest",
+  "webhook": {
+    "accessToken": "明思群自定义机器人 Webhook 里 access_token= 后面的值",
+    "secret": "SEC开头的加签密钥（机器人安全设置选择 加签 时才有；未开加签则删掉本行）"
+  },
+  "orgs": [
+    {
+      "label": "明思",
+      "useDeployedAppCredentials": true,
+      "templateName": "",
+      "employees": [
+        { "userid": "userid_a", "name": "张三" },
+        { "userid": "userid_b", "name": "李四" }
+      ]
+    },
+    {
+      "label": "微光",
+      "appKey": "微光 managebot 应用的 appKey(=ClientID)",
+      "appSecret": "微光 managebot 应用的 appSecret",
+      "templateName": "",
+      "employees": [
+        { "userid": "userid_c", "name": "王五" }
+      ]
+    }
+  ]
+}

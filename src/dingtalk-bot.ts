@@ -77,6 +77,7 @@ import { createDingTalkContactSyncService } from "./infra/dingtalk-contact-sync"
 import { createReminderScheduler } from "./agent/reminders/reminder-scheduler";
 import { createProgressDigestScheduler } from "./agent/progress-digest/progress-digest-scheduler";
 import { loadProgressDigestPolicy } from "./agent/progress-digest/progress-digest-policy";
+import { createDailyReportDigestScheduler } from "./agent/daily-report-digest/daily-report-scheduler";
 import {
   appendMemoryEvents,
   loadMemoryContextForPlan,
@@ -318,6 +319,18 @@ async function main(): Promise<void> {
     timezone: progressDigestPolicy.timezone,
     digestHour: progressDigestPolicy.digestHour,
     digestMinute: progressDigestPolicy.digestMinute,
+  });
+
+  const dailyReportScheduler = createDailyReportDigestScheduler();
+  dailyReportScheduler.startIntervalLoop();
+  logStructured({
+    event: "daily_report_digest_scheduler_started",
+    enabled: dailyReportScheduler.config.enabled,
+    scanIntervalMs: dailyReportScheduler.config.scanIntervalMs,
+    timezone: dailyReportScheduler.config.timezone,
+    sendHour: dailyReportScheduler.config.sendHour,
+    sendMinute: dailyReportScheduler.config.sendMinute,
+    orgCount: dailyReportScheduler.config.orgs.length,
   });
 
   client.registerCallbackListener(TOPIC_ROBOT, (res: DWClientDownStream) => {

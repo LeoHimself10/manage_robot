@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { renderManagerTasksPage, renderManagerChatPage } from "../src/web/manager-workbench-pages.ts";
 import { renderManagerProjectsPage } from "../src/web/manager-projects-pages.ts";
 import { renderManagerDashboardPage } from "../src/web/manager-dashboard-page.ts";
+import { renderDailyReportsPage } from "../src/web/daily-reports-page.ts";
 import { renderAdminWorkbenchPage } from "../src/web/admin-workbench-pages.ts";
 import { renderEmployeeWorkbenchPage } from "../src/web/employee-workbench-pages.ts";
 import { renderTaskDetailPage } from "../src/web/assignment-workbench.ts";
@@ -14,6 +15,7 @@ const cases = [
   ["manager-chat", renderManagerChatPage({ userLabel: "测试" })],
   ["manager-projects", renderManagerProjectsPage({ userLabel: "测试" })],
   ["manager-dashboard", renderManagerDashboardPage({ userLabel: "测试" })],
+  ["manager-daily-reports", renderDailyReportsPage({ userLabel: "测试" })],
   ["manager-tasks-portfolio", renderManagerTasksPage({ userLabel: "测试", projectPortfolioEnabled: true })],
   ["admin", renderAdminWorkbenchPage({ userLabel: "测试" })],
   ["employee-unified", renderEmployeeWorkbenchPage()],
