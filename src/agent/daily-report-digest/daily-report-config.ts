@@ -30,6 +30,15 @@ export interface DailyReportWebhookConfig {
   secret?: string;
 }
 
+/** 钉钉知识库表格：每人创建一张 WORKBOOK 时使用。 */
+export interface DailyReportDocConfig {
+  workspaceId: string;
+  operatorUnionId: string;
+  parentNodeId?: string;
+}
+
+export type DailyReportPushMode = "full" | "morning";
+
 export interface DailyReportDigestConfig {
   enabled: boolean;
   scanIntervalMs: number;
@@ -39,6 +48,10 @@ export interface DailyReportDigestConfig {
   weekdaysOnly: boolean;
   /** 群消息标题（钉钉 markdown 折叠摘要用） */
   title: string;
+  /** full=原文拼接；morning=LLM 综述 + 个人表格链接 */
+  pushMode: DailyReportPushMode;
+  /** 早报模式下创建钉钉表格（可选；缺省则只发 LLM 综述 + 统计） */
+  doc?: DailyReportDocConfig;
   /** 当日去重状态目录（文件标记，单实例假设） */
   stateDir: string;
   webhook: DailyReportWebhookConfig;
@@ -139,6 +152,25 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
     errors.push("orgs 为空（至少配置一个组织）");
   }
 
+  const pushModeRaw = asString(obj.pushMode).toLowerCase();
+  const pushMode: DailyReportPushMode = pushModeRaw === "morning" ? "morning" : "full";
+
+  const docRaw = (obj.doc ?? {}) as Record<string, unknown>;
+  const docWorkspaceId = asString(docRaw.workspaceId);
+  const docOperatorUnionId = asString(docRaw.operatorUnionId);
+  let doc: DailyReportDocConfig | undefined;
+  if (docWorkspaceId || docOperatorUnionId) {
+    if (!docWorkspaceId || !docOperatorUnionId) {
+      errors.push("doc 需同时配置 workspaceId 与 operatorUnionId");
+    } else {
+      doc = {
+        workspaceId: docWorkspaceId,
+        operatorUnionId: docOperatorUnionId,
+        parentNodeId: asString(docRaw.parentNodeId) || undefined,
+      };
+    }
+  }
+
   const config: DailyReportDigestConfig = {
     enabled: false,
     scanIntervalMs: envInt("DAILY_REPORT_DIGEST_SCAN_INTERVAL_MS", 300_000),
@@ -150,6 +182,8 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
         ? obj.weekdaysOnly
         : envFlag("DAILY_REPORT_DIGEST_WEEKDAYS_ONLY", true),
     title: asString(obj.title) || "每日日报汇总",
+    pushMode,
+    doc,
     stateDir:
       asString(obj.stateDir) ||
       env("DAILY_REPORT_DIGEST_STATE_DIR") ||

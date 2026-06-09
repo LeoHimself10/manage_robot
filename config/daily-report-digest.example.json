@@ -1,14 +1,22 @@
 {
-  "title": "每日日报汇总",
+  "title": "每日早报",
+  "pushMode": "morning",
   "timezone": "Asia/Shanghai",
   "sendHour": 8,
   "sendMinute": 30,
   "weekdaysOnly": true,
   "stateDir": "data/daily-report-digest",
-  "_webhook说明": "webhook 仅 8:30 群推需要；只用工作台「日报汇总」页面可整段删掉。",
+  "_pushMode说明": "full=原文拼接群消息；morning=LLM 昨日综述 + 可选钉钉表格链接",
+  "_webhook说明": "webhook 仅定时群推需要；只用工作台页面可整段删掉。",
   "webhook": {
-    "accessToken": "明思群自定义机器人 Webhook 里 access_token= 后面的值",
-    "secret": "SEC开头的加签密钥（机器人安全设置选择 加签 时才有；未开加签则删掉本行）"
+    "accessToken": "群机器人 Webhook 里 access_token= 后面的值",
+    "secret": "SEC开头的加签密钥（未开加签则删掉本行）"
+  },
+  "_doc说明": "早报模式下每人创建一张钉钉表格；需应用开通知识库写+表格写权限",
+  "doc": {
+    "workspaceId": "知识库 workspaceId（钉钉开放平台查询）",
+    "operatorUnionId": "有该知识库写权限的用户 unionId",
+    "parentNodeId": "可选，知识库内父文件夹 nodeId"
   },
   "orgs": [
     {
