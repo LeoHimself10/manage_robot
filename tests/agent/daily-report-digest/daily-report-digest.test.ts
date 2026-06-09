@@ -218,9 +218,17 @@ describe("daily-report-window", () => {
     expect(isDailyReportSendWindow(new Date("2026-06-09T00:30:00Z"), config)).toBe(true);
   });
 
-  it("is out of window off-hour and on weekends", () => {
+  it("is out of window off-hour", () => {
     expect(isDailyReportSendWindow(new Date("2026-06-09T01:30:00Z"), config)).toBe(false); // 09:30
-    expect(isDailyReportSendWindow(new Date("2026-06-13T00:30:00Z"), config)).toBe(false); // Saturday
+  });
+
+  it("sends on Saturday 08:30 (Friday report); skips Sunday and Monday", () => {
+    // 2026-06-13 is Saturday; 08:30 CST == 00:30 UTC
+    expect(isDailyReportSendWindow(new Date("2026-06-13T00:30:00Z"), config)).toBe(true);
+    // 2026-06-14 Sunday
+    expect(isDailyReportSendWindow(new Date("2026-06-14T00:30:00Z"), config)).toBe(false);
+    // 2026-06-15 Monday
+    expect(isDailyReportSendWindow(new Date("2026-06-15T00:30:00Z"), config)).toBe(false);
   });
 
   it("resolves yesterday's full-day range in timezone", () => {

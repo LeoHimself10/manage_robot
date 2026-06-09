@@ -140,6 +140,7 @@ import {
 import { renderManagerTaskIntakePage } from "./manager-task-intake-page";
 import { handleTaskIntakeAppend, handleTaskIntakeCommit, handleTaskIntakePreview } from "./task-intake-api";
 import { isTaskIntakeEnabled } from "../agent/task-intake/task-intake-flag";
+import { isMeetingImportEnabled } from "../agent/meeting-import/meeting-import-flag";
 import {
   buildWeeklyAdvisorHttpPayload,
   buildWeeklyDashboardHttpPayload,
@@ -3704,6 +3705,10 @@ export function handleAssignmentHttp(
       try {
         const session = requireSession(req, res, "manager");
         if (!session) return;
+        if (!isMeetingImportEnabled()) {
+          writeJson(res, 404, { ok: false, error: "meeting import disabled" });
+          return;
+        }
         if (!requirePortfolioManager(session, res)) return;
         const body = await readJsonBody(req);
         const result = await handleMeetingImportParse({
@@ -3730,6 +3735,10 @@ export function handleAssignmentHttp(
       try {
         const session = requireSession(req, res, "manager");
         if (!session) return;
+        if (!isMeetingImportEnabled()) {
+          writeJson(res, 404, { ok: false, error: "meeting import disabled" });
+          return;
+        }
         if (!requirePortfolioManager(session, res)) return;
         const body = await readJsonBody(req);
         const projectId = String(body.projectId ?? "").trim();
@@ -3762,6 +3771,10 @@ export function handleAssignmentHttp(
       try {
         const session = requireSession(req, res, "manager");
         if (!session) return;
+        if (!isMeetingImportEnabled()) {
+          writeJson(res, 404, { ok: false, error: "meeting import disabled" });
+          return;
+        }
         if (!requirePortfolioManager(session, res)) return;
         const body = await readJsonBody(req);
         const rows = Array.isArray(body.rows) ? body.rows : [];
@@ -6275,7 +6288,7 @@ export function handleAssignmentHttp(
         redirect(res, "/workbench/manager/tasks");
         return true;
       }
-      if (url.pathname === "/workbench/manager/meeting-import" && !portfolioEnabled) {
+      if (url.pathname === "/workbench/manager/meeting-import" && (!portfolioEnabled || !isMeetingImportEnabled())) {
         redirect(res, "/workbench/manager/tasks");
         return true;
       }

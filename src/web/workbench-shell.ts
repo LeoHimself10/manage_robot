@@ -2,6 +2,7 @@ import { WORKBENCH_APP_BASE_CSS } from "./workbench-app-styles";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 import { isTaskIntakeEnabled } from "../agent/task-intake/task-intake-flag";
 import { isDailyReportsPageEnabled } from "../agent/daily-report-digest/daily-reports-page-flag";
+import { isMeetingImportEnabled } from "../agent/meeting-import/meeting-import-flag";
 
 export type WorkbenchShellRole = "manager" | "employee" | "admin";
 
@@ -84,7 +85,7 @@ ${
     ? `<div class="wb-rail-grp">
   <div class="wb-rail-grp-lbl">项目管理主管</div>
   ${portfolioLinks}
-  ${railLink("/workbench/manager/meeting-import", "会议入库", "mgr-meeting-import", activeNav, "manager")}
+  ${isMeetingImportEnabled() ? railLink("/workbench/manager/meeting-import", "会议入库", "mgr-meeting-import", activeNav, "manager") : ""}
 </div>`
     : ""
 }${adminOpsLink}`;

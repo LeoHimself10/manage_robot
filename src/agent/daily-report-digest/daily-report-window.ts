@@ -20,13 +20,16 @@ export interface ReportTimeRange {
   labelDisplay: string;
 }
 
-/** 是否处于「每天 sendHour:sendMinute」的发送窗口（仅工作日可选）。 */
+/** 是否处于「每天 sendHour:sendMinute」的发送窗口。
+ * 规则：周二–周六 08:30 发「昨日」汇总；周六发周五；周日、周一不发。
+ */
 export function isDailyReportSendWindow(
   now: Date,
   config: DailyReportDigestConfig,
 ): boolean {
   const { hour, minute, weekday } = getLocalTimeParts(now, config.timezone);
-  if (config.weekdaysOnly && (weekday === 0 || weekday === 6)) return false;
+  // 0=周日、1=周一不发；6=周六发（resolveReportRange 自然取周五）
+  if (weekday === 0 || weekday === 1) return false;
   if (hour !== config.sendHour) return false;
   const windowEndMinute = config.sendMinute + Math.ceil(config.scanIntervalMs / 60_000);
   return minute >= config.sendMinute && minute < windowEndMinute;
