@@ -238,10 +238,9 @@ function buildDailyReportsClientJs(
 
   function renderReport(r){
     var head = r.templateName ? ('<div class="dr-rpt-tmpl">'+esc(r.templateName)+(r.createTime?(' · '+esc(fmtTime(r.createTime))):'')+'</div>') : '';
-    var rows = (r.contents||[]).map(function(f){
+    var rows = (r.contents||[]).filter(function(f){ return String(f.value||'').trim(); }).map(function(f){
       var k = esc(f.key); var v = esc(f.value);
-      if(k && v) return '<div class="dr-field"><span class="dr-field-k">'+k+'</span><span class="dr-field-v">'+v+'</span></div>';
-      return '<div class="dr-field"><span class="dr-field-v">'+(k||v)+'</span></div>';
+      return '<div class="dr-field"><span class="dr-field-k">'+k+'</span><span class="dr-field-v">'+v+'</span></div>';
     }).join('');
     if(!rows) rows = '<div class="dr-field"><span class="dr-field-v dr-muted">（无内容）</span></div>';
     return '<div class="dr-rpt">'+head+rows+'</div>';

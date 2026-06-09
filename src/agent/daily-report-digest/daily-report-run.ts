@@ -17,10 +17,12 @@ import {
   summarizeMorningReportsWithLlm,
 } from "./daily-report-morning-llm";
 import {
-  type PersonWorkbookLink,
+  type DailyWorkbookResult,
   renderMorningReportMarkdown,
   reportEntriesToSheetRows,
 } from "./daily-report-morning-build";
+import { filterOrgDigestsContents } from "./daily-report-content-filter";
+import { resolveWorkbookParentNodeId } from "./daily-report-doc-archive";
 import { createDingTalkWorkbookClient } from "./dingtalk-workbook-client";
 
 export interface RunDailyReportDigestResult {
@@ -82,53 +84,170 @@ export async function collectOrgDigests(
     orgDigests.push(aggregateOrgDigest(org, allReports, errorsByUserid));
   }
 
-  return { orgDigests, errorCount };
+  return { orgDigests: filterOrgDigestsContents(orgDigests), errorCount };
 }
 
-async function createPersonWorkbooks(
+function sheetNameForEmployee(orgLabel: string, name: string): string {
+  const raw = `${orgLabel}·${name}`.replace(/[\\/?*[\]:]/g, "_");
+  return raw.slice(0, 31) || name.slice(0, 31);
+}
+
+async function createDailyWorkbook(
   config: DailyReportDigestConfig,
   orgDigests: OrgDigest[],
   dateLabel: string,
   deps?: { fetchImpl?: typeof fetch },
-): Promise<PersonWorkbookLink[]> {
-  if (!config.doc) return [];
+): Promise<DailyWorkbookResult | undefined> {
+  if (!config.doc) return undefined;
   const deployedKey = process.env.DINGTALK_CLIENT_ID ?? "";
   const deployedSecret = process.env.DINGTALK_CLIENT_SECRET ?? "";
   if (!deployedKey || !deployedSecret) {
     logStructured({ event: "daily_report_workbook_skipped", reason: "no_deployed_credentials" });
-    return [];
+    return undefined;
   }
 
-  const wb = createDingTalkWorkbookClient({ fetchImpl: deps?.fetchImpl });
-  const links: PersonWorkbookLink[] = [];
-
+  const employees: Array<{ orgLabel: string; name: string; reports: OrgDigest["submitted"][0]["reports"] }> =
+    [];
   for (const org of orgDigests) {
     for (const emp of org.submitted) {
-      const name = `${dateLabel} ${emp.name} 日报`.slice(0, 80);
+      employees.push({ orgLabel: org.label, name: emp.name, reports: emp.reports });
+    }
+  }
+  if (employees.length === 0) return undefined;
+
+  const wb = createDingTalkWorkbookClient({ fetchImpl: deps?.fetchImpl });
+  const workbookTitle = `${dateLabel} 日报汇总`.slice(0, 80);
+  const sheetErrors: DailyWorkbookResult["sheetErrors"] = [];
+
+  try {
+    let parentNodeId: string | undefined;
+    try {
+      parentNodeId = await resolveWorkbookParentNodeId({
+        doc: config.doc,
+        labelYmd: dateLabel,
+        stateDir: config.stateDir,
+        monthArchive: config.doc.monthArchive,
+        appKey: deployedKey,
+        appSecret: deployedSecret,
+        fetchImpl: deps?.fetchImpl,
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      logStructured({ event: "daily_report_month_folder_fallback", reason });
+      parentNodeId = config.doc.parentNodeId;
+    }
+    const created = await wb.createWorkbook(
+      deployedKey,
+      deployedSecret,
+      config.doc,
+      workbookTitle,
+      parentNodeId,
+    );
+    let sheetCount = 0;
+
+    for (const emp of employees) {
+      const sheetName = sheetNameForEmployee(emp.orgLabel, emp.name);
       try {
-        const created = await wb.createWorkbook(deployedKey, deployedSecret, config.doc, name);
+        const sheet = await wb.createSheet(
+          deployedKey,
+          deployedSecret,
+          config.doc,
+          created.workbookId,
+          sheetName,
+        );
         const rows = reportEntriesToSheetRows(emp.reports);
-        await wb.writeSheetValues(deployedKey, deployedSecret, config.doc, created.workbookId, rows);
-        links.push({ orgLabel: org.label, name: emp.name, url: created.url });
+        await wb.writeSheetValues(
+          deployedKey,
+          deployedSecret,
+          config.doc,
+          created.workbookId,
+          rows,
+          sheet.id,
+        );
+        try {
+          await wb.formatSheetLayout(
+            deployedKey,
+            deployedSecret,
+            config.doc,
+            created.workbookId,
+            sheet.id,
+            rows,
+          );
+        } catch (fmtErr) {
+          logStructured({
+            event: "daily_report_sheet_format_failed",
+            org: emp.orgLabel,
+            name: emp.name,
+            reason: fmtErr instanceof Error ? fmtErr.message : String(fmtErr),
+          });
+        }
+        sheetCount += 1;
         logStructured({
-          event: "daily_report_workbook_created",
-          org: org.label,
+          event: "daily_report_sheet_created",
+          org: emp.orgLabel,
           name: emp.name,
           workbookId: created.workbookId,
+          sheetId: sheet.id,
         });
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
-        links.push({ orgLabel: org.label, name: emp.name, url: "", error: reason });
+        sheetErrors.push({ orgLabel: emp.orgLabel, name: emp.name, error: reason });
         logStructured({
-          event: "daily_report_workbook_failed",
-          org: org.label,
+          event: "daily_report_sheet_failed",
+          org: emp.orgLabel,
           name: emp.name,
+          workbookId: created.workbookId,
           reason,
         });
       }
     }
+
+    if (sheetCount > 0) {
+      try {
+        await wb.deleteSheet(
+          deployedKey,
+          deployedSecret,
+          config.doc,
+          created.workbookId,
+          "Sheet1",
+        );
+        logStructured({
+          event: "daily_report_sheet1_deleted",
+          workbookId: created.workbookId,
+        });
+      } catch (err) {
+        logStructured({
+          event: "daily_report_sheet1_delete_failed",
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    logStructured({
+      event: "daily_report_workbook_created",
+      workbookId: created.workbookId,
+      sheetCount,
+      sheetErrorCount: sheetErrors.length,
+    });
+
+    return {
+      url: created.url,
+      workbookId: created.workbookId,
+      name: workbookTitle,
+      sheetCount,
+      sheetErrors,
+    };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    logStructured({ event: "daily_report_workbook_failed", reason });
+    return {
+      url: "",
+      name: workbookTitle,
+      sheetCount: 0,
+      sheetErrors,
+      error: reason,
+    };
   }
-  return links;
 }
 
 async function runMorningDailyReportDigest(
@@ -144,13 +263,13 @@ async function runMorningDailyReportDigest(
     ? await summarizeMorningReportsWithLlm(orgDigests, dateLabel, llmConfig, deps?.fetchImpl)
     : fallbackMorningSummary(orgDigests, dateLabel);
 
-  const workbookLinks = await createPersonWorkbooks(config, orgDigests, range.labelYmd, deps);
+  const dailyWorkbook = await createDailyWorkbook(config, orgDigests, range.labelYmd, deps);
   const rendered = renderMorningReportMarkdown({
     title: config.title,
     dateLabel,
     summary,
     orgDigests,
-    workbookLinks,
+    dailyWorkbook,
   });
 
   const sendResult = await sendGroupRobotMarkdown(
@@ -175,7 +294,7 @@ async function runMorningDailyReportDigest(
       missingCount: rendered.missingCount,
       errorCount,
       pushMode: "morning",
-      workbookCount: workbookLinks.filter((l) => l.url).length,
+      workbookCount: dailyWorkbook?.sheetCount ?? 0,
     };
   }
 
@@ -186,7 +305,8 @@ async function runMorningDailyReportDigest(
     submittedCount: rendered.submittedCount,
     missingCount: rendered.missingCount,
     errorCount,
-    workbookCount: workbookLinks.filter((l) => l.url).length,
+    workbookCount: dailyWorkbook?.sheetCount ?? 0,
+    workbookUrl: dailyWorkbook?.url || undefined,
   });
   return {
     ok: true,
@@ -195,7 +315,7 @@ async function runMorningDailyReportDigest(
     missingCount: rendered.missingCount,
     errorCount,
     pushMode: "morning",
-    workbookCount: workbookLinks.filter((l) => l.url).length,
+    workbookCount: dailyWorkbook?.sheetCount ?? 0,
   };
 }
 

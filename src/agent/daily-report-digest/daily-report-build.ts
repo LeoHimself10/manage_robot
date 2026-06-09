@@ -1,4 +1,5 @@
 import type { DailyReportOrgConfig } from "./daily-report-config";
+import { filterReportContentsWithBody } from "./daily-report-content-filter";
 import type { ReportEntry } from "./dingtalk-report-client";
 
 export interface EmployeeReports {
@@ -65,14 +66,13 @@ export function aggregateOrgDigest(
 
 function renderReportBody(report: ReportEntry): string {
   const lines: string[] = [];
-  for (const field of report.contents) {
+  for (const field of filterReportContentsWithBody(report.contents)) {
     const key = field.key.trim();
     const value = field.value.trim();
-    if (!key && !value) continue;
-    if (key && value) {
+    if (key) {
       lines.push(`- **${key}**：${value}`);
     } else {
-      lines.push(`- ${key || value}`);
+      lines.push(`- ${value}`);
     }
   }
   if (lines.length === 0) lines.push("- （无内容）");

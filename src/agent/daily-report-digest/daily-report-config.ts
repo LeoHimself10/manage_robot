@@ -35,6 +35,10 @@ export interface DailyReportDocConfig {
   workspaceId: string;
   operatorUnionId: string;
   parentNodeId?: string;
+  /** 月归档文件夹的父节点；缺省为知识库根 */
+  archiveBaseNodeId?: string;
+  /** 是否按 YYYY-MM 自动归档；默认 true（手动 parentNodeId 优先） */
+  monthArchive?: boolean;
 }
 
 export type DailyReportPushMode = "full" | "morning";
@@ -163,10 +167,15 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
     if (!docWorkspaceId || !docOperatorUnionId) {
       errors.push("doc 需同时配置 workspaceId 与 operatorUnionId");
     } else {
+      const monthArchiveRaw = docRaw.monthArchive;
+      const monthArchive =
+        typeof monthArchiveRaw === "boolean" ? monthArchiveRaw : monthArchiveRaw == null ? true : Boolean(monthArchiveRaw);
       doc = {
         workspaceId: docWorkspaceId,
         operatorUnionId: docOperatorUnionId,
         parentNodeId: asString(docRaw.parentNodeId) || undefined,
+        archiveBaseNodeId: asString(docRaw.archiveBaseNodeId) || undefined,
+        monthArchive,
       };
     }
   }

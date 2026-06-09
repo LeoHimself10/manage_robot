@@ -16,7 +16,9 @@
   "doc": {
     "workspaceId": "知识库 workspaceId（钉钉开放平台查询）",
     "operatorUnionId": "有该知识库写权限的用户 unionId",
-    "parentNodeId": "可选，知识库内父文件夹 nodeId"
+    "monthArchive": true,
+    "parentNodeId": "可选，手动指定则跳过月归档",
+    "archiveBaseNodeId": "可选，月文件夹的父节点，缺省为知识库根"
   },
   "orgs": [
     {

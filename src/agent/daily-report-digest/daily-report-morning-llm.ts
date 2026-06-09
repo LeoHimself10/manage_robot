@@ -1,5 +1,6 @@
 import { logStructured } from "../../infra/logger";
 import type { OrgDigest } from "./daily-report-build";
+import { filterReportContentsWithBody } from "./daily-report-content-filter";
 
 export interface DailyReportMorningLlmConfig {
   enabled: boolean;
@@ -10,10 +11,15 @@ export interface DailyReportMorningLlmConfig {
   apiKey: string;
 }
 
+export interface PersonBrief {
+  name: string;
+  brief: string;
+}
+
 export interface DailyReportMorningSummary {
-  headline: string;
-  highlights: string[];
-  attention?: string;
+  overview: string;
+  personBriefs: PersonBrief[];
+  closing: string;
 }
 
 function env(name: string): string {
@@ -38,40 +44,49 @@ export function loadDailyReportMorningLlmConfig(): DailyReportMorningLlmConfig |
     enabled: envFlag("DAILY_REPORT_MORNING_LLM_ENABLED", true),
     model: env("DAILY_REPORT_MORNING_LLM_MODEL") || "qwen3.6-flash",
     timeoutMs: envInt("DAILY_REPORT_MORNING_LLM_TIMEOUT_MS", 12000),
-    maxTokens: envInt("DAILY_REPORT_MORNING_LLM_MAX_TOKENS", 900),
+    maxTokens: envInt("DAILY_REPORT_MORNING_LLM_MAX_TOKENS", 1200),
     baseUrl: env("QWEN_BASE_URL") || "https://dashscope.aliyuncs.com/compatible-mode/v1",
     apiKey,
   };
 }
 
-/** 压缩 orgDigests 供 LLM 消费，避免超长。 */
+/** 压缩 orgDigests 供 LLM 消费，扁平化为 people[]，不传组织名。 */
 export function slimOrgDigestsForLlm(orgDigests: OrgDigest[]): Record<string, unknown> {
-  return {
-    orgs: orgDigests.map((org) => ({
-      label: org.label,
-      submitted: org.submitted.map((emp) => ({
+  const people: Array<{
+    name: string;
+    reports: Array<{ template?: string; fields: Array<{ k: string; v: string }> }>;
+  }> = [];
+  const missing: string[] = [];
+
+  for (const org of orgDigests) {
+    for (const emp of org.submitted) {
+      people.push({
         name: emp.name,
         reports: emp.reports.map((r) => ({
-          template: r.templateName,
-          fields: r.contents.slice(0, 12).map((f) => ({
-            k: f.key.slice(0, 40),
-            v: f.value.slice(0, 200),
-          })),
-        })),
-      })),
-      missing: org.missing.map((m) => m.name),
-      errors: org.errors.map((e) => e.name),
-    })),
-  };
+          template: r.templateName || undefined,
+          fields: filterReportContentsWithBody(r.contents)
+            .slice(0, 12)
+            .map((f) => ({
+              k: f.key.slice(0, 40),
+              v: f.value.slice(0, 200),
+            })),
+        })).filter((r) => r.fields.length > 0),
+      });
+    }
+    for (const m of org.missing) missing.push(m.name);
+  }
+
+  return { people, missing };
 }
 
-const SYSTEM_PROMPT = `你是企业内部早报编辑。根据 JSON 中各组织员工的昨日钉钉日报，只输出一个 JSON：
-{"headline":"...","highlights":["..."],"attention":"..."}
+const SYSTEM_PROMPT = `你是企业内部早报编辑。根据 JSON 中员工的昨日钉钉日报，只输出一个 JSON：
+{"overview":"...","personBriefs":[{"name":"...","brief":"..."}],"closing":"..."}
 
 规则：
-- headline：2-3 句中文综述，概括整体进展与重点，不超过 180 字
-- highlights：3-6 条要点，每条不超过 50 字，按重要性排序
-- attention：可选，1 句点出需关注事项（未交、阻塞、风险）；无则空字符串
+- overview：2-3 句中文，概括整体进展，不超过 180 字
+- personBriefs：每位已交员工一条，brief 不超过 50 字，按重要性排序；只写姓名，禁止出现组织/部门/公司名
+- closing：1-2 句收束；未交、阻塞、风险写在这里；无则写一句鼓励或展望
+- 禁止在任意字段出现「明思」「微光」等组织标签
 - 只基于 JSON 事实，禁止编造
 - 只输出 JSON，不要 markdown`;
 
@@ -81,22 +96,50 @@ function clipLine(raw: string, max: number): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
+function mapLegacySummary(parsed: Record<string, unknown>): DailyReportMorningSummary | null {
+  const headline = String(parsed.headline ?? "").trim();
+  if (!headline) return null;
+  const highlights = Array.isArray(parsed.highlights)
+    ? parsed.highlights.map((h) => clipLine(String(h ?? ""), 50)).filter(Boolean)
+    : [];
+  const attention = String(parsed.attention ?? "").trim();
+  const personBriefs: PersonBrief[] = highlights.map((h) => {
+    const sep = h.indexOf("：");
+    if (sep > 0) {
+      return { name: h.slice(0, sep).replace(/^[^·]+·/, ""), brief: h.slice(sep + 1) };
+    }
+    return { name: "要点", brief: h };
+  });
+  return {
+    overview: headline,
+    personBriefs,
+    closing: attention || "请继续保持日报节奏。",
+  };
+}
+
 function parseMorningJson(raw: string): DailyReportMorningSummary | null {
   const jsonMatch = raw.trim().match(/\{[\s\S]*\}/);
   if (!jsonMatch) return null;
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as {
-      headline?: string;
-      highlights?: unknown;
-      attention?: string;
-    };
-    const headline = String(parsed.headline ?? "").trim();
-    if (!headline) return null;
-    const highlights = Array.isArray(parsed.highlights)
-      ? parsed.highlights.map((h) => clipLine(String(h ?? ""), 50)).filter(Boolean).slice(0, 6)
-      : [];
-    const attention = String(parsed.attention ?? "").trim();
-    return { headline, highlights, attention: attention || undefined };
+    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+    const overview = String(parsed.overview ?? "").trim();
+    if (overview) {
+      const personBriefs = Array.isArray(parsed.personBriefs)
+        ? parsed.personBriefs
+            .map((p) => {
+              const o = (p ?? {}) as { name?: string; brief?: string };
+              return {
+                name: String(o.name ?? "").trim(),
+                brief: clipLine(String(o.brief ?? ""), 50),
+              };
+            })
+            .filter((p) => p.name && p.brief)
+            .slice(0, 12)
+        : [];
+      const closing = String(parsed.closing ?? "").trim() || "请继续保持日报节奏。";
+      return { overview: clipLine(overview, 200), personBriefs, closing: clipLine(closing, 120) };
+    }
+    return mapLegacySummary(parsed);
   } catch {
     return null;
   }
@@ -107,25 +150,31 @@ export function fallbackMorningSummary(
   dateLabel: string,
 ): DailyReportMorningSummary {
   let submitted = 0;
-  let missing = 0;
-  const names: string[] = [];
+  const missingNames: string[] = [];
+  const personBriefs: PersonBrief[] = [];
+
   for (const org of orgDigests) {
     submitted += org.submitted.length;
-    missing += org.missing.length;
-    for (const m of org.missing) names.push(m.name);
-  }
-  const headline = `${dateLabel} 共 ${submitted} 人已交日报${missing ? `，${missing} 人未交` : ""}。`;
-  const highlights: string[] = [];
-  for (const org of orgDigests) {
-    for (const emp of org.submitted.slice(0, 4)) {
-      const first = emp.reports[0]?.contents.find((f) => f.value.trim())?.value.trim();
-      if (first) highlights.push(`${org.label}·${emp.name}：${clipLine(first, 40)}`);
+    for (const m of org.missing) missingNames.push(m.name);
+    for (const emp of org.submitted) {
+      const first = emp.reports
+        .flatMap((r) => filterReportContentsWithBody(r.contents))
+        .find((f) => f.value.trim())?.value.trim();
+      if (first) {
+        personBriefs.push({ name: emp.name, brief: clipLine(first, 40) });
+      }
     }
   }
+
+  const overview = `${dateLabel} 共 ${submitted} 人已交日报${missingNames.length ? `，${missingNames.length} 人未交` : ""}。`;
+  const closing = missingNames.length
+    ? `未提交：${missingNames.join("、")}。`
+    : "整体推进正常，请继续保持。";
+
   return {
-    headline,
-    highlights: highlights.slice(0, 5),
-    attention: names.length ? `未提交：${names.join("、")}` : undefined,
+    overview,
+    personBriefs: personBriefs.slice(0, 8),
+    closing,
   };
 }
 
@@ -190,7 +239,7 @@ export async function summarizeMorningReportsWithLlm(
     logStructured({
       event: "daily_report_morning_llm_ok",
       model: config.model,
-      highlightCount: parsed.highlights.length,
+      personBriefCount: parsed.personBriefs.length,
       durationMs: Date.now() - startedAt,
     });
     return parsed;
