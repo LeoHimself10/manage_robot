@@ -19,7 +19,7 @@ interface CachedDirectory {
   users: ContactCandidate[];
 }
 
-const DEFAULT_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_TTL_MS = 15 * 60 * 1000;
 const ROOT_DEPT_ID = 1;
 const MAX_DEPARTMENTS = 4000;
 const USER_PAGE_SIZE = 100;
@@ -53,6 +53,7 @@ export function createDingTalkContactDirectory(opts?: {
   const ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
   const tokenProvider = createDingTalkReportClient({ fetchImpl });
   const cache = new Map<string, CachedDirectory>();
+  const inflight = new Map<string, Promise<ContactCandidate[]>>();
 
   async function callOapi<T>(
     token: string,
@@ -154,11 +155,18 @@ export function createDingTalkContactDirectory(opts?: {
   ): Promise<ContactCandidate[]> {
     const cached = cache.get(appKey);
     if (cached && Date.now() - cached.builtAt < ttlMs) return cached.users;
-    const token = await tokenProvider.getAccessToken(appKey, appSecret);
-    const deptNames = await enumerateDepartments(token);
-    const users = await enumerateUsers(token, deptNames);
-    cache.set(appKey, { builtAt: Date.now(), users });
-    return users;
+    // 并发去重：预热与首次搜索可能同时触发，复用同一次枚举，避免重复拉通讯录。
+    const existing = inflight.get(appKey);
+    if (existing) return existing;
+    const promise = (async () => {
+      const token = await tokenProvider.getAccessToken(appKey, appSecret);
+      const deptNames = await enumerateDepartments(token);
+      const users = await enumerateUsers(token, deptNames);
+      cache.set(appKey, { builtAt: Date.now(), users });
+      return users;
+    })().finally(() => inflight.delete(appKey));
+    inflight.set(appKey, promise);
+    return promise;
   }
 
   return {

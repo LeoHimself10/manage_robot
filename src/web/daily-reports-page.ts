@@ -154,8 +154,14 @@ function buildDailyReportsClientJs(apiBase: string, initialDate: string): string
         if(!data || data.ok===false){ cols.innerHTML='<div class="drm-note">载入失败：'+esc((data&&data.error)||'未知错误')+'</div>'; return; }
         rosterLoaded = true;
         renderRoster(data.orgs);
+        prewarm(data.orgs);
       })
       .catch(function(e){ cols.innerHTML='<div class="drm-note">载入失败：'+esc(e.message||e)+'</div>'; });
+  }
+  function prewarm(orgs){
+    (orgs||[]).forEach(function(o){
+      fetch(CONTACTS+'?org='+encodeURIComponent(o.label)+'&q=', {headers:{Accept:'application/json'}}).catch(function(){});
+    });
   }
   function resultsBox(org){ return cols.querySelector('.drm-results[data-results="'+(window.CSS&&CSS.escape?CSS.escape(org):org)+'"]'); }
   function doSearch(org, q){
