@@ -100,15 +100,34 @@ describe("daily-report-config", () => {
     expect(config.sendMinute).toBe(30);
   });
 
-  it("reports errors for missing webhook / orgs / employees", () => {
+  it("reports errors for missing orgs creds / employees", () => {
     delete process.env.DINGTALK_CLIENT_ID;
     delete process.env.DINGTALK_CLIENT_SECRET;
     const { errors } = parseDailyReportDigestConfig({
       orgs: [{ label: "x", appKey: "k" }],
     });
-    expect(errors.some((e) => e.includes("webhook.accessToken"))).toBe(true);
     expect(errors.some((e) => e.includes("appKey/appSecret"))).toBe(true);
     expect(errors.some((e) => e.includes("employees"))).toBe(true);
+  });
+
+  it("treats webhook as optional (page works without group push)", () => {
+    const pageOnly = {
+      orgs: [
+        { label: "明思", appKey: "ak", appSecret: "as", employees: [{ userid: "u1" }] },
+      ],
+    };
+    const { errors } = parseDailyReportDigestConfig(pageOnly);
+    expect(errors).toEqual([]);
+
+    // master switch on but no webhook → group push stays disabled
+    process.env.DAILY_REPORT_DIGEST_ENABLED = "1";
+    const loaded = loadDailyReportDigestConfig({
+      filePath: "x.json",
+      readFileImpl: () => JSON.stringify(pageOnly),
+    });
+    expect(loaded.errors).toEqual([]);
+    expect(loaded.config.enabled).toBe(false);
+    delete process.env.DAILY_REPORT_DIGEST_ENABLED;
   });
 
   it("falls back to deployed DINGTALK_CLIENT_ID/SECRET when org omits creds", () => {

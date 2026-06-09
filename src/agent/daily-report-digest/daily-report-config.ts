@@ -89,14 +89,12 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
   const errors: string[] = [];
   const obj = (raw ?? {}) as Record<string, unknown>;
 
+  // webhook 仅 8:30 群推需要；只看工作台页面时可不填（见 loadDailyReportDigestConfig 的 enabled 门禁）。
   const webhookRaw = (obj.webhook ?? {}) as Record<string, unknown>;
   const webhook: DailyReportWebhookConfig = {
     accessToken: asString(webhookRaw.accessToken),
     secret: asString(webhookRaw.secret) || undefined,
   };
-  if (!webhook.accessToken) {
-    errors.push("webhook.accessToken 缺失（自定义群机器人 Webhook 的 access_token）");
-  }
 
   const orgsRaw = Array.isArray(obj.orgs) ? obj.orgs : [];
   const orgs: DailyReportOrgConfig[] = [];
@@ -207,8 +205,11 @@ export function loadDailyReportDigestConfig(opts?: {
   }
 
   const result = parseDailyReportDigestConfig(parsed);
+  // 群推（scheduler）额外要求 webhook；只看页面不需要 webhook（页面只读 config.orgs）。
+  const pushEnabled =
+    masterEnabled && result.errors.length === 0 && Boolean(result.config.webhook.accessToken);
   return {
-    config: { ...result.config, enabled: masterEnabled && result.errors.length === 0 },
+    config: { ...result.config, enabled: pushEnabled },
     errors: result.errors,
   };
 }

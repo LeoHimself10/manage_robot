@@ -15,6 +15,10 @@ async function main(): Promise<void> {
     for (const e of errors) console.error(`  - ${e}`);
     process.exit(1);
   }
+  if (!config.webhook.accessToken) {
+    console.error("群推送需要 webhook.accessToken（自定义群机器人 Webhook）；当前未配置。");
+    process.exit(1);
+  }
 
   console.log(
     `Manual daily-report digest: orgs=${config.orgs.length}, ` +

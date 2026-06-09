@@ -5,6 +5,7 @@
   "sendMinute": 30,
   "weekdaysOnly": true,
   "stateDir": "data/daily-report-digest",
+  "_webhook说明": "webhook 仅 8:30 群推需要；只用工作台「日报汇总」页面可整段删掉。",
   "webhook": {
     "accessToken": "明思群自定义机器人 Webhook 里 access_token= 后面的值",
     "secret": "SEC开头的加签密钥（机器人安全设置选择 加签 时才有；未开加签则删掉本行）"
