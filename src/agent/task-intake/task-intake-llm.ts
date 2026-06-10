@@ -51,7 +51,6 @@ async function callDefaultLlm(input: {
   system: string;
   user: string;
   policy: TaskIntakePolicy;
-  temperature?: number;
 }): Promise<string | null> {
   if (!input.policy.llmEnabled || !input.policy.llmApiKey) return null;
   const response = await fetch(`${input.policy.llmBaseUrl.replace(/\/$/, "")}/chat/completions`, {
@@ -62,7 +61,7 @@ async function callDefaultLlm(input: {
     },
     body: JSON.stringify({
       model: input.policy.llmModel,
-      temperature: input.temperature ?? 0.1,
+      temperature: 0,
       max_tokens: input.policy.llmMaxTokens,
       enable_thinking: false,
       messages: [
@@ -91,7 +90,6 @@ export async function callTaskIntakeLlm(input: {
   system: string;
   user: string;
   policy: TaskIntakePolicy;
-  temperature?: number;
 }): Promise<string | null> {
   const startedAt = Date.now();
   const llm = taskIntakeLlmForTest ?? callDefaultLlm;

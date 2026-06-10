@@ -69,8 +69,6 @@ export async function handleTaskIntakePreview(input: {
   const suggestions = await suggestTaskTargets({
     subtasks: subtaskStubs,
     existingTasks: input.existingTasks ?? [],
-    parentTitle: result.structured.parentTitle,
-    parentDescription: result.structured.parentDescription,
   }).catch(() => undefined);
 
   let rows = buildPreviewRows(result.structured, suggestions);
