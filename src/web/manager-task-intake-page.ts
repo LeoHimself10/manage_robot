@@ -226,7 +226,8 @@ export function renderManagerTaskIntakePage(params: {
   background: var(--ti-cream);
   border-bottom: 1px solid var(--ti-border);
   position: relative;
-  z-index: 4;
+  /* Above portaled contact dropdown (z-index 20000) so 移组 stays clickable */
+  z-index: 30001;
 }
 .ti-card-num {
   font-family: var(--ti-mono);
@@ -462,7 +463,7 @@ export function renderManagerTaskIntakePage(params: {
 
 /* ── Target picker popover ────────────────────── */
 .ti-target-popover {
-  position: fixed; z-index: 20000;
+  position: fixed; z-index: 30100;
   width: 280px;
   background: var(--ti-surface);
   border: 1px solid var(--ti-border); border-radius: 12px;
@@ -495,6 +496,8 @@ export function renderManagerTaskIntakePage(params: {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--ti-border);
+  position: relative;
+  z-index: 30001;
 }
 .ti-group-head.gtype-new   { background: #f0fdf4; border-left: 3px solid #16a34a; }
 .ti-group-head.gtype-append { background: var(--ti-accent-pale); border-left: 3px solid var(--ti-accent); }
@@ -516,7 +519,7 @@ export function renderManagerTaskIntakePage(params: {
   transition: border-color .12s, color .12s;
 }
 .ti-group-bulk-btn:hover { border-color: var(--ti-accent); color: var(--ti-accent); }
-.ti-move-trigger { position: relative; z-index: 6; pointer-events: auto; }
+.ti-move-trigger { position: relative; z-index: 1; pointer-events: auto; }
 .ti-group-form { padding: 14px 16px 4px; border-bottom: 1px solid var(--ti-border); background: var(--ti-bg); }
 .ti-group-cards-wrap { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
 .ti-group-empty { padding: 12px 16px; color: var(--ti-ink-3); font-size: 12px; font-family: var(--ti-sans); font-style: italic; }
@@ -792,6 +795,7 @@ ${buildWorkbenchContactComboClientJs()}
     else { aHint.textContent = isAppend ? "追加模式必填" : "未指定 → 暂存草案"; }
     assigneeWrap.append(aLbl, aInput, aHidden, aUl, aHint);
     var combo = wbAttachContactCombo({ input: aInput, hiddenUserId: aHidden, optionsList: aUl,
+      disablePortal: true,
       searchUrl: function (kw) { return "/api/workbench/manager/contacts?keyword=" + encodeURIComponent(kw); },
       onFeedback: function (msg) { aHint.textContent = msg; aHint.className = "ti-assignee-hint"; },
       onSelect: function (c) { aHidden.value = c.userId; aHint.textContent = c.name + " (" + c.userId + ")"; aHint.className = "ti-assignee-hint is-ok"; },
@@ -1106,9 +1110,14 @@ ${buildWorkbenchContactComboClientJs()}
     var tasks = await loadAllTasks();
     renderTpList(tasks, "");
     var rect = anchorEl.getBoundingClientRect();
-    var top = rect.bottom + window.scrollY + 4;
-    var left = rect.left + window.scrollX;
-    if (left + 300 > window.innerWidth - 8) left = window.innerWidth - 308;
+    var popoverH = 280;
+    var gap = 4;
+    var left = rect.left;
+    var top = rect.bottom + gap;
+    if (left + 300 > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 308);
+    if (top + popoverH > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - popoverH - gap);
+    }
     popover.style.top = top + "px";
     popover.style.left = left + "px";
     popover.hidden = false;
