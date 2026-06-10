@@ -20,6 +20,10 @@ export function buildWorkbenchContactComboClientJs(): string {
     }
     function syncComboDropdownPosition() {
       if (!input || !ul || ul.hidden) return;
+      if (cfg.disablePortal) {
+        clearComboDropdownPosition();
+        return;
+      }
       var rect = input.getBoundingClientRect();
       if (!rect.width && !rect.height) return;
       var gap = 4;
@@ -68,11 +72,13 @@ export function buildWorkbenchContactComboClientJs(): string {
       window.removeEventListener('resize', syncComboDropdownPosition);
     }
     function mountPortal() {
+      if (cfg.disablePortal) return;
       if (ul.parentNode !== document.body) {
         document.body.appendChild(ul);
       }
     }
     function unmountPortal() {
+      if (cfg.disablePortal) return;
       if (homeParent && ul.parentNode === document.body) {
         homeParent.appendChild(ul);
       }
@@ -154,9 +160,12 @@ export function buildWorkbenchContactComboClientJs(): string {
     }
     function onDocMouseDown(ev) {
       if (destroyed) return;
-      if (ev.target === input || ev.target === ul) return;
       if (input.contains && input.contains(ev.target)) return;
       if (ul.contains && ul.contains(ev.target)) return;
+      if (ev.target.closest && ev.target.closest('.ti-move-trigger')) {
+        close();
+        return;
+      }
       close();
     }
     function onBlur() {
