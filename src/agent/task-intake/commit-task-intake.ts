@@ -127,6 +127,7 @@ export async function commitTaskIntake(input: {
   const parentTitle = input.parentTitle.trim();
   const parentDescription = input.parentDescription.trim();
   const validationErrors: TaskIntakeCommitResult["errors"] = [];
+  const warnings: TaskIntakeCommitResult["errors"] = [];
   if (!parentTitle) {
     validationErrors.push({ itemId: "parentTitle", message: "请填写父任务标题（必填）" });
   }
@@ -151,7 +152,7 @@ export async function commitTaskIntake(input: {
       validationErrors.push({ itemId: row.itemId, message: `「${label}」截止日期不能为空（必填）` });
     }
     if (normalizeDueMode(row) === "self" && !(row.dueExpectation ?? "").trim()) {
-      validationErrors.push({
+      warnings.push({
         itemId: row.itemId,
         message: `「${label}」负责人自报模式下建议填写期望时间（如三天左右）`,
       });
@@ -184,7 +185,7 @@ export async function commitTaskIntake(input: {
       mode: "staged",
       subtaskCount: selected.length,
       stagedDeepLink: STAGED_DEEP_LINK,
-      errors,
+      errors: [...errors, ...warnings],
     };
   }
 
@@ -237,7 +238,7 @@ export async function commitTaskIntake(input: {
       title: String(pub.task?.title ?? parentTitle),
       planId,
     },
-    errors,
+    errors: [...errors, ...warnings],
   };
 }
 
@@ -253,6 +254,7 @@ export async function appendTaskIntake(
   }
 
   const validationErrors: TaskIntakeAppendResult["errors"] = [];
+  const warnings: TaskIntakeAppendResult["errors"] = [];
   for (const row of selected) {
     const label = row.title || row.itemId;
     if (!row.title.trim()) {
@@ -271,7 +273,7 @@ export async function appendTaskIntake(
       validationErrors.push({ itemId: row.itemId, message: `「${label}」截止日期不能为空（必填）` });
     }
     if (normalizeDueMode(row) === "self" && !(row.dueExpectation ?? "").trim()) {
-      validationErrors.push({
+      warnings.push({
         itemId: row.itemId,
         message: `「${label}」负责人自报模式下建议填写期望时间（如三天左右）`,
       });
@@ -340,5 +342,5 @@ export async function appendTaskIntake(
     return { mode: "invalid", appendedCount: 0, errors };
   }
 
-  return { mode: "appended", appendedCount, targetTask, errors };
+  return { mode: "appended", appendedCount, targetTask, errors: [...errors, ...warnings] };
 }

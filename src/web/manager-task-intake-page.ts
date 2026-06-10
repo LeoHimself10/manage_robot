@@ -1245,6 +1245,7 @@ ${buildWorkbenchContactComboClientJs()}
     var selected = rows.filter(function (r) { return r.selected; });
 
     var problems = [];
+    var softHints = [];
     if (!selected.length) problems.push("请至少勾选 1 条子任务");
 
     // Build a map for quick lookup
@@ -1271,7 +1272,7 @@ ${buildWorkbenchContactComboClientJs()}
     var noDueExpectation = selected.filter(function (r) {
       return (r.dueMode || "self") === "self" && !String(r.dueExpectation || "").trim();
     });
-    if (noDueExpectation.length) problems.push(noDueExpectation.length + " 条负责人自报任务缺少期望时间提示（建议填写）");
+    if (noDueExpectation.length) softHints.push(noDueExpectation.length + " 条负责人自报任务缺少期望时间提示（建议填写）");
 
     var appendRows = selected.filter(function (r) { return r.targetPlanId; });
     var noAssigneeAppend = appendRows.filter(function (r) { return !r.assigneeUserId; });
@@ -1295,7 +1296,11 @@ ${buildWorkbenchContactComboClientJs()}
       return;
     }
 
-    setFb("commitFeedback", "提交中…", false);
+    if (softHints.length) {
+      setFb("commitFeedback", "提示：" + softHints.join("；") + "。仍可提交，正在录入…", false);
+    } else {
+      setFb("commitFeedback", "提交中…", false);
+    }
     try {
       var htmlParts = [];
       var firstTaskLink = "/workbench/manager/tasks";
@@ -1329,8 +1334,14 @@ ${buildWorkbenchContactComboClientJs()}
         }
         if (cr.mode === "published") {
           htmlParts.push('<p>✅ 已入库正式任务 <strong>' + esc(cr.task ? cr.task.title : "") + '</strong>（' + esc(cr.task ? cr.task.taskNo : "") + '），含 <strong>' + cr.subtaskCount + '</strong> 条子任务。</p>');
+          if (cr.errors && cr.errors.length) {
+            htmlParts.push('<p style="color:var(--ti-ink-3);font-size:12px;">' + cr.errors.map(function (e) { return esc(e.message); }).join("；") + '</p>');
+          }
         } else if (cr.mode === "staged") {
           htmlParts.push('<p>📋 「' + esc(meta.title || "未命名") + '」' + grpRows.length + ' 条子任务有负责人缺项，已暂存草案。</p>');
+          if (cr.errors && cr.errors.length) {
+            htmlParts.push('<p style="color:var(--ti-ink-3);font-size:12px;">' + cr.errors.map(function (e) { return esc(e.message); }).join("；") + '</p>');
+          }
           firstTaskLink = cr.stagedDeepLink || "/workbench/manager/chat?thread=main&openDraftEditor=1";
           firstLinkText = "去点将发布 →";
         }

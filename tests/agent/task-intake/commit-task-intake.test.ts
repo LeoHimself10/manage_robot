@@ -187,6 +187,36 @@ describe("commitTaskIntake", () => {
     expect(task.dueExpectation).toBe("三天左右");
   });
 
+  it("allows self due mode without dueExpectation as soft warning only", async () => {
+    const publishSpy = vi.fn(() => ({
+      task: { taskId: "t1", taskNo: "T-001", title: "父任务" },
+      subtasks: [{ assigneeUserId: "u1", title: "任务" }],
+      alreadyPublished: false,
+    }));
+    const result = await commitTaskIntake({
+      taskStore: fakeTaskStore(publishSpy),
+      managerUserId: "mgr-1",
+      parentTitle: "父任务",
+      parentDescription: "渠道复盘背景",
+      rows: [
+        row({
+          itemId: "ti_1",
+          assigneeUserId: "u1",
+          dueAt: "",
+          dueMode: "self",
+          dueExpectation: "",
+          objective: "由负责人评估排期",
+        }),
+      ],
+      initiatorDepartment: "研发部",
+      getContact: () => ({ active: true, name: "某人" }),
+      notifier: noopNotifier(),
+      stageDraft: vi.fn(),
+    });
+    expect(result.mode).toBe("published");
+    expect(result.errors.some((e) => e.message.includes("建议填写期望时间"))).toBe(true);
+  });
+
   it("returns empty when no rows are selected", async () => {
     const result = await commitTaskIntake({
       taskStore: fakeTaskStore(vi.fn()),
