@@ -194,6 +194,41 @@ describe("task-intake HTTP", () => {
     expect(draft?.tasks).toHaveLength(2);
   });
 
+  it("accepts self due mode in commit payload and stages successfully", async () => {
+    const cookie = await loginManager();
+    const commitReq = stubReq({
+      method: "POST",
+      url: "/api/workbench/manager/task-intake/commit",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        parentTitle: "本周任务",
+        parentDescription: "本周注册申报整体推进",
+        rows: [
+          {
+            itemId: "ti_1",
+            selected: true,
+            title: "整理资料",
+            objective: "整理资料目标",
+            deliverables: "资料整理报告",
+            completionCriteria: "资料已归档",
+            actions: "",
+            dependsOn: "",
+            dueMode: "self",
+            dueExpectation: "三天左右",
+            dueAt: "",
+            assigneeUserId: "",
+          },
+        ],
+      }),
+    });
+    const commitRes = stubRes();
+    handleAssignmentHttp(commitReq, commitRes.res);
+    await flushAsync();
+    const commitBody = JSON.parse(commitRes.captured().body);
+    expect(commitBody.ok).toBe(true);
+    expect(commitBody.result.mode).toBe("staged");
+  });
+
   it("rejects commit with invalid mode when parent description is missing", async () => {
     const cookie = await loginManager();
     seedContact("u-a", "员工甲");

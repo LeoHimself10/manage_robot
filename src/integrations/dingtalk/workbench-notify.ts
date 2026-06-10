@@ -10,6 +10,9 @@ interface AccessTokenResp {
 
 export type PublishNotifySubtask = {
   title: string;
+  dueAt?: string;
+  dueSetBy?: "manager" | "employee";
+  dueExpectation?: string;
   dependsOn?: string[];
   checkpoints?: string[];
   risks?: string[];
@@ -593,6 +596,12 @@ export function buildPublishTaskNotifyMarkdown(params: {
   }
   for (const st of subtasks) {
     lines.push("", `#### 子任务：${st.title}`);
+    if (st.dueAt) {
+      lines.push(`- **截止**：${clipNotifyText(String(st.dueAt).slice(0, 10), NOTIFY_ITEM_CHARS)}`);
+    } else {
+      const exp = String(st.dueExpectation ?? "").trim();
+      lines.push(`- **截止**：承接时请自报${exp ? `（期望：${clipNotifyText(exp, NOTIFY_ITEM_CHARS)}）` : ""}`);
+    }
     const act = formatPlainListLine("执行动作", st.actions);
     if (act) lines.push(act);
     const dep = formatListLine("前置依赖", st.dependsOn, titleMap);

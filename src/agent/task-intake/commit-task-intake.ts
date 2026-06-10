@@ -24,6 +24,11 @@ type TaskStore = ReturnType<typeof createWorkbenchFormalTaskStore>;
 
 const STAGED_DEEP_LINK = "/workbench/manager/chat?thread=main&openDraftEditor=1";
 
+function normalizeDueMode(row: TaskIntakeCommitRow): "fixed" | "self" {
+  if (row.dueMode === "fixed" || row.dueMode === "self") return row.dueMode;
+  return row.dueAt?.trim() ? "fixed" : "self";
+}
+
 export interface BuildTaskIntakeDraftResult {
   planId: string;
   draft: Record<string, unknown>;
@@ -52,6 +57,8 @@ export function buildTaskIntakeSession(input: {
     actions: splitListCell(row.actions),
     dependencyTaskIds: splitListCell(row.dependsOn),
     timeNode: row.dueAt ? { dueAt: row.dueAt } : {},
+    dueMode: normalizeDueMode(row),
+    dueExpectation: row.dueExpectation ?? "",
   }));
   const assignments = input.rows
     .map((row, index) => ({ row, index }))
@@ -140,8 +147,14 @@ export async function commitTaskIntake(input: {
     if (!row.completionCriteria.trim()) {
       validationErrors.push({ itemId: row.itemId, message: `「${label}」完成标准不能为空（必填）` });
     }
-    if (!(row.dueAt ?? "").trim()) {
+    if (normalizeDueMode(row) === "fixed" && !(row.dueAt ?? "").trim()) {
       validationErrors.push({ itemId: row.itemId, message: `「${label}」截止日期不能为空（必填）` });
+    }
+    if (normalizeDueMode(row) === "self" && !(row.dueExpectation ?? "").trim()) {
+      validationErrors.push({
+        itemId: row.itemId,
+        message: `「${label}」负责人自报模式下建议填写期望时间（如三天左右）`,
+      });
     }
   }
   if (validationErrors.length > 0) {
@@ -254,8 +267,14 @@ export async function appendTaskIntake(
     if (!row.completionCriteria.trim()) {
       validationErrors.push({ itemId: row.itemId, message: `「${label}」完成标准不能为空（必填）` });
     }
-    if (!(row.dueAt ?? "").trim()) {
+    if (normalizeDueMode(row) === "fixed" && !(row.dueAt ?? "").trim()) {
       validationErrors.push({ itemId: row.itemId, message: `「${label}」截止日期不能为空（必填）` });
+    }
+    if (normalizeDueMode(row) === "self" && !(row.dueExpectation ?? "").trim()) {
+      validationErrors.push({
+        itemId: row.itemId,
+        message: `「${label}」负责人自报模式下建议填写期望时间（如三天左右）`,
+      });
     }
     // Append mode always requires assignee — no staged path for existing tasks.
     if (!row.assigneeUserId?.trim()) {
@@ -284,10 +303,23 @@ export async function appendTaskIntake(
         deliverables: row.deliverables,
         completionCriteria: row.completionCriteria,
         dueAt: row.dueAt,
+        dueSetBy: normalizeDueMode(row) === "fixed" ? "manager" : undefined,
+        dueExpectation: row.dueExpectation,
         actions: splitListCell(row.actions),
         dependsOn: splitListCell(row.dependsOn),
         actorName: input.actorName,
       });
+      if (!row.dueAt?.trim()) {
+        void input.taskStore.appendTaskEvent({
+          taskId: result.task.taskId,
+          subtaskId: result.subtask.subtaskId,
+          eventType: "SUBTASK_SELF_DUE_REQUIRED",
+          actorUserId: input.managerUserId,
+          note: row.dueExpectation
+            ? `请承接时自报截止（期望：${row.dueExpectation}）`
+            : "请承接时自报截止",
+        });
+      }
       appendedCount++;
       if (!targetTask) {
         targetTask = {

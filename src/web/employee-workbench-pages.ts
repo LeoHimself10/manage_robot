@@ -119,6 +119,31 @@ export function renderEmployeeWorkbenchPage(params?: {
     </div>
   </div>
 
+<!-- 弹窗：承接自报截止 -->
+<div class="wb-modal-overlay" id="acceptDueModalOverlay" role="dialog" aria-modal="true" aria-labelledby="acceptDueModalTitle">
+  <div class="wb-modal" role="document">
+    <div class="wb-modal__head">
+      <h3 class="wb-modal__title" id="acceptDueModalTitle">承接并自报截止日期</h3>
+      <button type="button" class="wb-modal__close" id="acceptDueModalClose" aria-label="关闭">×</button>
+    </div>
+    <div class="wb-modal__body">
+      <div class="form-stack">
+        <label>截止日期（必填）
+          <input id="acceptDueAt" type="date" />
+        </label>
+        <label>备注（可选）
+          <textarea id="acceptDueNote" rows="3" placeholder="可补充你的安排说明"></textarea>
+        </label>
+      </div>
+    </div>
+    <div class="wb-modal__foot">
+      <div class="feedback muted" id="acceptDueFeedback" role="status" aria-live="polite"></div>
+      <button type="button" class="btn btn-secondary" id="acceptDueCancelBtn">取消</button>
+      <button type="button" class="btn btn-primary" id="acceptDueConfirmBtn">确认承接</button>
+    </div>
+  </div>
+</div>
+
 <!-- 弹窗：协助/拒绝 -->
 <div class="wb-modal-overlay" id="actionModalOverlay" role="dialog" aria-modal="true" aria-labelledby="actionModalTitle">
   <div class="wb-modal" role="document">
@@ -359,13 +384,13 @@ export function renderEmployeeWorkbenchPage(params?: {
   }
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape') {
-      ['actionModalOverlay', 'progressModalOverlay', 'noteModalOverlay'].forEach(function (id) {
+      ['acceptDueModalOverlay', 'actionModalOverlay', 'progressModalOverlay', 'noteModalOverlay'].forEach(function (id) {
         var ov = document.getElementById(id);
         if (ov && ov.getAttribute('data-open') === 'true') closeModal(id);
       });
     }
   });
-  ['actionModalOverlay', 'progressModalOverlay', 'noteModalOverlay'].forEach(function (id) {
+  ['acceptDueModalOverlay', 'actionModalOverlay', 'progressModalOverlay', 'noteModalOverlay'].forEach(function (id) {
     var ov = document.getElementById(id);
     if (!ov) return;
     ov.addEventListener('click', function (ev) {
@@ -395,6 +420,7 @@ export function renderEmployeeWorkbenchPage(params?: {
     showView(view);
   }
   function showView(view) {
+    closeModal('acceptDueModalOverlay');
     closeModal('actionModalOverlay');
     closeModal('progressModalOverlay');
     closeModal('noteModalOverlay');
@@ -447,7 +473,10 @@ export function renderEmployeeWorkbenchPage(params?: {
     }).join('；');
   }
   function formatDue(t) {
-    if (!t.dueAt) return '<p class="meta">截止：未设置</p>';
+    if (!t.dueAt) {
+      var expectation = String(t.dueExpectation || '').trim();
+      return '<p class="meta">截止：承接时自报' + (expectation ? '（期望：' + esc(expectation) + '）' : '') + '</p>';
+    }
     var bar = '';
     if (t.dueProgress != null && t.status !== 'DONE') {
       var pct = Math.min(100, Math.round(Number(t.dueProgress) * 100));
@@ -598,6 +627,15 @@ export function renderEmployeeWorkbenchPage(params?: {
             var subtaskId = card.getAttribute('data-subtask-id') || '';
             var act = btn.getAttribute('data-act') || '';
             if (act === 'accept') {
+              var dueLine = card.innerText || '';
+              if (dueLine.indexOf('承接时自报') >= 0) {
+                pending = { planId: planId, subtaskId: subtaskId, action: 'accept_due' };
+                document.getElementById('acceptDueAt').value = '';
+                document.getElementById('acceptDueNote').value = '';
+                setFb('acceptDueFeedback', '', 'muted');
+                openModal('acceptDueModalOverlay');
+                return;
+              }
               btn.disabled = true;
               void submitDirect(planId, subtaskId, 'accept', '', { goView: 'current' }).catch(function (e) {
                 btn.disabled = false;
@@ -715,6 +753,8 @@ export function renderEmployeeWorkbenchPage(params?: {
   }
 
   document.getElementById('actionModalClose').addEventListener('click', function () { closeModal('actionModalOverlay'); });
+  document.getElementById('acceptDueModalClose').addEventListener('click', function () { closeModal('acceptDueModalOverlay'); });
+  document.getElementById('acceptDueCancelBtn').addEventListener('click', function () { closeModal('acceptDueModalOverlay'); });
   document.getElementById('cancelActionBtn').addEventListener('click', function () { closeModal('actionModalOverlay'); });
   document.getElementById('progressModalClose').addEventListener('click', function () { closeModal('progressModalOverlay'); });
   document.getElementById('progCancelBtn').addEventListener('click', function () { closeModal('progressModalOverlay'); });
@@ -737,6 +777,43 @@ export function renderEmployeeWorkbenchPage(params?: {
     }
     await loadNew();
   }
+
+  document.getElementById('acceptDueConfirmBtn').addEventListener('click', async function () {
+    if (!pending || pending.action !== 'accept_due') return;
+    var dueAt = (document.getElementById('acceptDueAt').value || '').trim();
+    var note = (document.getElementById('acceptDueNote').value || '').trim();
+    if (!dueAt) {
+      setFb('acceptDueFeedback', '请先填写截止日期', 'err');
+      return;
+    }
+    var btn = document.getElementById('acceptDueConfirmBtn');
+    btn.disabled = true;
+    setFb('acceptDueFeedback', '提交中…', 'muted');
+    try {
+      var res = await fetch('/api/workbench/employee/subtasks/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          planId: pending.planId,
+          subtaskId: pending.subtaskId,
+          action: 'accept',
+          note: note,
+          proposedDueAt: dueAt,
+          idempotencyKey: newIdempotencyKey()
+        })
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (wbCheckAuthResponse(res, data)) return;
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      closeModal('acceptDueModalOverlay');
+      location.href = '/workbench/employee?view=current&_=' + Date.now();
+    } catch (e) {
+      setFb('acceptDueFeedback', String(e && e.message ? e.message : e), 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   document.getElementById('confirmActionBtn').addEventListener('click', async function () {
     if (!pending) return;

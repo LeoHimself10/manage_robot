@@ -6,6 +6,8 @@ export interface TaskIntakeSubtask {
   actions?: string;
   dependsOn?: string;
   dueAt?: string;
+  dueMode?: "fixed" | "self";
+  dueExpectation?: string;
   assigneeName?: string;
 }
 
@@ -25,6 +27,8 @@ export interface TaskIntakePreviewRow {
   actions: string;
   dependsOn: string;
   dueAt?: string;
+  dueMode?: "fixed" | "self";
+  dueExpectation?: string;
   assigneeUserId?: string;
   assigneeDisplayName?: string;
   assigneeNameRaw?: string;
@@ -52,6 +56,8 @@ export interface TaskIntakeCommitRow {
   actions: string;
   dependsOn: string;
   dueAt?: string;
+  dueMode?: "fixed" | "self";
+  dueExpectation?: string;
   assigneeUserId: string;
   /** If set, append to this existing task instead of creating a new parent. */
   targetPlanId?: string;

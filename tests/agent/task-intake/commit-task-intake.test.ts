@@ -28,6 +28,8 @@ function row(over: Partial<TaskIntakeCommitRow>): TaskIntakeCommitRow {
     actions: over.actions ?? "",
     dependsOn: over.dependsOn ?? "",
     dueAt: over.dueAt ?? "2026-12-31",
+    dueMode: over.dueMode,
+    dueExpectation: over.dueExpectation,
     assigneeUserId: over.assigneeUserId ?? "",
   };
 }
@@ -152,6 +154,37 @@ describe("commitTaskIntake", () => {
     expect((staged.draft as { tasks: unknown[] }).tasks).toHaveLength(2);
     // assignment only carries the rows that had an assignee
     expect((staged.assignment as { assignments: unknown[] }).assignments).toHaveLength(1);
+  });
+
+  it("allows self due mode without dueAt and keeps due metadata in staged draft", async () => {
+    const publishSpy = vi.fn();
+    const stageDraft = vi.fn();
+    const result = await commitTaskIntake({
+      taskStore: fakeTaskStore(publishSpy),
+      managerUserId: "mgr-1",
+      parentTitle: "父任务",
+      parentDescription: "渠道复盘背景",
+      rows: [
+        row({
+          itemId: "ti_1",
+          assigneeUserId: "",
+          dueAt: "",
+          dueMode: "self",
+          dueExpectation: "三天左右",
+          objective: "由负责人评估排期",
+        }),
+      ],
+      initiatorDepartment: "研发部",
+      getContact: () => undefined,
+      notifier: noopNotifier(),
+      stageDraft,
+    });
+    expect(result.mode).toBe("staged");
+    expect(publishSpy).not.toHaveBeenCalled();
+    const staged = stageDraft.mock.calls[0][0];
+    const task = (staged.draft as { tasks: Array<Record<string, unknown>> }).tasks[0];
+    expect(task.dueMode).toBe("self");
+    expect(task.dueExpectation).toBe("三天左右");
   });
 
   it("returns empty when no rows are selected", async () => {

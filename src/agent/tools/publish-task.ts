@@ -5,7 +5,7 @@ import type { WorkbenchSubtaskRow } from "../../infra/workbench-formal-task-stor
 import { isStagingStale } from "../publish-helpers";
 import { resolvePublishProjectIdForSession } from "./resolve-publish-project-id";
 
-type SubtaskRichFields = Pick<WorkbenchSubtaskRow, "dependsOn" | "checkpoints" | "risks" | "inputMaterials" | "actions" | "collaborators" | "inScope" | "outOfScope">;
+type SubtaskRichFields = Pick<WorkbenchSubtaskRow, "dependsOn" | "checkpoints" | "risks" | "inputMaterials" | "actions" | "collaborators" | "inScope" | "outOfScope" | "dueAt" | "dueSetBy" | "dueExpectation">;
 
 type PublishFromSessionFn = (input: {
   planId: string;

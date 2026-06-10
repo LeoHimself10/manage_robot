@@ -16,6 +16,11 @@ import type {
 
 type TaskStore = ReturnType<typeof createWorkbenchFormalTaskStore>;
 
+function normalizeDueMode(row: TaskIntakeCommitRow): "fixed" | "self" {
+  if (row.dueMode === "fixed" || row.dueMode === "self") return row.dueMode;
+  return row.dueAt?.trim() ? "fixed" : "self";
+}
+
 /** When only one new-parent group is suggested, reuse structure's parentDescription as fallback. */
 function applyNewGroupDescriptionFallback(
   rows: TaskIntakePreviewRow[],
@@ -84,6 +89,10 @@ export async function handleTaskIntakeAppend(input: {
   rows: TaskIntakeCommitRow[];
   actorName?: string;
 }): Promise<TaskIntakeAppendResult> {
+  for (const row of input.rows) {
+    row.dueMode = normalizeDueMode(row);
+    row.dueExpectation = String(row.dueExpectation ?? "").trim();
+  }
   return appendTaskIntake({
     taskStore: input.taskStore,
     managerUserId: input.managerUserId,
@@ -104,6 +113,10 @@ export async function handleTaskIntakeCommit(input: {
   actorName?: string;
   stageDraft: (input: { draft: Record<string, unknown>; assignment: Record<string, unknown> }) => void;
 }): Promise<TaskIntakeCommitResult> {
+  for (const row of input.rows) {
+    row.dueMode = normalizeDueMode(row);
+    row.dueExpectation = String(row.dueExpectation ?? "").trim();
+  }
   const peopleStore = createPeopleDirectoryStore();
   const employeeRepo = createEmployeeProfileRepo(resolveEmployeeProfileDir());
   const notifier = createWorkbenchPublishNotifier();

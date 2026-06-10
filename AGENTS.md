@@ -6,6 +6,15 @@
 
 **现网主链路**：钉钉 Stream → `src/dingtalk-bot.ts` → `runOrchestrator`（ReAct + tool calling）→ 草案/指派 JSON → 工作台 SQLite 正式任务 → 通知 / 催办 / 进展推送。`createTaskPlanningDemo` 保留给 CLI / demo / eval 回归（`legacy-demo-planner-v1`，与 orchestrator 解耦）。
 
+**多实例（2026-06）**：同一 ECS 可跑 **两个独立钉钉组织**，共用镜像 `manage-robot:dingtalk`、**隔离数据卷与 env**：
+
+| 实例 | 容器 | 端口 | 公网域名（试点） | 数据卷 | env |
+|------|------|------|------------------|--------|-----|
+| 微光（组织 A） | `manage-robot-dingtalk` | `8080` | `managebot.vivolightsales.com` | `/opt/manage_robot/data` | `/etc/manage-robot.env` |
+| 明思（组织 B） | `manage-robot-mingsibot` | `8081` | `mingsibot.vivolightsales.com` | `/opt/manage_robot-mingsibot/data` | `/etc/manage-robot-mingsibot.env` |
+
+每实例须独立配置 `DINGTALK_*`、`ASSIGNMENT_WEB_PUBLIC_BASE_URL`、`WORKBENCH_NOTIFY_*`、`WORKBENCH_*_USER_IDS` 等；**`docker restart` 不会重读 `--env-file`**，改 env 后须 `docker stop && docker rm && docker run … --env-file …` 重建容器。详见 `docs/deploy-aliyun-dingtalk.md` §双容器、`scripts/ecs-setup-mingsibot.sh`、`scripts/ecs-fix-mingsibot-urls.sh`。
+
 ## 参考文档
 
 - PRD：`docs/PRD-钉钉任务规划与承接确认机器人.md`
@@ -13,11 +22,12 @@
 - Harness 设计与计划：`docs/agent-harness-架构与开发计划.md`
 - Qwen 接入与运行：`docs/Qwen-接入实施说明.md`
 - 阿里云部署与钉钉 Stream 机器人：`docs/deploy-aliyun-dingtalk.md`
+- 任务快录入库：`docs/task-intake.md`
 - 工程增强清单（审计 / 会话 / 可观测性）：`docs/harness-next-optimizations.md`
 - 已知遗留问题：`docs/已知遗留问题-backlog.md`
 - 历史设计稿：`docs/superpowers/`（文首标注快照，勿作现网依据）
 
-## 当前实现边界（2026-05-25）
+## 当前实现边界（2026-06-09）
 
 ### 编排与 Policy 分工
 
@@ -29,7 +39,7 @@
 
 - **接口**：DashScope OpenAI 兼容；默认策略见 `model-policy.ts`；线上可 `QWEN_MODEL` 切换（如 `qwen3.6-flash` 降延迟，需自行验证工具调用质量）。
 - **Prompt 版本**：`orchestrator-agent-v5.23.17`（`src/agent/demo/qwen-prompt.ts`）。对用户口径统一「发放/已发放」；内部工具名仍为 `prepare_publish_task` / `publish_task`。
-- **项目（Portfolio，可选）**：`WORKBENCH_PROJECT_PORTFOLIO_*` 白名单内主管启用 `projects` 表 + `tasks.project_id`（可空）、**项目总览** + **历史任务（默认按项目归档、批量/行内归入）**、`list_projects` / `create_project` / `suggest_project` / `set_active_project`；**会议待办入库**（`/workbench/manager/meeting-import`，粘贴/链接 → 预览 → 按父任务批量发布/追加，仅 Portfolio 主管）；周会投屏用 **周度 Dashboard**（非项目总览）；名单外主管（角色 B）界面与 Agent 与现网一致。
+- **项目（Portfolio，可选）**：`WORKBENCH_PROJECT_PORTFOLIO_*` 白名单内主管启用 `projects` 表 + `tasks.project_id`（可空）、**项目总览** + **历史任务（默认按项目归档、批量/行内归入）**、`list_projects` / `create_project` / `suggest_project` / `set_active_project`；**会议待办入库**（`/workbench/manager/meeting-import`，从纪要抽取/归并，仅 Portfolio 主管）；**任务快录入库**（`/workbench/manager/task-intake`，粘贴已拆清单 → 忠实映射 + AI 分组归属 → 多父任务发布/追加，**所有主管**，见 `docs/task-intake.md`）；周会投屏用 **周度 Dashboard**（非项目总览）；名单外主管（角色 B）界面与 Agent 与现网一致。
 - **子任务防重复**：`appendSubtask` 支持 `clientRequestId` + 内容 dedup（`WORKBENCH_APPEND_SUBTASK_DEDUP_SECONDS`）；建议生产 `WORKBENCH_ENFORCE_ACTION_GUARDS=1`；`add_draft_subtask` 单轮配额 `ADD_DRAFT_SUBTASK_PER_ORCHESTRATOR_MAX`（默认 4）。
 - **Prompt profile**（`buildQwenPlannerSystemPrompt`）：仅 **`planner`** 与 **`employee`** 两套正文；主管/admin **共用 planner 正文** + `managerFollowup` 注入第六模式 **FOLLOWUP**（见 qwen-prompt.ts 注释，勿回退独立 manager prompt）。
 - **Tool profile**（`buildToolRegistry`）：`planner` / `manager` / `admin` / `employee` / `full`；与 prompt profile **解耦**——例如 `DINGTALK_ROLE_ROUTING_ENABLED=1` 时主管路由为 `promptProfile=planner` + `toolProfile=manager`。
@@ -64,11 +74,16 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 | 身份 | promptProfile | toolProfile | managerFollowup |
 |------|---------------|-------------|-----------------|
 | admin（`WORKBENCH_ADMIN_USER_IDS` / `_IDS_FILE`） | planner | admin | ✅ |
-| manager（`WORKBENCH_MANAGER_USER_IDS` / `_IDS_FILE`） | planner | manager | ✅ |
+| admin **且** 同时在主管名单（见下） | planner | **manager** | ✅ |
+| manager（主管名单） | planner | manager | ✅ |
 | 员工（在 employee 目录） | employee | employee | — |
 | 其他 | planner | planner | — |
 
-工作台 Session 同样用 `resolveWorkbenchRole` 判定主管/员工页（`/workbench` JSAPI 免登）。
+**主管名单来源**（`listWorkbenchManagerIds`，并集）：`WORKBENCH_MANAGER_USER_IDS` / `WORKBENCH_MANAGER_IDS_FILE` + 动态文件 `data/workbench-managers.json`（默认路径，`WORKBENCH_DYNAMIC_MANAGER_IDS_FILE` 可覆盖）。Portfolio 主管另读 `data/workbench-portfolio-managers.json`（`WORKBENCH_PROJECT_PORTFOLIO_*` 并集）。
+
+**Admin+主管双角色**（如姚凯珩、Rain）：`userId` 同时出现在 **admin env 白名单** 与 **主管名单**（env 或动态文件均可）。`resolveWorkbenchCapabilities` → `primaryRole=admin`、`alsoManager=true`、`canManage=true`；钉钉免登默认进 **主管视图**（`defaultLoginViewRole`）；侧栏可切 Admin / 主管 / 员工。钉钉 Agent 走 `admin_also_manager` → **`toolProfile=manager`**（日常发任务），非纯 admin 工具集；纯 admin（不在主管名单）才用 admin 工具集。Admin 白名单**仅 env 配置**；主管/Portfolio 可在 **权限中心** 或 Agent `set_manager_permission` 写动态文件。
+
+工作台 Session 用 `resolveWorkbenchCapabilities` + `normalizeWorkbenchSession` 判定可访问页（`/workbench` JSAPI 免登）。
 
 ### 记忆
 
@@ -109,6 +124,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 | 能力 | 状态 |
 |------|------|
 | 工作台 + 员工 Agent accept/reject/request_changes | ✅ v0.3 协作层 |
+| 任务快录入库（忠实映射 + AI 多父任务分组/追加已有） | ✅ v1.2 |
 | 钉钉卡片承接三态、OA 自动流程、电子签名 | ❌ |
 | 执行中变更审批、节点反馈问卷、验收闭环 | ❌ |
 | 发起人白名单 `TASK_INITIATOR_USER_IDS` 接入 dingtalk-bot | ❌（函数已有，主链路未调） |
@@ -130,6 +146,12 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
   - **展示**：`conversationHistory[].displayContent` 为完整助手 Markdown（含结构化表）；`content` 仍为 orchestrator 纯模型文本。渲染链：`buildAssistantDisplayMarkdown` → `formatWorkbenchAssistantHtml`。
   - **钉钉深链**：主线程有未发布 `latestDraft` 时 outbound 追加 `ASSIGNMENT_WEB_PUBLIC_BASE_URL/workbench/manager/chat?thread=main`（`workbench-chat-link.ts`）。
   - **Resolver**：`conversation-thread-resolver.ts`（`createSideThreadSession` 等；主线程见 canonical）。
+- **任务快录入库（task-intake，v1.2）**（`/workbench/manager/task-intake`）：并列于会议入库的**已拆清单**录入向导；**不挂 Portfolio 门禁**（`TASK_INTAKE_ENABLED`，默认开）。三步：粘贴 → **分组预览**（新建父任务组可多个 / 追加到已有 / 未分配）→ 提交。Preview：`structure-input`（N 进 N 出忠实映射）→ `suggest-targets`（已有 `planId` 匹配或 `newGroupId`+标题+描述/背景聚类，confidence < 0.6 未分配）→ 指派人解析；单新建组缺描述时回退 `parentDescription`。Commit：新建组全有负责人→`publishFromSession`，否则→主线程 `stageDraft`+Excel 深链；追加组→`POST .../task-intake/append`。**截止支持双模式**：主管指定 `dueAt` 或负责人自报（`dueMode=self` + `dueExpectation`）；员工承接时提交 `proposedDueAt` 立即生效，主管可在详情页强制改期（`SUBTASK_DUE_CHANGED` 审计）。本地 `npm run dev:task-intake`；测试 `tests/agent/task-intake/`、`tests/web/task-intake.test.ts`。详见 `docs/task-intake.md`。
+- **Admin 工作台**：
+  - **运营看板** `/workbench/admin/ops`；**权限中心** `/workbench/admin/permissions`（搜索选人为 **combobox** 单框：输入即搜、点选员工、授予/移除主管或 Portfolio 权限）。
+  - `GET /api/workbench/admin/managers` 返回 `dynamicManagers` + `effectiveManagers`（env ∪ 动态文件），每项含 `userId` + 通讯录 `name`（修复前 env 内主管仅 ID 时 UI 显示「—」）。
+  - `POST .../admin/managers|portfolio-managers` 写动态 JSON + `appendPermissionEvent` 审计；**不能**通过 UI 授予 admin（须改 `WORKBENCH_ADMIN_USER_IDS` 并重建容器）。
+  - 实例级功能分叉示例：明思侧 `DAILY_REPORTS_PAGE_ENABLED=1`（微光默认关），见 `.env.example` 注释。
 
 ## 催办（Follow-up，v1）
 
@@ -178,10 +200,19 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 | 变量 | 说明 |
 |------|------|
 | `ASSIGNMENT_PHASE_ENABLED` | `1` 开启指派段落 |
-| `WORKBENCH_MANAGER_USER_IDS` / `WORKBENCH_MANAGER_IDS_FILE` | 主管身份（路由 + 工作台） |
-| `WORKBENCH_ADMIN_USER_IDS` / `WORKBENCH_ADMIN_IDS_FILE` | admin 工具 profile |
-| `ASSIGNMENT_WEB_*` | 工作台 URL 签名 |
+| `WORKBENCH_MANAGER_USER_IDS` / `WORKBENCH_MANAGER_IDS_FILE` | 主管身份（env 静态名单） |
+| `WORKBENCH_DYNAMIC_MANAGER_IDS_FILE` | 动态主管 JSON（默认 `data/workbench-managers.json`；权限中心 / Agent 写入） |
+| `WORKBENCH_ADMIN_USER_IDS` / `WORKBENCH_ADMIN_IDS_FILE` | Admin 身份（**仅 env**；改后须重建容器） |
+| `WORKBENCH_PROJECT_PORTFOLIO_*` | Portfolio 主管（env + `data/workbench-portfolio-managers.json`） |
+| `ASSIGNMENT_WEB_*` | 工作台 URL 签名；**每实例**独立 `ASSIGNMENT_WEB_PUBLIC_BASE_URL` |
+| `WORKBENCH_NOTIFY_DETAIL_URL_BASE` | 员工通知详情链前缀（含 `/workbench/employee/task`） |
+| `WORKBENCH_NOTIFY_MANAGER_DETAIL_URL_BASE` | 主管通知链前缀（实例根 URL） |
+| `DINGTALK_ROBOT_CODE` | 机器人 1:1 消息；缺省可回退 `DINGTALK_CLIENT_ID` |
 | `TASK_INITIATOR_*` | 发起人白名单（**主链路未接入**） |
+| `TASK_INTAKE_ENABLED` | 任务快录入库页面/API/侧栏（默认开） |
+| `TASK_INTAKE_LLM_*` | 结构化 + 归属建议模型/超时（见 `docs/task-intake.md`） |
+
+**发布后文案修正**：工作台暂无「已发布任务在线改字」；运维可对 SQLite `tasks`/`subtasks` 做定向 UPDATE（示例脚本 `scripts/patch-meeting-subtask-titles.ts`），**不会**自动重发通知。
 
 ## Agent Harness 基线
 
@@ -210,7 +241,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 
 - **单元 / 集成**：`npm test`（Vitest；`vitest.setup.ts` 默认关闭审计写盘与后台 scheduler）。
 - **类型检查**：`npm run typecheck`。
-- **Eval 脚本（v3 矩阵）**：`npm run eval:unit`（PR）→ `npm run eval:spot`（`EVAL_TAG=` 调试）→ `npm run eval:chains`（多轮 fixture）→ **`npm run eval:release`**（发版/nightly）。Legacy 别名 `eval:deployment-parity` / `eval:natural-full` 转发至 v3。见 `docs/eval-matrix-v3.md`、`docs/agent-usage-and-eval-ops.md`。Eval 对齐现网见 `scripts/eval-production-parity-env.ts`。Admin 运营看板 `/workbench/admin/ops`。**在线 Eval**：规则 L0/L1 + **LLM Judge**（`qwen-doc-turbo`，默认 ON，5% 与异常 100%）→ `eval_candidates` → `promote-eval-candidate` → `fixtures/eval-v3/promoted`；校准 `npm run eval:judge-calibrate`。**Admin+主管双角色**：同 userId 写入 admin 与 manager 白名单；钉钉附 Admin 深链、Agent 仍 manager tools。
+- **Eval 脚本（v3 矩阵）**：`npm run eval:unit`（PR）→ `npm run eval:spot`（`EVAL_TAG=` 调试）→ `npm run eval:chains`（多轮 fixture）→ **`npm run eval:release`**（发版/nightly）。Legacy 别名 `eval:deployment-parity` / `eval:natural-full` 转发至 v3。见 `docs/eval-matrix-v3.md`、`docs/agent-usage-and-eval-ops.md`。Eval 对齐现网见 `scripts/eval-production-parity-env.ts`。Admin 运营看板 `/workbench/admin/ops`、权限中心 `/workbench/admin/permissions`。**在线 Eval**：规则 L0/L1 + **LLM Judge**（`qwen-doc-turbo`，默认 ON，5% 与异常 100%）→ `eval_candidates` → `promote-eval-candidate` → `fixtures/eval-v3/promoted`；校准 `npm run eval:judge-calibrate`。**Admin+主管双角色**：admin env + 主管名单并集；钉钉 `admin_also_manager` → `toolProfile=manager`。
 - **Demo 回归**：`npm run demo:eval` / `demo:scenarios`。
 - **线上观测**：容器 stdout 结构化事件 + `data/plans` 快照；demo JSONL 主要用于 CLI 回归。
 
@@ -230,5 +261,6 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 | Demo/MVP | 输入质检 → Qwen 结构化生成 → 门禁 → Markdown/表格 | ✅ |
 | V1.0 | 钉钉 Stream + ReAct + 工作台 SQLite + 发布/改派/通知 | ✅ |
 | V1.1 | 催办、进展推送、WBS 细拆、Scheme C、角色路由、eval 回归集 | ✅ 主体 |
+| V1.2 | 双钉钉实例（mingsibot）、Admin 权限中心、动态主管名单、Portfolio 会议入库、任务快录入库（AI 多父任务分组 + 追加已有） | ✅ 试点 |
 | V2 | 钉钉卡片承接三态、执行中变更、节点反馈、验收闭环 | ⏳ |
 | V3 | OA/QMS 联动、电子签名、管理报表 | ⏳ |

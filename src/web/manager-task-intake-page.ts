@@ -296,10 +296,12 @@ export function renderManagerTaskIntakePage(params: {
 .ti-ifield input[type="date"] { cursor: pointer; }
 
 /* ── Row layouts ──────────────────────────────────── */
-.ti-row-assignee-due { display: grid; grid-template-columns: 1fr 130px; gap: 12px; align-items: start; }
+.ti-row-assignee-due { display: grid; grid-template-columns: 1fr 220px; gap: 12px; align-items: start; }
 @media (max-width: 480px) { .ti-row-assignee-due { grid-template-columns: 1fr; } }
 .ti-fields-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 560px) { .ti-fields-grid { grid-template-columns: 1fr; } }
+.ti-due-mode-row { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+.ti-due-mode-row label { font-size: 12px; color: var(--ti-ink-2); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 
 /* ── Assignee combo ───────────────────────────────── */
 .ti-assignee-wrap { position: relative; }
@@ -790,8 +792,33 @@ ${buildWorkbenchContactComboClientJs()}
 
     var dueWrap = document.createElement("div");
     dueWrap.className = "ti-ifield";
-    dueWrap.innerHTML = '<span class="ti-lbl ti-lbl-req">截止</span><input type="date" class="row-due" value="' + esc((row.dueAt || "").slice(0, 10)) + '" />';
+    var dueMode = (row.dueMode === "fixed" || row.dueMode === "self") ? row.dueMode : (row.dueAt ? "fixed" : "self");
+    dueWrap.innerHTML =
+      '<span class="ti-lbl ti-lbl-req">截止</span>'
+      + '<div class="ti-due-mode-row">'
+      +   '<label><input type="radio" name="due-mode-' + idx + '" class="row-due-mode" value="fixed" ' + (dueMode === "fixed" ? "checked" : "") + ' />指定日期</label>'
+      +   '<label><input type="radio" name="due-mode-' + idx + '" class="row-due-mode" value="self" ' + (dueMode === "self" ? "checked" : "") + ' />负责人自报</label>'
+      + '</div>'
+      + '<input type="date" class="row-due" value="' + esc((row.dueAt || "").slice(0, 10)) + '" />'
+      + '<input type="text" class="row-due-expectation" placeholder="期望时间（建议填写，如：三天左右）" value="' + esc(row.dueExpectation || "") + '" />';
     topRow.appendChild(dueWrap);
+    var dueInput = dueWrap.querySelector(".row-due");
+    var dueExpectationInput = dueWrap.querySelector(".row-due-expectation");
+    function syncDueModeUi() {
+      var checked = dueWrap.querySelector(".row-due-mode:checked");
+      var mode = checked ? checked.value : "self";
+      if (mode === "fixed") {
+        dueInput.style.display = "";
+        dueExpectationInput.style.display = "none";
+      } else {
+        dueInput.style.display = "none";
+        dueExpectationInput.style.display = "";
+      }
+    }
+    dueWrap.querySelectorAll(".row-due-mode").forEach(function (r) {
+      r.addEventListener("change", syncDueModeUi);
+    });
+    syncDueModeUi();
     body.appendChild(topRow);
 
     var objWrap = document.createElement("div");
@@ -1104,7 +1131,9 @@ ${buildWorkbenchContactComboClientJs()}
         completionCriteria: card.querySelector(".row-completion").value,
         actions: card.querySelector(".row-actions").value,
         dependsOn: card.querySelector(".row-depends").value,
+        dueMode: ((card.querySelector(".row-due-mode:checked") || {}).value || "self"),
         dueAt: card.querySelector(".row-due").value || undefined,
+        dueExpectation: (card.querySelector(".row-due-expectation").value || "").trim(),
         assigneeUserId: card.querySelector(".row-assignee-id").value.trim(),
         targetPlanId: base.targetPlanId || undefined,
         targetTitle: base.targetTitle || undefined,
@@ -1184,11 +1213,14 @@ ${buildWorkbenchContactComboClientJs()}
         var conf = r.suggestedConfidence || 0;
         var hasSugExisting = Boolean(r.suggestedTargetPlanId) && conf >= 0.6;
         var hasSugNew = Boolean(r.suggestedNewGroupId) && conf >= 0.6;
+        var dueMode = (r.dueMode === 'fixed' || r.dueMode === 'self') ? r.dueMode : (r.dueAt ? 'fixed' : 'self');
         return Object.assign({}, r, {
           targetPlanId: hasSugExisting ? r.suggestedTargetPlanId : undefined,
           targetTitle: hasSugExisting ? r.suggestedTargetTitle : undefined,
           targetNo: hasSugExisting ? r.suggestedTargetNo : undefined,
           newGroupId: hasSugNew ? r.suggestedNewGroupId : (hasSuggestions ? undefined : DEFAULT_GROUP),
+          dueMode: dueMode,
+          dueExpectation: r.dueExpectation || "",
           needsAssignment: hasSuggestions && !hasSugExisting && !hasSugNew,
         });
       });
@@ -1234,8 +1266,12 @@ ${buildWorkbenchContactComboClientJs()}
     if (noDel.length) problems.push(noDel.length + " 条子任务交付物为空（必填）");
     var noCrit = selected.filter(function (r) { return !String(r.completionCriteria || "").trim(); });
     if (noCrit.length) problems.push(noCrit.length + " 条子任务完成标准为空（必填）");
-    var noDue = selected.filter(function (r) { return !r.dueAt; });
+    var noDue = selected.filter(function (r) { return (r.dueMode || "self") === "fixed" && !r.dueAt; });
     if (noDue.length) problems.push(noDue.length + " 条子任务截止日期为空（必填）");
+    var noDueExpectation = selected.filter(function (r) {
+      return (r.dueMode || "self") === "self" && !String(r.dueExpectation || "").trim();
+    });
+    if (noDueExpectation.length) problems.push(noDueExpectation.length + " 条负责人自报任务缺少期望时间提示（建议填写）");
 
     var appendRows = selected.filter(function (r) { return r.targetPlanId; });
     var noAssigneeAppend = appendRows.filter(function (r) { return !r.assigneeUserId; });

@@ -15,8 +15,9 @@ const SYSTEM_PROMPT = [
   "1. 用户列了几条任务，就输出几条 subtasks——禁止增加、删除、合并或再拆分条目。",
   "2. 子任务标题原样保留用户的措辞，禁止改写、润色、翻译或补充。",
   "3. dueAt 用 YYYY-MM-DD，仅当用户给了明确日期时填写。",
-  "4. assigneeName 仅当用户明确写了负责人姓名时填写，禁止编造。",
-  "5. actions / dependsOn 仅当用户明确提及时填写，禁止编造。",
+  "4. 只提到模糊时间（如「三天左右」「本周内」「尽快」）时，不填 dueAt；改填 dueMode='self'，并把原话写到 dueExpectation。",
+  "5. assigneeName 仅当用户明确写了负责人姓名时填写，禁止编造。",
+  "6. actions / dependsOn 仅当用户明确提及时填写，禁止编造。",
   "",
   "必填字段（必须输出，可根据上下文合理推断，勿留空）：",
   "A. parentDescription：用 1-2 句话说明这批任务的整体目标与背景，供下属理解来龙去脉。",
@@ -24,10 +25,10 @@ const SYSTEM_PROMPT = [
   "C. 每条 subtask 的 deliverables：该子任务完成后产出的具体交付物（如文档/报告/代码/方案），多项用「；」分隔。若用户未明确，根据任务标题合理推断 1 条。",
   "D. 每条 subtask 的 completionCriteria：可量化/可验收的完成标准，多项用「；」分隔。若用户未明确，根据任务标题合理推断 1 条。",
   "",
-  "可选字段（仅用户明确提及时填写）：actions / dependsOn / dueAt（YYYY-MM-DD）/ assigneeName。",
+  "可选字段（仅用户明确提及时填写）：actions / dependsOn / dueAt（YYYY-MM-DD）/ dueMode / dueExpectation / assigneeName。",
   "",
   "输出严格 JSON，不要任何解释或 markdown：",
-  '{ "parentTitle": string, "parentDescription": string, "subtasks": [ { "title": string, "objective": string, "deliverables": string, "completionCriteria": string, "actions"?: string, "dependsOn"?: string, "dueAt"?: string, "assigneeName"?: string } ] }',
+  '{ "parentTitle": string, "parentDescription": string, "subtasks": [ { "title": string, "objective": string, "deliverables": string, "completionCriteria": string, "actions"?: string, "dependsOn"?: string, "dueAt"?: string, "dueMode"?: "fixed" | "self", "dueExpectation"?: string, "assigneeName"?: string } ] }',
 ].join("\n");
 
 function clip(value: unknown, max = 500): string {
@@ -69,10 +70,18 @@ function coerceStructured(parsed: unknown): TaskIntakeStructured | null {
       const actions = clip(r.actions);
       const dependsOn = clip(r.dependsOn);
       const dueAt = clip(r.dueAt, 32);
+      const dueModeRaw = clip(r.dueMode, 16).toLowerCase();
+      const dueExpectation = clip(r.dueExpectation, 200);
       const assigneeName = clip(r.assigneeName, 64);
       if (actions) subtask.actions = actions;
       if (dependsOn) subtask.dependsOn = dependsOn;
       if (dueAt) subtask.dueAt = dueAt;
+      if (dueModeRaw === "fixed" || dueModeRaw === "self") {
+        subtask.dueMode = dueModeRaw;
+      } else if (!dueAt && dueExpectation) {
+        subtask.dueMode = "self";
+      }
+      if (dueExpectation) subtask.dueExpectation = dueExpectation;
       if (assigneeName) subtask.assigneeName = assigneeName;
       return subtask;
     })

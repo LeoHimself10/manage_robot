@@ -21,6 +21,7 @@ export const SUBMIT_EMPLOYEE_RESPONSE_TOOL: ToolDefinition = {
         },
         note: { type: "string" },
         managerSummary: { type: "string" },
+        proposedDueAt: { type: "string", description: "员工自报截止日期（YYYY-MM-DD）" },
       },
       required: ["subtaskId", "action"],
     },
@@ -42,6 +43,7 @@ export function buildSubmitEmployeeResponseHandler(
     const action = String(args.action ?? "").trim();
     const note = String(args.note ?? "").trim();
     const managerSummary = String(args.managerSummary ?? "").trim();
+    const proposedDueAt = String(args.proposedDueAt ?? "").trim();
     if (!subtaskId) throw new Error("subtaskId is required");
     if (!actorUserId) throw new Error("actorUserId is required");
     if (!["accept", "reject", "request_changes", "customize"].includes(action)) {
@@ -49,6 +51,26 @@ export function buildSubmitEmployeeResponseHandler(
     }
     if ((action === "reject" || action === "request_changes" || action === "customize") && !note) {
       throw new Error("note is required for reject/request_changes/customize");
+    }
+    const current = taskStore.getSubtaskWithTask(subtaskId);
+    if (!current) throw new Error("Subtask not found");
+    const needsSelfDue = !String(current.subtask.dueAt ?? "").trim()
+      && String(current.subtask.dueSetBy ?? "") !== "manager";
+    if (action === "accept" && needsSelfDue && !proposedDueAt) {
+      return {
+        ok: false,
+        reason: "missing_proposed_due_at",
+        hint: "该任务需承接时自报截止，请补充 proposedDueAt（YYYY-MM-DD）。",
+      };
+    }
+    if (action === "accept" && proposedDueAt) {
+      taskStore.setSubtaskDueAt({
+        subtaskId,
+        actorUserId,
+        dueAt: proposedDueAt,
+        dueSetBy: "employee",
+        note: note || "员工承接时自报截止",
+      });
     }
     const updated = taskStore.updateSubtaskStatus({
       subtaskId,

@@ -65,6 +65,8 @@ export interface WorkbenchSubtaskRow {
   deliverables?: string;
   completionCriteria?: string;
   dueAt?: string;
+  dueSetBy?: "manager" | "employee";
+  dueExpectation?: string;
   feedbackFrequency?: string;
   assigneeUserId: string;
   status: WorkbenchTaskStatus;
@@ -160,6 +162,17 @@ function ensureSubtaskCompletedAtColumn(db: DatabaseSync): void {
   const rows = db.prepare("PRAGMA table_info(subtasks)").all() as Array<{ name?: string }>;
   if (!rows.some((r) => String(r.name ?? "") === "completed_at")) {
     db.exec("ALTER TABLE subtasks ADD COLUMN completed_at TEXT");
+  }
+}
+
+function ensureSubtaskDueMetaColumns(db: DatabaseSync): void {
+  const rows = db.prepare("PRAGMA table_info(subtasks)").all() as Array<{ name?: string }>;
+  const cols = new Set(rows.map((r) => String(r.name ?? "")));
+  if (!cols.has("due_set_by")) {
+    db.exec("ALTER TABLE subtasks ADD COLUMN due_set_by TEXT");
+  }
+  if (!cols.has("due_expectation")) {
+    db.exec("ALTER TABLE subtasks ADD COLUMN due_expectation TEXT");
   }
 }
 
@@ -606,6 +619,7 @@ export function createWorkbenchFormalTaskStore() {
 
   ensureSubtaskRichColumns(db);
   ensureSubtaskCompletedAtColumn(db);
+  ensureSubtaskDueMetaColumns(db);
   ensureTaskDescriptionColumn(db);
   ensureProjectsTable(db);
   ensureTaskProjectIdColumn(db);
@@ -723,6 +737,11 @@ export function createWorkbenchFormalTaskStore() {
       deliverables: asString(row.deliverables),
       completionCriteria: asString(row.completion_criteria),
       dueAt: asString(row.due_at),
+      dueSetBy: (() => {
+        const raw = asString(row.due_set_by);
+        return raw === "manager" || raw === "employee" ? raw : undefined;
+      })(),
+      dueExpectation: asString(row.due_expectation),
       feedbackFrequency: asString(row.feedback_frequency),
       assigneeUserId: String(row.assignee_user_id ?? ""),
       status: normalizeStatus(String(row.status ?? "ASSIGNED")),
@@ -845,6 +864,8 @@ export function createWorkbenchFormalTaskStore() {
         }
         const timeNode = draftTask.timeNode as Record<string, unknown> | undefined;
         const depsRaw = draftTask.dependencyTaskIds ?? draftTask.dependencies;
+        const dueExpectation = asString(draftTask.dueExpectation);
+        const dueSetBy = asString(draftTask.dueAt) || asString(timeNode?.dueAt) ? "manager" : null;
         return {
           sourceKey,
           title: asString(draftTask.title) || `子任务 ${index + 1}`,
@@ -856,6 +877,8 @@ export function createWorkbenchFormalTaskStore() {
             ? (draftTask.completionCriteria as unknown[]).map((x) => String(x)).join("\n")
             : asString(draftTask.completionCriteria),
           dueAt: formatDueAtForStorage(resolveDraftTaskDueAt(draftTask)),
+          dueSetBy,
+          dueExpectation,
           feedbackFrequency: null,
           assigneeUserId,
           dependsOn: encodeRichJsonColumn(normalizeRichStringList(depsRaw)),
@@ -908,8 +931,8 @@ export function createWorkbenchFormalTaskStore() {
           resolvedProjectId,
         );
         const insertSubtask = db.prepare(
-          `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at, depends_on, checkpoints, risks, input_materials, actions, collaborators, in_scope, out_of_scope)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, due_set_by, due_expectation, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at, depends_on, checkpoints, risks, input_materials, actions, collaborators, in_scope, out_of_scope)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         );
         pendingSubtasks.forEach((subtask) => {
           const subtaskId = `${taskId}:${subtask.sourceKey}`;
@@ -922,6 +945,8 @@ export function createWorkbenchFormalTaskStore() {
             subtask.deliverables || null,
             subtask.completionCriteria || null,
             subtask.dueAt || null,
+            subtask.dueSetBy,
+            subtask.dueExpectation || null,
             subtask.feedbackFrequency || null,
             subtask.assigneeUserId,
             "ASSIGNED",
@@ -1542,6 +1567,8 @@ export function createWorkbenchFormalTaskStore() {
       deliverables?: string;
       completionCriteria?: string;
       dueAt?: string;
+      dueSetBy?: "manager" | "employee";
+      dueExpectation?: string;
       feedbackFrequency?: string;
       dependsOn?: string[];
       checkpoints?: string[];
@@ -1578,9 +1605,13 @@ export function createWorkbenchFormalTaskStore() {
       if (!deliverables) throw new Error("deliverables is required");
       const completionCriteria = input.completionCriteria?.trim();
       if (!completionCriteria) throw new Error("completionCriteria is required");
-      if (!input.dueAt?.trim()) throw new Error("dueAt is required");
 
       const dueAt = formatDueAtForStorage(input.dueAt);
+      const dueExpectation = String(input.dueExpectation ?? "").trim();
+      const dueSetBy =
+        input.dueSetBy === "manager" || input.dueSetBy === "employee"
+          ? input.dueSetBy
+          : (dueAt ? "manager" : null);
       const clientRequestId = normalizeAppendSubtaskClientRequestId(input.clientRequestId);
       const dedupSeconds = resolveAppendSubtaskDedupSeconds();
 
@@ -1663,8 +1694,8 @@ export function createWorkbenchFormalTaskStore() {
         const now = nowIso();
 
         db.prepare(
-          `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at, depends_on, checkpoints, risks, input_materials, actions, collaborators, in_scope, out_of_scope)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective, deliverables, completion_criteria, due_at, due_set_by, due_expectation, feedback_frequency, assignee_user_id, status, progress_note, created_at, updated_at, depends_on, checkpoints, risks, input_materials, actions, collaborators, in_scope, out_of_scope)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         ).run(
           subtaskId,
           task.taskId,
@@ -1674,6 +1705,8 @@ export function createWorkbenchFormalTaskStore() {
           deliverables,
           completionCriteria,
           dueAt || null,
+          dueSetBy,
+          dueExpectation || null,
           null,
           assigneeUserId,
           "ASSIGNED",
@@ -1874,6 +1907,32 @@ export function createWorkbenchFormalTaskStore() {
 
       if (!txResult) throw new Error("appendSubtaskFromMeetingImport transaction produced no result");
       return txResult;
+    },
+
+    managerSetSubtaskDueAt(input: {
+      managerUserId: string;
+      subtaskId: string;
+      dueAt: string;
+      note?: string;
+    }): { task: WorkbenchTaskRow; subtask: WorkbenchSubtaskRow } {
+      const taskRow = db
+        .prepare(
+          "SELECT t.* FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
+        )
+        .get(input.subtaskId) as Record<string, unknown> | undefined;
+      if (!taskRow) throw new Error("Subtask not found");
+      const task = mapTaskRow(taskRow);
+      if (task.managerUserId !== input.managerUserId) {
+        throw new Error("Subtask does not belong to current manager");
+      }
+      const subtask = this.setSubtaskDueAt({
+        subtaskId: input.subtaskId,
+        actorUserId: input.managerUserId,
+        dueAt: input.dueAt,
+        dueSetBy: "manager",
+        note: input.note,
+      });
+      return { task, subtask };
     },
 
     setTaskSourceMeetingBatch(input: {
@@ -2091,6 +2150,7 @@ export function createWorkbenchFormalTaskStore() {
       subtaskId: string;
       actorUserId: string;
       dueAt: string;
+      dueSetBy?: "manager" | "employee";
       note?: string;
     }): WorkbenchSubtaskRow {
       const row = db
@@ -2101,10 +2161,14 @@ export function createWorkbenchFormalTaskStore() {
       if (!row) throw new Error("Subtask not found");
       const from = asString(row.due_at);
       const to = input.dueAt?.trim() ? formatDueAtForStorage(input.dueAt) : "";
+      const nextDueSetBy = input.dueSetBy === "manager" || input.dueSetBy === "employee"
+        ? input.dueSetBy
+        : (to ? "manager" : null);
       const now = nowIso();
       runInTransaction(() => {
-        db.prepare("UPDATE subtasks SET due_at = ?, updated_at = ? WHERE subtask_id = ?").run(
+        db.prepare("UPDATE subtasks SET due_at = ?, due_set_by = ?, updated_at = ? WHERE subtask_id = ?").run(
           to || null,
+          nextDueSetBy,
           now,
           input.subtaskId,
         );

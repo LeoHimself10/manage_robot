@@ -927,6 +927,7 @@ function mapEmployeeSubtaskForApi(
     ...t,
     statusLabel: taskStatusLabel(t.status),
     managerDisplayName: mgr || "",
+    dueExpectation: t.dueExpectation ?? "",
     dueLabel: presentDueLabel(t.dueAt, now),
     dueProgress,
     dueBarState: presentDueBarState(t.dueAt, now, t.status),
@@ -1730,11 +1731,13 @@ export function renderTaskDetailPage(params: {
         var pAck = row.querySelector('[data-mgr-panel="ack"]');
         var pAckRej = row.querySelector('[data-mgr-panel="ack-rejection"]');
         var pStop = row.querySelector('[data-mgr-panel="stop"]');
+        var pDue = row.querySelector('[data-mgr-panel="set-due"]');
         if (kind === 'decline' && pDecl) {
           var showD = pDecl.hidden;
           if (pAck) pAck.hidden = true;
           if (pAckRej) pAckRej.hidden = true;
           if (pStop) pStop.hidden = true;
+          if (pDue) pDue.hidden = true;
           pDecl.hidden = !showD;
           if (showD) {
             row.open = true;
@@ -1745,6 +1748,7 @@ export function renderTaskDetailPage(params: {
           if (pDecl) pDecl.hidden = true;
           if (pAckRej) pAckRej.hidden = true;
           if (pStop) pStop.hidden = true;
+          if (pDue) pDue.hidden = true;
           pAck.hidden = !showA;
           if (showA) {
             row.open = true;
@@ -1755,6 +1759,7 @@ export function renderTaskDetailPage(params: {
           if (pDecl) pDecl.hidden = true;
           if (pAck) pAck.hidden = true;
           if (pStop) pStop.hidden = true;
+          if (pDue) pDue.hidden = true;
           pAckRej.hidden = !showR;
           if (showR) {
             row.open = true;
@@ -1765,10 +1770,22 @@ export function renderTaskDetailPage(params: {
           if (pDecl) pDecl.hidden = true;
           if (pAck) pAck.hidden = true;
           if (pAckRej) pAckRej.hidden = true;
+          if (pDue) pDue.hidden = true;
           pStop.hidden = !showS;
           if (showS) {
             row.open = true;
             setRowMgrFb(row, 'stop', '', 'muted');
+          }
+        } else if (kind === 'set-due' && pDue) {
+          var showDue = pDue.hidden;
+          if (pDecl) pDecl.hidden = true;
+          if (pAck) pAck.hidden = true;
+          if (pAckRej) pAckRej.hidden = true;
+          if (pStop) pStop.hidden = true;
+          pDue.hidden = !showDue;
+          if (showDue) {
+            row.open = true;
+            setRowMgrFb(row, 'set-due', '', 'muted');
           }
         }
         return;
@@ -1795,7 +1812,18 @@ export function renderTaskDetailPage(params: {
         var planId = (lastLoadedPlanId || '').trim();
         var sid = String(row3.getAttribute('data-subtask-id') || '').trim();
         if (!planId) {
-          setRowMgrFb(row3, submitKind === 'decline' ? 'decline' : 'ack', '缺少 planId', 'err');
+          setRowMgrFb(
+            row3,
+            submitKind === 'decline'
+              ? 'decline'
+              : submitKind === 'stop'
+                ? 'stop'
+                : submitKind === 'set-due'
+                  ? 'set-due'
+                  : 'ack',
+            '缺少 planId',
+            'err',
+          );
           return;
         }
         if (submitKind === 'decline') {
@@ -1933,6 +1961,39 @@ export function renderTaskDetailPage(params: {
             await load();
           } catch (erS) {
             setRowMgrFb(row3, 'stop', String(erS && erS.message ? erS.message : erS), 'err');
+          } finally {
+            subm.disabled = false;
+          }
+        } else if (submitKind === 'set-due') {
+          var pnlDue = row3.querySelector('[data-mgr-panel="set-due"]');
+          var dueInput = pnlDue ? pnlDue.querySelector('input[data-field="due-at"]') : null;
+          var noteInputDue = pnlDue ? pnlDue.querySelector('textarea[data-field="due-note"]') : null;
+          var dueVal = dueInput ? String(dueInput.value || '').trim() : '';
+          var noteDue = noteInputDue ? String(noteInputDue.value || '').trim() : '';
+          if (!sid) {
+            setRowMgrFb(row3, 'set-due', '缺少子任务', 'err');
+            return;
+          }
+          if (!dueVal) {
+            setRowMgrFb(row3, 'set-due', '请填写新截止日期', 'err');
+            return;
+          }
+          var payloadDue = { subtaskId: sid, dueAt: dueVal, note: noteDue };
+          subm.disabled = true;
+          setRowMgrFb(row3, 'set-due', '提交中…', 'muted');
+          try {
+            var resDue = await fetch('/api/workbench/manager/subtasks/due', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payloadDue),
+            });
+            var dataDue = await resDue.json().catch(function () { return {}; });
+            if (!resDue.ok || !dataDue.ok) throw new Error(dataDue.error || ('HTTP ' + resDue.status));
+            setRowMgrFb(row3, 'set-due', '已更新截止日期', 'ok');
+            if (pnlDue) pnlDue.hidden = true;
+            await load();
+          } catch (erDue) {
+            setRowMgrFb(row3, 'set-due', String(erDue && erDue.message ? erDue.message : erDue), 'err');
           } finally {
             subm.disabled = false;
           }
@@ -2274,7 +2335,9 @@ export function renderTaskDetailPage(params: {
         var bc = subBadgeClass(st);
         var idx = s.orderIndex != null && s.orderIndex !== '' ? esc(String(s.orderIndex)) : '—';
         var title = esc(s.title || '—');
-        var due = s.dueAt ? esc(String(s.dueAt).slice(0, 10)) : '—';
+        var due = s.dueAt
+          ? esc(String(s.dueAt).slice(0, 10))
+          : ('承接时自报' + (s.dueExpectation ? ('（期望：' + esc(String(s.dueExpectation)) + '）') : ''));
         var upd = fmtTime(s.updatedAt);
         var progHint = esc(clipStr(s.progressNote || '', 72));
         var actions = [];
@@ -2319,6 +2382,11 @@ export function renderTaskDetailPage(params: {
         if (st !== 'DONE' && st !== 'STOPPED' && (ROLE === 'manager' || ROLE === 'admin')) {
           actions.push(
             '<button type="button" class="btn btn-danger btn-sm" data-mgr-toggle="stop">停止</button>',
+          );
+        }
+        if (st !== 'DONE' && st !== 'STOPPED' && (ROLE === 'manager' || ROLE === 'admin')) {
+          actions.push(
+            '<button type="button" class="btn btn-secondary btn-sm" data-mgr-toggle="set-due">改截止</button>',
           );
         }
         }
@@ -2447,6 +2515,18 @@ export function renderTaskDetailPage(params: {
               '<button type="button" class="btn btn-danger btn-sm" data-mgr-submit="stop">确认停止</button></div>' +
               '<div class="feedback muted" data-mgr-fb="stop"></div></div>'
             : '';
+        var duePanel =
+          st !== 'DONE' && st !== 'STOPPED' && (ROLE === 'manager' || ROLE === 'admin')
+            ? '<div class="mgr-inline-panel" hidden data-mgr-panel="set-due">' +
+              '<h4 class="mgr-inline-h">调整截止日期</h4>' +
+              '<label class="mgr-inline-label">新截止日期<span class="mgr-req">（必填）</span>' +
+              '<input data-field="due-at" type="date" value="' + (s.dueAt ? esc(String(s.dueAt).slice(0, 10)) : '') + '" /></label>' +
+              '<label class="mgr-inline-label">说明（可选）<textarea data-field="due-note" rows="2" maxlength="300" placeholder="例如：不接受第五天，改回三天内。"></textarea></label>' +
+              '<div class="mgr-inline-actions">' +
+              '<button type="button" class="btn btn-ghost btn-sm" data-mgr-cancel="set-due">取消</button>' +
+              '<button type="button" class="btn btn-primary btn-sm" data-mgr-submit="set-due">确认改期</button></div>' +
+              '<div class="feedback muted" data-mgr-fb="set-due"></div></div>'
+            : '';
         return (
           '<details class="sub-row-mgr"' +
           openAttr +
@@ -2498,6 +2578,7 @@ export function renderTaskDetailPage(params: {
           ackPanel +
           ackRejectionPanel +
           stopPanel +
+          duePanel +
           '</div></details>'
         );
       });
@@ -5271,6 +5352,76 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/subtasks/due") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res);
+        if (!session) return;
+        if (session.role !== "manager" && session.role !== "admin") {
+          writeJson(res, 403, { ok: false, error: "manager or admin role required" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const subtaskId = String(body.subtaskId ?? "").trim();
+        const dueAt = String(body.dueAt ?? "").trim();
+        const note = String(body.note ?? "").trim();
+        if (!subtaskId) {
+          writeJson(res, 400, { ok: false, error: "subtaskId is required" });
+          return;
+        }
+        if (!dueAt) {
+          writeJson(res, 400, { ok: false, error: "dueAt is required" });
+          return;
+        }
+        const store = getFormalTaskStore();
+        const detail = store.getSubtaskWithTask(subtaskId);
+        if (!detail) {
+          writeJson(res, 404, { ok: false, error: "Subtask not found" });
+          return;
+        }
+        const managerUserId = session.role === "manager"
+          ? session.userId
+          : detail.task.managerUserId;
+        if (session.role === "manager" && detail.task.managerUserId !== session.userId) {
+          writeJson(res, 403, { ok: false, error: "Subtask does not belong to current manager" });
+          return;
+        }
+        const changed = store.managerSetSubtaskDueAt({
+          managerUserId,
+          subtaskId,
+          dueAt,
+          note: note || "主管强制改期",
+        });
+        await workbenchPublishNotifier.notifyEmployeeOfManagerAction({
+          employeeUserId: changed.subtask.assigneeUserId,
+          managerUserId,
+          managerDisplayName: withPeopleDirectoryStore((s) =>
+            s.getContact(managerUserId)?.name?.trim() || managerUserId,
+          ),
+          taskNo: changed.task.taskNo,
+          taskTitle: changed.task.title,
+          subtaskId: changed.subtask.subtaskId,
+          subtaskTitle: changed.subtask.title,
+          kind: "decline_changes",
+          note: `主管已调整截止日期为 ${dueAt}${note ? `；${note}` : ""}`,
+        }).catch(() => undefined);
+        emitWorkbenchApiActivity(session, url.pathname);
+        writeJson(res, 200, {
+          ok: true,
+          subtaskId: changed.subtask.subtaskId,
+          dueAt: changed.subtask.dueAt,
+          dueSetBy: changed.subtask.dueSetBy,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "set due failed",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/workbench/manager/subtasks/stop") {
     void (async () => {
       try {
@@ -5418,6 +5569,7 @@ export function handleAssignmentHttp(
         const subtaskIdInput = String(body.subtaskId ?? "").trim();
         const action = String(body.action ?? "").trim();
         const note = String(body.note ?? "").trim();
+        const proposedDueAt = String(body.proposedDueAt ?? "").trim();
         if (!planId && !subtaskIdInput) {
           writeJson(res, 400, { ok: false, error: "subtaskId or planId is required" });
           return;
@@ -5451,6 +5603,37 @@ export function handleAssignmentHttp(
         if (!targetSubtaskId) {
           writeJson(res, 404, { ok: false, error: "Subtask not found" });
           return;
+        }
+        const subtaskDetail = getFormalTaskStore().getSubtaskWithTask(targetSubtaskId);
+        if (!subtaskDetail) {
+          writeJson(res, 404, { ok: false, error: "Subtask not found" });
+          return;
+        }
+        const needsProposedDueAt = action === "accept"
+          && !String(subtaskDetail.subtask.dueAt ?? "").trim()
+          && String(subtaskDetail.subtask.dueSetBy ?? "") !== "manager";
+        if (needsProposedDueAt && !proposedDueAt) {
+          writeJson(res, 400, { ok: false, error: "proposedDueAt is required for this subtask" });
+          return;
+        }
+        if (action === "accept" && proposedDueAt) {
+          getFormalTaskStore().setSubtaskDueAt({
+            subtaskId: targetSubtaskId,
+            actorUserId: session.userId,
+            dueAt: proposedDueAt,
+            dueSetBy: "employee",
+            note: note || "员工承接时自报截止",
+          });
+          await notifyManagerOfEmployeeActionAfterUpdate({
+            taskStore: getFormalTaskStore(),
+            notifier: workbenchPublishNotifier,
+            subtaskId: targetSubtaskId,
+            actorUserId: session.userId,
+            kind: "customize",
+            note: `员工承接时自报截止：${proposedDueAt}`,
+            getDisplayName: (uid) =>
+              withPeopleDirectoryStore((s) => s.getContact(uid)?.name?.trim()),
+          });
         }
         const updated = getFormalTaskStore().updateSubtaskStatus({
           subtaskId: targetSubtaskId,

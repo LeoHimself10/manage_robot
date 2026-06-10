@@ -57,6 +57,27 @@ describe("task-intake structure-input", () => {
     expect(res.structured.subtasks[1].actions).toBeUndefined();
   });
 
+  it("parses self due mode with due expectation from LLM", async () => {
+    __setTaskIntakeLlmForTest(async () =>
+      JSON.stringify({
+        parentTitle: "专项推进",
+        parentDescription: "本周推进事项",
+        subtasks: [
+          {
+            title: "输出方案初稿",
+            dueMode: "self",
+            dueExpectation: "三天左右",
+          },
+        ],
+      }),
+    );
+    const res = await structureTasksFromText({ pastedText: "输出方案初稿" });
+    expect(res.usedFallback).toBe(false);
+    expect(res.structured.subtasks[0].dueMode).toBe("self");
+    expect(res.structured.subtasks[0].dueExpectation).toBe("三天左右");
+    expect(res.structured.subtasks[0].dueAt).toBeUndefined();
+  });
+
   it("model always generates parentDescription and deliverables/completionCriteria even when not explicit", async () => {
     __setTaskIntakeLlmForTest(async () =>
       JSON.stringify({

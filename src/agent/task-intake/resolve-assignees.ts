@@ -37,6 +37,8 @@ export function buildPreviewRows(
         actions: sub.actions ?? "",
         dependsOn: sub.dependsOn ?? "",
         dueAt: sub.dueAt,
+        dueMode: sub.dueMode ?? (sub.dueAt ? "fixed" : "self"),
+        dueExpectation: sub.dueExpectation ?? "",
         assigneeUserId: resolved.assigneeUserId,
         assigneeDisplayName: resolved.assigneeDisplayName,
         assigneeNameRaw: nameRaw || undefined,
