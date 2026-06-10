@@ -34,10 +34,12 @@ export function buildSubtaskPlanningFieldsClientJs(): string {
     );
   }
   function subtaskCardCoreLines(s, subs) {
-    var due = s.dueAt ? esc(String(s.dueAt).slice(0, 10)) : '—';
+    var dueSummary = s.dueAt
+      ? (' · <span class="task-card-lbl">截止</span> ' + esc(String(s.dueAt).slice(0, 10)))
+      : '';
     var assignee = fieldDash(s.assigneeDisplayName || s.assigneeName || s.assigneeUserId || '');
     return '<div class="task-card-summary">'
-      + '<p class="meta"><span class="task-card-lbl">负责人</span> ' + assignee + ' · <span class="task-card-lbl">截止</span> ' + due + '</p>'
+      + '<p class="meta"><span class="task-card-lbl">负责人</span> ' + assignee + dueSummary + '</p>'
       + '<p class="meta task-card-desc"><span class="task-card-lbl">目标</span> ' + fieldDash(clipStr(s.objective, 120)) + '</p>'
       + '</div>'
       + subtaskCardPlanningDetails(s, subs);

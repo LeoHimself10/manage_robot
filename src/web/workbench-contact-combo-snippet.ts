@@ -41,6 +41,9 @@ export function buildWorkbenchContactComboClientJs(): string {
       ul.style.right = 'auto';
       ul.style.maxHeight = maxH + 'px';
       ul.style.zIndex = '10050';
+      ul.style.background = '#ffffff';
+      ul.style.border = '1px solid #cbd5e1';
+      ul.style.boxShadow = '0 8px 24px rgba(15,23,42,.13), 0 2px 6px rgba(15,23,42,.06)';
     }
     function clearComboDropdownPosition() {
       ul.classList.remove('combo-options--fixed');

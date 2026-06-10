@@ -316,7 +316,7 @@ export function renderManagerTaskIntakePage(params: {
   min-width: 220px;
   max-height: 240px;
   overflow-y: auto;
-  background: var(--ti-surface);
+  background: #ffffff;
   border: 1px solid var(--ti-border);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(15,23,42,.13), 0 2px 6px rgba(15,23,42,.06);
@@ -328,6 +328,7 @@ export function renderManagerTaskIntakePage(params: {
   position: fixed;
   right: auto;
   z-index: 20000;
+  background: #ffffff;
 }
 .combo-options[hidden] { display: none; }
 .combo-options li {
@@ -511,6 +512,7 @@ export function renderManagerTaskIntakePage(params: {
   transition: border-color .12s, color .12s;
 }
 .ti-group-bulk-btn:hover { border-color: var(--ti-accent); color: var(--ti-accent); }
+.ti-move-trigger { position: relative; z-index: 2; }
 .ti-group-form { padding: 14px 16px 4px; border-bottom: 1px solid var(--ti-border); background: var(--ti-bg); }
 .ti-group-cards-wrap { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
 .ti-group-empty { padding: 12px 16px; color: var(--ti-ink-3); font-size: 12px; font-family: var(--ti-sans); font-style: italic; }
@@ -750,10 +752,11 @@ ${buildWorkbenchContactComboClientJs()}
       '<span class="ti-card-num">' + String(idx + 1).padStart(2, "0") + '</span>' +
       aiBadgeHtml(row) +
       '<input type="text" class="ti-card-title row-title" value="' + esc(row.title || "") + '" placeholder="子任务标题（必填）" />' +
-      '<button type="button" class="ti-group-bulk-btn card-move-btn" title="移到其他组" style="font-size:11px;padding:3px 8px;">移组 ▾</button>';
+      '<button type="button" class="ti-group-bulk-btn ti-move-trigger card-move-btn" title="移到其他组" style="font-size:11px;padding:3px 8px;">移组 ▾</button>';
     card.appendChild(head);
 
-    head.querySelector(".card-move-btn").addEventListener("click", function (e) {
+    head.querySelector(".card-move-btn").addEventListener("mousedown", function (e) {
+      e.preventDefault();
       e.stopPropagation();
       openPopoverFor([idx], e.currentTarget);
     });
@@ -881,11 +884,12 @@ ${buildWorkbenchContactComboClientJs()}
       head.innerHTML =
         '<span class="ti-group-icon">' + icon + '</span>' +
         '<span class="ti-group-title">' + titleText + noHtml + '<span class="ti-group-subtitle">' + grp.idxs.length + ' 条</span></span>' +
-        '<button type="button" class="ti-group-bulk-btn grp-bulk-btn">全部移到 ▾</button>';
+        '<button type="button" class="ti-group-bulk-btn ti-move-trigger grp-bulk-btn">全部移到 ▾</button>';
       wrap.appendChild(head);
 
       /* bulk-move button */
-      head.querySelector(".grp-bulk-btn").addEventListener("click", function (e) {
+      head.querySelector(".grp-bulk-btn").addEventListener("mousedown", function (e) {
+        e.preventDefault();
         e.stopPropagation();
         openPopoverFor(grp.idxs.slice(), e.currentTarget);
       });
@@ -1083,7 +1087,12 @@ ${buildWorkbenchContactComboClientJs()}
     }, 150);
   });
 
-  document.addEventListener("click", function (e) { if (!popover.hidden && !popover.contains(e.target)) closePopover(); });
+  document.addEventListener("mousedown", function (e) {
+    if (popover.hidden) return;
+    if (popover.contains(e.target)) return;
+    if (e.target.closest && e.target.closest(".ti-move-trigger")) return;
+    closePopover();
+  });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closePopover(); });
 
   /*

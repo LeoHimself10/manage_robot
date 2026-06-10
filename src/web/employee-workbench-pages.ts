@@ -475,7 +475,16 @@ export function renderEmployeeWorkbenchPage(params?: {
   function formatDue(t) {
     if (!t.dueAt) {
       var expectation = String(t.dueExpectation || '').trim();
-      return '<p class="meta">截止：承接时自报' + (expectation ? '（期望：' + esc(expectation) + '）' : '') + '</p>';
+      var expectHtml = expectation
+        ? ('<span class="due-self-report-expect">（期望：' + esc(expectation) + '）</span>')
+        : '';
+      return '<div class="due-self-report" data-needs-self-due="1">'
+        + '<span class="due-self-report-badge">待您定截止</span>'
+        + '<p class="due-self-report-line">'
+        + '<span class="due-self-report-label">截止：</span>'
+        + '<span class="due-self-report-em">承接时自报</span>'
+        + expectHtml
+        + '</p></div>';
     }
     var bar = '';
     if (t.dueProgress != null && t.status !== 'DONE') {
@@ -627,8 +636,7 @@ export function renderEmployeeWorkbenchPage(params?: {
             var subtaskId = card.getAttribute('data-subtask-id') || '';
             var act = btn.getAttribute('data-act') || '';
             if (act === 'accept') {
-              var dueLine = card.innerText || '';
-              if (dueLine.indexOf('承接时自报') >= 0) {
+              if (card.querySelector('[data-needs-self-due="1"]')) {
                 pending = { planId: planId, subtaskId: subtaskId, action: 'accept_due' };
                 document.getElementById('acceptDueAt').value = '';
                 document.getElementById('acceptDueNote').value = '';

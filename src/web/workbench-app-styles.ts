@@ -476,6 +476,34 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
 .due-bar[data-state="overdue"] .due-bar-fill { background:#dc2626; }
 .due-bar[data-state="done"] .due-bar-fill { background:#15803d; }
 .due-meta { font-size:12px; margin:4px 0 0; }
+.due-self-report {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #fcd34d;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef9c3 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.65);
+}
+.due-self-report-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  color: #92400e;
+  background: #fde68a;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+}
+.due-self-report-line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #78350f;
+}
+.due-self-report-label { color: #92400e; font-weight: 600; }
+.due-self-report-em { font-weight: 700; color: #b45309; }
+.due-self-report-expect { color: #92400e; }
 .event-list { list-style:none; padding:0; margin:0; display:grid; gap:10px; }
 .event-list .event {
   border:1px solid var(--border);
