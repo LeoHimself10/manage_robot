@@ -121,7 +121,8 @@ export const DAILY_REPORTS_PAGE_CSS = `
 }
 .dr-pgroup-head h2{margin:0;font-size:var(--text-md);font-weight:600;}
 .dr-pgroup-body{display:flex;flex-direction:column;gap:14px;}
-.dr-pgroup-body .dr-org{box-shadow:none;border-style:dashed;}
+.dr-pgroup-body--flat{gap:0;}
+.dr-pgroup-body--flat .dr-emp:first-child{padding-top:0;}
 
 /* project group settings panel */
 .dpg-panel{overflow:hidden;max-height:0;opacity:0;transition:max-height .35s ease,opacity .25s,margin .25s;margin:0;}

@@ -24,7 +24,7 @@ import {
 import { filterOrgDigestsContents } from "./daily-report-content-filter";
 import { resolveWorkbookParentNodeId } from "./daily-report-doc-archive";
 import { createDingTalkWorkbookClient } from "./dingtalk-workbook-client";
-import { buildDailyReportsPublicUrl } from "./daily-report-workbench-link";
+import { buildDailyReportsPublicUrlForDingtalkOutbound } from "./daily-report-workbench-link";
 
 export interface RunDailyReportDigestResult {
   ok: boolean;
@@ -264,10 +264,9 @@ async function runMorningDailyReportDigest(
     ? await summarizeMorningReportsWithLlm(orgDigests, dateLabel, llmConfig, deps?.fetchImpl)
     : fallbackMorningSummary(orgDigests, dateLabel);
 
-  const workbenchUrl = buildDailyReportsPublicUrl({
+  const workbenchUrl = buildDailyReportsPublicUrlForDingtalkOutbound({
     dateYmd: range.labelYmd,
     view: "project",
-    role: "manager",
   });
   const dailyWorkbook = config.createWorkbookOnSend
     ? await createDailyWorkbook(config, orgDigests, range.labelYmd, deps)

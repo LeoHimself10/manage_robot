@@ -242,6 +242,7 @@ function legacyRedirectRequiresManager(fromPath: string): boolean {
 
 function isWorkbenchHtmlPath(pathname: string): boolean {
   return (
+    pathname === "/workbench/daily-reports" ||
     MANAGER_WORKBENCH_PAGE_PATHS.has(pathname) ||
     EMPLOYEE_WORKBENCH_PAGE_PATHS.has(pathname) ||
     ADMIN_WORKBENCH_PAGE_PATHS.has(pathname) ||
@@ -2840,6 +2841,23 @@ function isDailyReportsProjectGroupsApiPath(pathname: string): boolean {
 
 function parseDailyReportsViewParam(raw: string | null | undefined): "project" | "company" {
   return String(raw ?? "").trim().toLowerCase() === "company" ? "company" : "project";
+}
+
+function resolveDailyReportsRolePath(session: { userId: string; role: WorkbenchRole; primaryRole?: WorkbenchRole }): string {
+  const caps = resolveWorkbenchCapabilities(session.userId);
+  const normalized = normalizeWorkbenchSession(session);
+  if (normalized.role === "admin" && caps.canAccessAdmin) {
+    return "/workbench/admin/daily-reports";
+  }
+  if (normalized.role === "manager" && caps.canManage) {
+    return "/workbench/manager/daily-reports";
+  }
+  if (normalized.role === "employee" || caps.primaryRole === "employee") {
+    return "/workbench/employee/daily-reports";
+  }
+  if (caps.canAccessAdmin) return "/workbench/admin/daily-reports";
+  if (caps.canManage) return "/workbench/manager/daily-reports";
+  return "/workbench/employee/daily-reports";
 }
 
 function performanceQueryFromUrl(url: URL) {
@@ -6346,6 +6364,15 @@ export function handleAssignmentHttp(
         return true;
       }
       redirect(res, legacyTarget);
+      return true;
+    }
+
+    if (url.pathname === "/workbench/daily-reports") {
+      if (!isDailyReportsPageEnabled()) {
+        redirect(res, defaultPathForRole(session.role, session.userId));
+        return true;
+      }
+      redirect(res, `${resolveDailyReportsRolePath(session)}${url.search}`);
       return true;
     }
 

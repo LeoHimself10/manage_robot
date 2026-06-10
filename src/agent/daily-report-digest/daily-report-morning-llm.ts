@@ -23,6 +23,17 @@ export interface DailyReportMorningSummary {
   closing: string;
 }
 
+export interface MorningDigestLlmPayload {
+  people: Array<{
+    name: string;
+    attachmentCount?: number;
+    reports: Array<{ template?: string; fields: Array<{ k: string; v: string }> }>;
+  }>;
+  missing: string[];
+  emptyAfterFilter: string[];
+  attachmentOnly: string[];
+}
+
 function env(name: string): string {
   return String(process.env[name] ?? "").trim();
 }
@@ -51,38 +62,44 @@ export function loadDailyReportMorningLlmConfig(): DailyReportMorningLlmConfig |
   };
 }
 
-/** 压缩 orgDigests 供 LLM 消费，扁平化为 people[]，不传组织名。 */
-export function slimOrgDigestsForLlm(orgDigests: OrgDigest[]): Record<string, unknown> {
-  const people: Array<{
-    name: string;
-    attachmentCount?: number;
-    reports: Array<{ template?: string; fields: Array<{ k: string; v: string }> }>;
-  }> = [];
+/** 压缩 orgDigests 供 LLM 消费；区分真正未交 vs 已交但过滤后无正文。 */
+export function slimOrgDigestsForLlm(orgDigests: OrgDigest[]): MorningDigestLlmPayload {
+  const people: MorningDigestLlmPayload["people"] = [];
   const missing: string[] = [];
+  const emptyAfterFilter: string[] = [];
+  const attachmentOnly: string[] = [];
 
   for (const org of orgDigests) {
     for (const emp of org.submitted) {
       const attCount = emp.reports.reduce((n, r) => n + countReportAttachments(r), 0);
-      people.push({
-        name: emp.name,
-        ...(attCount > 0 ? { attachmentCount: attCount } : {}),
-        reports: emp.reports
-          .map((r) => ({
-            template: r.templateName || undefined,
-            fields: filterReportContentsWithBody(r.contents)
-              .slice(0, 12)
-              .map((f) => ({
-                k: f.key.slice(0, 40),
-                v: f.value.slice(0, 200),
-              })),
-          }))
-          .filter((r) => r.fields.length > 0),
-      });
+      const reports = emp.reports
+        .map((r) => ({
+          template: r.templateName || undefined,
+          fields: filterReportContentsWithBody(r.contents)
+            .slice(0, 12)
+            .map((f) => ({
+              k: f.key.slice(0, 40),
+              v: f.value.slice(0, 200),
+            })),
+        }))
+        .filter((r) => r.fields.length > 0);
+
+      if (reports.length > 0) {
+        people.push({
+          name: emp.name,
+          ...(attCount > 0 ? { attachmentCount: attCount } : {}),
+          reports,
+        });
+      } else if (attCount > 0) {
+        attachmentOnly.push(emp.name);
+      } else {
+        emptyAfterFilter.push(emp.name);
+      }
     }
     for (const m of org.missing) missing.push(m.name);
   }
 
-  return { people, missing };
+  return { people, missing, emptyAfterFilter, attachmentOnly };
 }
 
 const SYSTEM_PROMPT = `你是企业内部早报编辑。根据 JSON 中员工的昨日钉钉日报，只输出一个 JSON：
@@ -90,8 +107,10 @@ const SYSTEM_PROMPT = `你是企业内部早报编辑。根据 JSON 中员工的
 
 规则：
 - overview：2-3 句中文，概括整体进展，不超过 180 字
-- personBriefs：每位已交员工一条，brief 不超过 50 字，按重要性排序；只写姓名，禁止出现组织/部门/公司名
-- closing：1-2 句收束；未交、阻塞、风险写在这里；若 people[].attachmentCount>0 可写「部分日报含附件，详见工作台日报汇总/钉钉原文」
+- personBriefs：仅针对 people[] 中有正文的员工，每人一条 brief 不超过 50 字；只写姓名，禁止组织/公司名
+- closing：1-2 句收束
+- closing 中「未交/尚未提交」**只能**引用 missing[] 中的姓名；missing[] 为空时禁止写任何人未提交
+- emptyAfterFilter[] / attachmentOnly[]：表示已交钉钉日报但项目过滤后无匹配模块或仅有附件；可写「部分日报无匹配项目模块或含附件，详见工作台日报汇总」，**禁止**写这些人未提交
 - 禁止在任意字段出现「明思」「微光」等组织标签
 - 只基于 JSON 事实，禁止编造
 - 只输出 JSON，不要 markdown`;
@@ -100,6 +119,25 @@ function clipLine(raw: string, max: number): string {
   const t = String(raw ?? "").trim();
   if (t.length <= max) return t;
   return `${t.slice(0, max - 1)}…`;
+}
+
+/** 当 missing 为空时，剥离 LLM 误判的「未提交」表述。 */
+export function sanitizeMorningClosing(
+  closing: string,
+  missingNames: string[],
+  opts?: { emptyAfterFilterNames?: string[]; attachmentOnlyNames?: string[] },
+): string {
+  const trimmed = String(closing ?? "").trim() || "请继续保持日报节奏。";
+  if (missingNames.length > 0) return clipLine(trimmed, 120);
+
+  if (!/(尚未提交|未交|未提交)/.test(trimmed)) return clipLine(trimmed, 120);
+
+  const emptyCount =
+    (opts?.emptyAfterFilterNames?.length ?? 0) + (opts?.attachmentOnlyNames?.length ?? 0);
+  if (emptyCount > 0) {
+    return "部分日报无匹配项目模块或含附件，详见工作台日报汇总。";
+  }
+  return "整体推进正常，详见工作台日报汇总。";
 }
 
 function mapLegacySummary(parsed: Record<string, unknown>): DailyReportMorningSummary | null {
@@ -123,7 +161,10 @@ function mapLegacySummary(parsed: Record<string, unknown>): DailyReportMorningSu
   };
 }
 
-function parseMorningJson(raw: string): DailyReportMorningSummary | null {
+function parseMorningJson(
+  raw: string,
+  meta: MorningDigestLlmPayload,
+): DailyReportMorningSummary | null {
   const jsonMatch = raw.trim().match(/\{[\s\S]*\}/);
   if (!jsonMatch) return null;
   try {
@@ -142,7 +183,11 @@ function parseMorningJson(raw: string): DailyReportMorningSummary | null {
             .filter((p) => p.name && p.brief)
             .slice(0, 12)
         : [];
-      const closing = String(parsed.closing ?? "").trim() || "请继续保持日报节奏。";
+      const closingRaw = String(parsed.closing ?? "").trim() || "请继续保持日报节奏。";
+      const closing = sanitizeMorningClosing(closingRaw, meta.missing, {
+        emptyAfterFilterNames: meta.emptyAfterFilter,
+        attachmentOnlyNames: meta.attachmentOnly,
+      });
       return { overview: clipLine(overview, 200), personBriefs, closing: clipLine(closing, 120) };
     }
     return mapLegacySummary(parsed);
@@ -155,27 +200,22 @@ export function fallbackMorningSummary(
   orgDigests: OrgDigest[],
   dateLabel: string,
 ): DailyReportMorningSummary {
+  const meta = slimOrgDigestsForLlm(orgDigests);
   let submitted = 0;
-  const missingNames: string[] = [];
-  const personBriefs: PersonBrief[] = [];
+  for (const org of orgDigests) submitted += org.submitted.length;
 
-  for (const org of orgDigests) {
-    submitted += org.submitted.length;
-    for (const m of org.missing) missingNames.push(m.name);
-    for (const emp of org.submitted) {
-      const first = emp.reports
-        .flatMap((r) => filterReportContentsWithBody(r.contents))
-        .find((f) => f.value.trim())?.value.trim();
-      if (first) {
-        personBriefs.push({ name: emp.name, brief: clipLine(first, 40) });
-      }
-    }
-  }
+  const personBriefs: PersonBrief[] = meta.people.map((p) => {
+    const first = p.reports.flatMap((r) => r.fields).find((f) => f.v.trim())?.v.trim();
+    return { name: p.name, brief: clipLine(first ?? "已提交日报", 40) };
+  });
 
-  const overview = `${dateLabel} 共 ${submitted} 人已交日报${missingNames.length ? `，${missingNames.length} 人未交` : ""}。`;
-  const closing = missingNames.length
-    ? `未提交：${missingNames.join("、")}。`
+  const overview = `${dateLabel} 共 ${submitted} 人已交日报${meta.missing.length ? `，${meta.missing.length} 人未交` : ""}。`;
+  let closing = meta.missing.length
+    ? `未提交：${meta.missing.join("、")}。`
     : "整体推进正常，请继续保持。";
+  if (meta.missing.length === 0 && (meta.emptyAfterFilter.length > 0 || meta.attachmentOnly.length > 0)) {
+    closing = "部分日报无匹配项目模块或含附件，详见工作台日报汇总。";
+  }
 
   return {
     overview,
@@ -192,7 +232,8 @@ export async function summarizeMorningReportsWithLlm(
 ): Promise<DailyReportMorningSummary> {
   if (!config.enabled) return fallbackMorningSummary(orgDigests, dateLabel);
 
-  const userContent = `日期：${dateLabel}。请生成早报综述 JSON：\n${JSON.stringify(slimOrgDigestsForLlm(orgDigests))}`;
+  const llmPayload = slimOrgDigestsForLlm(orgDigests);
+  const userContent = `日期：${dateLabel}。请生成早报综述 JSON：\n${JSON.stringify(llmPayload)}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   const startedAt = Date.now();
@@ -232,7 +273,7 @@ export async function summarizeMorningReportsWithLlm(
       choices?: Array<{ message?: { content?: string } }>;
     };
     const content = String(data.choices?.[0]?.message?.content ?? "").trim();
-    const parsed = parseMorningJson(content);
+    const parsed = parseMorningJson(content, llmPayload);
     if (!parsed) {
       logStructured({
         event: "daily_report_morning_llm_fallback",

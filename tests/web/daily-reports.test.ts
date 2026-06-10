@@ -129,6 +129,7 @@ describe("daily-reports-page render", () => {
     expect(html).toContain('id="drContent"');
     expect(html).toContain('data-view="project"');
     expect(html).toContain('data-view="company"');
+    expect(html).toContain("dr-pgroup-body--flat");
     expect(html).toContain("/api/workbench/daily-reports");
     expect(html).toContain('data-wb-nav="mgr-daily-reports"');
   });

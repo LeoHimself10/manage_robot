@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   fallbackMorningSummary,
+  sanitizeMorningClosing,
   slimOrgDigestsForLlm,
 } from "../../../src/agent/daily-report-digest/daily-report-morning-llm";
 import {
@@ -72,6 +73,48 @@ describe("daily-report-morning-llm", () => {
     expect(fb.overview).toContain("1 人已交");
     expect(fb.closing).toContain("崔枭");
     expect(fb.personBriefs[0]?.name).toBe("李嘉男");
+  });
+
+  it("puts submitted-but-empty-after-filter in emptyAfterFilter not missing", () => {
+    const orgs: OrgDigest[] = [
+      {
+        label: "微光",
+        submitted: [
+          { userid: "u3", name: "李强", reports: [] },
+          {
+            userid: "u4",
+            name: "贾三祥",
+            reports: [
+              {
+                creatorUserId: "u4",
+                creatorName: "贾三祥",
+                templateName: "t",
+                createTime: 1,
+                contents: [{ key: "今日工作", value: "  " }],
+              },
+            ],
+          },
+        ],
+        missing: [],
+        errors: [],
+      },
+    ];
+    const slim = slimOrgDigestsForLlm(orgs);
+    expect(slim.missing).toEqual([]);
+    expect(slim.emptyAfterFilter).toEqual(expect.arrayContaining(["李强", "贾三祥"]));
+    expect(slim.people).toHaveLength(0);
+
+    const fb = fallbackMorningSummary(orgs, "2026-06-08");
+    expect(fb.closing).not.toMatch(/尚未提交|未提交：李强/);
+    expect(fb.closing).toContain("工作台日报汇总");
+  });
+
+  it("sanitizeMorningClosing strips false 未提交 when missing is empty", () => {
+    const out = sanitizeMorningClosing("李强、贾三祥尚未提交日报。", [], {
+      emptyAfterFilterNames: ["李强", "贾三祥"],
+    });
+    expect(out).not.toContain("尚未提交");
+    expect(out).toContain("工作台日报汇总");
   });
 });
 

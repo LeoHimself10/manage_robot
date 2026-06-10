@@ -18,7 +18,7 @@ import {
   summarizeMorningReportsWithLlm,
 } from "../src/agent/daily-report-digest/daily-report-morning-llm";
 import { renderMorningReportMarkdown } from "../src/agent/daily-report-digest/daily-report-morning-build";
-import { buildDailyReportsPublicUrl } from "../src/agent/daily-report-digest/daily-report-workbench-link";
+import { buildDailyReportsPublicUrlForDingtalkOutbound } from "../src/agent/daily-report-digest/daily-report-workbench-link";
 import {
   resolveDayRangeForYmd,
   resolveReportRange,
@@ -102,10 +102,9 @@ async function main(): Promise<void> {
     ? await summarizeMorningReportsWithLlm(orgDigests, dateLabel, llmConfig)
     : fallbackMorningSummary(orgDigests, dateLabel);
 
-  const workbenchUrl = buildDailyReportsPublicUrl({
+  const workbenchUrl = buildDailyReportsPublicUrlForDingtalkOutbound({
     dateYmd: range.labelYmd,
     view: "project",
-    role: "manager",
   });
   const rendered = renderMorningReportMarkdown({
     title: config.title,
