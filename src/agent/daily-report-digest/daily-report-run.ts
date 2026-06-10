@@ -84,7 +84,7 @@ export async function collectOrgDigests(
     orgDigests.push(aggregateOrgDigest(org, allReports, errorsByUserid));
   }
 
-  return { orgDigests: filterOrgDigestsContents(orgDigests), errorCount };
+  return { orgDigests: filterOrgDigestsContents(orgDigests, config.orgs), errorCount };
 }
 
 function sheetNameForEmployee(orgLabel: string, name: string): string {

@@ -1,4 +1,6 @@
 import type { OrgDigest } from "./daily-report-build";
+import type { DailyReportOrgConfig } from "./daily-report-config";
+import { filterReportEntryByProject } from "./daily-report-project-filter";
 import { fieldHasDisplayBody, reportHasDisplayBody } from "./daily-report-attachments";
 import type { ReportContentField, ReportEntry } from "./dingtalk-report-client";
 
@@ -18,12 +20,35 @@ export function filterReportEntry(entry: ReportEntry): ReportEntry {
   return { ...entry, contents };
 }
 
-export function filterOrgDigestsContents(orgDigests: OrgDigest[]): OrgDigest[] {
+function applyReportEntryFilters(
+  entry: ReportEntry,
+  projectFilters?: string[],
+): ReportEntry {
+  let next = entry;
+  if (projectFilters && projectFilters.length > 0) {
+    next = filterReportEntryByProject(next, projectFilters);
+  }
+  return filterReportEntry(next);
+}
+
+export function filterOrgDigestsContents(
+  orgDigests: OrgDigest[],
+  orgConfigs?: DailyReportOrgConfig[],
+): OrgDigest[] {
+  const projectFilterByLabel = new Map<string, string[]>();
+  for (const org of orgConfigs ?? []) {
+    if (org.projectFilter && org.projectFilter.length > 0) {
+      projectFilterByLabel.set(org.label, org.projectFilter);
+    }
+  }
+
   return orgDigests.map((org) => ({
     ...org,
     submitted: org.submitted.map((emp) => ({
       ...emp,
-      reports: emp.reports.map(filterReportEntry).filter(reportHasDisplayBody),
+      reports: emp.reports
+        .map((r) => applyReportEntryFilters(r, projectFilterByLabel.get(org.label)))
+        .filter(reportHasDisplayBody),
     })),
   }));
 }

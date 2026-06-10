@@ -20,6 +20,8 @@ export interface DailyReportOrgConfig {
   templateName?: string;
   /** 需要汇总日报的目标员工（该组织内的 userid） */
   employees: Array<{ userid: string; name?: string }>;
+  /** 可选：仅保留「成本归属项目」命中任一 filter 的工作模块（微光等多模块模板） */
+  projectFilter?: string[];
 }
 
 /** 明思群里「自定义群机器人」的 Webhook 凭证（与企业应用凭证无关）。 */
@@ -150,7 +152,24 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
     if (employees.length === 0) {
       errors.push(`orgs[${idx}] (${label}) employees 为空（需要至少一个 userid）`);
     }
-    orgs.push({ label, appKey, appSecret, useDeployedAppCredentials, templateName, employees });
+    const projectFilterRaw = o.projectFilter;
+    let projectFilter: string[] | undefined;
+    if (projectFilterRaw != null) {
+      const list = Array.isArray(projectFilterRaw)
+        ? projectFilterRaw
+        : [projectFilterRaw];
+      projectFilter = list.map((x) => asString(x)).filter((x) => x.length > 0);
+      if (projectFilter.length === 0) projectFilter = undefined;
+    }
+    orgs.push({
+      label,
+      appKey,
+      appSecret,
+      useDeployedAppCredentials,
+      templateName,
+      employees,
+      projectFilter,
+    });
   });
   if (orgs.length === 0) {
     errors.push("orgs 为空（至少配置一个组织）");
