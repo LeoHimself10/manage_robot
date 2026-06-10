@@ -121,6 +121,10 @@ import {
   removeFromRoster,
   searchOrgCandidates,
 } from "./daily-reports-roster";
+import {
+  listProjectGroupMembers,
+  updateProjectGroupAssignments,
+} from "./daily-reports-project-groups";
 import { isDailyReportsPageEnabled } from "../agent/daily-report-digest/daily-reports-page-flag";
 import {
   buildPerformanceDashboardPayload,
@@ -2766,6 +2770,20 @@ function requireDailyReportsAdminSession(
   return session;
 }
 
+function requireDailyReportsProjectGroupsWriteSession(
+  req: IncomingMessage,
+  res: ServerResponse,
+): WorkbenchSession | undefined {
+  const session = requireDailyReportsViewSession(req, res);
+  if (!session) return undefined;
+  const caps = resolveWorkbenchCapabilities(session.userId);
+  if (!caps.canManage && !caps.canAccessAdmin) {
+    writeJson(res, 403, { ok: false, error: "manager or admin required" });
+    return undefined;
+  }
+  return session;
+}
+
 function renderDailyReportsWorkbenchPage(params: {
   role: "manager" | "employee" | "admin";
   activeNav: "mgr-daily-reports" | "emp-daily-reports" | "adm-daily-reports";
@@ -2774,7 +2792,10 @@ function renderDailyReportsWorkbenchPage(params: {
   showAdminOpsLink?: boolean;
   portfolioEnabled?: boolean;
   initialDate?: string;
+  initialView?: "project" | "company";
 }): string {
+  const caps = resolveWorkbenchCapabilities(params.userId);
+  const viewParam = params.initialView === "company" ? "company" : "project";
   return renderDailyReportsPage({
     role: params.role,
     activeNav: params.activeNav,
@@ -2782,7 +2803,10 @@ function renderDailyReportsWorkbenchPage(params: {
     showAdminOpsLink: params.showAdminOpsLink,
     portfolioEnabled: params.portfolioEnabled,
     initialDate: params.initialDate,
-    canManageRoster: resolveWorkbenchCapabilities(params.userId).canAccessAdmin,
+    initialView: viewParam,
+    canManageRoster: caps.canAccessAdmin,
+    canManageProjectGroups: caps.canManage || caps.canAccessAdmin,
+    canExecuteAsManager: caps.canExecuteAsManager,
   });
 }
 
@@ -2805,6 +2829,17 @@ function isDailyReportsRosterApiPath(pathname: string): boolean {
     pathname === "/api/workbench/daily-reports/roster"
     || pathname === "/api/workbench/manager/daily-reports/roster"
   );
+}
+
+function isDailyReportsProjectGroupsApiPath(pathname: string): boolean {
+  return (
+    pathname === "/api/workbench/daily-reports/project-groups"
+    || pathname === "/api/workbench/manager/daily-reports/project-groups"
+  );
+}
+
+function parseDailyReportsViewParam(raw: string | null | undefined): "project" | "company" {
+  return String(raw ?? "").trim().toLowerCase() === "company" ? "company" : "project";
 }
 
 function performanceQueryFromUrl(url: URL) {
@@ -3571,10 +3606,50 @@ export function handleAssignmentHttp(
     const session = requireDailyReportsViewSession(req, res);
     if (!session) return true;
     const date = String(url.searchParams.get("date") ?? "").trim() || undefined;
+    const view = parseDailyReportsViewParam(url.searchParams.get("view"));
     void (async () => {
       try {
-        const payload = await buildDailyReportsHttpPayload({ date });
+        const payload = await buildDailyReportsHttpPayload({ date, view });
         writeJson(res, 200, payload as unknown as Record<string, unknown>);
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (isGetOrHead && isDailyReportsProjectGroupsApiPath(url.pathname)) {
+    const session = requireDailyReportsProjectGroupsWriteSession(req, res);
+    if (!session) return true;
+    try {
+      writeJson(res, 200, { ok: true, members: listProjectGroupMembers() });
+    } catch (err) {
+      writeJson(res, 400, {
+        ok: false,
+        error: err instanceof Error ? err.message : "invalid request",
+      });
+    }
+    return true;
+  }
+
+  if (req.method === "POST" && isDailyReportsProjectGroupsApiPath(url.pathname)) {
+    const session = requireDailyReportsProjectGroupsWriteSession(req, res);
+    if (!session) return true;
+    void (async () => {
+      try {
+        const body = await readJsonBody(req);
+        const updates = Array.isArray(body.updates) ? body.updates : [];
+        const members = updateProjectGroupAssignments(
+          updates.map((u: Record<string, unknown>) => ({
+            orgLabel: String(u.orgLabel ?? "").trim(),
+            userid: String(u.userid ?? "").trim(),
+            projectGroup: String(u.projectGroup ?? "").trim() as "intracranial" | "brain" | "ops",
+          })),
+        );
+        writeJson(res, 200, { ok: true, members });
       } catch (err) {
         writeJson(res, 400, {
           ok: false,
@@ -6352,6 +6427,7 @@ export function handleAssignmentHttp(
             showAdminOpsLink,
             portfolioEnabled,
             initialDate: url.searchParams.get("date")?.trim() ?? "",
+            initialView: parseDailyReportsViewParam(url.searchParams.get("view")),
           })
           : url.pathname === "/workbench/manager/projects"
           ? renderManagerProjectsPage({
@@ -6453,6 +6529,7 @@ export function handleAssignmentHttp(
                   showAdminOpsLink,
                   portfolioEnabled: false,
                   initialDate: url.searchParams.get("date")?.trim() ?? "",
+                  initialView: parseDailyReportsViewParam(url.searchParams.get("view")),
                 })
               : renderAdminWorkbenchPage({ userLabel });
       emitWorkbenchPageView(session, url.pathname);
@@ -6515,8 +6592,11 @@ export function handleAssignmentHttp(
                 userId: employeeSession.userId,
                 userLabel: empUserLabel,
                 initialDate: url.searchParams.get("date")?.trim() ?? "",
+                initialView: parseDailyReportsViewParam(url.searchParams.get("view")),
               })
-            : renderEmployeeWorkbenchPage();
+            : renderEmployeeWorkbenchPage({
+              canExecuteAsManager: resolveWorkbenchCapabilities(employeeSession.userId).canExecuteAsManager,
+            });
       emitWorkbenchPageView(employeeSession, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { buildDailyReportsHttpPayload } from "../../src/web/daily-reports-api";
+import { renderEmployeeWorkbenchPage } from "../../src/web/employee-workbench-pages";
 import { renderDailyReportsPage } from "../../src/web/daily-reports-page";
 import { isDailyReportsPageEnabled } from "../../src/agent/daily-report-digest/daily-reports-page-flag";
 
@@ -77,17 +78,29 @@ describe("daily-reports-api", () => {
         },
       ],
     });
-    const payload = await buildDailyReportsHttpPayload({ date: "2026-06-08", fetchImpl });
+    const payload = await buildDailyReportsHttpPayload({ date: "2026-06-08", view: "company", fetchImpl });
 
     expect(payload.ok).toBe(true);
     expect(payload.date).toBe("2026-06-08");
+    expect(payload.view).toBe("company");
     expect(payload.orgs).toHaveLength(2);
+    expect(payload.projectGroups).toBeUndefined();
     expect(payload.submittedCount).toBe(1);
     expect(payload.missingCount).toBe(2);
     const mingsi = payload.orgs!.find((o) => o.label === "明思")!;
     expect(mingsi.submitted[0]!.name).toBe("张三");
     expect(mingsi.submitted[0]!.reports[0]!.contents[0]!.value).toBe("完成了 A 模块");
     expect(mingsi.missing.map((m) => m.userid)).toEqual(["u_b"]);
+  });
+
+  it("returns projectGroups when view=project", async () => {
+    const fetchImpl = fakeFetch({});
+    const payload = await buildDailyReportsHttpPayload({ date: "2026-06-08", view: "project", fetchImpl });
+    expect(payload.ok).toBe(true);
+    expect(payload.view).toBe("project");
+    expect(payload.projectGroups).toHaveLength(3);
+    expect(payload.orgs).toBeUndefined();
+    expect(payload.projectGroups!.map((g) => g.id)).toEqual(["intracranial", "brain", "ops"]);
   });
 
   it("rejects an invalid date format", async () => {
@@ -114,6 +127,8 @@ describe("daily-reports-page render", () => {
     });
     expect(html).toContain('id="drDate"');
     expect(html).toContain('id="drContent"');
+    expect(html).toContain('data-view="project"');
+    expect(html).toContain('data-view="company"');
     expect(html).toContain("/api/workbench/daily-reports");
     expect(html).toContain('data-wb-nav="mgr-daily-reports"');
   });
@@ -124,15 +139,33 @@ describe("daily-reports-page render", () => {
       role: "admin",
       activeNav: "adm-daily-reports",
       canManageRoster: true,
+      canManageProjectGroups: true,
+    });
+    const mgrHtml = renderDailyReportsPage({
+      role: "manager",
+      activeNav: "mgr-daily-reports",
+      canManageProjectGroups: true,
     });
     const empHtml = renderDailyReportsPage({
       role: "employee",
       activeNav: "emp-daily-reports",
       canManageRoster: false,
+      canExecuteAsManager: false,
     });
     expect(adminHtml).toContain('id="drmToggle"');
+    expect(adminHtml).toContain('id="dpgToggle"');
+    expect(mgrHtml).not.toContain('id="drmToggle"');
+    expect(mgrHtml).toContain('id="dpgToggle"');
     expect(empHtml).not.toContain('id="drmToggle"');
+    expect(empHtml).not.toContain('id="dpgToggle"');
+    expect(empHtml).not.toContain('id="navManager"');
     expect(empHtml).toContain("dr-role-employee");
+  });
+
+  it("pure employee workbench shell omits manager nav button", () => {
+    process.env.DAILY_REPORTS_PAGE_ENABLED = "1";
+    const html = renderEmployeeWorkbenchPage({ canExecuteAsManager: false });
+    expect(html).not.toContain('id="navManager"');
   });
 });
 

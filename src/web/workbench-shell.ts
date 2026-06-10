@@ -126,7 +126,7 @@ function roleMeta(role: WorkbenchShellRole): { mark: string; subtitle: string; m
 function roleSwitchHtml(
   role: WorkbenchShellRole,
   compact = false,
-  opts?: { showAdminOpsLink?: boolean },
+  opts?: { showAdminOpsLink?: boolean; canExecuteAsManager?: boolean },
 ): string {
   const sm = compact ? " btn-sm" : "";
   if (role === "manager") {
@@ -136,14 +136,19 @@ function roleSwitchHtml(
     return `${adminBtn}<a class="btn wb-role-switch wb-role-switch--to-emp${sm}" href="/workbench/employee?view=new" id="navMyTasks" data-wb-view="employee" data-wb-redirect="/workbench/employee?view=new"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">我负责的任务</span></a>`;
   }
   if (role === "employee") {
-    return `<a class="btn wb-role-switch wb-role-switch--to-mgr${sm}" href="/workbench/manager/tasks" id="navManager" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks" hidden><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`;
+    if (!opts?.canExecuteAsManager) return "";
+    return `<a class="btn wb-role-switch wb-role-switch--to-mgr${sm}" href="/workbench/manager/tasks" id="navManager" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`;
   }
   return `<a class="btn wb-role-switch wb-role-switch--to-mgr${sm}" href="/workbench/manager/tasks" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`;
 }
 
-function defaultHeadActionsHtml(role: WorkbenchShellRole, showAdminOpsLink = false): string {
+function defaultHeadActionsHtml(
+  role: WorkbenchShellRole,
+  showAdminOpsLink = false,
+  canExecuteAsManager = false,
+): string {
   const logout = `<button type="button" class="btn btn-ghost btn-sm wb-appbar-logout" id="logoutBtn">退出</button>`;
-  return `${roleSwitchHtml(role, true, { showAdminOpsLink })}${logout}`;
+  return `${roleSwitchHtml(role, true, { showAdminOpsLink, canExecuteAsManager })}${logout}`;
 }
 
 function buildAppBar(role: WorkbenchShellRole, headActionsHtml: string): string {
@@ -241,6 +246,7 @@ export function renderWorkbenchPage(params: {
   userLabel?: string;
   portfolioEnabled?: boolean;
   showAdminOpsLink?: boolean;
+  canExecuteAsManager?: boolean;
   bodyClass?: string;
   mainClass?: string;
   mainBodyClass?: string;
@@ -267,7 +273,11 @@ export function renderWorkbenchPage(params: {
         : `<div class="wb-crumb">${escapeHtml(params.title)}</div>`;
   const headActions =
     params.headActionsHtml
-    ?? defaultHeadActionsHtml(params.role, Boolean(params.showAdminOpsLink));
+    ?? defaultHeadActionsHtml(
+      params.role,
+      Boolean(params.showAdminOpsLink),
+      Boolean(params.canExecuteAsManager),
+    );
   const toolbar = params.headToolbarHtml ? `<div class="wb-main-toolbar">${params.headToolbarHtml}</div>` : "";
 
   const pageHead = params.hideMainHead

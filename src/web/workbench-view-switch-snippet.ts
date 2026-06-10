@@ -25,6 +25,8 @@ export function buildWorkbenchViewSwitchClientJs(): string {
   }
   function wbBindViewSwitchLinks() {
     document.querySelectorAll('[data-wb-view]').forEach(function (el) {
+      if (el.hasAttribute('hidden')) return;
+      if (el.getAttribute('data-wb-switch-disabled') === '1') return;
       if (el.getAttribute('data-wb-view-bound') === '1') return;
       el.setAttribute('data-wb-view-bound', '1');
       el.addEventListener('click', function (ev) {

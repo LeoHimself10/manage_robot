@@ -10,9 +10,15 @@
  */
 import * as fs from "node:fs";
 
+import {
+  normalizeProjectGroupId,
+  type ProjectGroupId,
+} from "./daily-report-project-groups";
+
 export interface RosterEmployee {
   userid: string;
   name?: string;
+  projectGroup?: ProjectGroupId;
 }
 
 export interface RosterOrgView {
@@ -27,7 +33,7 @@ interface RawOrg {
   appKey?: string;
   appSecret?: string;
   useDeployedAppCredentials?: boolean;
-  employees?: Array<{ userid?: string; name?: string }>;
+  employees?: Array<{ userid?: string; name?: string; projectGroup?: string }>;
   [key: string]: unknown;
 }
 
@@ -70,10 +76,14 @@ function toView(orgs: RawOrg[]): RosterOrgView[] {
     label: String(o.label ?? "").trim() || "(未命名)",
     usesDeployedCredentials: usesDeployed(o),
     employees: (Array.isArray(o.employees) ? o.employees : [])
-      .map((e) => ({
-        userid: String(e?.userid ?? "").trim(),
-        name: String(e?.name ?? "").trim() || undefined,
-      }))
+      .map((e) => {
+        const projectGroup = normalizeProjectGroupId(e?.projectGroup);
+        return {
+          userid: String(e?.userid ?? "").trim(),
+          name: String(e?.name ?? "").trim() || undefined,
+          ...(projectGroup ? { projectGroup } : {}),
+        };
+      })
       .filter((e) => e.userid.length > 0),
   }));
 }

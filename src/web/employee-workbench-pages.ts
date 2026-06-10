@@ -4,12 +4,15 @@ import { buildWorkbenchEmployeeAuthClientJs } from "./workbench-employee-auth-sn
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 
 /** Single-page employee workbench: `?view=new|current|history|profile|security` */
-export function renderEmployeeWorkbenchPage(): string {
+export function renderEmployeeWorkbenchPage(params?: {
+  canExecuteAsManager?: boolean;
+}): string {
   return renderWorkbenchPage({
     role: "employee",
     activeNav: "emp-new",
     title: "待承接",
     pageTitle: "员工工作台",
+    canExecuteAsManager: Boolean(params?.canExecuteAsManager),
     mainHtml: `
   <div id="panelNew">
     <section class="kpis kpis--2" aria-live="polite">

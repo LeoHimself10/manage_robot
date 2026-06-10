@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { normalizeProjectGroupId, type ProjectGroupId } from "./daily-report-project-groups";
 
 /**
  * 单个钉钉组织的读取凭证 + 目标员工。
@@ -19,7 +20,7 @@ export interface DailyReportOrgConfig {
   /** 可选：仅统计该日志模板（如 "日报"）；留空=该员工当天所有日志都算 */
   templateName?: string;
   /** 需要汇总日报的目标员工（该组织内的 userid） */
-  employees: Array<{ userid: string; name?: string }>;
+  employees: Array<{ userid: string; name?: string; projectGroup?: "intracranial" | "brain" | "ops" }>;
   /** 可选：仅保留「成本归属项目」命中任一 filter 的工作模块（微光等多模块模板） */
   projectFilter?: string[];
 }
@@ -56,8 +57,10 @@ export interface DailyReportDigestConfig {
   title: string;
   /** full=原文拼接；morning=LLM 综述 + 个人表格链接 */
   pushMode: DailyReportPushMode;
-  /** 早报模式下创建钉钉表格（可选；缺省则只发 LLM 综述 + 统计） */
+  /** 早报模式下创建钉钉表格（可选；createWorkbookOnSend=true 且配置 doc 时才创建） */
   doc?: DailyReportDocConfig;
+  /** morning 模式是否在发送时创建知识库总表；默认 false（群链改工作台） */
+  createWorkbookOnSend?: boolean;
   /** 当日去重状态目录（文件标记，单实例假设） */
   stateDir: string;
   webhook: DailyReportWebhookConfig;
@@ -139,7 +142,12 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
     const employees = employeesRaw
       .map((e) => {
         const er = (e ?? {}) as Record<string, unknown>;
-        return { userid: asString(er.userid), name: asString(er.name) || undefined };
+        const projectGroup = normalizeProjectGroupId(er.projectGroup);
+        return {
+          userid: asString(er.userid),
+          name: asString(er.name) || undefined,
+          ...(projectGroup ? { projectGroup } : {}),
+        };
       })
       .filter((e) => e.userid.length > 0);
     if (!appKey || !appSecret) {
@@ -199,6 +207,11 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
     }
   }
 
+  const createWorkbookOnSend =
+    typeof obj.createWorkbookOnSend === "boolean"
+      ? obj.createWorkbookOnSend
+      : envFlag("DAILY_REPORT_CREATE_WORKBOOK_ON_SEND", false);
+
   const config: DailyReportDigestConfig = {
     enabled: false,
     scanIntervalMs: envInt("DAILY_REPORT_DIGEST_SCAN_INTERVAL_MS", 300_000),
@@ -212,6 +225,7 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
     title: asString(obj.title) || "每日日报汇总",
     pushMode,
     doc,
+    createWorkbookOnSend,
     stateDir:
       asString(obj.stateDir) ||
       env("DAILY_REPORT_DIGEST_STATE_DIR") ||

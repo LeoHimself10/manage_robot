@@ -3043,6 +3043,9 @@ body.wb-rail-is-open .wb-rail {
   background: #f3e8ff !important;
   color: #5b21b6 !important;
 }
+.wb-role-switch[hidden] {
+  display: none !important;
+}
 
 .wb-main {
   flex: 1;

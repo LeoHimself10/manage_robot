@@ -15,10 +15,14 @@ export function renderDailyReportsPage(params: {
   portfolioEnabled?: boolean;
   apiBase?: string;
   initialDate?: string;
+  initialView?: "project" | "company";
   canManageRoster?: boolean;
+  canManageProjectGroups?: boolean;
+  canExecuteAsManager?: boolean;
 }): string {
   const apiBase = params.apiBase ?? DAILY_REPORTS_API;
-  const canManage = Boolean(params.canManageRoster);
+  const canManageRoster = Boolean(params.canManageRoster);
+  const canManageProjectGroups = Boolean(params.canManageProjectGroups);
   const roleClass =
     params.role === "employee"
       ? "dr-role-employee"
@@ -31,15 +35,20 @@ export function renderDailyReportsPage(params: {
       : params.role === "admin"
         ? "日报汇总 · 管理员"
         : "日报汇总 · 主管工作台";
-  const description = canManage
-    ? "跨组织日报汇总：实时读取各组织目标员工在钉钉提交的日志（含未提交名单），默认查看昨天，可切换日期。管理员可在「管理名单」里分企业搜人、增删被统计的员工。"
-    : "跨组织日报汇总：实时读取各组织目标员工在钉钉提交的日志（含未提交名单），默认查看昨天，可切换日期。";
+  const description = canManageRoster
+    ? "跨组织日报汇总：默认按项目组查看，可切换公司视图。管理员可在「管理名单」维护统计人员；主管/管理员可在「项目组设置」调整归属。"
+    : canManageProjectGroups
+      ? "跨组织日报汇总：默认按项目组查看，可切换公司视图；可在「项目组设置」调整人员归属。"
+      : "跨组织日报汇总：默认按项目组查看，可切换公司视图。";
 
-  const rosterToolbar = canManage
-    ? `<span class="dr-spacer"></span>
-      <button type="button" class="dr-btn dr-btn-primary" id="drmToggle" aria-expanded="false" aria-controls="drmPanel">管理名单</button>`
+  const rosterToolbar = canManageRoster
+    ? `<button type="button" class="dr-btn" id="drmToggle" aria-expanded="false" aria-controls="drmPanel">管理名单</button>`
     : "";
-  const rosterPanel = canManage
+  const groupToolbar = canManageProjectGroups
+    ? `<button type="button" class="dr-btn" id="dpgToggle" aria-expanded="false" aria-controls="dpgPanel">项目组设置</button>`
+    : "";
+
+  const rosterPanel = canManageRoster
     ? `<div class="drm-panel" id="drmPanel" aria-hidden="true">
       <div class="drm-inner">
         <div class="drm-head">
@@ -48,6 +57,22 @@ export function renderDailyReportsPage(params: {
         </div>
         <div class="drm-banner" id="drmBanner" role="status"></div>
         <div class="drm-cols" id="drmCols"><div class="drm-note"><span class="drm-spin"></span> 载入名单…</div></div>
+      </div>
+    </div>`
+    : "";
+
+  const groupPanel = canManageProjectGroups
+    ? `<div class="dpg-panel" id="dpgPanel" aria-hidden="true">
+      <div class="dpg-inner">
+        <div class="dpg-head">
+          <h3>项目组归属</h3>
+          <span class="dpg-hint">颅内 / 脑机 / 运营 · 保存后立即生效</span>
+        </div>
+        <div class="dpg-banner" id="dpgBanner" role="status"></div>
+        <div class="dpg-table-wrap" id="dpgTableWrap"><div class="drm-note"><span class="drm-spin"></span> 载入…</div></div>
+        <div class="dpg-actions">
+          <button type="button" class="dr-btn dr-btn-primary" id="dpgSave">保存设置</button>
+        </div>
       </div>
     </div>`
     : "";
@@ -61,34 +86,53 @@ export function renderDailyReportsPage(params: {
     userLabel: params.userLabel,
     portfolioEnabled: Boolean(params.portfolioEnabled),
     showAdminOpsLink: params.showAdminOpsLink,
+    canExecuteAsManager: Boolean(params.canExecuteAsManager),
     extraCss: DAILY_REPORTS_PAGE_CSS,
     mainHtml: `
   <div class="dr-root ${roleClass}">
     <div class="dr-toolbar">
+      <div class="dr-view-switch" role="tablist" aria-label="视图切换">
+        <button type="button" class="dr-view-btn is-on" data-view="project" role="tab" aria-selected="true">项目视图</button>
+        <button type="button" class="dr-view-btn" data-view="company" role="tab" aria-selected="false">公司视图</button>
+      </div>
       <label class="dr-filter">
         <span class="dr-field-k">日期</span>
         <input type="date" class="dr-date-input" id="drDate" aria-label="日报日期" />
       </label>
       <button type="button" class="dr-btn" id="drRefresh">刷新</button>
+      <span class="dr-spacer"></span>
+      ${groupToolbar}
       ${rosterToolbar}
     </div>
     <p class="dr-meta" id="drMeta" aria-live="polite">加载中…</p>
+    ${groupPanel}
     ${rosterPanel}
     <div class="dr-stack" id="drContent"></div>
   </div>`,
-    scriptHtml: `<script>${buildDailyReportsClientJs(apiBase, params.initialDate ?? "", canManage)}</script>`,
+    scriptHtml: `<script>${buildDailyReportsClientJs({
+      apiBase,
+      initialDate: params.initialDate ?? "",
+      initialView: params.initialView ?? "project",
+      canManageRoster,
+      canManageProjectGroups,
+    })}</script>`,
   });
 }
 
-function buildDailyReportsClientJs(
-  apiBase: string,
-  initialDate: string,
-  canManageRoster: boolean,
-): string {
-  const api = apiBase.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  const initDate = initialDate.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  const canManage = canManageRoster ? "true" : "false";
-  const rosterBlock = canManageRoster
+function buildDailyReportsClientJs(opts: {
+  apiBase: string;
+  initialDate: string;
+  initialView: "project" | "company";
+  canManageRoster: boolean;
+  canManageProjectGroups: boolean;
+}): string {
+  const api = opts.apiBase.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const initDate = opts.initialDate.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const initView = opts.initialView === "company" ? "company" : "project";
+  const canManageRoster = opts.canManageRoster ? "true" : "false";
+  const canManageProjectGroups = opts.canManageProjectGroups ? "true" : "false";
+
+  const rosterBlock = opts.canManageRoster
     ? `
   var ROSTER = API + '/roster';
   var CONTACTS = API + '/contacts';
@@ -153,14 +197,13 @@ function buildDailyReportsClientJs(
       .then(function(data){
         if(!data || data.ok===false){ box.innerHTML='<div class="drm-note">'+esc((data&&data.error)||'搜索失败')+'</div>'; return; }
         var list = data.candidates||[];
-        if(!list.length){ box.innerHTML='<div class="drm-note">无匹配（首次搜索需枚举通讯录，请稍候重试）</div>'; return; }
+        if(!list.length){ box.innerHTML='<div class="drm-note">无匹配</div>'; return; }
         box.innerHTML = list.map(function(c){
-          var dept = (c.departments&&c.departments.length)?('<span class="drm-r-dept">'+esc(c.departments.slice(0,2).join(' / '))+'</span>'):'';
           if(c.inRoster){
-            return '<button class="drm-result" disabled><span class="drm-r-name">'+esc(c.name||c.userid)+'</span>'+dept+'<span class="drm-r-tag">已在名单</span></button>';
+            return '<button class="drm-result" disabled><span class="drm-r-name">'+esc(c.name||c.userid)+'</span><span class="drm-r-tag">已在名单</span></button>';
           }
           return '<button class="drm-result" data-action="add" data-org="'+esc(org)+'" data-userid="'+esc(c.userid)+'" data-name="'+esc(c.name||'')+'">'
-            + '<span class="drm-r-name">'+esc(c.name||c.userid)+'</span>'+dept+'<span class="drm-r-uid">'+esc(c.userid)+'</span></button>';
+            + '<span class="drm-r-name">'+esc(c.name||c.userid)+'</span><span class="drm-r-uid">'+esc(c.userid)+'</span></button>';
         }).join('');
       })
       .catch(function(e){ box.innerHTML='<div class="drm-note">搜索失败：'+esc(e.message||e)+'</div>'; });
@@ -168,58 +211,101 @@ function buildDailyReportsClientJs(
   function postRoster(payload){
     return fetch(ROSTER, {method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();});
   }
-  function addMember(org, userid, name){
-    showBanner('ok', '<span class="drm-spin"></span> 正在加入 '+esc(name||userid)+'…');
-    postRoster({action:'add', org:org, userid:userid, name:name}).then(function(data){
-      if(!data || data.ok===false){ showBanner('err', '加入失败：'+esc((data&&data.error)||'未知错误')); return; }
-      renderRoster(data.orgs);
-      var v = data.validation||{};
-      var who = esc(name||userid);
-      if(v.error){ showBanner('warn', '已加入 '+who+'，但校验日报出错：'+esc(v.error)); }
-      else if(v.hasRecentLog){ showBanner('ok', '已加入 '+who+' ✓ 近 '+(v.days||7)+' 天有 '+(v.count||0)+' 篇日报'+(v.templates&&v.templates.length?('（'+esc(v.templates.slice(0,2).join('、'))+'）'):'')); }
-      else { showBanner('warn', '已加入 '+who+'，但近 '+(v.days||7)+' 天在该企业无日报 —— 请确认是否选错企业'); }
-      load();
-    }).catch(function(e){ showBanner('err', '加入失败：'+esc(e.message||e)); });
-  }
-  function removeMember(org, userid){
-    postRoster({action:'remove', org:org, userid:userid}).then(function(data){
-      if(!data || data.ok===false){ showBanner('err', '移除失败：'+esc((data&&data.error)||'未知错误')); return; }
-      renderRoster(data.orgs);
-      showBanner('ok', '已移除');
-      load();
-    }).catch(function(e){ showBanner('err', '移除失败：'+esc(e.message||e)); });
-  }
   cols.addEventListener('click', function(e){
     var btn = e.target.closest('[data-action]');
     if(!btn) return;
     var action = btn.getAttribute('data-action');
     var org = btn.getAttribute('data-org');
     var userid = btn.getAttribute('data-userid');
-    if(action==='add'){ addMember(org, userid, btn.getAttribute('data-name')||''); }
-    else if(action==='remove'){ removeMember(org, userid); }
+    if(action==='add'){
+      showBanner('ok', '<span class="drm-spin"></span> 加入中…');
+      postRoster({action:'add', org:org, userid:userid, name:btn.getAttribute('data-name')||''}).then(function(data){
+        if(!data || data.ok===false){ showBanner('err', '加入失败'); return; }
+        renderRoster(data.orgs); load();
+      });
+    } else if(action==='remove'){
+      postRoster({action:'remove', org:org, userid:userid}).then(function(data){
+        if(!data || data.ok===false){ showBanner('err', '移除失败'); return; }
+        renderRoster(data.orgs); load();
+      });
+    }
   });
   var searchTimers = {};
   cols.addEventListener('input', function(e){
     var inp = e.target;
     if(!inp.classList || !inp.classList.contains('drm-search')) return;
     var org = inp.getAttribute('data-org');
-    var q = inp.value.trim();
     clearTimeout(searchTimers[org]);
-    searchTimers[org] = setTimeout(function(){ doSearch(org, q); }, 320);
+    searchTimers[org] = setTimeout(function(){ doSearch(org, inp.value.trim()); }, 320);
   });
-  function openPanel(){
-    panel.classList.add('open');
-    panel.setAttribute('aria-hidden','false');
-    toggle.setAttribute('aria-expanded','true');
-    if(!rosterLoaded) loadRoster();
-  }
-  function closePanel(){
-    panel.classList.remove('open');
-    panel.setAttribute('aria-hidden','true');
-    toggle.setAttribute('aria-expanded','false');
-  }
   if(toggle) toggle.addEventListener('click', function(){
-    if(panel.classList.contains('open')) closePanel(); else openPanel();
+    var open = panel.classList.toggle('open');
+    panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if(open && !rosterLoaded) loadRoster();
+  });`
+    : "";
+
+  const groupBlock = opts.canManageProjectGroups
+    ? `
+  var PG_API = API + '/project-groups';
+  var dpgToggle = document.getElementById('dpgToggle');
+  var dpgPanel = document.getElementById('dpgPanel');
+  var dpgWrap = document.getElementById('dpgTableWrap');
+  var dpgBanner = document.getElementById('dpgBanner');
+  var dpgSave = document.getElementById('dpgSave');
+  var dpgLoaded = false;
+  function showDpgBanner(kind, msg){
+    dpgBanner.className = 'dpg-banner show ' + kind;
+    dpgBanner.textContent = msg;
+    clearTimeout(showDpgBanner._t);
+    showDpgBanner._t = setTimeout(function(){ dpgBanner.className='dpg-banner'; }, 6000);
+  }
+  function renderDpgTable(members){
+    if(!members || !members.length){ dpgWrap.innerHTML='<div class="drm-note">暂无人员</div>'; return; }
+    var opts = '<option value="intracranial">颅内项目组</option><option value="brain">脑机项目组</option><option value="ops">运营组</option>';
+    dpgWrap.innerHTML = '<table class="dpg-table"><thead><tr><th>姓名</th><th>组织</th><th>项目组</th></tr></thead><tbody>'
+      + members.map(function(m){
+        return '<tr><td>'+esc(m.name||m.userid)+'</td><td>'+esc(m.orgLabel)+'</td><td>'
+          + '<select class="dpg-select" data-org="'+esc(m.orgLabel)+'" data-userid="'+esc(m.userid)+'">'
+          + opts.replace('value="'+m.projectGroup+'"','value="'+m.projectGroup+'" selected')
+          + '</select></td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+  function loadDpg(){
+    dpgWrap.innerHTML = '<div class="drm-note"><span class="drm-spin"></span> 载入…</div>';
+    fetch(PG_API, {headers:{Accept:'application/json'}})
+      .then(function(r){return r.json();})
+      .then(function(data){
+        if(!data || data.ok===false){ dpgWrap.innerHTML='<div class="drm-note">载入失败</div>'; return; }
+        dpgLoaded = true;
+        renderDpgTable(data.members);
+      })
+      .catch(function(){ dpgWrap.innerHTML='<div class="drm-note">载入失败</div>'; });
+  }
+  if(dpgSave) dpgSave.addEventListener('click', function(){
+    var rows = dpgWrap.querySelectorAll('.dpg-select');
+    var updates = [];
+    rows.forEach(function(sel){
+      updates.push({ orgLabel: sel.getAttribute('data-org'), userid: sel.getAttribute('data-userid'), projectGroup: sel.value });
+    });
+    dpgSave.disabled = true;
+    fetch(PG_API, {method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({updates:updates})})
+      .then(function(r){return r.json();})
+      .then(function(data){
+        dpgSave.disabled = false;
+        if(!data || data.ok===false){ showDpgBanner('err', (data&&data.error)||'保存失败'); return; }
+        renderDpgTable(data.members);
+        showDpgBanner('ok', '已保存');
+        load();
+      })
+      .catch(function(e){ dpgSave.disabled=false; showDpgBanner('err', e.message||'保存失败'); });
+  });
+  if(dpgToggle) dpgToggle.addEventListener('click', function(){
+    var open = dpgPanel.classList.toggle('open');
+    dpgPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+    dpgToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if(open && !dpgLoaded) loadDpg();
   });`
     : "";
 
@@ -227,23 +313,34 @@ function buildDailyReportsClientJs(
 (function(){
   var API = '${api}';
   var INIT_DATE = '${initDate}';
-  var CAN_MANAGE = ${canManage};
+  var VIEW = '${initView}';
+  var CAN_MANAGE = ${canManageRoster};
   var dateInput = document.getElementById('drDate');
   var refreshBtn = document.getElementById('drRefresh');
   var meta = document.getElementById('drMeta');
   var content = document.getElementById('drContent');
+  var viewBtns = document.querySelectorAll('.dr-view-btn');
   if (INIT_DATE && dateInput) dateInput.value = INIT_DATE;
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function fmtTime(ms){ if(!ms) return ''; try { return new Date(Number(ms)).toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}); } catch(e){ return ''; } }
+  function setView(v){
+    VIEW = v === 'company' ? 'company' : 'project';
+    viewBtns.forEach(function(btn){
+      var on = btn.getAttribute('data-view') === VIEW;
+      btn.classList.toggle('is-on', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    load();
+  }
+  viewBtns.forEach(function(btn){
+    btn.addEventListener('click', function(){ setView(btn.getAttribute('data-view')); });
+  });
 
   function fieldDisplay(f){
     var parts = [];
     if (String(f.value||'').trim()) parts.push(String(f.value));
     var att = f.attachments || [];
-    if (att.length) {
-      var names = att.map(function(a){ return a.name||'附件'; }).join('、');
-      parts.push('附件 ' + att.length + ' 个：' + names);
-    }
+    if (att.length) parts.push('附件 ' + att.length + ' 个：' + att.map(function(a){ return a.name||'附件'; }).join('、'));
     return parts.join('\\n');
   }
   function renderReport(r){
@@ -251,8 +348,7 @@ function buildDailyReportsClientJs(
     var rows = (r.contents||[]).filter(function(f){
       return String(f.value||'').trim() || (f.attachments && f.attachments.length);
     }).map(function(f){
-      var k = esc(f.key); var v = esc(fieldDisplay(f));
-      return '<div class="dr-field"><span class="dr-field-k">'+k+'</span><span class="dr-field-v">'+v+'</span></div>';
+      return '<div class="dr-field"><span class="dr-field-k">'+esc(f.key)+'</span><span class="dr-field-v">'+esc(fieldDisplay(f))+'</span></div>';
     }).join('');
     if (r.images && r.images.length) {
       var imgNames = r.images.map(function(a){ return esc(a.name||'图片'); }).join('、');
@@ -277,27 +373,47 @@ function buildDailyReportsClientJs(
       + '<span class="dr-org-stat"><span class="dr-pill dr-pill-ok">已交 '+subCount+'</span><span class="dr-pill dr-pill-miss">未交 '+missCount+'</span></span></div>'
       + subs + missing + errs + '</section>';
   }
+  function renderProjectGroup(group){
+    var subCount = 0, missCount = 0;
+    (group.orgs||[]).forEach(function(org){
+      subCount += (org.submitted||[]).length;
+      missCount += (org.missing||[]).length;
+    });
+    var body = (group.orgs||[]).map(renderOrg).join('');
+    if(!body) body = '<div class="dr-empty">该组暂无数据</div>';
+    return '<section class="dr-pgroup dr-pgroup--'+esc(group.id)+'">'
+      + '<div class="dr-pgroup-head"><h2>'+esc(group.label)+'</h2>'
+      + '<span class="dr-org-stat"><span class="dr-pill dr-pill-ok">已交 '+subCount+'</span><span class="dr-pill dr-pill-miss">未交 '+missCount+'</span></span></div>'
+      + '<div class="dr-pgroup-body">'+body+'</div></section>';
+  }
   function load(){
     meta.textContent = '加载中…';
     content.innerHTML = '';
     var p = new URLSearchParams();
     var d = dateInput && dateInput.value;
     if(d) p.set('date', d);
+    p.set('view', VIEW);
     fetch(API+'?'+p.toString(), {headers:{Accept:'application/json'}})
       .then(function(r){return r.json();})
       .then(function(data){
         if(!data || data.ok===false){ meta.textContent = '加载失败：'+esc((data&&data.error)||'未知错误'); return; }
         if(dateInput && data.date && !dateInput.value) dateInput.value = data.date;
         var tail = data.errorCount ? (' · 读取失败 '+data.errorCount) : '';
-        meta.textContent = (data.dateLabel||data.date||'')+' 汇总 · 已交 '+(data.submittedCount||0)+' · 未交 '+(data.missingCount||0)+tail;
-        content.innerHTML = (data.orgs||[]).map(renderOrg).join('') || '<div class="dr-empty">暂无组织配置</div>';
+        var viewLabel = VIEW === 'company' ? '公司视图' : '项目视图';
+        meta.textContent = (data.dateLabel||data.date||'')+' · '+viewLabel+' · 已交 '+(data.submittedCount||0)+' · 未交 '+(data.missingCount||0)+tail;
+        if(VIEW === 'company'){
+          content.innerHTML = (data.orgs||[]).map(renderOrg).join('') || '<div class="dr-empty">暂无组织配置</div>';
+        } else {
+          content.innerHTML = (data.projectGroups||[]).map(renderProjectGroup).join('') || '<div class="dr-empty">暂无项目组数据</div>';
+        }
       })
       .catch(function(e){ meta.textContent='加载失败：'+esc(e.message||e); });
   }
   ${rosterBlock}
+  ${groupBlock}
   if(dateInput) dateInput.addEventListener('change', load);
   if(refreshBtn) refreshBtn.addEventListener('click', load);
-  load();
+  setView(VIEW);
 })();
 `;
 }

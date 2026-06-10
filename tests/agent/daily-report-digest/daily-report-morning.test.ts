@@ -83,22 +83,18 @@ describe("daily-report-morning-build", () => {
     expect(rows.some((r) => r[0] === "明日计划")).toBe(false);
   });
 
-  it("renders morning markdown with v2 summary and daily workbook link", () => {
+  it("renders morning markdown with v2 summary and workbench link", () => {
     const out = renderMorningReportMarkdown({
       title: "每日早报",
       dateLabel: "2026-06-08",
+      dateYmd: "2026-06-08",
       summary: {
         overview: "整体推进顺利",
         personBriefs: [{ name: "李嘉男", brief: "完成联调" }],
         closing: "崔枭未交",
       },
       orgDigests: SAMPLE_ORGS,
-      dailyWorkbook: {
-        url: "https://example.com/doc",
-        name: "2026-06-08 日报汇总",
-        sheetCount: 1,
-        sheetErrors: [],
-      },
+      workbenchUrl: "https://example.com/workbench/manager/daily-reports?date=2026-06-08&view=project",
     });
     expect(out.text).toContain("昨日综述");
     expect(out.text).toContain("整体进展");
@@ -106,8 +102,10 @@ describe("daily-report-morning-build", () => {
     expect(out.text).toContain("个人简述");
     expect(out.text).toContain("李嘉男：完成联调");
     expect(out.text).toContain("总结");
-    expect(out.text).toContain("昨日日报总表");
-    expect(out.text).toContain("https://example.com/doc");
+    expect(out.text).toContain("查看昨日日报");
+    expect(out.text).toContain("工作台日报汇总");
+    expect(out.text).toContain("https://example.com/workbench/manager/daily-reports");
+    expect(out.text).not.toContain("昨日日报总表");
     expect(out.submittedCount).toBe(1);
     expect(out.missingCount).toBe(1);
   });

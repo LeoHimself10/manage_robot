@@ -64,8 +64,10 @@ export function reportEntriesToSheetRows(reports: ReportEntry[]): string[][] {
 export function renderMorningReportMarkdown(input: {
   title: string;
   dateLabel: string;
+  dateYmd: string;
   summary: DailyReportMorningSummary;
   orgDigests: OrgDigest[];
+  workbenchUrl?: string;
   dailyWorkbook?: DailyWorkbookResult;
 }): MorningReportBuildResult {
   let submittedCount = 0;
@@ -96,6 +98,12 @@ export function renderMorningReportMarkdown(input: {
 
   parts.push("");
   parts.push(`**统计**：已交 ${submittedCount} · 未交 ${missingCount}`);
+
+  if (input.workbenchUrl) {
+    parts.push("");
+    parts.push("### 查看昨日日报");
+    parts.push(`- [工作台日报汇总（项目视图）](${input.workbenchUrl})`);
+  }
 
   const wb = input.dailyWorkbook;
   if (wb?.url && !wb.error) {

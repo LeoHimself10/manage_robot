@@ -9,6 +9,7 @@ import {
 import type { ReportEntry } from "../../../src/agent/daily-report-digest/dingtalk-report-client";
 
 const TARGET = "2310-一次性使用颅内动脉成像导管-IC019/IC018-40/IC018-60";
+const MINGSI_FILTERS = ["Y2602-微导管", "Y2601-脑机机器人", "2501-颅内OCT"];
 
 function moduleFields(
   idx: string,
@@ -29,6 +30,13 @@ describe("daily-report-project-filter", () => {
     expect(projectValueMatchesFilter(TARGET, [TARGET])).toBe(true);
     expect(projectValueMatchesFilter(`  ${TARGET}  `, [TARGET])).toBe(true);
     expect(projectValueMatchesFilter("2107-CLA-2107", [TARGET])).toBe(false);
+  });
+
+  it("matches any keyword in multi-value OR filter (明思)", () => {
+    expect(projectValueMatchesFilter("Y2602-微导管-研发", MINGSI_FILTERS)).toBe(true);
+    expect(projectValueMatchesFilter("2501-颅内OCT-验证", MINGSI_FILTERS)).toBe(true);
+    expect(projectValueMatchesFilter("Y2601-脑机机器人-预研", MINGSI_FILTERS)).toBe(true);
+    expect(projectValueMatchesFilter("2107-CLA-2107", MINGSI_FILTERS)).toBe(false);
   });
 
   it("keeps only modules whose 成本归属项目 hits filter", () => {
