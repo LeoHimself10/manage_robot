@@ -225,6 +225,8 @@ export function renderManagerTaskIntakePage(params: {
   padding: 11px 16px;
   background: var(--ti-cream);
   border-bottom: 1px solid var(--ti-border);
+  position: relative;
+  z-index: 4;
 }
 .ti-card-num {
   font-family: var(--ti-mono);
@@ -330,7 +332,9 @@ export function renderManagerTaskIntakePage(params: {
   z-index: 20000;
   background: #ffffff;
 }
-.combo-options[hidden] { display: none; }
+.combo-options { pointer-events: none; }
+.combo-options li { pointer-events: auto; }
+.combo-options[hidden] { display: none !important; pointer-events: none !important; }
 .combo-options li {
   padding: 9px 14px;
   cursor: pointer;
@@ -512,7 +516,7 @@ export function renderManagerTaskIntakePage(params: {
   transition: border-color .12s, color .12s;
 }
 .ti-group-bulk-btn:hover { border-color: var(--ti-accent); color: var(--ti-accent); }
-.ti-move-trigger { position: relative; z-index: 2; }
+.ti-move-trigger { position: relative; z-index: 6; pointer-events: auto; }
 .ti-group-form { padding: 14px 16px 4px; border-bottom: 1px solid var(--ti-border); background: var(--ti-bg); }
 .ti-group-cards-wrap { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
 .ti-group-empty { padding: 12px 16px; color: var(--ti-ink-3); font-size: 12px; font-family: var(--ti-sans); font-style: italic; }
@@ -628,6 +632,7 @@ ${buildWorkbenchContactComboClientJs()}
    *   pickerForIdxs — row indices targeted by current popover
    */
   var DEFAULT_GROUP = "ng_0";
+  var activeCombos = [];
   var state = {
     rows: [],
     newGroups: {},          // { [groupId]: { title, description, projectId, projectName } }
@@ -786,11 +791,12 @@ ${buildWorkbenchContactComboClientJs()}
     else if (row.needsConfirm && row.assigneeNameRaw) { aHint.textContent = "「" + row.assigneeNameRaw + "」未匹配，请重新搜索"; aHint.classList.add("is-warn"); }
     else { aHint.textContent = isAppend ? "追加模式必填" : "未指定 → 暂存草案"; }
     assigneeWrap.append(aLbl, aInput, aHidden, aUl, aHint);
-    wbAttachContactCombo({ input: aInput, hiddenUserId: aHidden, optionsList: aUl,
+    var combo = wbAttachContactCombo({ input: aInput, hiddenUserId: aHidden, optionsList: aUl,
       searchUrl: function (kw) { return "/api/workbench/manager/contacts?keyword=" + encodeURIComponent(kw); },
       onFeedback: function (msg) { aHint.textContent = msg; aHint.className = "ti-assignee-hint"; },
       onSelect: function (c) { aHidden.value = c.userId; aHint.textContent = c.name + " (" + c.userId + ")"; aHint.className = "ti-assignee-hint is-ok"; },
     });
+    activeCombos.push(combo);
     topRow.appendChild(assigneeWrap);
 
     var dueWrap = document.createElement("div");
@@ -858,8 +864,38 @@ ${buildWorkbenchContactComboClientJs()}
     return card;
   }
 
+  function hideAllComboDropdowns() {
+    if (document.activeElement && typeof document.activeElement.blur === "function") {
+      document.activeElement.blur();
+    }
+    document.querySelectorAll("ul.combo-options").forEach(function (ul) {
+      ul.hidden = true;
+      ul.innerHTML = "";
+      ul.classList.remove("combo-options--fixed");
+      ul.style.position = "";
+      ul.style.left = "";
+      ul.style.top = "";
+      ul.style.width = "";
+      ul.style.right = "";
+      ul.style.maxHeight = "";
+      ul.style.zIndex = "";
+      ul.style.background = "";
+      ul.style.border = "";
+      ul.style.boxShadow = "";
+    });
+  }
+
+  function destroyAllCombos() {
+    activeCombos.forEach(function (c) { if (c && c.destroy) c.destroy(); });
+    activeCombos = [];
+    document.querySelectorAll("ul.combo-options").forEach(function (ul) {
+      if (ul.parentNode === document.body) ul.remove();
+    });
+  }
+
   /* ── render all groups ── */
   function renderGroups() {
+    destroyAllCombos();
     var container = document.getElementById("groupsContainer");
     container.innerHTML = "";
     var groups = deriveGroups();
@@ -1064,6 +1100,7 @@ ${buildWorkbenchContactComboClientJs()}
   }
 
   async function openPopoverFor(idxs, anchorEl) {
+    hideAllComboDropdowns();
     state.pickerForIdxs = idxs;
     tpSearch.value = "";
     var tasks = await loadAllTasks();

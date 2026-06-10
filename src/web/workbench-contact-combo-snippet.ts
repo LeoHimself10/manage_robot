@@ -152,8 +152,15 @@ export function buildWorkbenchContactComboClientJs(): string {
       if (hid) hid.value = '';
       schedule();
     }
+    function onDocMouseDown(ev) {
+      if (destroyed) return;
+      if (ev.target === input || ev.target === ul) return;
+      if (input.contains && input.contains(ev.target)) return;
+      if (ul.contains && ul.contains(ev.target)) return;
+      close();
+    }
     function onBlur() {
-      setTimeout(close, 200);
+      setTimeout(close, 120);
     }
     function onKeydown(ev) {
       if (ev.key === 'Escape') {
@@ -190,6 +197,7 @@ export function buildWorkbenchContactComboClientJs(): string {
     input.addEventListener('input', onInput);
     input.addEventListener('blur', onBlur);
     input.addEventListener('keydown', onKeydown);
+    document.addEventListener('mousedown', onDocMouseDown, true);
     return {
       destroy: function () {
         destroyed = true;
@@ -197,6 +205,7 @@ export function buildWorkbenchContactComboClientJs(): string {
         input.removeEventListener('input', onInput);
         input.removeEventListener('blur', onBlur);
         input.removeEventListener('keydown', onKeydown);
+        document.removeEventListener('mousedown', onDocMouseDown, true);
         close();
       }
     };

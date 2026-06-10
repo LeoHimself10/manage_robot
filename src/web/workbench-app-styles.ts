@@ -459,6 +459,8 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   right:auto;
   z-index:10050;
 }
+.combo-options { pointer-events: none; }
+.combo-options li { pointer-events: auto; }
 .combo-options li {
   padding:8px 12px;
   font-size:14px;
@@ -468,7 +470,8 @@ table.data code { font-size: 12px; background: #f1f5f9; padding: 2px 6px; border
   align-items:center;
   justify-content:space-between;
 }
-.combo-options li:hover, .combo-options li[aria-selected="true"] { background:#eff6ff; }
+.combo-options li:hover { background:#f1f5f9; }
+.combo-options[hidden] { display: none !important; pointer-events: none !important; }
 .combo-tag { font-size:12px; color:#475569; background:#e2e8f0; border-radius:999px; padding:1px 8px; white-space:nowrap; }
 .due-bar { height:6px; background:#e2e8f0; border-radius:999px; overflow:hidden; margin-top:8px; }
 .due-bar-fill { height:100%; background:#2563eb; transition:width .2s ease; }
