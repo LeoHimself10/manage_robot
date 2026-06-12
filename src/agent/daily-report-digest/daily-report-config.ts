@@ -53,6 +53,14 @@ export interface DailyReportDigestConfig {
   sendHour: number;
   sendMinute: number;
   weekdaysOnly: boolean;
+  /**
+   * 业务日截止时刻（本地时区小时，0–23）。默认 17。
+   * 业务日 D 的日报 = 提交时间 ∈ [D cutoff, D+1 cutoff)。
+   * 设为 0 退回自然日（00:00 ~ 次日 00:00）。
+   */
+  reportDayCutoffHour: number;
+  /** 业务日截止时刻（分钟，0–59）。默认 0。 */
+  reportDayCutoffMinute: number;
   /** 群消息标题（钉钉 markdown 折叠摘要用） */
   title: string;
   /** full=原文拼接；morning=LLM 综述 + 个人表格链接 */
@@ -218,6 +226,14 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
     timezone: asString(obj.timezone) || env("DAILY_REPORT_DIGEST_TIMEZONE") || "Asia/Shanghai",
     sendHour: clampHour(obj.sendHour ?? (env("DAILY_REPORT_DIGEST_HOUR") || 7), 7),
     sendMinute: clampMinute(obj.sendMinute ?? (env("DAILY_REPORT_DIGEST_MINUTE") || 0), 0),
+    reportDayCutoffHour: clampHour(
+      obj.reportDayCutoffHour ?? (env("DAILY_REPORT_DAY_CUTOFF_HOUR") || 17),
+      17,
+    ),
+    reportDayCutoffMinute: clampMinute(
+      obj.reportDayCutoffMinute ?? (env("DAILY_REPORT_DAY_CUTOFF_MINUTE") || 0),
+      0,
+    ),
     weekdaysOnly:
       typeof obj.weekdaysOnly === "boolean"
         ? obj.weekdaysOnly

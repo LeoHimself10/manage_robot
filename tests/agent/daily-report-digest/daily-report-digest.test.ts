@@ -12,6 +12,7 @@ import {
 } from "../../../src/agent/daily-report-digest/group-robot-webhook";
 import {
   isDailyReportSendWindow,
+  resolveDayRangeForYmd,
   resolveReportRange,
 } from "../../../src/agent/daily-report-digest/daily-report-window";
 import {
@@ -231,11 +232,101 @@ describe("daily-report-window", () => {
     expect(isDailyReportSendWindow(new Date("2026-06-14T23:00:00Z"), config)).toBe(false);
   });
 
-  it("resolves yesterday's full-day range in timezone", () => {
+  it("resolves yesterday's full-day range with cutoff=0 (midnight-to-midnight)", () => {
     const range = resolveReportRange(new Date("2026-06-08T23:00:00Z"), "Asia/Shanghai");
     expect(range.labelYmd).toBe("2026-06-08");
     expect(range.startTime).toBe(Date.parse("2026-06-08T00:00:00+08:00"));
     expect(range.endTime).toBe(Date.parse("2026-06-09T00:00:00+08:00") - 1);
+  });
+});
+
+describe("daily-report-window 17:00 cutoff", () => {
+  const CUTOFF = { cutoffHour: 17, cutoffMinute: 0 };
+
+  it("resolveDayRangeForYmd gives [17:00, next-day 17:00) window", () => {
+    const range = resolveDayRangeForYmd("2026-06-08", "Asia/Shanghai", CUTOFF);
+    expect(range.labelYmd).toBe("2026-06-08");
+    expect(range.startTime).toBe(Date.parse("2026-06-08T17:00:00+08:00"));
+    expect(range.endTime).toBe(Date.parse("2026-06-09T17:00:00+08:00") - 1);
+  });
+
+  it("16:59 on D is still in the D-1 window (just before cutoff)", () => {
+    const rangeD = resolveDayRangeForYmd("2026-06-08", "Asia/Shanghai", CUTOFF);
+    const submittedAt = Date.parse("2026-06-08T16:59:00+08:00");
+    expect(submittedAt).toBeGreaterThanOrEqual(
+      resolveDayRangeForYmd("2026-06-07", "Asia/Shanghai", CUTOFF).startTime,
+    );
+    expect(submittedAt).toBeLessThanOrEqual(
+      resolveDayRangeForYmd("2026-06-07", "Asia/Shanghai", CUTOFF).endTime,
+    );
+    // NOT in D=06-08 window
+    expect(submittedAt).toBeLessThan(rangeD.startTime);
+  });
+
+  it("normal next-morning submission (D+1 09:00) counts as D", () => {
+    // submitting on Jun 9 at 09:00 for Jun 8's work — should be in Jun 8 window
+    const nextMorning = Date.parse("2026-06-09T09:00:00+08:00");
+    const rangeJun8 = resolveDayRangeForYmd("2026-06-08", "Asia/Shanghai", CUTOFF);
+    const rangeJun9 = resolveDayRangeForYmd("2026-06-09", "Asia/Shanghai", CUTOFF);
+    expect(nextMorning).toBeGreaterThanOrEqual(rangeJun8.startTime);
+    expect(nextMorning).toBeLessThanOrEqual(rangeJun8.endTime);
+    expect(nextMorning).toBeLessThan(rangeJun9.startTime);
+  });
+
+  it("same-day early morning supplement (D 09:00) is in D-1 window, NOT D", () => {
+    // submitting Jun 8 09:00 (for an earlier day) falls in Jun 7's business window
+    const earlyMorning = Date.parse("2026-06-08T09:00:00+08:00");
+    const rangeJun8 = resolveDayRangeForYmd("2026-06-08", "Asia/Shanghai", CUTOFF);
+    const rangeJun7 = resolveDayRangeForYmd("2026-06-07", "Asia/Shanghai", CUTOFF);
+    expect(earlyMorning).toBeLessThan(rangeJun8.startTime);
+    expect(earlyMorning).toBeGreaterThanOrEqual(rangeJun7.startTime);
+    expect(earlyMorning).toBeLessThanOrEqual(rangeJun7.endTime);
+  });
+
+  it("late supplement (D+2 09:00) is in D+1 window, Jun 8 still missing", () => {
+    // submitting Jun 10 09:00 falls in Jun 9's window, not Jun 8's
+    const lateSubmit = Date.parse("2026-06-10T09:00:00+08:00");
+    const rangeJun8 = resolveDayRangeForYmd("2026-06-08", "Asia/Shanghai", CUTOFF);
+    const rangeJun9 = resolveDayRangeForYmd("2026-06-09", "Asia/Shanghai", CUTOFF);
+    expect(lateSubmit).toBeGreaterThan(rangeJun8.endTime);
+    expect(lateSubmit).toBeGreaterThanOrEqual(rangeJun9.startTime);
+    expect(lateSubmit).toBeLessThanOrEqual(rangeJun9.endTime);
+  });
+
+  it("resolveReportRange with cutoff=17 gives [yesterday 17:00, today 17:00)", () => {
+    // now = Jun 9 08:30 CST → yesterday = Jun 8
+    const range = resolveReportRange(new Date("2026-06-09T00:30:00Z"), "Asia/Shanghai", CUTOFF);
+    expect(range.labelYmd).toBe("2026-06-08");
+    expect(range.startTime).toBe(Date.parse("2026-06-08T17:00:00+08:00"));
+    expect(range.endTime).toBe(Date.parse("2026-06-09T17:00:00+08:00") - 1);
+  });
+});
+
+describe("daily-report-config cutoff parsing", () => {
+  it("defaults reportDayCutoffHour to 17 when absent from JSON", () => {
+    const { config } = parseDailyReportDigestConfig(VALID_CONFIG);
+    expect(config.reportDayCutoffHour).toBe(17);
+    expect(config.reportDayCutoffMinute).toBe(0);
+  });
+
+  it("reads custom cutoff from JSON", () => {
+    const { config } = parseDailyReportDigestConfig({
+      ...VALID_CONFIG,
+      reportDayCutoffHour: 18,
+      reportDayCutoffMinute: 30,
+    });
+    expect(config.reportDayCutoffHour).toBe(18);
+    expect(config.reportDayCutoffMinute).toBe(30);
+  });
+
+  it("clamps out-of-range values", () => {
+    const { config } = parseDailyReportDigestConfig({
+      ...VALID_CONFIG,
+      reportDayCutoffHour: 99,
+      reportDayCutoffMinute: -5,
+    });
+    expect(config.reportDayCutoffHour).toBe(23);
+    expect(config.reportDayCutoffMinute).toBe(0);
   });
 });
 
