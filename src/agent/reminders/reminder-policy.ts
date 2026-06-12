@@ -216,3 +216,53 @@ export function startOfDayInTz(now: Date, timezone: string): string {
   const ymd = formatDateInTz(now.toISOString(), timezone);
   return zonedMidnightUtcIso(ymd, timezone);
 }
+
+/**
+ * UTC ISO instant for a specific local HH:MM at `ymd` in `timezone`.
+ * Uses binary search on Unix ms, same approach as zonedMidnightUtcIso.
+ */
+export function zonedLocalDateTimeUtcIso(
+  ymd: string,
+  hour: number,
+  minute: number,
+  timezone: string,
+): string {
+  // Search window: [ymd-1 00:00 UTC, ymd+2 00:00 UTC) — wide enough for any offset
+  const [y, m, d] = ymd.split("-").map(Number);
+  let lo = Date.UTC(y!, m! - 1, d! - 1, 0, 0, 0);
+  let hi = Date.UTC(y!, m! - 1, d! + 2, 0, 0, 0);
+  const targetMinutes = hour * 60 + minute;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const { ymd: midYmd, minutes } = localYmdAndMinutes(mid, timezone);
+    if (midYmd < ymd || (midYmd === ymd && minutes < targetMinutes)) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return new Date(lo).toISOString();
+}
+
+export type ReportDayRange = CalendarDayRange;
+
+/**
+ * Business-day range for `ymd`: [ymd cutoffHour:cutoffMinute, ymd+1 cutoffHour:cutoffMinute).
+ * Reports submitted after cutoff on ymd count as ymd's report; reports submitted before
+ * the cutoff on ymd+1 (next morning) also count as ymd. This matches the convention of
+ * "submitting yesterday's work report the following morning".
+ */
+export function reportDayRangeForYmd(
+  ymd: string,
+  timezone: string,
+  cutoffHour: number,
+  cutoffMinute = 0,
+): ReportDayRange {
+  const nextYmd = addDaysToYmd(ymd, 1);
+  return {
+    sinceIso: zonedLocalDateTimeUtcIso(ymd, cutoffHour, cutoffMinute, timezone),
+    untilIso: zonedLocalDateTimeUtcIso(nextYmd, cutoffHour, cutoffMinute, timezone),
+    labelYmd: ymd,
+    labelDisplay: formatYmdDisplayInTz(ymd, timezone),
+  };
+}

@@ -341,7 +341,10 @@ export async function runDailyReportDigest(
   },
 ): Promise<RunDailyReportDigestResult> {
   const now = deps?.now ?? new Date();
-  const range = resolveReportRange(now, config.timezone);
+  const range = resolveReportRange(now, config.timezone, {
+    cutoffHour: config.reportDayCutoffHour,
+    cutoffMinute: config.reportDayCutoffMinute,
+  });
   const { orgDigests, errorCount } = await collectOrgDigests(config, range, {
     reportClient: deps?.reportClient,
     fetchImpl: deps?.fetchImpl,

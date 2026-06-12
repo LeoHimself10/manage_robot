@@ -104,9 +104,13 @@ export async function buildDailyReportsHttpPayload(input?: {
   if (date && !YMD_RE.test(date)) {
     return { ok: false, error: `非法日期格式：${date}（应为 YYYY-MM-DD）` };
   }
+  const cutoffOpts = {
+    cutoffHour: config.reportDayCutoffHour,
+    cutoffMinute: config.reportDayCutoffMinute,
+  };
   const range = date
-    ? resolveDayRangeForYmd(date, config.timezone)
-    : resolveReportRange(now, config.timezone);
+    ? resolveDayRangeForYmd(date, config.timezone, cutoffOpts)
+    : resolveReportRange(now, config.timezone, cutoffOpts);
 
   const { orgDigests, errorCount } = await collectOrgDigests(config, range, {
     fetchImpl: input?.fetchImpl,
