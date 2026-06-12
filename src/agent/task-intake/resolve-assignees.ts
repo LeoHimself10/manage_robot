@@ -1,5 +1,6 @@
 import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 import { resolveAssigneeByName } from "../meeting-import/resolve-assignees";
+import { logStructured } from "../../infra/logger";
 import type { TargetSuggestion } from "./suggest-targets";
 import type { TaskIntakePreviewRow, TaskIntakeStructured } from "./types";
 
@@ -26,6 +27,13 @@ export function buildPreviewRows(
       const resolved = nameRaw
         ? resolveAssigneeByName(nameRaw, peopleStore)
         : { needsConfirm: true as const };
+      logStructured({
+        event: "task_intake_assignee_resolve",
+        itemId: `ti_${index + 1}`,
+        nameRaw: nameRaw || null,
+        resolvedUserId: resolved.assigneeUserId ?? null,
+        needsConfirm: resolved.needsConfirm,
+      });
       const sug = suggestionByItemId.get(itemId);
       return {
         itemId,
