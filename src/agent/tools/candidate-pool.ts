@@ -38,6 +38,8 @@ export interface CandidatePoolToolDeps {
   onSessionMutated?: (session: PlanSession) => void;
   /** 通过 userId 拉通讯录，用于校验 entries 是否在 dingtalk_contacts 中。 */
   getContact: (userId: string) => DingTalkContactRow | undefined;
+  /** 可选：复用上层 peopleStore，避免同路径 SQLite 多连接 close 互相影响。 */
+  searchContacts?: (keyword: string, limit?: number) => DingTalkContactRow[];
 }
 
 export const READ_UPLOADED_ROSTER_TEXT_TOOL: ToolDefinition = {
@@ -168,27 +170,33 @@ export function buildResolveRosterNamesHandler(deps: CandidatePoolToolDeps): Too
       return { ok: false, reason: "empty_names", hint: "names 至少 1 个非空姓名。" };
     }
 
-    const store = createPeopleDirectoryStore();
-    try {
-      const result = resolveRosterNamesFromContacts(names, (keyword, limit) =>
-        store.searchContacts(keyword, limit ?? 8),
+    const searchFn =
+      deps.searchContacts
+      ?? ((keyword: string, limit?: number) => {
+        const store = createPeopleDirectoryStore();
+        try {
+          return store.searchContacts(keyword, limit ?? 8);
+        } finally {
+          store.close();
+        }
+      });
+
+    const result = resolveRosterNamesFromContacts(names, (keyword, limit) =>
+      searchFn(keyword, limit ?? 8),
+    );
+
+    if (result.resolved.length > 0) {
+      const blocks = result.resolved.map(
+        (r) => `userId: ${r.userId}\ndisplayName: ${r.displayName}`,
       );
-
-      if (result.resolved.length > 0) {
-        const blocks = result.resolved.map(
-          (r) => `userId: ${r.userId}\ndisplayName: ${r.displayName}`,
-        );
-        recordSearchHitsFromCandidates(session, blocks, (userId) => {
-          const c = deps.getContact(userId);
-          return c ? { name: c.name, departmentNames: c.departmentNames } : undefined;
-        });
-        deps.onSessionMutated?.(session);
-      }
-
-      return result;
-    } finally {
-      store.close();
+      recordSearchHitsFromCandidates(session, blocks, (userId) => {
+        const c = deps.getContact(userId);
+        return c ? { name: c.name, departmentNames: c.departmentNames } : undefined;
+      });
+      deps.onSessionMutated?.(session);
     }
+
+    return result;
   };
 }
 

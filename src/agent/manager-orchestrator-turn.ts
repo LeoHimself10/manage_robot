@@ -101,6 +101,10 @@ export function readManagerOrchestratorMaxIterations(): number {
   return readEnvInt("DINGTALK_ORCHESTRATOR_MAX_ITERATIONS", DEFAULT_ORCH_ITERATIONS);
 }
 
+export function readManagerTurnMaxReruns(): number {
+  return readEnvInt("MANAGER_TURN_MAX_RERUNS", 1);
+}
+
 export function computeScopeRotatedSinceLastTurn(
   session: PlanSession,
 ): { fromLabel?: string; toLabel?: string } | undefined {
@@ -134,6 +138,12 @@ export interface ManagerOrchestratorTurnInput {
   /** Workbench session role when not using DingTalk sender routing. */
   workbenchRole?: "manager" | "admin";
   senderStaffId: string;
+  /** v2 only: when false, skip corresponding turn-level requirement retry. */
+  v2RetryOpts?: {
+    allowAssignRetry?: boolean;
+    allowPublishRetry?: boolean;
+    allowSplitRetry?: boolean;
+  };
 }
 
 export interface ManagerOrchestratorTurnResult {
@@ -158,6 +168,12 @@ export interface ManagerOrchestratorTurnResult {
 export async function runManagerOrchestratorTurn(
   input: ManagerOrchestratorTurnInput,
 ): Promise<ManagerOrchestratorTurnResult> {
+  const engine = String(process.env.ORCHESTRATOR_ENGINE ?? "legacy").trim().toLowerCase();
+  if (engine === "v2") {
+    const { runManagerOrchestratorTurnV2 } = await import("./v2/manager-turn-v2");
+    return runManagerOrchestratorTurnV2(input);
+  }
+
   let session = { ...input.session };
   const preRotatePlanId = session.planId;
   const preTurnPlanId = session.planId;

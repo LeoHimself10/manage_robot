@@ -19,6 +19,7 @@
     "eval:integration": "tsx scripts/run-eval-integration.ts",
     "eval:spot": "tsx scripts/run-eval-spot.ts",
     "eval:chains": "tsx scripts/run-eval-chains.ts",
+    "eval:engine-ab": "tsx scripts/run-engine-ab-eval.ts",
     "eval:release": "tsx scripts/run-eval-release.ts",
     "eval:compare": "tsx scripts/eval-compare.ts",
     "eval:agent": "tsx scripts/run-agent-eval.ts",
@@ -27,6 +28,7 @@
     "eval:assignment-scope-switch": "vitest run tests/agent/assignment/assignment-scope-conversation.test.ts && tsx scripts/run-assignment-scope-switch-eval.ts",
     "eval:deployment-parity": "node --import tsx scripts/eval-deprecated-forward.ts deployment-parity",
     "eval:natural-full": "node --import tsx scripts/eval-deprecated-forward.ts natural-full",
+    "eval:natural-full-chains": "tsx scripts/run-natural-full-chains.ts",
     "eval:replay-transport": "node --import tsx scripts/eval-deprecated-forward.ts replay-transport",
     "eval:publish-short": "tsx scripts/run-publish-short-confirm-eval.ts",
     "eval:cross-channel": "vitest run tests/web/canonical-main-session.test.ts && tsx scripts/run-cross-channel-parity-eval.ts",
@@ -63,12 +65,16 @@
     "vitest": "latest"
   },
   "dependencies": {
+    "@langchain/core": "^1.1.48",
+    "@langchain/langgraph": "^1.3.7",
+    "@langchain/openai": "^1.4.7",
     "busboy": "^1.6.0",
     "dingtalk-jsapi": "^3.2.9",
     "dingtalk-stream": "^2.1.6-beta.1",
     "dotenv": "^17.4.2",
     "mammoth": "^1.12.0",
     "pdfjs-dist": "^5.7.284",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "zod": "^4.4.3"
   }
 }

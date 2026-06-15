@@ -27,11 +27,15 @@ export function isPublishConfirmUserMessage(userMessage: string): boolean {
   if (!text || text.length > 30) return false;
   if (PUBLISH_NEGATE.test(text)) return false;
   if (ASSIGN_CONFIRM_ONLY.test(text)) return false;
+  if (/^(确认发放|发放吧|可以发放|好的发放|确定发放)[。！!？?\s]*$/i.test(text)) {
+    return true;
+  }
   if (/^(确认发布|发布吧|发布|看着可以|没问题|可以了|就这样|好的发布|确定发布|确认)[。！!？?\s]*$/i.test(text)) {
     return true;
   }
-  if (/^(好的)?(那就)?发布(吧)?[。！!？?\s]*$/i.test(text)) return true;
-  if (/^(确定|ok|OK)[。！!？?\s]*(发布)?[。！!？?\s]*$/i.test(text)) return true;
+  if (/^(没问题[，,])?(确认)?(发放|发布)[。！!？?\s]*$/i.test(text)) return true;
+  if (/^(好的)?(那就)?(发布|发放)(吧)?[。！!？?\s]*$/i.test(text)) return true;
+  if (/^(确定|ok|OK)[。！!？?\s]*(发布|发放)?[。！!？?\s]*$/i.test(text)) return true;
   return false;
 }
 

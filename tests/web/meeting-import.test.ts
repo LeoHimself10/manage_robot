@@ -105,6 +105,9 @@ describe("meeting-import HTTP", () => {
     const html = renderManagerMeetingImportPage({ userLabel: "测试" });
     expect(html).toContain("会议待办入库");
     expect(html).toContain("meeting-import/parse");
+    // Regression: scriptHtml lives in a TS template literal; \" becomes " and breaks JS parse.
+    expect(html).not.toContain('data-idx="" + idx');
+    expect(html).toContain("return '<tr data-idx=\"' + idx");
   });
 
   it("redirects non-portfolio user away from meeting import page", async () => {

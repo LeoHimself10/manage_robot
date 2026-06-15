@@ -7,6 +7,11 @@
     { "file": "chain-roster10.json" },
     { "file": "chain-transport.json" },
     { "file": "chain-roster15.json" },
-    { "file": "chain-gate-extras.json" }
+    { "file": "chain-gate-extras.json" },
+    { "file": "chain-assign-then-revise.json" },
+    { "file": "chain-multi-roster.json" },
+    { "file": "chain-messy-dialogue.json" },
+    { "file": "chain-topic-switch-return.json" },
+    { "file": "chain-long-session.json" }
   ]
 }

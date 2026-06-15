@@ -230,13 +230,13 @@ ${buildWorkbenchKeyboardClientJs()}
         return '<option value="' + t.taskNo + '" data-plan="' + t.planId + '"' + (selected ? " selected" : "") + ">" + t.title + " (#" + t.taskNo + ")</option>";
       }).join("");
       var newTitle = (row.parent && row.parent.suggestedTitle) || "";
-      return "<tr data-idx=\"" + idx + "\">" +
+      return '<tr data-idx="' + idx + '">' +
         '<td><input type="checkbox" class="row-selected"' + (row.selected ? " checked" : "") + " /></td>" +
-        "<td><input class=\"row-title\" value=\"" + escapeAttr(row.title) + "\" />" +
-        "<div class=\"muted\" style=\"font-size:11px\">" + escapeAttr(row.excerpt || "") + "</div></td>" +
-        "<td>" + relationTag(row.relationKind) + "<div class=\"muted\">" + escapeAttr(row.relationReason || "") + "</div></td>" +
-        "<td><select class=\"row-parent-mode\"><option value=\"new\"" + (row.parent?.kind !== "existing" ? " selected" : "") + ">新建</option><option value=\"existing\"" + (row.parent?.kind === "existing" ? " selected" : "") + ">已有</option></select>" +
-        "<select class=\"row-parent-existing\"" + (row.parent?.kind === "existing" ? "" : " hidden") + ">" + parentOpts + "</select>" +
+        '<td><input class="row-title" value="' + escapeAttr(row.title) + '" />' +
+        '<div class="muted" style="font-size:11px">' + escapeAttr(row.excerpt || "") + "</div></td>" +
+        "<td>" + relationTag(row.relationKind) + '<div class="muted">' + escapeAttr(row.relationReason || "") + "</div></td>" +
+        '<td><select class="row-parent-mode"><option value="new"' + (row.parent?.kind !== "existing" ? " selected" : "") + '>新建</option><option value="existing"' + (row.parent?.kind === "existing" ? " selected" : "") + ">已有</option></select>" +
+        '<select class="row-parent-existing"' + (row.parent?.kind === "existing" ? "" : " hidden") + ">" + parentOpts + "</select>" +
         '<input class="row-parent-new" value="' + escapeAttr(newTitle) + '"' + (row.parent?.kind === "existing" ? " hidden" : "") + " /></td>" +
         '<td><input class="row-assignee-id" value="' + escapeAttr(row.assigneeUserId || "") + '" placeholder="userId" />' +
         '<div class="muted">' + escapeAttr(row.assigneeDisplayName || row.assigneeNameRaw || "") + "</div></td>" +
@@ -346,7 +346,7 @@ ${buildWorkbenchKeyboardClientJs()}
       var r = data.result || {};
       document.getElementById("resultBody").innerHTML =
         "<p>新建大任务 " + (r.createdTasks?.length || 0) + " 个，追加子任务 " + (r.appendedSubtasks?.length || 0) + " 条，跳过 " + (r.skipped?.length || 0) + " 条。</p>" +
-        (r.errors?.length ? "<p class=\"feedback\">部分失败：" + r.errors.map(function (e) { return e.itemId + ": " + e.message; }).join("；") + "</p>" : "");
+        (r.errors?.length ? '<p class="feedback">部分失败：' + r.errors.map(function (e) { return e.itemId + ": " + e.message; }).join("；") + "</p>" : "");
       document.getElementById("tasksLink").href =
         "/workbench/manager/tasks?projectId=" + encodeURIComponent(state.projectId);
       setStep(4);

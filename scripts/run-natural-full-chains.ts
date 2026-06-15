@@ -48,6 +48,8 @@ interface NaturalTurn {
   id: string;
   userMessage: string;
   seedPendingRoster?: boolean;
+  /** Override chain.rosterFixture for this turn's pending roster seed. */
+  rosterFixture?: string;
   expectMinTasks?: number;
   expectDraftJson?: boolean;
   expectAssignmentFull?: boolean;
@@ -229,10 +231,15 @@ async function runTurn(
     : 0;
   const hadDraftBefore = tasksBefore > 0;
 
-  if (turn.seedPendingRoster && chain.rosterFixture) {
-    const rosterPath = join(process.cwd(), chain.rosterFixture);
-    session.pendingRosterText = readFileSync(rosterPath, "utf8");
-    session.pendingRosterSource = "uploaded:roster";
+  if (turn.seedPendingRoster) {
+    const rosterPath = join(
+      process.cwd(),
+      turn.rosterFixture ?? chain.rosterFixture ?? "",
+    );
+    if (rosterPath.endsWith(".md") || rosterPath.endsWith(".txt")) {
+      session.pendingRosterText = readFileSync(rosterPath, "utf8");
+      session.pendingRosterSource = "uploaded:roster";
+    }
   }
 
   const result = await runDingtalkLikeTurn(session, turn.userMessage, {
@@ -242,6 +249,7 @@ async function runTurn(
     allowAssignRetry: turn.allowAssignRetry,
     allowPublishRetry: turn.allowPublishRetry,
   });
+  session = result.session;
 
   const coverage = assertAssignmentFullCoverage(
     session.latestDraft as Record<string, unknown> | undefined,
@@ -254,8 +262,8 @@ async function runTurn(
   if (turn.expectMinTasks !== undefined && taskCount < turn.expectMinTasks) {
     reasons.push(`tasks=${taskCount}<min${turn.expectMinTasks}`);
   }
-  if (turn.expectDraftJson && !result.hasDraftJson && taskCount <= tasksBefore) {
-    reasons.push("expected draft JSON or task growth this turn");
+  if (turn.expectDraftJson && !result.hasDraftState && taskCount <= tasksBefore) {
+    reasons.push("expected draft state or task growth this turn");
   }
   if (turn.expectAssignmentFull && coverage.ratio < 1) {
     reasons.push(`assignment ${coverage.covered}/${coverage.total}`);
@@ -338,8 +346,9 @@ async function runTurn(
     reasons.push("forbidden publish this turn");
   }
   if (turn.expectNoDraftJson) {
-    if (result.hasDraftJson) reasons.push("expected no draft JSON this turn");
-    if (taskCount > tasksBefore) reasons.push(`expected no task growth (was ${tasksBefore}, now ${taskCount})`);
+    if (result.hasDraftState && taskCount > tasksBefore) {
+      reasons.push(`expected no task growth (was ${tasksBefore}, now ${taskCount})`);
+    }
   }
   reasons.push(...assertTurnToolExpectations(result.tools, result.outboundMessage, turn));
   if (turn.expectPoolBuilt && !session.candidatePool?.entries?.length) {

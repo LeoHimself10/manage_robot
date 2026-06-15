@@ -7,6 +7,7 @@ export const DRAFT_MUTATING_TOOL_NAMES = new Set([
   "update_draft_task",
   "add_draft_subtask",
   "remove_draft_subtask",
+  "replace_draft",
   "save_draft",
 ]);
 

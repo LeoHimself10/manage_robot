@@ -16,6 +16,7 @@ export interface TurnHintSessionContext {
   latestDraft?: Record<string, unknown>;
   memoryFacts?: string[];
   pendingRoster?: { sourceLabel: string; chars: number };
+  candidatePool?: { source: string; entries: unknown[] };
 }
 
 const EXPLICIT_DRAFT_REQUEST_RE =
@@ -27,7 +28,12 @@ const DEADLINE_IN_TEXT_RE =
   /\d{4}[-/年]\d{1,2}([-/月]\d{1,2}日?)?|\d{1,2}\s*月\s*\d{1,2}\s*日|下[周礼拜]|本[周礼拜]|[一二三四五六七八九十\d]+\s*个?\s*月内|[一二三四五六七八九十\d]+\s*周内|之前|以内|前完成|deadline:/i;
 
 const ASSIGN_INTENT_RE =
-  /指派|点将|分配给|交给|负责人|谁来做|按这份名单|从.*(中选|分配)|改派|由你.{0,6}分派|由你分配|你来派|帮我分派|为我分派/i;
+  /指派|点将|分配给|分给|交给|负责人|谁来做|按这份名单|从.*(中选|分配)|改派|由你.{0,6}分派|由你分配|你来派|帮我分派|为我分派/i;
+
+const ROW_ANCHOR_RE =
+  /(?:任务?\s*[0-9一二三四五六七八九十]+|task_\d+|第\s*[0-9一二三四五六七八九十]+\s*(?:条|项|行|个子任务))/i;
+
+const PATCH_CHANGE_VERB_RE = /(?:改|换成|修改|调整|更新|截止|负责人)/i;
 
 const START_NEW_TASK_WELCOME_RE =
   /已开启新任务|开启新任务[。！]?请描述|请描述您需要规划的具体工作/i;
@@ -95,7 +101,44 @@ export function shouldInjectAssignActionHint(
   userMessage: string,
 ): boolean {
   if (!hasDraftTasks(sessionContext)) return false;
+  if (shouldInjectRosterAssignActionHint(sessionContext, userMessage)) return false;
+  if (shouldInjectPatchActionHint(sessionContext, userMessage)) return false;
   return hasAssigneeIntentInUserMessage(userMessage);
+}
+
+/** 花名册/候选池已就绪且用户点将 → roster 批量指派纪律注入。 */
+export function shouldInjectRosterAssignActionHint(
+  sessionContext: TurnHintSessionContext | undefined,
+  userMessage: string,
+): boolean {
+  if (!hasDraftTasks(sessionContext)) return false;
+  if (!hasAssigneeIntentInUserMessage(userMessage)) return false;
+  const hasRoster = Boolean(sessionContext?.pendingRoster);
+  const hasPool = Boolean(
+    sessionContext?.candidatePool
+    && Array.isArray(sessionContext.candidatePool.entries)
+    && sessionContext.candidatePool.entries.length > 0,
+  );
+  return hasRoster || hasPool;
+}
+
+/** 已有草案且用户指定单行改字段/截止/负责人 → PATCH 纪律注入。 */
+export function shouldInjectPatchActionHint(
+  sessionContext: TurnHintSessionContext | undefined,
+  userMessage: string,
+): boolean {
+  if (!hasDraftTasks(sessionContext)) return false;
+  const text = String(userMessage ?? "").trim();
+  if (!text) return false;
+  if (hasWholeTableRedraftIntentInUserMessage(text)) return false;
+  if (hasRowSplitIntentInUserMessage(text)) return false;
+  return ROW_ANCHOR_RE.test(text) && PATCH_CHANGE_VERB_RE.test(text);
+}
+
+export function hasRowPatchIntentInUserMessage(userMessage: string): boolean {
+  const text = String(userMessage ?? "").trim();
+  if (!text) return false;
+  return ROW_ANCHOR_RE.test(text) && PATCH_CHANGE_VERB_RE.test(text);
 }
 
 /** start_new_task 后的「请描述…期望完成时间？」欢迎语，不是真实 CLARIFY 回合。 */
@@ -161,12 +204,14 @@ export function shouldInjectClarifyActionHint(
 
 export type TurnActionHint =
   | { kind: "explicitDraftRequest" }
+  | { kind: "rosterAssignAction" }
   | { kind: "assignAction" }
   | { kind: "splitAction" }
+  | { kind: "patchAction" }
   | { kind: "clarifyAction" }
   | { kind: "postClarifyDraftAction" };
 
-/** 互斥优先级：explicit → assign（有草案）→ split（有草案）→ clarify → postClarify */
+/** 互斥优先级：explicit → rosterAssign → assign → split → patch → clarify → postClarify */
 export function resolveTurnActionHint(
   sessionContext: TurnHintSessionContext | undefined,
   userMessage: string,
@@ -177,11 +222,17 @@ export function resolveTurnActionHint(
     }
     return { kind: "clarifyAction" };
   }
-  if (shouldInjectAssignActionHint(sessionContext, userMessage)) {
-    return { kind: "assignAction" };
+  if (shouldInjectRosterAssignActionHint(sessionContext, userMessage)) {
+    return { kind: "rosterAssignAction" };
+  }
+  if (shouldInjectPatchActionHint(sessionContext, userMessage)) {
+    return { kind: "patchAction" };
   }
   if (shouldInjectSplitActionHint(sessionContext, userMessage)) {
     return { kind: "splitAction" };
+  }
+  if (shouldInjectAssignActionHint(sessionContext, userMessage)) {
+    return { kind: "assignAction" };
   }
   if (shouldInjectClarifyActionHint(sessionContext, userMessage)) {
     return { kind: "clarifyAction" };
@@ -210,6 +261,22 @@ export function formatSplitActionHint(): string {
   );
 }
 
+export function formatRosterAssignActionHint(taskCount?: number): string {
+  const nHint = taskCount && taskCount > 1 ? `${taskCount} 条 draft → ${taskCount} 行 assignment；` : "";
+  return (
+    "rosterAssignAction: 花名册/候选池已就绪，pool 建好 ≠ 指派完成；" + nHint +
+    "须 read → resolve → set_candidate_pool（fileNotes）后 **bulk_assign_tasks 一次 N/N 全覆盖**；" +
+    "禁止逐条 search_employees；禁止仅在 message 口播已分派。"
+  );
+}
+
+export function formatPatchActionHint(): string {
+  return (
+    "patchAction: 用户指定单行改截止/负责人/字段；须 update_draft_task 改 dueAt 等字段；" +
+    "改负责人须 bulk_assign_tasks（单行或整表）；**禁止 replace_draft 整表重出**。"
+  );
+}
+
 export function formatTurnActionHint(
   hint: TurnActionHint,
   sessionContext?: TurnHintSessionContext,
@@ -217,6 +284,12 @@ export function formatTurnActionHint(
   switch (hint.kind) {
     case "explicitDraftRequest":
       return "explicitDraftRequest: 用户要求生成草案；本轮须 DRAFT + 顶层 draft JSON（含 title/description/tasks[]）。";
+    case "rosterAssignAction":
+      return formatRosterAssignActionHint(
+        Array.isArray((sessionContext?.latestDraft as { tasks?: unknown[] } | undefined)?.tasks)
+          ? ((sessionContext!.latestDraft as { tasks: unknown[] }).tasks.length)
+          : undefined,
+      );
     case "assignAction":
       return formatAssignActionHint(
         Array.isArray((sessionContext?.latestDraft as { tasks?: unknown[] } | undefined)?.tasks)
@@ -225,6 +298,8 @@ export function formatTurnActionHint(
       );
     case "splitAction":
       return formatSplitActionHint();
+    case "patchAction":
+      return formatPatchActionHint();
     case "clarifyAction":
       return "clarifyAction: 缺关键信息（如截止时间）；CLARIFY-only，直接输出 message JSON，禁止 tool_calls。";
     case "postClarifyDraftAction":

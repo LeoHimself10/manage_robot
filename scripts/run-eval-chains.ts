@@ -73,7 +73,13 @@ function main(): void {
     }
 
     if (group === "core") {
-      const r = runStage("chains-core", g.label, "npm", ["run", "eval:natural-full-chains"], env);
+      const coreEnv = {
+        ...env,
+        ...(process.env.EVAL_ENGINE?.trim()
+          ? { ORCHESTRATOR_ENGINE: process.env.EVAL_ENGINE.trim() }
+          : {}),
+      };
+      const r = runStage("chains-core", g.label, "npm", ["run", "eval:natural-full-chains"], coreEnv);
       stages.push({ id: "chains-core", label: g.label, ...r, critical: true });
     } else if (group === "portfolio") {
       const r = runStage("chains-portfolio", g.label, "npm", ["run", "eval:portfolio-chains"], env);

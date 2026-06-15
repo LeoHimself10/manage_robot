@@ -33,6 +33,7 @@ function baseSession(): PlanSession {
 
 describe("runManagerOrchestratorTurn", () => {
   beforeEach(() => {
+    vi.stubEnv("ORCHESTRATOR_ENGINE", "legacy");
     vi.stubEnv("DINGTALK_ROLE_ROUTING_ENABLED", "0");
     vi.stubEnv("ASSIGNMENT_PHASE_ENABLED", "0");
     vi.stubEnv("DINGTALK_PLANID_ROTATE_ENABLED", "0");
