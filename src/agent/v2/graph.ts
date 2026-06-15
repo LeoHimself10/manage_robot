@@ -142,6 +142,7 @@ export async function runV2AgentTurn(input: V2GraphRunInput): Promise<V2GraphRun
   const openAiTools = v2ToolsToOpenAIFormat(registry);
   const modelWithToolsAuto = input.model.bindTools(openAiTools);
   let modelWithToolsForced: ReturnType<ChatOpenAI["bindTools"]> | undefined;
+  let modelWithToolsAutoFrontier: ReturnType<ChatOpenAI["bindTools"]> | undefined;
   if (gate.toolChoice !== "auto") {
     // FR-3/C2: forced turn exposes only the narrow frontier subset; the
     // execution registry stays full so handlers are never pruned.
@@ -152,6 +153,11 @@ export async function runV2AgentTurn(input: V2GraphRunInput): Promise<V2GraphRun
     modelWithToolsForced = input.model.bindTools(toolsForForce, {
       tool_choice: gate.toolChoice,
     });
+    // For iterations 2+ of a retry turn: keep the frontier restriction but drop
+    // the forced single-tool choice to prevent deadlock on a failing tool.
+    if (gate.frontier && frontierTools.length > 0) {
+      modelWithToolsAutoFrontier = input.model.bindTools(frontierTools);
+    }
   }
 
   const runtimeRef: V2GraphRuntimeContext = {
@@ -166,6 +172,7 @@ export async function runV2AgentTurn(input: V2GraphRunInput): Promise<V2GraphRun
     clientConfig: input.clientConfig,
     modelWithToolsAuto,
     modelWithToolsForced,
+    modelWithToolsAutoFrontier,
     registry,
     turnToolChoice: gate.toolChoice,
     turnFrontier: gate.frontier,

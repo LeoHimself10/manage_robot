@@ -19,6 +19,9 @@ export interface V2GraphRuntimeContext {
   modelWithToolsAuto: ReturnType<ChatOpenAI["bindTools"]>;
   /** Narrow frontier + forced/required tool_choice; only set when gated (first turn). */
   modelWithToolsForced?: ReturnType<ChatOpenAI["bindTools"]>;
+  /** Narrow frontier + auto tool_choice; used for iterations 2+ of a retry turn so the
+   *  model stays within the frontier without being deadlocked on a forced single tool. */
+  modelWithToolsAutoFrontier?: ReturnType<ChatOpenAI["bindTools"]>;
   registry: Record<string, V2ToolRegistryEntry>;
   /** FR-1/FR-2 gate decision for this turn. */
   turnToolChoice: V2ToolChoice;

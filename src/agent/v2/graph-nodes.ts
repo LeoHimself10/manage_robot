@@ -134,15 +134,17 @@ export async function v2AgentNode(
 
   const iteration = state.loopIteration + 1;
   const llmStart = Date.now();
-  // FR-2: force tool_choice only on the first turn (loopIteration === 0); once
-  // inside the tool loop, revert to the full-set + `auto` model (anti-deadlock).
+  // FR-2: force tool_choice only on the first iteration (loopIteration === 0); once
+  // inside the tool loop, revert to auto to prevent deadlock on a failing tool.
+  // However, for retry turns with a frontier, keep the narrow tool set throughout
+  // all iterations — only the forced single-tool constraint is relaxed.
   const useForced =
     state.loopIteration === 0
     && runtime.turnToolChoice !== "auto"
     && runtime.modelWithToolsForced !== undefined;
   const boundModel = useForced
     ? runtime.modelWithToolsForced!
-    : runtime.modelWithToolsAuto;
+    : (runtime.modelWithToolsAutoFrontier ?? runtime.modelWithToolsAuto);
   let response: AIMessage;
   try {
     response = (await boundModel.invoke(state.messages)) as AIMessage;
