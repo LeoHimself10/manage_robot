@@ -375,6 +375,61 @@ export async function runOrchestrator(
       messageChars: msg.length,
       messagePreview: msg.slice(0, 200),
     });
+
+    // Attempt fallback extraction: re-prompt the model to emit the missing draft JSON.
+    if (process.env.DRAFT_FALLBACK_EXTRACT_ENABLED === "1") {
+      try {
+        const correctionMessages: Array<{ role: string; content: string }> = [
+          ...allMessages,
+          { role: "assistant", content: response.rawContent },
+          {
+            role: "user",
+            content:
+              [
+                "你刚才的回复包含「已采纳要点/拆解逻辑/阅读导览」四段结构，但缺少 draft JSON 字段，导致任务表无法渲染。",
+                "请立即补全：直接输出完整 JSON，保持 message 不变，并在顶层添加",
+                "draft: { title, description, tasks[] }（每条含 id/title/objective/deliverables/completionCriteria/timeNode.dueAt）。",
+                "只输出 JSON，不要其他解释。",
+              ].join(" "),
+          },
+        ];
+        const fallbackResponse = await client.callWithTools({
+          traceId: `${traceId}_fallback`,
+          messages: correctionMessages,
+          tools: [],
+          toolHandlers: {},
+          maxIterations: 1,
+          maxTotalMs: 30000,
+          maxToolCalls: 0,
+          maxTotalTokens: 6000,
+        });
+        const fbPayload = fallbackResponse.payload as Record<string, unknown> | undefined;
+        const fbRawDraft = isPlainObject(fbPayload?.draft) ? fbPayload.draft : undefined;
+        if (fbRawDraft) {
+          const extractedDraft = preserveOrchestratorDraftScalars(
+            fbRawDraft,
+            coerceLlmPlanPayload(fbRawDraft) as unknown as Record<string, unknown>,
+          );
+          draft = normalizeDraftTasksForSession(stabilizeDraftTaskIds(extractedDraft, previousDraft));
+          observabilityFlags.push("orchestrator_draft_fallback_extracted");
+          logStructured({
+            event: "orchestrator_draft_fallback_extracted",
+            traceId,
+            taskCount: Array.isArray((draft as Record<string, unknown[]>).tasks)
+              ? (draft as Record<string, unknown[]>).tasks.length
+              : 0,
+          });
+        } else {
+          logStructured({ event: "orchestrator_draft_fallback_empty", traceId });
+        }
+      } catch (fbErr) {
+        logStructured({
+          event: "orchestrator_draft_fallback_error",
+          traceId,
+          error: String(fbErr),
+        });
+      }
+    }
   }
 
   logStructured({
@@ -421,7 +476,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function looksLikeDraftStyleMessage(message: string): boolean {
   const text = String(message ?? "");
-  return /已采纳要点|拆解逻辑|阅读导览/.test(text);
+  // Canonical 4-part DRAFT message markers (see prompt: ①已采纳要点②拆解逻辑③阅读导览④下一步)
+  return /已采纳要点|拆解逻辑|阅读导览|结构化任务表/.test(text);
 }
 
 function serializeDraftForMemory(draft: Record<string, unknown>): Record<string, unknown> {
