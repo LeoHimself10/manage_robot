@@ -206,17 +206,21 @@ export function buildSplitDraftTaskHandler(deps: SplitDraftTaskToolDeps): ToolHa
 
     deps.onSessionMutated?.(session);
 
-    const finalCount = (
-      (session.latestDraft as { tasks?: unknown[] } | undefined)?.tasks ?? []
-    ).length;
+    const finalTasks = (session.latestDraft as { tasks?: Array<{ id?: unknown }> } | undefined)
+      ?.tasks ?? [];
+    const allTaskIds = finalTasks.map((t) => String(t?.id ?? "").trim()).filter(Boolean);
 
     return {
       ok: true,
       sourceTaskId: taskId,
       splitInto: createdIds.length,
       taskIds: createdIds,
-      tasksCount: finalCount,
-      hint: `已将 ${taskId} 拆成 ${createdIds.length} 条：${createdIds.join("、")}。`,
+      tasksCount: allTaskIds.length,
+      // Return all draft taskIds so the model knows the full set for bulk_assign_tasks.
+      allTaskIds,
+      hint:
+        `已将 ${taskId} 拆成 ${createdIds.length} 条：${createdIds.join("、")}。`
+        + ` 当前草案共 ${allTaskIds.length} 条，全部 taskId：${allTaskIds.join("、")}。`,
     };
   };
 }

@@ -7,6 +7,7 @@ import {
 import { getAssignmentCoverage } from "../assignment/merge-assignment";
 import { upsertAssignmentRow } from "./update-draft-task";
 import { clearPublishStagingOnDraft } from "../draft-staging-clear";
+import { logStructured } from "../../infra/logger";
 
 export interface BulkAssignRow {
   taskId: string;
@@ -20,12 +21,14 @@ export const BULK_ASSIGN_TASKS_TOOL: ToolDefinition = {
     name: "bulk_assign_tasks",
     description:
       "一次性为当前草案全部 subtask 写入负责人（scheme C：写入 latestAssignment，不写 draft.tasks）。" +
-      "assignments 须覆盖 draft.tasks 中的每一个 taskId；禁止用多次 update_draft_task 逐条指派。",
+      "assignments 须覆盖 draft.tasks 中的每一个 taskId；禁止用多次 update_draft_task 逐条指派。" +
+      "若所有任务指派给同一人，可只填 fillDefaultAssigneeUserId，不必逐条列 assignments（assignments 可为空数组）。",
     parameters: {
       type: "object",
       properties: {
         assignments: {
           type: "array",
+          description: "每条任务的指派信息。若用 fillDefaultAssigneeUserId 则此数组可留空或只写需要差异化指派的行。",
           items: {
             type: "object",
             properties: {
@@ -39,6 +42,12 @@ export const BULK_ASSIGN_TASKS_TOOL: ToolDefinition = {
             },
             required: ["taskId", "assigneeUserId"],
           },
+        },
+        fillDefaultAssigneeUserId: {
+          type: "string",
+          description:
+            "【便捷参数】将草案中所有未在 assignments 中显式指定的 taskId 都指派给此 userId。" +
+            "全部任务指派同一人时，只传此字段 + 空 assignments 即可，无需逐条列举 taskId。",
         },
       },
       required: ["assignments"],
@@ -61,11 +70,28 @@ export function buildBulkAssignTasksHandler(
     }
 
     const rawRows = args.assignments;
-    if (!Array.isArray(rawRows) || rawRows.length === 0) {
+    const draftTaskIds = ((session.latestDraft as { tasks?: Array<{ id?: unknown }> } | undefined)
+      ?.tasks ?? [])
+      .map((t) => String(t?.id ?? "").trim())
+      .filter(Boolean);
+    logStructured({
+      event: "bulk_assign_tasks_invoked",
+      draftTaskIds,
+      draftTaskCount: draftTaskIds.length,
+      inputRows: Array.isArray(rawRows)
+        ? (rawRows as Array<Record<string, unknown>>).map((r) => ({
+            taskId: String(r?.taskId ?? ""),
+            assigneeUserId: String(r?.assigneeUserId ?? "").slice(0, 12) + "***",
+          }))
+        : rawRows,
+    });
+    const fillDefault = String(args.fillDefaultAssigneeUserId ?? "").trim();
+
+    if (!Array.isArray(rawRows) || (rawRows.length === 0 && !fillDefault)) {
       return {
         ok: false,
         reason: "missing_assignments",
-        hint: "assignments 须为非空数组，且覆盖全部 draft taskId。",
+        hint: "assignments 须为非空数组（或同时提供 fillDefaultAssigneeUserId），且覆盖全部 draft taskId。",
       };
     }
 
@@ -82,15 +108,39 @@ export function buildBulkAssignTasksHandler(
       .filter(Boolean);
     const allowedTaskIds = new Set(taskIds);
 
+    // Merge explicit rows first, then fill remaining taskIds with fillDefault.
+    const mergedRaws: Array<Record<string, unknown>> = Array.isArray(rawRows)
+      ? (rawRows as Array<Record<string, unknown>>)
+      : [];
+    if (fillDefault) {
+      const explicitTaskIds = new Set(
+        mergedRaws
+          .filter((r) => r && typeof r === "object")
+          .map((r) => String(r.taskId ?? "").trim())
+          .filter(Boolean),
+      );
+      for (const tid of taskIds) {
+        if (!explicitTaskIds.has(tid)) {
+          mergedRaws.push({ taskId: tid, assigneeUserId: fillDefault });
+        }
+      }
+    }
+
     const seen = new Set<string>();
     const rows: BulkAssignRow[] = [];
-    for (const item of rawRows) {
+    for (const item of mergedRaws) {
       if (!item || typeof item !== "object") continue;
       const row = item as Record<string, unknown>;
       const taskId = String(row.taskId ?? "").trim();
       const assigneeUserId = String(row.assigneeUserId ?? "").trim();
       if (!taskId || !assigneeUserId) continue;
       if (!allowedTaskIds.has(taskId)) {
+        logStructured({
+          event: "bulk_assign_tasks_failed",
+          reason: "unknown_task_id",
+          offendingTaskId: taskId,
+          draftTaskIds: taskIds,
+        });
         return {
           ok: false,
           reason: "unknown_task_id",
@@ -133,11 +183,21 @@ export function buildBulkAssignTasksHandler(
 
     const missingTaskIds = taskIds.filter((id) => !seen.has(id));
     if (missingTaskIds.length > 0) {
+      logStructured({
+        event: "bulk_assign_tasks_failed",
+        reason: "partial_assignment",
+        missingTaskIds,
+        draftTaskIds: taskIds,
+        providedTaskIds: [...seen],
+      });
       return {
         ok: false,
         reason: "partial_assignment",
         missingTaskIds,
-        hint: `须覆盖全部 ${taskIds.length} 条 taskId；仍缺：${missingTaskIds.join("、")}`,
+        allDraftTaskIds: taskIds,
+        hint:
+          `须覆盖全部 ${taskIds.length} 条 taskId；仍缺：${missingTaskIds.join("、")}。`
+          + ` 当前草案全部 taskId：${taskIds.join("、")}`,
       };
     }
 
