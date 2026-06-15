@@ -10,14 +10,39 @@ import type { V2IterationTiming } from "./state";
 import type { LangGraphRunnableConfig } from "@langchain/langgraph";
 
 function extractTextContent(message: AIMessage): string {
-  if (typeof message.content === "string") return message.content.trim();
-  if (Array.isArray(message.content)) {
-    return message.content
+  let raw: string;
+  if (typeof message.content === "string") {
+    raw = message.content.trim();
+  } else if (Array.isArray(message.content)) {
+    raw = message.content
       .map((p) => (typeof p === "string" ? p : "text" in p ? String(p.text ?? "") : ""))
       .join("")
       .trim();
+  } else {
+    raw = String(message.content ?? "").trim();
   }
-  return String(message.content ?? "").trim();
+
+  // Model may output legacy JSON format despite v2 prompt instructing natural language.
+  // Gracefully extract the `message` field if the response is a JSON object.
+  if (raw.startsWith("{") || raw.startsWith("```")) {
+    try {
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+      const parsed = JSON.parse((fenced ?? raw).trim()) as unknown;
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        typeof (parsed as Record<string, unknown>).message === "string"
+      ) {
+        const msg = ((parsed as Record<string, unknown>).message as string).trim();
+        if (msg) return msg;
+      }
+    } catch {
+      // not JSON — return raw text as-is
+    }
+  }
+
+  return raw;
 }
 
 export function buildInterruptMessage(flag: string, partialMessage: string): string {
