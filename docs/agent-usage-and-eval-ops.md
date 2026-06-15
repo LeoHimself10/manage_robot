@@ -8,10 +8,15 @@
 |------|------|
 | `npm run eval:unit` | PR 门禁（Vitest，无 LLM） |
 | `npm run eval:integration` | meeting-import mock 全链路 |
+| `npx vitest run tests/agent/task-intake/ tests/web/task-intake.test.ts` | 任务快录入库（结构/归属/HTTP，无 LLM） |
+| `npx vitest run tests/agent/v2/` | v2 编排器单元测试（turn-contract / graph / requirements / bulk-assign-repro） |
+| `npm run dev:task-intake` | 本地浏览器测 task-intake（端口见 `ASSIGNMENT_WEB_PORT`，默认 8787） |
 | `npm run eval:spot` | 单轮 LLM，`EVAL_TAG=assignment\|portfolio\|misc\|read-url\|roles\|all` |
 | `npm run eval:chains` | 多轮链，`EVAL_CHAIN_GROUP=core\|portfolio\|cross\|all` |
 | `npm run eval:release` | 发版/nightly 编排 |
 | `npm run eval:compare` | 对比 eval 历史 |
+
+> **v2 引擎 eval 注意**：v2 eval 复用相同 fixture chain，通过 `ORCHESTRATOR_ENGINE=v2` 环境变量控制。legacy 测试文件通过 `vi.stubEnv("ORCHESTRATOR_ENGINE", "legacy")` 隔离，避免相互干扰。
 
 报告 schema：[eval-report-schema-v1.md](./eval-report-schema-v1.md)
 
@@ -74,10 +79,11 @@ Judge 与规则层同批抽样（`sampled=true` 时运行）。校准：`npm run
 
 ### Admin+主管双角色
 
-同一 `userId` 同时写入 `WORKBENCH_ADMIN_USER_IDS` 与 `WORKBENCH_MANAGER_USER_IDS`（或对应 `_IDS_FILE`）时：
+同一 `userId` 须同时在 **`WORKBENCH_ADMIN_USER_IDS`（env）** 与 **主管名单**（`WORKBENCH_MANAGER_USER_IDS` / `WORKBENCH_MANAGER_IDS_FILE` / 动态 `data/workbench-managers.json`）：
 
-- 工作台默认 Admin；可切「主管工作台」；主管侧栏可见「运营看板」
-- 钉钉 Agent 仍用 `manager` toolProfile；回复末尾附 Admin 运营看板深链
+- 工作台：`primaryRole=admin`、`alsoManager=true`；**免登默认主管视图**（`defaultLoginViewRole`）；侧栏可切 Admin / 主管 / 员工；可访问 `/workbench/admin/ops` 与 **权限中心** `/workbench/admin/permissions`
+- 钉钉 Agent（`DINGTALK_ROLE_ROUTING_ENABLED=1`）：`admin_also_manager` → **`toolProfile=manager`**（日常发任务/改派）
+- Admin 白名单仅能通过 env 修改并 **重建容器**；主管/Portfolio 可通过权限中心 UI 或 Agent `set_manager_permission` 写动态 JSON
 
 ### SLO 告警
 

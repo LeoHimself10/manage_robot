@@ -13,7 +13,7 @@
   - **Harness 编排层**：`createHarness` 可选 `AUDIT_SINK=file` + `AUDIT_JSONL_PATH`，与上者独立。
 - **会话与限流**：首版为 **单实例进程内** `Map` + TTL；多副本需后续外置存储（如 Redis），参见 `AGENTS.md`。
 - **用户可见回复**：钉钉链路单次返回一条 Markdown（草案/追问/错误），并在有 `draft` 时自动补充“结构化字段任务表”。`ASSIGNMENT_PHASE_ENABLED=1` 时，会在同一条回复中追加“分配建议”表（推荐成功时）。
-- **公网访问（试点）**：浏览器 → **Caddy**（`manage-robot-caddy`，如 `https://managebot.vivolightsales.com`）→ 反代 **`127.0.0.1:8080`** → `manage-robot-dingtalk`。Caddy 与 bot 容器独立；**bot 挂掉时 Caddy 仍在，站点会 404/连不上**，但 **`/opt/manage_robot/data` 挂载卷与任务库不受影响**。
+- **公网访问（试点）**：浏览器 → **Caddy**（`manage-robot-caddy`）→ 反代业务容器。组织 A：`https://managebot.vivolightsales.com` → **`127.0.0.1:8080`** → `manage-robot-dingtalk`；组织 B（明思）：`https://mingsibot.vivolightsales.com` → **`127.0.0.1:8081`** → `manage-robot-mingsibot`。Caddy 与 bot 容器独立；**bot 挂掉时 Caddy 仍在，站点会 404/连不上**，但 **各实例 `/opt/manage_robot*/data` 挂载卷与任务库不受影响**。
 
 ## 一、钉钉开放平台配置
 
@@ -285,7 +285,11 @@ curl -sf http://127.0.0.1:8080/health && echo OK
 | `manage-robot-dingtalk` | `8080` | `/opt/manage_robot/data` | `/etc/manage-robot.env` |
 | `manage-robot-mingsibot` | `8081` | `/opt/manage_robot-mingsibot/data` | `/etc/manage-robot-mingsibot.env` |
 
-代码仓库只有一份：`/opt/manage_robot`（Git 托管）。**mingsibot 不单独 clone**，重建镜像后两个容器各 restart 一次即可加载新代码。
+Caddy 反代示例：组织 A → `:8080`（`managebot.vivolightsales.com`）；组织 B → `:8081`（`mingsibot.vivolightsales.com`）。
+
+代码仓库只有一份：`/opt/manage_robot`（Git 托管）。**mingsibot 不单独 clone**，重建镜像后两个容器各 **stop/rm/run** 一次即可加载新代码与新 env。
+
+**改 env 后必须重建容器**：`docker restart` **不会**重新读取 `--env-file`。正确做法见下文「mingsibot 环境变量与链接」与 `scripts/ecs-fix-mingsibot-urls.sh`。
 
 **推荐发版流程（两个容器都更新）**：
 
@@ -308,6 +312,24 @@ ssh -i hh.pem root@你的ECS公网IP "
 ```
 
 **勿与 `ecs-deploy-dingtalk.ps1` 并行跑 `ecs-deploy-followup.ps1`**（见下节）。
+
+#### mingsibot 环境变量与链接（组织 B）
+
+明思实例除独立 `DINGTALK_*` 外，须显式配置工作台/通知域名（勿沿用组织 A 的 `managebot`）：
+
+| 变量 | 明思示例 |
+|------|----------|
+| `HEALTH_CHECK_PORT` / `ASSIGNMENT_WEB_PORT` | `8081` |
+| `ASSIGNMENT_WEB_PUBLIC_BASE_URL` | `https://mingsibot.vivolightsales.com` |
+| `WORKBENCH_NOTIFY_DETAIL_URL_BASE` | `https://mingsibot.vivolightsales.com/workbench/employee/task` |
+| `WORKBENCH_NOTIFY_MANAGER_DETAIL_URL_BASE` | `https://mingsibot.vivolightsales.com` |
+| `DINGTALK_ROBOT_CODE` | 与明思应用一致；空时可回退 `DINGTALK_CLIENT_ID` |
+| `WORKBENCH_ADMIN_USER_IDS` | 逗号分隔 admin userId（**仅 env**；例：姚凯珩 + Rain） |
+| `WORKBENCH_MANAGER_USER_IDS` | env 静态主管；另可与 `data/workbench-managers.json` 动态名单并集 |
+
+一键校正链接并重建容器：`bash scripts/ecs-fix-mingsibot-urls.sh`（在 ECS `/opt/manage_robot` 执行）。首次搭 mingsibot：`bash scripts/ecs-setup-mingsibot.sh`。
+
+**授予 Admin 权限**（保留既有主管）：编辑 `/etc/manage-robot-mingsibot.env` 的 `WORKBENCH_ADMIN_USER_IDS`，确保目标 userId 仍在主管名单（env 或 `/opt/manage_robot-mingsibot/data/workbench-managers.json`），然后 **stop/rm/run** 重建 `manage-robot-mingsibot`（不可只 restart）。
 
 #### 两种部署路径：git pull vs SCP（重要）
 
@@ -415,6 +437,9 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `ORCHESTRATOR_DRAFT_MEMORY_MAX_CHARS` | 否 | memory_context 草案注入字符上限（默认 `12000`） |
 | `AGENT_MAX_TOTAL_MS` | 否 | 单轮 orchestrator 总耗时上限毫秒（ECS 现网 `180000`） |
 | `UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX` | 否 | 单轮 `update_draft_task` 上限（默认 `4`；ECS 现网 `12`） |
+| `ORCHESTRATOR_ENGINE` | 否 | `v2` 启用 LangGraph 编排器（Turn Contract 事务化补跑）；默认 `legacy`。**ECS 现网已设 `v2`**；回退 legacy 删除此行或改 `legacy` 后重建容器 |
+| `V2_HISTORY_COMPACT_CHARS` | 否 | v2 历史压缩触发字符阈值（默认 `24000`） |
+| `V2_HISTORY_COMPACT_KEEP_TURNS` | 否 | v2 压缩后保留最近轮数（默认 `6`） |
 | `DRAFT_FALLBACK_EXTRACT_ENABLED` | 否 | `1` 时 orchestrator 可从仅 message 的 WBS 口播兜底提取 draft（默认 `1`） |
 | `READ_URL_ALLOWED_HOSTS` | 否 | 可选域名白名单（逗号分隔）；未配置则允许公网 host（内网/localhost 仍被 SSRF 防护拒绝）。**钉钉文档/需登录页通常读不到**，应引导用户粘贴正文 |
 | `QWEN_*` | 否 | 模型、超时、重试等；**SSE 流式默认开**（`QWEN_STREAM=0` 关闭），见 `docs/Qwen-接入实施说明.md` |
@@ -473,6 +498,31 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `PROGRESS_DIGEST_LLM_TIMEOUT_MS` | 否 | LLM 超时毫秒，超时走模板 fallback（默认 `8000`） |
 | `PROGRESS_DIGEST_LLM_MAX_TOKENS` | 否 | LLM 输出 token 上限（默认 `800`） |
 
+### 每日早报汇总（Daily Report Digest）
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `DAILY_REPORTS_PAGE_ENABLED` | 否 | `1` 开启工作台日报汇总页入口（默认 `0`；明思实例建议开 `1`） |
+| `DAILY_REPORT_DIGEST_ENABLED` | 否 | `1` 开启 8:30 群推 scheduler（默认 `0`） |
+| `DAILY_REPORT_DIGEST_CONFIG_FILE` | 否 | 名单 + webhook 配置 JSON（默认 `data/daily-report-digest.config.json`） |
+| `DAILY_REPORT_DIGEST_TIMEZONE` | 否 | 发送时区（默认 `Asia/Shanghai`） |
+| `DAILY_REPORT_DIGEST_HOUR` | 否 | 群推小时（默认 `8`） |
+| `DAILY_REPORT_DIGEST_MINUTE` | 否 | 群推分钟（默认 `30`） |
+| `DAILY_REPORT_DIGEST_WEEKDAYS_ONLY` | 否 | 仅工作日发送（默认 `1`） |
+| `DAILY_REPORT_DIGEST_STATE_DIR` | 否 | 去重状态目录（默认 `data/daily-report-digest`） |
+| `DAILY_REPORT_DIGEST_SCAN_INTERVAL_MS` | 否 | 扫描间隔毫秒（默认 `300000`） |
+| `DAILY_REPORT_MORNING_LLM_ENABLED` | 否 | LLM 综述开关（默认 `1`；推荐开，`0` 退化为模板汇总） |
+| `DAILY_REPORT_MORNING_LLM_MODEL` | 否 | 综述模型（默认 `qwen3.6-flash`） |
+| `DAILY_REPORT_MORNING_LLM_TIMEOUT_MS` | 否 | LLM 超时毫秒（默认 `12000`） |
+| `DAILY_REPORT_MORNING_LLM_MAX_TOKENS` | 否 | LLM 输出 token 上限（默认 `900`） |
+
+### 员工交付绩效看板
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `PERFORMANCE_DASHBOARD_ENABLED` | 否 | `1` 开启看板页（默认 `1`；`0` 隐藏入口） |
+| `PERFORMANCE_WINDOW_DAYS` | 否 | 绩效统计回溯自然日（默认 `90`，按截止日期回溯） |
+
 ### 主管周度 Dashboard
 
 | 变量 | 必填 | 说明 |
@@ -503,7 +553,7 @@ npm run dingtalk-bot
 - **合规**：CAPA 等字段仍为建议性质，与 PRD v1.3 一致；正式记录以公司 QMS 为准。
 - **同会话限速**：短时内重复发问可能收到「请稍后再试」（`RATE_LIMIT_WINDOW_MS`）。
 - **可观测**：容器标准输出可见结构化事件（如 `orchestrator_done`、assignment 相关事件）；钉钉主链路建议重点看容器日志 + `data/plans` 快照。`createTaskPlanningDemo` 的 JSONL 审计（`demo-runs.jsonl`）主要用于 CLI demo/eval 回归。
-- **Admin+主管双角色**（如运营负责人兼主管）：同一钉钉 `userId` 同时写入 `WORKBENCH_ADMIN_USER_IDS` 与 `WORKBENCH_MANAGER_USER_IDS`（或 `_IDS_FILE` JSON 数组）。工作台可切主管视图并访问 `/workbench/admin/ops`；钉钉回复末尾附运营看板深链，Agent 仍用 manager 工具集。
+- **Admin+主管双角色**（如运营负责人兼主管）：同一钉钉 `userId` 须同时出现在 **`WORKBENCH_ADMIN_USER_IDS`（env）** 与 **主管名单**（`WORKBENCH_MANAGER_USER_IDS` 和/或 `data/workbench-managers.json`）。工作台免登默认 **主管视图**，侧栏可切 Admin；钉钉 Agent 在 `DINGTALK_ROLE_ROUTING_ENABLED=1` 时走 **`toolProfile=manager`**（`admin_also_manager`），非纯 admin 工具集。纯 admin（不在主管名单）才用 admin 工具集 + 回复末尾运营看板深链。
 
 ## 五、后续可选增强
 

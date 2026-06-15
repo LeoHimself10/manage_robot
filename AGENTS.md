@@ -27,13 +27,33 @@
 - 已知遗留问题：`docs/已知遗留问题-backlog.md`
 - 历史设计稿：`docs/superpowers/`（文首标注快照，勿作现网依据）
 
-## 当前实现边界（2026-06-09）
+## 当前实现边界（2026-06-15）
 
 ### 编排与 Policy 分工
 
 - **Prompt**：模式判定（CLARIFY / QUERY / DRAFT / ASSIGN / PUBLISH / FOLLOWUP）、JSON 形态、话术与工具调用纪律。
 - **Backend FSM**：publish gate、staging flag、假口播重试、同轮 prepare+publish 阻断、pre-draft gate、search/update 配额等（见 `publish-staging.ts` / `authoritative-publish.ts` / `registry-pre-draft-gate.ts` / `tools/registry.ts`）。
 - **无硬编码业务状态机**：关键节点靠工具软返回 + 审计事件可观测。
+
+### V2 LangGraph 编排器（`ORCHESTRATOR_ENGINE=v2`）
+
+现网通过环境变量 **`ORCHESTRATOR_ENGINE=v2`** 启用 LangGraph 薄 harness，替代 legacy ReAct 循环（默认 `legacy` 保持向后兼容）。
+
+**架构要点**（`src/agent/v2/`）：
+
+- **图节点**：`tools_node`（执行工具）→ `llm_node`（模型推理）→ `end_turn`，无业务状态机。
+- **Turn Contract**（`turn-contract.ts`）：每轮起始做草案快照（`snapshotDraft`），工具层面保证状态单调递增；`RETRY_KIND_GATES` 定义各重试类型的 `frontier`（工具白名单）与 `toolChoice`（`required` / `auto`）。
+- **事务化补跑**（`manager-turn-v2.ts`）：`pickV2Retry` 识别失败模式（`assign`/`draft_fallback`/`url_fetch`）→ 显式门控补跑 → 验证后提交；失败则回滚到快照，防止状态退化。
+- **Frontier 机制**：重试时把工具暴露范围缩为最小集（如 `assign` 补跑只开放 `["bulk_assign_tasks","search_employees"]`），首次迭代 `tool_choice=required` 强制调用，后续迭代降为 `auto` 但仍限 frontier，防止模型跑偏调无关工具（如在 assign 补跑中重复 `create_project`）。
+- **V2 专属工具**：`split_draft_task`（原子行拆分，返回 `allTaskIds` 避免 partial_assignment）、`assign_from_roster`（花名册批量点将）、`intent_classifier`（工具调用门控）。
+- **消息提取**：`extractTextContent` 自动识别模型误输出 legacy JSON 格式并提取 `message` 字段，向后兼容。
+- **历史压缩**：`V2_HISTORY_COMPACT_CHARS=24000`、`V2_HISTORY_COMPACT_KEEP_TURNS=6`，超限时自动压缩历史上下文。
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `ORCHESTRATOR_ENGINE` | `legacy` | `v2` 启用 LangGraph 编排器 |
+| `V2_HISTORY_COMPACT_CHARS` | `24000` | v2 历史压缩触发字符阈值 |
+| `V2_HISTORY_COMPACT_KEEP_TURNS` | `6` | v2 压缩后保留最近轮数 |
 
 ### 模型与 Prompt
 
@@ -63,9 +83,15 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 
 **硬/软配额**：`search_employees` 单次 orchestrator 最多 **3** 次；`update_draft_task` 单次 orchestrator 默认最多 **4** 次（ECS 现网 **`UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12`**；**第 2 次 assigneeUserId patch 引导 bulk_assign**）；`read_url` 单次 orchestrator 最多 **2** 次（`READ_URL_PER_ORCHESTRATOR_MAX`）；assignment JSON **`requireFullCoverage`** 默认 true（partial 不落库）；`publish_task` 空 draft / 缺 assignee → `ok:false` 软返回。
 
+**`bulk_assign_tasks` 便捷参数**：`fillDefaultAssigneeUserId` — 将草案中**所有未在 `assignments[]` 中显式列出**的 taskId 全部指派给该 userId；全员单人时只传 `fillDefaultAssigneeUserId` + 空 `assignments: []` 即可，无需逐条枚举，规避 `split_draft_task` 后模型遗漏新 taskId 导致 `partial_assignment`。失败时 `allDraftTaskIds` 字段返回当前草案全量 ID，便于模型重试修正。
+
+**`split_draft_task`**（v2 专属原子工具）：将草案单行原子拆成 2 条以上（`update` + `add_draft_subtask` 连续原子写）。返回 `allTaskIds`（拆后草案全量 taskId）+ `hint` 明确列出，避免模型随后调 `bulk_assign_tasks` 时遗漏新插入行。
+
 **Pre-draft gate**（`registry-pre-draft-gate.ts`）：无草案且非点将意图时，阻断 browse 式 `search_employees`、`search_similar_plans`、`update_known_facts`（按姓名 search 仍允许）。
 
 **条件暴露**：`search_similar_plans` ← `SEARCH_SIMILAR_PLANS_ENABLED`；`search_web` ← `SEARCH_WEB_ENABLED` + 用户语义；`read_url` ← `READ_URL_ENABLED`（默认 `1`）+ 用户消息含 URL。
+
+**DRAFT_FALLBACK_EXTRACT_ENABLED**（默认 `1`）：orchestrator 检测到模型输出了 DRAFT 风格描述文字但未输出 JSON（`looksLikeDraftStyleMessage`）时，自动触发一次补全调用提取 `draft` 字段，防止"有口播无表格"。
 
 ### 钉钉角色路由
 
@@ -100,7 +126,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 
 ### Token 与迭代
 
-代码默认：`DINGTALK_QWEN_MAX_TOKENS=8000`、`DINGTALK_QWEN_TIMEOUT_MS=120000`、`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=6`、`AGENT_MAX_TOTAL_TOKENS=24000`、`DINGTALK_QWEN_THINKING=0`。**ECS 现网**（`/etc/manage-robot.env`）：`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=30`、`AGENT_MAX_TOOL_CALLS=16`、`AGENT_MAX_TOTAL_MS=180000`、`UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12`、`DRAFT_FALLBACK_EXTRACT_ENABLED=1`。
+代码默认：`DINGTALK_QWEN_MAX_TOKENS=8000`、`DINGTALK_QWEN_TIMEOUT_MS=120000`、`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=6`、`AGENT_MAX_TOTAL_TOKENS=24000`、`DINGTALK_QWEN_THINKING=0`。**ECS 现网**（`/etc/manage-robot.env`）：`ORCHESTRATOR_ENGINE=v2`、`DINGTALK_ORCHESTRATOR_MAX_ITERATIONS=30`、`AGENT_MAX_TOOL_CALLS=16`、`AGENT_MAX_TOTAL_MS=180000`、`UPDATE_DRAFT_TASK_PER_ORCHESTRATOR_MAX=12`、`DRAFT_FALLBACK_EXTRACT_ENABLED=1`。
 
 ### 运行时数据
 
@@ -164,6 +190,29 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 - **工具 / Prompt**：`list_follow_up_candidates`、`send_subtask_reminder`；主管 toolProfile 注入 **FOLLOWUP** 模式。
 - **单实例**：切勿水平扩容 `dingtalk-bot`（scheduler 进程内假设）。Env 见 `docs/deploy-aliyun-dingtalk.md`。
 
+## 每日早报汇总（Daily Report Digest，v1）
+
+- **定位**：跨组织早报汇总，Admin 配置采集名单 → 每日 8:30（`DAILY_REPORT_DIGEST_HOUR=8`，`MINUTE=30`）向指定钉钉群发送综述 Markdown；工作台提供只读汇总页（`DAILY_REPORTS_PAGE_ENABLED=1`）与名单管理（Admin only）。
+- **组织隔离**：明思实例默认开启（`DAILY_REPORTS_PAGE_ENABLED=1`），微光默认关。两个实例共用同一镜像，通过 env 分叉。
+- **早报来源**：员工钉钉群日报文本（`DAILY_REPORT_DIGEST_CONFIG_FILE` 中配置 webhook + 人员名单）；每日扫描后 LLM 综述（`DAILY_REPORT_MORNING_LLM_ENABLED=1`，可选，默认 `qwen3.6-flash`，8:30 前生成）。
+- **附件识别**：支持图片/附件链接摘要（Phase 1 识别展示）。
+- **月归档 / 三段式**：早报页支持月维度归档；综述分「项目进展 / 风险提示 / 下一步」三段式结构。
+- **工作台名单管理**：Admin 通过工作台搜人 + 增删，**不暴露给普通主管**；近 7 天日报校验防误删。
+- **实现**：`src/agent/daily-report-digest/`；scheduler 与催办/进展推送并列启动；`DAILY_REPORT_DIGEST_ENABLED=1` 开关。
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `DAILY_REPORTS_PAGE_ENABLED` | `0` | 工作台日报汇总页入口 |
+| `DAILY_REPORT_DIGEST_ENABLED` | `0` | 8:30 群推 scheduler |
+| `DAILY_REPORT_DIGEST_CONFIG_FILE` | `data/daily-report-digest.config.json` | 名单 + webhook 配置 |
+| `DAILY_REPORT_DIGEST_TIMEZONE` | `Asia/Shanghai` | 发送时区 |
+| `DAILY_REPORT_DIGEST_HOUR` | `8` | 群推小时 |
+| `DAILY_REPORT_DIGEST_MINUTE` | `30` | 群推分钟 |
+| `DAILY_REPORT_DIGEST_WEEKDAYS_ONLY` | `1` | 仅工作日发送 |
+| `DAILY_REPORT_MORNING_LLM_ENABLED` | `1` | LLM 综述开关 |
+| `DAILY_REPORT_MORNING_LLM_MODEL` | `qwen3.6-flash` | 综述模型 |
+| `DAILY_REPORT_MORNING_LLM_TIMEOUT_MS` | `12000` | LLM 超时 |
+
 ## 每日进展推送（Progress Digest，v1.1）
 
 - **范围**：工作日 9:00 北京窗口；`PROGRESS_DIGEST_WEEKDAYS_ONLY=1`。
@@ -185,6 +234,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 - **隔离 Agent**：页内问答框走**独立** `promptProfile=performance` + `toolProfile=performance`（仅 `get_employee_performance` / `search_employees` / `get_employee_details` / `get_current_time`，**无**草案/发放/指派/催办），不污染 planner/manager orchestrator、不接钉钉路由、不动 PlanSession 草案。入口 `runPerformanceAgentTurn`（`src/agent/performance-agent-turn.ts`）。
 - **数据/口径**：`subtasks.completed_at`（DONE 时写入、迁出 DONE 清空、启动从 `SUBTASK_PROGRESS(DONE)` 事件回填）；迟交=`completed_at > effectiveDue`（纯日期截止=当天 18:00 北京）；仅统计有 `due_at` 的子任务，窗口 `PERFORMANCE_WINDOW_DAYS=90` 按截止回溯。聚合纯函数 `src/agent/performance/performance-facts.ts`，SQL 在 `loadPerformanceDataset`。
 - **公正性**：`due_at` 发布后不可改；审计型 `setSubtaskDueAt` + `SUBTASK_DUE_CHANGED` 为未来「改期」预留基础设施；画像以 `reassignedInvolved` / `unknownCompletion` 标注，避免武断贴标签。
+- **UI 增强**：四状态交付堆叠图、单员工详情项目过滤、多轮对话记忆（`performance` profile 专用 `promptProfile`）；Admin 全员视角，主管仅本人名下。
 - **API**：`GET /api/workbench/manager/performance`、`POST /api/workbench/manager/performance/chat`。
 
 ## 承接指派（v0.2 MVP）
@@ -199,6 +249,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 
 | 变量 | 说明 |
 |------|------|
+| `ORCHESTRATOR_ENGINE` | `v2` 启用 LangGraph 编排器（默认 `legacy`；ECS 现网已设 `v2`） |
 | `ASSIGNMENT_PHASE_ENABLED` | `1` 开启指派段落 |
 | `WORKBENCH_MANAGER_USER_IDS` / `WORKBENCH_MANAGER_IDS_FILE` | 主管身份（env 静态名单） |
 | `WORKBENCH_DYNAMIC_MANAGER_IDS_FILE` | 动态主管 JSON（默认 `data/workbench-managers.json`；权限中心 / Agent 写入） |
@@ -211,12 +262,18 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 | `TASK_INITIATOR_*` | 发起人白名单（**主链路未接入**） |
 | `TASK_INTAKE_ENABLED` | 任务快录入库页面/API/侧栏（默认开） |
 | `TASK_INTAKE_LLM_*` | 结构化 + 归属建议模型/超时（见 `docs/task-intake.md`） |
+| `DAILY_REPORTS_PAGE_ENABLED` | 工作台日报汇总页（默认 `0`；明思实例开 `1`） |
+| `DAILY_REPORT_DIGEST_ENABLED` | 8:30 群推 scheduler（默认 `0`） |
+| `DAILY_REPORT_DIGEST_CONFIG_FILE` | 名单 + webhook 配置文件路径 |
+| `PERFORMANCE_DASHBOARD_ENABLED` | 员工交付绩效看板（默认 `1`） |
+| `PERFORMANCE_WINDOW_DAYS` | 绩效统计窗口自然日（默认 `90`） |
 
 **发布后文案修正**：工作台暂无「已发布任务在线改字」；运维可对 SQLite `tasks`/`subtasks` 做定向 UPDATE（示例脚本 `scripts/patch-meeting-subtask-titles.ts`），**不会**自动重发通知。
 
 ## Agent Harness 基线
 
-- **编排**：`runOrchestrator` → `QwenCompatibleClient.callWithTools`；中间 tool 轮静默，最终 `end_turn` 的 message 对用户可见。
+- **编排**（legacy）：`runOrchestrator` → `QwenCompatibleClient.callWithTools`；中间 tool 轮静默，最终 `end_turn` 的 message 对用户可见。
+- **编排**（v2）：`runManagerTurnV2` → LangGraph `StateGraph`（`tools_node` ↔ `llm_node`）→ 事务化补跑（Turn Contract）；`ORCHESTRATOR_ENGINE=v2` 激活。
 - **审计**：`orchestrator_done` / `orchestrator_max_turns_exceeded`；有草案时 `data/plans/<traceId>.json` 快照；demo 链路另写 `AUDIT_DEMO_JSONL_PATH`。
 - **护栏**：PII 脱敏（`content-filter.ts`）、会话 TTL + 限速（`session-store.ts`）。
 - **会话 TTL**：默认 30min（`CHAT_SESSION_TTL_MS`）。
@@ -228,7 +285,9 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 3. ✅ 承接指派 v0.2 + Web 工作台 + SQLite 正式任务
 4. ✅ 钉钉集成（免登、通知、通讯录、员工侧工具）
 5. ✅ 催办 v1 + 每日进展推送 v1
-6. ⏳ 承接三态（钉钉卡片）、节点反馈、验收闭环、OA 同步
+6. ✅ v2 LangGraph 编排器 + Turn Contract 事务化补跑
+7. ✅ 每日早报汇总 v1 + 员工绩效看板 v1 + 任务快录入库 v1.2
+8. ⏳ 承接三态（钉钉卡片）、节点反馈、验收闭环、OA 同步
 
 ## 工程约束
 
@@ -260,7 +319,8 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 |------|------|------|
 | Demo/MVP | 输入质检 → Qwen 结构化生成 → 门禁 → Markdown/表格 | ✅ |
 | V1.0 | 钉钉 Stream + ReAct + 工作台 SQLite + 发布/改派/通知 | ✅ |
-| V1.1 | 催办、进展推送、WBS 细拆、Scheme C、角色路由、eval 回归集 | ✅ 主体 |
+| V1.1 | 催办、进展推送、WBS 细拆、Scheme C、角色路由、eval 回归集 | ✅ |
 | V1.2 | 双钉钉实例（mingsibot）、Admin 权限中心、动态主管名单、Portfolio 会议入库、任务快录入库（AI 多父任务分组 + 追加已有） | ✅ 试点 |
+| V1.3 | **v2 LangGraph 编排器**（Turn Contract 事务化补跑、Frontier 工具门控）；每日早报汇总 v1；员工绩效看板 v1；`bulk_assign_tasks` fillDefault + split_draft_task allTaskIds 可靠性修复 | ✅ 现网 |
 | V2 | 钉钉卡片承接三态、执行中变更、节点反馈、验收闭环 | ⏳ |
 | V3 | OA/QMS 联动、电子签名、管理报表 | ⏳ |
