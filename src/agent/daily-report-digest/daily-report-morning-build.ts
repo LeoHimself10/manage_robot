@@ -72,6 +72,7 @@ export function renderMorningReportMarkdown(input: {
 }): MorningReportBuildResult {
   let submittedCount = 0;
   let missingCount = 0;
+  let onLeaveCount = 0;
   const parts: string[] = [];
   parts.push(`## ${input.title}`);
   parts.push(`> ${input.dateLabel}`);
@@ -94,10 +95,13 @@ export function renderMorningReportMarkdown(input: {
   for (const org of input.orgDigests) {
     submittedCount += org.submitted.length;
     missingCount += org.missing.length;
+    onLeaveCount += (org.onLeave ?? []).length;
   }
 
   parts.push("");
-  parts.push(`**统计**：已交 ${submittedCount} · 未交 ${missingCount}`);
+  const statParts = [`已交 ${submittedCount}`, `未交 ${missingCount}`];
+  if (onLeaveCount > 0) statParts.push(`请假 ${onLeaveCount}`);
+  parts.push(`**统计**：${statParts.join(" · ")}`);
 
   if (input.workbenchUrl) {
     parts.push("");
@@ -129,6 +133,15 @@ export function renderMorningReportMarkdown(input: {
   if (missingNames.length > 0) {
     parts.push("");
     parts.push(`**未提交**：${missingNames.join("、")}`);
+  }
+
+  const onLeaveNames: string[] = [];
+  for (const org of input.orgDigests) {
+    for (const m of org.onLeave ?? []) onLeaveNames.push(`${org.label}·${m.name}`);
+  }
+  if (onLeaveNames.length > 0) {
+    parts.push("");
+    parts.push(`**请假**：${onLeaveNames.join("、")}`);
   }
 
   return {

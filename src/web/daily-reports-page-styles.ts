@@ -100,6 +100,12 @@ export const DAILY_REPORTS_PAGE_CSS = `
   background:#fff7ed;border:1px solid #fed7aa;border-radius:var(--radius-sm);padding:9px 12px;
 }
 .dr-missing-lbl{font-weight:600;margin-right:6px;}
+.dr-onleave{
+  margin-top:12px;font-size:var(--text-sm);color:#1d4ed8;
+  background:#eff6ff;border:1px solid #bfdbfe;border-radius:var(--radius-sm);padding:9px 12px;
+}
+.dr-onleave-lbl{font-weight:600;margin-right:6px;}
+.dr-pill-leave{background:#dbeafe;color:#1e40af;}
 .dr-errline{margin-top:8px;font-size:var(--text-sm);color:var(--danger);}
 .dr-empty{color:var(--muted);font-size:var(--text-sm);padding:10px 0;}
 

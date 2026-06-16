@@ -28,6 +28,7 @@ export interface DailyReportsOrgPayload {
     }>;
   }>;
   missing: Array<{ userid: string; name: string; projectGroup?: ProjectGroupId }>;
+  onLeave: Array<{ userid: string; name: string; projectGroup?: ProjectGroupId }>;
   errors: Array<{ userid: string; name: string; reason: string }>;
 }
 
@@ -47,6 +48,7 @@ export interface DailyReportsHttpPayload {
   generatedAt?: string;
   submittedCount?: number;
   missingCount?: number;
+  onLeaveCount?: number;
   errorCount?: number;
   orgs?: DailyReportsOrgPayload[];
   projectGroups?: DailyReportsProjectGroupPayload[];
@@ -67,6 +69,11 @@ function mapOrgDigest(org: Awaited<ReturnType<typeof collectOrgDigests>>["orgDig
       })),
     })),
     missing: org.missing.map((m) => ({
+      userid: m.userid,
+      name: m.name,
+      projectGroup: assignments.get(m.userid),
+    })),
+    onLeave: (org.onLeave ?? []).map((m) => ({
       userid: m.userid,
       name: m.name,
       projectGroup: assignments.get(m.userid),
@@ -121,9 +128,11 @@ export async function buildDailyReportsHttpPayload(input?: {
 
   let submittedCount = 0;
   let missingCount = 0;
+  let onLeaveCount = 0;
   const orgs = orgDigests.map((org) => {
     submittedCount += org.submitted.length;
     missingCount += org.missing.length;
+    onLeaveCount += (org.onLeave ?? []).length;
     return mapOrgDigest(org, assignmentMap);
   });
 
@@ -143,6 +152,7 @@ export async function buildDailyReportsHttpPayload(input?: {
     generatedAt: now.toISOString(),
     submittedCount,
     missingCount,
+    onLeaveCount,
     errorCount,
     orgs: view === "company" ? orgs : undefined,
     projectGroups: view === "project" ? projectGroups : undefined,

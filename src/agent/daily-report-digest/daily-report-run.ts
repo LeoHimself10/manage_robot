@@ -22,6 +22,7 @@ import {
   reportEntriesToSheetRows,
 } from "./daily-report-morning-build";
 import { filterOrgDigestsContents } from "./daily-report-content-filter";
+import { applyLeaveToOrgDigests } from "./daily-report-leave";
 import { resolveWorkbookParentNodeId } from "./daily-report-doc-archive";
 import { createDingTalkWorkbookClient } from "./dingtalk-workbook-client";
 import { buildDailyReportsPublicUrlForDingtalkOutbound } from "./daily-report-workbench-link";
@@ -85,7 +86,13 @@ export async function collectOrgDigests(
     orgDigests.push(aggregateOrgDigest(org, allReports, errorsByUserid));
   }
 
-  return { orgDigests: filterOrgDigestsContents(orgDigests, config.orgs), errorCount };
+  const filtered = filterOrgDigestsContents(orgDigests, config.orgs);
+  const withLeave = await applyLeaveToOrgDigests(filtered, config.orgs, range, {
+    enabled: config.leaveCheckEnabled,
+    fetchImpl: deps?.fetchImpl,
+  });
+
+  return { orgDigests: withLeave, errorCount };
 }
 
 function sheetNameForEmployee(orgLabel: string, name: string): string {

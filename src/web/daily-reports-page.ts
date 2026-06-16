@@ -360,6 +360,7 @@ function buildDailyReportsClientJs(opts: {
   function renderOrg(org){
     var subCount = org.submitted ? org.submitted.length : 0;
     var missCount = org.missing ? org.missing.length : 0;
+    var leaveCount = org.onLeave ? org.onLeave.length : 0;
     var mark = esc((org.label||'·').slice(0,1));
     var subs = (org.submitted||[]).map(function(emp){
       var multi = (emp.reports && emp.reports.length>1) ? (' <span class="dr-count">'+emp.reports.length+' 篇</span>') : '';
@@ -367,35 +368,42 @@ function buildDailyReportsClientJs(opts: {
     }).join('');
     if(!subs) subs = '<div class="dr-empty">本组织该日暂无已提交日报</div>';
     var missing = missCount ? ('<div class="dr-missing"><span class="dr-missing-lbl">未提交（'+missCount+'）</span>'+org.missing.map(function(m){return esc(m.name||m.userid);}).join('、')+'</div>') : '';
+    var onleave = leaveCount ? ('<div class="dr-onleave"><span class="dr-onleave-lbl">请假（'+leaveCount+'）</span>'+org.onLeave.map(function(m){return esc(m.name||m.userid);}).join('、')+'</div>') : '';
     var errs = (org.errors && org.errors.length) ? ('<div class="dr-errline">读取失败：'+org.errors.map(function(e){return esc(e.name||e.userid);}).join('、')+'</div>') : '';
+    var leavePill = leaveCount ? ('<span class="dr-pill dr-pill-leave">请假 '+leaveCount+'</span>') : '';
     return '<section class="dr-org">'
       + '<div class="dr-org-head"><div class="dr-org-title"><span class="dr-org-mark">'+mark+'</span><h2>'+esc(org.label)+'</h2></div>'
-      + '<span class="dr-org-stat"><span class="dr-pill dr-pill-ok">已交 '+subCount+'</span><span class="dr-pill dr-pill-miss">未交 '+missCount+'</span></span></div>'
-      + subs + missing + errs + '</section>';
+      + '<span class="dr-org-stat"><span class="dr-pill dr-pill-ok">已交 '+subCount+'</span><span class="dr-pill dr-pill-miss">未交 '+missCount+'</span>'+leavePill+'</span></div>'
+      + subs + missing + onleave + errs + '</section>';
   }
   function renderProjectGroup(group){
-    var subCount = 0, missCount = 0;
+    var subCount = 0, missCount = 0, leaveCount = 0;
     var allSubmitted = [];
     var allMissing = [];
+    var allOnLeave = [];
     var allErrors = [];
     (group.orgs||[]).forEach(function(org){
       subCount += (org.submitted||[]).length;
       missCount += (org.missing||[]).length;
+      leaveCount += (org.onLeave||[]).length;
       (org.submitted||[]).forEach(function(emp){ allSubmitted.push(emp); });
       (org.missing||[]).forEach(function(m){ allMissing.push(m); });
+      (org.onLeave||[]).forEach(function(m){ allOnLeave.push(m); });
       (org.errors||[]).forEach(function(e){ allErrors.push(e); });
     });
     var subs = allSubmitted.map(function(emp){
       var multi = (emp.reports && emp.reports.length>1) ? (' <span class="dr-count">'+emp.reports.length+' 篇</span>') : '';
       return '<div class="dr-emp"><div class="dr-emp-name">'+esc(emp.name||emp.userid)+multi+'</div>'+(emp.reports||[]).map(renderReport).join('')+'</div>';
     }).join('');
-    if(!subs && !allMissing.length && !allErrors.length) subs = '<div class="dr-empty">该组暂无数据</div>';
+    if(!subs && !allMissing.length && !allOnLeave.length && !allErrors.length) subs = '<div class="dr-empty">该组暂无数据</div>';
     var missing = missCount ? ('<div class="dr-missing"><span class="dr-missing-lbl">未提交（'+missCount+'）</span>'+allMissing.map(function(m){return esc(m.name||m.userid);}).join('、')+'</div>') : '';
+    var onleave = leaveCount ? ('<div class="dr-onleave"><span class="dr-onleave-lbl">请假（'+leaveCount+'）</span>'+allOnLeave.map(function(m){return esc(m.name||m.userid);}).join('、')+'</div>') : '';
     var errs = allErrors.length ? ('<div class="dr-errline">读取失败：'+allErrors.map(function(e){return esc(e.name||e.userid);}).join('、')+'</div>') : '';
+    var leavePill = leaveCount ? ('<span class="dr-pill dr-pill-leave">请假 '+leaveCount+'</span>') : '';
     return '<section class="dr-pgroup dr-pgroup--'+esc(group.id)+'">'
       + '<div class="dr-pgroup-head"><h2>'+esc(group.label)+'</h2>'
-      + '<span class="dr-org-stat"><span class="dr-pill dr-pill-ok">已交 '+subCount+'</span><span class="dr-pill dr-pill-miss">未交 '+missCount+'</span></span></div>'
-      + '<div class="dr-pgroup-body dr-pgroup-body--flat">'+subs+missing+errs+'</div></section>';
+      + '<span class="dr-org-stat"><span class="dr-pill dr-pill-ok">已交 '+subCount+'</span><span class="dr-pill dr-pill-miss">未交 '+missCount+'</span>'+leavePill+'</span></div>'
+      + '<div class="dr-pgroup-body dr-pgroup-body--flat">'+subs+missing+onleave+errs+'</div></section>';
   }
   function load(){
     meta.textContent = '加载中…';
@@ -411,7 +419,8 @@ function buildDailyReportsClientJs(opts: {
         if(dateInput && data.date && !dateInput.value) dateInput.value = data.date;
         var tail = data.errorCount ? (' · 读取失败 '+data.errorCount) : '';
         var viewLabel = VIEW === 'company' ? '公司视图' : '项目视图';
-        meta.textContent = (data.dateLabel||data.date||'')+' · '+viewLabel+' · 已交 '+(data.submittedCount||0)+' · 未交 '+(data.missingCount||0)+tail;
+        var leaveTail = (data.onLeaveCount||0) ? (' · 请假 '+data.onLeaveCount) : '';
+        meta.textContent = (data.dateLabel||data.date||'')+' · '+viewLabel+' · 已交 '+(data.submittedCount||0)+' · 未交 '+(data.missingCount||0)+leaveTail+tail;
         if(VIEW === 'company'){
           content.innerHTML = (data.orgs||[]).map(renderOrg).join('') || '<div class="dr-empty">暂无组织配置</div>';
         } else {

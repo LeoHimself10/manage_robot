@@ -81,6 +81,9 @@ function makeFakeFetch(opts: {
       const list = opts.reportsByUserid?.[body.userid] ?? [];
       return jsonRes({ errcode: 0, result: { data_list: list, has_more: false, next_cursor: 0 } });
     }
+    if (u.includes("topapi/attendance/getleavestatus")) {
+      return jsonRes({ errcode: 0, result: { leave_status: [], has_more: false } });
+    }
     if (u.includes("robot/send")) {
       opts.onSend?.(body, u);
       return jsonRes({ errcode: opts.sendErrcode ?? 0, errmsg: "ok" });
@@ -405,8 +408,10 @@ describe("runDailyReportDigest", () => {
     expect(sentBody.markdown.text).toContain("完成了 A 模块");
     // 3 employees -> 3 report/list calls
     expect(calls.filter((c) => c.url.includes("report/list"))).toHaveLength(3);
-    // token cached per appKey (2 orgs) -> 2 token calls
-    expect(calls.filter((c) => c.url.includes("oauth2/accessToken"))).toHaveLength(2);
+    // 2 orgs with missing -> 2 getleavestatus calls
+    expect(calls.filter((c) => c.url.includes("getleavestatus"))).toHaveLength(2);
+    // token per appKey, report + leave clients each cache separately -> 4 token calls
+    expect(calls.filter((c) => c.url.includes("oauth2/accessToken"))).toHaveLength(4);
   });
 });
 

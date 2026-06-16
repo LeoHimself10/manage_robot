@@ -16,6 +16,8 @@ export interface OrgDigest {
   label: string;
   submitted: EmployeeReports[];
   missing: Array<{ userid: string; name: string }>;
+  /** 未交但业务日内有钉钉全天请假记录的员工 */
+  onLeave?: Array<{ userid: string; name: string }>;
   /** 拉取该组织日志时发生的错误（按 userid 记录），用于群消息脚注提示 */
   errors: Array<{ userid: string; name: string; reason: string }>;
 }
@@ -65,7 +67,7 @@ export function aggregateOrgDigest(
     }
   }
 
-  return { label: org.label, submitted, missing, errors };
+  return { label: org.label, submitted, missing, onLeave: [], errors };
 }
 
 function renderReportBody(report: ReportEntry): string {
@@ -128,6 +130,13 @@ export function renderDailyReportMarkdown(
       parts.push("");
       const names = org.missing.map((m) => m.name).join("、");
       parts.push(`**未提交（${org.missing.length}）**：${names}`);
+    }
+
+    const onLeave = org.onLeave ?? [];
+    if (onLeave.length > 0) {
+      parts.push("");
+      const names = onLeave.map((m) => m.name).join("、");
+      parts.push(`**请假（${onLeave.length}）**：${names}`);
     }
 
     if (org.errors.length > 0) {

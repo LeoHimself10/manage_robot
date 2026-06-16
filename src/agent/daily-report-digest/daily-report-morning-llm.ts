@@ -30,6 +30,7 @@ export interface MorningDigestLlmPayload {
     reports: Array<{ template?: string; fields: Array<{ k: string; v: string }> }>;
   }>;
   missing: string[];
+  onLeave: string[];
   emptyAfterFilter: string[];
   attachmentOnly: string[];
 }
@@ -66,6 +67,7 @@ export function loadDailyReportMorningLlmConfig(): DailyReportMorningLlmConfig |
 export function slimOrgDigestsForLlm(orgDigests: OrgDigest[]): MorningDigestLlmPayload {
   const people: MorningDigestLlmPayload["people"] = [];
   const missing: string[] = [];
+  const onLeave: string[] = [];
   const emptyAfterFilter: string[] = [];
   const attachmentOnly: string[] = [];
 
@@ -97,9 +99,10 @@ export function slimOrgDigestsForLlm(orgDigests: OrgDigest[]): MorningDigestLlmP
       }
     }
     for (const m of org.missing) missing.push(m.name);
+    for (const m of org.onLeave ?? []) onLeave.push(m.name);
   }
 
-  return { people, missing, emptyAfterFilter, attachmentOnly };
+  return { people, missing, onLeave, emptyAfterFilter, attachmentOnly };
 }
 
 const SYSTEM_PROMPT = `你是企业内部早报编辑。根据 JSON 中员工的昨日钉钉日报，只输出一个 JSON：
@@ -110,6 +113,7 @@ const SYSTEM_PROMPT = `你是企业内部早报编辑。根据 JSON 中员工的
 - personBriefs：仅针对 people[] 中有正文的员工，每人一条 brief 不超过 50 字；只写姓名，禁止组织/公司名
 - closing：1-2 句收束
 - closing 中「未交/尚未提交」**只能**引用 missing[] 中的姓名；missing[] 为空时禁止写任何人未提交
+- onLeave[]：全天请假员工；closing 可写「请假：姓名…」，**禁止**写这些人未提交
 - emptyAfterFilter[] / attachmentOnly[]：表示已交钉钉日报但项目过滤后无匹配模块或仅有附件；可写「部分日报无匹配项目模块或含附件，详见工作台日报汇总」，**禁止**写这些人未提交
 - 禁止在任意字段出现「明思」「微光」等组织标签
 - 只基于 JSON 事实，禁止编造
@@ -209,10 +213,11 @@ export function fallbackMorningSummary(
     return { name: p.name, brief: clipLine(first ?? "已提交日报", 40) };
   });
 
-  const overview = `${dateLabel} 共 ${submitted} 人已交日报${meta.missing.length ? `，${meta.missing.length} 人未交` : ""}。`;
-  let closing = meta.missing.length
-    ? `未提交：${meta.missing.join("、")}。`
-    : "整体推进正常，请继续保持。";
+  const overview = `${dateLabel} 共 ${submitted} 人已交日报${meta.missing.length ? `，${meta.missing.length} 人未交` : ""}${meta.onLeave.length ? `，${meta.onLeave.length} 人请假` : ""}。`;
+  const closingParts: string[] = [];
+  if (meta.missing.length) closingParts.push(`未提交：${meta.missing.join("、")}`);
+  if (meta.onLeave.length) closingParts.push(`请假：${meta.onLeave.join("、")}`);
+  let closing = closingParts.length ? `${closingParts.join("；")}。` : "整体推进正常，请继续保持。";
   if (meta.missing.length === 0 && (meta.emptyAfterFilter.length > 0 || meta.attachmentOnly.length > 0)) {
     closing = "部分日报无匹配项目模块或含附件，详见工作台日报汇总。";
   }

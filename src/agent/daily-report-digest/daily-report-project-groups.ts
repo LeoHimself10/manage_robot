@@ -49,7 +49,7 @@ export interface ProjectGroupDigest {
 }
 
 function emptyOrg(label: string): OrgDigest {
-  return { label, submitted: [], missing: [], errors: [] };
+  return { label, submitted: [], missing: [], onLeave: [], errors: [] };
 }
 
 /** 将 org 维度 digest 按项目组重新分组（每组内仍保留 org 子结构）。 */
@@ -91,6 +91,18 @@ export function groupOrgDigestsByProject(
         orgMap.set(org.label, target);
       }
       target.missing.push(m);
+    }
+    for (const m of org.onLeave ?? []) {
+      const groupId =
+        assignmentByUser.get(m.userid)
+        ?? resolveProjectGroup({ userid: m.userid, name: m.name });
+      const orgMap = buckets.get(groupId)!;
+      let target = orgMap.get(org.label);
+      if (!target) {
+        target = emptyOrg(org.label);
+        orgMap.set(org.label, target);
+      }
+      target.onLeave!.push(m);
     }
     for (const e of org.errors) {
       const groupId =
