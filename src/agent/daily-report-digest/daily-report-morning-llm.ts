@@ -113,7 +113,7 @@ const SYSTEM_PROMPT = `你是企业内部早报编辑。根据 JSON 中员工的
 - personBriefs：仅针对 people[] 中有正文的员工，每人一条 brief 不超过 50 字；只写姓名，禁止组织/公司名
 - closing：1-2 句收束
 - closing 中「未交/尚未提交」**只能**引用 missing[] 中的姓名；missing[] 为空时禁止写任何人未提交
-- onLeave[]：全天请假员工；closing 可写「请假：姓名…」，**禁止**写这些人未提交
+- onLeave[]：全天请假（≥8h 或 1 天）员工；closing 可写「请假：姓名…」，**禁止**写这些人未提交
 - emptyAfterFilter[] / attachmentOnly[]：表示已交钉钉日报但项目过滤后无匹配模块或仅有附件；可写「部分日报无匹配项目模块或含附件，详见工作台日报汇总」，**禁止**写这些人未提交
 - 禁止在任意字段出现「明思」「微光」等组织标签
 - 只基于 JSON 事实，禁止编造

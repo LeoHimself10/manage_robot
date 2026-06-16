@@ -17,8 +17,10 @@
 
 1. 员工在业务日窗口内无日报 → 初始归入 `missing`
 2. 调用 `getleavestatus` 查同一窗口
-3. 若存在 `duration_unit === "percent_day"` 且 `duration_percent >= 100`，且请假时段与窗口有交集 → 从 `missing` 移至 `onLeave`
-4. 半天假 / 小时假：仍算 `missing`
+3. **全天请假**（与窗口有交集）→ 从 `missing` 移至 `onLeave`：
+   - `percent_day` 且 `duration_percent >= 100`（1 天），或
+   - `percent_hour` 且时长 **≥ 8 小时**（公司工时 8:30–18:00 扣 1.5h 午休 = 8h；钉钉 `800` = 8h）
+4. **部分请假**（1–2 小时、半天等 < 8h）：仍算 `missing`
 
 ## 展示
 

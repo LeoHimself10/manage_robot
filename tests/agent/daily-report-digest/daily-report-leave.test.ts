@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   isFullDayLeave,
+  leaveDurationHours,
   leaveOverlapsWindow,
   splitMissingByFullDayLeave,
   applyLeaveToOrgDigests,
@@ -10,7 +11,7 @@ import type { OrgDigest } from "../../../src/agent/daily-report-digest/daily-rep
 describe("daily-report-leave", () => {
   const window = { startTime: 1000, endTime: 2000 };
 
-  it("isFullDayLeave accepts percent_day with duration_percent >= 100", () => {
+  it("isFullDayLeave: 1 day or >=8 work hours; partial hours stay false", () => {
     expect(
       isFullDayLeave({
         userid: "u1",
@@ -28,7 +29,32 @@ describe("daily-report-leave", () => {
         durationUnit: "percent_hour",
         durationPercent: 800,
       }),
+    ).toBe(true);
+    expect(
+      isFullDayLeave({
+        userid: "u1",
+        startTime: 1100,
+        endTime: 1400,
+        durationUnit: "percent_hour",
+        durationPercent: 400,
+      }),
     ).toBe(false);
+    expect(
+      isFullDayLeave({
+        userid: "u1",
+        startTime: 1100,
+        endTime: 1200,
+        durationUnit: "percent_hour",
+        durationPercent: 200,
+      }),
+    ).toBe(false);
+    expect(leaveDurationHours({
+      userid: "u1",
+      startTime: 0,
+      endTime: 0,
+      durationUnit: "percent_hour",
+      durationPercent: 800,
+    })).toBe(8);
   });
 
   it("splitMissingByFullDayLeave moves only full-day overlapping leave", () => {

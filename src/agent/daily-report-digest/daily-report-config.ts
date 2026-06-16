@@ -61,7 +61,7 @@ export interface DailyReportDigestConfig {
   reportDayCutoffHour: number;
   /** 业务日截止时刻（分钟，0–59）。默认 0。 */
   reportDayCutoffMinute: number;
-  /** 是否查询钉钉考勤并将全天请假从「未交」拆出；默认 true */
+  /** 是否查询钉钉考勤并将全天请假（≥8h 或 1 天）从「未交」拆出；默认 true */
   leaveCheckEnabled: boolean;
   /** 群消息标题（钉钉 markdown 折叠摘要用） */
   title: string;

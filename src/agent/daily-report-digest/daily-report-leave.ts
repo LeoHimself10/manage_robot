@@ -12,9 +12,27 @@ export interface EmployeeRef {
   name: string;
 }
 
-/** 全天请假：percent_day 且 duration_percent >= 100（100 = 1 天）。 */
+/**
+ * 公司标准工时：8:30–18:00，扣 1.5h 午休 = 8h 有效工时。
+ * 全天请假 = 请满这 8h（或钉钉 percent_day 记 1 天）；1–2h、半天仍算未交。
+ */
+export const FULL_DAY_LEAVE_WORK_HOURS = 8;
+
+/** percent_hour 的 duration_percent 以「百分之一小时」计（800 = 8 小时）。 */
+export function leaveDurationHours(entry: LeaveStatusEntry): number | undefined {
+  if (entry.durationUnit === "percent_day") {
+    return (entry.durationPercent / 100) * FULL_DAY_LEAVE_WORK_HOURS;
+  }
+  if (entry.durationUnit === "percent_hour") {
+    return entry.durationPercent / 100;
+  }
+  return undefined;
+}
+
 export function isFullDayLeave(entry: LeaveStatusEntry): boolean {
-  return entry.durationUnit === "percent_day" && entry.durationPercent >= 100;
+  const hours = leaveDurationHours(entry);
+  if (hours == null) return false;
+  return hours >= FULL_DAY_LEAVE_WORK_HOURS;
 }
 
 /** 请假时段与查询窗口是否有交集。 */
