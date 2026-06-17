@@ -41,6 +41,8 @@ export interface DingTalkContactDirectory {
     query: string,
     limit?: number,
   ): Promise<ContactCandidate[]>;
+  /** 枚举组织全部通讯录（空 query）；用于微光 org_all 日报发现。 */
+  listAll(appKey: string, appSecret: string, limit?: number): Promise<ContactCandidate[]>;
   /** 强制重建某 appKey 的目录缓存（增删名单后可调用以反映最新通讯录）。 */
   invalidate(appKey: string): void;
 }
@@ -184,6 +186,9 @@ export function createDingTalkContactDirectory(opts?: {
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"))
         .slice(0, Math.max(1, limit));
+    },
+    async listAll(appKey, appSecret, limit = 5000) {
+      return this.search(appKey, appSecret, "", limit);
     },
     invalidate(appKey) {
       cache.delete(appKey);

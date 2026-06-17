@@ -6,10 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DailyReportDigestConfig } from "../../../src/agent/daily-report-digest/daily-report-config";
 import type { ReportEntry } from "../../../src/agent/daily-report-digest/dingtalk-report-client";
 import {
-  isBotLikeContactName,
-  listOrgScanContacts,
-} from "../../../src/agent/daily-report-digest/daily-report-org-scan-contacts";
-import {
   discoverProjectViewMembers,
   runProjectViewDiscovery,
 } from "../../../src/agent/daily-report-digest/daily-report-project-view-discovery";
@@ -41,58 +37,6 @@ const entryWithPairMatch: ReportEntry = {
   createTime: Date.now(),
   contents: moduleFields("②", "半导体激光", "静脉腔内闭合系统", "进展"),
 };
-
-describe("daily-report-org-scan-contacts", () => {
-  it("isBotLikeContactName matches robot and T- prefixes", () => {
-    expect(isBotLikeContactName("任务机器人")).toBe(true);
-    expect(isBotLikeContactName("T-助手")).toBe(true);
-    expect(isBotLikeContactName("张三")).toBe(false);
-  });
-
-  it("listOrgScanContacts excludes inactive and bot-like names", () => {
-    const peopleStore = {
-      listContacts: () => [
-        {
-          userId: "u1",
-          name: "Alice",
-          active: true,
-          departmentIds: [],
-          departmentNames: [],
-          isAdmin: false,
-          isBoss: false,
-          isSenior: false,
-          lastSyncedAt: "2026-01-01T00:00:00.000Z",
-        },
-        {
-          userId: "u2",
-          name: "任务机器人",
-          active: true,
-          departmentIds: [],
-          departmentNames: [],
-          isAdmin: false,
-          isBoss: false,
-          isSenior: false,
-          lastSyncedAt: "2026-01-01T00:00:00.000Z",
-        },
-        {
-          userId: "u3",
-          name: "Bob",
-          active: false,
-          departmentIds: [],
-          departmentNames: [],
-          isAdmin: false,
-          isBoss: false,
-          isSenior: false,
-          lastSyncedAt: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      close: () => {},
-    };
-
-    const contacts = listOrgScanContacts({ peopleStore: peopleStore as any });
-    expect(contacts).toEqual([{ userid: "u1", name: "Alice" }]);
-  });
-});
 
 describe("daily-report-project-view-discovery", () => {
   let dbPath = "";
@@ -136,33 +80,10 @@ describe("daily-report-project-view-discovery", () => {
     reportDayCutoffMinute: 0,
   };
 
-  const peopleStore = {
-    listContacts: () => [
-      {
-        userId: "hit",
-        name: "命中",
-        active: true,
-        departmentIds: [],
-        departmentNames: [],
-        isAdmin: false,
-        isBoss: false,
-        isSenior: false,
-        lastSyncedAt: "2026-01-01T00:00:00.000Z",
-      },
-      {
-        userId: "miss",
-        name: "未命中",
-        active: true,
-        departmentIds: [],
-        departmentNames: [],
-        isAdmin: false,
-        isBoss: false,
-        isSenior: false,
-        lastSyncedAt: "2026-01-01T00:00:00.000Z",
-      },
-    ],
-    close: () => {},
-  };
+  const scanContacts = [
+    { userid: "hit", name: "命中" },
+    { userid: "miss", name: "未命中" },
+  ];
 
   it("discoverProjectViewMembers returns only userids with filter matches", async () => {
     const mockClient = {
@@ -173,7 +94,7 @@ describe("daily-report-project-view-discovery", () => {
 
     const discovered = await discoverProjectViewMembers(org, view, 3, scanConfig, {
       reportClient: mockClient as any,
-      peopleStore: peopleStore as any,
+      scanContacts,
       now: new Date("2026-06-17T12:00:00.000Z"),
       concurrency: 2,
     });
@@ -200,7 +121,7 @@ describe("daily-report-project-view-discovery", () => {
 
     const result = await runProjectViewDiscovery("semiconductor-vein", config, {
       reportClient: mockClient as any,
-      peopleStore: peopleStore as any,
+      scanContacts,
       rosterStore,
       now: new Date("2026-06-17T12:00:00.000Z"),
       concurrency: 2,
@@ -214,7 +135,7 @@ describe("daily-report-project-view-discovery", () => {
 
     const again = await runProjectViewDiscovery("semiconductor-vein", config, {
       reportClient: mockClient as any,
-      peopleStore: peopleStore as any,
+      scanContacts,
       rosterStore,
       now: new Date("2026-06-17T12:00:00.000Z"),
       concurrency: 2,

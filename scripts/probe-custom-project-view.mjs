@@ -28,7 +28,7 @@ if (!org) {
   process.exit(1);
 }
 
-const contacts = listOrgScanContacts();
+const contacts = await listOrgScanContacts(org);
 const client = createDingTalkReportClient();
 const hits = [];
 

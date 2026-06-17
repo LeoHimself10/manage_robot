@@ -1,4 +1,3 @@
-import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 import { addDaysToYmd, formatDateInTz } from "../reminders/reminder-policy";
 import type { DailyReportDigestConfig, DailyReportOrgConfig } from "./daily-report-config";
 import { filterReportEntry } from "./daily-report-content-filter";
@@ -7,6 +6,7 @@ import {
   type DingTalkReportClient,
 } from "./dingtalk-report-client";
 import { listOrgScanContacts } from "./daily-report-org-scan-contacts";
+import { createDingTalkContactDirectory } from "./dingtalk-contact-search";
 import { filterReportEntryByModuleProjectPair } from "./daily-report-project-view-filter";
 import {
   createProjectViewRosterStore,
@@ -101,10 +101,11 @@ async function contactHasMatchingReport(
 export interface ProjectViewDiscoveryDeps {
   reportClient?: DingTalkReportClient;
   fetchImpl?: typeof fetch;
-  peopleStore?: ReturnType<typeof createPeopleDirectoryStore>;
   rosterStore?: ProjectViewRosterStore;
   now?: Date;
   concurrency?: number;
+  /** 测试注入：覆盖 listOrgScanContacts 结果 */
+  scanContacts?: Array<{ userid: string; name: string }>;
 }
 
 export async function discoverProjectViewMembers(
@@ -121,7 +122,13 @@ export async function discoverProjectViewMembers(
     deps?.reportClient ?? createDingTalkReportClient({ fetchImpl: deps?.fetchImpl });
   const now = deps?.now ?? new Date();
   const dayYmds = calendarDaysBack(now, config.timezone, discoveryDays);
-  const contacts = listOrgScanContacts({ peopleStore: deps?.peopleStore });
+  const contacts =
+    deps?.scanContacts ??
+    (await listOrgScanContacts(org, {
+      directory: deps?.fetchImpl
+        ? createDingTalkContactDirectory({ fetchImpl: deps.fetchImpl })
+        : undefined,
+    }));
   const limit = deps?.concurrency ?? scanConcurrencyLimit();
 
   const hits = await mapWithConcurrency(contacts, limit, async (contact) => {
