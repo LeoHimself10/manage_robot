@@ -134,7 +134,7 @@ import {
   parseDailyReportsProjectViewRosterPath,
   rediscoverProjectViewRoster,
 } from "./daily-reports-project-view-roster";
-import { loadDailyReportDigestConfig } from "../agent/daily-report-digest/daily-report-config";
+import { loadDailyReportDigestConfig, configHasLegacyDailyReportEmployees } from "../agent/daily-report-digest/daily-report-config";
 import { isDailyReportsPageEnabled } from "../agent/daily-report-digest/daily-reports-page-flag";
 import {
   buildPerformanceDashboardPayload,
@@ -2940,6 +2940,9 @@ function renderDailyReportsWorkbenchPage(params: {
   initialView?: string;
 }): string {
   const caps = resolveWorkbenchCapabilities(params.userId);
+  const { config, errors } = loadDailyReportDigestConfig();
+  const hasLegacyDailyReports =
+    errors.length === 0 && configHasLegacyDailyReportEmployees(config.orgs);
   return renderDailyReportsPage({
     role: params.role,
     activeNav: params.activeNav,
@@ -2948,8 +2951,8 @@ function renderDailyReportsWorkbenchPage(params: {
     portfolioEnabled: params.portfolioEnabled,
     initialDate: params.initialDate,
     initialView: params.initialView ?? "project",
-    canManageRoster: caps.canAccessAdmin,
-    canManageProjectGroups: caps.canManage || caps.canAccessAdmin,
+    canManageRoster: caps.canAccessAdmin && hasLegacyDailyReports,
+    canManageProjectGroups: (caps.canManage || caps.canAccessAdmin) && hasLegacyDailyReports,
     canExecuteAsManager: caps.canExecuteAsManager,
   });
 }

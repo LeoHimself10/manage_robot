@@ -1,4 +1,5 @@
 import type { DailyReportDigestConfig, DailyReportOrgConfig } from "./daily-report-config";
+import { configHasLegacyDailyReportEmployees } from "./daily-report-config";
 import type { ModuleProjectPairFilter } from "./daily-report-project-view-filter";
 import { isDailyReportProjectViewsEnabled } from "./daily-report-project-view-flag";
 
@@ -82,12 +83,14 @@ export function resolveDailyReportsAccess(
   caps: WorkbenchDailyReportsCaps,
 ): DailyReportsAccessInfo {
   const allViews = listProjectViewsFromConfig(config.orgs);
-  const customViews = allViews
-    .filter((v) => v.viewers.includes(userId))
-    .map((v) => ({ id: v.id, label: v.label }));
+  const hasLegacy = configHasLegacyDailyReportEmployees(config.orgs);
+  const customViews = (caps.canAccessAdmin
+    ? allViews
+    : allViews.filter((v) => v.viewers.includes(userId))
+  ).map((v) => ({ id: v.id, label: v.label }));
   const exclusive = isExclusiveCustomViewer(userId, allViews);
   const legacyAccess =
-    caps.canAccessAdmin || (caps.canManage && !exclusive);
+    hasLegacy && (caps.canAccessAdmin || (caps.canManage && !exclusive));
   const customOnly = !legacyAccess && customViews.length > 0;
   return { legacyAccess, customOnly, customViews };
 }

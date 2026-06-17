@@ -192,7 +192,12 @@ export async function buildDailyReportsHttpPayload(input?: {
     if (!viewDef) {
       return { ok: false, error: `未知项目组视图：${customViewId}` };
     }
-    if (input?.userId && !viewDef.viewers.includes(input.userId) && !access.legacyAccess) {
+    if (
+      input?.userId
+      && !viewDef.viewers.includes(input.userId)
+      && !caps.canAccessAdmin
+      && !access.legacyAccess
+    ) {
       return { ok: false, error: "无权查看此项目组视图" };
     }
     const org = config.orgs.find((o) => o.label === viewDef.orgLabel);

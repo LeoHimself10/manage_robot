@@ -116,7 +116,31 @@ describe("daily-report-project-views access", () => {
     expect(access.customViews[0]!.id).toBe("semiconductor-vein");
   });
 
-  it("admin keeps legacy access even when listed as viewer", () => {
+  it("admin without legacy employees only sees projectViews (managebot)", () => {
+    const view = parseProjectViewConfig(
+      {
+        id: "semiconductor-vein",
+        label: "半导体激光·静脉项目",
+        viewers: ["01451725613871"],
+        exclusiveForViewers: true,
+        filters: FILTER,
+      },
+      "微光",
+    );
+    const config = {
+      enabled: false,
+      orgs: [{ label: "微光", appKey: "k", appSecret: "s", employees: [], projectViews: [view!] }],
+    } as any;
+    const access = resolveDailyReportsAccess("652949075622784820", config, {
+      canAccessAdmin: true,
+      canManage: true,
+    });
+    expect(access.legacyAccess).toBe(false);
+    expect(access.customOnly).toBe(true);
+    expect(access.customViews[0]!.id).toBe("semiconductor-vein");
+  });
+
+  it("admin keeps legacy access when legacy employees configured", () => {
     const view = parseProjectViewConfig(
       {
         id: "semiconductor-vein",
@@ -129,7 +153,15 @@ describe("daily-report-project-views access", () => {
     );
     const config = {
       enabled: false,
-      orgs: [{ label: "微光", appKey: "k", appSecret: "s", employees: [], projectViews: [view!] }],
+      orgs: [
+        {
+          label: "微光",
+          appKey: "k",
+          appSecret: "s",
+          employees: [{ userid: "u1" }],
+          projectViews: [view!],
+        },
+      ],
     } as any;
     const access = resolveDailyReportsAccess("admin1", config, {
       canAccessAdmin: true,

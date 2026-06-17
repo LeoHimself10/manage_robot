@@ -6,6 +6,7 @@ import {
   loadDailyReportDigestConfig,
   type DailyReportDigestConfig,
 } from "../../../src/agent/daily-report-digest/daily-report-config";
+import { parseProjectViewConfig } from "../../../src/agent/daily-report-digest/daily-report-project-views";
 import {
   computeWebhookSign,
   buildWebhookUrl,
@@ -102,6 +103,33 @@ describe("daily-report-config", () => {
     expect(config.webhook.accessToken).toBe("tok123");
     expect(config.sendHour).toBe(7);
     expect(config.sendMinute).toBe(0);
+  });
+
+  it("allows org with projectViews but no legacy employees (managebot)", () => {
+    const view = parseProjectViewConfig(
+      {
+        id: "semiconductor-vein",
+        label: "半导体激光·静脉项目",
+        viewers: ["u1"],
+        filters: {
+          workModuleContains: "半导体激光",
+          costProjectContains: "静脉腔内闭合系统",
+        },
+      },
+      "微光",
+    );
+    const { errors } = parseDailyReportDigestConfig({
+      orgs: [
+        {
+          label: "微光",
+          appKey: "ak",
+          appSecret: "as",
+          employees: [],
+          projectViews: [view],
+        },
+      ],
+    });
+    expect(errors).toEqual([]);
   });
 
   it("reports errors for missing orgs creds / employees", () => {

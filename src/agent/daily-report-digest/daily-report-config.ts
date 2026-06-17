@@ -173,9 +173,6 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
           : `orgs[${idx}] (${label}) 缺少 appKey/appSecret`,
       );
     }
-    if (employees.length === 0) {
-      errors.push(`orgs[${idx}] (${label}) employees 为空（需要至少一个 userid）`);
-    }
     const projectFilterRaw = o.projectFilter;
     let projectFilter: string[] | undefined;
     if (projectFilterRaw != null) {
@@ -195,6 +192,9 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
         errors.push(`orgs[${idx}] (${label}) projectViews[${vIdx}] 无效（需 id/label/viewers/filters 全名）`);
       }
     });
+    if (employees.length === 0 && projectViews.length === 0) {
+      errors.push(`orgs[${idx}] (${label}) employees 为空（需要至少一个 userid，或配置 projectViews）`);
+    }
     orgs.push({
       label,
       appKey,
@@ -327,4 +327,11 @@ export function loadDailyReportDigestConfig(opts?: {
     config: { ...result.config, enabled: pushEnabled },
     errors: result.errors,
   };
+}
+
+/** legacy 日报页（公司/项目视图、6 人名单）是否已配置。managebot 仅 projectViews 时为 false。 */
+export function configHasLegacyDailyReportEmployees(
+  orgs: DailyReportOrgConfig[],
+): boolean {
+  return orgs.some((o) => o.employees.length > 0);
 }

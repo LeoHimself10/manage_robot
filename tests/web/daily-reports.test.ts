@@ -165,12 +165,14 @@ describe("daily-reports-api", () => {
     configPath = join(dir, "config.json");
     writeFileSync(configPath, JSON.stringify(CONFIG), "utf8");
     process.env.DAILY_REPORT_DIGEST_CONFIG_FILE = configPath;
+    process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED = "1";
     tmpDir = mkdtempSync(join(tmpdir(), "daily-reports-wb-"));
     vi.stubEnv("WORKBENCH_SQLITE_PATH", join(tmpDir, "workbench.sqlite"));
   });
 
   afterEach(() => {
     delete process.env.DAILY_REPORT_DIGEST_CONFIG_FILE;
+    delete process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED;
     delete process.env.WORKBENCH_SQLITE_PATH;
     if (tmpDir) {
       rmSync(tmpDir, { recursive: true, force: true });
@@ -424,12 +426,14 @@ describe("daily-report-project-view-roster service", () => {
     configPath = join(dir, "config.json");
     writeFileSync(configPath, JSON.stringify(CONFIG_WITH_CUSTOM_VIEW), "utf8");
     process.env.DAILY_REPORT_DIGEST_CONFIG_FILE = configPath;
+    process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED = "1";
     tmpDir = mkdtempSync(join(tmpdir(), "daily-reports-pv-wb-"));
     vi.stubEnv("WORKBENCH_SQLITE_PATH", join(tmpDir, "workbench.sqlite"));
   });
 
   afterEach(() => {
     delete process.env.DAILY_REPORT_DIGEST_CONFIG_FILE;
+    delete process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED;
     delete process.env.WORKBENCH_SQLITE_PATH;
     if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -503,6 +507,7 @@ describe("daily-reports project view roster HTTP", () => {
     vi.stubEnv("WORKBENCH_SESSION_SECRET", "test-session-secret-at-least-32-chars-long");
     vi.stubEnv("WORKBENCH_TEST_LOGIN_ENABLED", "1");
     vi.stubEnv("DAILY_REPORTS_PAGE_ENABLED", "1");
+    vi.stubEnv("DAILY_REPORT_PROJECT_VIEWS_ENABLED", "1");
     vi.stubEnv("PLAN_SESSION_DIR", join(tmpDir, "sessions"));
     __resetWorkbenchStoresForTest();
   });
