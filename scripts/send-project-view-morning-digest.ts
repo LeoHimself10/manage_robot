@@ -23,8 +23,8 @@ import {
   resolveReportRange,
 } from "../src/agent/daily-report-digest/daily-report-window";
 
-/** 姚凯珩 — 阶段 1 默认收件人 */
-const DEFAULT_TO_USER_ID = "652949075622784820";
+/** 姚凯珩（微光 managebot）— 阶段 1 默认收件人；明思 mingsibot 为 652949075622784820 */
+const DEFAULT_TO_USER_ID = "641871342";
 const DEFAULT_VIEW_ID = "semiconductor-vein";
 
 function parseArgs(): {
