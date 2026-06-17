@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { buildDailyReportsHttpPayload } from "../../src/web/daily-reports-api";
 import { renderEmployeeWorkbenchPage } from "../../src/web/employee-workbench-pages";
@@ -16,6 +17,16 @@ import {
   getProjectViewCache,
   putProjectViewCache,
 } from "../../src/agent/daily-report-digest/daily-report-project-view-cache";
+import {
+  canManageProjectViewRoster,
+  getProjectViewRosterPayload,
+  mutateProjectViewRoster,
+} from "../../src/web/daily-reports-project-view-roster";
+import { loadDailyReportDigestConfig } from "../../src/agent/daily-report-digest/daily-report-config";
+import {
+  __resetWorkbenchStoresForTest,
+  handleAssignmentHttp,
+} from "../../src/web/assignment-workbench";
 
 const CONFIG = {
   title: "每日日报汇总",
@@ -82,6 +93,67 @@ function fakeFetch(reportsByUserid: Record<string, Array<Record<string, unknown>
     }
     return jsonRes({ errcode: 404 });
   }) as unknown as typeof fetch;
+}
+
+function stubReq(overrides: {
+  url?: string;
+  method?: string;
+  body?: string;
+  headers?: Record<string, string>;
+}): IncomingMessage {
+  const chunks = overrides.body ? [Buffer.from(overrides.body)] : [];
+  return {
+    url: overrides.url ?? "/",
+    method: overrides.method ?? "GET",
+    headers: overrides.headers ?? {},
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of chunks) yield chunk;
+    },
+  } as IncomingMessage;
+}
+
+function stubRes(): {
+  res: ServerResponse;
+  captured: () => { statusCode: number; body: string; headers: Record<string, string | string[] | undefined> };
+} {
+  const state = {
+    statusCode: 200,
+    body: "",
+    headers: {} as Record<string, string | string[] | undefined>,
+  };
+  const res = {
+    writeHead(statusCode: number, headers?: Record<string, string>): void {
+      state.statusCode = statusCode;
+      if (headers) state.headers = { ...state.headers, ...headers };
+    },
+    setHeader(name: string, value: string | string[]): void {
+      state.headers[name] = value;
+    },
+    getHeader(name: string): string | string[] | undefined {
+      return state.headers[name];
+    },
+    end(chunk: string): void {
+      state.body = chunk ?? "";
+    },
+  } as ServerResponse;
+  return { res, captured: () => state };
+}
+
+async function flushAsync(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 0));
+}
+
+async function loginDailyReportsUser(userId: string, role: "employee" | "manager" | "admin" = "employee"): Promise<string> {
+  const loginReq = stubReq({
+    method: "POST",
+    url: "/api/workbench/login",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ userId, role }),
+  });
+  const loginRes = stubRes();
+  handleAssignmentHttp(loginReq, loginRes.res);
+  await flushAsync();
+  return String(loginRes.captured().headers["Set-Cookie"] ?? "");
 }
 
 describe("daily-reports-api", () => {
@@ -273,6 +345,212 @@ describe("daily-reports-api", () => {
       cacheStore.close();
     }
   });
+
+  it("bypasses cache when refresh=true", async () => {
+    writeFileSync(configPath, JSON.stringify(CONFIG_WITH_CUSTOM_VIEW), "utf8");
+    const rosterStore = createProjectViewRosterStore();
+    const cacheStore = createProjectViewCacheStore();
+    try {
+      addProjectViewRosterMember(
+        "semiconductor-vein",
+        { userid: "u_roster", name: "花名册" },
+        rosterStore,
+      );
+      putProjectViewCache(
+        "semiconductor-vein",
+        "2026-06-08",
+        {
+          submitted: [
+            {
+              userid: "u_cached",
+              name: "缓存员工",
+              reports: [
+                {
+                  creatorUserId: "u_cached",
+                  creatorName: "缓存员工",
+                  templateName: "日报",
+                  createTime: 1,
+                  contents: [{ key: "事项-结果②", value: "cached work" }],
+                },
+              ],
+            },
+          ],
+          errors: [],
+        },
+        cacheStore,
+      );
+    } finally {
+      rosterStore.close();
+      cacheStore.close();
+    }
+
+    const fetchImpl = vi.fn(
+      fakeFetch({
+        u_roster: [
+          {
+            creator_id: "u_roster",
+            creator_name: "花名册",
+            template_name: "日报",
+            create_time: Date.parse("2026-06-08T10:00:00+08:00"),
+            contents: [
+              { key: "工作模块②", value: "半导体激光" },
+              { key: "成本归属项目②", value: "静脉腔内闭合系统" },
+              { key: "事项-结果②", value: "fresh work" },
+            ],
+          },
+        ],
+      }),
+    );
+    const payload = await buildDailyReportsHttpPayload({
+      date: "2026-06-08",
+      view: "custom:semiconductor-vein",
+      userId: "viewer1",
+      refresh: true,
+      fetchImpl,
+    });
+
+    expect(payload.ok).toBe(true);
+    expect(payload.customProjectView?.orgs[0]!.submitted[0]!.name).toBe("花名册");
+    expect(fetchImpl).toHaveBeenCalled();
+  });
+});
+
+describe("daily-report-project-view-roster service", () => {
+  let configPath = "";
+  let tmpDir = "";
+
+  beforeEach(() => {
+    const dir = mkdtempSync(join(tmpdir(), "daily-reports-pv-roster-"));
+    configPath = join(dir, "config.json");
+    writeFileSync(configPath, JSON.stringify(CONFIG_WITH_CUSTOM_VIEW), "utf8");
+    process.env.DAILY_REPORT_DIGEST_CONFIG_FILE = configPath;
+    tmpDir = mkdtempSync(join(tmpdir(), "daily-reports-pv-wb-"));
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", join(tmpDir, "workbench.sqlite"));
+  });
+
+  afterEach(() => {
+    delete process.env.DAILY_REPORT_DIGEST_CONFIG_FILE;
+    delete process.env.WORKBENCH_SQLITE_PATH;
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("canManageProjectViewRoster allows admin and viewers only", () => {
+    const { config } = loadDailyReportDigestConfig();
+    expect(
+      canManageProjectViewRoster("viewer1", "semiconductor-vein", config, {
+        canAccessAdmin: false,
+        canManage: false,
+      }),
+    ).toBe(true);
+    expect(
+      canManageProjectViewRoster("stranger", "semiconductor-vein", config, {
+        canAccessAdmin: false,
+        canManage: false,
+      }),
+    ).toBe(false);
+    expect(
+      canManageProjectViewRoster("stranger", "semiconductor-vein", config, {
+        canAccessAdmin: true,
+        canManage: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("mutates project view roster add/remove", async () => {
+    const added = await mutateProjectViewRoster({
+      viewId: "semiconductor-vein",
+      action: "add",
+      userid: "u_new",
+      name: "新人",
+    });
+    expect(added.ok).toBe(true);
+    expect(added.members.map((m) => m.userid)).toContain("u_new");
+
+    const removed = await mutateProjectViewRoster({
+      viewId: "semiconductor-vein",
+      action: "remove",
+      userid: "u_new",
+    });
+    expect(removed.ok).toBe(true);
+    expect(removed.members.map((m) => m.userid)).not.toContain("u_new");
+  });
+
+  it("getProjectViewRosterPayload lists members", () => {
+    const store = createProjectViewRosterStore();
+    try {
+      addProjectViewRosterMember("semiconductor-vein", { userid: "u1", name: "甲" }, store);
+    } finally {
+      store.close();
+    }
+    const payload = getProjectViewRosterPayload("semiconductor-vein");
+    expect(payload.ok).toBe(true);
+    expect(payload.members).toHaveLength(1);
+    expect(payload.orgLabel).toBe("微光");
+  });
+});
+
+describe("daily-reports project view roster HTTP", () => {
+  let configPath = "";
+  let tmpDir = "";
+
+  beforeEach(() => {
+    const dir = mkdtempSync(join(tmpdir(), "daily-reports-pv-http-"));
+    configPath = join(dir, "config.json");
+    writeFileSync(configPath, JSON.stringify(CONFIG_WITH_CUSTOM_VIEW), "utf8");
+    process.env.DAILY_REPORT_DIGEST_CONFIG_FILE = configPath;
+    tmpDir = mkdtempSync(join(tmpdir(), "daily-reports-pv-http-wb-"));
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", join(tmpDir, "workbench.sqlite"));
+    vi.stubEnv("WORKBENCH_SESSION_SECRET", "test-session-secret-at-least-32-chars-long");
+    vi.stubEnv("WORKBENCH_TEST_LOGIN_ENABLED", "1");
+    vi.stubEnv("DAILY_REPORTS_PAGE_ENABLED", "1");
+    vi.stubEnv("PLAN_SESSION_DIR", join(tmpDir, "sessions"));
+    __resetWorkbenchStoresForTest();
+  });
+
+  afterEach(() => {
+    delete process.env.DAILY_REPORT_DIGEST_CONFIG_FILE;
+    delete process.env.DAILY_REPORTS_PAGE_ENABLED;
+    __resetWorkbenchStoresForTest();
+    vi.unstubAllEnvs();
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("allows viewer GET roster and denies stranger", async () => {
+    const viewerCookie = await loginDailyReportsUser("viewer1", "employee");
+    const viewerReq = stubReq({
+      url: "/api/workbench/daily-reports/project-views/semiconductor-vein/roster",
+      headers: { cookie: viewerCookie },
+    });
+    const viewerRes = stubRes();
+    handleAssignmentHttp(viewerReq, viewerRes.res);
+    await flushAsync();
+    expect(viewerRes.captured().statusCode).toBe(200);
+    expect(JSON.parse(viewerRes.captured().body).ok).toBe(true);
+
+    const strangerCookie = await loginDailyReportsUser("stranger", "employee");
+    const denyReq = stubReq({
+      url: "/api/workbench/daily-reports/project-views/semiconductor-vein/roster",
+      headers: { cookie: strangerCookie },
+    });
+    const denyRes = stubRes();
+    handleAssignmentHttp(denyReq, denyRes.res);
+    await flushAsync();
+    expect(denyRes.captured().statusCode).toBe(403);
+  });
+
+  it("passes refresh=1 to data API", async () => {
+    const cookie = await loginDailyReportsUser("viewer1", "employee");
+    const req = stubReq({
+      url: "/api/workbench/daily-reports?view=custom:semiconductor-vein&date=2026-06-08&refresh=1",
+      headers: { cookie },
+    });
+    const res = stubRes();
+    handleAssignmentHttp(req, res.res);
+    await flushAsync();
+    const body = JSON.parse(res.captured().body);
+    expect(body.ok).toBe(true);
+    expect(body.view).toBe("custom:semiconductor-vein");
+  });
 });
 
 describe("daily-reports-page render", () => {
@@ -290,6 +568,18 @@ describe("daily-reports-page render", () => {
     expect(html).toContain("dr-pgroup-body--flat");
     expect(html).toContain("/api/workbench/daily-reports");
     expect(html).toContain('data-wb-nav="mgr-daily-reports"');
+  });
+
+  it("shows project view roster panel markup", () => {
+    process.env.DAILY_REPORTS_PAGE_ENABLED = "1";
+    const html = renderDailyReportsPage({
+      role: "employee",
+      activeNav: "emp-daily-reports",
+    });
+    expect(html).toContain('id="dpvrToggle"');
+    expect(html).toContain('id="dpvrPanel"');
+    expect(html).toContain('id="dpvrRediscover"');
+    expect(html).toContain("/project-views/");
   });
 
   it("shows roster controls only for admin-capable users", () => {

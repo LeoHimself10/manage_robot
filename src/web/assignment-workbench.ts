@@ -114,7 +114,7 @@ import { renderManagerProjectsPage } from "./manager-projects-pages";
 import { renderManagerDashboardPage } from "./manager-dashboard-page";
 import { renderPerformanceDashboardPage } from "./performance-dashboard-page";
 import { renderDailyReportsPage } from "./daily-reports-page";
-import { buildDailyReportsHttpPayload } from "./daily-reports-api";
+import { buildDailyReportsHttpPayload, parseDailyReportsViewParam } from "./daily-reports-api";
 import {
   addToRoster,
   getRosterView,
@@ -125,6 +125,16 @@ import {
   listProjectGroupMembers,
   updateProjectGroupAssignments,
 } from "./daily-reports-project-groups";
+import {
+  canManageProjectViewRoster,
+  canSearchProjectViewOrgContacts,
+  getProjectViewRosterPayload,
+  mutateProjectViewRoster,
+  parseDailyReportsProjectViewDiscoverPath,
+  parseDailyReportsProjectViewRosterPath,
+  rediscoverProjectViewRoster,
+} from "./daily-reports-project-view-roster";
+import { loadDailyReportDigestConfig } from "../agent/daily-report-digest/daily-report-config";
 import { isDailyReportsPageEnabled } from "../agent/daily-report-digest/daily-reports-page-flag";
 import {
   buildPerformanceDashboardPayload,
@@ -2852,6 +2862,59 @@ function requireDailyReportsAdminSession(
   return session;
 }
 
+/** 自定义项目组视图名单：admin 或视图 viewers 白名单。 */
+function requireProjectViewRosterSession(
+  req: IncomingMessage,
+  res: ServerResponse,
+  viewId: string,
+): WorkbenchSession | undefined {
+  const session = requireDailyReportsViewSession(req, res);
+  if (!session) return undefined;
+  const { config, errors } = loadDailyReportDigestConfig();
+  if (errors.length > 0) {
+    writeJson(res, 503, { ok: false, error: `日报配置无效：${errors.join("；")}` });
+    return undefined;
+  }
+  const caps = resolveWorkbenchCapabilities(session.userId);
+  if (
+    !canManageProjectViewRoster(session.userId, viewId, config, {
+      canAccessAdmin: caps.canAccessAdmin,
+      canManage: caps.canManage,
+    })
+  ) {
+    writeJson(res, 403, { ok: false, error: "无权管理此项目组名单" });
+    return undefined;
+  }
+  return session;
+}
+
+/** 搜人：admin 或某 custom 视图 viewer（按组织）。 */
+function requireDailyReportsContactsSession(
+  req: IncomingMessage,
+  res: ServerResponse,
+  orgLabel: string,
+): WorkbenchSession | undefined {
+  const session = requireDailyReportsViewSession(req, res);
+  if (!session) return undefined;
+  const caps = resolveWorkbenchCapabilities(session.userId);
+  if (caps.canAccessAdmin) return session;
+  const { config, errors } = loadDailyReportDigestConfig();
+  if (errors.length > 0) {
+    writeJson(res, 503, { ok: false, error: `日报配置无效：${errors.join("；")}` });
+    return undefined;
+  }
+  if (
+    !canSearchProjectViewOrgContacts(session.userId, orgLabel, config, {
+      canAccessAdmin: caps.canAccessAdmin,
+      canManage: caps.canManage,
+    })
+  ) {
+    writeJson(res, 403, { ok: false, error: "admin required" });
+    return undefined;
+  }
+  return session;
+}
+
 function requireDailyReportsProjectGroupsWriteSession(
   req: IncomingMessage,
   res: ServerResponse,
@@ -2874,10 +2937,9 @@ function renderDailyReportsWorkbenchPage(params: {
   showAdminOpsLink?: boolean;
   portfolioEnabled?: boolean;
   initialDate?: string;
-  initialView?: "project" | "company";
+  initialView?: string;
 }): string {
   const caps = resolveWorkbenchCapabilities(params.userId);
-  const viewParam = params.initialView === "company" ? "company" : "project";
   return renderDailyReportsPage({
     role: params.role,
     activeNav: params.activeNav,
@@ -2885,7 +2947,7 @@ function renderDailyReportsWorkbenchPage(params: {
     showAdminOpsLink: params.showAdminOpsLink,
     portfolioEnabled: params.portfolioEnabled,
     initialDate: params.initialDate,
-    initialView: viewParam,
+    initialView: params.initialView ?? "project",
     canManageRoster: caps.canAccessAdmin,
     canManageProjectGroups: caps.canManage || caps.canAccessAdmin,
     canExecuteAsManager: caps.canExecuteAsManager,
@@ -2920,8 +2982,11 @@ function isDailyReportsProjectGroupsApiPath(pathname: string): boolean {
   );
 }
 
-function parseDailyReportsViewParam(raw: string | null | undefined): "project" | "company" {
-  return String(raw ?? "").trim().toLowerCase() === "company" ? "company" : "project";
+function parseDailyReportsPageViewParam(raw: string | null | undefined): string {
+  const v = String(raw ?? "").trim();
+  if (v.toLowerCase() === "company") return "company";
+  if (v.startsWith("custom:")) return v;
+  return "project";
 }
 
 function resolveDailyReportsRolePath(session: { userId: string; role: WorkbenchRole; primaryRole?: WorkbenchRole }): string {
@@ -3706,9 +3771,20 @@ export function handleAssignmentHttp(
     if (!session) return true;
     const date = String(url.searchParams.get("date") ?? "").trim() || undefined;
     const view = parseDailyReportsViewParam(url.searchParams.get("view"));
+    const refresh = url.searchParams.get("refresh") === "1";
     void (async () => {
       try {
-        const payload = await buildDailyReportsHttpPayload({ date, view });
+        const caps = resolveWorkbenchCapabilities(session.userId);
+        const payload = await buildDailyReportsHttpPayload({
+          date,
+          view,
+          userId: session.userId,
+          refresh,
+          caps: {
+            canAccessAdmin: caps.canAccessAdmin,
+            canManage: caps.canManage,
+          },
+        });
         writeJson(res, 200, payload as unknown as Record<string, unknown>);
       } catch (err) {
         writeJson(res, 400, {
@@ -3760,9 +3836,9 @@ export function handleAssignmentHttp(
   }
 
   if (isGetOrHead && isDailyReportsContactsApiPath(url.pathname)) {
-    const session = requireDailyReportsAdminSession(req, res);
-    if (!session) return true;
     const org = String(url.searchParams.get("org") ?? "").trim();
+    const session = requireDailyReportsContactsSession(req, res, org);
+    if (!session) return true;
     const q = String(url.searchParams.get("q") ?? "").trim();
     void (async () => {
       try {
@@ -3815,6 +3891,70 @@ export function handleAssignmentHttp(
         } else {
           writeJson(res, 400, { ok: false, error: "action 必须为 add 或 remove" });
         }
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request",
+        });
+      }
+    })();
+    return true;
+  }
+
+  const projectViewRosterId = parseDailyReportsProjectViewRosterPath(url.pathname);
+  if (isGetOrHead && projectViewRosterId) {
+    const session = requireProjectViewRosterSession(req, res, projectViewRosterId);
+    if (!session) return true;
+    try {
+      const payload = getProjectViewRosterPayload(projectViewRosterId);
+      writeJson(res, payload.ok ? 200 : 404, payload as unknown as Record<string, unknown>);
+    } catch (err) {
+      writeJson(res, 400, {
+        ok: false,
+        error: err instanceof Error ? err.message : "invalid request",
+      });
+    }
+    return true;
+  }
+
+  if (req.method === "POST" && projectViewRosterId) {
+    const session = requireProjectViewRosterSession(req, res, projectViewRosterId);
+    if (!session) return true;
+    void (async () => {
+      try {
+        const body = await readJsonBody(req);
+        const action = String(body.action ?? "").trim() as "add" | "remove";
+        const userid = String(body.userid ?? "").trim();
+        const name = String(body.name ?? "").trim() || undefined;
+        if (!userid) {
+          writeJson(res, 400, { ok: false, error: "userid 必填" });
+          return;
+        }
+        const payload = await mutateProjectViewRoster({
+          viewId: projectViewRosterId,
+          action,
+          userid,
+          name,
+        });
+        writeJson(res, payload.ok ? 200 : 400, payload as unknown as Record<string, unknown>);
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request",
+        });
+      }
+    })();
+    return true;
+  }
+
+  const projectViewDiscoverId = parseDailyReportsProjectViewDiscoverPath(url.pathname);
+  if (req.method === "POST" && projectViewDiscoverId) {
+    const session = requireProjectViewRosterSession(req, res, projectViewDiscoverId);
+    if (!session) return true;
+    void (async () => {
+      try {
+        const payload = await rediscoverProjectViewRoster(projectViewDiscoverId);
+        writeJson(res, payload.ok ? 200 : 400, payload as unknown as Record<string, unknown>);
       } catch (err) {
         writeJson(res, 400, {
           ok: false,
@@ -6637,7 +6777,7 @@ export function handleAssignmentHttp(
             showAdminOpsLink,
             portfolioEnabled,
             initialDate: url.searchParams.get("date")?.trim() ?? "",
-            initialView: parseDailyReportsViewParam(url.searchParams.get("view")),
+            initialView: parseDailyReportsPageViewParam(url.searchParams.get("view")),
           })
           : url.pathname === "/workbench/manager/projects"
           ? renderManagerProjectsPage({
@@ -6739,7 +6879,7 @@ export function handleAssignmentHttp(
                   showAdminOpsLink,
                   portfolioEnabled: false,
                   initialDate: url.searchParams.get("date")?.trim() ?? "",
-                  initialView: parseDailyReportsViewParam(url.searchParams.get("view")),
+                  initialView: parseDailyReportsPageViewParam(url.searchParams.get("view")),
                 })
               : renderAdminWorkbenchPage({ userLabel });
       emitWorkbenchPageView(session, url.pathname);
@@ -6802,7 +6942,7 @@ export function handleAssignmentHttp(
                 userId: employeeSession.userId,
                 userLabel: empUserLabel,
                 initialDate: url.searchParams.get("date")?.trim() ?? "",
-                initialView: parseDailyReportsViewParam(url.searchParams.get("view")),
+                initialView: parseDailyReportsPageViewParam(url.searchParams.get("view")),
               })
             : renderEmployeeWorkbenchPage({
               canExecuteAsManager: resolveWorkbenchCapabilities(employeeSession.userId).canExecuteAsManager,

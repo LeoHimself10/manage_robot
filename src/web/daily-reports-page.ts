@@ -15,7 +15,7 @@ export function renderDailyReportsPage(params: {
   portfolioEnabled?: boolean;
   apiBase?: string;
   initialDate?: string;
-  initialView?: "project" | "company";
+  initialView?: string;
   canManageRoster?: boolean;
   canManageProjectGroups?: boolean;
   canExecuteAsManager?: boolean;
@@ -61,6 +61,20 @@ export function renderDailyReportsPage(params: {
     </div>`
     : "";
 
+  const projectViewRosterPanel = `<div class="drm-panel" id="dpvrPanel" aria-hidden="true">
+      <div class="drm-inner">
+        <div class="drm-head">
+          <h3 id="dpvrTitle">项目组名单</h3>
+          <span class="drm-hint" id="dpvrHint">按组织搜人 · 自动发现近 30 天匹配日报</span>
+        </div>
+        <div class="drm-banner" id="dpvrBanner" role="status"></div>
+        <div class="drm-actions" style="margin-bottom:12px">
+          <button type="button" class="dr-btn" id="dpvrRediscover">重新发现</button>
+        </div>
+        <div class="drm-cols" id="dpvrCols"><div class="drm-note"><span class="drm-spin"></span> 载入名单…</div></div>
+      </div>
+    </div>`;
+
   const groupPanel = canManageProjectGroups
     ? `<div class="dpg-panel" id="dpgPanel" aria-hidden="true">
       <div class="dpg-inner">
@@ -91,7 +105,7 @@ export function renderDailyReportsPage(params: {
     mainHtml: `
   <div class="dr-root ${roleClass}">
     <div class="dr-toolbar">
-      <div class="dr-view-switch" role="tablist" aria-label="视图切换">
+      <div class="dr-view-switch" id="drViewSwitch" role="tablist" aria-label="视图切换">
         <button type="button" class="dr-view-btn is-on" data-view="project" role="tab" aria-selected="true">项目视图</button>
         <button type="button" class="dr-view-btn" data-view="company" role="tab" aria-selected="false">公司视图</button>
       </div>
@@ -101,12 +115,14 @@ export function renderDailyReportsPage(params: {
       </label>
       <button type="button" class="dr-btn" id="drRefresh">刷新</button>
       <span class="dr-spacer"></span>
+      <button type="button" class="dr-btn" id="dpvrToggle" aria-expanded="false" aria-controls="dpvrPanel" style="display:none">项目组名单</button>
       ${groupToolbar}
       ${rosterToolbar}
     </div>
     <p class="dr-meta" id="drMeta" aria-live="polite">加载中…</p>
     ${groupPanel}
     ${rosterPanel}
+    ${projectViewRosterPanel}
     <div class="dr-stack" id="drContent"></div>
   </div>`,
     scriptHtml: `<script>${buildDailyReportsClientJs({
@@ -122,7 +138,7 @@ export function renderDailyReportsPage(params: {
 function buildDailyReportsClientJs(opts: {
   apiBase: string;
   initialDate: string;
-  initialView: "project" | "company";
+  initialView: string;
   canManageRoster: boolean;
   canManageProjectGroups: boolean;
 }): string {
@@ -309,6 +325,157 @@ function buildDailyReportsClientJs(opts: {
   });`
     : "";
 
+  const projectViewRosterBlock = `
+  var dpvrToggle = document.getElementById('dpvrToggle');
+  var dpvrPanel = document.getElementById('dpvrPanel');
+  var dpvrCols = document.getElementById('dpvrCols');
+  var dpvrBanner = document.getElementById('dpvrBanner');
+  var dpvrRediscover = document.getElementById('dpvrRediscover');
+  var dpvrHint = document.getElementById('dpvrHint');
+  var dpvrTitle = document.getElementById('dpvrTitle');
+  var dpvrLoadedViewId = '';
+  var dpvrOrgLabel = '';
+  function customViewIdFromView(v){
+    if(!v || v.indexOf('custom:')!==0) return '';
+    return v.slice(7);
+  }
+  function isCustomViewActive(){ return VIEW.indexOf('custom:')===0; }
+  function showDpvrBanner(kind, msg){
+    if(!dpvrBanner) return;
+    dpvrBanner.className = 'drm-banner show ' + kind;
+    dpvrBanner.innerHTML = msg;
+    clearTimeout(showDpvrBanner._t);
+    showDpvrBanner._t = setTimeout(function(){ dpvrBanner.className='drm-banner'; }, 7000);
+  }
+  function syncProjectViewRosterToolbar(access){
+    var onCustom = isCustomViewActive();
+    if(dpvrToggle) dpvrToggle.style.display = onCustom ? '' : 'none';
+    if(!onCustom && dpvrPanel){
+      dpvrPanel.classList.remove('open');
+      dpvrPanel.setAttribute('aria-hidden', 'true');
+      if(dpvrToggle) dpvrToggle.setAttribute('aria-expanded', 'false');
+    }
+    if(access && access.customOnly){
+      var drmToggle = document.getElementById('drmToggle');
+      var dpgToggle = document.getElementById('dpgToggle');
+      if(drmToggle) drmToggle.style.display = 'none';
+      if(dpgToggle) dpgToggle.style.display = 'none';
+    }
+  }
+  function renderProjectViewRoster(members, label, orgLabel){
+    if(!dpvrCols) return;
+    dpvrOrgLabel = orgLabel || dpvrOrgLabel;
+    if(dpvrTitle && label) dpvrTitle.textContent = label + ' · 名单';
+    if(dpvrHint && orgLabel) dpvrHint.textContent = orgLabel + ' · 按姓名搜索加入 · 重新发现扫描近 30 天';
+    var list = members || [];
+    var rows = list.map(function(m){
+      var src = m.source === 'discovery' ? '自动' : (m.source === 'manual' ? '手动' : '');
+      var tag = src ? ('<span class="drm-r-tag">'+esc(src)+'</span>') : '';
+      return '<div class="drm-member"><span class="drm-m-name">'+esc(m.name||m.userid)+'</span>'
+        + '<span class="drm-m-uid">'+esc(m.userid)+'</span>'+tag+'<span class="drm-m-spacer"></span>'
+        + '<button class="drm-x" title="移除" data-pv-action="remove" data-userid="'+esc(m.userid)+'">×</button></div>';
+    }).join('');
+    if(!rows) rows = '<div class="drm-members-empty">暂无成员 · 可搜索加入或点「重新发现」</div>';
+    var mark = esc((orgLabel||'·').slice(0,1));
+    dpvrCols.innerHTML = '<section class="drm-col">'
+      + '<div class="drm-col-head"><span class="dr-org-mark">'+mark+'</span><h4>'+esc(orgLabel||'组织')+'</h4></div>'
+      + '<div class="drm-members">'+rows+'</div>'
+      + '<div class="drm-search-wrap"><input class="drm-search" id="dpvrSearch" placeholder="在'+esc(orgLabel||'组织')+'里按姓名搜索…" autocomplete="off" />'
+      + '<div class="drm-results" id="dpvrResults"></div></div>'
+      + '</section>';
+  }
+  function pvRosterApi(viewId){ return API + '/project-views/' + encodeURIComponent(viewId) + '/roster'; }
+  function loadProjectViewRoster(force){
+    var viewId = customViewIdFromView(VIEW);
+    if(!viewId || !dpvrCols) return;
+    if(!force && dpvrLoadedViewId === viewId && dpvrCols.querySelector('.drm-member, .drm-members-empty')) return;
+    dpvrLoadedViewId = viewId;
+    dpvrCols.innerHTML = '<div class="drm-note"><span class="drm-spin"></span> 载入名单…</div>';
+    fetch(pvRosterApi(viewId), {headers:{Accept:'application/json'}})
+      .then(function(r){return r.json();})
+      .then(function(data){
+        if(!data || data.ok===false){ dpvrCols.innerHTML='<div class="drm-note">载入失败：'+esc((data&&data.error)||'未知错误')+'</div>'; return; }
+        renderProjectViewRoster(data.members, data.label, data.orgLabel);
+      })
+      .catch(function(e){ dpvrCols.innerHTML='<div class="drm-note">载入失败：'+esc(e.message||e)+'</div>'; });
+  }
+  function postProjectViewRoster(viewId, payload){
+    return fetch(pvRosterApi(viewId), {method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();});
+  }
+  function doProjectViewSearch(q){
+    var box = document.getElementById('dpvrResults');
+    if(!box || !dpvrOrgLabel) return;
+    if(!q){ box.className='drm-results'; box.innerHTML=''; return; }
+    box.className='drm-results show';
+    box.innerHTML='<div class="drm-note"><span class="drm-spin"></span> 搜索中…</div>';
+    fetch(API+'/contacts?org='+encodeURIComponent(dpvrOrgLabel)+'&q='+encodeURIComponent(q), {headers:{Accept:'application/json'}})
+      .then(function(r){return r.json();})
+      .then(function(data){
+        if(!data || data.ok===false){ box.innerHTML='<div class="drm-note">'+esc((data&&data.error)||'搜索失败')+'</div>'; return; }
+        var list = data.candidates||[];
+        if(!list.length){ box.innerHTML='<div class="drm-note">无匹配</div>'; return; }
+        box.innerHTML = list.map(function(c){
+          if(c.inRoster){
+            return '<button class="drm-result" disabled><span class="drm-r-name">'+esc(c.name||c.userid)+'</span><span class="drm-r-tag">已在名单</span></button>';
+          }
+          return '<button class="drm-result" data-pv-action="add" data-userid="'+esc(c.userid)+'" data-name="'+esc(c.name||'')+'">'
+            + '<span class="drm-r-name">'+esc(c.name||c.userid)+'</span><span class="drm-r-uid">'+esc(c.userid)+'</span></button>';
+        }).join('');
+      })
+      .catch(function(e){ box.innerHTML='<div class="drm-note">搜索失败：'+esc(e.message||e)+'</div>'; });
+  }
+  if(dpvrCols) dpvrCols.addEventListener('click', function(e){
+    var btn = e.target.closest('[data-pv-action]');
+    if(!btn) return;
+    var viewId = customViewIdFromView(VIEW);
+    if(!viewId) return;
+    var action = btn.getAttribute('data-pv-action');
+    var userid = btn.getAttribute('data-userid');
+    if(action==='add'){
+      showDpvrBanner('ok', '<span class="drm-spin"></span> 加入中…');
+      postProjectViewRoster(viewId, {action:'add', userid:userid, name:btn.getAttribute('data-name')||''}).then(function(data){
+        if(!data || data.ok===false){ showDpvrBanner('err', '加入失败'); return; }
+        renderProjectViewRoster(data.members, data.label, data.orgLabel);
+        load(true);
+      });
+    } else if(action==='remove'){
+      postProjectViewRoster(viewId, {action:'remove', userid:userid}).then(function(data){
+        if(!data || data.ok===false){ showDpvrBanner('err', '移除失败'); return; }
+        renderProjectViewRoster(data.members, data.label, data.orgLabel);
+        load(true);
+      });
+    }
+  });
+  var dpvrSearchTimer;
+  if(dpvrCols) dpvrCols.addEventListener('input', function(e){
+    var inp = e.target;
+    if(!inp || inp.id !== 'dpvrSearch') return;
+    clearTimeout(dpvrSearchTimer);
+    dpvrSearchTimer = setTimeout(function(){ doProjectViewSearch(inp.value.trim()); }, 320);
+  });
+  if(dpvrRediscover) dpvrRediscover.addEventListener('click', function(){
+    var viewId = customViewIdFromView(VIEW);
+    if(!viewId) return;
+    dpvrRediscover.disabled = true;
+    showDpvrBanner('ok', '<span class="drm-spin"></span> 重新发现中…');
+    fetch(API + '/project-views/' + encodeURIComponent(viewId) + '/discover', {method:'POST',headers:{Accept:'application/json'}})
+      .then(function(r){return r.json();})
+      .then(function(data){
+        dpvrRediscover.disabled = false;
+        if(!data || data.ok===false){ showDpvrBanner('err', esc((data&&data.error)||'发现失败')); return; }
+        renderProjectViewRoster(data.members, data.label, data.orgLabel);
+        showDpvrBanner('ok', '发现完成 · 新增 '+(data.added||0)+' 人 · 共 '+(data.totalRoster||0)+' 人');
+        load(true);
+      })
+      .catch(function(e){ dpvrRediscover.disabled=false; showDpvrBanner('err', esc(e.message||'发现失败')); });
+  });
+  if(dpvrToggle && dpvrPanel) dpvrToggle.addEventListener('click', function(){
+    var open = dpvrPanel.classList.toggle('open');
+    dpvrPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+    dpvrToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if(open) loadProjectViewRoster(true);
+  });`;
+
   return `
 (function(){
   var API = '${api}';
@@ -320,21 +487,49 @@ function buildDailyReportsClientJs(opts: {
   var meta = document.getElementById('drMeta');
   var content = document.getElementById('drContent');
   var viewBtns = document.querySelectorAll('.dr-view-btn');
+  var viewSwitch = document.getElementById('drViewSwitch');
+  var viewBtns = document.querySelectorAll('.dr-view-btn');
   if (INIT_DATE && dateInput) dateInput.value = INIT_DATE;
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function fmtTime(ms){ if(!ms) return ''; try { return new Date(Number(ms)).toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}); } catch(e){ return ''; } }
+  function renderViewTabs(access){
+    if(!viewSwitch) return;
+    var html = '';
+    if(access && access.customOnly){
+      (access.customViews||[]).forEach(function(v, i){
+        var cv = 'custom:'+v.id;
+        html += '<button type="button" class="dr-view-btn'+((VIEW===cv || (i===0 && VIEW.indexOf('custom:')!==0))?' is-on':'')+'" data-view="'+esc(cv)+'" role="tab">' + esc(v.label) + '</button>';
+      });
+      viewSwitch.innerHTML = html;
+      if(VIEW.indexOf('custom:')!==0 && access.customViews && access.customViews[0]){
+        VIEW = 'custom:'+access.customViews[0].id;
+      }
+    } else {
+      html += '<button type="button" class="dr-view-btn'+(VIEW==='company'?'':' is-on')+'" data-view="project" role="tab">项目视图</button>';
+      html += '<button type="button" class="dr-view-btn'+(VIEW==='company'?' is-on':'')+'" data-view="company" role="tab">公司视图</button>';
+      (access && access.customViews ? access.customViews : []).forEach(function(v){
+        var cv = 'custom:'+v.id;
+        html += '<button type="button" class="dr-view-btn'+(VIEW===cv?' is-on':'')+'" data-view="'+esc(cv)+'" role="tab">'+esc(v.label)+'</button>';
+      });
+      viewSwitch.innerHTML = html;
+    }
+    viewBtns = viewSwitch.querySelectorAll('.dr-view-btn');
+  }
+  if(viewSwitch) viewSwitch.addEventListener('click', function(e){
+    var btn = e.target.closest('.dr-view-btn');
+    if(!btn) return;
+    setView(btn.getAttribute('data-view'));
+  });
   function setView(v){
-    VIEW = v === 'company' ? 'company' : 'project';
+    VIEW = v || 'project';
     viewBtns.forEach(function(btn){
       var on = btn.getAttribute('data-view') === VIEW;
       btn.classList.toggle('is-on', on);
       btn.setAttribute('aria-selected', on ? 'true' : 'false');
     });
-    load();
+    syncProjectViewRosterToolbar(window.__drAccess || null);
+    load(false);
   }
-  viewBtns.forEach(function(btn){
-    btn.addEventListener('click', function(){ setView(btn.getAttribute('data-view')); });
-  });
 
   function fieldDisplay(f){
     var parts = [];
@@ -405,19 +600,51 @@ function buildDailyReportsClientJs(opts: {
       + '<span class="dr-org-stat"><span class="dr-pill dr-pill-ok">已交 '+subCount+'</span><span class="dr-pill dr-pill-miss">未交 '+missCount+'</span>'+leavePill+'</span></div>'
       + '<div class="dr-pgroup-body dr-pgroup-body--flat">'+subs+missing+onleave+errs+'</div></section>';
   }
-  function load(){
+  function renderCustomProjectView(cpv){
+    var orgs = cpv.orgs || [];
+    var hitCount = 0;
+    var subs = [];
+    orgs.forEach(function(org){
+      (org.submitted||[]).forEach(function(emp){
+        hitCount += 1;
+        subs.push('<div class="dr-emp"><div class="dr-emp-name">'+esc(emp.name||emp.userid)+'</div>'+(emp.reports||[]).map(renderReport).join('')+'</div>');
+      });
+    });
+    var body = subs.join('') || '<div class="dr-empty">该日暂无命中「'+esc(cpv.label)+'」的日报模块</div>';
+    return '<section class="dr-pgroup dr-pgroup--custom"><div class="dr-pgroup-head"><h2>'+esc(cpv.label)+'</h2>'
+      + '<span class="dr-org-stat"><span class="dr-pill dr-pill-ok">命中 '+hitCount+' 人</span></span></div>'
+      + '<div class="dr-pgroup-body dr-pgroup-body--flat">'+body+'</div></section>';
+  }
+  function load(refresh){
     meta.textContent = '加载中…';
     content.innerHTML = '';
     var p = new URLSearchParams();
     var d = dateInput && dateInput.value;
     if(d) p.set('date', d);
     p.set('view', VIEW);
+    if(refresh) p.set('refresh', '1');
     fetch(API+'?'+p.toString(), {headers:{Accept:'application/json'}})
       .then(function(r){return r.json();})
       .then(function(data){
         if(!data || data.ok===false){ meta.textContent = '加载失败：'+esc((data&&data.error)||'未知错误'); return; }
+        if(data.access) {
+          window.__drAccess = data.access;
+          renderViewTabs(data.access);
+          syncProjectViewRosterToolbar(data.access);
+        } else {
+          syncProjectViewRosterToolbar(null);
+        }
         if(dateInput && data.date && !dateInput.value) dateInput.value = data.date;
         var tail = data.errorCount ? (' · 读取失败 '+data.errorCount) : '';
+        var scanNote = data.scanning ? ' · <span class="drm-spin"></span> 正在扫描发现名单…' : '';
+        var rosterNote = (data.rosterCount != null && isCustomViewActive()) ? (' · 名单 '+data.rosterCount+' 人') : '';
+        var cacheNote = data.cacheScannedAt ? (' · 缓存 '+esc(fmtTime(Date.parse(data.cacheScannedAt)))) : '';
+        if(data.customProjectView){
+          meta.innerHTML = (data.dateLabel||data.date||'')+' · '+esc(data.customProjectView.label)+' · 命中 '+(data.submittedCount||0)+' 人'+rosterNote+cacheNote+scanNote+tail;
+          content.innerHTML = renderCustomProjectView(data.customProjectView);
+          if(isCustomViewActive()) loadProjectViewRoster(false);
+          return;
+        }
         var viewLabel = VIEW === 'company' ? '公司视图' : '项目视图';
         var leaveTail = (data.onLeaveCount||0) ? (' · 请假 '+data.onLeaveCount) : '';
         meta.textContent = (data.dateLabel||data.date||'')+' · '+viewLabel+' · 已交 '+(data.submittedCount||0)+' · 未交 '+(data.missingCount||0)+leaveTail+tail;
@@ -431,9 +658,11 @@ function buildDailyReportsClientJs(opts: {
   }
   ${rosterBlock}
   ${groupBlock}
-  if(dateInput) dateInput.addEventListener('change', load);
-  if(refreshBtn) refreshBtn.addEventListener('click', load);
-  setView(VIEW);
+  ${projectViewRosterBlock}
+  if(dateInput) dateInput.addEventListener('change', function(){ load(false); });
+  if(refreshBtn) refreshBtn.addEventListener('click', function(){ load(true); });
+  renderViewTabs(null);
+  load();
 })();
 `;
 }
