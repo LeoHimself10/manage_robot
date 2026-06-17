@@ -29,7 +29,6 @@ VIEW = {
         "enabled": True,
         "sendHour": 8,
         "sendMinute": 0,
-        "excludeUserIds": ["01451725613871"],
     },
 }
 

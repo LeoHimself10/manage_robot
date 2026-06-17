@@ -19,19 +19,36 @@ const FILTER = {
 };
 
 describe("resolveProjectViewDigestRecipients", () => {
-  it("excludes configured and env user ids from viewers", () => {
+  it("excludes configured and env user ids when set", () => {
     const view = parseProjectViewConfig(
       {
         id: "v1",
         label: "测试",
         viewers: ["01451725613871", "641871342"],
         filters: FILTER,
-        digest: { enabled: true, excludeUserIds: ["01451725613871"] },
+        digest: { enabled: true, excludeUserIds: ["641871342"] },
       },
       "微光",
     )!;
-    expect(resolveProjectViewDigestRecipients(view, ["641871342"])).toEqual([]);
-    expect(resolveProjectViewDigestRecipients(view, [])).toEqual(["641871342"]);
+    expect(resolveProjectViewDigestRecipients(view, [])).toEqual(["01451725613871"]);
+    expect(resolveProjectViewDigestRecipients(view, ["01451725613871"])).toEqual([]);
+  });
+
+  it("defaults to all viewers when no exclude", () => {
+    const view = parseProjectViewConfig(
+      {
+        id: "v1",
+        label: "测试",
+        viewers: ["01451725613871", "641871342"],
+        filters: FILTER,
+        digest: { enabled: true },
+      },
+      "微光",
+    )!;
+    expect(resolveProjectViewDigestRecipients(view, [])).toEqual([
+      "01451725613871",
+      "641871342",
+    ]);
   });
 });
 

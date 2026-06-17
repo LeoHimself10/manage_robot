@@ -38,7 +38,6 @@ const SEMICONDUCTOR_VEIN_VIEW = {
     enabled: true,
     sendHour: 8,
     sendMinute: 0,
-    excludeUserIds: ["01451725613871"],
   },
 };
 
