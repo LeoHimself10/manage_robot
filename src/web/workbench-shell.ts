@@ -74,7 +74,7 @@ function buildManagerRail(activeNav: WorkbenchNavId, portfolioEnabled: boolean, 
   return `<div class="wb-rail-grp">
   <div class="wb-rail-grp-lbl">工作</div>
   ${railLink("/workbench/manager/tasks", "历史任务", "mgr-tasks", activeNav, "manager")}
-  ${railLink("/workbench/manager/dashboard", "周度 Dashboard", "mgr-dash", activeNav, "manager")}
+  ${railLink("/workbench/manager/dashboard", "周度看板", "mgr-dash", activeNav, "manager")}
   ${railLink("/workbench/manager/performance", "交付绩效", "mgr-perf", activeNav, "manager")}
   ${isDailyReportsPageEnabled() ? railLink("/workbench/manager/daily-reports", "日报汇总", "mgr-daily-reports", activeNav, "manager") : ""}
   ${railLink("/workbench/manager/chat?thread=main", "智能规划助手", "mgr-chat", activeNav, "manager")}

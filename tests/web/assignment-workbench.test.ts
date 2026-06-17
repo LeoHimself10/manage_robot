@@ -2345,7 +2345,7 @@ describe("assignment-workbench HTTP handler", () => {
       const { res, captured } = stubRes();
       handleAssignmentHttp(req, res);
       expect(captured().statusCode).toBe(200);
-      expect(captured().body).toContain("周度 Dashboard");
+      expect(captured().body).toContain("周度看板");
       expect(captured().body).toContain("id=\"kpiEvents\"");
       expect(captured().body).toContain("id=\"openAdvisorDrawerBtn\"");
       expect(captured().body).toContain("id=\"advisorDrawer\"");

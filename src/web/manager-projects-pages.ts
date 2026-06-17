@@ -19,7 +19,7 @@ export function renderManagerProjectsPage(params: {
     activeNav: "mgr-proj",
     title: "项目总览",
     pageTitle: "项目总览 · 主管工作台",
-    description: "按项目查看主任务整体进展；需要子任务明细请进入历史任务。周会汇报请使用周度 Dashboard。",
+    description: "按项目查看主任务整体进展；需要子任务明细请进入历史任务。周会汇报请使用周度看板。",
     userLabel: params.userLabel,
     portfolioEnabled: true,
     showAdminOpsLink: params.showAdminOpsLink,
@@ -141,7 +141,7 @@ export function renderManagerProjectsPage(params: {
         + renderProgress(c)
         + '<div class="project-card__actions">'
         + '<button type="button" class="btn btn-primary btn-sm" data-card-go="' + esc(pid) + '">' + esc(primaryLabel) + '</button>'
-        + (isUnassigned ? '' : '<a class="btn btn-ghost btn-sm" href="' + dashboardHref(pid) + '">周度 Dashboard</a>')
+        + (isUnassigned ? '' : '<a class="btn btn-ghost btn-sm" href="' + dashboardHref(pid) + '">周度看板</a>')
         + '</div>'
         + '</article>';
     }).join('');

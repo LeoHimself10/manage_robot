@@ -32,8 +32,8 @@ export function renderManagerDashboardPage(params: {
   return renderWorkbenchPage({
     role: "manager",
     activeNav: "mgr-dash",
-    title: "周度 Dashboard",
-    pageTitle: "周度 Dashboard · 主管工作台",
+    title: "周度看板",
+    pageTitle: "周度看板 · 主管工作台",
     description: `周会投屏与进展汇报：一屏看清任务节奏、人员负载与关键动态。${who}`,
     userLabel: params.userLabel,
     portfolioEnabled: portfolio,
@@ -68,6 +68,18 @@ export function renderManagerDashboardPage(params: {
             </select>
           </label>
           ${projectFilterBar}
+          <label class="dash-filter-block">
+            <span class="dash-filter-lbl">任务状态</span>
+            <select class="dash-select" id="statusFilter">
+              <option value="">全部状态</option>
+              <option value="IN_PROGRESS">执行中</option>
+              <option value="ASSIGNED,CHANGES_REQUESTED">待承接</option>
+              <option value="BLOCKED">阻塞中</option>
+              <option value="DONE">已完成</option>
+              <option value="STOPPED">已停止</option>
+              <option value="REJECTED">已拒绝</option>
+            </select>
+          </label>
           <div class="dash-filter-block dash-filter-block--action">
             <button type="button" class="btn btn-primary dash-refresh-btn" id="refreshBtn">刷新</button>
           </div>
@@ -139,13 +151,6 @@ export function renderManagerDashboardPage(params: {
     </main>
 
     <aside class="dashboard-side">
-      <section class="card">
-        <div class="advisor-card__head">
-          <h2>工作台活跃</h2>
-          <p class="section-sub">本周在您名下任务相关人员中有工作台访问记录（打开页面、对话或任务操作）。</p>
-        </div>
-        <div id="wbActiveMount" class="empty-state">加载中…</div>
-      </section>
       <section class="card advisor-card">
         <div class="advisor-card__head">
           <h2>周会助手</h2>
@@ -186,7 +191,7 @@ ${buildWorkbenchFmtTimeClientJs()}
 (function () {
   var portfolioEnabled = ${portfolio ? "true" : "false"};
   var initialProjectId = ${JSON.stringify(params.initialProjectId ?? "")};
-  var state = { data: null, nextCursor: null, feedItems: [], advisorGenerated: false, ganttMode: 'all', ganttOpen: {} };
+  var state = { data: null, nextCursor: null, feedItems: [], advisorGenerated: false, ganttMode: 'all', ganttOpen: {}, statusFilter: '' };
   function esc(v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, function (ch) {
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
@@ -247,6 +252,91 @@ ${buildWorkbenchFmtTimeClientJs()}
     var p = String(ymd || '').split('-').map(Number);
     var wd = new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay();
     return wd === 0 || wd === 6;
+  }
+  function statusFilterMatches(status, filterValue) {
+    if (!filterValue) return true;
+    return filterValue.split(',').indexOf(String(status)) >= 0;
+  }
+  function statusFilterLabel(filterValue) {
+    if (!filterValue) return '';
+    if (filterValue === 'IN_PROGRESS') return '执行中';
+    if (filterValue === 'ASSIGNED,CHANGES_REQUESTED') return '待承接';
+    if (filterValue === 'BLOCKED') return '阻塞中';
+    if (filterValue === 'DONE') return '已完成';
+    if (filterValue === 'STOPPED') return '已停止';
+    if (filterValue === 'REJECTED') return '已拒绝';
+    return filterValue;
+  }
+  function filteredDashboardData(d) {
+    var fv = state.statusFilter || '';
+    if (!fv) return d;
+    var tasks = (d.tasks || []).map(function (g) {
+      var subs = (g.subtasks || []).filter(function (s) { return statusFilterMatches(s.status, fv); });
+      if (!subs.length) return null;
+      return { task: g.task, subtasks: subs };
+    }).filter(Boolean);
+    var byTask = (d.timeline.byTask || []).map(function (row) {
+      var bars = (row.bars || []).filter(function (b) { return statusFilterMatches(b.status, fv); });
+      if (!bars.length) return null;
+      return { taskId: row.taskId, taskNo: row.taskNo, title: row.title, bars: bars };
+    }).filter(Boolean);
+    var byPerson = (d.timeline.byPerson || []).map(function (p) {
+      var subs = (p.subtasks || []).filter(function (s) { return statusFilterMatches(s.status, fv); });
+      if (!subs.length) return null;
+      var inProgressCount = 0;
+      var blockedCount = 0;
+      var dueInSpanCount = 0;
+      var dueNextWeekCount = 0;
+      var days = (p.days || []).map(function (day) { return { ymd: day.ymd, dueCount: 0 }; });
+      var dayIndex = {};
+      days.forEach(function (day, i) { dayIndex[day.ymd] = i; });
+      subs.forEach(function (s) {
+        if (s.status === 'IN_PROGRESS') inProgressCount += 1;
+        if (s.status === 'BLOCKED') blockedCount += 1;
+        var dueAt = s.dueAt;
+        if (dueAt) {
+          var ymd = String(dueAt).slice(0, 10);
+          if (dayIndex[ymd] !== undefined) {
+            dueInSpanCount += 1;
+            days[dayIndex[ymd]].dueCount += 1;
+          }
+        }
+      });
+      (p.subtasks || []).forEach(function (s) {
+        if (!statusFilterMatches(s.status, fv)) return;
+        var ymd = s.dueAt ? String(s.dueAt).slice(0, 10) : '';
+        if (!ymd) return;
+        var centerMonday = d.timeline.centerMondayYmd || (d.week && d.week.mondayYmd) || '';
+        if (centerMonday) {
+          var nextStart = addDaysYmd(centerMonday, 7);
+          var nextEnd = addDaysYmd(centerMonday, 14);
+          if (ymd >= nextStart && ymd < nextEnd) dueNextWeekCount += 1;
+        }
+      });
+      return {
+        assigneeUserId: p.assigneeUserId,
+        assigneeName: p.assigneeName,
+        inProgressCount: inProgressCount,
+        blockedCount: blockedCount,
+        dueInSpanCount: dueInSpanCount,
+        dueNextWeekCount: dueNextWeekCount,
+        days: days,
+        subtasks: subs
+      };
+    }).filter(Boolean);
+    return {
+      week: d.week,
+      span: d.span,
+      kpi: d.kpi,
+      feed: d.feed,
+      tasks: tasks,
+      timeline: {
+        days: d.timeline.days,
+        centerMondayYmd: d.timeline.centerMondayYmd,
+        byTask: byTask,
+        byPerson: byPerson
+      }
+    };
   }
   function qs(includeCursor, feedOnly) {
     var week = document.getElementById('weekInput').value || '';
@@ -310,29 +400,14 @@ ${buildWorkbenchFmtTimeClientJs()}
     document.getElementById('kpiDueNext').textContent = d.kpi.dueNextWeek;
     document.getElementById('kpiEvents').textContent = d.kpi.eventCount;
     var spanLabel = '±' + (d.span != null ? d.span : document.getElementById('spanInput').value) + ' 周';
-    document.getElementById('rangeMeta').textContent = d.week.label + ' · 视图 ' + spanLabel + ' · 动态 ' + d.kpi.eventCount + ' 条';
-    renderTimeline(d);
-    renderTaskDetails(d);
-    renderPeople(d);
+    var meta = d.week.label + ' · 视图 ' + spanLabel + ' · 动态 ' + d.kpi.eventCount + ' 条';
+    if (state.statusFilter) meta += ' · 已筛选：' + statusFilterLabel(state.statusFilter);
+    document.getElementById('rangeMeta').textContent = meta;
+    var view = filteredDashboardData(d);
+    renderTimeline(view);
+    renderTaskDetails(view);
+    renderPeople(view);
     renderFeed(d);
-    renderWorkbenchActive(d);
-  }
-  function renderWorkbenchActive(d) {
-    var mount = document.getElementById('wbActiveMount');
-    if (!mount) return;
-    var rows = d.workbenchActiveUsers || [];
-    if (!rows.length) {
-      mount.innerHTML = '<p class="muted" style="font-size:13px;margin:0;">本周暂无工作台访问记录。</p>';
-      return;
-    }
-    var body = rows.map(function (r) {
-      var name = esc(r.displayName || r.userId);
-      var sub = (r.displayName && r.displayName !== r.userId)
-        ? '<div class="muted" style="font-size:12px;">' + esc(r.userId) + '</div>'
-        : '';
-      return '<tr><td><strong>' + name + '</strong>' + sub + '</td><td>' + esc(r.surfaceLabel || '—') + '</td><td>' + esc(r.eventCount) + '</td></tr>';
-    }).join('');
-    mount.innerHTML = '<div class="table-wrap"><table class="data"><thead><tr><th>姓名</th><th>端</th><th>次数</th></tr></thead><tbody>' + body + '</tbody></table></div>';
   }
   function ganttTrackCells(days, centerMonday) {
     return days.map(function (day) {
@@ -573,7 +648,7 @@ ${buildWorkbenchFmtTimeClientJs()}
     var taskId = head.getAttribute('data-task-id');
     if (!taskId) return;
     state.ganttOpen[taskId] = !isGanttGroupOpen(taskId);
-    if (state.data) renderTimeline(state.data);
+    if (state.data) renderTimeline(filteredDashboardData(state.data));
   });
   document.querySelectorAll('#ganttDensity button').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -581,8 +656,12 @@ ${buildWorkbenchFmtTimeClientJs()}
       btn.classList.add('is-on');
       state.ganttMode = btn.getAttribute('data-gantt-mode') || 'all';
       if (state.ganttMode === 'all') state.ganttOpen = {};
-      if (state.data) renderTimeline(state.data);
+      if (state.data) renderTimeline(filteredDashboardData(state.data));
     });
+  });
+  document.getElementById('statusFilter').addEventListener('change', function () {
+    state.statusFilter = document.getElementById('statusFilter').value || '';
+    if (state.data) render();
   });
   document.getElementById('logoutBtn').addEventListener('click', async function () {
     var res = await fetch('/api/workbench/logout', { method: 'POST' });
