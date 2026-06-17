@@ -78,6 +78,7 @@ import { createReminderScheduler } from "./agent/reminders/reminder-scheduler";
 import { createProgressDigestScheduler } from "./agent/progress-digest/progress-digest-scheduler";
 import { loadProgressDigestPolicy } from "./agent/progress-digest/progress-digest-policy";
 import { createDailyReportDigestScheduler } from "./agent/daily-report-digest/daily-report-scheduler";
+import { createDailyReportProjectViewPrewarmScheduler } from "./agent/daily-report-digest/daily-report-project-view-prewarm";
 import {
   appendMemoryEvents,
   loadMemoryContextForPlan,
@@ -331,6 +332,14 @@ async function main(): Promise<void> {
     sendHour: dailyReportScheduler.config.sendHour,
     sendMinute: dailyReportScheduler.config.sendMinute,
     orgCount: dailyReportScheduler.config.orgs.length,
+  });
+
+  const projectViewPrewarm = createDailyReportProjectViewPrewarmScheduler();
+  void projectViewPrewarm.bootstrapOnStartup().catch(() => undefined);
+  projectViewPrewarm.startIntervalLoop();
+  logStructured({
+    event: "daily_report_project_view_prewarm_started",
+    scanIntervalMs: dailyReportScheduler.config.scanIntervalMs,
   });
 
   client.registerCallbackListener(TOPIC_ROBOT, (res: DWClientDownStream) => {
