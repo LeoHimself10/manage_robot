@@ -142,6 +142,6 @@ describe("daily-report-leave", () => {
       { label: "明思", appKey: "k", appSecret: "s", employees: [{ userid: "u_a" }] },
     ], window, { leaveClient: client });
     expect(out[0]!.missing).toEqual([]);
-    expect(out[0]!.onLeave.map((m) => m.name)).toEqual(["甲"]);
+    expect((out[0]!.onLeave ?? []).map((m) => m.name)).toEqual(["甲"]);
   });
 });

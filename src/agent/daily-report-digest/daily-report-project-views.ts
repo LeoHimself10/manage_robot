@@ -1,4 +1,4 @@
-import type { DailyReportDigestConfig } from "./daily-report-config";
+import type { DailyReportDigestConfig, DailyReportOrgConfig } from "./daily-report-config";
 import type { ModuleProjectPairFilter } from "./daily-report-project-view-filter";
 
 export interface DailyReportProjectViewConfig {
