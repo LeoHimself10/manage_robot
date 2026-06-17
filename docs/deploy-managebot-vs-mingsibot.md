@@ -170,13 +170,21 @@ managebot 部署后 probe 应在 **manage-robot-dingtalk** 内执行，且 confi
 
 ---
 
-## 10. ECS Git 快照（核查时）
+## 10. ECS Git 与部署记录
 
-```
-809ceaf fix(daily-report): treat 8h leave as full-day per company work schedule
-```
+**核查前** HEAD：`809ceaf`  
+**managebot 项目组视图部署后** HEAD：`c2cec7f`（`ecs-deploy-managebot-project-view.sh` 成功）
 
-部署 managebot 项目组视图前，需 `git pull` 到含 `ecs-deploy-managebot-project-view.sh` 与 `DAILY_REPORT_PROJECT_VIEWS_ENABLED` 逻辑的 commit。
+部署后 managebot 容器 env 确认：
+
+| 变量 | 值 |
+|------|-----|
+| `DAILY_REPORT_PROJECT_VIEWS_ENABLED` | `1` |
+| `DAILY_REPORTS_PAGE_ENABLED` | `1` |
+| `DAILY_REPORT_DIGEST_ENABLED` | `0` |
+
+managebot 已生成 `/opt/manage_robot/data/daily-report-digest.config.json`（仅微光 org + `projectViews: semiconductor-vein`）。  
+mingsibot **未重启**（仍 Up，legacy digest 不变）。
 
 ---
 
