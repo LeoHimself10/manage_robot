@@ -1,5 +1,9 @@
 import * as fs from "fs";
 import { normalizeProjectGroupId, type ProjectGroupId } from "./daily-report-project-groups";
+import {
+  parseProjectViewConfig,
+  type DailyReportProjectViewConfig,
+} from "./daily-report-project-views";
 
 /**
  * 单个钉钉组织的读取凭证 + 目标员工。
@@ -23,6 +27,8 @@ export interface DailyReportOrgConfig {
   employees: Array<{ userid: string; name?: string; projectGroup?: "intracranial" | "brain" | "ops" }>;
   /** 可选：仅保留「成本归属项目」命中任一 filter 的工作模块（微光等多模块模板） */
   projectFilter?: string[];
+  /** 可配置项目组视图（微光侧扩展；viewer 白名单 + 模块/项目成对 filter） */
+  projectViews?: DailyReportProjectViewConfig[];
 }
 
 /** 明思群里「自定义群机器人」的 Webhook 凭证（与企业应用凭证无关）。 */
@@ -179,6 +185,16 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
       projectFilter = list.map((x) => asString(x)).filter((x) => x.length > 0);
       if (projectFilter.length === 0) projectFilter = undefined;
     }
+    const projectViewsRaw = Array.isArray(o.projectViews) ? o.projectViews : [];
+    const projectViews: DailyReportProjectViewConfig[] = [];
+    projectViewsRaw.forEach((raw, vIdx) => {
+      const parsed = parseProjectViewConfig(raw, label);
+      if (parsed) {
+        projectViews.push(parsed);
+      } else if (raw != null) {
+        errors.push(`orgs[${idx}] (${label}) projectViews[${vIdx}] 无效（需 id/label/viewers/filters 全名）`);
+      }
+    });
     orgs.push({
       label,
       appKey,
@@ -187,6 +203,7 @@ export function parseDailyReportDigestConfig(raw: unknown): DailyReportConfigPar
       templateName,
       employees,
       projectFilter,
+      ...(projectViews.length > 0 ? { projectViews } : {}),
     });
   });
   if (orgs.length === 0) {
