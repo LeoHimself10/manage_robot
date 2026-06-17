@@ -59,7 +59,7 @@ def load_or_bootstrap() -> dict:
                 "label": ORG_LABEL,
                 "appKey": weiguang.get("appKey"),
                 "appSecret": weiguang.get("appSecret"),
-                "templateName": weiguang.get("templateName") or "日报",
+                "templateName": weiguang.get("templateName") or "",
                 "employees": [],
                 "projectViews": [],
             }
@@ -80,6 +80,13 @@ def main() -> None:
     else:
         views.append(VIEW)
     org["projectViews"] = views
+    # 与 mingsibot 微光 org 对齐：勿默认 templateName=日报（会导致 report/list 40035）
+    fb = Path(FALLBACK)
+    if fb.is_file():
+        src = json.loads(fb.read_text(encoding="utf-8"))
+        wg = next((o for o in src.get("orgs") or [] if o.get("label") == ORG_LABEL), None)
+        if wg is not None:
+            org["templateName"] = wg.get("templateName") or ""
     path = Path(CONFIG_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

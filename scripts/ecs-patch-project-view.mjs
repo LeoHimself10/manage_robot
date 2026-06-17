@@ -72,7 +72,7 @@ function loadOrBootstrapConfig() {
         label: ORG_LABEL,
         appKey: weiguang.appKey,
         appSecret: weiguang.appSecret,
-        templateName: weiguang.templateName || "日报",
+        templateName: weiguang.templateName || "",
         employees: [],
         projectViews: [],
       },
