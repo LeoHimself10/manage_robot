@@ -34,6 +34,12 @@ const SEMICONDUCTOR_VEIN_VIEW = {
     workModuleContains: "半导体激光",
     costProjectContains: "静脉腔内闭合系统",
   },
+  digest: {
+    enabled: true,
+    sendHour: 8,
+    sendMinute: 0,
+    excludeUserIds: ["01451725613871"],
+  },
 };
 
 function readJson(path) {

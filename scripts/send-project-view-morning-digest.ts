@@ -1,29 +1,27 @@
 #!/usr/bin/env npx tsx
 /**
  * 微光 projectView 项目组早报：LLM 综述 + 按人摘要 + 工作台深链，1:1 机器人私发。
- * 阶段 1 验收：默认只发姚凯珩，验收通过前勿向曹一挥发送。
  *
  * Usage:
  *   npx tsx scripts/send-project-view-morning-digest.ts --view=semiconductor-vein
  *   npx tsx scripts/send-project-view-morning-digest.ts --view=semiconductor-vein --dry-run
- *   npx tsx scripts/send-project-view-morning-digest.ts --view=semiconductor-vein --date=2026-06-08
  */
 import "dotenv/config";
 import { loadDailyReportDigestConfig } from "../src/agent/daily-report-digest/daily-report-config";
 import { loadOrCollectProjectViewDigest } from "../src/agent/daily-report-digest/daily-report-project-view-digest-collect";
 import {
-  loadDailyReportMorningLlmConfig,
-  summarizeProjectViewMorningWithLlm,
-  fallbackProjectViewMorningSummary,
-} from "../src/agent/daily-report-digest/daily-report-project-view-morning-llm";
-import { renderProjectViewMorningMarkdown } from "../src/agent/daily-report-digest/daily-report-project-view-morning-render";
-import { buildDailyReportsPublicUrlForDingtalkOutbound } from "../src/agent/daily-report-digest/daily-report-workbench-link";
+  createProjectViewDigestStateStore,
+} from "../src/agent/daily-report-digest/daily-report-project-view-digest-state";
+import {
+  buildProjectViewMorningDigestPayload,
+  sendProjectViewMorningDigestToUser,
+} from "../src/agent/daily-report-digest/daily-report-project-view-digest-send";
 import {
   resolveDayRangeForYmd,
   resolveReportRange,
 } from "../src/agent/daily-report-digest/daily-report-window";
 
-/** 姚凯珩（微光 managebot）— 阶段 1 默认收件人；明思 mingsibot 为 652949075622784820 */
+/** 姚凯珩（微光 managebot）；明思 mingsibot 为 652949075622784820 */
 const DEFAULT_TO_USER_ID = "641871342";
 const DEFAULT_VIEW_ID = "semiconductor-vein";
 
@@ -48,55 +46,6 @@ function parseArgs(): {
   return { viewId, toUserId, dateYmd, dryRun };
 }
 
-async function fetchAccessToken(): Promise<string> {
-  const appKey = process.env.DINGTALK_CLIENT_ID?.trim();
-  const appSecret = process.env.DINGTALK_CLIENT_SECRET?.trim();
-  if (!appKey || !appSecret) throw new Error("missing DINGTALK credentials");
-  const res = await fetch("https://api.dingtalk.com/v1.0/oauth2/accessToken", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ appKey, appSecret }),
-  });
-  const data = (await res.json()) as Record<string, unknown>;
-  const token = String(data.accessToken ?? data.access_token ?? "").trim();
-  if (!token) throw new Error(`token failed: ${JSON.stringify(data)}`);
-  return token;
-}
-
-async function sendRobotMarkdown(params: {
-  accessToken: string;
-  robotCode: string;
-  userId: string;
-  title: string;
-  markdown: string;
-  detailUrl: string;
-}): Promise<string> {
-  const res = await fetch("https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-acs-dingtalk-access-token": params.accessToken,
-    },
-    body: JSON.stringify({
-      robotCode: params.robotCode,
-      userIds: [params.userId],
-      msgKey: "sampleActionCard",
-      msgParam: JSON.stringify({
-        title: params.title,
-        text: params.markdown,
-        singleTitle: "打开工作台日报",
-        singleURL: params.detailUrl,
-      }),
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`robot send failed: ${res.status} ${text}`);
-  }
-  const data = (await res.json()) as Record<string, unknown>;
-  return String(data.processQueryKey ?? data.requestId ?? "");
-}
-
 async function main(): Promise<void> {
   const { viewId, toUserId, dateYmd, dryRun } = parseArgs();
 
@@ -116,107 +65,66 @@ async function main(): Promise<void> {
         cutoffHour: config.reportDayCutoffHour,
         cutoffMinute: config.reportDayCutoffMinute,
       });
-  const dateLabel = `${range.labelDisplay}（${range.labelYmd}）`;
 
-  const ctx = await loadOrCollectProjectViewDigest({
-    config,
-    viewId,
-    range,
-  });
+  const ctx = await loadOrCollectProjectViewDigest({ config, viewId, range });
+  const stateStore = createProjectViewDigestStateStore();
 
-  const submittedCount = ctx.orgDigest.submitted.length;
-  const llmConfig = loadDailyReportMorningLlmConfig();
-  const summary = llmConfig
-    ? await summarizeProjectViewMorningWithLlm(
-        ctx.view.label,
-        dateLabel,
-        ctx.rosterCount,
-        ctx.orgDigest,
-        llmConfig,
-      )
-    : fallbackProjectViewMorningSummary(
-        ctx.view.label,
-        dateLabel,
-        ctx.rosterCount,
-        ctx.orgDigest,
+  try {
+    if (dryRun) {
+      const payload = await buildProjectViewMorningDigestPayload(ctx, range);
+      console.log(
+        JSON.stringify(
+          {
+            ok: true,
+            dryRun: true,
+            viewId,
+            viewLabel: ctx.view.label,
+            date: range.labelYmd,
+            toUserId,
+            rosterCount: ctx.rosterCount,
+            submittedCount: payload.submittedCount,
+            fromCache: ctx.fromCache,
+            errorCount: ctx.orgDigest.errors.length,
+            markdown: payload.markdown,
+          },
+          null,
+          2,
+        ),
       );
+      return;
+    }
 
-  const workbenchUrl = buildDailyReportsPublicUrlForDingtalkOutbound({
-    dateYmd: range.labelYmd,
-    view: `custom:${viewId}`,
-  });
+    const result = await sendProjectViewMorningDigestToUser({
+      ctx,
+      range,
+      userId: toUserId,
+      stateStore,
+      previewTitleSuffix: "预览（私发）",
+    });
 
-  const rendered = renderProjectViewMorningMarkdown({
-    viewLabel: ctx.view.label,
-    dateLabel,
-    dateYmd: range.labelYmd,
-    summary,
-    submittedCount,
-    rosterCount: ctx.rosterCount,
-    workbenchUrl: workbenchUrl || undefined,
-  });
-
-  if (dryRun) {
     console.log(
       JSON.stringify(
         {
           ok: true,
-          dryRun: true,
+          dryRun: false,
+          toUserId,
           viewId,
           viewLabel: ctx.view.label,
           date: range.labelYmd,
-          toUserId,
-          rosterCount: ctx.rosterCount,
-          submittedCount,
+          rosterCount: result.rosterCount,
+          submittedCount: result.submittedCount,
           fromCache: ctx.fromCache,
           errorCount: ctx.orgDigest.errors.length,
-          workbenchUrl,
-          markdown: rendered.text,
+          robotMessageKey: result.robotMessageKey,
+          skipped: result.skipped ?? false,
         },
         null,
         2,
       ),
     );
-    return;
+  } finally {
+    stateStore.close();
   }
-
-  const robotCode =
-    process.env.DINGTALK_ROBOT_CODE?.trim() || process.env.DINGTALK_CLIENT_ID?.trim();
-  if (!robotCode) throw new Error("missing DINGTALK_ROBOT_CODE or DINGTALK_CLIENT_ID");
-
-  const token = await fetchAccessToken();
-  const detailUrl =
-    workbenchUrl || process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL || "https://example.com";
-  const robotKey = await sendRobotMarkdown({
-    accessToken: token,
-    robotCode,
-    userId: toUserId,
-    title: `${rendered.title} · 预览（私发）`,
-    markdown: rendered.text,
-    detailUrl,
-  });
-
-  console.log(
-    JSON.stringify(
-      {
-        ok: true,
-        dryRun: false,
-        toUserId,
-        viewId,
-        viewLabel: ctx.view.label,
-        date: range.labelYmd,
-        rosterCount: ctx.rosterCount,
-        submittedCount,
-        fromCache: ctx.fromCache,
-        errorCount: ctx.orgDigest.errors.length,
-        workbenchUrl,
-        robotMessageKey: robotKey,
-        note: "阶段1验收：默认发姚凯珩；勿向曹一挥发送直至验收通过",
-      },
-      null,
-      2,
-    ),
-  );
 }
 
 main().catch((err) => {

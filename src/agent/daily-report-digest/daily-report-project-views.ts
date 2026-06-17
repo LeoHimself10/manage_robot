@@ -3,6 +3,17 @@ import { configHasLegacyDailyReportEmployees } from "./daily-report-config";
 import type { ModuleProjectPairFilter } from "./daily-report-project-view-filter";
 import { isDailyReportProjectViewsEnabled } from "./daily-report-project-view-flag";
 
+export interface DailyReportProjectViewDigestConfig {
+  /** 默认 true；显式 false 时 scheduler 跳过该视图 */
+  enabled?: boolean;
+  sendHour?: number;
+  sendMinute?: number;
+  /** 仅向这些 userid 发送；缺省 = viewers 减去 excludeUserIds */
+  recipients?: string[];
+  /** 不发早报的 viewer（如验收期暂排除曹一挥） */
+  excludeUserIds?: string[];
+}
+
 export interface DailyReportProjectViewConfig {
   id: string;
   label: string;
@@ -13,6 +24,7 @@ export interface DailyReportProjectViewConfig {
   /** org-wide 发现扫描近 N 自然日；默认 30 */
   discoveryDays?: number;
   filters: ModuleProjectPairFilter;
+  digest?: DailyReportProjectViewDigestConfig;
 }
 
 export interface DailyReportsAccessInfo {
@@ -35,6 +47,26 @@ function parseDiscoveryDays(value: unknown): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 30;
 }
 
+function parseDigestConfig(raw: unknown): DailyReportProjectViewDigestConfig | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const d = raw as Record<string, unknown>;
+  const excludeRaw = Array.isArray(d.excludeUserIds) ? d.excludeUserIds : [];
+  const recipientsRaw = Array.isArray(d.recipients) ? d.recipients : [];
+  const sendHour = Number(d.sendHour);
+  const sendMinute = Number(d.sendMinute);
+  return {
+    enabled: d.enabled === false ? false : true,
+    ...(Number.isFinite(sendHour) ? { sendHour: Math.floor(sendHour) } : {}),
+    ...(Number.isFinite(sendMinute) ? { sendMinute: Math.floor(sendMinute) } : {}),
+    ...(recipientsRaw.length
+      ? { recipients: recipientsRaw.map((v) => asString(v)).filter(Boolean) }
+      : {}),
+    ...(excludeRaw.length
+      ? { excludeUserIds: excludeRaw.map((v) => asString(v)).filter(Boolean) }
+      : {}),
+  };
+}
+
 export function parseProjectViewConfig(raw: unknown, orgLabel: string): DailyReportProjectViewConfig | null {
   const o = (raw ?? {}) as Record<string, unknown>;
   const id = asString(o.id);
@@ -46,6 +78,7 @@ export function parseProjectViewConfig(raw: unknown, orgLabel: string): DailyRep
   const costProjectContains = asString(filtersRaw.costProjectContains);
   if (!id || !label || viewers.length === 0) return null;
   if (!workModuleContains || !costProjectContains) return null;
+  const digest = parseDigestConfig(o.digest);
   return {
     id,
     label,
@@ -53,6 +86,7 @@ export function parseProjectViewConfig(raw: unknown, orgLabel: string): DailyRep
     exclusiveForViewers: o.exclusiveForViewers === true,
     discoveryDays: parseDiscoveryDays(o.discoveryDays),
     filters: { workModuleContains, costProjectContains },
+    ...(digest ? { digest } : {}),
   };
 }
 
@@ -100,6 +134,26 @@ export function findProjectViewById(
   viewId: string,
 ): (DailyReportProjectViewConfig & { orgLabel: string }) | undefined {
   return listProjectViewsFromConfig(config.orgs).find((v) => v.id === viewId);
+}
+
+/** 定时早报收件人：viewers / recipients 减去 exclude + env 排除项。 */
+export function resolveProjectViewDigestRecipients(
+  view: DailyReportProjectViewConfig,
+  envExcludeUserIds: string[] = [],
+): string[] {
+  const exclude = new Set([
+    ...(view.digest?.excludeUserIds ?? []),
+    ...envExcludeUserIds,
+  ]);
+  const base =
+    view.digest?.recipients && view.digest.recipients.length > 0
+      ? view.digest.recipients
+      : view.viewers;
+  return base.filter((id) => id && !exclude.has(id));
+}
+
+export function isProjectViewDigestEnabledForView(view: DailyReportProjectViewConfig): boolean {
+  return view.digest?.enabled === true;
 }
 
 export { collectProjectViewDigestForRange } from "./daily-report-project-view-collect";

@@ -1,0 +1,91 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  isProjectViewDigestSendWindow,
+  createDailyReportProjectViewDigestScheduler,
+} from "../../../src/agent/daily-report-digest/daily-report-project-view-digest-scheduler";
+import {
+  parseDailyReportDigestConfig,
+  type DailyReportDigestConfig,
+} from "../../../src/agent/daily-report-digest/daily-report-config";
+import { createProjectViewDigestStateStore } from "../../../src/agent/daily-report-digest/daily-report-project-view-digest-state";
+import {
+  parseProjectViewConfig,
+  resolveProjectViewDigestRecipients,
+} from "../../../src/agent/daily-report-digest/daily-report-project-views";
+
+const FILTER = {
+  workModuleContains: "半导体激光",
+  costProjectContains: "静脉",
+};
+
+describe("resolveProjectViewDigestRecipients", () => {
+  it("excludes configured and env user ids from viewers", () => {
+    const view = parseProjectViewConfig(
+      {
+        id: "v1",
+        label: "测试",
+        viewers: ["01451725613871", "641871342"],
+        filters: FILTER,
+        digest: { enabled: true, excludeUserIds: ["01451725613871"] },
+      },
+      "微光",
+    )!;
+    expect(resolveProjectViewDigestRecipients(view, ["641871342"])).toEqual([]);
+    expect(resolveProjectViewDigestRecipients(view, [])).toEqual(["641871342"]);
+  });
+});
+
+describe("isProjectViewDigestSendWindow", () => {
+  const config = parseDailyReportDigestConfig({ timezone: "Asia/Shanghai" }).config;
+
+  it("returns true Tue 08:02", () => {
+    expect(
+      isProjectViewDigestSendWindow(new Date("2026-06-09T08:02:00+08:00"), config),
+    ).toBe(true);
+  });
+
+  it("returns false Mon 08:02", () => {
+    expect(
+      isProjectViewDigestSendWindow(new Date("2026-06-08T08:02:00+08:00"), config),
+    ).toBe(false);
+  });
+});
+
+describe("project view digest scheduler", () => {
+  it("skips when env digest disabled", async () => {
+    delete process.env.DAILY_REPORT_PROJECT_VIEW_DIGEST_ENABLED;
+    process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED = "1";
+
+    const send = vi.fn();
+    const config: DailyReportDigestConfig = {
+      ...parseDailyReportDigestConfig({
+        timezone: "Asia/Shanghai",
+        webhook: { accessToken: "t" },
+        orgs: [
+          {
+            label: "微光",
+            appKey: "k",
+            appSecret: "s",
+            employees: [],
+            projectViews: [
+              {
+                id: "v1",
+                label: "测试",
+                viewers: ["641871342"],
+                filters: FILTER,
+                digest: { enabled: true },
+              },
+            ],
+          },
+        ],
+      }).config,
+      enabled: false,
+      scanIntervalMs: 60_000,
+    };
+
+    const scheduler = createDailyReportProjectViewDigestScheduler({ config });
+    await scheduler.runDigestSend(new Date("2026-06-09T08:02:00+08:00"));
+    scheduler.close();
+    expect(send).not.toHaveBeenCalled();
+  });
+});

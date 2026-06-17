@@ -79,6 +79,8 @@ import { createProgressDigestScheduler } from "./agent/progress-digest/progress-
 import { loadProgressDigestPolicy } from "./agent/progress-digest/progress-digest-policy";
 import { createDailyReportDigestScheduler } from "./agent/daily-report-digest/daily-report-scheduler";
 import { createDailyReportProjectViewPrewarmScheduler } from "./agent/daily-report-digest/daily-report-project-view-prewarm";
+import { createDailyReportProjectViewDigestScheduler } from "./agent/daily-report-digest/daily-report-project-view-digest-scheduler";
+import { isDailyReportProjectViewDigestEnabled } from "./agent/daily-report-digest/daily-report-project-view-digest-flag";
 import {
   appendMemoryEvents,
   loadMemoryContextForPlan,
@@ -339,6 +341,14 @@ async function main(): Promise<void> {
   projectViewPrewarm.startIntervalLoop();
   logStructured({
     event: "daily_report_project_view_prewarm_started",
+    scanIntervalMs: dailyReportScheduler.config.scanIntervalMs,
+  });
+
+  const projectViewDigest = createDailyReportProjectViewDigestScheduler();
+  projectViewDigest.startIntervalLoop();
+  logStructured({
+    event: "daily_report_project_view_digest_scheduler_started",
+    enabled: isDailyReportProjectViewDigestEnabled(),
     scanIntervalMs: dailyReportScheduler.config.scanIntervalMs,
   });
 

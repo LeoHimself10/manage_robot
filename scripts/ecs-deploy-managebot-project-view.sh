@@ -26,6 +26,8 @@ update_kv "$ENVFILE" DAILY_REPORT_DIGEST_CONFIG_FILE /app/data/daily-report-dige
 update_kv "$ENVFILE" DAILY_REPORTS_PAGE_ENABLED 1
 # 不在 managebot 开 legacy 群早报（仍由 mingsibot DAILY_REPORT_DIGEST_ENABLED 负责）
 update_kv "$ENVFILE" DAILY_REPORT_DIGEST_ENABLED 0
+update_kv "$ENVFILE" DAILY_REPORT_PROJECT_VIEW_DIGEST_ENABLED 1
+update_kv "$ENVFILE" DAILY_REPORT_PROJECT_VIEW_DIGEST_EXCLUDE_USER_IDS 01451725613871
 
 echo "[2/5] patch projectViews in $CONFIG"
 python3 scripts/ecs-patch-project-view.py
