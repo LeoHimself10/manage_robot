@@ -20,6 +20,7 @@ import {
   type DailyReportProjectViewConfig,
 } from "./daily-report-project-views";
 import { resolveDayRangeForYmd } from "./daily-report-window";
+import { logStructured } from "../../infra/logger";
 
 export const DEFAULT_PROJECT_VIEW_DISCOVERY_DAYS = 30;
 
@@ -65,37 +66,71 @@ function calendarDaysBack(
   return days;
 }
 
+/** 近 N 个自然日业务窗口合并为一次 report/list 查询区间。 */
+export function resolveDiscoveryTimeRange(
+  now: Date,
+  timezone: string,
+  discoveryDays: number,
+  config: Pick<
+    DailyReportDigestConfig,
+    "reportDayCutoffHour" | "reportDayCutoffMinute"
+  >,
+): { startTime: number; endTime: number } {
+  const dayYmds = calendarDaysBack(now, timezone, discoveryDays);
+  const oldestYmd = dayYmds[dayYmds.length - 1]!;
+  const newestYmd = dayYmds[0]!;
+  const cutoffOpts = {
+    cutoffHour: config.reportDayCutoffHour,
+    cutoffMinute: config.reportDayCutoffMinute,
+  };
+  const oldest = resolveDayRangeForYmd(oldestYmd, timezone, cutoffOpts);
+  const newest = resolveDayRangeForYmd(newestYmd, timezone, cutoffOpts);
+  return { startTime: oldest.startTime, endTime: newest.endTime };
+}
+
 async function contactHasMatchingReport(
   org: DailyReportOrgConfig,
   view: DailyReportProjectViewConfig,
   contact: { userid: string; name: string },
-  dayYmds: string[],
+  discoveryDays: number,
   config: Pick<
     DailyReportDigestConfig,
     "timezone" | "reportDayCutoffHour" | "reportDayCutoffMinute"
   >,
   client: DingTalkReportClient,
+  now: Date,
 ): Promise<boolean> {
-  for (const ymd of dayYmds) {
-    const range = resolveDayRangeForYmd(ymd, config.timezone, {
-      cutoffHour: config.reportDayCutoffHour,
-      cutoffMinute: config.reportDayCutoffMinute,
-    });
+  const { startTime, endTime } = resolveDiscoveryTimeRange(
+    now,
+    config.timezone,
+    discoveryDays,
+    config,
+  );
+  try {
     const reps = await client.fetchUserReports({
       appKey: org.appKey,
       appSecret: org.appSecret,
       userid: contact.userid,
       templateName: org.templateName,
-      startTime: range.startTime,
-      endTime: range.endTime,
+      startTime,
+      endTime,
     });
-    const hasMatch = reps
+    return reps
       .map((r) => filterReportEntryByModuleProjectPair(r, view.filters))
       .map((r) => filterReportEntry(r))
       .some((r) => r.contents.length > 0);
-    if (hasMatch) return true;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    logStructured({
+      event: "daily_report_project_view_discovery_fetch_failed",
+      org: org.label,
+      viewId: view.id,
+      userid: contact.userid,
+      name: contact.name,
+      reason,
+    });
+    return false;
   }
-  return false;
 }
 
 export interface ProjectViewDiscoveryDeps {
@@ -121,7 +156,6 @@ export async function discoverProjectViewMembers(
   const client =
     deps?.reportClient ?? createDingTalkReportClient({ fetchImpl: deps?.fetchImpl });
   const now = deps?.now ?? new Date();
-  const dayYmds = calendarDaysBack(now, config.timezone, discoveryDays);
   const contacts =
     deps?.scanContacts ??
     (await listOrgScanContacts(org, {
@@ -136,9 +170,10 @@ export async function discoverProjectViewMembers(
       org,
       view,
       contact,
-      dayYmds,
+      discoveryDays,
       config,
       client,
+      now,
     );
     return matched ? contact : null;
   });

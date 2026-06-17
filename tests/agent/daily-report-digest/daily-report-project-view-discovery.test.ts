@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DailyReportDigestConfig } from "../../../src/agent/daily-report-digest/daily-report-config";
 import type { ReportEntry } from "../../../src/agent/daily-report-digest/dingtalk-report-client";
@@ -41,7 +41,12 @@ const entryWithPairMatch: ReportEntry = {
 describe("daily-report-project-view-discovery", () => {
   let dbPath = "";
 
+  beforeEach(() => {
+    process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED = "1";
+  });
+
   afterEach(() => {
+    delete process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED;
     if (dbPath) {
       rmSync(dbPath, { force: true });
       rmSync(`${dbPath}-shm`, { force: true });
@@ -101,6 +106,32 @@ describe("daily-report-project-view-discovery", () => {
 
     expect(discovered).toEqual([{ userid: "hit", name: "命中" }]);
     expect(mockClient.fetchUserReports).toHaveBeenCalled();
+  });
+
+  it("skips contacts when report/list fails for one userid", async () => {
+    const mockClient = {
+      fetchUserReports: vi.fn(async ({ userid }: { userid: string }) => {
+        if (userid === "bad") {
+          throw new Error(
+            'report/list failed (userid=bad): 200 {"errcode":40035,"errmsg":"illegal param"}',
+          );
+        }
+        return userid === "hit" ? [entryWithPairMatch] : [];
+      }),
+    };
+
+    const discovered = await discoverProjectViewMembers(org, view, 3, scanConfig, {
+      reportClient: mockClient as any,
+      scanContacts: [
+        { userid: "bad", name: "异常" },
+        { userid: "hit", name: "命中" },
+        { userid: "miss", name: "未命中" },
+      ],
+      now: new Date("2026-06-17T12:00:00.000Z"),
+      concurrency: 2,
+    });
+
+    expect(discovered).toEqual([{ userid: "hit", name: "命中" }]);
   });
 
   it("runProjectViewDiscovery merges discovered members into roster store", async () => {

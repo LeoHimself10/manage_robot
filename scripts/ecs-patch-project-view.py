@@ -18,7 +18,7 @@ ORG_LABEL = "微光"
 VIEW = {
     "id": "semiconductor-vein",
     "label": "半导体激光·静脉项目",
-    "viewers": ["01451725613871"],
+    "viewers": ["01451725613871", "652949075622784820"],
     "exclusiveForViewers": True,
     "discoveryDays": 30,
     "filters": {
