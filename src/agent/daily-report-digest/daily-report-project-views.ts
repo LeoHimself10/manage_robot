@@ -1,5 +1,6 @@
 import type { DailyReportDigestConfig, DailyReportOrgConfig } from "./daily-report-config";
 import type { ModuleProjectPairFilter } from "./daily-report-project-view-filter";
+import { isDailyReportProjectViewsEnabled } from "./daily-report-project-view-flag";
 
 export interface DailyReportProjectViewConfig {
   id: string;
@@ -57,6 +58,7 @@ export function parseProjectViewConfig(raw: unknown, orgLabel: string): DailyRep
 export function listProjectViewsFromConfig(
   orgs: DailyReportOrgConfig[],
 ): Array<DailyReportProjectViewConfig & { orgLabel: string }> {
+  if (!isDailyReportProjectViewsEnabled()) return [];
   const out: Array<DailyReportProjectViewConfig & { orgLabel: string }> = [];
   for (const org of orgs) {
     for (const raw of org.projectViews ?? []) {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   filterReportEntryByModuleProjectPair,
@@ -83,6 +83,14 @@ describe("daily-report-project-view-filter", () => {
 });
 
 describe("daily-report-project-views access", () => {
+  beforeEach(() => {
+    process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED = "1";
+  });
+
+  afterEach(() => {
+    delete process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED;
+  });
+
   it("exclusive viewer is customOnly without legacy", () => {
     const view = parseProjectViewConfig(
       {

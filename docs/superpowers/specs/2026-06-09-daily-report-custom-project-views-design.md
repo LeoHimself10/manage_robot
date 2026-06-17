@@ -83,9 +83,19 @@ resolveDailyReportsAccess(userId, config, caps)
 Custom API：`GET /api/daily-reports?view=custom:{id}&date=YYYY-MM-DD`  
 可选：`POST .../refresh` 或 `?refresh=1` 强制重扫。
 
-## 7. 配置示例（ECS mingsibot）
+## 7. 配置示例（ECS **managebot** / manage-robot-dingtalk）
 
-微光 org 下 `projectViews[]`：
+实例：**https://managebot.vivolightsales.com**（`8080`，`/etc/manage-robot.env`）。  
+**不是 mingsibot** — legacy 6 人 digest 仍在 mingsibot，本功能仅 managebot。
+
+```env
+DAILY_REPORT_PROJECT_VIEWS_ENABLED=1
+DAILY_REPORT_DIGEST_CONFIG_FILE=/app/data/daily-report-digest.config.json
+DAILY_REPORTS_PAGE_ENABLED=1
+DAILY_REPORT_DIGEST_ENABLED=0
+```
+
+微光 org 下 `projectViews[]`（`/opt/manage_robot/data/daily-report-digest.config.json`）：
 
 ```json
 {
@@ -105,7 +115,7 @@ Custom API：`GET /api/daily-reports?view=custom:{id}&date=YYYY-MM-DD`
 
 ## 8. 缓存
 
-**表** `daily_report_view_cache`（SQLite，mingsibot 进程）：
+**表** `daily_report_project_view_cache`（SQLite，**managebot** 进程 `/opt/manage_robot/data/workbench/workbench.sqlite`）：
 
 | 列 | 说明 |
 |----|------|
@@ -159,7 +169,7 @@ Key：`(view_id, date_ymd)`。7:30 预扫写昨日；页面读优先；手动刷
 
 1. 合并代码 + 单测
 2. ECS patch `daily-report-digest.config.json` 增加 `projectViews`
-3. 重启 mingsibot；自动引导发现填充 roster
+3. 重启 **manage-robot-dingtalk**（`scripts/ecs-deploy-managebot-project-view.sh`）
 4. 只读 probe 输出近 30 天命中人数/样例供确认
 5. 曹一挥工作台验证：默认昨日、历史日、加删人、刷新
 

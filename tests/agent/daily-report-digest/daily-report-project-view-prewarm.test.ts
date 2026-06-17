@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   parseDailyReportDigestConfig,
@@ -70,6 +70,13 @@ describe("isProjectViewPrewarmWindow", () => {
 });
 
 describe("daily-report-project-view-prewarm scheduler", () => {
+  beforeEach(() => {
+    process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED = "1";
+  });
+
+  afterEach(() => {
+    delete process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED;
+  });
   let tmpDir: string;
   let scheduler: ReturnType<typeof createDailyReportProjectViewPrewarmScheduler> | undefined;
   let rosterStore: ReturnType<typeof createProjectViewRosterStore> | undefined;

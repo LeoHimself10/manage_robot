@@ -18,6 +18,7 @@ import {
 import { listProjectViewsFromConfig } from "./daily-report-project-views";
 import { resolveReportRange } from "./daily-report-window";
 import { getLocalTimeParts } from "../reminders/reminder-policy";
+import { isDailyReportProjectViewsEnabled } from "./daily-report-project-view-flag";
 
 const PREWARM_HOUR = 7;
 const PREWARM_MINUTE = 30;
@@ -57,6 +58,7 @@ export function createDailyReportProjectViewPrewarmScheduler(
 
   async function runPrewarm(now: Date = new Date()): Promise<void> {
     if (scanning) return;
+    if (!isDailyReportProjectViewsEnabled()) return;
     const config = loadConfig();
     const views = listProjectViewsFromConfig(config.orgs);
     if (!views.length) return;
@@ -108,6 +110,7 @@ export function createDailyReportProjectViewPrewarmScheduler(
   }
 
   async function bootstrapOnStartup(): Promise<void> {
+    if (!isDailyReportProjectViewsEnabled()) return;
     const config = loadConfig();
     const views = listProjectViewsFromConfig(config.orgs);
     if (!views.length) return;
@@ -129,6 +132,7 @@ export function createDailyReportProjectViewPrewarmScheduler(
   }
 
   function startIntervalLoop(): void {
+    if (!isDailyReportProjectViewsEnabled()) return;
     const config = loadConfig();
     if (!listProjectViewsFromConfig(config.orgs).length) return;
     if (timer) return;
