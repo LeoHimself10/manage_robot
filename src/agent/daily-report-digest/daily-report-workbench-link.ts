@@ -1,6 +1,6 @@
 import { normalizePublicPageUrl, wrapUrlForDingtalkClient } from "../../view/workbench-chat-link";
 
-export type DailyReportsViewMode = "project" | "company";
+export type DailyReportsViewMode = "project" | "company" | `custom:${string}`;
 export type DailyReportsRolePath = "manager" | "employee" | "admin" | "neutral";
 
 export function buildDailyReportsPublicUrl(input: {
