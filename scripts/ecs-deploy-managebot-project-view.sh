@@ -28,7 +28,7 @@ update_kv "$ENVFILE" DAILY_REPORTS_PAGE_ENABLED 1
 update_kv "$ENVFILE" DAILY_REPORT_DIGEST_ENABLED 0
 
 echo "[2/5] patch projectViews in $CONFIG"
-node scripts/ecs-patch-project-view.mjs
+python3 scripts/ecs-patch-project-view.py
 
 echo "[3/5] docker build"
 docker build -t "$IMAGE" .
