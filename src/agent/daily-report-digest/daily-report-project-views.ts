@@ -1,16 +1,5 @@
-import type { DailyReportDigestConfig, DailyReportOrgConfig } from "./daily-report-config";
-import type { OrgDigest } from "./daily-report-build";
-import { filterReportEntry } from "./daily-report-content-filter";
-import {
-  filterReportEntryByModuleProjectPair,
-  type ModuleProjectPairFilter,
-} from "./daily-report-project-view-filter";
-import {
-  createDingTalkReportClient,
-  type DingTalkReportClient,
-} from "./dingtalk-report-client";
-import { logStructured } from "../../infra/logger";
-import type { ReportTimeRange } from "./daily-report-window";
+import type { DailyReportDigestConfig } from "./daily-report-config";
+import type { ModuleProjectPairFilter } from "./daily-report-project-view-filter";
 
 export interface DailyReportProjectViewConfig {
   id: string;
@@ -108,53 +97,4 @@ export function findProjectViewById(
   return listProjectViewsFromConfig(config.orgs).find((v) => v.id === viewId);
 }
 
-/** MVP：只拉指定组织全员日志，按 module+project 过滤，不统计未交/请假。 */
-export async function collectCustomProjectViewDigest(
-  org: DailyReportOrgConfig,
-  view: DailyReportProjectViewConfig,
-  range: ReportTimeRange,
-  deps?: { reportClient?: DingTalkReportClient; fetchImpl?: typeof fetch },
-): Promise<OrgDigest> {
-  const client =
-    deps?.reportClient ?? createDingTalkReportClient({ fetchImpl: deps?.fetchImpl });
-  const submitted: OrgDigest["submitted"] = [];
-  const errors: OrgDigest["errors"] = [];
-
-  for (const emp of org.employees) {
-    try {
-      const reps = await client.fetchUserReports({
-        appKey: org.appKey,
-        appSecret: org.appSecret,
-        userid: emp.userid,
-        templateName: org.templateName,
-        startTime: range.startTime,
-        endTime: range.endTime,
-      });
-      const filteredReports = reps
-        .map((r) => filterReportEntryByModuleProjectPair(r, view.filters))
-        .map((r) => filterReportEntry(r))
-        .filter((r) => r.contents.length > 0);
-      if (filteredReports.length > 0) {
-        const name =
-          filteredReports[0]?.creatorName?.trim() || emp.name?.trim() || emp.userid;
-        submitted.push({ userid: emp.userid, name, reports: filteredReports });
-      }
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      errors.push({
-        userid: emp.userid,
-        name: emp.name?.trim() || emp.userid,
-        reason,
-      });
-      logStructured({
-        event: "daily_report_custom_view_fetch_failed",
-        org: org.label,
-        viewId: view.id,
-        userid: emp.userid,
-        reason,
-      });
-    }
-  }
-
-  return { label: org.label, submitted, missing: [], onLeave: [], errors };
-}
+export { collectProjectViewDigestForRange } from "./daily-report-project-view-collect";

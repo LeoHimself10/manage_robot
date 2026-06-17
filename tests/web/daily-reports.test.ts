@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -7,6 +7,15 @@ import { buildDailyReportsHttpPayload } from "../../src/web/daily-reports-api";
 import { renderEmployeeWorkbenchPage } from "../../src/web/employee-workbench-pages";
 import { renderDailyReportsPage } from "../../src/web/daily-reports-page";
 import { isDailyReportsPageEnabled } from "../../src/agent/daily-report-digest/daily-reports-page-flag";
+import {
+  addProjectViewRosterMember,
+  createProjectViewRosterStore,
+} from "../../src/agent/daily-report-digest/daily-report-project-view-roster-store";
+import {
+  createProjectViewCacheStore,
+  getProjectViewCache,
+  putProjectViewCache,
+} from "../../src/agent/daily-report-digest/daily-report-project-view-cache";
 
 const CONFIG = {
   title: "每日日报汇总",
@@ -27,6 +36,29 @@ const CONFIG = {
       appKey: "ak-wei",
       appSecret: "as-wei",
       employees: [{ userid: "u_c", name: "王五" }],
+    },
+  ],
+};
+
+const CUSTOM_VIEW = {
+  id: "semiconductor-vein",
+  label: "半导体激光·静脉项目",
+  viewers: ["viewer1"],
+  filters: {
+    workModuleContains: "半导体激光",
+    costProjectContains: "静脉腔内闭合系统",
+  },
+};
+
+const CONFIG_WITH_CUSTOM_VIEW = {
+  ...CONFIG,
+  orgs: [
+    {
+      label: "微光",
+      appKey: "ak-wei",
+      appSecret: "as-wei",
+      employees: [{ userid: "placeholder", name: "占位" }],
+      projectViews: [CUSTOM_VIEW],
     },
   ],
 };
@@ -54,16 +86,23 @@ function fakeFetch(reportsByUserid: Record<string, Array<Record<string, unknown>
 
 describe("daily-reports-api", () => {
   let configPath = "";
+  let tmpDir = "";
 
   beforeEach(() => {
     const dir = mkdtempSync(join(tmpdir(), "daily-reports-api-"));
     configPath = join(dir, "config.json");
     writeFileSync(configPath, JSON.stringify(CONFIG), "utf8");
     process.env.DAILY_REPORT_DIGEST_CONFIG_FILE = configPath;
+    tmpDir = mkdtempSync(join(tmpdir(), "daily-reports-wb-"));
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", join(tmpDir, "workbench.sqlite"));
   });
 
   afterEach(() => {
     delete process.env.DAILY_REPORT_DIGEST_CONFIG_FILE;
+    delete process.env.WORKBENCH_SQLITE_PATH;
+    if (tmpDir) {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("builds a structured payload for a given date with submitted + missing", async () => {
@@ -114,6 +153,125 @@ describe("daily-reports-api", () => {
     const payload = await buildDailyReportsHttpPayload({ date: "2026-06-08" });
     expect(payload.ok).toBe(false);
     expect(payload.configured).toBe(false);
+  });
+
+  it("returns scanning:true when custom view roster is empty and no cache", async () => {
+    writeFileSync(configPath, JSON.stringify(CONFIG_WITH_CUSTOM_VIEW), "utf8");
+    const payload = await buildDailyReportsHttpPayload({
+      date: "2026-06-08",
+      view: "custom:semiconductor-vein",
+      userId: "viewer1",
+      fetchImpl: fakeFetch({}),
+    });
+    expect(payload.ok).toBe(true);
+    expect(payload.scanning).toBe(true);
+    expect(payload.rosterCount).toBe(0);
+    expect(payload.customProjectView?.orgs[0]!.submitted).toEqual([]);
+  });
+
+  it("serves custom view from cache without re-fetching", async () => {
+    writeFileSync(configPath, JSON.stringify(CONFIG_WITH_CUSTOM_VIEW), "utf8");
+    const rosterStore = createProjectViewRosterStore();
+    const cacheStore = createProjectViewCacheStore();
+    try {
+      addProjectViewRosterMember(
+        "semiconductor-vein",
+        { userid: "u_roster", name: "花名册" },
+        rosterStore,
+      );
+      putProjectViewCache(
+        "semiconductor-vein",
+        "2026-06-08",
+        {
+          submitted: [
+            {
+              userid: "u_cached",
+              name: "缓存员工",
+              reports: [
+                {
+                  creatorUserId: "u_cached",
+                  creatorName: "缓存员工",
+                  templateName: "日报",
+                  createTime: 1,
+                  contents: [{ key: "事项-结果②", value: "cached work" }],
+                },
+              ],
+            },
+          ],
+          errors: [],
+        },
+        cacheStore,
+      );
+    } finally {
+      rosterStore.close();
+      cacheStore.close();
+    }
+
+    const fetchImpl = vi.fn(fakeFetch({}));
+    const payload = await buildDailyReportsHttpPayload({
+      date: "2026-06-08",
+      view: "custom:semiconductor-vein",
+      userId: "viewer1",
+      fetchImpl,
+    });
+
+    expect(payload.ok).toBe(true);
+    expect(payload.scanning).toBe(false);
+    expect(payload.rosterCount).toBe(1);
+    expect(payload.cacheScannedAt).toBeTruthy();
+    expect(payload.customProjectView?.orgs[0]!.submitted[0]!.name).toBe("缓存员工");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("collects custom view from roster and writes cache", async () => {
+    writeFileSync(configPath, JSON.stringify(CONFIG_WITH_CUSTOM_VIEW), "utf8");
+    const rosterStore = createProjectViewRosterStore();
+    try {
+      addProjectViewRosterMember(
+        "semiconductor-vein",
+        { userid: "u_roster", name: "花名册" },
+        rosterStore,
+      );
+    } finally {
+      rosterStore.close();
+    }
+
+    const fetchImpl = fakeFetch({
+      u_roster: [
+        {
+          creator_id: "u_roster",
+          creator_name: "花名册",
+          template_name: "日报",
+          create_time: Date.parse("2026-06-08T10:00:00+08:00"),
+          contents: [
+            { key: "工作模块②", value: "半导体激光" },
+            { key: "成本归属项目②", value: "静脉腔内闭合系统" },
+            { key: "事项-结果②", value: "vein progress" },
+          ],
+        },
+      ],
+    });
+    const payload = await buildDailyReportsHttpPayload({
+      date: "2026-06-08",
+      view: "custom:semiconductor-vein",
+      userId: "viewer1",
+      fetchImpl,
+    });
+
+    expect(payload.ok).toBe(true);
+    expect(payload.scanning).toBe(false);
+    expect(payload.rosterCount).toBe(1);
+    expect(payload.submittedCount).toBe(1);
+    expect(payload.cacheScannedAt).toBeTruthy();
+    expect(payload.customProjectView?.orgs[0]!.submitted[0]!.reports[0]!.contents).toHaveLength(3);
+
+    const cacheStore = createProjectViewCacheStore();
+    try {
+      const hit = getProjectViewCache("semiconductor-vein", "2026-06-08", cacheStore);
+      expect(hit?.payload.submitted).toHaveLength(1);
+    } finally {
+      cacheStore.close();
+    }
   });
 });
 

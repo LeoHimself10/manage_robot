@@ -1,11 +1,30 @@
 import { loadDailyReportDigestConfig } from "../agent/daily-report-digest/daily-report-config";
 import { collectOrgDigests } from "../agent/daily-report-digest/daily-report-run";
+import type { OrgDigest } from "../agent/daily-report-digest/daily-report-build";
 import {
   groupOrgDigestsByProject,
   listProjectGroupAssignmentsFromConfig,
   PROJECT_GROUPS,
   type ProjectGroupId,
 } from "../agent/daily-report-digest/daily-report-project-groups";
+import {
+  createProjectViewCacheStore,
+  deleteProjectViewCache,
+  getProjectViewCache,
+  putProjectViewCache,
+} from "../agent/daily-report-digest/daily-report-project-view-cache";
+import { collectProjectViewDigestForRange } from "../agent/daily-report-digest/daily-report-project-view-collect";
+import { runProjectViewDiscovery } from "../agent/daily-report-digest/daily-report-project-view-discovery";
+import {
+  createProjectViewRosterStore,
+  listProjectViewRoster,
+} from "../agent/daily-report-digest/daily-report-project-view-roster-store";
+import {
+  findProjectViewById,
+  resolveDailyReportsAccess,
+  type DailyReportsAccessInfo,
+  type WorkbenchDailyReportsCaps,
+} from "../agent/daily-report-digest/daily-report-project-views";
 import {
   resolveDayRangeForYmd,
   resolveReportRange,
@@ -38,11 +57,19 @@ export interface DailyReportsProjectGroupPayload {
   orgs: DailyReportsOrgPayload[];
 }
 
+export interface DailyReportsCustomProjectViewPayload {
+  id: string;
+  label: string;
+  orgLabel: string;
+  orgs: DailyReportsOrgPayload[];
+}
+
 export interface DailyReportsHttpPayload {
   ok: boolean;
   error?: string;
   configured?: boolean;
   view?: DailyReportsViewMode;
+  access?: DailyReportsAccessInfo;
   date?: string;
   dateLabel?: string;
   generatedAt?: string;
@@ -52,6 +79,10 @@ export interface DailyReportsHttpPayload {
   errorCount?: number;
   orgs?: DailyReportsOrgPayload[];
   projectGroups?: DailyReportsProjectGroupPayload[];
+  customProjectView?: DailyReportsCustomProjectViewPayload;
+  scanning?: boolean;
+  rosterCount?: number;
+  cacheScannedAt?: string;
 }
 
 function mapOrgDigest(org: Awaited<ReturnType<typeof collectOrgDigests>>["orgDigests"][0], assignments: Map<string, ProjectGroupId>): DailyReportsOrgPayload {
@@ -82,9 +113,24 @@ function mapOrgDigest(org: Awaited<ReturnType<typeof collectOrgDigests>>["orgDig
   };
 }
 
-function parseView(raw: unknown): DailyReportsViewMode {
-  const v = String(raw ?? "").trim().toLowerCase();
-  return v === "company" ? "company" : "project";
+export function parseDailyReportsViewParam(raw: unknown): DailyReportsViewMode {
+  const v = String(raw ?? "").trim();
+  if (v.toLowerCase() === "company") return "company";
+  if (v.startsWith("custom:")) return v as DailyReportsViewMode;
+  return "project";
+}
+
+function parseCustomViewId(view: DailyReportsViewMode): string | undefined {
+  if (!view.startsWith("custom:")) return undefined;
+  const id = view.slice("custom:".length).trim();
+  return id || undefined;
+}
+
+function resolveDefaultView(access: DailyReportsAccessInfo): DailyReportsViewMode {
+  if (access.customOnly && access.customViews[0]) {
+    return `custom:${access.customViews[0].id}`;
+  }
+  return "project";
 }
 
 /**
@@ -93,8 +139,11 @@ function parseView(raw: unknown): DailyReportsViewMode {
 export async function buildDailyReportsHttpPayload(input?: {
   date?: string;
   view?: DailyReportsViewMode;
+  userId?: string;
+  caps?: WorkbenchDailyReportsCaps;
   now?: Date;
   fetchImpl?: typeof fetch;
+  refresh?: boolean;
 }): Promise<DailyReportsHttpPayload> {
   const { config, errors } = loadDailyReportDigestConfig();
   if (errors.length > 0) {
@@ -105,7 +154,25 @@ export async function buildDailyReportsHttpPayload(input?: {
     };
   }
 
-  const view = parseView(input?.view);
+  const caps: WorkbenchDailyReportsCaps = input?.caps ?? {
+    canAccessAdmin: false,
+    canManage: true,
+  };
+  const access = input?.userId
+    ? resolveDailyReportsAccess(input.userId, config, caps)
+    : { legacyAccess: true, customOnly: false, customViews: [] };
+
+  let view = input?.view ? parseDailyReportsViewParam(input.view) : resolveDefaultView(access);
+  if (access.customOnly) {
+    const allowed = new Set(access.customViews.map((v) => v.id));
+    const customId = parseCustomViewId(view);
+    if (!customId || !allowed.has(customId)) {
+      view = resolveDefaultView(access);
+    }
+  } else if (!access.legacyAccess && parseCustomViewId(view) == null) {
+    view = resolveDefaultView(access);
+  }
+
   const now = input?.now ?? new Date();
   const date = input?.date?.trim();
   if (date && !YMD_RE.test(date)) {
@@ -118,6 +185,143 @@ export async function buildDailyReportsHttpPayload(input?: {
   const range = date
     ? resolveDayRangeForYmd(date, config.timezone, cutoffOpts)
     : resolveReportRange(now, config.timezone, cutoffOpts);
+
+  const customViewId = parseCustomViewId(view);
+  if (customViewId) {
+    const viewDef = findProjectViewById(config, customViewId);
+    if (!viewDef) {
+      return { ok: false, error: `未知项目组视图：${customViewId}` };
+    }
+    if (input?.userId && !viewDef.viewers.includes(input.userId) && !access.legacyAccess) {
+      return { ok: false, error: "无权查看此项目组视图" };
+    }
+    const org = config.orgs.find((o) => o.label === viewDef.orgLabel);
+    if (!org) {
+      return { ok: false, error: `视图关联组织不存在：${viewDef.orgLabel}` };
+    }
+
+    const refresh = input?.refresh === true;
+    const rosterStore = createProjectViewRosterStore();
+    const cacheStore = createProjectViewCacheStore();
+    try {
+      const roster = listProjectViewRoster(customViewId, rosterStore);
+      const rosterCount = roster.length;
+
+      if (refresh) {
+        deleteProjectViewCache(customViewId, range.labelYmd, cacheStore);
+      } else {
+        const cached = getProjectViewCache(customViewId, range.labelYmd, cacheStore);
+        if (cached) {
+          const digest: OrgDigest = {
+            label: org.label,
+            submitted: cached.payload.submitted,
+            missing: [],
+            onLeave: [],
+            errors: cached.payload.errors,
+          };
+          const orgPayload = mapOrgDigest(digest, new Map());
+          return {
+            ok: true,
+            configured: true,
+            view,
+            access,
+            date: range.labelYmd,
+            dateLabel: range.labelDisplay,
+            generatedAt: now.toISOString(),
+            submittedCount: orgPayload.submitted.length,
+            missingCount: 0,
+            onLeaveCount: 0,
+            errorCount: orgPayload.errors.length,
+            rosterCount,
+            cacheScannedAt: cached.scannedAt,
+            scanning: false,
+            customProjectView: {
+              id: viewDef.id,
+              label: viewDef.label,
+              orgLabel: viewDef.orgLabel,
+              orgs: [orgPayload],
+            },
+          };
+        }
+      }
+
+      if (roster.length === 0) {
+        void runProjectViewDiscovery(customViewId, config, {
+          fetchImpl: input?.fetchImpl,
+          rosterStore,
+        }).catch(() => undefined);
+        const emptyDigest: OrgDigest = {
+          label: org.label,
+          submitted: [],
+          missing: [],
+          onLeave: [],
+          errors: [],
+        };
+        return {
+          ok: true,
+          configured: true,
+          view,
+          access,
+          date: range.labelYmd,
+          dateLabel: range.labelDisplay,
+          generatedAt: now.toISOString(),
+          submittedCount: 0,
+          missingCount: 0,
+          onLeaveCount: 0,
+          errorCount: 0,
+          rosterCount: 0,
+          scanning: true,
+          customProjectView: {
+            id: viewDef.id,
+            label: viewDef.label,
+            orgLabel: viewDef.orgLabel,
+            orgs: [mapOrgDigest(emptyDigest, new Map())],
+          },
+        };
+      }
+
+      const digest = await collectProjectViewDigestForRange(org, viewDef, range, roster, {
+        fetchImpl: input?.fetchImpl,
+      });
+      putProjectViewCache(
+        customViewId,
+        range.labelYmd,
+        { submitted: digest.submitted, errors: digest.errors },
+        cacheStore,
+      );
+      const cachedAfter = getProjectViewCache(customViewId, range.labelYmd, cacheStore);
+      const orgPayload = mapOrgDigest(digest, new Map());
+      return {
+        ok: true,
+        configured: true,
+        view,
+        access,
+        date: range.labelYmd,
+        dateLabel: range.labelDisplay,
+        generatedAt: now.toISOString(),
+        submittedCount: orgPayload.submitted.length,
+        missingCount: 0,
+        onLeaveCount: 0,
+        errorCount: orgPayload.errors.length,
+        rosterCount,
+        cacheScannedAt: cachedAfter?.scannedAt,
+        scanning: false,
+        customProjectView: {
+          id: viewDef.id,
+          label: viewDef.label,
+          orgLabel: viewDef.orgLabel,
+          orgs: [orgPayload],
+        },
+      };
+    } finally {
+      rosterStore.close();
+      cacheStore.close();
+    }
+  }
+
+  if (!access.legacyAccess) {
+    return { ok: false, error: "无权查看公司/项目视图" };
+  }
 
   const { orgDigests, errorCount } = await collectOrgDigests(config, range, {
     fetchImpl: input?.fetchImpl,
@@ -147,6 +351,7 @@ export async function buildDailyReportsHttpPayload(input?: {
     ok: true,
     configured: true,
     view,
+    access,
     date: range.labelYmd,
     dateLabel: range.labelDisplay,
     generatedAt: now.toISOString(),
