@@ -71,11 +71,7 @@ import {
 } from "./performance-tools";
 import {
   GET_EMPLOYEE_DAILY_REPORTS_TOOL,
-  GET_RUBRIC_TOOL,
-  LIST_RUBRICS_TOOL,
   buildGetEmployeeDailyReportsHandler,
-  buildGetRubricHandler,
-  buildListRubricsHandler,
 } from "./competency-eval-tools";
 import {
   LIST_MANAGERS_TOOL,
@@ -632,14 +628,6 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
 
   const competencyEvalActor = deps.competencyEvalActorUserId?.trim();
   if (competencyEvalActor) {
-    all.list_rubrics = {
-      definition: LIST_RUBRICS_TOOL,
-      handler: buildListRubricsHandler({ actorUserId: competencyEvalActor }),
-    };
-    all.get_rubric = {
-      definition: GET_RUBRIC_TOOL,
-      handler: buildGetRubricHandler({ actorUserId: competencyEvalActor }),
-    };
     all.get_employee_daily_reports = {
       definition: GET_EMPLOYEE_DAILY_REPORTS_TOOL,
       handler: buildGetEmployeeDailyReportsHandler({ actorUserId: competencyEvalActor }),
@@ -760,10 +748,8 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "get_employee_details",
       "get_current_time",
     ],
-    // 隔离的能力评估 Agent：rubric + 日报证据 + 查人 + 时间，无任务操作。
+    // 隔离的能力评估 Agent：日报证据 + 查人 + 时间，无任务操作。
     competency_eval: [
-      "list_rubrics",
-      "get_rubric",
       "get_employee_daily_reports",
       "search_employees",
       "get_current_time",
