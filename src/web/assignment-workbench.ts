@@ -4139,10 +4139,7 @@ export function handleAssignmentHttp(
     void (async () => {
       try {
         const session = requireCompetencyEvalSessionFromRequest(req, res);
-        if (!session) {
-          writeJson(res, 401, { ok: false, error: "session required" });
-          return;
-        }
+        if (!session) return; // requireSession already wrote 401
         let multipart;
         try {
           multipart = await readMultipartSingleFile(req, { maxFileBytes: 2 * 1024 * 1024 });
