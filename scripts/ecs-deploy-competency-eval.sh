@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 明思 mingsibot：部署「能力评估」聊天功能 + 开启白名单（曹一挥 + 姚凯珩）
+# 明思 mingsibot：部署「能力评估」聊天功能（若要在微光 managebot 用，请跑 ecs-deploy-competency-eval-managebot.sh）
 #
 # ECS 用法：
 #   cd /opt/manage_robot && bash scripts/ecs-deploy-competency-eval.sh

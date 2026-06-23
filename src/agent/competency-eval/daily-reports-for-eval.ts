@@ -6,7 +6,6 @@ import { filterReportContentsWithBody } from "../daily-report-digest/daily-repor
 import {
   loadDailyReportDigestConfig,
   type DailyReportDigestConfig,
-  type DailyReportOrgConfig,
 } from "../daily-report-digest/daily-report-config";
 import {
   createDingTalkReportClient,
@@ -15,7 +14,7 @@ import {
 } from "../daily-report-digest/dingtalk-report-client";
 import { resolveDayRangeForYmd } from "../daily-report-digest/daily-report-window";
 import { formatDateInTz } from "../reminders/reminder-policy";
-import { isUserInEvalRoster } from "./eval-roster";
+import { findOrgsForEvalUser, isUserInEvalRoster } from "./eval-roster";
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -92,10 +91,6 @@ export function buildEvalReportLinesFromEntries(
   return { reports, truncated, totalChars };
 }
 
-function findOrgsForUser(config: DailyReportDigestConfig, userId: string): DailyReportOrgConfig[] {
-  return config.orgs.filter((org) => org.employees.some((emp) => emp.userid === userId));
-}
-
 function dedupeReportEntries(entries: ReportEntry[]): ReportEntry[] {
   const seen = new Set<string>();
   const out: ReportEntry[] = [];
@@ -142,7 +137,7 @@ export async function fetchEmployeeDailyReportsForEval(
     };
   }
 
-  const matchingOrgs = findOrgsForUser(config, userId);
+  const matchingOrgs = findOrgsForEvalUser(userId, config);
   if (matchingOrgs.length === 0) {
     return {
       ok: false,
