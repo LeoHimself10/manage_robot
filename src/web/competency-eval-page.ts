@@ -219,7 +219,7 @@ function buildCompetencyEvalClientJs(): string {
       activeSession = res.body.session;
       activeSessionId = activeSession.sessionId;
       applySessionJobReq(activeSession);
-      paintMessages(activeSession.messages || [], activeSession.jobReqFilename);
+      paintMessages(activeSession.messages || []);
       return activeSession;
     });
   }
@@ -323,8 +323,7 @@ function buildCompetencyEvalClientJs(): string {
   }
 
   function setJobReqBanner(filename){
-    console.log('[DEBUG] setJobReqBanner called, filename:', filename, 'bannerEl:', jobReqBanner, 'labelEl:', jobReqLabel);
-    if(!jobReqBanner || !jobReqLabel) { console.warn('[DEBUG] setJobReqBanner early return: banner or label element missing'); return; }
+    if(!jobReqBanner || !jobReqLabel) return;
     if(!filename){
       jobReqBanner.hidden = true;
       jobReqLabel.textContent = '';
@@ -332,7 +331,6 @@ function buildCompetencyEvalClientJs(): string {
     }
     jobReqBanner.hidden = false;
     jobReqLabel.textContent = filename;
-    console.log('[DEBUG] setJobReqBanner done: banner.hidden =', jobReqBanner.hidden, 'label.textContent =', jobReqLabel.textContent);
   }
 
   function clearThreadDom(){
@@ -381,7 +379,7 @@ function buildCompetencyEvalClientJs(): string {
     bubble.innerHTML = '<div class="ce-typing" aria-label="正在输入"><i></i><i></i><i></i></div>';
   }
 
-  function paintMessages(messages, jobReqFilename?: string){
+  function paintMessages(messages){
     clearThreadDom();
     if(!messages || !messages.length){
       if(chatEmpty) chatEmpty.style.display = '';
@@ -389,18 +387,8 @@ function buildCompetencyEvalClientJs(): string {
     }
     messages.forEach(function(turn){
       var bubble = addMsg(turn.role === 'user' ? 'user' : 'bot');
-      if(turn.role === 'user'){
-        if(jobReqFilename){
-          bubble.innerHTML = '<div class="ce-file-chip"><span class="ce-file-chip-icon">📄</span><span class="ce-file-chip-name">'+esc(jobReqFilename)+'</span></div>';
-          var txt = document.createElement('div');
-          txt.textContent = turn.content;
-          bubble.appendChild(txt);
-        } else {
-          bubble.textContent = turn.content;
-        }
-      } else {
-        bubble.innerHTML = fmtAssistant(turn.content);
-      }
+      if(turn.role === 'user') bubble.textContent = turn.content;
+      else bubble.innerHTML = fmtAssistant(turn.content);
     });
     scrollBottom();
   }
@@ -423,15 +411,11 @@ function buildCompetencyEvalClientJs(): string {
 
   function uploadJobReq(file){
     if(!file) return;
-    console.log('[DEBUG] uploadJobReq called, file:', file.name);
     var fd = new FormData();
     fd.append('file', file, file.name);
-    var controller = new AbortController();
-    var timer = setTimeout(function(){ controller.abort(); }, 10000);
-    fetch(API_BASE+'/job-req/upload', { method: 'POST', body: fd, signal: controller.signal })
-      .then(function(r){ clearTimeout(timer); return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+    fetch(API_BASE+'/job-req/upload', { method: 'POST', body: fd })
+      .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
       .then(function(res){
-        console.log('[DEBUG] upload response:', JSON.stringify(res));
         if(!res.ok || !res.body || res.body.ok===false){
           var msg = (res.body && (res.body.message || res.body.error)) || '上传失败';
           alert(msg);
@@ -439,16 +423,13 @@ function buildCompetencyEvalClientJs(): string {
         }
         var jobReq = res.body.jobReq || {};
         var filename = String(jobReq.filename||'未命名');
-        console.log('[DEBUG] jobReq:', JSON.stringify(jobReq), 'filename:', filename);
+        setJobReqBanner(filename);
         persistSessionPatch({
           activeJobReqId: jobReq.jobReqId,
           jobReqFilename: filename
-        }).then(function(){
-          console.log('[DEBUG] persistSessionPatch done, calling setJobReqBanner');
-          setJobReqBanner(filename);
-        }).catch(function(e){ console.error('[DEBUG] persistSessionPatch failed:', e); });
+        });
       })
-      .catch(function(e){ clearTimeout(timer); alert('上传失败：'+(e.message||e)); });
+      .catch(function(e){ alert('上传失败：'+(e.message||e)); });
   }
 
   function sendChat(text){
