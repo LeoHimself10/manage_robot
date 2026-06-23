@@ -219,7 +219,7 @@ function buildCompetencyEvalClientJs(): string {
       activeSession = res.body.session;
       activeSessionId = activeSession.sessionId;
       applySessionJobReq(activeSession);
-      paintMessages(activeSession.messages || []);
+      paintMessages(activeSession.messages || [], activeSession.jobReqFilename);
       return activeSession;
     });
   }
@@ -379,7 +379,7 @@ function buildCompetencyEvalClientJs(): string {
     bubble.innerHTML = '<div class="ce-typing" aria-label="正在输入"><i></i><i></i><i></i></div>';
   }
 
-  function paintMessages(messages){
+  function paintMessages(messages, jobReqFilename?: string){
     clearThreadDom();
     if(!messages || !messages.length){
       if(chatEmpty) chatEmpty.style.display = '';
@@ -387,8 +387,18 @@ function buildCompetencyEvalClientJs(): string {
     }
     messages.forEach(function(turn){
       var bubble = addMsg(turn.role === 'user' ? 'user' : 'bot');
-      if(turn.role === 'user') bubble.textContent = turn.content;
-      else bubble.innerHTML = fmtAssistant(turn.content);
+      if(turn.role === 'user'){
+        if(jobReqFilename){
+          bubble.innerHTML = '<div class="ce-file-chip"><span class="ce-file-chip-icon">📄</span><span class="ce-file-chip-name">'+esc(jobReqFilename)+'</span></div>';
+          var txt = document.createElement('div');
+          txt.textContent = turn.content;
+          bubble.appendChild(txt);
+        } else {
+          bubble.textContent = turn.content;
+        }
+      } else {
+        bubble.innerHTML = fmtAssistant(turn.content);
+      }
     });
     scrollBottom();
   }

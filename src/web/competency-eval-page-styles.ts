@@ -376,6 +376,27 @@ body.wb-has-rail.page-shell--comp-eval .wb-main-body {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* file chip inside user bubble – ChatGPT style */
+.ce-file-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f3f4f6;
+  border-radius: 8px;
+  padding: 5px 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #374151;
+  max-width: 100%;
+}
+.ce-file-chip-icon { flex-shrink: 0; font-size: 14px; }
+.ce-file-chip-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+}
 .ce-msg.is-assistant .ce-avatar {
   background: linear-gradient(145deg, #10a37f, #1a7f64);
   color: #fff;
