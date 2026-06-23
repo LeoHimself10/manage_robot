@@ -55,6 +55,8 @@ export interface OrchestratorConfig {
   performanceScope?: PerformanceScope;
   /** 绩效看板页筛选默认值，与表格 API 对齐。 */
   performanceQueryDefaults?: PerformanceQueryDefaults;
+  /** toolProfile=competency_eval 时的可信操作者 userId（rubric/日报工具限定）。 */
+  competencyEvalActorUserId?: string;
   trustedActorUserId?: string;
   allowSearchWeb?: boolean;
   knownFactsStore?: KnownFactsStore;
@@ -138,6 +140,7 @@ export async function runOrchestrator(
     projectPortfolioEnabled: config.projectPortfolioEnabled,
     performanceScope: config.performanceScope,
     performanceQueryDefaults: config.performanceQueryDefaults,
+    competencyEvalActorUserId: config.competencyEvalActorUserId,
     trustedActorUserId: config.trustedActorUserId,
     allowSearchWeb: config.allowSearchWeb,
     knownFactsStore: config.knownFactsStore,
