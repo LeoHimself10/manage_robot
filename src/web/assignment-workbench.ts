@@ -156,6 +156,7 @@ import {
   handleCompetencyEvalSessionDelete,
   handleCompetencyEvalSessionGet,
   handleCompetencyEvalSessionSave,
+  handleJobReqUpload,
   isCompetencyEvalPageEnabled,
   parseCompetencyEvalConversationHistory,
   parseCompetencyEvalSessionActivatePath,
@@ -4132,6 +4133,41 @@ export function handleAssignmentHttp(
       writeJson(res, payload.ok ? 200 : 404, payload);
       return true;
     }
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/competency-eval/job-req/upload") {
+    void (async () => {
+      try {
+        const session = requireCompetencyEvalSessionFromRequest(req, res);
+        if (!session) return;
+        let multipart;
+        try {
+          multipart = await readMultipartSingleFile(req, { maxFileBytes: 2 * 1024 * 1024 });
+        } catch (err) {
+          writeJson(res, 400, {
+            ok: false,
+            error: err instanceof Error ? err.message : "multipart parse failed",
+          });
+          return;
+        }
+        if (!multipart.file) {
+          writeJson(res, 400, { ok: false, error: "缺少上传文件字段（form 字段名：file）" });
+          return;
+        }
+        const payload = await handleJobReqUpload({
+          userId: session.userId,
+          filename: multipart.file.filename,
+          buffer: multipart.file.buffer,
+        });
+        writeJson(res, payload.ok ? 200 : 400, payload);
+      } catch (err) {
+        writeJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : "upload failed",
+        });
+      }
+    })();
+    return true;
   }
 
   if (req.method === "POST" && url.pathname === "/api/workbench/competency-eval/chat") {
