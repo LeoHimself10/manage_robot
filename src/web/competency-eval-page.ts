@@ -426,8 +426,10 @@ function buildCompetencyEvalClientJs(): string {
     console.log('[DEBUG] uploadJobReq called, file:', file.name);
     var fd = new FormData();
     fd.append('file', file, file.name);
-    fetch(API_BASE+'/job-req/upload', { method: 'POST', body: fd })
-      .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+    var controller = new AbortController();
+    var timer = setTimeout(function(){ controller.abort(); }, 10000);
+    fetch(API_BASE+'/job-req/upload', { method: 'POST', body: fd, signal: controller.signal })
+      .then(function(r){ clearTimeout(timer); return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
       .then(function(res){
         console.log('[DEBUG] upload response:', JSON.stringify(res));
         if(!res.ok || !res.body || res.body.ok===false){
@@ -438,8 +440,6 @@ function buildCompetencyEvalClientJs(): string {
         var jobReq = res.body.jobReq || {};
         var filename = String(jobReq.filename||'未命名');
         console.log('[DEBUG] jobReq:', JSON.stringify(jobReq), 'filename:', filename);
-        // wait for session patch to complete before updating UI,
-        // so activeSession.activeJobReqId is populated before user can click send
         persistSessionPatch({
           activeJobReqId: jobReq.jobReqId,
           jobReqFilename: filename
@@ -448,7 +448,7 @@ function buildCompetencyEvalClientJs(): string {
           setJobReqBanner(filename);
         }).catch(function(e){ console.error('[DEBUG] persistSessionPatch failed:', e); });
       })
-      .catch(function(e){ alert('上传失败：'+(e.message||e)); });
+      .catch(function(e){ clearTimeout(timer); alert('上传失败：'+(e.message||e)); });
   }
 
   function sendChat(text){
