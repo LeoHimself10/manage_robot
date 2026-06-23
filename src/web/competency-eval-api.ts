@@ -6,11 +6,6 @@ import { join } from "node:path";
 import { isCompetencyEvalUser } from "../agent/competency-eval/competency-eval-access";
 import { isCompetencyEvalEnabled } from "../agent/competency-eval/competency-eval-flag";
 import {
-  deleteRubric,
-  listRubrics,
-  saveUploadedRubric,
-} from "../agent/competency-eval/rubric-store";
-import {
   createCompEvalSession,
   deleteCompEvalSession,
   getCompEvalSession,
@@ -181,46 +176,6 @@ export function requireCompetencyEvalSession(
   return session;
 }
 
-export function buildCompetencyEvalRubricsPayload(userId: string): Record<string, unknown> {
-  return { ok: true, rubrics: listRubrics(userId) };
-}
-
-export async function handleCompetencyEvalRubricUpload(input: {
-  userId: string;
-  filename: string;
-  mimeType?: string;
-  buffer: Buffer;
-}): Promise<Record<string, unknown>> {
-  const result = await saveUploadedRubric(input);
-  if (!result.ok) {
-    return { ok: false, error: result.reason, message: result.message };
-  }
-  return {
-    ok: true,
-    rubric: result.rubric,
-    activeRubricId: result.rubric.rubricId,
-  };
-}
-
-export function handleCompetencyEvalRubricDelete(
-  userId: string,
-  rubricId: string,
-): Record<string, unknown> {
-  const id = String(rubricId ?? "").trim();
-  if (!id) return { ok: false, error: "rubricId is required" };
-  const deleted = deleteRubric(userId, id);
-  if (!deleted) return { ok: false, error: "not_found" };
-  return { ok: true };
-}
-
-export function parseCompetencyEvalRubricIdFromPath(pathname: string): string | null {
-  const prefix = "/api/workbench/competency-eval/rubrics/";
-  if (!pathname.startsWith(prefix)) return null;
-  const rubricId = pathname.slice(prefix.length).trim();
-  if (!rubricId || rubricId.includes("/")) return null;
-  return rubricId;
-}
-
 export function buildJobReqsPayload(userId: string): Record<string, unknown> {
   return { ok: true, jobReqs: listJobReqs(userId) };
 }
@@ -276,18 +231,9 @@ export function handleCompetencyEvalSessionSave(
   const patch: {
     messages?: CompEvalChatMessage[];
     title?: string;
-    activeRubricId?: string;
-    rubricTitle?: string;
-    rubricDimCount?: number;
   } = {};
   if (body.messages !== undefined) patch.messages = messages;
   if (body.title !== undefined) patch.title = String(body.title ?? "");
-  if (body.activeRubricId !== undefined) patch.activeRubricId = String(body.activeRubricId ?? "");
-  if (body.rubricTitle !== undefined) patch.rubricTitle = String(body.rubricTitle ?? "");
-  if (body.rubricDimCount !== undefined) {
-    const n = Number(body.rubricDimCount);
-    if (Number.isFinite(n)) patch.rubricDimCount = n;
-  }
   const session = saveCompEvalSession(userId, sessionId, patch);
   if (!session) return { ok: false, error: "not_found" };
   return { ok: true, session };
