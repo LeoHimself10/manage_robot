@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { join } from "node:path";
 
-import { resolveCompetencyEvalDataDir } from "./rubric-store";
+export function resolveCompetencyEvalDataDir(): string {
+  const raw = String(process.env.COMPETENCY_EVAL_DATA_DIR ?? "").trim();
+  return raw || "data/competency-eval";
+}
 
 export interface CompEvalChatMessage {
   role: "user" | "assistant";
@@ -15,9 +18,6 @@ export interface CompEvalSessionListItem {
   createdAt: string;
   updatedAt: string;
   messageCount: number;
-  activeRubricId?: string;
-  rubricTitle?: string;
-  rubricDimCount?: number;
 }
 
 export interface CompEvalSession {
@@ -26,9 +26,6 @@ export interface CompEvalSession {
   createdAt: string;
   updatedAt: string;
   messages: CompEvalChatMessage[];
-  activeRubricId?: string;
-  rubricTitle?: string;
-  rubricDimCount?: number;
 }
 
 interface SessionIndex {
@@ -124,9 +121,6 @@ function toListItem(session: CompEvalSession): CompEvalSessionListItem {
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     messageCount: session.messages.length,
-    activeRubricId: session.activeRubricId,
-    rubricTitle: session.rubricTitle,
-    rubricDimCount: session.rubricDimCount,
   };
 }
 
@@ -160,9 +154,6 @@ function normalizeSession(raw: CompEvalSession): CompEvalSession {
     createdAt: String(raw.createdAt ?? new Date().toISOString()),
     updatedAt: String(raw.updatedAt ?? new Date().toISOString()),
     messages: trimmed,
-    activeRubricId: String(raw.activeRubricId ?? "").trim() || undefined,
-    rubricTitle: String(raw.rubricTitle ?? "").trim() || undefined,
-    rubricDimCount: raw.rubricDimCount ? Number(raw.rubricDimCount) : undefined,
   };
 }
 
@@ -231,9 +222,6 @@ export function saveCompEvalSession(
   patch: {
     messages?: CompEvalChatMessage[];
     title?: string;
-    activeRubricId?: string;
-    rubricTitle?: string;
-    rubricDimCount?: number;
   },
 ): CompEvalSession | null {
   const existing = readSessionFile(userId, sessionId);
@@ -254,13 +242,6 @@ export function saveCompEvalSession(
     messages,
     title: String(patch.title ?? "").trim() || deriveTitle(messages) || existing.title,
     updatedAt: now,
-    activeRubricId: patch.activeRubricId !== undefined
-      ? String(patch.activeRubricId ?? "").trim() || undefined
-      : existing.activeRubricId,
-    rubricTitle: patch.rubricTitle !== undefined
-      ? String(patch.rubricTitle ?? "").trim() || undefined
-      : existing.rubricTitle,
-    rubricDimCount: patch.rubricDimCount !== undefined ? patch.rubricDimCount : existing.rubricDimCount,
   };
   writeSession(userId, session);
   upsertIndexItem(userId, session);
