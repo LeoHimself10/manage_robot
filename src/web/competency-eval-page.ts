@@ -58,14 +58,14 @@ export function renderCompetencyEvalPage(params: {
           </div>
         </div>
         <div class="ce-topbar-spacer"></div>
-        <div class="ce-rubric-pill" id="compEvalRubricBanner" hidden>
+        <div class="ce-jobreq-pill" id="compEvalJobReqBanner" hidden>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-          <span id="compEvalRubricLabel"></span>
+          <span id="compEvalJobReqLabel"></span>
         </div>
-        <label class="ce-upload-btn" title="上传评估标准（.md / .docx）">
+        <label class="ce-upload-btn" title="上传岗位要求（.md / .docx）">
           <input type="file" id="compEvalFileInput" accept=".md,.markdown,.docx,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-          <span class="ce-upload-text">上传标准</span>
+          <span class="ce-upload-text">上传岗位要求</span>
         </label>
       </header>
 
@@ -73,7 +73,7 @@ export function renderCompetencyEvalPage(params: {
         <div class="ce-thread" id="compEvalThread">
           <div class="ce-empty" id="compEvalChatEmpty">
             <h2>今天想评估谁？</h2>
-            <p>先上传能力标准文档，再用人名 + 时间范围提问。我会结合钉钉日报证据给出定性分析，不会改动任何任务。</p>
+            <p>可上传岗位要求（可选），用人名 + 时间范围提问。我会结合钉钉日报证据给出定性分析，不会改动任何任务。</p>
             <div class="ce-suggestions" id="compEvalChips">
               <button type="button" class="ce-suggest perf-chip" data-q="评张三最近30天">
                 <span class="ce-suggest-label">评估某人</span>
@@ -124,8 +124,8 @@ function buildCompetencyEvalClientJs(): string {
   var chatInput = document.getElementById('compEvalChatInput');
   var chatSend = document.getElementById('compEvalChatSend');
   var fileInput = document.getElementById('compEvalFileInput');
-  var rubricBanner = document.getElementById('compEvalRubricBanner');
-  var rubricLabel = document.getElementById('compEvalRubricLabel');
+  var jobReqBanner = document.getElementById('compEvalJobReqBanner');
+  var jobReqLabel = document.getElementById('compEvalJobReqLabel');
   var sessionList = document.getElementById('compEvalSessionList');
   var newSessionBtn = document.getElementById('compEvalNewSession');
   var sidebarToggle = document.getElementById('compEvalSidebarToggle');
@@ -207,10 +207,10 @@ function buildCompetencyEvalClientJs(): string {
     });
   }
 
-  function applySessionRubric(sess){
-    if(!sess) { setRubricBanner('', 0); return; }
-    if(sess.rubricTitle) setRubricBanner(sess.rubricTitle, Number(sess.rubricDimCount||0));
-    else setRubricBanner('', 0);
+  function applySessionJobReq(sess){
+    if(!sess) { setJobReqBanner(''); return; }
+    if(sess.jobReqFilename) setJobReqBanner(sess.jobReqFilename);
+    else setJobReqBanner('');
   }
 
   function loadSessionById(id){
@@ -218,7 +218,7 @@ function buildCompetencyEvalClientJs(): string {
       if(!res.ok || !res.body || !res.body.session) throw new Error('load failed');
       activeSession = res.body.session;
       activeSessionId = activeSession.sessionId;
-      applySessionRubric(activeSession);
+      applySessionJobReq(activeSession);
       paintMessages(activeSession.messages || []);
       return activeSession;
     });
@@ -252,9 +252,8 @@ function buildCompetencyEvalClientJs(): string {
             createdAt: activeSession.createdAt,
             updatedAt: activeSession.updatedAt,
             messageCount: (activeSession.messages||[]).length,
-            activeRubricId: activeSession.activeRubricId,
-            rubricTitle: activeSession.rubricTitle,
-            rubricDimCount: activeSession.rubricDimCount
+            activeJobReqId: activeSession.activeJobReqId,
+            jobReqFilename: activeSession.jobReqFilename
           };
         }).sort(function(a,b){ return Date.parse(b.updatedAt)-Date.parse(a.updatedAt); });
         renderSessionList();
@@ -291,7 +290,7 @@ function buildCompetencyEvalClientJs(): string {
           messageCount: 0
         });
         renderSessionList();
-        applySessionRubric(activeSession);
+        applySessionJobReq(activeSession);
         paintMessages([]);
         setSidebarOpen(false);
         chatInput.focus();
@@ -323,15 +322,15 @@ function buildCompetencyEvalClientJs(): string {
     });
   }
 
-  function setRubricBanner(title, dimensionCount){
-    if(!rubricBanner || !rubricLabel) return;
-    if(!title){
-      rubricBanner.hidden = true;
-      rubricLabel.textContent = '';
+  function setJobReqBanner(filename){
+    if(!jobReqBanner || !jobReqLabel) return;
+    if(!filename){
+      jobReqBanner.hidden = true;
+      jobReqLabel.textContent = '';
       return;
     }
-    rubricBanner.hidden = false;
-    rubricLabel.textContent = title + ' · ' + dimensionCount + ' 个维度';
+    jobReqBanner.hidden = false;
+    jobReqLabel.textContent = filename;
   }
 
   function clearThreadDom(){
@@ -410,11 +409,11 @@ function buildCompetencyEvalClientJs(): string {
     try { return { event: event, data: JSON.parse(data) }; } catch(e){ return null; }
   }
 
-  function uploadRubric(file){
+  function uploadJobReq(file){
     if(!file) return;
     var fd = new FormData();
     fd.append('file', file, file.name);
-    fetch(API_BASE+'/rubrics/upload', { method: 'POST', body: fd })
+    fetch(API_BASE+'/job-req/upload', { method: 'POST', body: fd })
       .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
       .then(function(res){
         if(!res.ok || !res.body || res.body.ok===false){
@@ -422,15 +421,12 @@ function buildCompetencyEvalClientJs(): string {
           alert(msg);
           return;
         }
-        var rubricId = String(res.body.activeRubricId || (res.body.rubric && res.body.rubric.rubricId) || '');
-        var rubric = res.body.rubric || {};
-        var title = String(rubric.title||'未命名标准');
-        var dim = Number(rubric.dimensionCount||0);
-        setRubricBanner(title, dim);
+        var jobReq = res.body.jobReq || {};
+        var filename = String(jobReq.filename||'未命名');
+        setJobReqBanner(filename);
         persistSessionPatch({
-          activeRubricId: rubricId,
-          rubricTitle: title,
-          rubricDimCount: dim
+          activeJobReqId: jobReq.jobReqId,
+          jobReqFilename: filename
         });
       })
       .catch(function(e){ alert('上传失败：'+(e.message||e)); });
@@ -454,7 +450,7 @@ function buildCompetencyEvalClientJs(): string {
       message: msg,
       stream: true,
       conversationHistory: history,
-      activeRubricId: sess.activeRubricId || undefined
+      activeJobReqId: sess.activeJobReqId || undefined
     };
     fetch(API_BASE+'/chat', {
       method:'POST',
@@ -529,7 +525,7 @@ function buildCompetencyEvalClientJs(): string {
   if(fileInput){
     fileInput.addEventListener('change', function(){
       var f = fileInput.files && fileInput.files[0];
-      if(f) uploadRubric(f);
+      if(f) uploadJobReq(f);
       fileInput.value = '';
     });
   }

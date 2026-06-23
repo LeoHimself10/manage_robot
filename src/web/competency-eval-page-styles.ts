@@ -265,7 +265,7 @@ body.wb-has-rail.page-shell--comp-eval .wb-main-body {
   white-space: nowrap;
 }
 .ce-topbar-spacer { flex: 1; min-width: 8px; }
-.ce-rubric-pill {
+.ce-jobreq-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -281,7 +281,7 @@ body.wb-has-rail.page-shell--comp-eval .wb-main-body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.ce-rubric-pill[hidden] { display: none !important; }
+.ce-jobreq-pill[hidden] { display: none !important; }
 .ce-upload-btn {
   display: inline-flex;
   align-items: center;
