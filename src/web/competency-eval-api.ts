@@ -1,12 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { isCompetencyEvalUser } from "../agent/competency-eval/competency-eval-access";
 import { isCompetencyEvalEnabled } from "../agent/competency-eval/competency-eval-flag";
-import {
-  deleteRubric,
-  listRubrics,
-  saveUploadedRubric,
-} from "../agent/competency-eval/rubric-store";
 import {
   createCompEvalSession,
   deleteCompEvalSession,
@@ -21,6 +19,114 @@ import type { WorkbenchSession } from "./assignment-workbench-session-types";
 
 export function isCompetencyEvalPageEnabled(): boolean {
   return isCompetencyEvalEnabled();
+}
+
+export interface JobReqMeta {
+  jobReqId: string;
+  filename: string;
+  uploadedAt: string;
+}
+
+function resolveJobReqDataDir(): string {
+  const raw = String(process.env.COMPETENCY_EVAL_DATA_DIR ?? "").trim();
+  return raw || "data/competency-eval";
+}
+
+function sanitizeId(id: string): string | null {
+  const trimmed = String(id ?? "").trim();
+  if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
+    return null;
+  }
+  return trimmed;
+}
+
+function userJobReqsRoot(userId: string): string | null {
+  const id = sanitizeId(userId);
+  if (!id) return null;
+  return join(resolveJobReqDataDir(), "users", id, "job-reqs");
+}
+
+function jobReqDir(userId: string, jobReqId: string): string | null {
+  const root = userJobReqsRoot(userId);
+  const rid = sanitizeId(jobReqId);
+  if (!root || !rid) return null;
+  return join(root, rid);
+}
+
+export function listJobReqs(userId: string): JobReqMeta[] {
+  const root = userJobReqsRoot(userId);
+  if (!root || !existsSync(root)) return [];
+  const items: JobReqMeta[] = [];
+  try {
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dir = join(root, entry.name);
+      const metaPath = join(dir, "meta.json");
+      if (!existsSync(metaPath)) continue;
+      try {
+        const meta = JSON.parse(readFileSync(metaPath, "utf8")) as JobReqMeta;
+        if (!meta?.jobReqId || !meta?.filename) continue;
+        items.push(meta);
+      } catch { /* ignore corrupt */ }
+    }
+  } catch { return []; }
+  return items.sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+}
+
+export function getJobReq(userId: string, jobReqId: string): { ok: true; content: string; meta: JobReqMeta } | { ok: false; reason: string } {
+  const dir = jobReqDir(userId, jobReqId);
+  if (!dir || !existsSync(dir)) return { ok: false, reason: "not_found" };
+  const sourcePath = join(dir, "source.md");
+  const metaPath = join(dir, "meta.json");
+  if (!existsSync(sourcePath) || !existsSync(metaPath)) return { ok: false, reason: "not_found" };
+  try {
+    const content = readFileSync(sourcePath, "utf8");
+    const meta = JSON.parse(readFileSync(metaPath, "utf8")) as JobReqMeta;
+    return { ok: true, content, meta };
+  } catch { return { ok: false, reason: "corrupt" }; }
+}
+
+export async function saveJobReq(input: {
+  userId: string;
+  filename: string;
+  buffer: Buffer;
+}): Promise<{ ok: true; meta: JobReqMeta } | { ok: false; reason: string; message: string }> {
+  const root = userJobReqsRoot(input.userId);
+  if (!root) return { ok: false, reason: "invalid_user", message: "无效的用户标识。" };
+  const jobReqId = randomUUID();
+  const uploadedAt = new Date().toISOString();
+  const filename = input.filename.trim() || "upload.md";
+  const dir = join(root, jobReqId);
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch (e) {
+    return { ok: false, reason: "io_error", message: String(e) };
+  }
+  const meta: JobReqMeta = { jobReqId, filename, uploadedAt };
+  const pid = process.pid;
+  const tmpSource = join(dir, `source.md.tmp-${pid}`);
+  const tmpMeta = join(dir, `meta.json.tmp-${pid}`);
+  try {
+    writeFileSync(tmpSource, input.buffer.toString("utf8"), "utf8");
+    writeFileSync(tmpMeta, `${JSON.stringify(meta, null, 2)}\n`, "utf8");
+    renameSync(tmpSource, join(dir, "source.md"));
+    renameSync(tmpMeta, join(dir, "meta.json"));
+  } catch (e) {
+    // Clean up temp files on failure
+    try { rmSync(tmpSource, { force: true }); } catch { /* ignore */ }
+    try { rmSync(tmpMeta, { force: true }); } catch { /* ignore */ }
+    return { ok: false, reason: "io_error", message: String(e) };
+  }
+  return { ok: true, meta };
+}
+
+export function deleteJobReq(userId: string, jobReqId: string): boolean {
+  const dir = jobReqDir(userId, jobReqId);
+  if (!dir) return false;
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch { return false; }
+  return true;
 }
 
 export type CompetencyEvalChatTurn = { role: "user" | "assistant"; content: string };
@@ -70,44 +176,26 @@ export function requireCompetencyEvalSession(
   return session;
 }
 
-export function buildCompetencyEvalRubricsPayload(userId: string): Record<string, unknown> {
-  return { ok: true, rubrics: listRubrics(userId) };
+export function buildJobReqsPayload(userId: string): Record<string, unknown> {
+  return { ok: true, jobReqs: listJobReqs(userId) };
 }
 
-export async function handleCompetencyEvalRubricUpload(input: {
+export async function handleJobReqUpload(input: {
   userId: string;
   filename: string;
-  mimeType?: string;
   buffer: Buffer;
 }): Promise<Record<string, unknown>> {
-  const result = await saveUploadedRubric(input);
-  if (!result.ok) {
-    return { ok: false, error: result.reason, message: result.message };
-  }
-  return {
-    ok: true,
-    rubric: result.rubric,
-    activeRubricId: result.rubric.rubricId,
-  };
+  const result = await saveJobReq(input);
+  if (!result.ok) return { ok: false, error: result.reason, message: result.message };
+  return { ok: true, jobReq: result.meta };
 }
 
-export function handleCompetencyEvalRubricDelete(
-  userId: string,
-  rubricId: string,
-): Record<string, unknown> {
-  const id = String(rubricId ?? "").trim();
-  if (!id) return { ok: false, error: "rubricId is required" };
-  const deleted = deleteRubric(userId, id);
+export function handleJobReqDelete(userId: string, jobReqId: string): Record<string, unknown> {
+  const id = String(jobReqId ?? "").trim();
+  if (!id) return { ok: false, error: "jobReqId is required" };
+  const deleted = deleteJobReq(userId, id);
   if (!deleted) return { ok: false, error: "not_found" };
   return { ok: true };
-}
-
-export function parseCompetencyEvalRubricIdFromPath(pathname: string): string | null {
-  const prefix = "/api/workbench/competency-eval/rubrics/";
-  if (!pathname.startsWith(prefix)) return null;
-  const rubricId = pathname.slice(prefix.length).trim();
-  if (!rubricId || rubricId.includes("/")) return null;
-  return rubricId;
 }
 
 export function buildCompetencyEvalSessionsPayload(userId: string): Record<string, unknown> {
