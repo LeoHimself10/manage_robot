@@ -1,6 +1,9 @@
 import { renderWorkbenchPage } from "./workbench-shell";
 
-export function renderAdminOpsDashboardPage(params: { userLabel?: string }): string {
+export function renderAdminOpsDashboardPage(params: {
+  userLabel?: string;
+  sessionUserId?: string;
+}): string {
   return renderWorkbenchPage({
     role: "admin",
     activeNav: "adm-ops",
@@ -8,6 +11,7 @@ export function renderAdminOpsDashboardPage(params: { userLabel?: string }): str
     pageTitle: "Agent 运营看板",
     description: "Agent 用量、Token 消耗、质量异常与 Eval 健康度。工作台 DAU 统计打开页面、智能助手对话与任务 API 操作，不含「仅任务库更新时间」被动变更。",
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     mainHtml: `
   <section class="kpis kpis--3" aria-live="polite" style="margin-bottom:16px;">
     <div class="kpi"><div class="lbl">DAU（当日）/ WAU（本周）</div><div class="val" id="kpiUsers">—</div><div class="muted" style="font-size:12px;margin-top:4px;" id="kpiDauDate"></div></div>

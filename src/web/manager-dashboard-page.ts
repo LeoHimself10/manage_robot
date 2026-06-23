@@ -13,6 +13,7 @@ function escapeHtml(v: string): string {
 
 export function renderManagerDashboardPage(params: {
   userLabel?: string;
+  sessionUserId?: string;
   projectPortfolioEnabled?: boolean;
   initialProjectId?: string;
   showAdminOpsLink?: boolean;
@@ -36,6 +37,7 @@ export function renderManagerDashboardPage(params: {
     pageTitle: "周度看板 · 主管工作台",
     description: `周会投屏与进展汇报：一屏看清任务节奏、人员负载与关键动态。${who}`,
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     portfolioEnabled: portfolio,
     showAdminOpsLink: params.showAdminOpsLink,
     extraCss: DASHBOARD_PAGE_CSS,

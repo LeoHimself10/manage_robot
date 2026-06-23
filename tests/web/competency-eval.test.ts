@@ -9,6 +9,8 @@ import {
   isCompetencyEvalPageEnabled,
 } from "../../src/web/competency-eval-api";
 import { renderCompetencyEvalPage } from "../../src/web/competency-eval-page";
+import { renderManagerDashboardPage } from "../../src/web/manager-dashboard-page";
+import { renderAdminOpsDashboardPage } from "../../src/web/admin-ops-dashboard-page";
 import {
   __resetWorkbenchStoresForTest,
   handleAssignmentHttp,
@@ -117,6 +119,28 @@ describe("competency-eval page render", () => {
     expect(html).toContain("/api/workbench/competency-eval");
     expect(html).toContain("/static/performance-chat-markdown.js");
     expect(html).toContain('data-wb-nav="mgr-competency-eval"');
+  });
+
+  it("shows competency nav on manager dashboard when sessionUserId is whitelisted", () => {
+    vi.stubEnv("COMPETENCY_EVAL_ENABLED", "1");
+    vi.stubEnv("COMPETENCY_EVAL_USER_IDS", "641871342");
+    const html = renderManagerDashboardPage({
+      userLabel: "姚凯珩",
+      sessionUserId: "641871342",
+    });
+    expect(html).toContain("能力评估");
+    expect(html).toContain('href="/workbench/manager/competency-eval"');
+  });
+
+  it("shows competency nav on admin ops when sessionUserId is whitelisted", () => {
+    vi.stubEnv("COMPETENCY_EVAL_ENABLED", "1");
+    vi.stubEnv("COMPETENCY_EVAL_USER_IDS", "641871342");
+    const html = renderAdminOpsDashboardPage({
+      userLabel: "姚凯珩",
+      sessionUserId: "641871342",
+    });
+    expect(html).toContain("能力评估");
+    expect(html).toContain('href="/workbench/manager/competency-eval"');
   });
 });
 

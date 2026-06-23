@@ -34,6 +34,7 @@ export function renderManagerTasksPage(params: {
   planId?: string;
   planTitle?: string;
   userLabel?: string;
+  sessionUserId?: string;
   projectPortfolioEnabled?: boolean;
   initialProjectId?: string;
   initialView?: "group" | "flat";
@@ -81,6 +82,7 @@ export function renderManagerTasksPage(params: {
     pageTitle: "历史任务 · 主管工作台",
     description: "查看已发布任务的进度与负责人，必要时调整分配方案。列表优先突出阻塞与待处理事项。",
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     portfolioEnabled: portfolio,
     showAdminOpsLink: params.showAdminOpsLink,
     extraCss: portfolio ? WORKBENCH_TASKS_PORTFOLIO_CSS + WORKBENCH_TASKS_FILTER_UNIFIED_CSS : "",
@@ -739,6 +741,7 @@ export function renderManagerChatPage(params: {
   threadKind?: "main" | "side";
   planTitle?: string;
   userLabel?: string;
+  sessionUserId?: string;
   openDraftEditor?: boolean;
   projectPortfolioEnabled?: boolean;
   showAdminOpsLink?: boolean;
@@ -754,6 +757,7 @@ export function renderManagerChatPage(params: {
     title: "智能规划助手",
     pageTitle: "智能规划助手 · 主管工作台",
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     portfolioEnabled: portfolio,
     showAdminOpsLink: params.showAdminOpsLink,
     bodyClass: "page-shell--chat",

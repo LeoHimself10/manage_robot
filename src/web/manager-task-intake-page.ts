@@ -4,6 +4,7 @@ import { buildWorkbenchContactComboClientJs } from "./workbench-contact-combo-sn
 
 export function renderManagerTaskIntakePage(params: {
   userLabel?: string;
+  sessionUserId?: string;
   showAdminOpsLink?: boolean;
   portfolioEnabled?: boolean;
 }): string {
@@ -542,6 +543,7 @@ export function renderManagerTaskIntakePage(params: {
     pageTitle: "任务快录入库 · 主管工作台",
     description: "粘贴已拆好的任务清单，系统忠实映射为父任务 + 子任务，核对后直接入库。",
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     portfolioEnabled: portfolio,
     showAdminOpsLink: params.showAdminOpsLink,
     extraCss: tiCss,

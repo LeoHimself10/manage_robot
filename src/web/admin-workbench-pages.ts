@@ -610,7 +610,10 @@ function buildAdminPermissionsClientJs(): string {
 </script>`;
 }
 
-export function renderAdminPermissionsPage(params: { userLabel?: string }): string {
+export function renderAdminPermissionsPage(params: {
+  userLabel?: string;
+  sessionUserId?: string;
+}): string {
   return renderWorkbenchPage({
     role: "admin",
     activeNav: "adm-perms",
@@ -618,6 +621,7 @@ export function renderAdminPermissionsPage(params: { userLabel?: string }): stri
     pageTitle: "权限中心",
     description: "维护主管与项目管理主管身份；动态名单与环境变量合并生效。",
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     extraCss: ADMIN_PERMISSIONS_CSS,
     mainHtml: `
   <div class="admin-perm-hub">
@@ -697,7 +701,10 @@ export function renderAdminPermissionsPage(params: { userLabel?: string }): stri
   });
 }
 
-export function renderAdminWorkbenchPage(params: { userLabel?: string }): string {
+export function renderAdminWorkbenchPage(params: {
+  userLabel?: string;
+  sessionUserId?: string;
+}): string {
   return renderWorkbenchPage({
     role: "admin",
     activeNav: "adm-tasks",
@@ -705,6 +712,7 @@ export function renderAdminWorkbenchPage(params: { userLabel?: string }): string
     pageTitle: "管理员工作台",
     description: "跨部门检索 · 只读审计 · 权限维护请前往「权限中心」",
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     mainHtml: `
   <section class="kpis kpis--3" aria-live="polite" style="max-width:480px;margin-bottom:16px;">
     <div class="kpi"><div class="lbl">正式任务总数</div><div class="val" id="kpiTotal">—</div></div>

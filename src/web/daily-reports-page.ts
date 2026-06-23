@@ -11,6 +11,7 @@ export function renderDailyReportsPage(params: {
   role: WorkbenchShellRole;
   activeNav: WorkbenchNavId;
   userLabel?: string;
+  sessionUserId?: string;
   showAdminOpsLink?: boolean;
   portfolioEnabled?: boolean;
   apiBase?: string;
@@ -98,6 +99,7 @@ export function renderDailyReportsPage(params: {
     pageTitle,
     description,
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     portfolioEnabled: Boolean(params.portfolioEnabled),
     showAdminOpsLink: params.showAdminOpsLink,
     canExecuteAsManager: Boolean(params.canExecuteAsManager),

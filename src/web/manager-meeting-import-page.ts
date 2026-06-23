@@ -12,6 +12,7 @@ function escapeHtml(v: string): string {
 
 export function renderManagerMeetingImportPage(params: {
   userLabel?: string;
+  sessionUserId?: string;
   showAdminOpsLink?: boolean;
 }): string {
   const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
@@ -43,6 +44,7 @@ textarea.mi-text { width:100%; min-height:200px; font-family:inherit; }
     pageTitle: "会议入库 · 主管工作台",
     description: `粘贴会议纪要或 Action Items，AI 建议项目与父任务归属，确认后批量发布。${who}`,
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     portfolioEnabled: true,
     showAdminOpsLink: params.showAdminOpsLink,
     extraCss: miCss,

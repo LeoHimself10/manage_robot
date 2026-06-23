@@ -11,6 +11,7 @@ function escapeHtml(v: string): string {
 
 export function renderCompetencyEvalPage(params: {
   userLabel?: string;
+  sessionUserId?: string;
   showAdminOpsLink?: boolean;
   portfolioEnabled?: boolean;
   competencyEvalEnabled?: boolean;
@@ -26,6 +27,7 @@ export function renderCompetencyEvalPage(params: {
     pageTitle: "能力评估 · 主管工作台",
     description: desc,
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     portfolioEnabled: Boolean(params.portfolioEnabled),
     showAdminOpsLink: params.showAdminOpsLink,
     competencyEvalEnabled: Boolean(params.competencyEvalEnabled),

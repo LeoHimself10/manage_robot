@@ -11,6 +11,7 @@ function escapeHtml(v: string): string {
 
 export function renderPerformanceDashboardPage(params: {
   userLabel?: string;
+  sessionUserId?: string;
   role?: WorkbenchShellRole;
   scopeLabel?: string;
   apiBase?: string;
@@ -43,6 +44,7 @@ export function renderPerformanceDashboardPage(params: {
     pageTitle,
     description: desc,
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     portfolioEnabled: portfolio,
     showAdminOpsLink: params.showAdminOpsLink,
     extraCss: PERFORMANCE_PAGE_CSS,

@@ -2960,6 +2960,7 @@ function renderDailyReportsWorkbenchPage(params: {
     role: params.role,
     activeNav: params.activeNav,
     userLabel: params.userLabel,
+    sessionUserId: params.userId,
     showAdminOpsLink: params.showAdminOpsLink,
     portfolioEnabled: params.portfolioEnabled,
     initialDate: params.initialDate,
@@ -6919,6 +6920,7 @@ export function handleAssignmentHttp(
         url.pathname === "/workbench/manager/dashboard"
           ? renderManagerDashboardPage({
             userLabel,
+            sessionUserId: session.userId,
             projectPortfolioEnabled: portfolioEnabled,
             initialProjectId,
             showAdminOpsLink,
@@ -6926,6 +6928,7 @@ export function handleAssignmentHttp(
           : url.pathname === "/workbench/manager/performance"
           ? renderPerformanceDashboardPage({
             userLabel,
+            sessionUserId: session.userId,
             role: "manager",
             scopeLabel: "您名下员工",
             apiBase: "/api/workbench/manager/performance",
@@ -6935,6 +6938,7 @@ export function handleAssignmentHttp(
           : url.pathname === "/workbench/manager/competency-eval"
           ? renderCompetencyEvalPage({
             userLabel,
+            sessionUserId: session.userId,
             showAdminOpsLink,
             portfolioEnabled,
             competencyEvalEnabled,
@@ -6953,17 +6957,28 @@ export function handleAssignmentHttp(
           : url.pathname === "/workbench/manager/projects"
           ? renderManagerProjectsPage({
             userLabel,
+            sessionUserId: session.userId,
             showAdminOpsLink,
           })
           : url.pathname === "/workbench/manager/meeting-import"
-            ? renderManagerMeetingImportPage({ userLabel, showAdminOpsLink })
+            ? renderManagerMeetingImportPage({
+              userLabel,
+              sessionUserId: session.userId,
+              showAdminOpsLink,
+            })
           : url.pathname === "/workbench/manager/task-intake"
-            ? renderManagerTaskIntakePage({ userLabel, showAdminOpsLink, portfolioEnabled })
+            ? renderManagerTaskIntakePage({
+              userLabel,
+              sessionUserId: session.userId,
+              showAdminOpsLink,
+              portfolioEnabled,
+            })
           : url.pathname === "/workbench/manager/tasks"
             ? renderManagerTasksPage({
               planId: url.searchParams.get("planId")?.trim(),
               planTitle,
               userLabel,
+              sessionUserId: session.userId,
               projectPortfolioEnabled: portfolioEnabled,
               initialProjectId,
               initialView: portfolioEnabled ? initialTasksView : undefined,
@@ -6975,6 +6990,7 @@ export function handleAssignmentHttp(
                 threadKind: chatThreadKind,
                 planTitle,
                 userLabel,
+                sessionUserId: session.userId,
                 openDraftEditor: url.searchParams.get("openDraftEditor") === "1",
                 projectPortfolioEnabled: portfolioEnabled,
                 showAdminOpsLink,
@@ -7029,12 +7045,13 @@ export function handleAssignmentHttp(
               eventsPagePath: "/workbench/admin/task/events",
             })
             : url.pathname === "/workbench/admin/ops"
-              ? renderAdminOpsDashboardPage({ userLabel })
+              ? renderAdminOpsDashboardPage({ userLabel, sessionUserId: session.userId })
               : url.pathname === "/workbench/admin/permissions"
-                ? renderAdminPermissionsPage({ userLabel })
+                ? renderAdminPermissionsPage({ userLabel, sessionUserId: session.userId })
               : url.pathname === "/workbench/admin/performance"
                 ? renderPerformanceDashboardPage({
                   userLabel,
+                  sessionUserId: session.userId,
                   role: "admin",
                   scopeLabel: "全员（管理员视角）",
                   apiBase: "/api/workbench/admin/performance",
@@ -7052,7 +7069,7 @@ export function handleAssignmentHttp(
                   initialDate: url.searchParams.get("date")?.trim() ?? "",
                   initialView: parseDailyReportsPageViewParam(url.searchParams.get("view")),
                 })
-              : renderAdminWorkbenchPage({ userLabel });
+              : renderAdminWorkbenchPage({ userLabel, sessionUserId: session.userId });
       emitWorkbenchPageView(session, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();

@@ -3,6 +3,18 @@ import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippe
 import { isTaskIntakeEnabled } from "../agent/task-intake/task-intake-flag";
 import { isDailyReportsPageEnabled } from "../agent/daily-report-digest/daily-reports-page-flag";
 import { isMeetingImportEnabled } from "../agent/meeting-import/meeting-import-flag";
+import { isCompetencyEvalUser } from "../agent/competency-eval/competency-eval-access";
+import { isCompetencyEvalEnabled } from "../agent/competency-eval/competency-eval-flag";
+
+function resolveCompetencyEvalNavEnabled(params: {
+  sessionUserId?: string;
+  competencyEvalEnabled?: boolean;
+}): boolean {
+  if (params.competencyEvalEnabled !== undefined) return params.competencyEvalEnabled;
+  const id = String(params.sessionUserId ?? "").trim();
+  if (!id) return false;
+  return isCompetencyEvalEnabled() && isCompetencyEvalUser(id);
+}
 
 export type WorkbenchShellRole = "manager" | "employee" | "admin";
 
@@ -109,13 +121,14 @@ function buildEmployeeRail(activeNav: WorkbenchNavId): string {
 </div>`;
 }
 
-function buildAdminRail(activeNav: WorkbenchNavId): string {
+function buildAdminRail(activeNav: WorkbenchNavId, competencyEvalEnabled = false): string {
   return `<div class="wb-rail-grp">
   <div class="wb-rail-grp-lbl">全局</div>
   ${railLink("/workbench/admin", "任务总览", "adm-tasks", activeNav, "admin")}
   ${railLink("/workbench/admin/ops", "运营看板", "adm-ops", activeNav, "admin")}
   ${railLink("/workbench/admin/performance", "交付绩效", "adm-perf", activeNav, "admin")}
   ${isDailyReportsPageEnabled() ? railLink("/workbench/admin/daily-reports", "日报汇总", "adm-daily-reports", activeNav, "admin") : ""}
+  ${competencyEvalEnabled ? railLink("/workbench/manager/competency-eval", "能力评估", "mgr-competency-eval", activeNav, "admin") : ""}
   ${railLink("/workbench/admin/permissions", "权限中心", "adm-perms", activeNav, "admin", { id: "navAdminPerms" })}
 </div>`;
 }
@@ -251,6 +264,7 @@ export function renderWorkbenchPage(params: {
   headActionsHtml?: string;
   headToolbarHtml?: string;
   userLabel?: string;
+  sessionUserId?: string;
   portfolioEnabled?: boolean;
   showAdminOpsLink?: boolean;
   competencyEvalEnabled?: boolean;
@@ -263,17 +277,18 @@ export function renderWorkbenchPage(params: {
   mainHtml: string;
   scriptHtml?: string;
 }): string {
+  const competencyEvalEnabled = resolveCompetencyEvalNavEnabled(params);
   const railNav =
     params.role === "manager"
       ? buildManagerRail(
         params.activeNav,
         Boolean(params.portfolioEnabled),
         Boolean(params.showAdminOpsLink),
-        Boolean(params.competencyEvalEnabled),
+        competencyEvalEnabled,
       )
       : params.role === "employee"
         ? buildEmployeeRail(params.activeNav)
-        : buildAdminRail(params.activeNav);
+        : buildAdminRail(params.activeNav, competencyEvalEnabled);
 
   const descBlock = params.description
     ? `<p class="wb-main-desc">${escapeHtml(params.description)}</p>`
@@ -355,6 +370,7 @@ export function renderWorkbenchDetailPage(params: {
   mainHtml: string;
   scriptHtml: string;
   userLabel?: string;
+  sessionUserId?: string;
 }): string {
   const role: WorkbenchShellRole =
     params.roleLabel === "admin" ? "admin" : params.roleLabel === "employee" ? "employee" : "manager";
@@ -373,6 +389,7 @@ export function renderWorkbenchDetailPage(params: {
     breadcrumbHtml: params.breadcrumbHtml,
     headToolbarHtml: params.headToolbarHtml,
     userLabel: params.userLabel,
+    sessionUserId: params.sessionUserId,
     hideMainHead: false,
     mainBodyClass: params.roleLabel === "employee" ? "wb-main-body--detail-emp" : "wb-main-body--detail",
     mainHtml: `${params.infoBarHtml ?? ""}${params.mainHtml}`,
