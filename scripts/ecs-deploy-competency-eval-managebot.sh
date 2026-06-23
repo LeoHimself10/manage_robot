@@ -34,6 +34,7 @@ git log -1 --oneline
 echo "[2/6] patch managebot env (competency-eval + project views + daily reports page)"
 update_kv "$ENVFILE" COMPETENCY_EVAL_ENABLED 1
 update_kv "$ENVFILE" COMPETENCY_EVAL_USER_IDS "01451725613871,641871342"
+update_kv "$ENVFILE" COMPETENCY_EVAL_QWEN_THINKING 1
 update_kv "$ENVFILE" DAILY_REPORT_PROJECT_VIEWS_ENABLED 1
 update_kv "$ENVFILE" DAILY_REPORT_DIGEST_CONFIG_FILE /app/data/daily-report-digest.config.json
 update_kv "$ENVFILE" DAILY_REPORTS_PAGE_ENABLED 1

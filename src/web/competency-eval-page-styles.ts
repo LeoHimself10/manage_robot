@@ -101,6 +101,7 @@ body.wb-has-rail.page-shell--comp-eval .wb-main-body {
   grid-template-columns: minmax(0, 1fr);
 }
 .ce-root.is-sidebar-collapsed .ce-sidebar { display: none; }
+.ce-root.is-sidebar-collapsed .ce-main { grid-column: 1; }
 .ce-root.is-sidebar-collapsed .ce-sidebar-expand { display: grid; }
 .ce-new-session {
   flex: 1;

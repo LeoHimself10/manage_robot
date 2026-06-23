@@ -6,7 +6,9 @@
  * 供能力评估页内置聊天框调用。
  */
 import type { QwenPlannerConfig } from "../demo/qwen-planner";
+import { buildManagerQwenClientConfig } from "../manager-orchestrator-turn";
 import { runOrchestrator, type OrchestratorResult } from "../orchestrator";
+import { readCompetencyEvalThinkingEnabled } from "./competency-eval-flag";
 import type { createEmployeeProfileRepo } from "../../integrations/repos/employee-profile-repo";
 import { extractPerformanceStreamMessage } from "../performance/performance-stream-message";
 import { getRubric } from "./rubric-store";
@@ -30,6 +32,14 @@ export interface CompetencyEvalAgentTurnInput {
 export interface CompetencyEvalAgentTurnResult {
   message: string;
   orchResult: OrchestratorResult;
+}
+
+/** 能力评估专用 Qwen 配置：继承主管超时/流式，thinking 默认开。 */
+export function buildCompetencyEvalClientConfig(base: QwenPlannerConfig): QwenPlannerConfig {
+  return {
+    ...buildManagerQwenClientConfig(base),
+    thinking: readCompetencyEvalThinkingEnabled(),
+  };
 }
 
 export function buildCompetencyEvalContextPrefix(input: {

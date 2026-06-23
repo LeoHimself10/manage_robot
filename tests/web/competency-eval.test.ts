@@ -9,6 +9,7 @@ import {
   isCompetencyEvalPageEnabled,
 } from "../../src/web/competency-eval-api";
 import { renderCompetencyEvalPage } from "../../src/web/competency-eval-page";
+import { COMPETENCY_EVAL_PAGE_CSS } from "../../src/web/competency-eval-page-styles";
 import { renderManagerDashboardPage } from "../../src/web/manager-dashboard-page";
 import { renderAdminOpsDashboardPage } from "../../src/web/admin-ops-dashboard-page";
 import {
@@ -104,6 +105,12 @@ describe("competency-eval api helpers", () => {
     expect(isCompetencyEvalPageEnabled()).toBe(true);
     vi.stubEnv("COMPETENCY_EVAL_ENABLED", "0");
     expect(isCompetencyEvalPageEnabled()).toBe(false);
+  });
+});
+
+describe("competency-eval page styles", () => {
+  it("keeps main pane in column 1 when sidebar collapsed", () => {
+    expect(COMPETENCY_EVAL_PAGE_CSS).toContain(".ce-root.is-sidebar-collapsed .ce-main { grid-column: 1; }");
   });
 });
 

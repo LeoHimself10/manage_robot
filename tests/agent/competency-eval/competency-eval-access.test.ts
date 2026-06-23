@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { isCompetencyEvalEnabled } from "../../../src/agent/competency-eval/competency-eval-flag";
+import { isCompetencyEvalEnabled, readCompetencyEvalThinkingEnabled } from "../../../src/agent/competency-eval/competency-eval-flag";
 import {
   isCompetencyEvalUser,
   listCompetencyEvalUserIds,
@@ -10,6 +10,15 @@ describe("competency-eval access", () => {
     vi.unstubAllEnvs();
     delete process.env.COMPETENCY_EVAL_USER_IDS;
     delete process.env.COMPETENCY_EVAL_USER_IDS_FILE;
+    delete process.env.COMPETENCY_EVAL_QWEN_THINKING;
+  });
+
+  it("thinking defaults on and can be disabled", () => {
+    expect(readCompetencyEvalThinkingEnabled()).toBe(true);
+    vi.stubEnv("COMPETENCY_EVAL_QWEN_THINKING", "0");
+    expect(readCompetencyEvalThinkingEnabled()).toBe(false);
+    vi.stubEnv("COMPETENCY_EVAL_QWEN_THINKING", "1");
+    expect(readCompetencyEvalThinkingEnabled()).toBe(true);
   });
 
   it("enabled only when env=1", () => {

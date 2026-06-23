@@ -237,6 +237,23 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 - **UI 增强**：四状态交付堆叠图、单员工详情项目过滤、多轮对话记忆（`performance` profile 专用 `promptProfile`）；Admin 全员视角，主管仅本人名下。
 - **API**：`GET /api/workbench/manager/performance`、`POST /api/workbench/manager/performance/chat`。
 
+## 能力评估（Competency Eval，v1）
+
+- **定位**：对照用户上传的 rubric 与钉钉日报，对被评估人做**定性**能力复盘与辅导建议（非交付 KPI、不改动任务）。
+- **页面**：`/workbench/manager/competency-eval`（`COMPETENCY_EVAL_ENABLED=1` + 白名单 `COMPETENCY_EVAL_USER_IDS`）；ChatGPT 风格 UI：侧栏会话历史（可收起）、服务端持久化、上传 `.md`/`.docx` 标准。
+- **试点**：微光 managebot（曹一挥、姚凯珩白名单）；部署脚本 `scripts/ecs-deploy-competency-eval-managebot.sh`。
+- **隔离 Agent**：`promptProfile=competency_eval` + `toolProfile=competency_eval`（`list_rubrics` / `get_rubric` / `get_employee_daily_reports` / `search_employees` / `get_current_time`），入口 `runCompetencyEvalTurn`（`src/agent/competency-eval/competency-eval-agent-turn.ts`），不接 planner 草案/发放 FSM。
+- **数据**：rubric 与评估会话存 `data/competency-eval/`（`COMPETENCY_EVAL_DATA_DIR`）；日报证据来自 digest 配置的 roster（与早报采集名单联动）。
+- **LLM**：复用 `buildManagerQwenClientConfig` 超时/流式；**thinking 默认开**（`COMPETENCY_EVAL_QWEN_THINKING`，与钉钉主链路 `DINGTALK_QWEN_THINKING` 独立）。
+- **API**：`GET/POST /api/workbench/competency-eval/sessions`、`GET/POST rubrics`、`POST .../chat`（SSE 流式）。
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `COMPETENCY_EVAL_ENABLED` | `0` | 功能开关 |
+| `COMPETENCY_EVAL_USER_IDS` | — | 白名单 userId（逗号分隔） |
+| `COMPETENCY_EVAL_DATA_DIR` | `data/competency-eval` | rubric + 会话目录 |
+| `COMPETENCY_EVAL_QWEN_THINKING` | `1`（隐式） | 能力评估 LLM thinking |
+
 ## 承接指派（v0.2 MVP）
 
 `ASSIGNMENT_PHASE_ENABLED=1` 时，orchestrator **同一次 ReAct 请求**产出 `assignment` JSON → `extractLightAssignment` → 拼入回复 Markdown。**无第二次独立 LLM**（`runAssignmentRecommendation` 仅测试/独立调用）。
@@ -265,6 +282,8 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 | `DAILY_REPORTS_PAGE_ENABLED` | 工作台日报汇总页（默认 `0`；明思实例开 `1`） |
 | `DAILY_REPORT_DIGEST_ENABLED` | 8:30 群推 scheduler（默认 `0`） |
 | `DAILY_REPORT_DIGEST_CONFIG_FILE` | 名单 + webhook 配置文件路径 |
+| `COMPETENCY_EVAL_ENABLED` | 能力评估页 + API（默认 `0`；白名单 `COMPETENCY_EVAL_USER_IDS`） |
+| `COMPETENCY_EVAL_QWEN_THINKING` | 能力评估 LLM thinking（默认开；`0` 关闭） |
 | `PERFORMANCE_DASHBOARD_ENABLED` | 员工交付绩效看板（默认 `1`） |
 | `PERFORMANCE_WINDOW_DAYS` | 绩效统计窗口自然日（默认 `90`） |
 

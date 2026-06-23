@@ -145,7 +145,10 @@ import {
   parsePerformanceQueryInput,
 } from "./performance-dashboard-api";
 import { runPerformanceAgentTurn } from "../agent/performance-agent-turn";
-import { runCompetencyEvalTurn } from "../agent/competency-eval/competency-eval-agent-turn";
+import {
+  buildCompetencyEvalClientConfig,
+  runCompetencyEvalTurn,
+} from "../agent/competency-eval/competency-eval-agent-turn";
 import {
   buildCompetencyEvalRubricsPayload,
   buildCompetencyEvalSessionsPayload,
@@ -3138,7 +3141,7 @@ async function handleCompetencyEvalChatPost(
 
   const turnInput = {
     userMessage: message,
-    clientConfig: buildManagerQwenClientConfig(qwenConfig),
+    clientConfig: buildCompetencyEvalClientConfig(qwenConfig),
     employeeRepo,
     actorUserId: session.userId,
     activeRubricId,
