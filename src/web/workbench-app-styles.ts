@@ -838,41 +838,6 @@ body.chat-overlay-lock { overflow: hidden; }
   border-radius: 0;
   box-shadow: none;
   overflow: hidden;
-  transition: width .2s ease, opacity .2s ease;
-}
-.chat-main.is-sidebar-collapsed {
-  grid-template-columns: 0 minmax(0, 1fr) 260px;
-}
-.chat-main.is-sidebar-collapsed .chat-sidebar {
-  width: 0;
-  min-width: 0;
-  opacity: 0;
-  pointer-events: none;
-  border: none;
-}
-.chat-sidebar-expand {
-  display: none;
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-  font-size: 18px;
-}
-.chat-sidebar-expand:hover { background: #f4f4f4; }
-.chat-main.is-sidebar-collapsed .chat-sidebar-expand { display: grid; place-items: center; }
-.chat-sidebar-collapse {
-  flex-shrink: 0;
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1;
 }
 .chat-sidebar-head {
   padding: 10px 12px;
