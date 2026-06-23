@@ -769,6 +769,7 @@ export function renderManagerChatPage(params: {
     <aside class="chat-sidebar" id="chatSidebar" aria-label="会话列表">
       <div class="chat-sidebar-head">
         <button type="button" class="btn btn-primary btn-sm" id="newThreadBtn" style="width:100%;">+ 新规划会话</button>
+        <button type="button" class="chat-sidebar-collapse" id="chatSidebarCollapseBtn" aria-label="收起会话列表" title="收起">◀</button>
       </div>
       <ul class="chat-thread-list" id="threadList"><li class="muted" style="padding:8px;">加载中…</li></ul>
       <div class="chat-sidebar-tip">与助手对话可拆解任务、点将并发布。Enter 发送，Shift+Enter 换行。</div>
@@ -785,6 +786,7 @@ export function renderManagerChatPage(params: {
       </header>
 
       <div class="chat-pane-head chat-pane-head--desktop">
+        <button type="button" class="chat-sidebar-expand" id="chatSidebarExpandBtn" aria-label="展开会话列表" title="会话列表">☰</button>
         <div>
           <h2 class="chat-pane-title" id="paneTitle">${escapeHtml(initialTitle)}</h2>
           <div class="chat-pane-sub chat-pane-sub--hidden" id="paneSub">与规划助手协作</div>
@@ -1731,6 +1733,24 @@ export function renderManagerChatPage(params: {
       if (main && main.classList.contains('is-thread-drawer-open')) closeThreadDrawer();
       else openThreadDrawer();
     });
+  }
+  var chatSidebarCollapseBtn = document.getElementById('chatSidebarCollapseBtn');
+  var chatSidebarExpandBtn = document.getElementById('chatSidebarExpandBtn');
+  var CHAT_SIDEBAR_COLLAPSE_KEY = 'mgr_chat_sidebar_collapsed';
+  function setChatSidebarCollapsed(collapsed) {
+    var main = document.getElementById('chatMain');
+    if (!main) return;
+    main.classList.toggle('is-sidebar-collapsed', collapsed);
+    try { localStorage.setItem(CHAT_SIDEBAR_COLLAPSE_KEY, collapsed ? '1' : '0'); } catch (eCol) {}
+  }
+  try {
+    setChatSidebarCollapsed(localStorage.getItem(CHAT_SIDEBAR_COLLAPSE_KEY) === '1');
+  } catch (eColInit) {}
+  if (chatSidebarCollapseBtn) {
+    chatSidebarCollapseBtn.addEventListener('click', function () { setChatSidebarCollapsed(true); });
+  }
+  if (chatSidebarExpandBtn) {
+    chatSidebarExpandBtn.addEventListener('click', function () { setChatSidebarCollapsed(false); });
   }
   var chatOverlayBackdrop = document.getElementById('chatOverlayBackdrop');
   if (chatOverlayBackdrop) {

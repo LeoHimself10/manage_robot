@@ -7,6 +7,16 @@ import {
   listRubrics,
   saveUploadedRubric,
 } from "../agent/competency-eval/rubric-store";
+import {
+  createCompEvalSession,
+  deleteCompEvalSession,
+  getCompEvalSession,
+  listCompEvalSessions,
+  parseCompEvalSessionIdFromPath,
+  saveCompEvalSession,
+  setActiveCompEvalSession,
+  type CompEvalChatMessage,
+} from "../agent/competency-eval/competency-eval-session-store";
 import type { WorkbenchSession } from "./assignment-workbench-session-types";
 
 export function isCompetencyEvalPageEnabled(): boolean {
@@ -98,4 +108,84 @@ export function parseCompetencyEvalRubricIdFromPath(pathname: string): string | 
   const rubricId = pathname.slice(prefix.length).trim();
   if (!rubricId || rubricId.includes("/")) return null;
   return rubricId;
+}
+
+export function buildCompetencyEvalSessionsPayload(userId: string): Record<string, unknown> {
+  let data = listCompEvalSessions(userId);
+  if (!data.sessions.length) {
+    const created = createCompEvalSession(userId);
+    if (created) data = listCompEvalSessions(userId);
+  }
+  return { ok: true, ...data };
+}
+
+export function handleCompetencyEvalSessionCreate(userId: string): Record<string, unknown> {
+  const session = createCompEvalSession(userId);
+  if (!session) return { ok: false, error: "create_failed" };
+  return { ok: true, session, activeSessionId: session.sessionId };
+}
+
+export function handleCompetencyEvalSessionGet(
+  userId: string,
+  sessionId: string,
+): Record<string, unknown> {
+  const session = getCompEvalSession(userId, sessionId);
+  if (!session) return { ok: false, error: "not_found" };
+  return { ok: true, session };
+}
+
+export function handleCompetencyEvalSessionSave(
+  userId: string,
+  sessionId: string,
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  const messages = parseCompetencyEvalConversationHistory(body.messages);
+  const patch: {
+    messages?: CompEvalChatMessage[];
+    title?: string;
+    activeRubricId?: string;
+    rubricTitle?: string;
+    rubricDimCount?: number;
+  } = {};
+  if (body.messages !== undefined) patch.messages = messages;
+  if (body.title !== undefined) patch.title = String(body.title ?? "");
+  if (body.activeRubricId !== undefined) patch.activeRubricId = String(body.activeRubricId ?? "");
+  if (body.rubricTitle !== undefined) patch.rubricTitle = String(body.rubricTitle ?? "");
+  if (body.rubricDimCount !== undefined) {
+    const n = Number(body.rubricDimCount);
+    if (Number.isFinite(n)) patch.rubricDimCount = n;
+  }
+  const session = saveCompEvalSession(userId, sessionId, patch);
+  if (!session) return { ok: false, error: "not_found" };
+  return { ok: true, session };
+}
+
+export function handleCompetencyEvalSessionDelete(
+  userId: string,
+  sessionId: string,
+): Record<string, unknown> {
+  const deleted = deleteCompEvalSession(userId, sessionId);
+  if (!deleted) return { ok: false, error: "not_found" };
+  const data = listCompEvalSessions(userId);
+  if (!data.sessions.length) {
+    const created = createCompEvalSession(userId);
+    if (created) return { ok: true, ...listCompEvalSessions(userId) };
+  }
+  return { ok: true, ...data };
+}
+
+export function handleCompetencyEvalSessionActivate(
+  userId: string,
+  sessionId: string,
+): Record<string, unknown> {
+  const ok = setActiveCompEvalSession(userId, sessionId);
+  if (!ok) return { ok: false, error: "not_found" };
+  return { ok: true, activeSessionId: sessionId };
+}
+
+export function parseCompetencyEvalSessionActivatePath(pathname: string): string | null {
+  const m = /^\/api\/workbench\/competency-eval\/sessions\/([^/]+)\/activate$/.exec(pathname);
+  if (!m) return null;
+  const id = m[1]?.trim();
+  return id || null;
 }

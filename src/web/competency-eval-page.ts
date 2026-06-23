@@ -40,13 +40,15 @@ export function renderCompetencyEvalPage(params: {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
           新评估
         </button>
+        <button type="button" class="ce-sidebar-collapse" id="compEvalSidebarCollapse" aria-label="收起会话列表" title="收起">◀</button>
       </div>
       <ul class="ce-session-list" id="compEvalSessionList" role="list"></ul>
-      <p class="ce-sidebar-tip">会话保存在本浏览器，可切换回顾历史评估。</p>
+      <p class="ce-sidebar-tip">会话保存在服务器，换设备登录可继续查看。</p>
     </aside>
 
     <div class="ce-main">
       <header class="ce-topbar">
+        <button type="button" class="ce-sidebar-expand" id="compEvalSidebarExpand" aria-label="展开会话列表" title="会话历史">☰</button>
         <button type="button" class="ce-sidebar-toggle" id="compEvalSidebarToggle" aria-label="打开会话列表" aria-expanded="false">☰</button>
         <div class="ce-topbar-brand">
           <div class="ce-logo" aria-hidden="true">评</div>
@@ -114,11 +116,7 @@ function buildCompetencyEvalClientJs(): string {
   return `
 (function(){
   var API_BASE = '/api/workbench/competency-eval';
-  var STORE_KEY = 'comp_eval_sessions_v2';
-  var LEGACY_KEY = 'comp_eval_chat_history_v1';
-  var MAX_SESSIONS = 40;
-  var MAX_TURNS = 20;
-
+  var COLLAPSE_KEY = 'comp_eval_sidebar_collapsed';
   var root = document.getElementById('compEvalChatCard');
   var chatScroll = document.getElementById('compEvalChatLog');
   var chatThread = document.getElementById('compEvalThread');
@@ -131,9 +129,13 @@ function buildCompetencyEvalClientJs(): string {
   var sessionList = document.getElementById('compEvalSessionList');
   var newSessionBtn = document.getElementById('compEvalNewSession');
   var sidebarToggle = document.getElementById('compEvalSidebarToggle');
+  var sidebarCollapse = document.getElementById('compEvalSidebarCollapse');
+  var sidebarExpand = document.getElementById('compEvalSidebarExpand');
   var sidebarBackdrop = document.getElementById('compEvalSidebarBackdrop');
 
-  var store = { activeId: '', sessions: [] };
+  var activeSessionId = '';
+  var activeSession = null;
+  var listItems = [];
   var streaming = false;
 
   function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
@@ -141,26 +143,11 @@ function buildCompetencyEvalClientJs(): string {
     if(typeof window.formatPerfAssistantHtml==='function') return window.formatPerfAssistantHtml(text||'');
     return esc(text||'');
   }
-  function now(){ return Date.now(); }
-  function uid(){ return 's_'+now()+'_'+Math.random().toString(36).slice(2,9); }
 
-  function getActiveSession(){
-    if(!store.activeId) return null;
-    for(var i=0;i<store.sessions.length;i++){
-      if(store.sessions[i].id===store.activeId) return store.sessions[i];
-    }
-    return null;
-  }
-
-  function deriveTitle(messages){
-    for(var i=0;i<messages.length;i++){
-      if(messages[i].role==='user' && messages[i].content){
-        var t = String(messages[i].content).trim().replace(/\\s+/g,' ');
-        if(t.length>42) t = t.slice(0,42)+'…';
-        return t || '新评估';
-      }
-    }
-    return '新评估';
+  function apiJson(url, opts){
+    return fetch(url, opts || {}).then(function(r){
+      return r.json().then(function(j){ return { ok: r.ok, body: j }; });
+    });
   }
 
   function formatSessionTime(ts){
@@ -172,72 +159,10 @@ function buildCompetencyEvalClientJs(): string {
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   }
 
-  function saveStore(){
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch(e0) {}
-  }
-
-  function loadStore(){
-    try {
-      var raw = localStorage.getItem(STORE_KEY);
-      if(raw){
-        var parsed = JSON.parse(raw);
-        if(parsed && Array.isArray(parsed.sessions)){
-          store.activeId = String(parsed.activeId||'');
-          store.sessions = parsed.sessions;
-        }
-      }
-    } catch(e1) {}
-    migrateLegacy();
-    if(!store.sessions.length){
-      var s = createSessionObject();
-      store.sessions.push(s);
-      store.activeId = s.id;
-      saveStore();
-    }
-    if(!getActiveSession()){
-      store.activeId = store.sessions[0].id;
-      saveStore();
-    }
-  }
-
-  function migrateLegacy(){
-    try {
-      var raw = sessionStorage.getItem(LEGACY_KEY);
-      if(!raw) return;
-      var parsed = JSON.parse(raw);
-      if(!Array.isArray(parsed) || !parsed.length) return;
-      if(store.sessions.some(function(s){ return s.messages && s.messages.length; })) return;
-      var s = createSessionObject();
-      s.messages = parsed.slice(-MAX_TURNS);
-      s.title = deriveTitle(s.messages);
-      s.updatedAt = now();
-      store.sessions = [s];
-      store.activeId = s.id;
-      saveStore();
-      sessionStorage.removeItem(LEGACY_KEY);
-    } catch(e2) {}
-  }
-
-  function createSessionObject(){
-    return {
-      id: uid(),
-      title: '新评估',
-      createdAt: now(),
-      updatedAt: now(),
-      messages: [],
-      activeRubricId: '',
-      rubricTitle: '',
-      rubricDimCount: 0
-    };
-  }
-
-  function scrollBottom(){
-    if(chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
-  }
-
-  function updateSendState(){
-    var hasText = (chatInput.value||'').trim().length > 0;
-    chatSend.disabled = streaming || !hasText;
+  function setSidebarCollapsed(collapsed){
+    if(!root) return;
+    root.classList.toggle('is-sidebar-collapsed', collapsed);
+    try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); } catch(e0) {}
   }
 
   function setSidebarOpen(open){
@@ -253,20 +178,18 @@ function buildCompetencyEvalClientJs(): string {
   function renderSessionList(){
     if(!sessionList) return;
     sessionList.innerHTML = '';
-    if(!store.sessions.length){
+    if(!listItems.length){
       sessionList.innerHTML = '<li class="ce-session-empty">暂无会话，点击「新评估」开始</li>';
       return;
     }
-    var sorted = store.sessions.slice().sort(function(a,b){ return b.updatedAt - a.updatedAt; });
-    sorted.forEach(function(sess){
+    listItems.forEach(function(sess){
       var li = document.createElement('li');
-      li.className = 'ce-session-item'+(sess.id===store.activeId?' is-active':'');
-      li.dataset.sessionId = sess.id;
+      li.className = 'ce-session-item'+(sess.sessionId===activeSessionId?' is-active':'');
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'ce-session-btn';
       btn.innerHTML = '<span class="ce-session-title">'+esc(sess.title||'新评估')+'</span>'+
-        '<span class="ce-session-meta">'+formatSessionTime(sess.updatedAt)+' · '+(sess.messages.length||0)+' 轮</span>';
+        '<span class="ce-session-meta">'+formatSessionTime(sess.updatedAt)+' · '+(sess.messageCount||0)+' 轮</span>';
       var del = document.createElement('button');
       del.type = 'button';
       del.className = 'ce-session-del';
@@ -275,12 +198,128 @@ function buildCompetencyEvalClientJs(): string {
       del.textContent = '×';
       del.addEventListener('click', function(e){
         e.stopPropagation();
-        deleteSession(sess.id);
+        deleteSession(sess.sessionId);
       });
-      btn.addEventListener('click', function(){ switchSession(sess.id); });
+      btn.addEventListener('click', function(){ switchSession(sess.sessionId); });
       li.appendChild(btn);
       li.appendChild(del);
       sessionList.appendChild(li);
+    });
+  }
+
+  function applySessionRubric(sess){
+    if(!sess) { setRubricBanner('', 0); return; }
+    if(sess.rubricTitle) setRubricBanner(sess.rubricTitle, Number(sess.rubricDimCount||0));
+    else setRubricBanner('', 0);
+  }
+
+  function loadSessionById(id){
+    return apiJson(API_BASE+'/sessions/'+encodeURIComponent(id)).then(function(res){
+      if(!res.ok || !res.body || !res.body.session) throw new Error('load failed');
+      activeSession = res.body.session;
+      activeSessionId = activeSession.sessionId;
+      applySessionRubric(activeSession);
+      paintMessages(activeSession.messages || []);
+      return activeSession;
+    });
+  }
+
+  function refreshListAndActive(){
+    return apiJson(API_BASE+'/sessions').then(function(res){
+      if(!res.ok || !res.body) throw new Error('list failed');
+      listItems = res.body.sessions || [];
+      activeSessionId = String(res.body.activeSessionId || (listItems[0] && listItems[0].sessionId) || '');
+      renderSessionList();
+      if(!activeSessionId) return null;
+      return loadSessionById(activeSessionId);
+    });
+  }
+
+  function persistSessionPatch(patch){
+    if(!activeSessionId) return Promise.resolve();
+    return apiJson(API_BASE+'/sessions/'+encodeURIComponent(activeSessionId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    }).then(function(res){
+      if(res.ok && res.body && res.body.session){
+        activeSession = res.body.session;
+        listItems = listItems.map(function(it){
+          if(it.sessionId !== activeSession.sessionId) return it;
+          return {
+            sessionId: activeSession.sessionId,
+            title: activeSession.title,
+            createdAt: activeSession.createdAt,
+            updatedAt: activeSession.updatedAt,
+            messageCount: (activeSession.messages||[]).length,
+            activeRubricId: activeSession.activeRubricId,
+            rubricTitle: activeSession.rubricTitle,
+            rubricDimCount: activeSession.rubricDimCount
+          };
+        }).sort(function(a,b){ return Date.parse(b.updatedAt)-Date.parse(a.updatedAt); });
+        renderSessionList();
+      }
+    });
+  }
+
+  function switchSession(id){
+    if(streaming) return;
+    if(id===activeSessionId) { setSidebarOpen(false); return; }
+    apiJson(API_BASE+'/sessions/'+encodeURIComponent(id)+'/activate', { method: 'POST' })
+      .then(function(){ return loadSessionById(id); })
+      .then(function(){ renderSessionList(); setSidebarOpen(false); chatInput.focus(); })
+      .catch(function(e){ alert('切换失败：'+(e.message||e)); });
+  }
+
+  function createNewSession(){
+    if(streaming) return;
+    if(activeSession && !activeSession.messages.length && activeSession.title==='新评估'){
+      setSidebarOpen(false);
+      chatInput.focus();
+      return;
+    }
+    apiJson(API_BASE+'/sessions', { method: 'POST' })
+      .then(function(res){
+        if(!res.ok || !res.body || !res.body.session) throw new Error('create failed');
+        activeSession = res.body.session;
+        activeSessionId = activeSession.sessionId;
+        listItems.unshift({
+          sessionId: activeSession.sessionId,
+          title: activeSession.title,
+          createdAt: activeSession.createdAt,
+          updatedAt: activeSession.updatedAt,
+          messageCount: 0
+        });
+        renderSessionList();
+        applySessionRubric(activeSession);
+        paintMessages([]);
+        setSidebarOpen(false);
+        chatInput.focus();
+      })
+      .catch(function(e){ alert('创建失败：'+(e.message||e)); });
+  }
+
+  function deleteSession(id){
+    if(streaming) return;
+    apiJson(API_BASE+'/sessions/'+encodeURIComponent(id), { method: 'DELETE' })
+      .then(function(res){
+        if(!res.ok) throw new Error('delete failed');
+        listItems = res.body.sessions || [];
+        activeSessionId = String(res.body.activeSessionId || '');
+        renderSessionList();
+        if(activeSessionId) return loadSessionById(activeSessionId);
+        activeSession = null;
+        paintMessages([]);
+      })
+      .catch(function(e){ alert('删除失败：'+(e.message||e)); });
+  }
+
+  function persistTurn(role, content){
+    if(!activeSession) return Promise.resolve();
+    var messages = (activeSession.messages || []).slice();
+    messages.push({ role: role, content: content });
+    return persistSessionPatch({ messages: messages }).then(function(){
+      if(activeSession) activeSession.messages = messages;
     });
   }
 
@@ -295,20 +334,20 @@ function buildCompetencyEvalClientJs(): string {
     rubricLabel.textContent = title + ' · ' + dimensionCount + ' 个维度';
   }
 
-  function applySessionRubric(sess){
-    if(!sess) return;
-    if(sess.rubricTitle){
-      setRubricBanner(sess.rubricTitle, Number(sess.rubricDimCount||0));
-    } else {
-      setRubricBanner('', 0);
-    }
-  }
-
   function clearThreadDom(){
     var keep = chatEmpty;
     var nodes = chatThread.querySelectorAll('.ce-msg');
     nodes.forEach(function(n){ n.remove(); });
     if(keep) keep.style.display = '';
+  }
+
+  function scrollBottom(){
+    if(chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
+  }
+
+  function updateSendState(){
+    var hasText = (chatInput.value||'').trim().length > 0;
+    chatSend.disabled = streaming || !hasText;
   }
 
   function hideEmpty(){ if(chatEmpty) chatEmpty.style.display='none'; }
@@ -355,73 +394,6 @@ function buildCompetencyEvalClientJs(): string {
     scrollBottom();
   }
 
-  function switchSession(id){
-    if(streaming) return;
-    if(id===store.activeId) { setSidebarOpen(false); return; }
-    var found = null;
-    for(var i=0;i<store.sessions.length;i++){
-      if(store.sessions[i].id===id) found = store.sessions[i];
-    }
-    if(!found) return;
-    store.activeId = id;
-    saveStore();
-    applySessionRubric(found);
-    paintMessages(found.messages);
-    renderSessionList();
-    setSidebarOpen(false);
-    chatInput.focus();
-  }
-
-  function createNewSession(){
-    if(streaming) return;
-    var s = createSessionObject();
-    var cur = getActiveSession();
-    if(cur && !cur.messages.length && cur.title==='新评估'){
-      setSidebarOpen(false);
-      chatInput.focus();
-      return;
-    }
-    store.sessions.unshift(s);
-    if(store.sessions.length > MAX_SESSIONS){
-      store.sessions = store.sessions.slice(0, MAX_SESSIONS);
-    }
-    store.activeId = s.id;
-    saveStore();
-    applySessionRubric(s);
-    paintMessages([]);
-    renderSessionList();
-    setSidebarOpen(false);
-    chatInput.focus();
-  }
-
-  function deleteSession(id){
-    if(streaming) return;
-    if(store.sessions.length <= 1){
-      var blank = createSessionObject();
-      store.sessions = [blank];
-      store.activeId = blank.id;
-    } else {
-      store.sessions = store.sessions.filter(function(s){ return s.id !== id; });
-      if(store.activeId === id) store.activeId = store.sessions[0].id;
-    }
-    saveStore();
-    var active = getActiveSession();
-    applySessionRubric(active);
-    paintMessages(active ? active.messages : []);
-    renderSessionList();
-  }
-
-  function persistTurn(role, content){
-    var sess = getActiveSession();
-    if(!sess) return;
-    sess.messages.push({ role: role, content: content });
-    if(sess.messages.length > MAX_TURNS) sess.messages = sess.messages.slice(-MAX_TURNS);
-    sess.title = deriveTitle(sess.messages);
-    sess.updatedAt = now();
-    saveStore();
-    renderSessionList();
-  }
-
   function autoGrow(){
     chatInput.style.height = 'auto';
     chatInput.style.height = Math.min(200, chatInput.scrollHeight) + 'px';
@@ -455,15 +427,11 @@ function buildCompetencyEvalClientJs(): string {
         var title = String(rubric.title||'未命名标准');
         var dim = Number(rubric.dimensionCount||0);
         setRubricBanner(title, dim);
-        var sess = getActiveSession();
-        if(sess){
-          sess.activeRubricId = rubricId;
-          sess.rubricTitle = title;
-          sess.rubricDimCount = dim;
-          sess.updatedAt = now();
-          saveStore();
-          renderSessionList();
-        }
+        persistSessionPatch({
+          activeRubricId: rubricId,
+          rubricTitle: title,
+          rubricDimCount: dim
+        });
       })
       .catch(function(e){ alert('上传失败：'+(e.message||e)); });
   }
@@ -471,7 +439,7 @@ function buildCompetencyEvalClientJs(): string {
   function sendChat(text){
     var msg = (text!=null?text:chatInput.value||'').trim();
     if(!msg || streaming) return;
-    var sess = getActiveSession();
+    var sess = activeSession;
     if(!sess) return;
     streaming = true;
     updateSendState();
@@ -531,9 +499,11 @@ function buildCompetencyEvalClientJs(): string {
       return pump();
     }).catch(function(e){ bubble.textContent = '请求失败：'+(e.message||e); })
       .finally(function(){
-        if(finalMessage){
-          persistTurn('user', msg);
-          persistTurn('assistant', finalMessage);
+        if(finalMessage && activeSession){
+          var messages = (activeSession.messages || []).slice();
+          messages.push({ role: 'user', content: msg });
+          messages.push({ role: 'assistant', content: finalMessage });
+          persistSessionPatch({ messages: messages });
         }
         streaming=false;
         updateSendState();
@@ -541,17 +511,20 @@ function buildCompetencyEvalClientJs(): string {
       });
   }
 
-  loadStore();
-  var initial = getActiveSession();
-  applySessionRubric(initial);
-  paintMessages(initial ? initial.messages : []);
-  renderSessionList();
-  updateSendState();
+  try {
+    setSidebarCollapsed(localStorage.getItem(COLLAPSE_KEY) === '1');
+  } catch(eInit) {}
+
+  refreshListAndActive().catch(function(e){
+    alert('加载会话失败：'+(e.message||e));
+  }).finally(function(){ updateSendState(); });
 
   if(newSessionBtn) newSessionBtn.addEventListener('click', createNewSession);
   if(sidebarToggle) sidebarToggle.addEventListener('click', function(){
     setSidebarOpen(!root.classList.contains('is-sidebar-open'));
   });
+  if(sidebarCollapse) sidebarCollapse.addEventListener('click', function(){ setSidebarCollapsed(true); });
+  if(sidebarExpand) sidebarExpand.addEventListener('click', function(){ setSidebarCollapsed(false); });
   if(sidebarBackdrop) sidebarBackdrop.addEventListener('click', function(){ setSidebarOpen(false); });
   if(fileInput){
     fileInput.addEventListener('change', function(){

@@ -148,13 +148,21 @@ import { runPerformanceAgentTurn } from "../agent/performance-agent-turn";
 import { runCompetencyEvalTurn } from "../agent/competency-eval/competency-eval-agent-turn";
 import {
   buildCompetencyEvalRubricsPayload,
+  buildCompetencyEvalSessionsPayload,
   handleCompetencyEvalRubricDelete,
   handleCompetencyEvalRubricUpload,
+  handleCompetencyEvalSessionActivate,
+  handleCompetencyEvalSessionCreate,
+  handleCompetencyEvalSessionDelete,
+  handleCompetencyEvalSessionGet,
+  handleCompetencyEvalSessionSave,
   isCompetencyEvalPageEnabled,
   parseCompetencyEvalConversationHistory,
   parseCompetencyEvalRubricIdFromPath,
+  parseCompetencyEvalSessionActivatePath,
   requireCompetencyEvalSession,
 } from "./competency-eval-api";
+import { parseCompEvalSessionIdFromPath } from "../agent/competency-eval/competency-eval-session-store";
 import { renderCompetencyEvalPage } from "./competency-eval-page";
 import { isCompetencyEvalUser } from "../agent/competency-eval/competency-eval-access";
 import { renderManagerMeetingImportPage } from "./manager-meeting-import-page";
@@ -4063,6 +4071,68 @@ export function handleAssignmentHttp(
     const session = requireSession(req, res, "admin");
     if (!session) return true;
     return handlePerformanceEmployeeDetailGet(req, res, url);
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/competency-eval/sessions") {
+    const session = requireCompetencyEvalSessionFromRequest(req, res);
+    if (!session) return true;
+    writeJson(res, 200, buildCompetencyEvalSessionsPayload(session.userId));
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/competency-eval/sessions") {
+    const session = requireCompetencyEvalSessionFromRequest(req, res);
+    if (!session) return true;
+    writeJson(res, 200, handleCompetencyEvalSessionCreate(session.userId));
+    return true;
+  }
+
+  const compEvalSessionActivateId = parseCompetencyEvalSessionActivatePath(url.pathname);
+  if (req.method === "POST" && compEvalSessionActivateId) {
+    const session = requireCompetencyEvalSessionFromRequest(req, res);
+    if (!session) return true;
+    const payload = handleCompetencyEvalSessionActivate(session.userId, compEvalSessionActivateId);
+    writeJson(res, payload.ok ? 200 : 404, payload);
+    return true;
+  }
+
+  const compEvalSessionId = parseCompEvalSessionIdFromPath(url.pathname);
+  if (compEvalSessionId) {
+    if (isGetOrHead) {
+      const session = requireCompetencyEvalSessionFromRequest(req, res);
+      if (!session) return true;
+      const payload = handleCompetencyEvalSessionGet(session.userId, compEvalSessionId);
+      writeJson(res, payload.ok ? 200 : 404, payload);
+      return true;
+    }
+    if (req.method === "PUT" || req.method === "PATCH") {
+      void (async () => {
+        try {
+          const session = requireCompetencyEvalSessionFromRequest(req, res);
+          if (!session) return;
+          const body = await readJsonBody(req, 512 * 1024);
+          const payload = handleCompetencyEvalSessionSave(
+            session.userId,
+            compEvalSessionId,
+            body as Record<string, unknown>,
+          );
+          writeJson(res, payload.ok ? 200 : 404, payload);
+        } catch (err) {
+          writeJson(res, 400, {
+            ok: false,
+            error: err instanceof Error ? err.message : "save failed",
+          });
+        }
+      })();
+      return true;
+    }
+    if (req.method === "DELETE") {
+      const session = requireCompetencyEvalSessionFromRequest(req, res);
+      if (!session) return true;
+      const payload = handleCompetencyEvalSessionDelete(session.userId, compEvalSessionId);
+      writeJson(res, payload.ok ? 200 : 404, payload);
+      return true;
+    }
   }
 
   if (isGetOrHead && url.pathname === "/api/workbench/competency-eval/rubrics") {

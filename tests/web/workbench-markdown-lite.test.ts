@@ -49,4 +49,13 @@ describe("formatWorkbenchAssistantHtml", () => {
     expect(html).not.toMatch(/<script/i);
     expect(html).toContain("&lt;script&gt;");
   });
+
+  it("converts br tags to line breaks instead of leaking literal br", () => {
+    const html = formatWorkbenchAssistantHtml("第一行<br>第二行<br/>第三行");
+    expect(html).not.toContain("<br>");
+    expect(html).not.toContain("&lt;br");
+    expect(html).toContain("第一行");
+    expect(html).toContain("第二行");
+    expect(html).toContain("第三行");
+  });
 });

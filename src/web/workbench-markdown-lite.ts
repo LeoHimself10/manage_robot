@@ -267,8 +267,13 @@ function renderEscapedMarkdown(esc: string): string {
 /**
  * Escape HTML on the full document, then render a small Markdown subset.
  * Raw HTML from the model is never passed through unescaped.
+ * `<br>` from the model is normalized to newlines before escape.
  */
+function normalizeAssistantMarkdownRaw(raw: string): string {
+  return String(raw ?? "").replace(/<br\s*\/?>/gi, "\n");
+}
+
 export function formatWorkbenchAssistantHtml(raw: string): string {
-  const esc = escapeHtml(String(raw ?? ""));
+  const esc = escapeHtml(normalizeAssistantMarkdownRaw(raw));
   return renderEscapedMarkdown(esc);
 }
