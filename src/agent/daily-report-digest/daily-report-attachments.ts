@@ -118,3 +118,15 @@ export function reportHasDisplayBody(report: ReportLike): boolean {
   if ((report.images?.length ?? 0) > 0) return true;
   return report.contents.some(fieldHasDisplayBody);
 }
+
+/** 正文内嵌图片占位（report/list 不返回 URL，仅有 [图片] 文本）。 */
+export const INLINE_IMAGE_MARKER = "[图片]";
+
+export function contentHasInlineImageMarker(value: string): boolean {
+  return value.includes(INLINE_IMAGE_MARKER);
+}
+
+export function reportHasResolvableImages(report: ReportLike): boolean {
+  if ((report.images?.length ?? 0) > 0) return true;
+  return report.contents.some((f) => contentHasInlineImageMarker(f.value));
+}

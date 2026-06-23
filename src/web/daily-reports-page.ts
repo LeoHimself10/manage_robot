@@ -533,26 +533,48 @@ function buildDailyReportsClientJs(opts: {
     load(false);
   }
 
-  function fieldDisplay(f){
-    var parts = [];
-    if (String(f.value||'').trim()) parts.push(String(f.value));
-    var att = f.attachments || [];
-    if (att.length) parts.push('附件 ' + att.length + ' 个：' + att.map(function(a){ return a.name||'附件'; }).join('、'));
-    return parts.join('\\n');
+  function renderMediaItems(items, kind){
+    if(!items || !items.length) return '';
+    return '<div class="dr-media-row">' + items.map(function(a){
+      var name = esc(a.name || (kind === 'img' ? '图片' : '附件'));
+      if(a.url){
+        if(kind === 'img'){
+          return '<a class="dr-media-img-wrap" href="'+esc(a.url)+'" target="_blank" rel="noopener noreferrer">'
+            + '<img class="dr-media-img" src="'+esc(a.url)+'" alt="'+name+'" loading="lazy" />'
+            + '</a>';
+        }
+        return '<a class="dr-media-att" href="'+esc(a.url)+'" target="_blank" rel="noopener noreferrer">'+name+'</a>';
+      }
+      return '<span class="dr-media-placeholder" title="请在钉钉原日志查看">'+name+' · 原日志</span>';
+    }).join('') + '</div>';
+  }
+  function renderReportActions(r){
+    if(r.openInDingtalkUrl){
+      return '<div class="dr-rpt-actions"><a class="dr-btn dr-btn-sm dr-dingtalk-link" href="'+esc(r.openInDingtalkUrl)+'" target="_blank" rel="noopener noreferrer">在钉钉原日志评论</a></div>';
+    }
+    if(r.reportId){
+      return '<div class="dr-rpt-actions"><span class="dr-btn dr-btn-sm dr-dingtalk-link is-disabled" title="请在钉钉 → 日志 → 按同事与日期查找">在钉钉原日志评论</span></div>';
+    }
+    return '';
   }
   function renderReport(r){
     var head = r.templateName ? ('<div class="dr-rpt-tmpl">'+esc(r.templateName)+(r.createTime?(' · '+esc(fmtTime(r.createTime))):'')+'</div>') : '';
     var rows = (r.contents||[]).filter(function(f){
       return String(f.value||'').trim() || (f.attachments && f.attachments.length);
     }).map(function(f){
-      return '<div class="dr-field"><span class="dr-field-k">'+esc(f.key)+'</span><span class="dr-field-v">'+esc(fieldDisplay(f))+'</span></div>';
+      var body = '';
+      if(String(f.value||'').trim()) body += '<div class="dr-field-text">'+esc(f.value)+'</div>';
+      if(f.attachments && f.attachments.length) body += renderMediaItems(f.attachments, 'att');
+      return '<div class="dr-field"><span class="dr-field-k">'+esc(f.key)+'</span><span class="dr-field-v">'+body+'</span></div>';
     }).join('');
     if (r.images && r.images.length) {
-      var imgNames = r.images.map(function(a){ return esc(a.name||'图片'); }).join('、');
-      rows += '<div class="dr-field"><span class="dr-field-k">图片</span><span class="dr-field-v">附件 '+r.images.length+' 个：'+imgNames+'</span></div>';
+      rows += '<div class="dr-field"><span class="dr-field-k">图片</span><span class="dr-field-v">'+renderMediaItems(r.images, 'img')+'</span></div>';
     }
     if(!rows) rows = '<div class="dr-field"><span class="dr-field-v dr-muted">（无内容）</span></div>';
-    return '<div class="dr-rpt">'+head+rows+'</div>';
+    return '<div class="dr-rpt">'+head+rows+renderReportActions(r)+'</div>';
+  }
+  function renderEmpBrief(emp){
+    return emp.brief ? '<p class="dr-emp-brief">'+esc(emp.brief)+'</p>' : '';
   }
   function renderOrg(org){
     var subCount = org.submitted ? org.submitted.length : 0;
@@ -561,7 +583,7 @@ function buildDailyReportsClientJs(opts: {
     var mark = esc((org.label||'·').slice(0,1));
     var subs = (org.submitted||[]).map(function(emp){
       var multi = (emp.reports && emp.reports.length>1) ? (' <span class="dr-count">'+emp.reports.length+' 篇</span>') : '';
-      return '<div class="dr-emp"><div class="dr-emp-name">'+esc(emp.name||emp.userid)+multi+'</div>'+(emp.reports||[]).map(renderReport).join('')+'</div>';
+      return '<div class="dr-emp"><div class="dr-emp-name">'+esc(emp.name||emp.userid)+multi+'</div>'+renderEmpBrief(emp)+(emp.reports||[]).map(renderReport).join('')+'</div>';
     }).join('');
     if(!subs) subs = '<div class="dr-empty">本组织该日暂无已提交日报</div>';
     var missing = missCount ? ('<div class="dr-missing"><span class="dr-missing-lbl">未提交（'+missCount+'）</span>'+org.missing.map(function(m){return esc(m.name||m.userid);}).join('、')+'</div>') : '';
@@ -590,7 +612,7 @@ function buildDailyReportsClientJs(opts: {
     });
     var subs = allSubmitted.map(function(emp){
       var multi = (emp.reports && emp.reports.length>1) ? (' <span class="dr-count">'+emp.reports.length+' 篇</span>') : '';
-      return '<div class="dr-emp"><div class="dr-emp-name">'+esc(emp.name||emp.userid)+multi+'</div>'+(emp.reports||[]).map(renderReport).join('')+'</div>';
+      return '<div class="dr-emp"><div class="dr-emp-name">'+esc(emp.name||emp.userid)+multi+'</div>'+renderEmpBrief(emp)+(emp.reports||[]).map(renderReport).join('')+'</div>';
     }).join('');
     if(!subs && !allMissing.length && !allOnLeave.length && !allErrors.length) subs = '<div class="dr-empty">该组暂无数据</div>';
     var missing = missCount ? ('<div class="dr-missing"><span class="dr-missing-lbl">未提交（'+missCount+'）</span>'+allMissing.map(function(m){return esc(m.name||m.userid);}).join('、')+'</div>') : '';
@@ -609,12 +631,13 @@ function buildDailyReportsClientJs(opts: {
     orgs.forEach(function(org){
       (org.submitted||[]).forEach(function(emp){
         hitCount += 1;
-        subs.push('<div class="dr-emp"><div class="dr-emp-name">'+esc(emp.name||emp.userid)+'</div>'+(emp.reports||[]).map(renderReport).join('')+'</div>');
+        subs.push('<div class="dr-emp"><div class="dr-emp-name">'+esc(emp.name||emp.userid)+'</div>'+renderEmpBrief(emp)+(emp.reports||[]).map(renderReport).join('')+'</div>');
       });
     });
     var body = subs.join('') || '<div class="dr-empty">该日暂无命中「'+esc(cpv.label)+'」的日报模块</div>';
     return '<section class="dr-pgroup dr-pgroup--custom"><div class="dr-pgroup-head"><h2>'+esc(cpv.label)+'</h2>'
       + '<span class="dr-org-stat"><span class="dr-pill dr-pill-ok">命中 '+hitCount+' 人</span></span></div>'
+      + '<p class="dr-readonly-notice">汇总页仅供浏览；评论请在钉钉原日志进行。</p>'
       + '<div class="dr-pgroup-body dr-pgroup-body--flat">'+body+'</div></section>';
   }
   function load(refresh){

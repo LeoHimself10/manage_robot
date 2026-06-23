@@ -36,6 +36,7 @@ export async function sendProjectViewMorningDigestRobot(params: {
   title: string;
   markdown: string;
   detailUrl: string;
+  singleTitle?: string;
   fetchImpl?: typeof fetch;
 }): Promise<string> {
   const fetchImpl = params.fetchImpl ?? fetch;
@@ -52,7 +53,7 @@ export async function sendProjectViewMorningDigestRobot(params: {
       msgParam: JSON.stringify({
         title: params.title,
         text: params.markdown,
-        singleTitle: "打开工作台日报",
+        singleTitle: params.singleTitle?.trim() || "打开工作台日报",
         singleURL: params.detailUrl,
       }),
     }),

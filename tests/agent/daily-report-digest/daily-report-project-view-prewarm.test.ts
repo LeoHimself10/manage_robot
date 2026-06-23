@@ -53,25 +53,37 @@ function configWithProjectView(): DailyReportDigestConfig {
 describe("isProjectViewPrewarmWindow", () => {
   const config = configWithProjectView();
 
-  it("returns true Tue 07:32 local", () => {
+  beforeEach(() => {
+    process.env.DAILY_REPORT_PROJECT_VIEW_PREWARM_HOUR = "6";
+    process.env.DAILY_REPORT_PROJECT_VIEW_PREWARM_MINUTE = "45";
+  });
+
+  it("returns true Tue 06:47 local", () => {
+    const tue0647 = new Date("2026-06-09T06:47:00+08:00");
+    expect(isProjectViewPrewarmWindow(tue0647, config)).toBe(true);
+  });
+
+  it("returns false Mon 06:47 local (skip Monday)", () => {
+    const mon0647 = new Date("2026-06-08T06:47:00+08:00");
+    expect(isProjectViewPrewarmWindow(mon0647, config)).toBe(false);
+  });
+
+  it("returns false Sun 06:47 local (skip Sunday)", () => {
+    const sun0647 = new Date("2026-06-07T06:47:00+08:00");
+    expect(isProjectViewPrewarmWindow(sun0647, config)).toBe(false);
+  });
+
+  it("returns false Tue 07:32 (old prewarm window)", () => {
     const tue0732 = new Date("2026-06-09T07:32:00+08:00");
-    expect(isProjectViewPrewarmWindow(tue0732, config)).toBe(true);
-  });
-
-  it("returns false Mon 07:32 local (skip Monday)", () => {
-    const mon0732 = new Date("2026-06-08T07:32:00+08:00");
-    expect(isProjectViewPrewarmWindow(mon0732, config)).toBe(false);
-  });
-
-  it("returns false Sun 07:32 local (skip Sunday)", () => {
-    const sun0732 = new Date("2026-06-07T07:32:00+08:00");
-    expect(isProjectViewPrewarmWindow(sun0732, config)).toBe(false);
+    expect(isProjectViewPrewarmWindow(tue0732, config)).toBe(false);
   });
 });
 
 describe("daily-report-project-view-prewarm scheduler", () => {
   beforeEach(() => {
     process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED = "1";
+    process.env.DAILY_REPORT_PROJECT_VIEW_PREWARM_HOUR = "6";
+    process.env.DAILY_REPORT_PROJECT_VIEW_PREWARM_MINUTE = "45";
   });
 
   afterEach(() => {
@@ -99,7 +111,7 @@ describe("daily-report-project-view-prewarm scheduler", () => {
     }
   });
 
-  it("prewarm runs at Tue 07:32 and caches yesterday range", async () => {
+  it("prewarm runs at Tue 06:47 and caches yesterday range", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "prewarm-"));
     const dbPath = join(tmpDir, "wb.sqlite");
     const config = configWithProjectView();
@@ -122,8 +134,8 @@ describe("daily-report-project-view-prewarm scheduler", () => {
       collectDigest,
     });
 
-    const tue0732 = new Date("2026-06-09T07:32:00+08:00");
-    await scheduler.runPrewarm(tue0732);
+    const tue0647 = new Date("2026-06-09T06:47:00+08:00");
+    await scheduler.runPrewarm(tue0647);
 
     expect(runDiscovery).toHaveBeenCalledWith("view-1", config, expect.any(Object));
     expect(collectDigest).toHaveBeenCalledTimes(1);
@@ -140,7 +152,7 @@ describe("daily-report-project-view-prewarm scheduler", () => {
     expect(payload.submitted).toHaveLength(1);
   });
 
-  it("skips prewarm on Mon 07:32", async () => {
+  it("skips prewarm on Mon 06:47", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "prewarm-"));
     const dbPath = join(tmpDir, "wb.sqlite");
     const config = configWithProjectView();
@@ -157,8 +169,8 @@ describe("daily-report-project-view-prewarm scheduler", () => {
       collectDigest,
     });
 
-    const mon0732 = new Date("2026-06-08T07:32:00+08:00");
-    await scheduler.runPrewarm(mon0732);
+    const mon0647 = new Date("2026-06-08T06:47:00+08:00");
+    await scheduler.runPrewarm(mon0647);
 
     expect(runDiscovery).not.toHaveBeenCalled();
     expect(collectDigest).not.toHaveBeenCalled();

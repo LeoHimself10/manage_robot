@@ -3,10 +3,17 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
 import type { OrgDigest } from "./daily-report-build";
+import type { PersonBrief } from "./daily-report-morning-llm";
 
 export type ProjectViewCachePayload = {
   submitted: OrgDigest["submitted"];
   errors: OrgDigest["errors"];
+  /** CTO 合并早报：每项目一行 plain text overview */
+  ctoOverview?: string;
+  ctoOverviewGeneratedAt?: string;
+  /** 工作台项目详情：逐人简述 */
+  personBriefs?: PersonBrief[];
+  personBriefsGeneratedAt?: string;
 };
 
 export interface ProjectViewCacheStore {

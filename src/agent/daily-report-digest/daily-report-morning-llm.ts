@@ -2,6 +2,11 @@ import { logStructured } from "../../infra/logger";
 import type { OrgDigest } from "./daily-report-build";
 import { filterReportContentsWithBody } from "./daily-report-content-filter";
 import { countReportAttachments } from "./daily-report-attachments";
+import {
+  callLlmWithParseRetry,
+  extractJsonObjectText,
+  stripMarkdownCodeFence,
+} from "./daily-report-llm-parse";
 
 export interface DailyReportMorningLlmConfig {
   enabled: boolean;
@@ -57,7 +62,7 @@ export function loadDailyReportMorningLlmConfig(): DailyReportMorningLlmConfig |
     enabled: envFlag("DAILY_REPORT_MORNING_LLM_ENABLED", true),
     model: env("DAILY_REPORT_MORNING_LLM_MODEL") || "qwen3.6-flash",
     timeoutMs: envInt("DAILY_REPORT_MORNING_LLM_TIMEOUT_MS", 12000),
-    maxTokens: envInt("DAILY_REPORT_MORNING_LLM_MAX_TOKENS", 1200),
+    maxTokens: envInt("DAILY_REPORT_MORNING_LLM_MAX_TOKENS", 2000),
     baseUrl: env("QWEN_BASE_URL") || "https://dashscope.aliyuncs.com/compatible-mode/v1",
     apiKey,
   };
@@ -169,10 +174,10 @@ function parseMorningJson(
   raw: string,
   meta: MorningDigestLlmPayload,
 ): DailyReportMorningSummary | null {
-  const jsonMatch = raw.trim().match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return null;
+  const jsonText = extractJsonObjectText(raw);
+  if (!jsonText) return null;
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
     const overview = String(parsed.overview ?? "").trim();
     if (overview) {
       const personBriefs = Array.isArray(parsed.personBriefs)
@@ -239,50 +244,60 @@ export async function summarizeMorningReportsWithLlm(
 
   const llmPayload = slimOrgDigestsForLlm(orgDigests);
   const userContent = `日期：${dateLabel}。请生成早报综述 JSON：\n${JSON.stringify(llmPayload)}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   const startedAt = Date.now();
 
   try {
-    const endpoint = `${config.baseUrl.replace(/\/$/, "")}/chat/completions`;
-    const response = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
+    const { value: parsed, attempts } = await callLlmWithParseRetry({
+      maxAttempts: 2,
+      callOnce: async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+        try {
+          const endpoint = `${config.baseUrl.replace(/\/$/, "")}/chat/completions`;
+          const response = await fetchImpl(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${config.apiKey}`,
+            },
+            signal: controller.signal,
+            body: JSON.stringify({
+              model: config.model,
+              temperature: 0.3,
+              max_tokens: config.maxTokens,
+              enable_thinking: false,
+              messages: [
+                { role: "system", content: SYSTEM_PROMPT },
+                { role: "user", content: userContent },
+              ],
+            }),
+          });
+          if (!response.ok) {
+            throw new Error(`http_${response.status}`);
+          }
+          const data = (await response.json()) as {
+            choices?: Array<{ message?: { content?: string } }>;
+          };
+          return String(data.choices?.[0]?.message?.content ?? "").trim();
+        } finally {
+          clearTimeout(timer);
+        }
       },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: config.model,
-        temperature: 0.3,
-        max_tokens: config.maxTokens,
-        enable_thinking: false,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userContent },
-        ],
-      }),
+      parse: (content) => parseMorningJson(stripMarkdownCodeFence(content), llmPayload),
+      onAttemptFailed: (reason, attempt) => {
+        logStructured({
+          event: "daily_report_morning_llm_parse_retry",
+          reason,
+          attempt,
+        });
+      },
     });
 
-    if (!response.ok) {
-      logStructured({
-        event: "daily_report_morning_llm_fallback",
-        reason: "http_error",
-        status: response.status,
-        durationMs: Date.now() - startedAt,
-      });
-      return fallbackMorningSummary(orgDigests, dateLabel);
-    }
-
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = String(data.choices?.[0]?.message?.content ?? "").trim();
-    const parsed = parseMorningJson(content, llmPayload);
     if (!parsed) {
       logStructured({
         event: "daily_report_morning_llm_fallback",
         reason: "parse_error",
+        attempts,
         durationMs: Date.now() - startedAt,
       });
       return fallbackMorningSummary(orgDigests, dateLabel);
@@ -292,10 +307,21 @@ export async function summarizeMorningReportsWithLlm(
       event: "daily_report_morning_llm_ok",
       model: config.model,
       personBriefCount: parsed.personBriefs.length,
+      attempts,
       durationMs: Date.now() - startedAt,
     });
     return parsed;
   } catch (err) {
+    if (String(err).includes("http_")) {
+      const status = Number(String(err).replace("http_", ""));
+      logStructured({
+        event: "daily_report_morning_llm_fallback",
+        reason: "http_error",
+        status,
+        durationMs: Date.now() - startedAt,
+      });
+      return fallbackMorningSummary(orgDigests, dateLabel);
+    }
     logStructured({
       event: "daily_report_morning_llm_fallback",
       reason: err instanceof Error && err.name === "AbortError" ? "timeout" : "error",
@@ -303,7 +329,5 @@ export async function summarizeMorningReportsWithLlm(
       durationMs: Date.now() - startedAt,
     });
     return fallbackMorningSummary(orgDigests, dateLabel);
-  } finally {
-    clearTimeout(timer);
   }
 }

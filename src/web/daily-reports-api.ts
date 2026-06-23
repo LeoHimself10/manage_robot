@@ -26,25 +26,51 @@ import {
   type WorkbenchDailyReportsCaps,
 } from "../agent/daily-report-digest/daily-report-project-views";
 import {
+  ensureProjectViewPersonBriefs,
+  personBriefsToMap,
+  resolvePersonBriefForEmployee,
+} from "../agent/daily-report-digest/daily-report-project-view-person-briefs";
+import {
   resolveDayRangeForYmd,
   resolveReportRange,
 } from "../agent/daily-report-digest/daily-report-window";
 import type { DailyReportsViewMode } from "../agent/daily-report-digest/daily-report-workbench-link";
+import {
+  buildOpenReportInDingtalkPayload,
+} from "../agent/daily-report-digest/daily-report-dingtalk-report-link";
+import type { ReportAttachment } from "../agent/daily-report-digest/daily-report-attachments";
+import { reportHasResolvableImages } from "../agent/daily-report-digest/daily-report-attachments";
+import type { ReportEntry } from "../agent/daily-report-digest/dingtalk-report-client";
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export interface DailyReportsReportPayload {
+  reportId?: string;
+  creatorUserId?: string;
+  templateName: string;
+  createTime: number;
+  openInDingtalkUrl?: string;
+  openInDingtalkOpenApp?: string;
+  openInDingtalkH5Url?: string;
+  openInDingtalkClientLink?: string;
+  hasInlineImages?: boolean;
+  contents: Array<{
+    key: string;
+    value: string;
+    type?: string;
+    attachments?: Array<{ name: string; url?: string; fileId?: string; spaceId?: string }>;
+  }>;
+  images?: Array<{ name: string; url?: string; fileId?: string; spaceId?: string }>;
+}
 
 export interface DailyReportsOrgPayload {
   label: string;
   submitted: Array<{
     userid: string;
     name: string;
+    brief?: string;
     projectGroup?: ProjectGroupId;
-    reports: Array<{
-      templateName: string;
-      createTime: number;
-      contents: Array<{ key: string; value: string; type?: string; attachments?: Array<{ name: string; url?: string }> }>;
-      images?: Array<{ name: string; url?: string }>;
-    }>;
+    reports: DailyReportsReportPayload[];
   }>;
   missing: Array<{ userid: string; name: string; projectGroup?: ProjectGroupId }>;
   onLeave: Array<{ userid: string; name: string; projectGroup?: ProjectGroupId }>;
@@ -85,20 +111,60 @@ export interface DailyReportsHttpPayload {
   cacheScannedAt?: string;
 }
 
-function mapOrgDigest(org: Awaited<ReturnType<typeof collectOrgDigests>>["orgDigests"][0], assignments: Map<string, ProjectGroupId>): DailyReportsOrgPayload {
+function mapAttachment(a: ReportAttachment): ReportAttachment {
+  return {
+    name: a.name,
+    ...(a.url ? { url: a.url } : {}),
+    ...(a.fileId ? { fileId: a.fileId } : {}),
+    ...(a.spaceId ? { spaceId: a.spaceId } : {}),
+  };
+}
+
+function mapReportPayload(r: ReportEntry): DailyReportsReportPayload {
+  const links = buildOpenReportInDingtalkPayload({
+    reportId: r.reportId,
+    creatorUserId: r.creatorUserId,
+    createTime: r.createTime,
+  });
+  return {
+    reportId: r.reportId,
+    creatorUserId: r.creatorUserId,
+    templateName: r.templateName,
+    createTime: r.createTime,
+    openInDingtalkUrl: links?.openInDingtalkUrl,
+    openInDingtalkOpenApp: links?.openInDingtalkOpenApp,
+    openInDingtalkH5Url: links?.openInDingtalkH5Url,
+    openInDingtalkClientLink: links?.openInDingtalkClientLink,
+    hasInlineImages: reportHasResolvableImages(r),
+    contents: r.contents.map((c) => ({
+      key: c.key,
+      value: c.value,
+      type: c.type,
+      attachments: c.attachments?.map(mapAttachment),
+    })),
+    images: r.images?.map(mapAttachment),
+  };
+}
+
+function mapOrgDigest(
+  org: Awaited<ReturnType<typeof collectOrgDigests>>["orgDigests"][0],
+  assignments: Map<string, ProjectGroupId>,
+  briefByName?: Map<string, string>,
+): DailyReportsOrgPayload {
   return {
     label: org.label,
-    submitted: org.submitted.map((emp) => ({
-      userid: emp.userid,
-      name: emp.name,
-      projectGroup: assignments.get(emp.userid),
-      reports: emp.reports.map((r) => ({
-        templateName: r.templateName,
-        createTime: r.createTime,
-        contents: r.contents,
-        images: r.images,
-      })),
-    })),
+    submitted: org.submitted.map((emp) => {
+      const brief = briefByName
+        ? resolvePersonBriefForEmployee(emp.name, emp.userid, briefByName)
+        : undefined;
+      return {
+        userid: emp.userid,
+        name: emp.name,
+        ...(brief ? { brief } : {}),
+        projectGroup: assignments.get(emp.userid),
+        reports: emp.reports.map(mapReportPayload),
+      };
+    }),
     missing: org.missing.map((m) => ({
       userid: m.userid,
       name: m.name,
@@ -224,7 +290,7 @@ export async function buildDailyReportsHttpPayload(input?: {
             onLeave: [],
             errors: cached.payload.errors,
           };
-          const orgPayload = mapOrgDigest(digest, new Map());
+          const orgPayload = mapOrgDigest(digest, new Map(), personBriefsToMap(cached.payload.personBriefs ?? []));
           return {
             ok: true,
             configured: true,
@@ -295,7 +361,18 @@ export async function buildDailyReportsHttpPayload(input?: {
         cacheStore,
       );
       const cachedAfter = getProjectViewCache(customViewId, range.labelYmd, cacheStore);
-      const orgPayload = mapOrgDigest(digest, new Map());
+      const briefs = await ensureProjectViewPersonBriefs({
+        viewId: customViewId,
+        viewLabel: viewDef.label,
+        dateYmd: range.labelYmd,
+        dateLabel: range.labelDisplay,
+        rosterCount,
+        orgDigest: digest,
+        cacheStore,
+        fetchImpl: input?.fetchImpl,
+        refresh,
+      });
+      const orgPayload = mapOrgDigest(digest, new Map(), personBriefsToMap(briefs));
       return {
         ok: true,
         configured: true,

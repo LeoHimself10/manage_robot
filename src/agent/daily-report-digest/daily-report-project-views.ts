@@ -156,4 +156,36 @@ export function isProjectViewDigestEnabledForView(view: DailyReportProjectViewCo
   return view.digest?.enabled === true;
 }
 
+/** 工作台「全部项目」总览 Tab（非真实 projectView id）。 */
+export const PROJECT_VIEW_OVERVIEW_ID = "overview";
+
+export interface ProjectViewDigestPlan {
+  view: DailyReportProjectViewConfig & { orgLabel: string };
+  sendHour: number;
+  sendMinute: number;
+}
+
+/** 按收件人聚合 digest 计划（同一 userid 可能对应多个 projectView）。 */
+export function groupProjectViewDigestPlansByUser(
+  config: DailyReportDigestConfig,
+  envExcludeUserIds: string[] = [],
+): Map<string, ProjectViewDigestPlan[]> {
+  const out = new Map<string, ProjectViewDigestPlan[]>();
+  for (const view of listProjectViewsFromConfig(config.orgs)) {
+    if (!isProjectViewDigestEnabledForView(view)) continue;
+    const recipients = resolveProjectViewDigestRecipients(view, envExcludeUserIds);
+    const plan: ProjectViewDigestPlan = {
+      view,
+      sendHour: view.digest?.sendHour ?? 8,
+      sendMinute: view.digest?.sendMinute ?? 0,
+    };
+    for (const userId of recipients) {
+      const existing = out.get(userId) ?? [];
+      existing.push(plan);
+      out.set(userId, existing);
+    }
+  }
+  return out;
+}
+
 export { collectProjectViewDigestForRange } from "./daily-report-project-view-collect";

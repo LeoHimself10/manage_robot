@@ -3,13 +3,19 @@ import type { OrgDigest } from "./daily-report-build";
 import { filterReportContentsWithBody } from "./daily-report-content-filter";
 import { countReportAttachments } from "./daily-report-attachments";
 import {
+  callLlmWithParseRetry,
+  normalizePlainTextOverview,
+  parseProjectViewMorningSummaryJson,
+  stripMarkdownCodeFence,
+} from "./daily-report-llm-parse";
+import {
   loadDailyReportMorningLlmConfig,
   type DailyReportMorningLlmConfig,
   type DailyReportMorningSummary,
   type PersonBrief,
 } from "./daily-report-morning-llm";
 
-export { loadDailyReportMorningLlmConfig };
+export { loadDailyReportMorningLlmConfig, normalizePlainTextOverview };
 
 export interface ProjectViewMorningLlmPayload {
   viewLabel: string;
@@ -21,6 +27,9 @@ export interface ProjectViewMorningLlmPayload {
     reports: Array<{ template?: string; fields: Array<{ k: string; v: string }> }>;
   }>;
 }
+
+const SKIP_FALLBACK_FIELD_KEYS = /工作模块|成本归属|模块标签|项目名称|模板名称/;
+const PREFER_FALLBACK_FIELD_KEYS = /事项|结果|进展|完成|问题|风险|计划|今日|明日/;
 
 function clipLine(raw: string, max: number): string {
   const t = String(raw ?? "").trim();
@@ -67,7 +76,29 @@ export function slimProjectViewDigestForLlm(
   };
 }
 
-const SYSTEM_PROMPT = `你是企业内部项目组早报编辑。根据 JSON 中「统计名单内员工」昨日与指定项目相关的钉钉日报，只输出一个 JSON：
+function pickFallbackContentFromDigest(orgDigest: OrgDigest): string | null {
+  const preferred: string[] = [];
+  const fallback: string[] = [];
+
+  for (const emp of orgDigest.submitted) {
+    for (const report of emp.reports) {
+      for (const field of filterReportContentsWithBody(report.contents)) {
+        const value = field.value.trim();
+        if (!value) continue;
+        if (SKIP_FALLBACK_FIELD_KEYS.test(field.key)) continue;
+        if (PREFER_FALLBACK_FIELD_KEYS.test(field.key)) {
+          preferred.push(value);
+        } else {
+          fallback.push(value);
+        }
+      }
+    }
+  }
+
+  return preferred[0] ?? fallback[0] ?? null;
+}
+
+const WORKBENCH_SYSTEM_PROMPT = `你是企业内部项目组早报编辑。根据 JSON 中「统计名单内员工」昨日与指定项目相关的钉钉日报，只输出一个 JSON：
 {"overview":"...","personBriefs":[{"name":"...","brief":"..."}],"closing":"..."}
 
 规则：
@@ -80,29 +111,55 @@ const SYSTEM_PROMPT = `你是企业内部项目组早报编辑。根据 JSON 中
 - 只基于 JSON 事实，禁止编造
 - 只输出 JSON，不要 markdown`;
 
-function parseMorningJson(raw: string): DailyReportMorningSummary | null {
-  const jsonMatch = raw.trim().match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return null;
+const CTO_ROLLUP_PLAIN_TEXT_PROMPT = `你是企业内部项目组早报编辑。根据 JSON 中「统计名单内员工」昨日与指定项目相关的钉钉日报，只输出一段中文 overview 正文。
+
+规则：
+- 2-3 句，概括与 viewLabel 相关的整体项目进展，不超过 180 字
+- submittedCount 为 0 时：只输出「暂无相关记录」
+- 禁止 JSON、markdown、代码块、列表、标题
+- 禁止写日期、禁止写提交人数/统计名单人数
+- 禁止出现内部术语：命中、filter、roster、成对匹配
+- 禁止组织标签（明思、微光）
+- 只基于 JSON 事实，禁止编造
+- 只输出 overview 正文本身`;
+
+async function callMorningLlm(
+  config: DailyReportMorningLlmConfig,
+  systemPrompt: string,
+  userContent: string,
+  fetchImpl: typeof fetch,
+): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-    const overview = String(parsed.overview ?? "").trim();
-    if (!overview) return null;
-    const personBriefs = Array.isArray(parsed.personBriefs)
-      ? parsed.personBriefs
-          .map((p) => {
-            const o = (p ?? {}) as { name?: string; brief?: string };
-            return {
-              name: String(o.name ?? "").trim(),
-              brief: clipLine(String(o.brief ?? ""), 50),
-            };
-          })
-          .filter((p) => p.name && p.brief)
-          .slice(0, 12)
-      : [];
-    const closing = clipLine(String(parsed.closing ?? "").trim() || "详见工作台日报汇总。", 120);
-    return { overview: clipLine(overview, 200), personBriefs, closing };
-  } catch {
-    return null;
+    const endpoint = `${config.baseUrl.replace(/\/$/, "")}/chat/completions`;
+    const response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0.3,
+        max_tokens: config.maxTokens,
+        enable_thinking: false,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`http_${response.status}`);
+    }
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return String(data.choices?.[0]?.message?.content ?? "").trim();
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -133,6 +190,117 @@ export function fallbackProjectViewMorningSummary(
   };
 }
 
+/** CTO 合并卡片降级：优先取「事项/结果/进展」类字段，跳过工作模块等标签。 */
+export function fallbackCtoRollupOverviewSummary(
+  viewLabel: string,
+  rosterCount: number,
+  orgDigest: OrgDigest,
+): DailyReportMorningSummary {
+  const meta = slimProjectViewDigestForLlm(viewLabel, rosterCount, orgDigest);
+  if (meta.submittedCount === 0) {
+    return {
+      overview: "暂无相关记录",
+      personBriefs: [],
+      closing: "",
+    };
+  }
+
+  const picked = pickFallbackContentFromDigest(orgDigest);
+  return {
+    overview: clipLine(picked ?? "详见工作台日报汇总", 180),
+    personBriefs: [],
+    closing: "",
+  };
+}
+
+export async function summarizeProjectViewMorningOverviewPlainText(
+  viewLabel: string,
+  dateLabel: string,
+  rosterCount: number,
+  orgDigest: OrgDigest,
+  config: DailyReportMorningLlmConfig,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  const llmPayload = slimProjectViewDigestForLlm(viewLabel, rosterCount, orgDigest);
+  if (llmPayload.submittedCount === 0) return "暂无相关记录";
+
+  const userContent = `日期：${dateLabel}。请生成项目组整体进展 overview 正文：\n${JSON.stringify(llmPayload)}`;
+  const startedAt = Date.now();
+
+  try {
+    const { value: raw, attempts } = await callLlmWithParseRetry({
+      maxAttempts: 2,
+      callOnce: () =>
+        callMorningLlm(config, CTO_ROLLUP_PLAIN_TEXT_PROMPT, userContent, fetchImpl),
+      parse: (content) => normalizePlainTextOverview(content),
+      onAttemptFailed: (reason, attempt) => {
+        logStructured({
+          event: "daily_report_cto_rollup_llm_parse_retry",
+          reason,
+          attempt,
+          viewLabel,
+        });
+      },
+    });
+
+    if (!raw) {
+      logStructured({
+        event: "daily_report_cto_rollup_llm_fallback",
+        reason: "parse_error",
+        viewLabel,
+        attempts,
+        durationMs: Date.now() - startedAt,
+      });
+      return null;
+    }
+
+    logStructured({
+      event: "daily_report_cto_rollup_llm_ok",
+      model: config.model,
+      viewLabel,
+      attempts,
+      durationMs: Date.now() - startedAt,
+    });
+    return raw;
+  } catch (err) {
+    logStructured({
+      event: "daily_report_cto_rollup_llm_fallback",
+      reason: err instanceof Error && err.name === "AbortError" ? "timeout" : "error",
+      error: err instanceof Error ? err.message : String(err),
+      viewLabel,
+      durationMs: Date.now() - startedAt,
+    });
+    return null;
+  }
+}
+
+/** CTO 合并早报：plain text overview，无 JSON parse。 */
+export async function summarizeProjectViewMorningForCtoRollup(
+  viewLabel: string,
+  dateLabel: string,
+  rosterCount: number,
+  orgDigest: OrgDigest,
+  config: DailyReportMorningLlmConfig,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DailyReportMorningSummary> {
+  if (!config.enabled) {
+    return fallbackCtoRollupOverviewSummary(viewLabel, rosterCount, orgDigest);
+  }
+
+  const overview =
+    (await summarizeProjectViewMorningOverviewPlainText(
+      viewLabel,
+      dateLabel,
+      rosterCount,
+      orgDigest,
+      config,
+      fetchImpl,
+    )) ??
+    fallbackCtoRollupOverviewSummary(viewLabel, rosterCount, orgDigest).overview;
+
+  return { overview, personBriefs: [], closing: "" };
+}
+
 export async function summarizeProjectViewMorningWithLlm(
   viewLabel: string,
   dateLabel: string,
@@ -147,50 +315,30 @@ export async function summarizeProjectViewMorningWithLlm(
 
   const llmPayload = slimProjectViewDigestForLlm(viewLabel, rosterCount, orgDigest);
   const userContent = `日期：${dateLabel}。请生成项目组早报综述 JSON：\n${JSON.stringify(llmPayload)}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   const startedAt = Date.now();
 
   try {
-    const endpoint = `${config.baseUrl.replace(/\/$/, "")}/chat/completions`;
-    const response = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
+    const { value: parsed, attempts } = await callLlmWithParseRetry({
+      maxAttempts: 2,
+      callOnce: () =>
+        callMorningLlm(config, WORKBENCH_SYSTEM_PROMPT, userContent, fetchImpl),
+      parse: (content) => parseProjectViewMorningSummaryJson(content),
+      onAttemptFailed: (reason, attempt) => {
+        logStructured({
+          event: "daily_report_project_view_digest_llm_parse_retry",
+          reason,
+          attempt,
+          viewLabel,
+        });
       },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: config.model,
-        temperature: 0.3,
-        max_tokens: config.maxTokens,
-        enable_thinking: false,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userContent },
-        ],
-      }),
     });
 
-    if (!response.ok) {
-      logStructured({
-        event: "daily_report_project_view_digest_llm_fallback",
-        reason: "http_error",
-        status: response.status,
-        durationMs: Date.now() - startedAt,
-      });
-      return fallbackProjectViewMorningSummary(viewLabel, dateLabel, rosterCount, orgDigest);
-    }
-
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = String(data.choices?.[0]?.message?.content ?? "").trim();
-    const parsed = parseMorningJson(content);
     if (!parsed) {
       logStructured({
         event: "daily_report_project_view_digest_llm_fallback",
         reason: "parse_error",
+        viewLabel,
+        attempts,
         durationMs: Date.now() - startedAt,
       });
       return fallbackProjectViewMorningSummary(viewLabel, dateLabel, rosterCount, orgDigest);
@@ -200,6 +348,7 @@ export async function summarizeProjectViewMorningWithLlm(
       event: "daily_report_project_view_digest_llm_ok",
       model: config.model,
       personBriefCount: parsed.personBriefs.length,
+      attempts,
       durationMs: Date.now() - startedAt,
     });
     return parsed;
@@ -208,10 +357,12 @@ export async function summarizeProjectViewMorningWithLlm(
       event: "daily_report_project_view_digest_llm_fallback",
       reason: err instanceof Error && err.name === "AbortError" ? "timeout" : "error",
       error: err instanceof Error ? err.message : String(err),
+      viewLabel,
       durationMs: Date.now() - startedAt,
     });
     return fallbackProjectViewMorningSummary(viewLabel, dateLabel, rosterCount, orgDigest);
-  } finally {
-    clearTimeout(timer);
   }
 }
+
+// Re-export for tests / debug scripts
+export { stripMarkdownCodeFence };
