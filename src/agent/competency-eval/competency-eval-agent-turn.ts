@@ -11,7 +11,7 @@ import { runOrchestrator, type OrchestratorResult } from "../orchestrator";
 import { readCompetencyEvalThinkingEnabled } from "./competency-eval-flag";
 import type { createEmployeeProfileRepo } from "../../integrations/repos/employee-profile-repo";
 import { extractPerformanceStreamMessage } from "../performance/performance-stream-message";
-import { getRubric } from "./rubric-store";
+import { getJobReq } from "../../web/competency-eval-api";
 
 const DEFAULT_MAX_ITERATIONS = 6;
 
@@ -20,7 +20,7 @@ export interface CompetencyEvalAgentTurnInput {
   clientConfig: QwenPlannerConfig;
   employeeRepo: ReturnType<typeof createEmployeeProfileRepo>;
   actorUserId: string;
-  activeRubricId?: string;
+  activeJobReqId?: string;
   conversationHistory?: Array<{ role: string; content: string }>;
   maxToolIterations?: number;
   currentTimeIso?: string;
@@ -42,29 +42,11 @@ export function buildCompetencyEvalClientConfig(base: QwenPlannerConfig): QwenPl
   };
 }
 
-export function buildCompetencyEvalContextPrefix(input: {
-  actorUserId: string;
-  activeRubricId?: string;
-}): string {
-  const actorUserId = String(input.actorUserId ?? "").trim();
-  const rubricId = String(input.activeRubricId ?? "").trim();
-
-  if (!rubricId) {
-    return (
-      "[context] activeRubricId=\n"
-      + "当前未选定评估标准。请先在工作台上传能力评估标准文档，或调用 list_rubrics 查看已上传列表并选定 activeRubricId。\n\n"
-    );
-  }
-
-  let titlePart = "";
-  if (actorUserId) {
-    const rubric = getRubric(actorUserId, rubricId);
-    if (rubric.ok && rubric.extracted.title?.trim()) {
-      titlePart = `；title=${rubric.extracted.title.trim()}`;
-    }
-  }
-
-  return `[context] activeRubricId=${rubricId}${titlePart}\n\n`;
+function buildJobReqContextPrefix(userId: string, jobReqId: string): string {
+  if (!jobReqId) return "";
+  const result = getJobReq(userId, jobReqId);
+  if (!result.ok) return "";
+  return `[context] 岗位要求:\n${result.content}\n\n`;
 }
 
 export async function runCompetencyEvalTurn(
@@ -89,10 +71,10 @@ export async function runCompetencyEvalTurn(
   };
 
   const userMessage =
-    buildCompetencyEvalContextPrefix({
-      actorUserId: input.actorUserId,
-      activeRubricId: input.activeRubricId,
-    }) + input.userMessage;
+    buildJobReqContextPrefix(
+      input.actorUserId,
+      input.activeJobReqId ?? "",
+    ) + input.userMessage;
 
   const orchResult = await runOrchestrator(userMessage, {
     clientConfig,
