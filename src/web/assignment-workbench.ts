@@ -150,10 +150,7 @@ import {
   runCompetencyEvalTurn,
 } from "../agent/competency-eval/competency-eval-agent-turn";
 import {
-  buildCompetencyEvalRubricsPayload,
   buildCompetencyEvalSessionsPayload,
-  handleCompetencyEvalRubricDelete,
-  handleCompetencyEvalRubricUpload,
   handleCompetencyEvalSessionActivate,
   handleCompetencyEvalSessionCreate,
   handleCompetencyEvalSessionDelete,
@@ -161,7 +158,6 @@ import {
   handleCompetencyEvalSessionSave,
   isCompetencyEvalPageEnabled,
   parseCompetencyEvalConversationHistory,
-  parseCompetencyEvalRubricIdFromPath,
   parseCompetencyEvalSessionActivatePath,
   requireCompetencyEvalSession,
 } from "./competency-eval-api";
@@ -3134,7 +3130,7 @@ async function handleCompetencyEvalChatPost(
     writeJson(res, 400, { ok: false, error: "message is required" });
     return;
   }
-  const activeRubricId = String(body.activeRubricId ?? "").trim() || undefined;
+  const activeJobReqId = String(body.activeJobReqId ?? "").trim() || undefined;
   const conversationHistory = parseCompetencyEvalConversationHistory(body.conversationHistory);
   const wantStream = body.stream === true
     || String(req.headers.accept ?? "").includes("text/event-stream");
@@ -3144,7 +3140,7 @@ async function handleCompetencyEvalChatPost(
     clientConfig: buildCompetencyEvalClientConfig(qwenConfig),
     employeeRepo,
     actorUserId: session.userId,
-    activeRubricId,
+    activeJobReqId,
     conversationHistory,
   } as const;
 
@@ -4133,60 +4129,6 @@ export function handleAssignmentHttp(
       const session = requireCompetencyEvalSessionFromRequest(req, res);
       if (!session) return true;
       const payload = handleCompetencyEvalSessionDelete(session.userId, compEvalSessionId);
-      writeJson(res, payload.ok ? 200 : 404, payload);
-      return true;
-    }
-  }
-
-  if (isGetOrHead && url.pathname === "/api/workbench/competency-eval/rubrics") {
-    const session = requireCompetencyEvalSessionFromRequest(req, res);
-    if (!session) return true;
-    writeJson(res, 200, buildCompetencyEvalRubricsPayload(session.userId));
-    return true;
-  }
-
-  if (req.method === "POST" && url.pathname === "/api/workbench/competency-eval/rubrics/upload") {
-    void (async () => {
-      try {
-        const session = requireCompetencyEvalSessionFromRequest(req, res);
-        if (!session) return;
-        let multipart;
-        try {
-          multipart = await readMultipartSingleFile(req, { maxFileBytes: 2 * 1024 * 1024 });
-        } catch (err) {
-          writeJson(res, 400, {
-            ok: false,
-            error: err instanceof Error ? err.message : "multipart parse failed",
-          });
-          return;
-        }
-        if (!multipart.file) {
-          writeJson(res, 400, { ok: false, error: "缺少上传文件字段（form 字段名：file）" });
-          return;
-        }
-        const payload = await handleCompetencyEvalRubricUpload({
-          userId: session.userId,
-          filename: multipart.file.filename,
-          mimeType: multipart.file.mimeType,
-          buffer: multipart.file.buffer,
-        });
-        writeJson(res, payload.ok ? 200 : 400, payload);
-      } catch (err) {
-        writeJson(res, 500, {
-          ok: false,
-          error: err instanceof Error ? err.message : "upload failed",
-        });
-      }
-    })();
-    return true;
-  }
-
-  if (req.method === "DELETE") {
-    const rubricId = parseCompetencyEvalRubricIdFromPath(url.pathname);
-    if (rubricId) {
-      const session = requireCompetencyEvalSessionFromRequest(req, res);
-      if (!session) return true;
-      const payload = handleCompetencyEvalRubricDelete(session.userId, rubricId);
       writeJson(res, payload.ok ? 200 : 404, payload);
       return true;
     }
