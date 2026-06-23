@@ -145,6 +145,18 @@ import {
   parsePerformanceQueryInput,
 } from "./performance-dashboard-api";
 import { runPerformanceAgentTurn } from "../agent/performance-agent-turn";
+import { runCompetencyEvalTurn } from "../agent/competency-eval/competency-eval-agent-turn";
+import {
+  buildCompetencyEvalRubricsPayload,
+  handleCompetencyEvalRubricDelete,
+  handleCompetencyEvalRubricUpload,
+  isCompetencyEvalPageEnabled,
+  parseCompetencyEvalConversationHistory,
+  parseCompetencyEvalRubricIdFromPath,
+  requireCompetencyEvalSession,
+} from "./competency-eval-api";
+import { renderCompetencyEvalPage } from "./competency-eval-page";
+import { isCompetencyEvalUser } from "../agent/competency-eval/competency-eval-access";
 import { renderManagerMeetingImportPage } from "./manager-meeting-import-page";
 import {
   handleMeetingImportAnalyze,
@@ -212,6 +224,7 @@ const MANAGER_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/manager/chat",
   "/workbench/manager/meeting-import",
   "/workbench/manager/task-intake",
+  "/workbench/manager/competency-eval",
   "/workbench/manager/task",
   "/workbench/manager/task/events",
 ]);
@@ -3082,6 +3095,69 @@ function writePerformanceChatSse(res: ServerResponse, event: string, data: Recor
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+function writeCompetencyEvalChatSse(res: ServerResponse, event: string, data: Record<string, unknown>): void {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+function requireCompetencyEvalSessionFromRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+): WorkbenchSession | undefined {
+  const session = requireSession(req, res, "manager");
+  return requireCompetencyEvalSession(req, res, session);
+}
+
+async function handleCompetencyEvalChatPost(
+  req: IncomingMessage,
+  res: ServerResponse,
+  session: WorkbenchSession,
+): Promise<void> {
+  if (!qwenConfig) {
+    writeJson(res, 503, { ok: false, error: "LLM not configured" });
+    return;
+  }
+  const body = await readJsonBody(req, 256 * 1024);
+  const message = String(body.message ?? "").trim();
+  if (!message) {
+    writeJson(res, 400, { ok: false, error: "message is required" });
+    return;
+  }
+  const activeRubricId = String(body.activeRubricId ?? "").trim() || undefined;
+  const conversationHistory = parseCompetencyEvalConversationHistory(body.conversationHistory);
+  const wantStream = body.stream === true
+    || String(req.headers.accept ?? "").includes("text/event-stream");
+
+  const turnInput = {
+    userMessage: message,
+    clientConfig: buildManagerQwenClientConfig(qwenConfig),
+    employeeRepo,
+    actorUserId: session.userId,
+    activeRubricId,
+    conversationHistory,
+  } as const;
+
+  if (wantStream) {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    });
+    writeCompetencyEvalChatSse(res, "status", { phase: "thinking" });
+    const turn = await runCompetencyEvalTurn({
+      ...turnInput,
+      onStreamStatus: (phase) => writeCompetencyEvalChatSse(res, "status", { phase }),
+      onStreamDelta: (messagePreview) =>
+        writeCompetencyEvalChatSse(res, "delta", { message: messagePreview }),
+    });
+    writeCompetencyEvalChatSse(res, "done", { ok: true, message: turn.message });
+    res.end();
+    return;
+  }
+
+  const turn = await runCompetencyEvalTurn(turnInput);
+  writeJson(res, 200, { ok: true, message: turn.message });
+}
+
 async function handlePerformanceChatPost(
   req: IncomingMessage,
   res: ServerResponse,
@@ -3986,6 +4062,83 @@ export function handleAssignmentHttp(
     const session = requireSession(req, res, "admin");
     if (!session) return true;
     return handlePerformanceEmployeeDetailGet(req, res, url);
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/competency-eval/rubrics") {
+    const session = requireCompetencyEvalSessionFromRequest(req, res);
+    if (!session) return true;
+    writeJson(res, 200, buildCompetencyEvalRubricsPayload(session.userId));
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/competency-eval/rubrics/upload") {
+    void (async () => {
+      try {
+        const session = requireCompetencyEvalSessionFromRequest(req, res);
+        if (!session) return;
+        let multipart;
+        try {
+          multipart = await readMultipartSingleFile(req, { maxFileBytes: 2 * 1024 * 1024 });
+        } catch (err) {
+          writeJson(res, 400, {
+            ok: false,
+            error: err instanceof Error ? err.message : "multipart parse failed",
+          });
+          return;
+        }
+        if (!multipart.file) {
+          writeJson(res, 400, { ok: false, error: "缺少上传文件字段（form 字段名：file）" });
+          return;
+        }
+        const payload = await handleCompetencyEvalRubricUpload({
+          userId: session.userId,
+          filename: multipart.file.filename,
+          mimeType: multipart.file.mimeType,
+          buffer: multipart.file.buffer,
+        });
+        writeJson(res, payload.ok ? 200 : 400, payload);
+      } catch (err) {
+        writeJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : "upload failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "DELETE") {
+    const rubricId = parseCompetencyEvalRubricIdFromPath(url.pathname);
+    if (rubricId) {
+      const session = requireCompetencyEvalSessionFromRequest(req, res);
+      if (!session) return true;
+      const payload = handleCompetencyEvalRubricDelete(session.userId, rubricId);
+      writeJson(res, payload.ok ? 200 : 404, payload);
+      return true;
+    }
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/competency-eval/chat") {
+    void (async () => {
+      try {
+        const session = requireCompetencyEvalSessionFromRequest(req, res);
+        if (!session) return;
+        await handleCompetencyEvalChatPost(req, res, session);
+      } catch (err) {
+        if (!res.headersSent) {
+          writeJson(res, 400, {
+            ok: false,
+            error: err instanceof Error ? err.message : "chat failed",
+          });
+        } else {
+          writeCompetencyEvalChatSse(res, "error", {
+            error: err instanceof Error ? err.message : "chat failed",
+          });
+          res.end();
+        }
+      }
+    })();
+    return true;
   }
 
   if (req.method === "POST" && (
@@ -6728,6 +6881,12 @@ export function handleAssignmentHttp(
         redirect(res, "/workbench/manager/tasks");
         return true;
       }
+      if (url.pathname === "/workbench/manager/competency-eval") {
+        if (!isCompetencyEvalPageEnabled() || !isCompetencyEvalUser(session.userId)) {
+          writeAuthError(res, 403, "competency eval forbidden");
+          return true;
+        }
+      }
       let chatThreadId = "main";
       let chatThreadKind: "main" | "side" = "main";
       let planTitle: string | undefined;
@@ -6754,6 +6913,8 @@ export function handleAssignmentHttp(
       const initialProjectId = url.searchParams.get("projectId")?.trim() ?? "";
       const tasksViewParam = url.searchParams.get("view")?.trim().toLowerCase();
       const initialTasksView = tasksViewParam === "flat" ? "flat" : "group";
+      const competencyEvalEnabled =
+        isCompetencyEvalPageEnabled() && isCompetencyEvalUser(session.userId);
       const html =
         url.pathname === "/workbench/manager/dashboard"
           ? renderManagerDashboardPage({
@@ -6770,6 +6931,13 @@ export function handleAssignmentHttp(
             apiBase: "/api/workbench/manager/performance",
             showAdminOpsLink,
             portfolioEnabled,
+          })
+          : url.pathname === "/workbench/manager/competency-eval"
+          ? renderCompetencyEvalPage({
+            userLabel,
+            showAdminOpsLink,
+            portfolioEnabled,
+            competencyEvalEnabled,
           })
           : url.pathname === "/workbench/manager/daily-reports"
           ? renderDailyReportsWorkbenchPage({

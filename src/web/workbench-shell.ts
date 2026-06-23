@@ -15,6 +15,7 @@ export type WorkbenchNavId =
   | "mgr-proj"
   | "mgr-meeting-import"
   | "mgr-task-intake"
+  | "mgr-competency-eval"
   | "emp-new"
   | "emp-cur"
   | "emp-hist"
@@ -61,7 +62,12 @@ function railLink(
   return `<a class="${cls}" href="${href}" data-wb-nav="${navId}"${idAttr}${hidden}>${escapeHtml(label)}${badge}</a>`;
 }
 
-function buildManagerRail(activeNav: WorkbenchNavId, portfolioEnabled: boolean, showAdminOpsLink = false): string {
+function buildManagerRail(
+  activeNav: WorkbenchNavId,
+  portfolioEnabled: boolean,
+  showAdminOpsLink = false,
+  competencyEvalEnabled = false,
+): string {
   const portfolioLinks = portfolioEnabled
     ? `${railLink("/workbench/manager/projects", "项目总览", "mgr-proj", activeNav, "manager")}`
     : "";
@@ -77,6 +83,7 @@ function buildManagerRail(activeNav: WorkbenchNavId, portfolioEnabled: boolean, 
   ${railLink("/workbench/manager/dashboard", "周度看板", "mgr-dash", activeNav, "manager")}
   ${railLink("/workbench/manager/performance", "交付绩效", "mgr-perf", activeNav, "manager")}
   ${isDailyReportsPageEnabled() ? railLink("/workbench/manager/daily-reports", "日报汇总", "mgr-daily-reports", activeNav, "manager") : ""}
+  ${competencyEvalEnabled ? railLink("/workbench/manager/competency-eval", "能力评估", "mgr-competency-eval", activeNav, "manager") : ""}
   ${railLink("/workbench/manager/chat?thread=main", "智能规划助手", "mgr-chat", activeNav, "manager")}
   ${isTaskIntakeEnabled() ? railLink("/workbench/manager/task-intake", "任务快录入库", "mgr-task-intake", activeNav, "manager") : ""}
 </div>
@@ -246,6 +253,7 @@ export function renderWorkbenchPage(params: {
   userLabel?: string;
   portfolioEnabled?: boolean;
   showAdminOpsLink?: boolean;
+  competencyEvalEnabled?: boolean;
   canExecuteAsManager?: boolean;
   bodyClass?: string;
   mainClass?: string;
@@ -257,7 +265,12 @@ export function renderWorkbenchPage(params: {
 }): string {
   const railNav =
     params.role === "manager"
-      ? buildManagerRail(params.activeNav, Boolean(params.portfolioEnabled), Boolean(params.showAdminOpsLink))
+      ? buildManagerRail(
+        params.activeNav,
+        Boolean(params.portfolioEnabled),
+        Boolean(params.showAdminOpsLink),
+        Boolean(params.competencyEvalEnabled),
+      )
       : params.role === "employee"
         ? buildEmployeeRail(params.activeNav)
         : buildAdminRail(params.activeNav);
