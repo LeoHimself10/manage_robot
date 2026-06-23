@@ -3,15 +3,19 @@
 > 记录在 assignee / publish triage 与 prompt v5.23.x 本轮工作中发现、**尚未解决**或**刻意延后**的事项。  
 > 不作为当前迭代的交付范围；按「建议归档去向」独立排期或等 telemetry / 真实反馈后再评估。
 
-**最后更新**：2026-05-26
+**最后更新**：2026-06-09
 
 ---
 
 ## 近期已闭环（热修记录）
 
-| 日期 | 提交 | 现象 | 根因 | 修复 |
+| 日期 | 编号 | 现象 | 根因 | 修复 |
 |------|------|------|------|------|
-| 2026-05-26 | `71feebe0` | 主管「历史任务」页 `loadTasks()` 报错 **`WB_PORTFOLIO is not defined`**，列表无法加载 | 草案侧栏合并时 `manager-workbench-pages.ts` 误留 portfolio 半成品：`if (WB_PORTFOLIO && …)` 已引用，但 **portfolio 未部署**、页面脚本未注入该变量 | 任务页脚本补 `var WB_PORTFOLIO = false`（未开 portfolio 时）与 `WB_FILTER_PROJECT_ID = ''`；ECS 已重部署，`/health` 正常 |
+| 2026-06-09 | DR-1 | CTO 卡片 overview JSON parse 失败 → `Y1b13 半导体激光` 复读 | CTO 链路强制 JSON + fallback 取第一个非空字段（常为「工作模块」） | CTO 改 **plain text** LLM + `normalizePlainTextOverview` + fallback 字段优先级 |
+| 2026-06-09 | DR-2 | 同项目曹成功、姚 parse 失败 | scheduler **按收件人**独立调 LLM | `ctoOverview` **按 view 缓存** + send 时 fan-out |
+| 2026-06-09 | DR-3 | 7:00 发送时 prewarm 未命中 | prewarm 仍在 **7:30**（晚于 send） | prewarm 改 **06:45** + 可选预热 overview/personBriefs |
+| 2026-06-09 | DR-4 | 工作台逐人简述偶发 parse 失败 | JSON 无 fence 剥离/重试 | `daily-report-llm-parse.ts` 共享解析 + parse 失败重试 |
+| 2026-05-26 | — | 主管「历史任务」页 `loadTasks()` 报错 **`WB_PORTFOLIO is not defined`**，列表无法加载 | 草案侧栏合并时 `manager-workbench-pages.ts` 误留 portfolio 半成品：`if (WB_PORTFOLIO && …)` 已引用，但 **portfolio 未部署**、页面脚本未注入该变量 | 任务页脚本补 `var WB_PORTFOLIO = false`（未开 portfolio 时）与 `WB_FILTER_PROJECT_ID = ''`；ECS 已重部署，`/health` 正常 |
 
 > **防再发**：凡在 `buildManagerTasks*` 内联 JS 使用 `WB_PORTFOLIO` / `WB_FILTER_PROJECT_ID`，须与 chat 页一致由服务端 `portfolio` 开关生成；禁止只写分支不写变量定义。
 
