@@ -70,6 +70,14 @@ import {
   type PerformanceScope,
 } from "./performance-tools";
 import {
+  GET_EMPLOYEE_DAILY_REPORTS_TOOL,
+  GET_RUBRIC_TOOL,
+  LIST_RUBRICS_TOOL,
+  buildGetEmployeeDailyReportsHandler,
+  buildGetRubricHandler,
+  buildListRubricsHandler,
+} from "./competency-eval-tools";
+import {
   LIST_MANAGERS_TOOL,
   buildListManagersHandler,
 } from "./list-managers";
@@ -175,9 +183,21 @@ export interface ToolRegistryDeps {
   performanceScope?: PerformanceScope;
   /** 绩效页当前筛选（窗口/项目），供 get_employee_performance 默认对齐看板表格。 */
   performanceQueryDefaults?: PerformanceQueryDefaults;
+  /**
+   * 能力评估 Agent：仅 toolProfile=competency_eval 使用，注入可信操作者 userId。
+   * rubric 列表/读取与日报拉取均限定为该用户。
+   */
+  competencyEvalActorUserId?: string;
 }
 
-export type ToolProfile = "planner" | "employee" | "manager" | "admin" | "full" | "performance";
+export type ToolProfile =
+  | "planner"
+  | "employee"
+  | "manager"
+  | "admin"
+  | "full"
+  | "performance"
+  | "competency_eval";
 
 export const KNOWN_TOOL_NAMES = [
   "search_employees",
@@ -205,6 +225,9 @@ export const KNOWN_TOOL_NAMES = [
   "admin_list_all_tasks",
   "get_metrics",
   "get_employee_performance",
+  "list_rubrics",
+  "get_rubric",
+  "get_employee_daily_reports",
   "list_managers",
   "set_manager_permission",
   "get_current_time",
@@ -607,6 +630,22 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     };
   }
 
+  const competencyEvalActor = deps.competencyEvalActorUserId?.trim();
+  if (competencyEvalActor) {
+    all.list_rubrics = {
+      definition: LIST_RUBRICS_TOOL,
+      handler: buildListRubricsHandler({ actorUserId: competencyEvalActor }),
+    };
+    all.get_rubric = {
+      definition: GET_RUBRIC_TOOL,
+      handler: buildGetRubricHandler({ actorUserId: competencyEvalActor }),
+    };
+    all.get_employee_daily_reports = {
+      definition: GET_EMPLOYEE_DAILY_REPORTS_TOOL,
+      handler: buildGetEmployeeDailyReportsHandler({ actorUserId: competencyEvalActor }),
+    };
+  }
+
   // Never trust actor identity from model arguments.
   const sensitiveTools = [
     "list_my_tasks",
@@ -719,6 +758,14 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       "get_employee_performance",
       "search_employees",
       "get_employee_details",
+      "get_current_time",
+    ],
+    // 隔离的能力评估 Agent：rubric + 日报证据 + 查人 + 时间，无任务操作。
+    competency_eval: [
+      "list_rubrics",
+      "get_rubric",
+      "get_employee_daily_reports",
+      "search_employees",
       "get_current_time",
     ],
     full: Object.keys(all),

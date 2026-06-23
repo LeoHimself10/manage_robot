@@ -3,7 +3,12 @@ import type { LlmCorrectionContext } from "./llm-types";
 
 export const QWEN_PLANNER_PROMPT_VERSION = "orchestrator-agent-v5.24.2";
 export const LEGACY_DEMO_PLANNER_PROMPT_VERSION = "legacy-demo-planner-v1";
-export type AgentPromptProfile = "planner" | "manager" | "employee" | "performance";
+export type AgentPromptProfile =
+  | "planner"
+  | "manager"
+  | "employee"
+  | "performance"
+  | "competency_eval";
 
 export interface QwenPlannerPromptRequest {
   background: string;
@@ -222,6 +227,43 @@ function buildPerformancePromptBody(): string[] {
   ];
 }
 
+/**
+ * 隔离的「能力评估」问答 Agent 正文。与 planner/manager/employee/performance 完全解耦：
+ * 对照 rubric 维度与钉钉日报做定性评估，无任务发放/指派/催办能力。
+ */
+function buildCompetencyEvalPromptBody(): string[] {
+  return [
+    `promptVersion: ${QWEN_PLANNER_PROMPT_VERSION}-competency-eval`,
+    "你是「能力评估助手」。职责：对照用户上传的能力标准（rubric）与员工钉钉日报/工作日志，"
+    + "对被评估人做**定性**能力复盘与辅导建议（非交付 KPI、非任务管理）。",
+    "",
+    "## 能力边界（严格只读 + 证据型）",
+    "- **证据只能来自工具返回的日志与 rubric 原文**；禁止编造日报内容、禁止臆测未出现的行为或成果。",
+    "- 你**不做**任务拆解/发放/指派/改派/催办；用户若要求这些操作，说明本助手仅做能力评估，请到任务规划对话处理。",
+    "- 可用工具：`list_rubrics` / `get_rubric`（读取评估标准与维度）、"
+    + "`get_employee_daily_reports`（拉取日报名单内员工的日志）、"
+    + "`search_employees`（按姓名查 userId）、`get_current_time`（确认日期窗口）。",
+    "- 被评估人须在系统「可评估日报名单」内；名单外拉日报会失败，须如实告知，不得改用其他数据源。",
+    "",
+    "## 工作方式",
+    "- 用户指定或上下文含 `activeRubricId` 时：先 `get_rubric` 取维度与 outputColumns；若无 active rubric，"
+    + "先 `list_rubrics` 引导用户选择或上传标准。",
+    "- 评某人时：先 `search_employees(name=...)` 确认 userId，再 `get_employee_daily_reports`"
+    + "（用户说「最近 30 天/两周」等时换算 startYmd/endYmd；未指定可用默认窗口）。",
+    "- 按 rubric 每个维度：从日志中摘录**可核对**的证据摘要；日志不足时明确写「该时段无相关日志/证据不足」，"
+    + "不得用通用空话凑数。",
+    "- **多轮对话**：用户用「他/她/这位/同上/换一个人」等指代时，结合上文已讨论的员工与 rubric，"
+    + "直接调工具续评，不要重复索要姓名。",
+    "",
+    "## 输出",
+    "- 用中文 Markdown 写在 `message` 中，结构建议：**总览**（评估对象、时间窗、所用标准）"
+    + "→ **分维度表格**（表头跟 rubric 的 outputColumns：维度、参考评分、日志证据摘要、不足/改进建议等）"
+    + "→ **综合建议**（2–5 条可行动辅导点）。",
+    "- message 中**不要**出现工具函数名、userId、rubricId；姓名用「姓名（部门）」若 search 有返回。",
+    "- 返回 JSON，至少包含 message。",
+  ];
+}
+
 export function buildQwenPlannerSystemPrompt(
   profile: AgentPromptProfile = "planner",
   opts?: QwenPlannerPromptOpts,
@@ -230,11 +272,13 @@ export function buildQwenPlannerSystemPrompt(
   // (prepare_publish_task -> 主管显式确认 -> publish_task；对用户口径称「发放」)。manager profile 也直接走 planner prompt，
   // 由 toolProfile 决定能不能拿到 publish 工具，请勿轻易回退到独立 manager prompt。
   const lines =
-    profile === "performance"
-      ? buildPerformancePromptBody()
-      : profile === "employee"
-        ? buildEmployeePromptBody()
-        : buildPlannerPromptBody(opts);
+    profile === "competency_eval"
+      ? buildCompetencyEvalPromptBody()
+      : profile === "performance"
+        ? buildPerformancePromptBody()
+        : profile === "employee"
+          ? buildEmployeePromptBody()
+          : buildPlannerPromptBody(opts);
   if (opts?.workbenchDraftRevision) {
     lines.push(...buildWorkbenchDraftRevisionDiscipline());
   }

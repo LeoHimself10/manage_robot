@@ -22,7 +22,7 @@ interface RubricMeta {
   title: string;
   originalFilename: string;
   uploadedAt: string;
-  mimeKind: RubricMimeKind;
+  mimeKind: RosterMimeKind;
   needsLlmFallback?: boolean;
 }
 

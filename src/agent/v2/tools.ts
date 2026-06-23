@@ -172,6 +172,7 @@ const PROFILE_BASE_TOOL_NAMES: Record<Exclude<ToolProfile, "full">, string[]> = 
   ],
   employee: [],
   performance: [],
+  competency_eval: [],
 };
 
 /** Whether a tool name is exposed for the given profile (gate target-tool guard). */
