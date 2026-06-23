@@ -116,6 +116,9 @@ describe("competency-eval page render", () => {
     expect(html).toContain("能力评估");
     expect(html).toContain('id="compEvalChatCard"');
     expect(html).toContain('id="compEvalChatLog"');
+    expect(html).toContain('id="compEvalSidebar"');
+    expect(html).toContain('id="compEvalSessionList"');
+    expect(html).toContain('id="compEvalNewSession"');
     expect(html).toContain("/api/workbench/competency-eval");
     expect(html).toContain("/static/performance-chat-markdown.js");
     expect(html).toContain('data-wb-nav="mgr-competency-eval"');
