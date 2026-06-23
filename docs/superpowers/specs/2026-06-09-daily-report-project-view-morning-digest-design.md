@@ -12,7 +12,7 @@
 
 - 风格与 mingsibot **明思早报**一致：**LLM 综述 + 按人短摘要** + 工作台深链 ActionCard
 - **1:1 机器人私聊**，不走群 Webhook
-- **周二–周六 08:00**（北京）发送；汇总 **昨日**业务日（17:00 cutoff，与页面一致）
+- **周二–周六 07:00**（北京）发送；汇总 **昨日**业务日（17:00 cutoff，与页面一致）
 - **上线分两阶段**：先 **运维脚本** 只发姚凯珩验收；验收通过后再开 **定时 scheduler** 发给 viewers（首期曹一挥）
 
 ## 2. 边界
@@ -21,7 +21,7 @@
 |------|------------------|----------------------------|
 | 实例 | `manage-robot-mingsibot` | `manage-robot-dingtalk` |
 | 通道 | 群 Webhook | 机器人 **1:1** |
-| 时间 | 7:00 | **8:00** |
+| 时间 | 7:00 | **7:00** |
 | 名单 | org `employees` | projectView **roster**（SQLite） |
 | 内容 | 明思+微光 6 人 / 颅内·脑机·运营 | 仅 filter 后模块块 |
 | 未交/请假 | 有 | **无** |
@@ -34,7 +34,7 @@
 | 决策 | 选择 |
 |------|------|
 | 内容形态 | **A** — LLM 综述 + 按人摘要 + 工作台链接 |
-| 发送时刻 | **C** — **08:00**（多留补交窗口） |
+| 发送时刻 | **C** — **07:00**（与 CTO 合并早报一致） |
 | 发送日 | **A** — **周二–周六**；周日、周一不发 |
 | 预览方式 | **B** — **运维脚本**手动发姚凯珩；验收后再开定时 |
 | 昨日 0 条相关日报 | **A** — **仍发送**；禁止用语「命中/filter/roster」等内部词 |
@@ -50,12 +50,14 @@
 
 1. **业务日**：`resolveReportRange(now)` → 昨日 `labelYmd`（与 legacy 早报「昨日」一致）
 2. **数据源**：`collectProjectViewDigestForRange` 同等逻辑——仅 **roster** 内 userid；仅展示 filter 后模块块
-3. **缓存优先**：8:00 推送前读 `daily_report_project_view_cache(view_id, date_ymd)`；无缓存则同步扫 roster 并写缓存（与页面 refresh 同路径）
-4. **预扫**：现有 **7:30** prewarm 不变；8:00 通常命中缓存
+3. **缓存优先**：07:00 推送前读 `daily_report_project_view_cache(view_id, date_ymd)`；含 `ctoOverview` / `personBriefs` LLM 缓存
+4. **预扫**：**06:45** prewarm（`DAILY_REPORT_PROJECT_VIEW_PREWARM_HOUR/MINUTE` 可覆盖）；可选预热 CTO overview + 工作台 personBriefs
 
 ## 5. LLM
 
-- 复用 `daily-report-morning-llm` 基础设施（模型、超时、fallback 模板），**新增** projectView 专用 prompt / 输入结构：
+- **CTO 合并早报**（`DAILY_REPORT_CTO_ROLLUP_DIGEST_ENABLED=1`，默认开）：同一 userid **1 条**卡片汇总全部 digest 启用的 projectView；每项目 **plain text overview**（无 JSON parse）；overview 按 `(viewId, dateYmd)` **缓存**后 fan-out 给各收件人（消除同项目重复调 LLM）。
+- **工作台逐人简述**：项目详情页展示 `personBriefs[]`（JSON LLM + fence 剥离 + parse 重试）；与 CTO 卡片分工——卡片只看项目一行，逐人细节在工作台。
+- 复用 `daily-report-morning-llm` 基础设施（模型、超时、fallback 模板），projectView 专用 prompt / 输入结构：
   - 输入：view `label`、业务日、按人过滤后摘要（姓名 + 模块块要点，不含未交/请假）
   - 输出：`DailyReportMorningSummary` 同形或专用字段，供 render 使用
 - **零数据日**：仍调用 LLM 生成简短综述（或短模板 + 可选 LLM 润色一句）；必须包含名单人数与「暂无相关日报」自然表述

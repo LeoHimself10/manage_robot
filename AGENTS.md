@@ -213,6 +213,12 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 | `DAILY_REPORT_MORNING_LLM_MODEL` | `qwen3.6-flash` | 综述模型 |
 | `DAILY_REPORT_MORNING_LLM_TIMEOUT_MS` | `12000` | LLM 超时 |
 
+### 微光 projectView 早报（managebot 1:1）
+
+- **CTO 合并卡片**：`DAILY_REPORT_CTO_ROLLUP_DIGEST_ENABLED=1`（默认）→ 曹等 viewer 收 **1 条**「全部项目」汇总；每项目 plain text overview 缓存于 `daily_report_project_view_cache.ctoOverview`。
+- **工作台**：项目详情展示 LLM **逐人简述**（`personBriefs`）；「全部项目」Tab `custom:overview`。
+- **时序**：prewarm **06:45** → send **07:00**（`digest.sendHour` 可 per-view 配置）；`DAILY_REPORT_PROJECT_VIEW_PREWARM_*` / `DAILY_REPORT_MORNING_LLM_MAX_TOKENS`（默认 2000）可调。
+
 ## 每日进展推送（Progress Digest，v1.1）
 
 - **范围**：工作日 9:00 北京窗口；`PROGRESS_DIGEST_WEEKDAYS_ONLY=1`。
