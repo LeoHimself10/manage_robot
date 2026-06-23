@@ -433,10 +433,13 @@ function buildCompetencyEvalClientJs(): string {
         }
         var jobReq = res.body.jobReq || {};
         var filename = String(jobReq.filename||'未命名');
-        setJobReqBanner(filename);
+        // wait for session patch to complete before updating UI,
+        // so activeSession.activeJobReqId is populated before user can click send
         persistSessionPatch({
           activeJobReqId: jobReq.jobReqId,
           jobReqFilename: filename
+        }).then(function(){
+          setJobReqBanner(filename);
         });
       })
       .catch(function(e){ alert('上传失败：'+(e.message||e)); });
