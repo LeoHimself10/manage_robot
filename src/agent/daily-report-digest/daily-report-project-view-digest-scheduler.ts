@@ -82,12 +82,10 @@ export function createDailyReportProjectViewDigestScheduler(
     }
     if (!usersInWindow.length) return;
 
-    const viewIdsNeeded = new Set<string>();
-    for (const userId of usersInWindow) {
-      for (const plan of plansByUser.get(userId) ?? []) {
-        viewIdsNeeded.add(plan.view.id);
-      }
-    }
+    const digestViews = listProjectViewsFromConfig(config.orgs).filter(
+      isProjectViewDigestEnabledForView,
+    );
+    const viewIdsNeeded = new Set(digestViews.map((v) => v.id));
 
     const dateLabel = `${range.labelDisplay}（${range.labelYmd}）`;
     const overviewByViewId = new Map<string, string>();
@@ -119,9 +117,8 @@ export function createDailyReportProjectViewDigestScheduler(
     }
 
     for (const userId of usersInWindow) {
-      const plans = plansByUser.get(userId) ?? [];
-      const contexts = plans
-        .map((plan) => contextByViewId.get(plan.view.id))
+      const contexts = digestViews
+        .map((view) => contextByViewId.get(view.id))
         .filter((ctx): ctx is NonNullable<typeof ctx> => ctx != null);
 
       try {

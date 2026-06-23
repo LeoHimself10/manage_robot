@@ -9,9 +9,14 @@
  */
 import "dotenv/config";
 import { loadDailyReportDigestConfig } from "../src/agent/daily-report-digest/daily-report-config";
-import { buildCtoRollupMorningDigestPayload, sendCtoRollupMorningDigestToUser } from "../src/agent/daily-report-digest/daily-report-cto-rollup-digest-send";
+import {
+  buildCtoRollupMorningDigestPayload,
+  sendCtoRollupMorningDigestToUser,
+} from "../src/agent/daily-report-digest/daily-report-cto-rollup-digest-send";
+import { createProjectViewCacheStore } from "../src/agent/daily-report-digest/daily-report-project-view-cache";
 import { loadOrCollectProjectViewDigest } from "../src/agent/daily-report-digest/daily-report-project-view-digest-collect";
 import { createProjectViewDigestStateStore } from "../src/agent/daily-report-digest/daily-report-project-view-digest-state";
+import { ensureProjectViewCtoOverview } from "../src/agent/daily-report-digest/daily-report-project-view-summaries";
 import {
   groupProjectViewDigestPlansByUser,
   isProjectViewDigestEnabledForView,
@@ -67,17 +72,16 @@ async function main(): Promise<void> {
         cutoffMinute: config.reportDayCutoffMinute,
       });
 
+  const digestViews = listProjectViewsFromConfig(config.orgs).filter(
+    isProjectViewDigestEnabledForView,
+  );
   const viewIds = allViews
-    ? listProjectViewsFromConfig(config.orgs)
-        .filter(isProjectViewDigestEnabledForView)
-        .map((v) => v.id)
+    ? digestViews.map((v) => v.id)
     : (() => {
         const plans = groupProjectViewDigestPlansByUser(config).get(toUserId) ?? [];
         return plans.length
           ? plans.map((p) => p.view.id)
-          : listProjectViewsFromConfig(config.orgs)
-              .filter((v) => v.viewers.includes(toUserId) || isProjectViewDigestEnabledForView(v))
-              .map((v) => v.id);
+          : digestViews.filter((v) => v.viewers.includes(toUserId)).map((v) => v.id);
       })();
 
   const uniqueViewIds = [...new Set(viewIds)];
@@ -86,14 +90,39 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const cacheStore = createProjectViewCacheStore();
+  const dateLabel = `${range.labelDisplay}（${range.labelYmd}）`;
+  const overviewByViewId = new Map<string, string>();
   const contexts = await Promise.all(
-    uniqueViewIds.map((viewId) => loadOrCollectProjectViewDigest({ config, viewId, range })),
+    uniqueViewIds.map(async (viewId) => {
+      const ctx = await loadOrCollectProjectViewDigest({
+        config,
+        viewId,
+        range,
+        cacheStore,
+        ownsCacheStore: false,
+      });
+      const overview = await ensureProjectViewCtoOverview({
+        viewId: ctx.view.id,
+        viewLabel: ctx.view.label,
+        dateYmd: range.labelYmd,
+        dateLabel,
+        rosterCount: ctx.rosterCount,
+        orgDigest: ctx.orgDigest,
+        cacheStore,
+      });
+      overviewByViewId.set(viewId, overview);
+      return ctx;
+    }),
   );
 
   const stateStore = createProjectViewDigestStateStore();
   try {
     if (dryRun) {
-      const payload = await buildCtoRollupMorningDigestPayload(contexts, range);
+      const payload = await buildCtoRollupMorningDigestPayload(contexts, range, fetch, {
+        overviewByViewId,
+        cacheStore,
+      });
       console.log(
         JSON.stringify(
           {
@@ -119,6 +148,8 @@ async function main(): Promise<void> {
       stateStore,
       skipStateDedup: preview,
       previewTitleSuffix: preview ? "预览" : undefined,
+      overviewByViewId,
+      cacheStore,
     });
 
     console.log(
@@ -138,6 +169,7 @@ async function main(): Promise<void> {
     );
   } finally {
     stateStore.close();
+    cacheStore.close();
   }
 }
 

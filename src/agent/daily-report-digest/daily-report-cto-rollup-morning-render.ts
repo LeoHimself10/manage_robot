@@ -28,6 +28,7 @@ export function sanitizeCtoRollupOverviewLine(raw: string, viewLabel?: string): 
   t = t.replace(/^统计名单内[^。；]*?[，,、；;\s]*/u, "");
   t = t.replace(/^昨日[^。；]*?(提交|暂无|有)[^。；]*?[，,、；;\s]*/u, "");
 
+  t = t.replace(/\r\n/g, "\n").replace(/\s+/g, " ");
   return t.trim();
 }
 
