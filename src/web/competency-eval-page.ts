@@ -323,7 +323,8 @@ function buildCompetencyEvalClientJs(): string {
   }
 
   function setJobReqBanner(filename){
-    if(!jobReqBanner || !jobReqLabel) return;
+    console.log('[DEBUG] setJobReqBanner called, filename:', filename, 'bannerEl:', jobReqBanner, 'labelEl:', jobReqLabel);
+    if(!jobReqBanner || !jobReqLabel) { console.warn('[DEBUG] setJobReqBanner early return: banner or label element missing'); return; }
     if(!filename){
       jobReqBanner.hidden = true;
       jobReqLabel.textContent = '';
@@ -331,6 +332,7 @@ function buildCompetencyEvalClientJs(): string {
     }
     jobReqBanner.hidden = false;
     jobReqLabel.textContent = filename;
+    console.log('[DEBUG] setJobReqBanner done: banner.hidden =', jobReqBanner.hidden, 'label.textContent =', jobReqLabel.textContent);
   }
 
   function clearThreadDom(){
@@ -421,11 +423,13 @@ function buildCompetencyEvalClientJs(): string {
 
   function uploadJobReq(file){
     if(!file) return;
+    console.log('[DEBUG] uploadJobReq called, file:', file.name);
     var fd = new FormData();
     fd.append('file', file, file.name);
     fetch(API_BASE+'/job-req/upload', { method: 'POST', body: fd })
       .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
       .then(function(res){
+        console.log('[DEBUG] upload response:', JSON.stringify(res));
         if(!res.ok || !res.body || res.body.ok===false){
           var msg = (res.body && (res.body.message || res.body.error)) || '上传失败';
           alert(msg);
@@ -433,14 +437,16 @@ function buildCompetencyEvalClientJs(): string {
         }
         var jobReq = res.body.jobReq || {};
         var filename = String(jobReq.filename||'未命名');
+        console.log('[DEBUG] jobReq:', JSON.stringify(jobReq), 'filename:', filename);
         // wait for session patch to complete before updating UI,
         // so activeSession.activeJobReqId is populated before user can click send
         persistSessionPatch({
           activeJobReqId: jobReq.jobReqId,
           jobReqFilename: filename
         }).then(function(){
+          console.log('[DEBUG] persistSessionPatch done, calling setJobReqBanner');
           setJobReqBanner(filename);
-        });
+        }).catch(function(e){ console.error('[DEBUG] persistSessionPatch failed:', e); });
       })
       .catch(function(e){ alert('上传失败：'+(e.message||e)); });
   }
