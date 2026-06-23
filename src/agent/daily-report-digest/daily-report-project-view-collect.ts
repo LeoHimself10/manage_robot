@@ -1,7 +1,7 @@
 import type { DailyReportOrgConfig } from "./daily-report-config";
 import type { OrgDigest } from "./daily-report-build";
 import { filterReportEntry } from "./daily-report-content-filter";
-import { filterReportEntryByModuleProjectPair } from "./daily-report-project-view-filter";
+import { filterReportEntryForView } from "./daily-report-project-view-filter";
 import {
   createDingTalkReportClient,
   type DingTalkReportClient,
@@ -39,7 +39,7 @@ export async function collectProjectViewDigestForRange(
         endTime: range.endTime,
       });
       const filteredReports = reps
-        .map((r) => filterReportEntryByModuleProjectPair(r, view.filters))
+        .map((r) => filterReportEntryForView(r, view.filters))
         .map((r) => filterReportEntry(r))
         .filter((r) => r.contents.length > 0);
       if (filteredReports.length > 0) {

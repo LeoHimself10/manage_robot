@@ -3,12 +3,16 @@ import type { ReportContentField, ReportEntry } from "./dingtalk-report-client";
 const MODULE_INDICES = ["①", "②", "③", "④", "⑤", "⑥"] as const;
 const SEPARATOR_KEY_RE = /^-+/;
 
-export interface ModuleProjectPairFilter {
-  /** 工作模块字段须包含此全名（如「半导体激光」） */
-  workModuleContains: string;
-  /** 成本归属项目字段须包含此全名（如「静脉腔内闭合系统」） */
-  costProjectContains: string;
+export interface ProjectViewFilter {
+  keyword?: string;
+  workModuleContains?: string;
+  costProjectContains?: string;
 }
+
+/** @deprecated alias */
+export type ModuleProjectPairFilter = Required<
+  Pick<ProjectViewFilter, "workModuleContains" | "costProjectContains">
+>;
 
 function normalizeLabel(value: string): string {
   return value.trim();
@@ -43,6 +47,18 @@ function fieldForModule(
   return contents.find((f) => f.key.includes(needle) && f.key.includes(idx));
 }
 
+export function moduleBlockMatchesKeywordFilter(
+  contents: ReportContentField[],
+  idx: string,
+  keyword: string,
+): boolean {
+  const needle = normalizeLabel(keyword);
+  if (!needle) return false;
+  const work = normalizeLabel(fieldForModule(contents, idx, "work")?.value ?? "");
+  const project = normalizeLabel(fieldForModule(contents, idx, "project")?.value ?? "");
+  return work.includes(needle) || project.includes(needle);
+}
+
 /** 同一模块序号内：工作模块含 workModuleContains 且成本项目含 costProjectContains。 */
 export function moduleBlockMatchesPairFilter(
   contents: ReportContentField[],
@@ -58,6 +74,23 @@ export function moduleBlockMatchesPairFilter(
     normalizeLabel(work?.value ?? "").includes(workNeedle)
     && normalizeLabel(project?.value ?? "").includes(projectNeedle)
   );
+}
+
+export function filterReportEntryByKeyword(entry: ReportEntry, keyword: string): ReportEntry {
+  const needle = normalizeLabel(keyword);
+  if (!needle) return { ...entry, contents: [] };
+  const kept = new Set<string>();
+  for (const idx of MODULE_INDICES) {
+    if (moduleBlockMatchesKeywordFilter(entry.contents, idx, needle)) kept.add(idx);
+  }
+  if (kept.size === 0) return { ...entry, contents: [] };
+  const contents = entry.contents.filter((f) => {
+    if (SEPARATOR_KEY_RE.test(f.key.trim())) return false;
+    const idx = moduleIndexFromKey(f.key);
+    if (!idx || !isModuleField(f.key)) return false;
+    return kept.has(idx);
+  });
+  return { ...entry, contents };
 }
 
 /**
@@ -91,4 +124,18 @@ export function filterReportEntryByModuleProjectPair(
   });
 
   return { ...entry, contents };
+}
+
+export function filterReportEntryForView(entry: ReportEntry, filter: ProjectViewFilter): ReportEntry {
+  const keyword = normalizeLabel(filter.keyword ?? "");
+  if (keyword) return filterReportEntryByKeyword(entry, keyword);
+  const work = normalizeLabel(filter.workModuleContains ?? "");
+  const project = normalizeLabel(filter.costProjectContains ?? "");
+  if (work && project) {
+    return filterReportEntryByModuleProjectPair(
+      entry,
+      { workModuleContains: work, costProjectContains: project },
+    );
+  }
+  return { ...entry, contents: [] };
 }

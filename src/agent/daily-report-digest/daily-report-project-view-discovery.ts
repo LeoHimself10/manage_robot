@@ -7,7 +7,7 @@ import {
 } from "./dingtalk-report-client";
 import { listOrgScanContacts } from "./daily-report-org-scan-contacts";
 import { createDingTalkContactDirectory } from "./dingtalk-contact-search";
-import { filterReportEntryByModuleProjectPair } from "./daily-report-project-view-filter";
+import { filterReportEntryForView } from "./daily-report-project-view-filter";
 import {
   createProjectViewRosterStore,
   listProjectViewRoster,
@@ -116,7 +116,7 @@ async function contactHasMatchingReport(
       endTime,
     });
     return reps
-      .map((r) => filterReportEntryByModuleProjectPair(r, view.filters))
+      .map((r) => filterReportEntryForView(r, view.filters))
       .map((r) => filterReportEntry(r))
       .some((r) => r.contents.length > 0);
   } catch (err) {

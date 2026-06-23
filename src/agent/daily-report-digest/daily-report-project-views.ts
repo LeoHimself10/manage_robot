@@ -1,6 +1,6 @@
 import type { DailyReportDigestConfig, DailyReportOrgConfig } from "./daily-report-config";
 import { configHasLegacyDailyReportEmployees } from "./daily-report-config";
-import type { ModuleProjectPairFilter } from "./daily-report-project-view-filter";
+import type { ProjectViewFilter } from "./daily-report-project-view-filter";
 import { isDailyReportProjectViewsEnabled } from "./daily-report-project-view-flag";
 
 export interface DailyReportProjectViewDigestConfig {
@@ -23,7 +23,7 @@ export interface DailyReportProjectViewConfig {
   exclusiveForViewers?: boolean;
   /** org-wide 发现扫描近 N 自然日；默认 30 */
   discoveryDays?: number;
-  filters: ModuleProjectPairFilter;
+  filters: ProjectViewFilter;
   digest?: DailyReportProjectViewDigestConfig;
 }
 
@@ -74,10 +74,11 @@ export function parseProjectViewConfig(raw: unknown, orgLabel: string): DailyRep
   const viewersRaw = Array.isArray(o.viewers) ? o.viewers : [];
   const viewers = viewersRaw.map((v) => asString(v)).filter(Boolean);
   const filtersRaw = (o.filters ?? {}) as Record<string, unknown>;
+  const keyword = asString(filtersRaw.keyword);
   const workModuleContains = asString(filtersRaw.workModuleContains);
   const costProjectContains = asString(filtersRaw.costProjectContains);
   if (!id || !label || viewers.length === 0) return null;
-  if (!workModuleContains || !costProjectContains) return null;
+  if (!keyword && (!workModuleContains || !costProjectContains)) return null;
   const digest = parseDigestConfig(o.digest);
   return {
     id,
@@ -85,7 +86,11 @@ export function parseProjectViewConfig(raw: unknown, orgLabel: string): DailyRep
     viewers,
     exclusiveForViewers: o.exclusiveForViewers === true,
     discoveryDays: parseDiscoveryDays(o.discoveryDays),
-    filters: { workModuleContains, costProjectContains },
+    filters: {
+      ...(keyword ? { keyword } : {}),
+      ...(workModuleContains ? { workModuleContains } : {}),
+      ...(costProjectContains ? { costProjectContains } : {}),
+    },
     ...(digest ? { digest } : {}),
   };
 }

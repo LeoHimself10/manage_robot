@@ -82,6 +82,34 @@ describe("daily-report-project-view-filter", () => {
   });
 });
 
+describe("parseProjectViewConfig filters", () => {
+  it("parseProjectViewConfig accepts filters.keyword only", () => {
+    const v = parseProjectViewConfig(
+      {
+        id: "cla",
+        label: "CLA",
+        viewers: ["u1"],
+        filters: { keyword: "CLA" },
+      },
+      "微光",
+    );
+    expect(v?.filters.keyword).toBe("CLA");
+  });
+
+  it("parseProjectViewConfig still accepts legacy pair", () => {
+    const v = parseProjectViewConfig(
+      {
+        id: "v1",
+        label: "旧",
+        viewers: ["u1"],
+        filters: { workModuleContains: "A", costProjectContains: "B" },
+      },
+      "微光",
+    );
+    expect(v?.filters.workModuleContains).toBe("A");
+  });
+});
+
 describe("daily-report-project-views access", () => {
   beforeEach(() => {
     process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED = "1";
