@@ -18,6 +18,8 @@ export interface CompEvalSessionListItem {
   createdAt: string;
   updatedAt: string;
   messageCount: number;
+  activeJobReqId?: string;
+  jobReqFilename?: string;
 }
 
 export interface CompEvalSession {
@@ -26,6 +28,8 @@ export interface CompEvalSession {
   createdAt: string;
   updatedAt: string;
   messages: CompEvalChatMessage[];
+  activeJobReqId?: string;
+  jobReqFilename?: string;
 }
 
 interface SessionIndex {
@@ -121,6 +125,8 @@ function toListItem(session: CompEvalSession): CompEvalSessionListItem {
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     messageCount: session.messages.length,
+    activeJobReqId: session.activeJobReqId,
+    jobReqFilename: session.jobReqFilename,
   };
 }
 
@@ -154,6 +160,8 @@ function normalizeSession(raw: CompEvalSession): CompEvalSession {
     createdAt: String(raw.createdAt ?? new Date().toISOString()),
     updatedAt: String(raw.updatedAt ?? new Date().toISOString()),
     messages: trimmed,
+    activeJobReqId: String(raw.activeJobReqId ?? "").trim() || undefined,
+    jobReqFilename: String(raw.jobReqFilename ?? "").trim() || undefined,
   };
 }
 
@@ -222,6 +230,8 @@ export function saveCompEvalSession(
   patch: {
     messages?: CompEvalChatMessage[];
     title?: string;
+    activeJobReqId?: string;
+    jobReqFilename?: string;
   },
 ): CompEvalSession | null {
   const existing = readSessionFile(userId, sessionId);
@@ -242,6 +252,12 @@ export function saveCompEvalSession(
     messages,
     title: String(patch.title ?? "").trim() || deriveTitle(messages) || existing.title,
     updatedAt: now,
+    activeJobReqId: patch.activeJobReqId !== undefined
+      ? String(patch.activeJobReqId ?? "").trim() || undefined
+      : existing.activeJobReqId,
+    jobReqFilename: patch.jobReqFilename !== undefined
+      ? String(patch.jobReqFilename ?? "").trim() || undefined
+      : existing.jobReqFilename,
   };
   writeSession(userId, session);
   upsertIndexItem(userId, session);
