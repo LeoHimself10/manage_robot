@@ -157,6 +157,18 @@ function renderTableBlock(lines: string[], start: number): { html: string; nextI
     const ln = lines[i]!;
     if (ln.trim() === "") break;
     if (!ln.includes("|")) break;
+    // Line does not start with | — this is a continuation of the previous row's last cell
+    if (!/^\s*\|/.test(ln)) {
+      if (rows.length > 0) {
+        const last = rows[rows.length - 1]!;
+        // Strip leading OR trailing | (and adjacent whitespace) from the continuation line,
+        // then append to the last cell's content
+        const cont = ln.replace(/^\s*\|\s*/, "").replace(/\s*\|\s*$/, "").trim();
+        last[last.length - 1] += "\n" + cont;
+      }
+      i++;
+      continue;
+    }
     const cells = splitTableRow(ln);
     // Abandon table if a row has a different column count
     if (cells.length !== colCount) break;
