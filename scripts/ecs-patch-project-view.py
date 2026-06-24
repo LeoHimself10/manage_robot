@@ -27,7 +27,7 @@ VIEW = {
     },
     "digest": {
         "enabled": True,
-        "sendHour": 8,
+        "sendHour": 7,
         "sendMinute": 0,
     },
 }

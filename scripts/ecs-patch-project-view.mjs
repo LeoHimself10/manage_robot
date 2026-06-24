@@ -36,7 +36,7 @@ const SEMICONDUCTOR_VEIN_VIEW = {
   },
   digest: {
     enabled: true,
-    sendHour: 8,
+    sendHour: 7,
     sendMinute: 0,
   },
 };
