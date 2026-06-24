@@ -58,10 +58,6 @@ export function renderCompetencyEvalPage(params: {
           </div>
         </div>
         <div class="ce-topbar-spacer"></div>
-        <div class="ce-jobreq-pill" id="compEvalJobReqBanner" hidden>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-          <span id="compEvalJobReqLabel"></span>
-        </div>
         <label class="ce-upload-btn" title="上传岗位要求（.md / .docx）">
           <input type="file" id="compEvalFileInput" accept=".md,.markdown,.docx,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
@@ -94,6 +90,7 @@ export function renderCompetencyEvalPage(params: {
 
       <footer class="ce-footer">
         <div class="ce-composer-wrap">
+          <div class="ce-composer-chips" id="compEvalComposerChips"></div>
           <div class="ce-composer">
             <label class="ce-attach" for="compEvalFileInput" title="上传评估标准">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
@@ -124,6 +121,7 @@ function buildCompetencyEvalClientJs(): string {
   var chatInput = document.getElementById('compEvalChatInput');
   var chatSend = document.getElementById('compEvalChatSend');
   var fileInput = document.getElementById('compEvalFileInput');
+  var composerChips = document.getElementById('compEvalComposerChips');
   var jobReqBanner = document.getElementById('compEvalJobReqBanner');
   var jobReqLabel = document.getElementById('compEvalJobReqLabel');
   var sessionList = document.getElementById('compEvalSessionList');
@@ -208,9 +206,16 @@ function buildCompetencyEvalClientJs(): string {
   }
 
   function applySessionJobReq(sess){
-    if(!sess) { setJobReqBanner(''); return; }
-    if(sess.jobReqFilename) setJobReqBanner(sess.jobReqFilename);
-    else setJobReqBanner('');
+    clearComposerChip();
+  }
+
+  function renderComposerChip(filename){
+    if(!composerChips) return;
+    composerChips.innerHTML = '<div class="ce-file-chip"><span class="ce-file-chip-icon">📄</span><span class="ce-file-chip-name">'+esc(filename)+'</span></div>';
+  }
+
+  function clearComposerChip(){
+    if(composerChips) composerChips.innerHTML = '';
   }
 
   function loadSessionById(id){
@@ -219,7 +224,7 @@ function buildCompetencyEvalClientJs(): string {
       activeSession = res.body.session;
       activeSessionId = activeSession.sessionId;
       applySessionJobReq(activeSession);
-      paintMessages(activeSession.messages || []);
+      paintMessages(activeSession.messages || [], activeSession.jobReqFilename);
       return activeSession;
     });
   }
@@ -379,16 +384,29 @@ function buildCompetencyEvalClientJs(): string {
     bubble.innerHTML = '<div class="ce-typing" aria-label="正在输入"><i></i><i></i><i></i></div>';
   }
 
-  function paintMessages(messages){
+  function paintMessages(messages, jobReqFilename){
     clearThreadDom();
     if(!messages || !messages.length){
       if(chatEmpty) chatEmpty.style.display = '';
       return;
     }
-    messages.forEach(function(turn){
+    var lastUserIndex = -1;
+    messages.forEach(function(turn, idx){
+      if(turn.role === 'user') lastUserIndex = idx;
+    });
+    messages.forEach(function(turn, idx){
       var bubble = addMsg(turn.role === 'user' ? 'user' : 'bot');
-      if(turn.role === 'user') bubble.textContent = turn.content;
-      else bubble.innerHTML = fmtAssistant(turn.content);
+      if(turn.role === 'user'){
+        bubble.textContent = turn.content;
+        if(jobReqFilename && idx === lastUserIndex){
+          var chipWrap = document.createElement('div');
+          chipWrap.innerHTML = '<div class="ce-file-chip"><span class="ce-file-chip-icon">📄</span><span class="ce-file-chip-name">'+esc(jobReqFilename)+'</span></div>';
+          var chipEl = chipWrap.firstChild;
+          if(chipEl) bubble.insertBefore(chipEl, bubble.firstChild);
+        }
+      } else {
+        bubble.innerHTML = fmtAssistant(turn.content);
+      }
     });
     scrollBottom();
   }
@@ -423,10 +441,12 @@ function buildCompetencyEvalClientJs(): string {
         }
         var jobReq = res.body.jobReq || {};
         var filename = String(jobReq.filename||'未命名');
-        setJobReqBanner(filename);
         persistSessionPatch({
           activeJobReqId: jobReq.jobReqId,
           jobReqFilename: filename
+        }).then(function(){
+          renderComposerChip(filename);
+          chatInput.focus();
         });
       })
       .catch(function(e){ alert('上传失败：'+(e.message||e)); });
@@ -440,7 +460,15 @@ function buildCompetencyEvalClientJs(): string {
     streaming = true;
     updateSendState();
     chatInput.value=''; autoGrow();
-    var u = addMsg('user'); u.textContent = msg;
+    var u = addMsg('user');
+    u.textContent = msg;
+    if(sess.activeJobReqId){
+      var chipWrap = document.createElement('div');
+      chipWrap.innerHTML = '<div class="ce-file-chip"><span class="ce-file-chip-icon">📄</span><span class="ce-file-chip-name">'+esc(sess.jobReqFilename||'')+'</span></div>';
+      var chipEl = chipWrap.firstChild;
+      if(chipEl) u.insertBefore(chipEl, u.firstChild);
+      clearComposerChip();
+    }
     var bubble = addMsg('bot');
     showTyping(bubble);
     var hasText = false;
