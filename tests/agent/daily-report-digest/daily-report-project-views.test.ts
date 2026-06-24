@@ -96,6 +96,20 @@ describe("parseProjectViewConfig filters", () => {
     expect(v?.filters.keyword).toBe("CLA");
   });
 
+  it("parseProjectViewConfig accepts others role without keyword", () => {
+    const v = parseProjectViewConfig(
+      {
+        id: "others",
+        label: "其他",
+        viewers: ["u1"],
+        filters: { role: "others" },
+      },
+      "微光",
+    );
+    expect(v?.filters.role).toBe("others");
+    expect(v?.id).toBe("others");
+  });
+
   it("parseProjectViewConfig still accepts legacy pair", () => {
     const v = parseProjectViewConfig(
       {

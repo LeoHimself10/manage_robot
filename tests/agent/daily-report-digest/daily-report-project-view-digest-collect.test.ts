@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { loadOrCollectProjectViewDigest } from "../../../src/agent/daily-report-digest/daily-report-project-view-digest-collect";
 import {
-  createProjectViewCacheStore,
-  putProjectViewCache,
-} from "../../../src/agent/daily-report-digest/daily-report-project-view-cache";
+  createDayPartitionCacheStore,
+  putDayPartitionCache,
+} from "../../../src/agent/daily-report-digest/daily-report-day-partition-cache";
 import {
-  createProjectViewRosterStore,
-  addProjectViewRosterMember,
-} from "../../../src/agent/daily-report-digest/daily-report-project-view-roster-store";
+  createProjectViewCacheStore,
+} from "../../../src/agent/daily-report-digest/daily-report-project-view-cache";
 import type { DailyReportDigestConfig } from "../../../src/agent/daily-report-digest/daily-report-config";
 import { resolveDayRangeForYmd } from "../../../src/agent/daily-report-digest/daily-report-window";
 
@@ -42,8 +41,7 @@ function sampleConfig(): DailyReportDigestConfig {
             label: "半导体激光·静脉项目",
             viewers: ["viewer1"],
             filters: {
-              workModuleContains: "半导体激光",
-              costProjectContains: "静脉",
+              keyword: "半导体",
             },
           },
         ],
@@ -53,29 +51,29 @@ function sampleConfig(): DailyReportDigestConfig {
 }
 
 describe("loadOrCollectProjectViewDigest", () => {
-  it("returns cached payload without calling collect", async () => {
+  it("returns cached payload from partition cache without calling collect", async () => {
     const dbPath = inMemoryDbPath();
-    const rosterStore = createProjectViewRosterStore(dbPath);
+    const partitionStore = createDayPartitionCacheStore(dbPath);
     const cacheStore = createProjectViewCacheStore(dbPath);
-    addProjectViewRosterMember(
-      "semiconductor-vein",
-      { userid: "u1", name: "张三" },
-      rosterStore,
-    );
-    putProjectViewCache(
-      "semiconductor-vein",
+    putDayPartitionCache(
+      "微光",
       "2026-06-08",
+      2,
       {
-        submitted: [
-          {
-            userid: "u1",
-            name: "张三",
-            reports: [],
+        views: {
+          "semiconductor-vein": {
+            submitted: [
+              {
+                userid: "u1",
+                name: "张三",
+                reports: [],
+              },
+            ],
+            errors: [],
           },
-        ],
-        errors: [],
+        },
       },
-      cacheStore,
+      partitionStore,
     );
 
     const range = resolveDayRangeForYmd("2026-06-08", "Asia/Shanghai", {
@@ -88,18 +86,18 @@ describe("loadOrCollectProjectViewDigest", () => {
       viewId: "semiconductor-vein",
       range,
       cacheStore,
-      rosterStore,
+      partitionStore,
       ownsCacheStore: false,
-      ownsRosterStore: false,
+      ownsPartitionStore: false,
     });
 
     expect(ctx.fromCache).toBe(true);
-    expect(ctx.rosterCount).toBe(1);
+    expect(ctx.rosterCount).toBe(2);
     expect(ctx.orgDigest.submitted).toHaveLength(1);
     expect(ctx.orgDigest.submitted[0]!.name).toBe("张三");
     expect(ctx.view.label).toBe("半导体激光·静脉项目");
 
-    rosterStore.close();
+    partitionStore.close();
     cacheStore.close();
   });
 

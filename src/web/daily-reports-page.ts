@@ -66,11 +66,11 @@ export function renderDailyReportsPage(params: {
       <div class="drm-inner">
         <div class="drm-head">
           <h3 id="dpvrTitle">项目组名单</h3>
-          <span class="drm-hint" id="dpvrHint">按组织搜人 · 自动发现近 30 天匹配日报</span>
+          <span class="drm-hint" id="dpvrHint">名单仅作参考；日报按三类研发模板统一日筛，请用「刷新」重扫当日</span>
         </div>
         <div class="drm-banner" id="dpvrBanner" role="status"></div>
         <div class="drm-actions" style="margin-bottom:12px">
-          <button type="button" class="dr-btn" id="dpvrRediscover">重新发现</button>
+          <button type="button" class="dr-btn" id="dpvrRediscover" style="display:none">重新发现</button>
         </div>
         <div class="drm-cols" id="dpvrCols"><div class="drm-note"><span class="drm-spin"></span> 载入名单…</div></div>
       </div>
@@ -661,11 +661,12 @@ function buildDailyReportsClientJs(opts: {
         }
         if(dateInput && data.date && !dateInput.value) dateInput.value = data.date;
         var tail = data.errorCount ? (' · 读取失败 '+data.errorCount) : '';
-        var scanNote = data.scanning ? ' · <span class="drm-spin"></span> 正在扫描发现名单…' : '';
-        var rosterNote = (data.rosterCount != null && isCustomViewActive()) ? (' · 名单 '+data.rosterCount+' 人') : '';
+        var scanNote = data.scanning ? ' · <span class="drm-spin"></span> 正在扫描…' : '';
+        var poolN = data.poolCount != null ? data.poolCount : data.rosterCount;
+        var poolNote = (poolN != null && isCustomViewActive()) ? (' · 当日提交 '+poolN+' 人') : '';
         var cacheNote = data.cacheScannedAt ? (' · 缓存 '+esc(fmtTime(Date.parse(data.cacheScannedAt)))) : '';
         if(data.customProjectView){
-          meta.innerHTML = (data.dateLabel||data.date||'')+' · '+esc(data.customProjectView.label)+' · 命中 '+(data.submittedCount||0)+' 人'+rosterNote+cacheNote+scanNote+tail;
+          meta.innerHTML = (data.dateLabel||data.date||'')+' · '+esc(data.customProjectView.label)+' · 命中 '+(data.submittedCount||0)+' 人'+poolNote+cacheNote+scanNote+tail;
           content.innerHTML = renderCustomProjectView(data.customProjectView);
           if(isCustomViewActive()) loadProjectViewRoster(false);
           return;

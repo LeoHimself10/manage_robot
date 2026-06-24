@@ -1,18 +1,14 @@
 import type { DailyReportDigestConfig, DailyReportOrgConfig } from "./daily-report-config";
 import type { OrgDigest } from "./daily-report-build";
-import { collectProjectViewDigestForRange } from "./daily-report-project-view-collect";
+import {
+  createDayPartitionCacheStore,
+  loadOrCollectUnifiedDay,
+  type DayPartitionCacheStore,
+} from "./daily-report-day-partition-cache";
 import {
   createProjectViewCacheStore,
-  getProjectViewCache,
-  putProjectViewCache,
   type ProjectViewCacheStore,
 } from "./daily-report-project-view-cache";
-import {
-  createProjectViewRosterStore,
-  listProjectViewRoster,
-  type ProjectViewRosterMember,
-  type ProjectViewRosterStore,
-} from "./daily-report-project-view-roster-store";
 import {
   parseProjectViewConfig,
   type DailyReportProjectViewConfig,
@@ -23,9 +19,13 @@ export interface ProjectViewDigestContext {
   view: DailyReportProjectViewConfig & { orgLabel: string };
   org: DailyReportOrgConfig;
   orgDigest: OrgDigest;
-  roster: ProjectViewRosterMember[];
+  /** @deprecated unified collect 不再使用 per-view roster；保留空数组兼容 */
+  roster: Array<{ userid: string; name: string }>;
+  /** 当日三类研发模板提交人数 */
   rosterCount: number;
   fromCache: boolean;
+  poolCount?: number;
+  scannedAt?: string;
 }
 
 export function findOrgForProjectView(
@@ -49,9 +49,11 @@ export async function loadOrCollectProjectViewDigest(params: {
   viewId: string;
   range: ReportTimeRange;
   cacheStore?: ProjectViewCacheStore;
-  rosterStore?: ProjectViewRosterStore;
+  partitionStore?: DayPartitionCacheStore;
   ownsCacheStore?: boolean;
-  ownsRosterStore?: boolean;
+  ownsPartitionStore?: boolean;
+  refresh?: boolean;
+  fetchImpl?: typeof fetch;
 }): Promise<ProjectViewDigestContext> {
   const resolved = findOrgForProjectView(params.config, params.viewId);
   if (!resolved) {
@@ -59,54 +61,46 @@ export async function loadOrCollectProjectViewDigest(params: {
   }
   const { org, view } = resolved;
 
-  const rosterStore =
-    params.rosterStore ?? createProjectViewRosterStore();
-  const ownsRosterStore = params.ownsRosterStore ?? !params.rosterStore;
+  const partitionStore =
+    params.partitionStore ?? createDayPartitionCacheStore();
+  const ownsPartitionStore = params.ownsPartitionStore ?? !params.partitionStore;
   const cacheStore =
     params.cacheStore ?? createProjectViewCacheStore();
   const ownsCacheStore = params.ownsCacheStore ?? !params.cacheStore;
 
   try {
-    const roster = listProjectViewRoster(view.id, rosterStore);
-    const cached = getProjectViewCache(view.id, params.range.labelYmd, cacheStore);
+    const unified = await loadOrCollectUnifiedDay({
+      org,
+      range: params.range,
+      refresh: params.refresh,
+      partitionStore,
+      projectViewCacheStore: cacheStore,
+      ownsPartitionStore: false,
+      ownsProjectViewCacheStore: false,
+      fetchImpl: params.fetchImpl,
+    });
 
-    let orgDigest: OrgDigest;
-    let fromCache = false;
-
-    if (cached) {
-      orgDigest = {
+    const orgDigest =
+      unified.byViewId.get(view.id) ?? {
         label: org.label,
-        submitted: cached.payload.submitted,
+        submitted: [],
         missing: [],
         onLeave: [],
-        errors: cached.payload.errors,
+        errors: unified.errors,
       };
-      fromCache = true;
-    } else {
-      orgDigest = await collectProjectViewDigestForRange(
-        org,
-        view,
-        params.range,
-        roster,
-      );
-      putProjectViewCache(
-        view.id,
-        params.range.labelYmd,
-        { submitted: orgDigest.submitted, errors: orgDigest.errors },
-        cacheStore,
-      );
-    }
 
     return {
       view,
       org,
       orgDigest,
-      roster,
-      rosterCount: roster.length,
-      fromCache,
+      roster: [],
+      rosterCount: unified.poolCount,
+      poolCount: unified.poolCount,
+      fromCache: unified.fromCache,
+      scannedAt: unified.scannedAt,
     };
   } finally {
-    if (ownsRosterStore) rosterStore.close();
+    if (ownsPartitionStore) partitionStore.close();
     if (ownsCacheStore) cacheStore.close();
   }
 }

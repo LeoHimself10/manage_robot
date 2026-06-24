@@ -11,14 +11,13 @@ import {
   createProjectViewCacheStore,
   deleteProjectViewCache,
   getProjectViewCache,
-  putProjectViewCache,
 } from "../agent/daily-report-digest/daily-report-project-view-cache";
-import { collectProjectViewDigestForRange } from "../agent/daily-report-digest/daily-report-project-view-collect";
-import { runProjectViewDiscovery } from "../agent/daily-report-digest/daily-report-project-view-discovery";
 import {
-  createProjectViewRosterStore,
-  listProjectViewRoster,
-} from "../agent/daily-report-digest/daily-report-project-view-roster-store";
+  createDayPartitionCacheStore,
+  deleteDayPartitionCache,
+  loadOrCollectUnifiedDay,
+} from "../agent/daily-report-digest/daily-report-day-partition-cache";
+import { listProjectViewsFromConfig } from "../agent/daily-report-digest/daily-report-project-views";
 import {
   findProjectViewById,
   resolveDailyReportsAccess,
@@ -108,6 +107,8 @@ export interface DailyReportsHttpPayload {
   customProjectView?: DailyReportsCustomProjectViewPayload;
   scanning?: boolean;
   rosterCount?: number;
+  /** 当日三类研发模板提交人数（统一日筛） */
+  poolCount?: number;
   cacheScannedAt?: string;
 }
 
@@ -272,101 +273,44 @@ export async function buildDailyReportsHttpPayload(input?: {
     }
 
     const refresh = input?.refresh === true;
-    const rosterStore = createProjectViewRosterStore();
     const cacheStore = createProjectViewCacheStore();
+    const partitionStore = createDayPartitionCacheStore();
     try {
-      const roster = listProjectViewRoster(customViewId, rosterStore);
-      const rosterCount = roster.length;
-
       if (refresh) {
-        deleteProjectViewCache(customViewId, range.labelYmd, cacheStore);
-      } else {
-        const cached = getProjectViewCache(customViewId, range.labelYmd, cacheStore);
-        if (cached) {
-          const digest: OrgDigest = {
-            label: org.label,
-            submitted: cached.payload.submitted,
-            missing: [],
-            onLeave: [],
-            errors: cached.payload.errors,
-          };
-          const orgPayload = mapOrgDigest(digest, new Map(), personBriefsToMap(cached.payload.personBriefs ?? []));
-          return {
-            ok: true,
-            configured: true,
-            view,
-            access,
-            date: range.labelYmd,
-            dateLabel: range.labelDisplay,
-            generatedAt: now.toISOString(),
-            submittedCount: orgPayload.submitted.length,
-            missingCount: 0,
-            onLeaveCount: 0,
-            errorCount: orgPayload.errors.length,
-            rosterCount,
-            cacheScannedAt: cached.scannedAt,
-            scanning: false,
-            customProjectView: {
-              id: viewDef.id,
-              label: viewDef.label,
-              orgLabel: viewDef.orgLabel,
-              orgs: [orgPayload],
-            },
-          };
+        deleteDayPartitionCache(org.label, range.labelYmd, partitionStore);
+        for (const v of listProjectViewsFromConfig([org])) {
+          deleteProjectViewCache(v.id, range.labelYmd, cacheStore);
         }
       }
 
-      if (roster.length === 0) {
-        void runProjectViewDiscovery(customViewId, config, {
-          fetchImpl: input?.fetchImpl,
-          rosterStore,
-        }).catch(() => undefined);
-        const emptyDigest: OrgDigest = {
+      const unified = await loadOrCollectUnifiedDay({
+        org,
+        range,
+        refresh,
+        partitionStore,
+        projectViewCacheStore: cacheStore,
+        ownsPartitionStore: false,
+        ownsProjectViewCacheStore: false,
+        fetchImpl: input?.fetchImpl,
+      });
+
+      const poolCount = unified.poolCount;
+      const digest: OrgDigest =
+        unified.byViewId.get(customViewId) ?? {
           label: org.label,
           submitted: [],
           missing: [],
           onLeave: [],
-          errors: [],
+          errors: unified.errors,
         };
-        return {
-          ok: true,
-          configured: true,
-          view,
-          access,
-          date: range.labelYmd,
-          dateLabel: range.labelDisplay,
-          generatedAt: now.toISOString(),
-          submittedCount: 0,
-          missingCount: 0,
-          onLeaveCount: 0,
-          errorCount: 0,
-          rosterCount: 0,
-          scanning: true,
-          customProjectView: {
-            id: viewDef.id,
-            label: viewDef.label,
-            orgLabel: viewDef.orgLabel,
-            orgs: [mapOrgDigest(emptyDigest, new Map())],
-          },
-        };
-      }
 
-      const digest = await collectProjectViewDigestForRange(org, viewDef, range, roster, {
-        fetchImpl: input?.fetchImpl,
-      });
-      putProjectViewCache(
-        customViewId,
-        range.labelYmd,
-        { submitted: digest.submitted, errors: digest.errors },
-        cacheStore,
-      );
-      const cachedAfter = getProjectViewCache(customViewId, range.labelYmd, cacheStore);
+      const cached = getProjectViewCache(customViewId, range.labelYmd, cacheStore);
       const briefs = await ensureProjectViewPersonBriefs({
         viewId: customViewId,
         viewLabel: viewDef.label,
         dateYmd: range.labelYmd,
         dateLabel: range.labelDisplay,
-        rosterCount,
+        rosterCount: poolCount,
         orgDigest: digest,
         cacheStore,
         fetchImpl: input?.fetchImpl,
@@ -385,8 +329,9 @@ export async function buildDailyReportsHttpPayload(input?: {
         missingCount: 0,
         onLeaveCount: 0,
         errorCount: orgPayload.errors.length,
-        rosterCount,
-        cacheScannedAt: cachedAfter?.scannedAt,
+        rosterCount: poolCount,
+        poolCount,
+        cacheScannedAt: unified.scannedAt ?? cached?.scannedAt,
         scanning: false,
         customProjectView: {
           id: viewDef.id,
@@ -396,7 +341,7 @@ export async function buildDailyReportsHttpPayload(input?: {
         },
       };
     } finally {
-      rosterStore.close();
+      partitionStore.close();
       cacheStore.close();
     }
   }

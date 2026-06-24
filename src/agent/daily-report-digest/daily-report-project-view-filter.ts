@@ -3,7 +3,10 @@ import type { ReportContentField, ReportEntry } from "./dingtalk-report-client";
 const MODULE_INDICES = ["①", "②", "③", "④", "⑤", "⑥"] as const;
 const SEPARATOR_KEY_RE = /^-+/;
 
+export type ProjectViewRole = "project" | "others";
+
 export interface ProjectViewFilter {
+  role?: ProjectViewRole;
   keyword?: string;
   workModuleContains?: string;
   costProjectContains?: string;

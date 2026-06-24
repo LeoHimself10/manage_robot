@@ -1,6 +1,6 @@
 import type { DailyReportDigestConfig, DailyReportOrgConfig } from "./daily-report-config";
 import { configHasLegacyDailyReportEmployees } from "./daily-report-config";
-import type { ProjectViewFilter } from "./daily-report-project-view-filter";
+import type { ProjectViewFilter, ProjectViewRole } from "./daily-report-project-view-filter";
 import { isDailyReportProjectViewsEnabled } from "./daily-report-project-view-flag";
 
 export interface DailyReportProjectViewDigestConfig {
@@ -67,6 +67,20 @@ function parseDigestConfig(raw: unknown): DailyReportProjectViewDigestConfig | u
   };
 }
 
+export const OTHERS_PROJECT_VIEW_ID = "others";
+
+export function isOthersProjectView(
+  view: Pick<DailyReportProjectViewConfig, "id" | "filters">,
+): boolean {
+  return view.id === OTHERS_PROJECT_VIEW_ID || view.filters.role === "others";
+}
+
+export function listKeywordProjectViews(
+  views: Array<DailyReportProjectViewConfig & { orgLabel?: string }>,
+): Array<DailyReportProjectViewConfig & { orgLabel?: string }> {
+  return views.filter((v) => !isOthersProjectView(v));
+}
+
 export function parseProjectViewConfig(raw: unknown, orgLabel: string): DailyReportProjectViewConfig | null {
   const o = (raw ?? {}) as Record<string, unknown>;
   const id = asString(o.id);
@@ -74,11 +88,15 @@ export function parseProjectViewConfig(raw: unknown, orgLabel: string): DailyRep
   const viewersRaw = Array.isArray(o.viewers) ? o.viewers : [];
   const viewers = viewersRaw.map((v) => asString(v)).filter(Boolean);
   const filtersRaw = (o.filters ?? {}) as Record<string, unknown>;
+  const roleRaw = asString(filtersRaw.role);
+  const role: ProjectViewRole | undefined =
+    roleRaw === "others" || id === OTHERS_PROJECT_VIEW_ID ? "others" : roleRaw === "project" ? "project" : undefined;
   const keyword = asString(filtersRaw.keyword);
   const workModuleContains = asString(filtersRaw.workModuleContains);
   const costProjectContains = asString(filtersRaw.costProjectContains);
   if (!id || !label || viewers.length === 0) return null;
-  if (!keyword && (!workModuleContains || !costProjectContains)) return null;
+  const isOthers = role === "others" || id === OTHERS_PROJECT_VIEW_ID;
+  if (!isOthers && !keyword && (!workModuleContains || !costProjectContains)) return null;
   const digest = parseDigestConfig(o.digest);
   return {
     id,
@@ -87,6 +105,7 @@ export function parseProjectViewConfig(raw: unknown, orgLabel: string): DailyRep
     exclusiveForViewers: o.exclusiveForViewers === true,
     discoveryDays: parseDiscoveryDays(o.discoveryDays),
     filters: {
+      ...(isOthers ? { role: "others" as const } : {}),
       ...(keyword ? { keyword } : {}),
       ...(workModuleContains ? { workModuleContains } : {}),
       ...(costProjectContains ? { costProjectContains } : {}),

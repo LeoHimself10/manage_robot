@@ -7,16 +7,16 @@ import {
   parseDailyReportDigestConfig,
   type DailyReportDigestConfig,
 } from "../../../src/agent/daily-report-digest/daily-report-config";
+import { createDayPartitionCacheStore } from "../../../src/agent/daily-report-digest/daily-report-day-partition-cache";
 import { createProjectViewCacheStore } from "../../../src/agent/daily-report-digest/daily-report-project-view-cache";
 import {
   createDailyReportProjectViewPrewarmScheduler,
   isProjectViewPrewarmWindow,
 } from "../../../src/agent/daily-report-digest/daily-report-project-view-prewarm";
-import { createProjectViewRosterStore } from "../../../src/agent/daily-report-digest/daily-report-project-view-roster-store";
+import * as unifiedCollect from "../../../src/agent/daily-report-digest/daily-report-unified-day-collect";
 
 const VIEW_FILTER = {
-  workModuleContains: "半导体激光",
-  costProjectContains: "静脉腔内闭合系统",
+  keyword: "半导体",
 };
 
 function configWithProjectView(): DailyReportDigestConfig {
@@ -84,21 +84,23 @@ describe("daily-report-project-view-prewarm scheduler", () => {
     process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED = "1";
     process.env.DAILY_REPORT_PROJECT_VIEW_PREWARM_HOUR = "6";
     process.env.DAILY_REPORT_PROJECT_VIEW_PREWARM_MINUTE = "45";
+    process.env.DAILY_REPORT_PROJECT_VIEW_PREWARM_SUMMARIES = "0";
   });
 
   afterEach(() => {
     delete process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED;
+    vi.restoreAllMocks();
   });
   let tmpDir: string;
   let scheduler: ReturnType<typeof createDailyReportProjectViewPrewarmScheduler> | undefined;
-  let rosterStore: ReturnType<typeof createProjectViewRosterStore> | undefined;
+  let partitionStore: ReturnType<typeof createDayPartitionCacheStore> | undefined;
   let cacheStore: ReturnType<typeof createProjectViewCacheStore> | undefined;
 
   afterEach(() => {
     scheduler?.close();
     scheduler = undefined;
-    rosterStore?.close();
-    rosterStore = undefined;
+    partitionStore?.close();
+    partitionStore = undefined;
     cacheStore?.close();
     cacheStore = undefined;
     if (tmpDir) {
@@ -111,88 +113,73 @@ describe("daily-report-project-view-prewarm scheduler", () => {
     }
   });
 
-  it("prewarm runs at Tue 06:47 and caches yesterday range", async () => {
+  it("prewarm runs unified collect at Tue 06:47 and caches yesterday range", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "prewarm-"));
     const dbPath = join(tmpDir, "wb.sqlite");
     const config = configWithProjectView();
-    rosterStore = createProjectViewRosterStore(dbPath);
+    partitionStore = createDayPartitionCacheStore(dbPath);
     cacheStore = createProjectViewCacheStore(dbPath);
-    const runDiscovery = vi.fn().mockResolvedValue({ added: 0, totalRoster: 0, discovered: [] });
-    const collectDigest = vi.fn().mockResolvedValue({
+
+    const digest = {
       label: "明思",
       submitted: [{ userid: "u1", name: "张三", reports: [] }],
       missing: [],
       onLeave: [],
       errors: [],
+    };
+    vi.spyOn(unifiedCollect, "collectUnifiedDayForOrg").mockResolvedValue({
+      poolCount: 3,
+      byViewId: new Map([["view-1", digest]]),
+      errors: [],
     });
 
     scheduler = createDailyReportProjectViewPrewarmScheduler({
       config,
-      rosterStore,
+      partitionStore,
       cacheStore,
-      runDiscovery,
-      collectDigest,
     });
 
     const tue0647 = new Date("2026-06-09T06:47:00+08:00");
     await scheduler.runPrewarm(tue0647);
 
-    expect(runDiscovery).toHaveBeenCalledWith("view-1", config, expect.any(Object));
-    expect(collectDigest).toHaveBeenCalledTimes(1);
-    expect(collectDigest.mock.calls[0]?.[2]?.labelYmd).toBe("2026-06-08");
+    expect(unifiedCollect.collectUnifiedDayForOrg).toHaveBeenCalledTimes(1);
 
-    const cached = cacheStore.db
+    const cached = partitionStore.db
       .prepare(
-        `SELECT payload_json FROM daily_report_project_view_cache
-         WHERE view_id = ? AND date_ymd = ?`,
+        `SELECT payload_json FROM daily_report_day_partition_cache
+         WHERE org_label = ? AND date_ymd = ?`,
       )
-      .get("view-1", "2026-06-08") as { payload_json: string } | undefined;
+      .get("明思", "2026-06-08") as { payload_json: string } | undefined;
     expect(cached).toBeDefined();
-    const payload = JSON.parse(cached!.payload_json) as { submitted: unknown[] };
-    expect(payload.submitted).toHaveLength(1);
+    const payload = JSON.parse(cached!.payload_json) as {
+      views: Record<string, { submitted: unknown[] }>;
+    };
+    expect(payload.views["view-1"]?.submitted).toHaveLength(1);
   });
 
   it("skips prewarm on Mon 06:47", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "prewarm-"));
     const dbPath = join(tmpDir, "wb.sqlite");
     const config = configWithProjectView();
-    rosterStore = createProjectViewRosterStore(dbPath);
+    partitionStore = createDayPartitionCacheStore(dbPath);
     cacheStore = createProjectViewCacheStore(dbPath);
-    const runDiscovery = vi.fn();
-    const collectDigest = vi.fn();
+    const spy = vi.spyOn(unifiedCollect, "collectUnifiedDayForOrg");
 
     scheduler = createDailyReportProjectViewPrewarmScheduler({
       config,
-      rosterStore,
+      partitionStore,
       cacheStore,
-      runDiscovery,
-      collectDigest,
     });
 
     const mon0647 = new Date("2026-06-08T06:47:00+08:00");
     await scheduler.runPrewarm(mon0647);
 
-    expect(runDiscovery).not.toHaveBeenCalled();
-    expect(collectDigest).not.toHaveBeenCalled();
+    expect(spy).not.toHaveBeenCalled();
   });
 
-  it("bootstrapOnStartup fires discovery for empty roster views", async () => {
-    tmpDir = mkdtempSync(join(tmpdir(), "prewarm-"));
-    const dbPath = join(tmpDir, "wb.sqlite");
+  it("bootstrapOnStartup is no-op under unified collect", async () => {
     const config = configWithProjectView();
-    rosterStore = createProjectViewRosterStore(dbPath);
-    cacheStore = createProjectViewCacheStore(dbPath);
-    const runDiscovery = vi.fn().mockResolvedValue({ added: 1, totalRoster: 1, discovered: [] });
-
-    scheduler = createDailyReportProjectViewPrewarmScheduler({
-      config,
-      rosterStore,
-      cacheStore,
-      runDiscovery,
-    });
-
-    await scheduler.bootstrapOnStartup();
-    await vi.waitFor(() => expect(runDiscovery).toHaveBeenCalledTimes(1));
-    expect(runDiscovery).toHaveBeenCalledWith("view-1", config, expect.any(Object));
+    scheduler = createDailyReportProjectViewPrewarmScheduler({ config });
+    await expect(scheduler.bootstrapOnStartup()).resolves.toBeUndefined();
   });
 });

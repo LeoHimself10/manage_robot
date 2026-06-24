@@ -3,8 +3,11 @@ import {
   loadDailyReportDigestConfig,
   type DailyReportDigestConfig,
 } from "./daily-report-config";
-import { collectProjectViewDigestForRange } from "./daily-report-project-view-collect";
-import { runProjectViewDiscovery } from "./daily-report-project-view-discovery";
+import {
+  createDayPartitionCacheStore,
+  loadOrCollectUnifiedDay,
+  type DayPartitionCacheStore,
+} from "./daily-report-day-partition-cache";
 import {
   createProjectViewCacheStore,
   putProjectViewCache,
@@ -12,11 +15,6 @@ import {
 } from "./daily-report-project-view-cache";
 import { ensureProjectViewPersonBriefs } from "./daily-report-project-view-person-briefs";
 import { ensureProjectViewCtoOverview } from "./daily-report-project-view-summaries";
-import {
-  createProjectViewRosterStore,
-  listProjectViewRoster,
-  type ProjectViewRosterStore,
-} from "./daily-report-project-view-roster-store";
 import {
   isProjectViewDigestEnabledForView,
   listProjectViewsFromConfig,
@@ -42,11 +40,9 @@ const PREWARM_WINDOW_MINUTES = 5;
 
 export interface DailyReportProjectViewPrewarmDeps {
   config?: DailyReportDigestConfig;
-  rosterStore?: ProjectViewRosterStore;
+  partitionStore?: DayPartitionCacheStore;
   cacheStore?: ProjectViewCacheStore;
   fetchImpl?: typeof fetch;
-  runDiscovery?: typeof runProjectViewDiscovery;
-  collectDigest?: typeof collectProjectViewDigestForRange;
   prewarmSummaries?: boolean;
 }
 
@@ -73,12 +69,10 @@ export function createDailyReportProjectViewPrewarmScheduler(
   deps?: DailyReportProjectViewPrewarmDeps,
 ) {
   const loadConfig = () => deps?.config ?? loadDailyReportDigestConfig().config;
-  const rosterStore = deps?.rosterStore ?? createProjectViewRosterStore();
+  const partitionStore = deps?.partitionStore ?? createDayPartitionCacheStore();
   const cacheStore = deps?.cacheStore ?? createProjectViewCacheStore();
-  const ownsRosterStore = !deps?.rosterStore;
+  const ownsPartitionStore = !deps?.partitionStore;
   const ownsCacheStore = !deps?.cacheStore;
-  const runDiscovery = deps?.runDiscovery ?? runProjectViewDiscovery;
-  const collectDigest = deps?.collectDigest ?? collectProjectViewDigestForRange;
   const prewarmSummaries = deps?.prewarmSummaries ?? envPrewarmSummariesEnabled();
   let timer: NodeJS.Timeout | undefined;
   let scanning = false;
@@ -99,61 +93,58 @@ export function createDailyReportProjectViewPrewarmScheduler(
       });
       const dateLabel = `${range.labelDisplay}（${range.labelYmd}）`;
 
-      for (const view of views) {
-        const org = config.orgs.find((o) => o.label === view.orgLabel);
-        if (!org) continue;
+      for (const org of config.orgs) {
+        const orgViews = views.filter((v) => v.orgLabel === org.label);
+        if (!orgViews.length) continue;
 
-        let roster = listProjectViewRoster(view.id, rosterStore);
-        if (!roster.length) {
-          await runDiscovery(view.id, config, {
-            fetchImpl: deps?.fetchImpl,
-            rosterStore,
-            now,
-          });
-          roster = listProjectViewRoster(view.id, rosterStore);
-        }
-
-        const digest = await collectDigest(org, view, range, roster, {
+        const unified = await loadOrCollectUnifiedDay({
+          org,
+          range,
+          partitionStore,
+          projectViewCacheStore: cacheStore,
+          ownsPartitionStore: false,
+          ownsProjectViewCacheStore: false,
           fetchImpl: deps?.fetchImpl,
         });
-        putProjectViewCache(
-          view.id,
-          range.labelYmd,
-          { submitted: digest.submitted, errors: digest.errors },
-          cacheStore,
-        );
 
-        if (prewarmSummaries && isProjectViewDigestEnabledForView(view)) {
-          await ensureProjectViewCtoOverview({
-            viewId: view.id,
-            viewLabel: view.label,
-            dateYmd: range.labelYmd,
-            dateLabel,
-            rosterCount: roster.length,
-            orgDigest: digest,
-            cacheStore,
-            fetchImpl: deps?.fetchImpl,
-          });
-        }
+        for (const view of orgViews) {
+          const digest = unified.byViewId.get(view.id);
+          if (!digest) continue;
 
-        if (prewarmSummaries && digest.submitted.length > 0) {
-          await ensureProjectViewPersonBriefs({
-            viewId: view.id,
-            viewLabel: view.label,
-            dateYmd: range.labelYmd,
-            dateLabel,
-            rosterCount: roster.length,
-            orgDigest: digest,
-            cacheStore,
-            fetchImpl: deps?.fetchImpl,
-          });
+          if (prewarmSummaries && isProjectViewDigestEnabledForView(view)) {
+            await ensureProjectViewCtoOverview({
+              viewId: view.id,
+              viewLabel: view.label,
+              dateYmd: range.labelYmd,
+              dateLabel,
+              rosterCount: unified.poolCount,
+              orgDigest: digest,
+              cacheStore,
+              fetchImpl: deps?.fetchImpl,
+            });
+          }
+
+          if (prewarmSummaries && digest.submitted.length > 0) {
+            await ensureProjectViewPersonBriefs({
+              viewId: view.id,
+              viewLabel: view.label,
+              dateYmd: range.labelYmd,
+              dateLabel,
+              rosterCount: unified.poolCount,
+              orgDigest: digest,
+              cacheStore,
+              fetchImpl: deps?.fetchImpl,
+            });
+          }
         }
       }
+
       logStructured({
         event: "daily_report_project_view_prewarm_done",
         labelYmd: range.labelYmd,
         viewCount: views.length,
         prewarmSummaries,
+        mode: "unified_partition",
       });
     } catch (err) {
       logStructured({
@@ -170,21 +161,7 @@ export function createDailyReportProjectViewPrewarmScheduler(
     const config = loadConfig();
     const views = listProjectViewsFromConfig(config.orgs);
     if (!views.length) return;
-
-    for (const view of views) {
-      const roster = listProjectViewRoster(view.id, rosterStore);
-      if (roster.length > 0) continue;
-      void runDiscovery(view.id, config, {
-        fetchImpl: deps?.fetchImpl,
-        rosterStore,
-      }).catch((err) => {
-        logStructured({
-          event: "daily_report_project_view_bootstrap_discovery_failed",
-          viewId: view.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }
+    // unified collect 在首次 prewarm / 页面打开时执行，无需 roster bootstrap discovery
   }
 
   function startIntervalLoop(): void {
@@ -206,7 +183,7 @@ export function createDailyReportProjectViewPrewarmScheduler(
 
   function close(): void {
     stopIntervalLoop();
-    if (ownsRosterStore) rosterStore.close();
+    if (ownsPartitionStore) partitionStore.close();
     if (ownsCacheStore) cacheStore.close();
   }
 
