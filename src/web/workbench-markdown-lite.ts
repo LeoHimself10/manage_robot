@@ -150,13 +150,17 @@ function renderFencedBlock(lines: string[], start: number): { html: string; next
 
 function renderTableBlock(lines: string[], start: number): { html: string; nextI: number } {
   const header = splitTableRow(lines[start]!);
+  const colCount = header.length;
   let i = start + 2;
   const rows: string[][] = [];
   while (i < lines.length) {
     const ln = lines[i]!;
     if (ln.trim() === "") break;
     if (!ln.includes("|")) break;
-    rows.push(splitTableRow(ln));
+    const cells = splitTableRow(ln);
+    // Abandon table if a row has a different column count — it's not a valid table row
+    if (cells.length !== colCount) break;
+    rows.push(cells);
     i++;
   }
   const thead = `<tr>${header.map((c) => `<th>${applyInlineFormatting(c)}</th>`).join("")}</tr>`;
