@@ -149,33 +149,15 @@ function renderFencedBlock(lines: string[], start: number): { html: string; next
 }
 
 function renderTableBlock(lines: string[], start: number): { html: string; nextI: number } {
-  // Merge continuation lines into the header row until it ends with |
-  let headerLine = lines[start]!;
-  let headerEnd = start;
-  while (!headerLine.trim().endsWith("|") && headerEnd + 1 < lines.length) {
-    headerEnd++;
-    headerLine += "\n" + lines[headerEnd]!;
-  }
-  const header = splitTableRow(headerLine);
-  const colCount = header.length;
-  // Separator line is the line right after the merged header
-  let i = headerEnd + 2;
+  const header = splitTableRow(lines[start]!);
+  let i = start + 2;
   const rows: string[][] = [];
   while (i < lines.length) {
-    let ln = lines[i]!;
+    const ln = lines[i]!;
     if (ln.trim() === "") break;
     if (!ln.includes("|")) break;
-    // Merge continuation lines for this row until it ends with |
-    let rowEnd = i;
-    while (!ln.trim().endsWith("|") && rowEnd + 1 < lines.length) {
-      rowEnd++;
-      ln += "\n" + lines[rowEnd]!;
-    }
-    const cells = splitTableRow(ln);
-    // Abandon table if a row has a different column count
-    if (cells.length !== colCount) break;
-    rows.push(cells);
-    i = rowEnd + 1;
+    rows.push(splitTableRow(ln));
+    i++;
   }
   const thead = `<tr>${header.map((c) => `<th>${applyInlineFormatting(c)}</th>`).join("")}</tr>`;
   const tbody = rows
@@ -270,17 +252,6 @@ function renderEscapedMarkdown(esc: string): string {
         parts.push('<hr class="msg-md-hr" />');
         i++;
         continue;
-      }
-      // Standalone header lines get their own block regardless of what follows
-      if (/^#{1,3}\s+./.test(ln) && blockLines.length === 0) {
-        const m = /^(#{1,3})\s+(.*)$/.exec(ln);
-        if (m) {
-          const level = m[1]!.length;
-          const tag = `h${level}`;
-          parts.push(`<${tag} class="msg-md-h msg-md-h${level}">${applyInlineToParagraphBlock(m[2]!)}</${tag}>`);
-          i++;
-          continue;
-        }
       }
       blockLines.push(ln);
       i++;

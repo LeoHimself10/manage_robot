@@ -231,13 +231,9 @@ export function handleCompetencyEvalSessionSave(
   const patch: {
     messages?: CompEvalChatMessage[];
     title?: string;
-    activeJobReqId?: string;
-    jobReqFilename?: string;
   } = {};
   if (body.messages !== undefined) patch.messages = messages;
   if (body.title !== undefined) patch.title = String(body.title ?? "");
-  if (body.activeJobReqId !== undefined) patch.activeJobReqId = String(body.activeJobReqId ?? "").trim() || undefined;
-  if (body.jobReqFilename !== undefined) patch.jobReqFilename = String(body.jobReqFilename ?? "").trim() || undefined;
   const session = saveCompEvalSession(userId, sessionId, patch);
   if (!session) return { ok: false, error: "not_found" };
   return { ok: true, session };
