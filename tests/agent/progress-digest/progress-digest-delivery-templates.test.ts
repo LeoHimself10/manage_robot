@@ -89,7 +89,10 @@ describe("delivery reminder templates", () => {
     expect(subject).toBe("近一周交付 · 1项");
     expect(markdown).toContain("### 近一周交付提醒 · 5月29日");
     expect(markdown).toContain("### 我负责的任务");
+    expect(markdown).toContain("#### 1. 培训任务 · 教材准备");
+    expect(markdown).toContain("- **截止**：6月3日");
     expect(markdown).toContain("另有 4 项截止在更晚");
+    expect(markdown).not.toMatch(/\| --- \|/);
     expect(markdown).not.toContain("### 我主管的任务");
     expect(markdown).not.toContain("昨日动态");
   });

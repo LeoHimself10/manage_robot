@@ -66,16 +66,18 @@ describe("progress-digest-templates", () => {
     expect(buildDigestSubject(sampleFacts())).toBe("今日任务 · 1项需您处理");
   });
 
-  it("renderProgressDigestTemplate uses pipe tables and section headers", () => {
+  it("renderProgressDigestTemplate uses dingtalk-friendly list blocks and section headers", () => {
     const { markdown } = renderProgressDigestTemplate(sampleFacts());
     expect(markdown).toContain("### 今日任务一览");
     expect(markdown).toContain("### 今日概览");
     expect(markdown).toContain("### 需您处理");
-    expect(markdown).toContain("| 任务 | 子任务 | 负责人 | 状态 | 截止 | 备注 |");
+    expect(markdown).not.toMatch(/\| --- \|/);
+    expect(markdown).toContain("#### 1. 产线异常调查");
+    expect(markdown).toContain("- **负责人**：杨贺新");
     expect(markdown).toContain("产线异常调查");
     expect(markdown).toContain("### 正常推进");
     expect(markdown).toContain("### 昨日动态（5月20日）");
-    expect(markdown).toContain("| 09:32 | 杨贺新 |");
+    expect(markdown).toContain("**09:32** 杨贺新 · 提交进度");
     expect(markdown).not.toContain("过去 24 小时");
   });
 

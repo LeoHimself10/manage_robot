@@ -148,7 +148,9 @@ describe("progress-digest-build", () => {
     expect(built.mode).toBe("delivery");
     expect(built.renderSource).toBe("template");
     expect(built.markdown).toContain("近一周交付提醒");
-    expect(built.markdown).toContain("| 任务 | 子任务 | 负责人 | 截止 | 状态 |");
+    expect(built.markdown).toContain("#### 1. Build digest · 执行子任务");
+    expect(built.markdown).toContain("- **负责人**：emp-1");
+    expect(built.markdown).not.toMatch(/\| --- \|/);
     expect(built.markdown).not.toContain("昨日动态");
     expect(built.markdown).not.toContain("后续建议");
   });
