@@ -149,34 +149,33 @@ function renderFencedBlock(lines: string[], start: number): { html: string; next
 }
 
 function renderTableBlock(lines: string[], start: number): { html: string; nextI: number } {
-  const header = splitTableRow(lines[start]!);
+  // Merge continuation lines into the header row until it ends with |
+  let headerLine = lines[start]!;
+  let headerEnd = start;
+  while (!headerLine.trim().endsWith("|") && headerEnd + 1 < lines.length) {
+    headerEnd++;
+    headerLine += "\n" + lines[headerEnd]!;
+  }
+  const header = splitTableRow(headerLine);
   const colCount = header.length;
-  let i = start + 2;
+  // Separator line is the line right after the merged header
+  let i = headerEnd + 2;
   const rows: string[][] = [];
   while (i < lines.length) {
-    const ln = lines[i]!;
+    let ln = lines[i]!;
     if (ln.trim() === "") break;
     if (!ln.includes("|")) break;
-    // Line does not start with | — this is a continuation of the previous row's last cell
-    if (!/^\s*\|/.test(ln)) {
-      if (rows.length > 0) {
-        const last = rows[rows.length - 1]!;
-        // Strip leading OR trailing | (and adjacent whitespace) from the continuation line,
-        // then append to the last cell's content
-        const cont = ln.replace(/^\s*\|\s*/, "").replace(/\s*\|\s*$/, "").trim();
-        last[last.length - 1] += "\n" + cont;
-      }
-      i++;
-      continue;
+    // Merge continuation lines for this row until it ends with |
+    let rowEnd = i;
+    while (!ln.trim().endsWith("|") && rowEnd + 1 < lines.length) {
+      rowEnd++;
+      ln += "\n" + lines[rowEnd]!;
     }
     const cells = splitTableRow(ln);
     // Abandon table if a row has a different column count
     if (cells.length !== colCount) break;
-    // Abandon if any cell is suspiciously long — likely a prose line accidentally
-    // captured as a table row (e.g. a sentence with | characters inside a cell)
-    if (cells.some((c) => c.length > 150)) break;
     rows.push(cells);
-    i++;
+    i = rowEnd + 1;
   }
   const thead = `<tr>${header.map((c) => `<th>${applyInlineFormatting(c)}</th>`).join("")}</tr>`;
   const tbody = rows
