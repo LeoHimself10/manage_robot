@@ -45,6 +45,8 @@ export async function ensureProjectViewPersonBriefs(input: {
   cacheStore: ProjectViewCacheStore;
   fetchImpl?: typeof fetch;
   refresh?: boolean;
+  /** 默认 true；工作台页面可关以加快首屏 */
+  llmEnabled?: boolean;
 }): Promise<PersonBrief[]> {
   if (input.orgDigest.submitted.length === 0) return [];
 
@@ -55,18 +57,28 @@ export async function ensureProjectViewPersonBriefs(input: {
     }
   }
 
-  const llmConfig = loadDailyReportMorningLlmConfig();
+  const llmEnabled = input.llmEnabled !== false;
   let briefs: PersonBrief[];
-  if (llmConfig?.enabled) {
-    const summary = await summarizeProjectViewMorningWithLlm(
-      input.viewLabel,
-      input.dateLabel,
-      input.rosterCount,
-      input.orgDigest,
-      llmConfig,
-      input.fetchImpl,
-    );
-    briefs = summary.personBriefs;
+  if (llmEnabled) {
+    const llmConfig = loadDailyReportMorningLlmConfig();
+    if (llmConfig?.enabled) {
+      const summary = await summarizeProjectViewMorningWithLlm(
+        input.viewLabel,
+        input.dateLabel,
+        input.rosterCount,
+        input.orgDigest,
+        llmConfig,
+        input.fetchImpl,
+      );
+      briefs = summary.personBriefs;
+    } else {
+      briefs = fallbackProjectViewMorningSummary(
+        input.viewLabel,
+        input.dateLabel,
+        input.rosterCount,
+        input.orgDigest,
+      ).personBriefs;
+    }
   } else {
     briefs = fallbackProjectViewMorningSummary(
       input.viewLabel,

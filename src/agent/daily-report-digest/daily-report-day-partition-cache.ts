@@ -8,6 +8,11 @@ import {
   collectUnifiedDayForOrg,
   type UnifiedDayCollectResult,
 } from "./daily-report-unified-day-collect";
+import type { UnifiedDayScanMode } from "./daily-report-unified-scan-contacts";
+import {
+  createProjectViewRosterStore,
+  type ProjectViewRosterStore,
+} from "./daily-report-project-view-roster-store";
 import {
   putProjectViewCache,
   type ProjectViewCacheStore,
@@ -141,10 +146,14 @@ export async function loadOrCollectUnifiedDay(params: {
   org: DailyReportOrgConfig;
   range: ReportTimeRange;
   refresh?: boolean;
+  /** fast=项目 roster 并集快扫（不写 partition 缓存）；full=全员扫描并缓存 */
+  scanMode?: UnifiedDayScanMode;
   partitionStore?: DayPartitionCacheStore;
   projectViewCacheStore?: ProjectViewCacheStore;
+  rosterStore?: ProjectViewRosterStore;
   ownsPartitionStore?: boolean;
   ownsProjectViewCacheStore?: boolean;
+  ownsRosterStore?: boolean;
   fetchImpl?: typeof fetch;
 }): Promise<{
   poolCount: number;
@@ -152,10 +161,13 @@ export async function loadOrCollectUnifiedDay(params: {
   errors: OrgDigest["errors"];
   fromCache: boolean;
   scannedAt?: string;
+  scanMode?: UnifiedDayScanMode;
 }> {
   const partitionStore =
     params.partitionStore ?? createDayPartitionCacheStore();
   const ownsPartitionStore = params.ownsPartitionStore ?? !params.partitionStore;
+  const rosterStore = params.rosterStore ?? createProjectViewRosterStore();
+  const ownsRosterStore = params.ownsRosterStore ?? !params.rosterStore;
   const projectViewCacheStore = params.projectViewCacheStore;
   const dateYmd = params.range.labelYmd;
 
@@ -179,26 +191,36 @@ export async function loadOrCollectUnifiedDay(params: {
           errors: [],
           fromCache: true,
           scannedAt: cached.scannedAt,
+          scanMode: "full",
         };
       }
     } else {
       deleteDayPartitionCache(params.org.label, dateYmd, partitionStore);
     }
 
+    const scanMode: UnifiedDayScanMode =
+      params.scanMode ?? (params.refresh ? "full" : "fast");
+
     const result = await collectUnifiedDayForOrg(params.org, params.range, {
       fetchImpl: params.fetchImpl,
+      scanMode,
+      rosterStore,
     });
 
-    putDayPartitionCache(
-      params.org.label,
-      dateYmd,
-      result.poolCount,
-      payloadFromCollect(result),
-      partitionStore,
-    );
+    const scannedAt = new Date().toISOString();
 
-    if (projectViewCacheStore) {
-      syncProjectViewCachesFromPartition(dateYmd, result, projectViewCacheStore);
+    if (scanMode === "full") {
+      putDayPartitionCache(
+        params.org.label,
+        dateYmd,
+        result.poolCount,
+        payloadFromCollect(result),
+        partitionStore,
+      );
+
+      if (projectViewCacheStore) {
+        syncProjectViewCachesFromPartition(dateYmd, result, projectViewCacheStore);
+      }
     }
 
     return {
@@ -206,10 +228,12 @@ export async function loadOrCollectUnifiedDay(params: {
       byViewId: result.byViewId,
       errors: result.errors,
       fromCache: false,
-      scannedAt: new Date().toISOString(),
+      scannedAt,
+      scanMode,
     };
   } finally {
     if (ownsPartitionStore) partitionStore.close();
+    if (ownsRosterStore) rosterStore.close();
   }
 }
 

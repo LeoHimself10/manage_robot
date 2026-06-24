@@ -9,13 +9,17 @@ import {
   createDingTalkReportClient,
   type DingTalkReportClient,
 } from "./dingtalk-report-client";
-import { listOrgScanContacts } from "./daily-report-org-scan-contacts";
 import { mapWithConcurrency } from "./daily-report-project-view-discovery";
 import {
   listProjectViewsFromConfig,
   type DailyReportProjectViewConfig,
 } from "./daily-report-project-views";
-import { isRdDailyTemplate } from "./daily-report-rd-template-gate";
+import { reportEligibleForUnifiedPartition } from "./daily-report-rd-template-gate";
+import {
+  resolveUnifiedScanContacts,
+  type UnifiedDayScanMode,
+} from "./daily-report-unified-scan-contacts";
+import type { ProjectViewRosterStore } from "./daily-report-project-view-roster-store";
 import type { ReportTimeRange } from "./daily-report-window";
 import { logStructured } from "../../infra/logger";
 
@@ -32,12 +36,19 @@ export async function collectUnifiedDayPartition(params: {
   reportClient?: DingTalkReportClient;
   fetchImpl?: typeof fetch;
   scanContacts?: Array<{ userid: string; name: string }>;
+  scanMode?: UnifiedDayScanMode;
+  rosterStore?: ProjectViewRosterStore;
 }): Promise<UnifiedDayCollectResult> {
   const client =
     params.reportClient ?? createDingTalkReportClient({ fetchImpl: params.fetchImpl });
   const contacts =
     params.scanContacts ??
-    (await listOrgScanContacts(params.org));
+    (await resolveUnifiedScanContacts({
+      org: params.org,
+      projectViews: params.projectViews,
+      scanMode: params.scanMode ?? "full",
+      rosterStore: params.rosterStore,
+    }));
   const viewIds = listProjectViewIdsForPartition(params.projectViews);
   const errors: OrgDigest["errors"] = [];
   const partitionedRows: Array<{
@@ -58,11 +69,13 @@ export async function collectUnifiedDayPartition(params: {
         startTime: params.range.startTime,
         endTime: params.range.endTime,
       });
-      const rdReports = reps.filter((r) => isRdDailyTemplate(r.templateName));
-      if (rdReports.length === 0) return;
+      const eligible = reps.filter((r) =>
+        reportEligibleForUnifiedPartition(r, params.projectViews),
+      );
+      if (eligible.length === 0) return;
 
       const byViewId = new Map<string, import("./dingtalk-report-client").ReportEntry[]>();
-      for (const report of rdReports) {
+      for (const report of eligible) {
         const part = partitionReportEntry(report, params.projectViews);
         for (const [viewId, entries] of part.byViewId) {
           const existing = byViewId.get(viewId) ?? [];
@@ -108,6 +121,8 @@ export async function collectUnifiedDayForOrg(
     reportClient?: DingTalkReportClient;
     fetchImpl?: typeof fetch;
     scanContacts?: Array<{ userid: string; name: string }>;
+    scanMode?: UnifiedDayScanMode;
+    rosterStore?: ProjectViewRosterStore;
   },
 ): Promise<UnifiedDayCollectResult> {
   const projectViews = listProjectViewsFromConfig([org]);

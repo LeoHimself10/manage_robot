@@ -81,4 +81,34 @@ describe("collectUnifiedDayPartition", () => {
     expect(result.byViewId.get("semiconductor-vein")?.submitted).toHaveLength(1);
     expect(result.byViewId.get("others")?.submitted).toHaveLength(0);
   });
+
+  it("includes non-RD template when keyword matches", async () => {
+    const customEntry: ReportEntry = {
+      creatorUserId: "u3",
+      creatorName: "李四",
+      templateName: "研发日报-明思",
+      createTime: 1,
+      contents: block("①", "Y1b13 半导体激光", "2514"),
+    };
+
+    const reportClient = {
+      fetchUserReports: vi.fn(async () => [customEntry]),
+    };
+
+    const result = await collectUnifiedDayPartition({
+      org,
+      range: {
+        labelYmd: "2026-06-22",
+        labelDisplay: "6月22日",
+        startTime: 0,
+        endTime: 1,
+      },
+      projectViews: views,
+      reportClient: reportClient as never,
+      scanContacts: [{ userid: "u3", name: "李四" }],
+    });
+
+    expect(result.poolCount).toBe(1);
+    expect(result.byViewId.get("semiconductor-vein")?.submitted).toHaveLength(1);
+  });
 });

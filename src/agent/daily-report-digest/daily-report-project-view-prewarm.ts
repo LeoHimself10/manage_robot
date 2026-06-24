@@ -77,6 +77,55 @@ export function createDailyReportProjectViewPrewarmScheduler(
   let timer: NodeJS.Timeout | undefined;
   let scanning = false;
 
+  async function warmOrgViewsForRange(
+    org: (ReturnType<typeof loadConfig>)["orgs"][number],
+    orgViews: ReturnType<typeof listProjectViewsFromConfig>,
+    range: ReturnType<typeof resolveReportRange>,
+  ): Promise<void> {
+    const dateLabel = `${range.labelDisplay}（${range.labelYmd}）`;
+    const unified = await loadOrCollectUnifiedDay({
+      org,
+      range,
+      scanMode: "full",
+      partitionStore,
+      projectViewCacheStore: cacheStore,
+      ownsPartitionStore: false,
+      ownsProjectViewCacheStore: false,
+      fetchImpl: deps?.fetchImpl,
+    });
+
+    for (const view of orgViews) {
+      const digest = unified.byViewId.get(view.id);
+      if (!digest) continue;
+
+      if (prewarmSummaries && isProjectViewDigestEnabledForView(view)) {
+        await ensureProjectViewCtoOverview({
+          viewId: view.id,
+          viewLabel: view.label,
+          dateYmd: range.labelYmd,
+          dateLabel,
+          rosterCount: unified.poolCount,
+          orgDigest: digest,
+          cacheStore,
+          fetchImpl: deps?.fetchImpl,
+        });
+      }
+
+      if (prewarmSummaries && digest.submitted.length > 0) {
+        await ensureProjectViewPersonBriefs({
+          viewId: view.id,
+          viewLabel: view.label,
+          dateYmd: range.labelYmd,
+          dateLabel,
+          rosterCount: unified.poolCount,
+          orgDigest: digest,
+          cacheStore,
+          fetchImpl: deps?.fetchImpl,
+        });
+      }
+    }
+  }
+
   async function runPrewarm(now: Date = new Date()): Promise<void> {
     if (scanning) return;
     if (!isDailyReportProjectViewsEnabled()) return;
@@ -91,52 +140,11 @@ export function createDailyReportProjectViewPrewarmScheduler(
         cutoffHour: config.reportDayCutoffHour,
         cutoffMinute: config.reportDayCutoffMinute,
       });
-      const dateLabel = `${range.labelDisplay}（${range.labelYmd}）`;
 
       for (const org of config.orgs) {
         const orgViews = views.filter((v) => v.orgLabel === org.label);
         if (!orgViews.length) continue;
-
-        const unified = await loadOrCollectUnifiedDay({
-          org,
-          range,
-          partitionStore,
-          projectViewCacheStore: cacheStore,
-          ownsPartitionStore: false,
-          ownsProjectViewCacheStore: false,
-          fetchImpl: deps?.fetchImpl,
-        });
-
-        for (const view of orgViews) {
-          const digest = unified.byViewId.get(view.id);
-          if (!digest) continue;
-
-          if (prewarmSummaries && isProjectViewDigestEnabledForView(view)) {
-            await ensureProjectViewCtoOverview({
-              viewId: view.id,
-              viewLabel: view.label,
-              dateYmd: range.labelYmd,
-              dateLabel,
-              rosterCount: unified.poolCount,
-              orgDigest: digest,
-              cacheStore,
-              fetchImpl: deps?.fetchImpl,
-            });
-          }
-
-          if (prewarmSummaries && digest.submitted.length > 0) {
-            await ensureProjectViewPersonBriefs({
-              viewId: view.id,
-              viewLabel: view.label,
-              dateYmd: range.labelYmd,
-              dateLabel,
-              rosterCount: unified.poolCount,
-              orgDigest: digest,
-              cacheStore,
-              fetchImpl: deps?.fetchImpl,
-            });
-          }
-        }
+        await warmOrgViewsForRange(org, orgViews, range);
       }
 
       logStructured({
@@ -161,7 +169,29 @@ export function createDailyReportProjectViewPrewarmScheduler(
     const config = loadConfig();
     const views = listProjectViewsFromConfig(config.orgs);
     if (!views.length) return;
-    // unified collect 在首次 prewarm / 页面打开时执行，无需 roster bootstrap discovery
+    const range = resolveReportRange(new Date(), config.timezone, {
+      cutoffHour: config.reportDayCutoffHour,
+      cutoffMinute: config.reportDayCutoffMinute,
+    });
+    void (async () => {
+      try {
+        for (const org of config.orgs) {
+          const orgViews = views.filter((v) => v.orgLabel === org.label);
+          if (!orgViews.length) continue;
+          await warmOrgViewsForRange(org, orgViews, range);
+        }
+        logStructured({
+          event: "daily_report_project_view_startup_prewarm_done",
+          labelYmd: range.labelYmd,
+          prewarmSummaries,
+        });
+      } catch (err) {
+        logStructured({
+          event: "daily_report_project_view_startup_prewarm_failed",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
   }
 
   function startIntervalLoop(): void {

@@ -43,6 +43,13 @@ import type { ReportEntry } from "../agent/daily-report-digest/dingtalk-report-c
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+function isDailyReportPagePersonBriefsLlmEnabled(): boolean {
+  const raw = String(process.env.DAILY_REPORT_PAGE_PERSON_BRIEFS_LLM ?? "1")
+    .trim()
+    .toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 export interface DailyReportsReportPayload {
   reportId?: string;
   creatorUserId?: string;
@@ -107,9 +114,11 @@ export interface DailyReportsHttpPayload {
   customProjectView?: DailyReportsCustomProjectViewPayload;
   scanning?: boolean;
   rosterCount?: number;
-  /** 当日三类研发模板提交人数（统一日筛） */
+  /** 当日研发/关键词命中模板提交人数（统一日筛） */
   poolCount?: number;
   cacheScannedAt?: string;
+  /** 本次为 roster 快扫（未写全员缓存）；点刷新可拉全量 */
+  partialScan?: boolean;
 }
 
 function mapAttachment(a: ReportAttachment): ReportAttachment {
@@ -283,16 +292,17 @@ export async function buildDailyReportsHttpPayload(input?: {
         }
       }
 
-      const unified = await loadOrCollectUnifiedDay({
-        org,
-        range,
-        refresh,
-        partitionStore,
-        projectViewCacheStore: cacheStore,
-        ownsPartitionStore: false,
-        ownsProjectViewCacheStore: false,
-        fetchImpl: input?.fetchImpl,
-      });
+        const unified = await loadOrCollectUnifiedDay({
+          org,
+          range,
+          refresh,
+          scanMode: refresh ? "full" : "fast",
+          partitionStore,
+          projectViewCacheStore: cacheStore,
+          ownsPartitionStore: false,
+          ownsProjectViewCacheStore: false,
+          fetchImpl: input?.fetchImpl,
+        });
 
       const poolCount = unified.poolCount;
       const digest: OrgDigest =
@@ -315,6 +325,7 @@ export async function buildDailyReportsHttpPayload(input?: {
         cacheStore,
         fetchImpl: input?.fetchImpl,
         refresh,
+        llmEnabled: isDailyReportPagePersonBriefsLlmEnabled(),
       });
       const orgPayload = mapOrgDigest(digest, new Map(), personBriefsToMap(briefs));
       return {
@@ -332,6 +343,7 @@ export async function buildDailyReportsHttpPayload(input?: {
         rosterCount: poolCount,
         poolCount,
         cacheScannedAt: unified.scannedAt ?? cached?.scannedAt,
+        partialScan: !unified.fromCache && unified.scanMode === "fast",
         scanning: false,
         customProjectView: {
           id: viewDef.id,

@@ -73,6 +73,7 @@ export async function loadOrCollectProjectViewDigest(params: {
       org,
       range: params.range,
       refresh: params.refresh,
+      scanMode: "full",
       partitionStore,
       projectViewCacheStore: cacheStore,
       ownsPartitionStore: false,
