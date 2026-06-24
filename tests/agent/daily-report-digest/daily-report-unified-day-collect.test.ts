@@ -37,7 +37,7 @@ describe("collectUnifiedDayPartition", () => {
     employees: [],
   };
 
-  it("partitions RD templates and excludes medical affairs", async () => {
+  it("partitions RD templates and excludes medical affairs without keyword", async () => {
     const rdEntry: ReportEntry = {
       creatorUserId: "u1",
       creatorName: "张三",
@@ -106,6 +106,36 @@ describe("collectUnifiedDayPartition", () => {
       projectViews: views,
       reportClient: reportClient as never,
       scanContacts: [{ userid: "u3", name: "李四" }],
+    });
+
+    expect(result.poolCount).toBe(1);
+    expect(result.byViewId.get("semiconductor-vein")?.submitted).toHaveLength(1);
+  });
+
+  it("includes medical affairs when keyword matches", async () => {
+    const medEntry: ReportEntry = {
+      creatorUserId: "u2",
+      creatorName: "韦静",
+      templateName: "医学事务部日志",
+      createTime: 1,
+      contents: block("①", "Y1b13 半导体激光", "2514"),
+    };
+
+    const reportClient = {
+      fetchUserReports: vi.fn(async () => [medEntry]),
+    };
+
+    const result = await collectUnifiedDayPartition({
+      org,
+      range: {
+        labelYmd: "2026-06-22",
+        labelDisplay: "6月22日",
+        startTime: 0,
+        endTime: 1,
+      },
+      projectViews: views,
+      reportClient: reportClient as never,
+      scanContacts: [{ userid: "u2", name: "韦静" }],
     });
 
     expect(result.poolCount).toBe(1);

@@ -40,14 +40,13 @@ export function reportMatchesAnyProjectKeyword(
 }
 
 /**
- * 统一日筛准入：排除医学事务部；三类研发模板全收；
- * 其他模板若模块命中任一项目关键词/成对过滤也纳入（与改版前 per-view 行为一致）。
+ * 统一日筛准入：三类研发模板全收；其余模板（含医学事务部）
+ * 仅当模块命中任一项目 keyword/成对 filter 时纳入。
  */
 export function reportEligibleForUnifiedPartition(
   entry: ReportEntry,
   projectViews: Array<DailyReportProjectViewConfig & { orgLabel?: string }>,
 ): boolean {
-  if (isMedicalAffairsTemplate(entry.templateName)) return false;
   if (isRdDailyTemplate(entry.templateName)) return true;
   return reportMatchesAnyProjectKeyword(entry, projectViews);
 }

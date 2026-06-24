@@ -2,6 +2,7 @@ import type { OrgDigest } from "./daily-report-build";
 import { filterReportEntry } from "./daily-report-content-filter";
 import {
   moduleBlockMatchesKeywordFilter,
+  moduleBlockMatchesPairFilter,
 } from "./daily-report-project-view-filter";
 import type { DailyReportProjectViewConfig } from "./daily-report-project-views";
 import { isOthersProjectView } from "./daily-report-project-views";
@@ -58,20 +59,40 @@ function sliceEntryBlocks(entry: ReportEntry, keptIndices: Set<string>): ReportE
   return { ...entry, contents };
 }
 
-function findFirstProjectViewForBlock(
+/** 与 filterReportEntryForView 同口径：keyword 优先，否则成对 filter。 */
+export function blockMatchesProjectView(
+  contents: ReportContentField[],
+  idx: string,
+  view: DailyReportProjectViewConfig & { orgLabel?: string },
+): boolean {
+  if (isOthersProjectView(view)) return false;
+  const keyword = view.filters.keyword?.trim();
+  if (keyword) {
+    return moduleBlockMatchesKeywordFilter(contents, idx, keyword);
+  }
+  const work = view.filters.workModuleContains?.trim();
+  const project = view.filters.costProjectContains?.trim();
+  if (work && project) {
+    return moduleBlockMatchesPairFilter(contents, idx, {
+      workModuleContains: work,
+      costProjectContains: project,
+    });
+  }
+  return false;
+}
+
+export function findAllMatchingProjectViewsForBlock(
   contents: ReportContentField[],
   idx: string,
   projectViews: Array<DailyReportProjectViewConfig & { orgLabel?: string }>,
-): string | null {
+): string[] {
+  const matched: string[] = [];
   for (const view of projectViews) {
-    if (isOthersProjectView(view)) continue;
-    const keyword = view.filters.keyword?.trim();
-    if (!keyword) continue;
-    if (moduleBlockMatchesKeywordFilter(contents, idx, keyword)) {
-      return view.id;
+    if (blockMatchesProjectView(contents, idx, view)) {
+      matched.push(view.id);
     }
   }
-  return null;
+  return matched;
 }
 
 export interface PartitionReportResult {
@@ -84,23 +105,28 @@ export function partitionReportEntry(
   projectViewsOrdered: Array<DailyReportProjectViewConfig & { orgLabel?: string }>,
   othersViewId = "others",
 ): PartitionReportResult {
-  const projectViews = projectViewsOrdered.filter((v) => !isOthersProjectView(v));
   const byViewId = new Map<string, ReportEntry[]>();
   const othersIndices = new Set<string>();
   const projectIndicesByView = new Map<string, Set<string>>();
 
   for (const idx of MODULE_INDICES) {
     if (!moduleBlockHasBody(entry.contents, idx)) continue;
-    const viewId = findFirstProjectViewForBlock(entry.contents, idx, projectViewsOrdered);
-    if (viewId) {
-      let set = projectIndicesByView.get(viewId);
-      if (!set) {
-        set = new Set<string>();
-        projectIndicesByView.set(viewId, set);
-      }
-      set.add(idx);
-    } else {
+    const matchedViewIds = findAllMatchingProjectViewsForBlock(
+      entry.contents,
+      idx,
+      projectViewsOrdered,
+    );
+    if (matchedViewIds.length === 0) {
       othersIndices.add(idx);
+    } else {
+      for (const viewId of matchedViewIds) {
+        let set = projectIndicesByView.get(viewId);
+        if (!set) {
+          set = new Set<string>();
+          projectIndicesByView.set(viewId, set);
+        }
+        set.add(idx);
+      }
     }
   }
 
@@ -184,12 +210,20 @@ export function mergePartitionedReports(
   return { poolUserIds, byViewId };
 }
 
+function viewParticipatesInPartition(view: DailyReportProjectViewConfig): boolean {
+  if (isOthersProjectView(view)) return false;
+  if (view.filters.keyword?.trim()) return true;
+  const work = view.filters.workModuleContains?.trim();
+  const project = view.filters.costProjectContains?.trim();
+  return Boolean(work && project);
+}
+
 export function listProjectViewIdsForPartition(
   views: Array<DailyReportProjectViewConfig & { orgLabel?: string }>,
 ): string[] {
   const ids: string[] = [];
   for (const v of views) {
-    if (!isOthersProjectView(v) && v.filters.keyword?.trim()) {
+    if (viewParticipatesInPartition(v)) {
       ids.push(v.id);
     }
   }

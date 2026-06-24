@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  mergePartitionedReports,
   partitionReportEntry,
 } from "../../../src/agent/daily-report-digest/daily-report-day-partition";
 import type { DailyReportProjectViewConfig } from "../../../src/agent/daily-report-digest/daily-report-project-views";
@@ -74,7 +75,7 @@ describe("partitionReportEntry", () => {
     expect(byViewId.get("others")?.length).toBe(1);
   });
 
-  it("uses config order when block matches multiple keywords", () => {
+  it("assigns block to all matching project views (multi-tab)", () => {
     const entry: ReportEntry = {
       creatorUserId: "u3",
       creatorName: "测试",
@@ -84,7 +85,79 @@ describe("partitionReportEntry", () => {
     };
     const { byViewId } = partitionReportEntry(entry, projectViews);
     expect(byViewId.get("semiconductor-vein")?.length).toBe(1);
-    expect(byViewId.has("cla")).toBe(false);
+    expect(byViewId.get("cla")?.length).toBe(1);
     expect(byViewId.has("others")).toBe(false);
+  });
+
+  it("assigns plaque block to both CLA and large-vessel-plaque views", () => {
+    const viewsWithPlaque: typeof projectViews = [
+      ...projectViews.filter((v) => v.id !== "others"),
+      {
+        id: "large-vessel-plaque",
+        label: "斑块减容",
+        viewers: ["m1"],
+        orgLabel: "微光",
+        filters: { keyword: "斑块减容" },
+      },
+      projectViews.find((v) => v.id === "others")!,
+    ];
+    const entry: ReportEntry = {
+      creatorUserId: "u4",
+      creatorName: "程晓阳",
+      templateName: "研发管理者日志模板",
+      createTime: 1,
+      contents: block("①", "CLA旋转减容（大血管斑块减容方案）", "2311-冷激光斑块消融导管"),
+    };
+    const { byViewId } = partitionReportEntry(entry, viewsWithPlaque);
+    expect(byViewId.get("cla")?.length).toBe(1);
+    expect(byViewId.get("large-vessel-plaque")?.length).toBe(1);
+    expect(byViewId.has("others")).toBe(false);
+  });
+
+  it("routes block via pair filter when view has no keyword", () => {
+    const pairOnlyViews: typeof projectViews = [
+      {
+        id: "semiconductor-vein",
+        label: "半导体",
+        viewers: ["m1"],
+        orgLabel: "微光",
+        filters: {
+          workModuleContains: "半导体激光",
+          costProjectContains: "静脉腔内闭合系统",
+        },
+      },
+      projectViews.find((v) => v.id === "others")!,
+    ];
+    const entry: ReportEntry = {
+      creatorUserId: "u5",
+      creatorName: "配对",
+      templateName: "研发管理者日志模板",
+      createTime: 1,
+      contents: block("①", "Y1b13 半导体激光", "2514-静脉腔内闭合系统"),
+    };
+    const { byViewId } = partitionReportEntry(entry, pairOnlyViews);
+    expect(byViewId.get("semiconductor-vein")?.length).toBe(1);
+    expect(byViewId.has("others")).toBe(false);
+  });
+});
+
+describe("mergePartitionedReports", () => {
+  it("counts each user once in pool despite multi-tab assignment", () => {
+    const { byViewId } = partitionReportEntry(
+      {
+        creatorUserId: "u1",
+        creatorName: "张三",
+        templateName: "研发管理者日志模板",
+        createTime: 1,
+        contents: block("①", "CLA半导体混合", "项目"),
+      },
+      projectViews,
+    );
+    const merged = mergePartitionedReports("微光", [
+      { userid: "u1", name: "张三", byViewId },
+    ], ["semiconductor-vein", "cla", "others"]);
+    expect(merged.poolUserIds.size).toBe(1);
+    expect(merged.byViewId.get("semiconductor-vein")?.submitted).toHaveLength(1);
+    expect(merged.byViewId.get("cla")?.submitted).toHaveLength(1);
   });
 });

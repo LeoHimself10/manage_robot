@@ -26,11 +26,12 @@ const ORG_LABEL = "微光";
 
 const SEMICONDUCTOR_VEIN_VIEW = {
   id: "semiconductor-vein",
-  label: "半导体激光·静脉项目",
+  label: "半导体",
   viewers: ["01451725613871", "641871342"], // 曹一挥、姚凯珩（微光 userid）
   exclusiveForViewers: true,
   discoveryDays: 30,
   filters: {
+    keyword: "半导体",
     workModuleContains: "半导体激光",
     costProjectContains: "静脉腔内闭合系统",
   },

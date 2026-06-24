@@ -49,8 +49,13 @@ describe("reportEligibleForUnifiedPartition", () => {
     expect(reportEligibleForUnifiedPartition(custom, projectViews)).toBe(true);
   });
 
-  it("rejects medical affairs even with keyword match", () => {
+  it("accepts medical affairs when module matches project keyword", () => {
     const med = entry("医学事务部日志", "半导体项目");
+    expect(reportEligibleForUnifiedPartition(med, projectViews)).toBe(true);
+  });
+
+  it("rejects medical affairs without keyword match", () => {
+    const med = entry("医学事务部日志", "行政事务");
     expect(reportEligibleForUnifiedPartition(med, projectViews)).toBe(false);
   });
 
