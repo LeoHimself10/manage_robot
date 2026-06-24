@@ -253,6 +253,17 @@ function renderEscapedMarkdown(esc: string): string {
         i++;
         continue;
       }
+      // Standalone header lines get their own block regardless of what follows
+      if (/^#{1,3}\s+./.test(ln) && blockLines.length === 0) {
+        const m = /^(#{1,3})\s+(.*)$/.exec(ln);
+        if (m) {
+          const level = m[1]!.length;
+          const tag = `h${level}`;
+          parts.push(`<${tag} class="msg-md-h msg-md-h${level}">${applyInlineToParagraphBlock(m[2]!)}</${tag}>`);
+          i++;
+          continue;
+        }
+      }
       blockLines.push(ln);
       i++;
     }

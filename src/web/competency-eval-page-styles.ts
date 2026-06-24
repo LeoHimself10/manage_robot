@@ -400,14 +400,14 @@ body.wb-has-rail.page-shell--comp-eval .wb-main-body {
 }
 
 /* markdown in assistant bubbles */
-.ce-msg-body .msg-md-p { margin: 0 0 10px; }
+.ce-msg-body .msg-md-p { margin: 0 0 14px; line-height: 1.7; }
 .ce-msg-body .msg-md-p:last-child { margin-bottom: 0; }
-.ce-msg-body .msg-md-h { margin: 16px 0 8px; font-weight: 600; line-height: 1.3; }
+.ce-msg-body .msg-md-h { margin: 20px 0 10px; font-weight: 600; line-height: 1.3; }
 .ce-msg-body .msg-md-h1 { font-size: 1.25rem; }
 .ce-msg-body .msg-md-h2 { font-size: 1.1rem; }
 .ce-msg-body .msg-md-h3 { font-size: 1rem; }
-.ce-msg-body .msg-md-ul, .ce-msg-body .msg-md-ol { margin: 8px 0 12px; padding-left: 1.35rem; }
-.ce-msg-body .msg-md-li { margin: 4px 0; }
+.ce-msg-body .msg-md-ul, .ce-msg-body .msg-md-ol { margin: 12px 0 16px; padding-left: 1.5rem; }
+.ce-msg-body .msg-md-li { margin: 6px 0; line-height: 1.6; }
 .ce-msg-body .msg-md-bq {
   margin: 10px 0;
   padding: 8px 14px;
