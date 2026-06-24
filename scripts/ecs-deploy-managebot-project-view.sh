@@ -36,7 +36,7 @@ fi
 
 echo "[2/5] patch projectViews in $CONFIG"
 python3 scripts/ecs-patch-project-view.py
-node scripts/patch-project-view-keywords.mjs "$CONFIG"
+python3 scripts/patch-project-view-keywords.py "$CONFIG"
 
 echo "[3/5] docker build"
 docker build -t "$IMAGE" .
