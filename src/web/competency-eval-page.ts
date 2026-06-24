@@ -393,7 +393,7 @@ function buildCompetencyEvalClientJs(): string {
         if(jobReqFilename && idx === lastUserIndex){
           var chip = document.createElement('div');
           chip.innerHTML = '<div class="ce-file-chip"><span class="ce-file-chip-icon">📄</span><span class="ce-file-chip-name">'+esc(jobReqFilename)+'</span></div>';
-          bubble.insertBefore(chip.firstChild!, null);
+          bubble.insertBefore(chip.firstChild!, bubble.firstChild);
         }
       } else {
         bubble.innerHTML = fmtAssistant(turn.content);
@@ -457,12 +457,12 @@ function buildCompetencyEvalClientJs(): string {
     updateSendState();
     chatInput.value=''; autoGrow();
     var u = addMsg('user');
+    u.textContent = msg;
     if(sess.activeJobReqId){
       var chip = document.createElement('div');
       chip.innerHTML = '<div class="ce-file-chip"><span class="ce-file-chip-icon">📄</span><span class="ce-file-chip-name">'+esc(sess.jobReqFilename||'')+'</span></div>';
-      u.appendChild(chip.firstChild!);
+      u.insertBefore(chip.firstChild!, u.firstChild);
     }
-    u.textContent = msg;
     var bubble = addMsg('bot');
     showTyping(bubble);
     var hasText = false;
