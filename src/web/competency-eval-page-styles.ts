@@ -376,28 +376,6 @@ body.wb-has-rail.page-shell--comp-eval .wb-main-body {
   white-space: pre-wrap;
   word-break: break-word;
 }
-
-/* ChatGPT-style file chip inside user bubble */
-.ce-file-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: #f3f4f6;
-  border-radius: 8px;
-  padding: 5px 10px;
-  margin-bottom: 8px;
-  font-size: 13px;
-  color: #374151;
-  max-width: 100%;
-}
-.ce-file-chip-icon { flex-shrink: 0; }
-.ce-file-chip-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: monospace;
-}
-
 .ce-msg.is-assistant .ce-avatar {
   background: linear-gradient(145deg, #10a37f, #1a7f64);
   color: #fff;
@@ -422,14 +400,14 @@ body.wb-has-rail.page-shell--comp-eval .wb-main-body {
 }
 
 /* markdown in assistant bubbles */
-.ce-msg-body .msg-md-p { margin: 0 0 14px; line-height: 1.7; }
+.ce-msg-body .msg-md-p { margin: 0 0 10px; }
 .ce-msg-body .msg-md-p:last-child { margin-bottom: 0; }
-.ce-msg-body .msg-md-h { margin: 20px 0 10px; font-weight: 600; line-height: 1.3; }
+.ce-msg-body .msg-md-h { margin: 16px 0 8px; font-weight: 600; line-height: 1.3; }
 .ce-msg-body .msg-md-h1 { font-size: 1.25rem; }
 .ce-msg-body .msg-md-h2 { font-size: 1.1rem; }
 .ce-msg-body .msg-md-h3 { font-size: 1rem; }
-.ce-msg-body .msg-md-ul, .ce-msg-body .msg-md-ol { margin: 12px 0 16px; padding-left: 1.5rem; }
-.ce-msg-body .msg-md-li { margin: 6px 0; line-height: 1.6; }
+.ce-msg-body .msg-md-ul, .ce-msg-body .msg-md-ol { margin: 8px 0 12px; padding-left: 1.35rem; }
+.ce-msg-body .msg-md-li { margin: 4px 0; }
 .ce-msg-body .msg-md-bq {
   margin: 10px 0;
   padding: 8px 14px;
