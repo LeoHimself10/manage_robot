@@ -158,8 +158,11 @@ function renderTableBlock(lines: string[], start: number): { html: string; nextI
     if (ln.trim() === "") break;
     if (!ln.includes("|")) break;
     const cells = splitTableRow(ln);
-    // Abandon table if a row has a different column count — it's not a valid table row
+    // Abandon table if a row has a different column count
     if (cells.length !== colCount) break;
+    // Abandon if any cell is suspiciously long — likely a prose line accidentally
+    // captured as a table row (e.g. a sentence with | characters inside a cell)
+    if (cells.some((c) => c.length > 150)) break;
     rows.push(cells);
     i++;
   }
