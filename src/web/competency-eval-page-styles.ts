@@ -546,6 +546,13 @@ body.wb-has-rail.page-shell--comp-eval .wb-main-body {
   margin: 0 auto;
   width: 100%;
 }
+.ce-composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 8px;
+  min-height: 0;
+}
 .ce-composer {
   display: flex;
   align-items: flex-end;
