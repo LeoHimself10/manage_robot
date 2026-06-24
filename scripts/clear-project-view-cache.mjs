@@ -13,6 +13,16 @@ const dbPath = process.env.WORKBENCH_SQLITE_PATH || "data/workbench/workbench.sq
 const dateYmd = process.argv[2];
 const orgLabel = process.argv[3] || "微光";
 const db = new DatabaseSync(dbPath);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS daily_report_day_partition_cache (
+    org_label TEXT NOT NULL,
+    date_ymd TEXT NOT NULL,
+    pool_count INTEGER NOT NULL DEFAULT 0,
+    payload_json TEXT NOT NULL,
+    scanned_at TEXT NOT NULL,
+    PRIMARY KEY (org_label, date_ymd)
+  );
+`);
 for (const viewId of views) {
   if (dateYmd) {
     db.prepare("DELETE FROM daily_report_project_view_cache WHERE view_id=? AND date_ymd=?").run(
