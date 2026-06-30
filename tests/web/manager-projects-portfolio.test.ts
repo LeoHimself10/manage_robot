@@ -51,6 +51,16 @@ describe("manager project portfolio UI guards", () => {
     expect(html).toContain("function wbSetExpandedProjectId");
   });
 
+  it("portfolio expanded project return state does not narrow project scope", () => {
+    const html = renderManagerTasksPage({
+      userLabel: "测试",
+      projectPortfolioEnabled: true,
+      initialView: "group",
+    });
+    expect(html).toContain("expandedProjectId");
+    expect(html).not.toContain("WB_SCOPE = WB_EXPAND_PROJECT_ID");
+  });
+
   it("projects overview page has no presentation mode and uses view=group links", () => {
     const html = renderManagerProjectsPage({ userLabel: "测试" });
     expect(html).toContain("/api/workbench/manager/projects");

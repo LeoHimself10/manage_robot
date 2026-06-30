@@ -627,11 +627,6 @@ export function buildWorkbenchTasksPortfolioClientJs(opts: {
     }
     void (async function () {
       await wbLoadProjectCards();
-      if (WB_EXPAND_PROJECT_ID) {
-        if (WB_EXPAND_PROJECT_ID === WB_UNASSIGNED) WB_SCOPE = 'unassigned';
-        else WB_SCOPE = WB_EXPAND_PROJECT_ID;
-        if (WB_VIEW_MODE === 'flat') WB_FILTER_PROJECT_ID = WB_EXPAND_PROJECT_ID;
-      }
       wbSyncFilterProjectFromScope();
       await loadTasksPortfolio();
     })();
