@@ -1,6 +1,7 @@
 import { renderWorkbenchPage } from "./workbench-shell";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 import { buildWorkbenchContactComboClientJs } from "./workbench-contact-combo-snippet";
+import { isTaskIntakeDingTalkMeetingsEnabled } from "../agent/task-intake/dingtalk-meetings-flag";
 
 export function renderManagerTaskIntakePage(params: {
   userLabel?: string;
@@ -9,6 +10,7 @@ export function renderManagerTaskIntakePage(params: {
   portfolioEnabled?: boolean;
 }): string {
   const portfolio = Boolean(params.portfolioEnabled);
+  const meetingsEnabled = isTaskIntakeDingTalkMeetingsEnabled();
 
   const tiCss = `
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Sora:wght@400;500;600&display=swap');
@@ -190,6 +192,79 @@ export function renderManagerTaskIntakePage(params: {
 }
 .ti-paste-area::placeholder { color: var(--ti-ink-3); opacity: .65; font-size: 12px; }
 .ti-paste-area:focus { outline: none; border-color: var(--ti-accent); box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+
+.ti-source-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--ti-border);
+  border-radius: 8px;
+  background: var(--ti-bg);
+  align-self: flex-start;
+}
+.ti-source-tab {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ti-ink-3);
+  cursor: pointer;
+  font-family: var(--ti-sans);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
+}
+.ti-source-tab.is-active {
+  background: var(--ti-surface);
+  color: var(--ti-accent);
+  box-shadow: 0 1px 3px rgba(15,23,42,.08);
+}
+.ti-source-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ti-source-panel[hidden] { display: none !important; }
+.ti-meeting-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ti-meeting-hint {
+  color: var(--ti-ink-3);
+  font-family: var(--ti-sans);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.ti-meeting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ti-meeting-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--ti-border);
+  border-radius: 10px;
+  background: var(--ti-surface);
+  padding: 12px 14px;
+}
+@media (max-width: 680px) { .ti-meeting-card { grid-template-columns: 1fr; } }
+.ti-meeting-title {
+  color: var(--ti-ink);
+  font-family: var(--ti-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.ti-meeting-meta {
+  color: var(--ti-ink-3);
+  font-family: var(--ti-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
 
 /* ── Stats bar ────────────────────────────────────── */
 .ti-stats {
@@ -579,9 +654,20 @@ export function renderManagerTaskIntakePage(params: {
     <div class="ti-panel-inner">
       <div class="ti-section-head"><h2>粘贴已拆好的任务清单</h2></div>
       <div class="ti-section-body" style="display:flex;flex-direction:column;gap:14px;">
+        ${meetingsEnabled ? `
+        <div class="ti-source-tabs" role="tablist" aria-label="录入来源">
+          <button type="button" class="ti-source-tab is-active" id="pasteTabBtn" role="tab" aria-selected="true" aria-controls="pasteSourcePanel">粘贴录入</button>
+          <button type="button" class="ti-source-tab" id="meetingTabBtn" role="tab" aria-selected="false" aria-controls="meetingSourcePanel">最近会议</button>
+        </div>
+        ` : ""}
+        <div class="ti-source-panel" id="pasteSourcePanel" role="tabpanel" aria-labelledby="pasteTabBtn">
         <div class="ti-field-wrap">
           <span class="ti-lbl">父任务标题 <span class="ti-lbl-hint">可选，留空由系统提炼；若全部子任务追加到已有任务可忽略</span></span>
           <input id="parentTitle" type="text" class="ti-box-input" placeholder="如：6月注册申报准备" />
+        </div>
+        <div class="ti-field-wrap">
+          <span class="ti-lbl">会议纪要链接 <span class="ti-lbl-hint">可选；支持可公开读取的 http(s) 页面，钉钉需登录页面会提示复制正文</span></span>
+          <input id="docUrl" type="url" class="ti-box-input" placeholder="https://..." />
         </div>
         <div class="ti-field-wrap">
           <span class="ti-lbl ti-lbl-req">任务清单</span>
@@ -591,6 +677,17 @@ export function renderManagerTaskIntakePage(params: {
         <div class="ti-actions">
           <button type="button" class="ti-btn ti-btn-primary" id="parseBtn">解析任务 →</button>
         </div>
+        </div>
+        ${meetingsEnabled ? `
+        <div class="ti-source-panel" id="meetingSourcePanel" role="tabpanel" aria-labelledby="meetingTabBtn" hidden>
+          <div class="ti-meeting-toolbar">
+            <div class="ti-meeting-hint">只显示当前登录主管参与、主持或创建的闪记会议。选择会议后会读取转写正文并进入同一套核对入库流程。</div>
+            <button type="button" class="ti-btn ti-btn-ghost" id="loadMeetingsBtn">刷新最近会议</button>
+          </div>
+          <div class="ti-feedback" id="meetingFeedback"></div>
+          <div class="ti-meeting-list" id="meetingList"></div>
+        </div>
+        ` : ""}
       </div>
     </div>
   </div>
@@ -623,6 +720,7 @@ ${buildWorkbenchViewSwitchClientJs()}
 ${buildWorkbenchContactComboClientJs()}
 (function () {
   var PORTFOLIO = ${portfolio ? "true" : "false"};
+  var MEETINGS_ENABLED = ${meetingsEnabled ? "true" : "false"};
 
   /*
    * State:
@@ -1200,6 +1298,90 @@ ${buildWorkbenchContactComboClientJs()}
     return out;
   }
 
+  function applyPreviewData(data, feedbackId) {
+    if (!data.ok) throw new Error(data.error || "解析失败");
+    var rows = data.rows || [];
+    if (!rows.length) {
+      setFb(feedbackId, "未识别到任务，请检查内容", true);
+      return false;
+    }
+
+    // Determine if AI made any grouping suggestions
+    var hasSuggestions = rows.some(function (r) {
+      var conf = r.suggestedConfidence || 0;
+      return conf >= 0.6 && (r.suggestedTargetPlanId || r.suggestedNewGroupId);
+    });
+
+    // Reset group state
+    state.newGroups = {};
+    state.newGroupCounter = 0;
+
+    if (hasSuggestions) {
+      // Build state.newGroups from AI suggestions (title + description per group)
+      rows.forEach(function (r) {
+        var conf = r.suggestedConfidence || 0;
+        if (conf >= 0.6 && r.suggestedNewGroupId && !state.newGroups[r.suggestedNewGroupId]) {
+          state.newGroups[r.suggestedNewGroupId] = {
+            title: r.suggestedNewGroupTitle || "",
+            description: r.suggestedNewGroupDescription || "",
+            projectId: "",
+            projectName: "",
+          };
+        }
+      });
+      // Keep newGroupCounter above AI-generated IDs
+      Object.keys(state.newGroups).forEach(function (gid) {
+        var n = parseInt(gid.replace("ng_", ""), 10);
+        if (!isNaN(n) && n >= state.newGroupCounter) state.newGroupCounter = n;
+      });
+      // Fallback: single new group without per-group description → use structure parentDescription
+      var sugGroupIds = Object.keys(state.newGroups);
+      if (sugGroupIds.length === 1) {
+        var onlyGid = sugGroupIds[0];
+        if (!String(state.newGroups[onlyGid].description || "").trim()) {
+          state.newGroups[onlyGid].description = data.parentDescription || "";
+        }
+        if (!String(state.newGroups[onlyGid].title || "").trim()) {
+          state.newGroups[onlyGid].title = data.parentTitle || "";
+        }
+      }
+    } else {
+      // No AI suggestions — put everything in one default new group
+      state.newGroups[DEFAULT_GROUP] = {
+        title: data.parentTitle || "",
+        description: data.parentDescription || "",
+        projectId: "",
+        projectName: "",
+      };
+    }
+
+    state.rows = rows.map(function (r) {
+      var conf = r.suggestedConfidence || 0;
+      var hasSugExisting = Boolean(r.suggestedTargetPlanId) && conf >= 0.6;
+      var hasSugNew = Boolean(r.suggestedNewGroupId) && conf >= 0.6;
+      var dueMode = (r.dueMode === 'fixed' || r.dueMode === 'self') ? r.dueMode : (r.dueAt ? 'fixed' : 'self');
+      return Object.assign({}, r, {
+        targetPlanId: hasSugExisting ? r.suggestedTargetPlanId : undefined,
+        targetTitle: hasSugExisting ? r.suggestedTargetTitle : undefined,
+        targetNo: hasSugExisting ? r.suggestedTargetNo : undefined,
+        newGroupId: hasSugNew ? r.suggestedNewGroupId : (hasSuggestions ? undefined : DEFAULT_GROUP),
+        dueMode: dueMode,
+        dueExpectation: r.dueExpectation || "",
+        needsAssignment: hasSuggestions && !hasSugExisting && !hasSugNew,
+      });
+    });
+
+    var warnMsg = (data.warnings && data.warnings.length) ? "提示：" + data.warnings.join("；") : "";
+    if (hasSuggestions) {
+      var ngCount = Object.keys(state.newGroups).length;
+      warnMsg = (warnMsg ? warnMsg + "；" : "") + "AI 已完成归属建议（" + ngCount + " 个新建组），请核对后录入";
+    }
+    setFb(feedbackId, warnMsg, false);
+    renderGroups();
+    setStep(2);
+    return true;
+  }
+
   /* ── step 1: parse ── */
   document.getElementById("parseBtn").addEventListener("click", async function () {
     setFb("parseFeedback", "解析中（含 AI 归属建议，约 5-10 秒）…", false);
@@ -1210,90 +1392,115 @@ ${buildWorkbenchContactComboClientJs()}
         body: JSON.stringify({
           pastedText: document.getElementById("pastedText").value,
           parentTitle: document.getElementById("parentTitle").value,
+          docUrl: document.getElementById("docUrl").value,
         }),
       });
       var data = await res.json();
-      if (!data.ok) throw new Error(data.error || "解析失败");
-      var rows = data.rows || [];
-      if (!rows.length) { setFb("parseFeedback", "未识别到任务，请检查粘贴内容", true); return; }
-
-      // Determine if AI made any grouping suggestions
-      var hasSuggestions = rows.some(function (r) {
-        var conf = r.suggestedConfidence || 0;
-        return conf >= 0.6 && (r.suggestedTargetPlanId || r.suggestedNewGroupId);
-      });
-
-      // Reset group state
-      state.newGroups = {};
-      state.newGroupCounter = 0;
-
-      if (hasSuggestions) {
-        // Build state.newGroups from AI suggestions (title + description per group)
-        rows.forEach(function (r) {
-          var conf = r.suggestedConfidence || 0;
-          if (conf >= 0.6 && r.suggestedNewGroupId && !state.newGroups[r.suggestedNewGroupId]) {
-            state.newGroups[r.suggestedNewGroupId] = {
-              title: r.suggestedNewGroupTitle || "",
-              description: r.suggestedNewGroupDescription || "",
-              projectId: "",
-              projectName: "",
-            };
-          }
-        });
-        // Keep newGroupCounter above AI-generated IDs
-        Object.keys(state.newGroups).forEach(function (gid) {
-          var n = parseInt(gid.replace("ng_", ""), 10);
-          if (!isNaN(n) && n >= state.newGroupCounter) state.newGroupCounter = n;
-        });
-        // Fallback: single new group without per-group description → use structure parentDescription
-        var sugGroupIds = Object.keys(state.newGroups);
-        if (sugGroupIds.length === 1) {
-          var onlyGid = sugGroupIds[0];
-          if (!String(state.newGroups[onlyGid].description || "").trim()) {
-            state.newGroups[onlyGid].description = data.parentDescription || "";
-          }
-          if (!String(state.newGroups[onlyGid].title || "").trim()) {
-            state.newGroups[onlyGid].title = data.parentTitle || "";
-          }
-        }
-      } else {
-        // No AI suggestions — put everything in one default new group
-        state.newGroups[DEFAULT_GROUP] = {
-          title: data.parentTitle || "",
-          description: data.parentDescription || "",
-          projectId: "",
-          projectName: "",
-        };
-      }
-
-      state.rows = rows.map(function (r) {
-        var conf = r.suggestedConfidence || 0;
-        var hasSugExisting = Boolean(r.suggestedTargetPlanId) && conf >= 0.6;
-        var hasSugNew = Boolean(r.suggestedNewGroupId) && conf >= 0.6;
-        var dueMode = (r.dueMode === 'fixed' || r.dueMode === 'self') ? r.dueMode : (r.dueAt ? 'fixed' : 'self');
-        return Object.assign({}, r, {
-          targetPlanId: hasSugExisting ? r.suggestedTargetPlanId : undefined,
-          targetTitle: hasSugExisting ? r.suggestedTargetTitle : undefined,
-          targetNo: hasSugExisting ? r.suggestedTargetNo : undefined,
-          newGroupId: hasSugNew ? r.suggestedNewGroupId : (hasSuggestions ? undefined : DEFAULT_GROUP),
-          dueMode: dueMode,
-          dueExpectation: r.dueExpectation || "",
-          needsAssignment: hasSuggestions && !hasSugExisting && !hasSugNew,
-        });
-      });
-
-      var warnMsg = (data.warnings && data.warnings.length) ? "提示：" + data.warnings.join("；") : "";
-      if (hasSuggestions) {
-        var ngCount = Object.keys(state.newGroups).length;
-        warnMsg = (warnMsg ? warnMsg + "；" : "") + "AI 已完成归属建议（" + ngCount + " 个新建组），请核对后录入";
-      }
-      setFb("parseFeedback", warnMsg, false);
-      renderGroups();
-      setStep(2);
+      applyPreviewData(data, "parseFeedback");
     } catch (err) {
       setFb("parseFeedback", err.message || String(err), true);
     }
   });
+
+  function formatMeetingTime(value) {
+    var n = Number(value || 0);
+    if (!n) return "";
+    try {
+      return new Date(n).toLocaleString("zh-CN", { hour12: false });
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function renderMeetingList(meetings) {
+    var list = document.getElementById("meetingList");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!meetings.length) {
+      var empty = document.createElement("div");
+      empty.className = "ti-meeting-hint";
+      empty.textContent = "最近 14 天暂无可导入的本人相关闪记会议。";
+      list.appendChild(empty);
+      return;
+    }
+    meetings.forEach(function (meeting) {
+      var card = document.createElement("div");
+      card.className = "ti-meeting-card";
+      var meta = [];
+      var time = formatMeetingTime(meeting.startTimeMs);
+      if (time) meta.push(time);
+      if (meeting.flashStatus) meta.push(meeting.flashStatus);
+      meta.push(meeting.transcriptCached ? "已缓存转写" : "待读取转写");
+      var body = document.createElement("div");
+      body.innerHTML =
+        '<div class="ti-meeting-title">' + esc(meeting.title || meeting.conferenceId) + '</div>' +
+        '<div class="ti-meeting-meta">' + esc(meta.join(" · ")) + '</div>';
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ti-btn ti-btn-primary";
+      btn.textContent = "导入转写";
+      btn.addEventListener("click", async function () {
+        var oldText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "导入中…";
+        setFb("meetingFeedback", "读取会议转写并解析中（约 5-10 秒）…", false);
+        try {
+          var res = await fetch("/api/workbench/manager/task-intake/meetings/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ conferenceId: meeting.conferenceId }),
+          });
+          var data = await res.json();
+          applyPreviewData(data, "meetingFeedback");
+        } catch (err) {
+          setFb("meetingFeedback", err.message || String(err), true);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = oldText;
+        }
+      });
+      card.appendChild(body);
+      card.appendChild(btn);
+      list.appendChild(card);
+    });
+  }
+
+  async function loadMeetings() {
+    setFb("meetingFeedback", "加载最近会议中…", false);
+    try {
+      var res = await fetch("/api/workbench/manager/task-intake/meetings?days=14");
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.error || "加载会议失败");
+      renderMeetingList(data.meetings || []);
+      setFb("meetingFeedback", "", false);
+    } catch (err) {
+      setFb("meetingFeedback", err.message || String(err), true);
+    }
+  }
+
+  if (MEETINGS_ENABLED) {
+    var pasteTabBtn = document.getElementById("pasteTabBtn");
+    var meetingTabBtn = document.getElementById("meetingTabBtn");
+    var pasteSourcePanel = document.getElementById("pasteSourcePanel");
+    var meetingSourcePanel = document.getElementById("meetingSourcePanel");
+    var meetingsLoaded = false;
+    function showSourceTab(name) {
+      var showMeeting = name === "meeting";
+      pasteTabBtn.classList.toggle("is-active", !showMeeting);
+      meetingTabBtn.classList.toggle("is-active", showMeeting);
+      pasteTabBtn.setAttribute("aria-selected", showMeeting ? "false" : "true");
+      meetingTabBtn.setAttribute("aria-selected", showMeeting ? "true" : "false");
+      pasteSourcePanel.hidden = showMeeting;
+      meetingSourcePanel.hidden = !showMeeting;
+      if (showMeeting && !meetingsLoaded) {
+        meetingsLoaded = true;
+        loadMeetings();
+      }
+    }
+    pasteTabBtn.addEventListener("click", function () { showSourceTab("paste"); });
+    meetingTabBtn.addEventListener("click", function () { showSourceTab("meeting"); });
+    document.getElementById("loadMeetingsBtn").addEventListener("click", loadMeetings);
+  }
 
   /* ── step 2: commit ── */
   document.getElementById("commitBtn").addEventListener("click", async function () {

@@ -81,6 +81,8 @@ import { createDailyReportDigestScheduler } from "./agent/daily-report-digest/da
 import { createDailyReportProjectViewPrewarmScheduler } from "./agent/daily-report-digest/daily-report-project-view-prewarm";
 import { createDailyReportProjectViewDigestScheduler } from "./agent/daily-report-digest/daily-report-project-view-digest-scheduler";
 import { isDailyReportProjectViewDigestEnabled } from "./agent/daily-report-digest/daily-report-project-view-digest-flag";
+import { isTaskIntakeDingTalkMeetingsEnabled } from "./agent/task-intake/dingtalk-meetings-flag";
+import { handleDingTalkMeetingEventMessage } from "./integrations/dingtalk/meeting-events";
 import {
   appendMemoryEvents,
   loadMemoryContextForPlan,
@@ -1068,8 +1070,32 @@ async function main(): Promise<void> {
     })();
   });
 
+  const taskIntakeMeetingsEnabled = isTaskIntakeDingTalkMeetingsEnabled();
+  if (taskIntakeMeetingsEnabled) {
+    logStructured({ event: "dingtalk_meeting_event_listener_started" });
+  }
+
   client
-    .registerAllEventListener(() => ({ status: EventAck.SUCCESS }))
+    .registerAllEventListener((eventMessage: DWClientDownStream) => {
+      if (taskIntakeMeetingsEnabled) {
+        void handleDingTalkMeetingEventMessage({ message: eventMessage })
+          .then((result) => {
+            if (result.handled) {
+              logStructured({
+                event: "dingtalk_meeting_event_cached",
+                conferenceId: result.conferenceId,
+              });
+            }
+          })
+          .catch((err) => {
+            logStructured({
+              event: "dingtalk_meeting_event_cache_failed",
+              reason: err instanceof Error ? err.message : String(err),
+            });
+          });
+      }
+      return { status: EventAck.SUCCESS };
+    })
     .connect();
 
   console.info(

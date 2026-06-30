@@ -73,4 +73,21 @@ describe("fetchUrlContent", () => {
 
     expect(result).toMatchObject({ ok: false, reason: "login_wall_or_empty" });
   });
+
+  it("treats empty dingtalk spa pages as login-wall content", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response("<html><head><title>DingTalk AI</title></head><body><div id=\"root\"></div><script>app()</script></body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    const result = await fetchUrlContent({
+      url: "https://shanji.dingtalk.com/app/transcribes/demo",
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    expect(result).toMatchObject({ ok: false, reason: "login_wall_or_empty" });
+    if (!result.ok) expect(result.hint).toContain("钉钉");
+  });
 });

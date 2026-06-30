@@ -29,6 +29,28 @@ describe("manager project portfolio UI guards", () => {
     expect(html).not.toContain("条大任务");
   });
 
+  it("manager task list preserves filter state in URL and detail return links", () => {
+    const html = renderManagerTasksPage({
+      userLabel: "测试",
+      projectPortfolioEnabled: false,
+    });
+    expect(html).toContain("function wbRestoreListStateFromUrl");
+    expect(html).toContain("function wbPersistListStateToUrl");
+    expect(html).toContain("function wbBuildTaskDetailHref");
+    expect(html).toContain("returnTo");
+    expect(html).toContain("attention");
+  });
+
+  it("portfolio grouped task list persists expanded project in URL", () => {
+    const html = renderManagerTasksPage({
+      userLabel: "测试",
+      projectPortfolioEnabled: true,
+      initialView: "group",
+    });
+    expect(html).toContain("expandedProjectId");
+    expect(html).toContain("function wbSetExpandedProjectId");
+  });
+
   it("projects overview page has no presentation mode and uses view=group links", () => {
     const html = renderManagerProjectsPage({ userLabel: "测试" });
     expect(html).toContain("/api/workbench/manager/projects");

@@ -19,6 +19,9 @@
 ```
 步骤 1  粘贴文本 + 可选父任务标题提示
         POST /api/workbench/manager/task-intake/preview
+        或在“最近会议”Tab 选择本人相关闪记会议
+        GET  /api/workbench/manager/task-intake/meetings?days=14
+        POST /api/workbench/manager/task-intake/meetings/preview
 步骤 2  分组预览（新建父任务组 / 追加到已有 / 未分配）
         可改标题、描述/背景、项目、子任务字段、负责人
 步骤 3  按组提交
@@ -35,6 +38,14 @@
    - **C** 未分配（confidence < 0.6，用户手动拖组）
 3. **`resolve-assignees.ts`** — 姓名 → `userId`（复用 meeting-import `resolveAssigneeByName`）。
 4. **描述兜底** — 仅一个新建组且模型未给 `newGroupDescription` 时，服务端与 UI 均回退 `structure-input` 的 `parentDescription`。
+
+### 最近会议（mingsibot 可选）
+
+- 开关：`TASK_INTAKE_DINGTALK_MEETINGS_ENABLED=1` 后，步骤 1 会出现“粘贴录入 / 最近会议”两个 Tab；默认关闭，建议仅在 mingsibot env 开启。
+- 事件：`dingtalk-bot` Stream 监听“闪记状态变更开放事件”，收到 `conferenceId` 后写入 `dingtalk_meetings` / `dingtalk_meeting_members` 缓存；事件字段不足时按需补拉会议基本信息与成员列表。
+- 正文：主管点击“导入转写”时，服务端调用 `GET /v1.0/conference/videoConferences/{conferenceId}/cloudRecords/getTexts` 拉取并缓存转写，再复用同一套 preview / 分组 / commit 流程。
+- 范围：API 按当前登录主管的 `unionId` 过滤，只展示/导入创建人、主持人或成员列表包含本人的会议；Admin 组织全量视图本期不做。
+- 前提：钉钉应用需授权 `VideoConference.Conference.Read`，并订阅闪记状态变更事件；工作台需要能从 `dingtalk_contacts` 解析当前用户 `unionId`（通常开启 `DINGTALK_CONTACT_SYNC_ENABLED=1`）。
 
 ### 步骤 2 分组视图
 
@@ -70,6 +81,10 @@ UI 注意：负责人 combobox 在卡片内展开时使用 `focus-within` 抬升
 | `src/agent/task-intake/commit-task-intake.ts` | 发布 / 暂存 / 追加 |
 | `src/agent/task-intake/task-intake-llm.ts` | LLM 策略与测试 hook |
 | `src/agent/task-intake/task-intake-flag.ts` | `TASK_INTAKE_ENABLED` |
+| `src/agent/task-intake/dingtalk-meetings-flag.ts` | 最近会议 Tab 开关 |
+| `src/integrations/dingtalk/meeting-recording.ts` | 钉钉闪记转写正文 client |
+| `src/integrations/dingtalk/meeting-events.ts` | Stream 闪记事件缓存 |
+| `src/infra/dingtalk-meeting-store.ts` | 会议与成员 SQLite 缓存 |
 | `src/web/task-intake-api.ts` | preview / commit / append HTTP 处理器 |
 | `src/web/manager-task-intake-page.ts` | 向导 UI |
 | `scripts/local-task-intake-dev.ts` | 本地免钉钉开发 |
@@ -83,6 +98,7 @@ UI 注意：负责人 combobox 在卡片内展开时使用 `focus-within` 抬升
 | `TASK_INTAKE_LLM_MODEL` | `qwen3.6-flash` | structure + suggest 共用 |
 | `TASK_INTAKE_LLM_TIMEOUT_MS` | `30000` | |
 | `TASK_INTAKE_LLM_MAX_TOKENS` | `4000` | |
+| `TASK_INTAKE_DINGTALK_MEETINGS_ENABLED` | `0` | `1` 开启“最近会议”Tab、会议缓存事件处理与会议 preview API |
 
 ## 本地开发
 
@@ -97,7 +113,7 @@ npm run dev:task-intake
 ## 测试
 
 ```bash
-npx vitest run tests/agent/task-intake/ tests/web/task-intake.test.ts
+npx vitest run tests/agent/task-intake/ tests/web/task-intake.test.ts tests/integrations/dingtalk/meeting-recording.test.ts tests/integrations/dingtalk/meeting-events.test.ts tests/infra/dingtalk-meeting-store.test.ts
 ```
 
 覆盖：忠实结构化、指派人解析、commit 发布/暂存、HTTP 门禁（员工 403、`TASK_INTAKE_ENABLED=0` 重定向）。

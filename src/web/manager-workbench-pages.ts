@@ -270,6 +270,70 @@ ${portfolio ? `<dialog id="assignProjectDialog">
     return 'assigned';
   }
   var allTasksCache = [];
+  function wbReadInputValue(id) {
+    var el = document.getElementById(id);
+    return el ? String(el.value || '').trim() : '';
+  }
+  function wbSetInputValue(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.value = value || '';
+  }
+  function wbRestoreListStateFromUrl() {
+    try {
+      var usp = new URLSearchParams(window.location.search || '');
+      if (usp.has('attention')) wbSetInputValue('filterAttention', String(usp.get('attention') || ''));
+      if (usp.has('keyword')) wbSetInputValue('filterKeyword', String(usp.get('keyword') || ''));
+      if (usp.has('assignee')) wbSetInputValue('filterAssignee', String(usp.get('assignee') || ''));
+      if (usp.has('sort')) wbSetInputValue('filterSort', String(usp.get('sort') || 'updated_desc'));
+      syncMgrFilterSeg(wbReadInputValue('filterAttention') || '');
+    } catch (e0) {}
+  }
+  function wbAppendListStateParams(usp) {
+    usp.set('attention', wbReadInputValue('filterAttention'));
+    var kw = wbReadInputValue('filterKeyword');
+    var asg = wbReadInputValue('filterAssignee');
+    var sort = wbReadInputValue('filterSort') || 'updated_desc';
+    if (kw) usp.set('keyword', kw); else usp.delete('keyword');
+    if (asg) usp.set('assignee', asg); else usp.delete('assignee');
+    if (sort && sort !== 'updated_desc') usp.set('sort', sort); else usp.delete('sort');
+    try {
+      if (typeof WB_VIEW_MODE !== 'undefined' && WB_VIEW_MODE) usp.set('view', WB_VIEW_MODE);
+      if (typeof WB_SCOPE !== 'undefined' && WB_SCOPE && WB_SCOPE !== 'all') usp.set('scope', WB_SCOPE);
+      else usp.delete('scope');
+      if (typeof WB_FILTER_PROJECT_ID !== 'undefined' && WB_FILTER_PROJECT_ID) usp.set('projectId', WB_FILTER_PROJECT_ID);
+      else if (!(typeof WB_SCOPE !== 'undefined' && WB_SCOPE && WB_SCOPE !== 'all')) usp.delete('projectId');
+      if (typeof WB_EXPAND_PROJECT_ID !== 'undefined' && WB_EXPAND_PROJECT_ID) usp.set('expandedProjectId', WB_EXPAND_PROJECT_ID);
+      else usp.delete('expandedProjectId');
+    } catch (e1) {}
+    usp.delete('planId');
+    usp.delete('focus');
+    usp.delete('subtaskId');
+    return usp;
+  }
+  function wbCurrentTasksBackPath() {
+    var usp = wbAppendListStateParams(new URLSearchParams());
+    var qs = usp.toString();
+    return '/workbench/manager/tasks' + (qs ? '?' + qs : '');
+  }
+  function wbPersistListStateToUrl() {
+    try {
+      if (!window.history || !window.history.replaceState) return;
+      var usp = wbAppendListStateParams(new URLSearchParams(window.location.search || ''));
+      var qs = usp.toString();
+      window.history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+    } catch (e2) {}
+  }
+  function wbBuildTaskDetailHref(taskNo) {
+    return '/workbench/manager/task?taskNo=' +
+      encodeURIComponent(taskNo || '') +
+      '&returnTo=' +
+      encodeURIComponent(wbCurrentTasksBackPath());
+  }
+  function wbRenderActionsCell(t) {
+    return '<td>' + fmtTime(t.updatedAt) + '<br><a href="' +
+      wbBuildTaskDetailHref(t.taskNo || '') +
+      '">鏌ョ湅璇︽儏</a></td>';
+  }
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
@@ -567,6 +631,10 @@ ${portfolio ? `<dialog id="assignProjectDialog">
     });
     renderTaskTable(list);
   }
+  function applyFiltersSortAndPersist() {
+    applyFiltersAndSort();
+    wbPersistListStateToUrl();
+  }
   function syncMgrFilterSeg(att) {
     document.querySelectorAll('.mgr-filter-seg button[data-attention]').forEach(function (btn) {
       var v = String(btn.getAttribute('data-attention') || '');
@@ -577,7 +645,7 @@ ${portfolio ? `<dialog id="assignProjectDialog">
     var fa = document.getElementById('filterAttention');
     if (fa) fa.value = att || '';
     syncMgrFilterSeg(att || '');
-    applyFiltersAndSort();
+    applyFiltersSortAndPersist();
   }
   function clearFilters() {
     var fk = document.getElementById('filterKeyword');
@@ -716,7 +784,7 @@ ${portfolio ? `<dialog id="assignProjectDialog">
 
   var filterApplyBtn = document.getElementById('filterApplyBtn');
   var filterClearBtn = document.getElementById('filterClearBtn');
-  if (filterApplyBtn) filterApplyBtn.addEventListener('click', applyFiltersAndSort);
+  if (filterApplyBtn) filterApplyBtn.addEventListener('click', applyFiltersSortAndPersist);
   if (filterClearBtn) filterClearBtn.addEventListener('click', clearFilters);
   document.querySelectorAll('.mgr-filter-seg button[data-attention]').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -727,9 +795,11 @@ ${portfolio ? `<dialog id="assignProjectDialog">
   if (filterAttEl) {
     filterAttEl.addEventListener('change', function () {
       syncMgrFilterSeg(String(filterAttEl.value || ''));
+      applyFiltersSortAndPersist();
     });
     syncMgrFilterSeg(String(filterAttEl.value || 'needs_manager'));
   }
+  wbRestoreListStateFromUrl();
   ${portfolio ? buildWorkbenchTasksPortfolioClientJs({ initialProjectId, initialView }) : "void loadTasks();"}
 })();
 </script>`,

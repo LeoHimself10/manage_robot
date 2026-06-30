@@ -11,12 +11,14 @@ import { renderManagerTaskIntakePage } from "../../src/web/manager-task-intake-p
 import { __setTaskIntakeLlmForTest } from "../../src/agent/task-intake/task-intake-llm";
 import { findMainThreadSession } from "../../src/web/conversation-thread-resolver";
 import { createPeopleDirectoryStore } from "../../src/infra/people-directory-store";
+import { createDingTalkMeetingStore } from "../../src/infra/dingtalk-meeting-store";
 
-function seedContact(userId: string, name: string): void {
+function seedContact(userId: string, name: string, unionId?: string): void {
   const store = createPeopleDirectoryStore();
   try {
     store.upsertContact({
       userId,
+      unionId,
       name,
       departmentIds: [],
       departmentNames: [],
@@ -87,6 +89,7 @@ describe("task-intake HTTP", () => {
     vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "");
     vi.stubEnv("WORKBENCH_TEST_LOGIN_ENABLED", "1");
     vi.stubEnv("TASK_INTAKE_ENABLED", "1");
+    vi.stubEnv("TASK_INTAKE_DINGTALK_MEETINGS_ENABLED", "1");
     vi.stubEnv("PLAN_SESSION_DIR", join(tmp, "sessions"));
     __resetWorkbenchStoresForTest();
     __setTaskIntakeLlmForTest(async () =>
@@ -104,6 +107,7 @@ describe("task-intake HTTP", () => {
   afterEach(() => {
     __setTaskIntakeLlmForTest(undefined);
     __resetWorkbenchStoresForTest();
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
 
@@ -124,6 +128,161 @@ describe("task-intake HTTP", () => {
     const html = renderManagerTaskIntakePage({ userLabel: "测试" });
     expect(html).toContain("任务快录入库");
     expect(html).toContain("task-intake/preview");
+    expect(html).toContain('id="docUrl"');
+    expect(html).toContain("docUrl:");
+    expect(html).toContain("最近会议");
+    expect(html).toContain("task-intake/meetings");
+  });
+
+  it("previews tasks from a readable URL when no text is pasted", async () => {
+    const cookie = await loginManager();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("更新API文档\n联调验收脚本", {
+        status: 200,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      }),
+    );
+    const seenPrompts: string[] = [];
+    __setTaskIntakeLlmForTest(async (input) => {
+      seenPrompts.push(input.user);
+      return JSON.stringify({
+        parentTitle: "链接导入任务",
+        parentDescription: "来自链接正文",
+        subtasks: [
+          {
+            title: input.user.includes("更新API文档") ? "更新API文档" : "未读取链接",
+            objective: "完成链接中的任务",
+            deliverables: "文档",
+            completionCriteria: "已验收",
+          },
+        ],
+      });
+    });
+
+    const previewReq = stubReq({
+      method: "POST",
+      url: "/api/workbench/manager/task-intake/preview",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ docUrl: "https://93.184.216.34/tasks", parentTitle: "链接导入任务" }),
+    });
+    const previewRes = stubRes();
+    handleAssignmentHttp(previewReq, previewRes.res);
+    await flushAsync();
+
+    const body = JSON.parse(previewRes.captured().body);
+    expect(body.ok).toBe(true);
+    expect(body.rows[0].title).toBe("更新API文档");
+    expect(seenPrompts.some((p) => p.includes("联调验收脚本"))).toBe(true);
+  });
+
+  it("lists only manager-related DingTalk meetings", async () => {
+    seedContact("mgr-plain", "主管", "union-mgr");
+    const meetingStore = createDingTalkMeetingStore();
+    const now = Date.now();
+    meetingStore.upsertMeeting({
+      conferenceId: "conf-visible",
+      title: "项目周会",
+      creatorUnionId: "union-other",
+      startTimeMs: now - 1000,
+      flashStatus: "video_generated",
+    });
+    meetingStore.replaceMeetingMembers("conf-visible", [{ unionId: "union-mgr", nickName: "主管" }]);
+    meetingStore.upsertMeeting({
+      conferenceId: "conf-hidden",
+      title: "无关会议",
+      creatorUnionId: "union-other",
+      startTimeMs: now - 1000,
+      flashStatus: "video_generated",
+    });
+    meetingStore.replaceMeetingMembers("conf-hidden", [{ unionId: "union-other", nickName: "别人" }]);
+    meetingStore.close();
+    const cookie = await loginManager();
+
+    const req = stubReq({
+      method: "GET",
+      url: "/api/workbench/manager/task-intake/meetings?days=14",
+      headers: { cookie },
+    });
+    const res = stubRes();
+    handleAssignmentHttp(req, res.res);
+    await flushAsync();
+
+    const body = JSON.parse(res.captured().body);
+    expect(body.ok).toBe(true);
+    expect(body.meetings.map((m: { conferenceId: string }) => m.conferenceId)).toEqual(["conf-visible"]);
+  });
+
+  it("previews a cached DingTalk meeting transcript and rejects unrelated meetings", async () => {
+    seedContact("mgr-plain", "主管", "union-mgr");
+    const meetingStore = createDingTalkMeetingStore();
+    const now = Date.now();
+    meetingStore.upsertMeeting({
+      conferenceId: "conf-visible",
+      title: "项目周会",
+      creatorUnionId: "union-mgr",
+      startTimeMs: now - 1000,
+      flashStatus: "video_generated",
+    });
+    meetingStore.replaceMeetingMembers("conf-visible", [{ unionId: "union-mgr", nickName: "主管" }]);
+    meetingStore.setMeetingTranscript({
+      conferenceId: "conf-visible",
+      transcriptText: "主管: 更新API文档\n员工: 联调验收脚本",
+      fetchedAt: "2026-06-30T00:00:00.000Z",
+    });
+    meetingStore.upsertMeeting({
+      conferenceId: "conf-hidden",
+      title: "无关会议",
+      creatorUnionId: "union-other",
+      startTimeMs: now - 1000,
+      flashStatus: "video_generated",
+    });
+    meetingStore.replaceMeetingMembers("conf-hidden", [{ unionId: "union-other", nickName: "别人" }]);
+    meetingStore.setMeetingTranscript({
+      conferenceId: "conf-hidden",
+      transcriptText: "别人: 不应读取",
+      fetchedAt: "2026-06-30T00:00:00.000Z",
+    });
+    meetingStore.close();
+    const cookie = await loginManager();
+    __setTaskIntakeLlmForTest(async (input) =>
+      JSON.stringify({
+        parentTitle: "项目周会跟进",
+        parentDescription: "来自钉钉会议转写",
+        subtasks: [
+          {
+            title: input.user.includes("更新API文档") ? "更新API文档" : "未读取会议",
+            objective: "完成会议行动项",
+            deliverables: "文档",
+            completionCriteria: "已验收",
+          },
+        ],
+      }),
+    );
+
+    const previewReq = stubReq({
+      method: "POST",
+      url: "/api/workbench/manager/task-intake/meetings/preview",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ conferenceId: "conf-visible" }),
+    });
+    const previewRes = stubRes();
+    handleAssignmentHttp(previewReq, previewRes.res);
+    await flushAsync();
+    const previewBody = JSON.parse(previewRes.captured().body);
+    expect(previewBody.ok).toBe(true);
+    expect(previewBody.rows[0].title).toBe("更新API文档");
+
+    const deniedReq = stubReq({
+      method: "POST",
+      url: "/api/workbench/manager/task-intake/meetings/preview",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ conferenceId: "conf-hidden" }),
+    });
+    const deniedRes = stubRes();
+    handleAssignmentHttp(deniedReq, deniedRes.res);
+    await flushAsync();
+    expect(deniedRes.captured().statusCode).toBe(403);
+    expect(JSON.parse(deniedRes.captured().body).error).toBe("meeting_not_accessible");
   });
 
   it("previews then publishes when every row has an assignee (non-portfolio manager)", async () => {

@@ -172,8 +172,16 @@ import {
   handleMeetingImportParse,
 } from "./meeting-import-api";
 import { renderManagerTaskIntakePage } from "./manager-task-intake-page";
-import { handleTaskIntakeAppend, handleTaskIntakeCommit, handleTaskIntakePreview } from "./task-intake-api";
+import {
+  TaskIntakeMeetingError,
+  handleTaskIntakeAppend,
+  handleTaskIntakeCommit,
+  handleTaskIntakeMeetingPreview,
+  handleTaskIntakeMeetingsList,
+  handleTaskIntakePreview,
+} from "./task-intake-api";
 import { isTaskIntakeEnabled } from "../agent/task-intake/task-intake-flag";
+import { isTaskIntakeDingTalkMeetingsEnabled } from "../agent/task-intake/dingtalk-meetings-flag";
 import { isMeetingImportEnabled } from "../agent/meeting-import/meeting-import-flag";
 import {
   buildWeeklyAdvisorHttpPayload,
@@ -254,6 +262,23 @@ const ADMIN_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/admin/task",
   "/workbench/admin/task/events",
 ]);
+
+function sanitizeWorkbenchReturnPath(
+  raw: string | null | undefined,
+  fallback: string,
+  allowedPaths: Set<string>,
+): string {
+  const value = String(raw ?? "").trim();
+  if (!value) return fallback;
+  try {
+    const parsed = new URL(value, "http://workbench.local");
+    if (parsed.origin !== "http://workbench.local") return fallback;
+    if (!allowedPaths.has(parsed.pathname)) return fallback;
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return fallback;
+  }
+}
 
 /** Legacy bookmarks → canonical paths (302 after session + role check). */
 const LEGACY_WORKBENCH_REDIRECTS: Record<string, string> = {
@@ -1265,6 +1290,7 @@ export function renderTaskDetailPage(params: {
   var ROLE = ${JSON.stringify(params.roleLabel)};
   var ENFORCE_GUARDS = ${params.enforceActionGuards ? "true" : "false"};
   var EVENTS_PAGE_BASE = ${JSON.stringify(params.eventsPagePath ?? "")};
+  var BACK_PATH = ${JSON.stringify(params.backPath)};
   var KEY_EVENT_TYPES = ${JSON.stringify([...EMPLOYEE_KEY_EVENT_TYPES])};
   var lastLoadedPlanId = '';
   var detailReassignComboBound = false;
@@ -1745,7 +1771,7 @@ export function renderTaskDetailPage(params: {
         })();
         return;
       }
-      var adminA = el.closest('[data-admin-open-reassign]');
+      var adminA = el.closest('[data-detail-open-reassign],[data-admin-open-reassign]');
       if (adminA) {
         ev.preventDefault();
         if (lastLoadedPlanId) initDetailReassign(lastSubsForReassign, '');
@@ -2132,12 +2158,11 @@ export function renderTaskDetailPage(params: {
     var mgrTop =
       ROLE === 'manager'
         ? '<p class="muted mgr-task-tools" style="margin:12px 0 0;font-size:13px;">'
-          + '<a class="btn btn-secondary btn-sm" href="/workbench/manager/tasks?planId='
-          + encodeURIComponent(String(t.planId || ''))
-          + '&focus=reassign">前往改派页</a> <span class="muted">在「调整分配」中自动定位本任务并加载未完成子任务</span></p>'
+          + '<button type="button" class="btn btn-secondary btn-sm" data-detail-open-reassign>'
+          + '打开改派</button> <span class="muted">使用本页下方改派卡片，可选择整单或具体子任务</span></p>'
         : ROLE === 'admin'
           ? '<p class="muted mgr-task-tools" style="margin:12px 0 0;font-size:13px;">'
-            + '<button type="button" class="btn btn-secondary btn-sm" data-admin-open-reassign>打开改派</button>'
+            + '<button type="button" class="btn btn-secondary btn-sm" data-detail-open-reassign>打开改派</button>'
             + ' <span class="muted">使用本页下方改派卡片</span></p>'
           : '';
     function canStopTask(subList) {
@@ -2325,10 +2350,6 @@ export function renderTaskDetailPage(params: {
           initialFilter = rowBucketForSubtask({ status: hitSu.status, openDeclineKind: hitDk || null });
         }
       }
-      var reassignListHrefBase =
-        '/workbench/manager/tasks?planId=' +
-        encodeURIComponent(String(t.planId || '')) +
-        '&focus=reassign';
       var chipHtml = function (key, label, cnt, alertCls) {
         var pressed = initialFilter === key ? 'true' : 'false';
         var ac = alertCls ? ' mgr-sub-filter-chip--alert' : '';
@@ -2397,13 +2418,7 @@ export function renderTaskDetailPage(params: {
               '">催办</button>',
           );
         }
-        if (st !== 'DONE' && ROLE === 'manager') {
-          actions.push(
-            '<a class="btn btn-secondary btn-sm" href="' +
-              esc(reassignListHrefBase + '&subtaskId=' + encodeURIComponent(rawId)) +
-              '">改派页</a>',
-          );
-        } else if (st !== 'DONE' && st !== 'STOPPED') {
+        if (st !== 'DONE' && st !== 'STOPPED' && (ROLE === 'manager' || ROLE === 'admin')) {
           actions.push(
             '<button type="button" class="btn btn-secondary btn-sm" data-mgr-open-reassign-sub="' +
               sid +
@@ -2630,7 +2645,7 @@ export function renderTaskDetailPage(params: {
     var eventsFullLink = document.getElementById('eventsFullPageLink');
     if (eventsFullLink && EVENTS_PAGE_BASE && taskNo) {
       var fromView = pageQs.get('fromView') || 'current';
-      eventsFullLink.href = EVENTS_PAGE_BASE + '?taskNo=' + encodeURIComponent(taskNo) + '&fromView=' + encodeURIComponent(fromView);
+      eventsFullLink.href = EVENTS_PAGE_BASE + '?taskNo=' + encodeURIComponent(taskNo) + '&fromView=' + encodeURIComponent(fromView) + '&returnTo=' + encodeURIComponent(BACK_PATH || '');
       if (eventsMore) eventsMore.style.display = 'block';
     }
     if(!events.length){
@@ -4338,6 +4353,7 @@ export function handleAssignmentHttp(
         const result = await handleTaskIntakePreview({
           pastedText: String(body.pastedText ?? ""),
           parentTitle: String(body.parentTitle ?? ""),
+          docUrl: String(body.docUrl ?? ""),
           existingTasks: existing,
         });
         writeJson(res, 200, { ok: true, ...result });
@@ -4345,6 +4361,65 @@ export function handleAssignmentHttp(
         writeJson(res, 400, {
           ok: false,
           error: err instanceof Error ? err.message : "preview failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/workbench/manager/task-intake/meetings") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!isTaskIntakeEnabled() || !isTaskIntakeDingTalkMeetingsEnabled()) {
+          writeJson(res, 404, { ok: false, error: "task_intake_meetings_disabled" });
+          return;
+        }
+        const days = Number(url.searchParams.get("days") ?? "14");
+        const result = await handleTaskIntakeMeetingsList({
+          managerUserId: session.userId,
+          days,
+        });
+        writeJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        const status = err instanceof TaskIntakeMeetingError ? err.statusCode : 400;
+        writeJson(res, status, {
+          ok: false,
+          error: err instanceof TaskIntakeMeetingError ? err.code : err instanceof Error ? err.message : "meetings failed",
+          message: err instanceof Error ? err.message : "meetings failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/task-intake/meetings/preview") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "manager");
+        if (!session) return;
+        if (!isTaskIntakeEnabled() || !isTaskIntakeDingTalkMeetingsEnabled()) {
+          writeJson(res, 404, { ok: false, error: "task_intake_meetings_disabled" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const existing = getFormalTaskStore()
+          .listManagerTasks(session.userId)
+          .filter((t) => t.status !== "DONE" && t.status !== "STOPPED")
+          .map((t) => ({ planId: t.planId, title: t.title, taskNo: t.taskNo }));
+        const result = await handleTaskIntakeMeetingPreview({
+          managerUserId: session.userId,
+          conferenceId: String(body.conferenceId ?? ""),
+          existingTasks: existing,
+        });
+        writeJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        const status = err instanceof TaskIntakeMeetingError ? err.statusCode : 400;
+        writeJson(res, status, {
+          ok: false,
+          error: err instanceof TaskIntakeMeetingError ? err.code : err instanceof Error ? err.message : "meeting preview failed",
+          message: err instanceof Error ? err.message : "meeting preview failed",
         });
       }
     })();
@@ -6962,6 +7037,11 @@ export function handleAssignmentHttp(
       const userLabel = session.dingUser?.name ?? session.userId;
       const showAdminOpsLink = resolveWorkbenchCapabilities(session.userId).canAccessAdmin;
       const mgrTaskNo = url.searchParams.get("taskNo")?.trim() ?? "";
+      const managerBackPath = sanitizeWorkbenchReturnPath(
+        url.searchParams.get("returnTo"),
+        "/workbench/manager/tasks",
+        new Set(["/workbench/manager/tasks"]),
+      );
       const initialProjectId = url.searchParams.get("projectId")?.trim() ?? "";
       const tasksViewParam = url.searchParams.get("view")?.trim().toLowerCase();
       const initialTasksView = tasksViewParam === "flat" ? "flat" : "group";
@@ -7049,12 +7129,12 @@ export function handleAssignmentHttp(
               : url.pathname === "/workbench/manager/task/events"
               ? renderTaskEventsPage({
                 roleLabel: "manager",
-                backPath: "/workbench/manager/tasks",
-                detailPath: `/workbench/manager/task?taskNo=${encodeURIComponent(mgrTaskNo)}`,
+                backPath: managerBackPath,
+                detailPath: `/workbench/manager/task?taskNo=${encodeURIComponent(mgrTaskNo)}&returnTo=${encodeURIComponent(managerBackPath)}`,
               })
               : renderTaskDetailPage({
                 roleLabel: "manager",
-                backPath: "/workbench/manager/tasks",
+                backPath: managerBackPath,
                 enforceActionGuards: shouldEnforceActionGuards(),
                 eventsPagePath: "/workbench/manager/task/events",
               });

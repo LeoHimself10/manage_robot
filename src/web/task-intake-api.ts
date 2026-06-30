@@ -7,6 +7,18 @@ import { structureTasksFromText } from "../agent/task-intake/structure-input";
 import { buildPreviewRows } from "../agent/task-intake/resolve-assignees";
 import { suggestTaskTargets, type ExistingTaskStub } from "../agent/task-intake/suggest-targets";
 import { appendTaskIntake, commitTaskIntake } from "../agent/task-intake/commit-task-intake";
+import { isTaskIntakeDingTalkMeetingsEnabled } from "../agent/task-intake/dingtalk-meetings-flag";
+import { fetchUrlContent } from "../integrations/url-fetch/fetch-url-content";
+import {
+  DingTalkMeetingApiError,
+  createDingTalkMeetingRecordingClient,
+  type DingTalkMeetingRecordingClient,
+} from "../integrations/dingtalk/meeting-recording";
+import {
+  createDingTalkMeetingStore,
+  type DingTalkMeetingRow,
+  type DingTalkMeetingStore,
+} from "../infra/dingtalk-meeting-store";
 import type {
   TaskIntakeAppendResult,
   TaskIntakeCommitResult,
@@ -15,6 +27,17 @@ import type {
 } from "../agent/task-intake/types";
 
 type TaskStore = ReturnType<typeof createWorkbenchFormalTaskStore>;
+
+export class TaskIntakeMeetingError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly statusCode = 400,
+  ) {
+    super(message);
+    this.name = "TaskIntakeMeetingError";
+  }
+}
 
 function normalizeDueMode(row: TaskIntakeCommitRow): "fixed" | "self" {
   if (row.dueMode === "fixed" || row.dueMode === "self") return row.dueMode;
@@ -46,6 +69,7 @@ function applyNewGroupDescriptionFallback(
 export async function handleTaskIntakePreview(input: {
   pastedText?: string;
   parentTitle?: string;
+  docUrl?: string;
   existingTasks?: ExistingTaskStub[];
 }): Promise<{
   parentTitle: string;
@@ -56,9 +80,24 @@ export async function handleTaskIntakePreview(input: {
 }> {
   const pastedText = String(input.pastedText ?? "");
   const parentTitleHint = String(input.parentTitle ?? "");
+  const docUrl = String(input.docUrl ?? "").trim();
+  const warnings: string[] = [];
+  let sourceText = pastedText;
+
+  if (docUrl) {
+    const fetched = await fetchUrlContent({ url: docUrl, maxTextChars: 60_000 });
+    if (fetched.ok) {
+      const title = fetched.title?.trim() || fetched.finalUrl || fetched.url;
+      const linkBlock = [`[url] ${title}`, fetched.text].filter(Boolean).join("\n");
+      sourceText = [sourceText.trim(), linkBlock].filter(Boolean).join("\n\n");
+      if (fetched.note) warnings.push(fetched.note);
+    } else {
+      warnings.push(`url_fetch_${fetched.reason}: ${fetched.hint}`);
+    }
+  }
 
   // Structure first (faithfully maps pasted text to subtasks).
-  const result = await structureTasksFromText({ pastedText, parentTitleHint });
+  const result = await structureTasksFromText({ pastedText: sourceText, parentTitleHint });
 
   // Then suggest targets — depends on structured subtask list; failure is non-fatal.
   const subtaskStubs = result.structured.subtasks.map((s, i) => ({
@@ -77,9 +116,143 @@ export async function handleTaskIntakePreview(input: {
     parentTitle: result.structured.parentTitle,
     parentDescription: result.structured.parentDescription,
     rows,
-    warnings: result.warnings,
+    warnings: [...warnings, ...result.warnings],
     usedFallback: result.usedFallback,
   };
+}
+
+function normalizeDays(value: unknown): number {
+  const raw = Number(value);
+  if (!Number.isFinite(raw) || raw <= 0) return 14;
+  return Math.min(Math.floor(raw), 90);
+}
+
+function resolveManagerUnionId(userId: string): string {
+  const peopleStore = createPeopleDirectoryStore();
+  try {
+    const unionId = peopleStore.getContact(userId)?.unionId?.trim();
+    if (!unionId) {
+      throw new TaskIntakeMeetingError(
+        "manager_union_id_missing",
+        "当前账号缺少钉钉 unionId，请先开启/完成通讯录同步",
+        400,
+      );
+    }
+    return unionId;
+  } finally {
+    peopleStore.close();
+  }
+}
+
+function presentMeeting(row: DingTalkMeetingRow): {
+  conferenceId: string;
+  title: string;
+  startTimeMs?: number;
+  endTimeMs?: number;
+  flashStatus?: string;
+  transcriptCached: boolean;
+  lastError?: string;
+} {
+  return {
+    conferenceId: row.conferenceId,
+    title: row.title || row.roomCode || row.conferenceId,
+    startTimeMs: row.startTimeMs,
+    endTimeMs: row.endTimeMs,
+    flashStatus: row.flashStatus,
+    transcriptCached: row.transcriptCached,
+    lastError: row.lastError,
+  };
+}
+
+export async function handleTaskIntakeMeetingsList(input: {
+  managerUserId: string;
+  days?: number;
+  meetingStore?: DingTalkMeetingStore;
+}): Promise<{ meetings: ReturnType<typeof presentMeeting>[] }> {
+  if (!isTaskIntakeDingTalkMeetingsEnabled()) {
+    throw new TaskIntakeMeetingError("meetings_disabled", "DingTalk meetings import is disabled", 404);
+  }
+  const unionId = resolveManagerUnionId(input.managerUserId);
+  const days = normalizeDays(input.days);
+  const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+  const ownStore = input.meetingStore ? undefined : createDingTalkMeetingStore();
+  const meetingStore = input.meetingStore ?? ownStore!;
+  try {
+    return {
+      meetings: meetingStore
+        .listMeetingsForUnionId({ unionId, sinceMs, limit: 50 })
+        .map(presentMeeting),
+    };
+  } finally {
+    ownStore?.close();
+  }
+}
+
+export async function handleTaskIntakeMeetingPreview(input: {
+  managerUserId: string;
+  conferenceId: string;
+  existingTasks?: ExistingTaskStub[];
+  meetingStore?: DingTalkMeetingStore;
+  meetingClient?: DingTalkMeetingRecordingClient;
+}): Promise<Awaited<ReturnType<typeof handleTaskIntakePreview>> & { meeting: ReturnType<typeof presentMeeting> }> {
+  if (!isTaskIntakeDingTalkMeetingsEnabled()) {
+    throw new TaskIntakeMeetingError("meetings_disabled", "DingTalk meetings import is disabled", 404);
+  }
+  const conferenceId = String(input.conferenceId ?? "").trim();
+  if (!conferenceId) {
+    throw new TaskIntakeMeetingError("conference_id_required", "conferenceId is required", 400);
+  }
+  const unionId = resolveManagerUnionId(input.managerUserId);
+  const ownStore = input.meetingStore ? undefined : createDingTalkMeetingStore();
+  const meetingStore = input.meetingStore ?? ownStore!;
+  try {
+    const meeting = meetingStore.getMeeting(conferenceId);
+    if (!meeting) {
+      throw new TaskIntakeMeetingError("meeting_not_found", "会议不存在或尚未进入缓存", 404);
+    }
+    if (!meetingStore.userCanAccessMeeting(conferenceId, unionId)) {
+      throw new TaskIntakeMeetingError("meeting_not_accessible", "当前用户无权导入该会议", 403);
+    }
+    let transcriptText = meeting.transcriptText?.trim() ?? "";
+    if (!transcriptText) {
+      const client = input.meetingClient ?? createDingTalkMeetingRecordingClient();
+      try {
+        const transcript = await client.getCloudRecordTranscript({ conferenceId, unionId });
+        transcriptText = transcript.text;
+        meetingStore.setMeetingTranscript({
+          conferenceId,
+          transcriptText,
+          fetchedAt: transcript.fetchedAt,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        meetingStore.setMeetingLastError({ conferenceId, errorText: message });
+        if (err instanceof DingTalkMeetingApiError && err.code === "empty_transcript") {
+          throw new TaskIntakeMeetingError("meeting_transcript_empty", "该会议暂未生成可导入的转写正文", 404);
+        }
+        if (err instanceof DingTalkMeetingApiError && err.code === "permission_denied") {
+          throw new TaskIntakeMeetingError("meeting_transcript_denied", "钉钉拒绝读取该会议转写", 403);
+        }
+        throw new TaskIntakeMeetingError("meeting_transcript_fetch_failed", message, 502);
+      }
+    }
+    if (!transcriptText.trim()) {
+      throw new TaskIntakeMeetingError("meeting_transcript_empty", "该会议暂未生成可导入的转写正文", 404);
+    }
+    const meetingTitle = meeting.title || meeting.roomCode || "钉钉会议";
+    const pastedText = [`[meeting] ${meetingTitle}`, transcriptText].join("\n");
+    const preview = await handleTaskIntakePreview({
+      pastedText,
+      parentTitle: `${meetingTitle}跟进`,
+      existingTasks: input.existingTasks,
+    });
+    return {
+      ...preview,
+      meeting: presentMeeting({ ...meeting, transcriptText, transcriptCached: true }),
+    };
+  } finally {
+    ownStore?.close();
+  }
 }
 
 export async function handleTaskIntakeAppend(input: {

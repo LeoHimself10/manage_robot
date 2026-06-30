@@ -22,6 +22,16 @@ describe("renderTaskDetailPage", () => {
     expect(html).toContain("detailReassignBtn");
   });
 
+  it("manager subtask reassign opens the detail-page reassign panel", () => {
+    const html = renderTaskDetailPage({
+      roleLabel: "manager",
+      backPath: "/workbench/manager/tasks?attention=blocked&expandedProjectId=proj-a",
+      enforceActionGuards: false,
+    });
+    expect(html).toContain("data-mgr-open-reassign-sub");
+    expect(html).not.toContain("/workbench/manager/tasks?planId=");
+  });
+
   it("employee HTML uses shared subtask planning helpers for mine section", () => {
     const html = renderTaskDetailPage({
       roleLabel: "employee",

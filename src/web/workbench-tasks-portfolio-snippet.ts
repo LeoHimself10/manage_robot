@@ -78,9 +78,20 @@ export function buildWorkbenchTasksPortfolioClientJs(opts: {
         if (pid === WB_UNASSIGNED) WB_SCOPE = 'unassigned';
         else WB_SCOPE = pid;
       }
+      var expandedPid = String(usp.get('expandedProjectId') || '').trim();
+      if (expandedPid) WB_EXPAND_PROJECT_ID = expandedPid;
       var scope = String(usp.get('scope') || '').trim();
       if (scope === 'unassigned') WB_SCOPE = 'unassigned';
+      else if (scope) {
+        WB_SCOPE = scope;
+        if (!WB_EXPAND_PROJECT_ID) WB_EXPAND_PROJECT_ID = scope;
+      }
     } catch (e0) {}
+  }
+
+  function wbSetExpandedProjectId(projectId) {
+    WB_EXPAND_PROJECT_ID = String(projectId || '').trim();
+    if (typeof wbPersistListStateToUrl === 'function') wbPersistListStateToUrl();
   }
 
   function wbPersistViewMode() {
@@ -123,6 +134,7 @@ export function buildWorkbenchTasksPortfolioClientJs(opts: {
     if (WB_VIEW_MODE === 'flat') {
       WB_FILTER_PROJECT_ID = v;
       WB_SCOPE = 'all';
+      if (typeof wbPersistListStateToUrl === 'function') wbPersistListStateToUrl();
       loadTasks();
       return;
     }
@@ -130,8 +142,9 @@ export function buildWorkbenchTasksPortfolioClientJs(opts: {
     else if (v === WB_UNASSIGNED) WB_SCOPE = 'unassigned';
     else {
       WB_SCOPE = v;
-      WB_EXPAND_PROJECT_ID = v;
+      wbSetExpandedProjectId(v);
     }
+    if (typeof wbPersistListStateToUrl === 'function') wbPersistListStateToUrl();
     applyFiltersAndSort();
   }
 
@@ -213,7 +226,9 @@ export function buildWorkbenchTasksPortfolioClientJs(opts: {
   }
 
   function wbRenderActionsCell(t) {
-    var detailHref = '/workbench/manager/task?taskNo=' + encodeURIComponent(t.taskNo || '');
+    var detailHref = typeof wbBuildTaskDetailHref === 'function'
+      ? wbBuildTaskDetailHref(t.taskNo || '')
+      : ('/workbench/manager/task?taskNo=' + encodeURIComponent(t.taskNo || ''));
     return '<td class="col-actions">'
       + '<time class="wb-cell-time">' + escapeHtml(fmtTime(t.updatedAt)) + '</time>'
       + '<div class="wb-row-actions">'
@@ -279,6 +294,14 @@ export function buildWorkbenchTasksPortfolioClientJs(opts: {
       return;
     }
 
+    function filterGroupLabel(n) {
+      var sel = document.getElementById('filterAttention');
+      var v = sel ? String(sel.value || '').trim() : '';
+      if (!v) return '';
+      var opt = sel.options && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
+      var label = opt ? String(opt.textContent || '').trim() : v;
+      return label ? (label + ' ' + n) : '';
+    }
     var html = '<div class="wb-project-groups">';
     order.forEach(function (pid) {
       var tasks = groups[pid] || [];
@@ -295,7 +318,7 @@ export function buildWorkbenchTasksPortfolioClientJs(opts: {
         + '<span class="wb-proj-chev">▶</span>'
         + '<div><div style="font-weight:650;">' + escapeHtml(name) + '</div>'
         + '<div class="muted" style="font-size:12px;margin-top:2px;">' + tasks.length + ' 条任务</div></div>'
-        + '<div style="text-align:right;font-size:12px;">' + escapeHtml(card && card.attentionLabel ? card.attentionLabel : '') + '</div>'
+        + '<div style="text-align:right;font-size:12px;">' + escapeHtml(filterGroupLabel(tasks.length) || (card && card.attentionLabel ? card.attentionLabel : '')) + '</div>'
         + '</div>'
         + '<div class="wb-proj-body" id="' + bodyId + '"' + (expanded ? '' : ' hidden') + '>'
         + '<div class="table-wrap"><table class="data"><thead><tr>' + wbGroupedHeaders(true) + '</tr></thead><tbody>'
@@ -314,6 +337,12 @@ export function buildWorkbenchTasksPortfolioClientJs(opts: {
         var open = body.hidden;
         body.hidden = !open;
         hdr.setAttribute('aria-expanded', open ? 'true' : 'false');
+        var group = hdr.closest('.wb-project-group');
+        var pid = group ? String(group.getAttribute('data-project-id') || '').trim() : '';
+        if (pid) {
+          if (open) wbSetExpandedProjectId(pid);
+          else if (WB_EXPAND_PROJECT_ID === pid) wbSetExpandedProjectId('');
+        }
       }
       hdr.addEventListener('click', toggle);
       hdr.addEventListener('keydown', function (e) {
@@ -561,6 +590,7 @@ export function buildWorkbenchTasksPortfolioClientJs(opts: {
         WB_VIEW_MODE = btn.getAttribute('data-wb-view-mode') || 'group';
         wbPersistViewMode();
         wbSyncViewToggleUi();
+        if (typeof wbPersistListStateToUrl === 'function') wbPersistListStateToUrl();
         applyFiltersAndSort();
       });
     });

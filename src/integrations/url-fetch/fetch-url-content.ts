@@ -265,6 +265,14 @@ export async function fetchUrlContent(input: FetchUrlContentInput): Promise<Fetc
   }
 
   if (!text) {
+    if (isDingtalkDocHost(hostname)) {
+      return {
+        ok: false,
+        reason: "login_wall_or_empty",
+        hint: DINGTALK_DOC_FALLBACK_HINT,
+        url,
+      };
+    }
     return {
       ok: false,
       reason: "empty_content",
