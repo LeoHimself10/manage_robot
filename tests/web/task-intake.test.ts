@@ -331,6 +331,51 @@ describe("task-intake HTTP", () => {
     meetingStore.close();
   });
 
+  it("does not send the synthetic meeting title marker as transcript content", async () => {
+    seedContact("mgr-plain", "Manager", "union-mgr");
+    const meetingStore = createDingTalkMeetingStore();
+    meetingStore.upsertMeeting({
+      conferenceId: "conf-meeting-marker",
+      title: "AI log requirements",
+      creatorUnionId: "union-mgr",
+      startTimeMs: Date.parse("2026-07-02T03:00:00.000Z"),
+    });
+    meetingStore.replaceMeetingMembers("conf-meeting-marker", [{ unionId: "union-mgr", nickName: "Manager" }]);
+    meetingStore.setMeetingTranscript({
+      conferenceId: "conf-meeting-marker",
+      transcriptText:
+        "Action item: Yao Kaiheng drafts the AI log assistant requirements.\n" +
+        "Action item: Dong Shaobo supplies representative log pain points.",
+      fetchedAt: "2026-07-02T00:00:00.000Z",
+    });
+    const seenPrompts: string[] = [];
+    __setTaskIntakeLlmForTest(async (input) => {
+      seenPrompts.push(input.user);
+      return JSON.stringify({
+        parentTitle: "AI log requirements follow-up",
+        parentDescription: "Imported from AI minutes",
+        subtasks: [
+          {
+            title: input.user.includes("[meeting]") ? "bad synthetic meeting marker" : "draft AI log requirements",
+            objective: "Draft requirements",
+            deliverables: "Requirements document",
+            completionCriteria: "Reviewed",
+          },
+        ],
+      });
+    });
+
+    const result = await handleTaskIntakeMeetingPreview({
+      managerUserId: "mgr-plain",
+      conferenceId: "conf-meeting-marker",
+      meetingStore,
+    });
+
+    expect(seenPrompts[0]).not.toContain("[meeting]");
+    expect(result.rows[0]?.title).toBe("draft AI log requirements");
+    meetingStore.close();
+  });
+
   it("previews a cached DingTalk meeting transcript and rejects unrelated meetings", async () => {
     seedContact("mgr-plain", "主管", "union-mgr");
     const meetingStore = createDingTalkMeetingStore();

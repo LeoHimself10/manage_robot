@@ -400,7 +400,7 @@ export async function handleTaskIntakeMeetingPreview(input: {
       throw new TaskIntakeMeetingError("meeting_transcript_empty", "该会议暂未生成可导入的转写正文", 404);
     }
     const meetingTitle = meeting.title || meeting.roomCode || "钉钉会议";
-    const pastedText = [`[meeting] ${meetingTitle}`, transcriptText].join("\n");
+    const pastedText = transcriptText.trim();
     const preview = await handleTaskIntakePreview({
       pastedText,
       parentTitle: `${meetingTitle}跟进`,
