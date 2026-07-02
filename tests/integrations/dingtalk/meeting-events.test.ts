@@ -93,4 +93,66 @@ describe("DingTalk meeting flash events", () => {
     expect(store.userCanAccessMeeting("conf-hydrate", "union-mgr")).toBe(true);
     store.close();
   });
+
+  it("caches AI minutes ASR transcript fragments from meeting events", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dt-meeting-event-asr-"));
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", join(dir, "wb.sqlite"));
+    const store = createDingTalkMeetingStore();
+    const now = Date.parse("2026-07-02T03:30:00.000Z");
+
+    const message = {
+      headers: {
+        eventType: "meeting_asr_result_event",
+        eventId: "evt-asr-1",
+      },
+      data: JSON.stringify({
+        conferenceId: "conf-asr",
+        title: "AI minutes review",
+        creatorUnionId: "union-owner",
+        bizType: "minutes",
+        syncAction: "meeting_asr_result_event",
+        startTime: now,
+        payload: {
+          result: {
+            sentenceList: [
+              {
+                sentenceId: "s1",
+                unionId: "union-yao",
+                nickName: "Yao",
+                startTime: 1000,
+                sentence: "Define AI log scope",
+              },
+              {
+                sentenceId: "s2",
+                unionId: "union-cao",
+                nickName: "Cao",
+                startTime: 2000,
+                sentence: "Confirm rollout users",
+              },
+            ],
+          },
+        },
+      }),
+    };
+
+    const result = await handleDingTalkMeetingEventMessage({
+      message,
+      meetingStore: store,
+      now: () => now,
+    });
+    await handleDingTalkMeetingEventMessage({
+      message,
+      meetingStore: store,
+      now: () => now,
+    });
+
+    expect(result).toEqual({ handled: true, conferenceId: "conf-asr" });
+    expect(store.getMeeting("conf-asr")).toMatchObject({
+      transcriptCached: true,
+      transcriptSource: "ai_minutes",
+      transcriptText: "Yao: Define AI log scope\nCao: Confirm rollout users",
+    });
+    expect(store.userCanAccessMeeting("conf-asr", "union-yao")).toBe(true);
+    store.close();
+  });
 });

@@ -224,6 +224,25 @@ export function renderManagerTaskIntakePage(params: {
   gap: 14px;
 }
 .ti-source-panel[hidden] { display: none !important; }
+.ti-optional-details {
+  border: 1px dashed var(--ti-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--ti-surface);
+}
+.ti-optional-details summary {
+  cursor: pointer;
+  color: var(--ti-ink-3);
+  font-family: var(--ti-sans);
+  font-size: 12px;
+  font-weight: 600;
+}
+.ti-optional-details-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+}
 .ti-meeting-toolbar {
   display: flex;
   align-items: center;
@@ -652,7 +671,7 @@ export function renderManagerTaskIntakePage(params: {
   <!-- Step 1 -->
   <div class="ti-panel" id="step1Panel">
     <div class="ti-panel-inner">
-      <div class="ti-section-head"><h2>粘贴已拆好的任务清单</h2></div>
+      <div class="ti-section-head"><h2>导入任务清单或 AI 听记正文</h2></div>
       <div class="ti-section-body" style="display:flex;flex-direction:column;gap:14px;">
         ${meetingsEnabled ? `
         <div class="ti-source-tabs" role="tablist" aria-label="录入来源">
@@ -662,17 +681,22 @@ export function renderManagerTaskIntakePage(params: {
         ` : ""}
         <div class="ti-source-panel" id="pasteSourcePanel" role="tabpanel" aria-labelledby="pasteTabBtn">
         <div class="ti-field-wrap">
-          <span class="ti-lbl">父任务标题 <span class="ti-lbl-hint">可选，留空由系统提炼；若全部子任务追加到已有任务可忽略</span></span>
-          <input id="parentTitle" type="text" class="ti-box-input" placeholder="如：6月注册申报准备" />
+          <span class="ti-lbl ti-lbl-req">正文</span>
+          <textarea id="pastedText" class="ti-paste-area" placeholder="粘贴已拆好的任务清单，或从 AI 听记复制出的正文。&#10;每行一条任务，可带负责人、截止日期、交付物等信息。&#10;&#10;示例：&#10;1. 整理临床资料 — 负责人：张三 — 截止 06-10&#10;2. 撰写技术要求 — 负责人：李四 — 截止 06-12"></textarea>
         </div>
-        <div class="ti-field-wrap">
-          <span class="ti-lbl">会议纪要链接 <span class="ti-lbl-hint">可选；支持可公开读取的 http(s) 页面，钉钉需登录页面会提示复制正文</span></span>
-          <input id="docUrl" type="url" class="ti-box-input" placeholder="https://..." />
-        </div>
-        <div class="ti-field-wrap">
-          <span class="ti-lbl ti-lbl-req">任务清单</span>
-          <textarea id="pastedText" class="ti-paste-area" placeholder="每行一条任务，可带负责人、截止日期、交付物等信息。&#10;系统不会重新拆解，只忠实录入。&#10;&#10;示例：&#10;1. 整理临床资料 — 负责人：张三 — 截止 06-10&#10;2. 撰写技术要求 — 负责人：李四 — 截止 06-12"></textarea>
-        </div>
+        <details class="ti-optional-details">
+          <summary>可选补充</summary>
+          <div class="ti-optional-details-body">
+            <div class="ti-field-wrap">
+              <span class="ti-lbl">任务主题提示 <span class="ti-lbl-hint">可选，留空由系统从正文提炼</span></span>
+              <input id="parentTitle" type="text" class="ti-box-input" placeholder="如：6月注册申报准备" />
+            </div>
+            <div class="ti-field-wrap">
+              <span class="ti-lbl">网页链接备用 <span class="ti-lbl-hint">可选；仅适合可直接读取的页面，AI 听记优先用“最近会议”或粘贴正文</span></span>
+              <input id="docUrl" type="url" class="ti-box-input" placeholder="https://..." />
+            </div>
+          </div>
+        </details>
         <div class="ti-feedback" id="parseFeedback"></div>
         <div class="ti-actions">
           <button type="button" class="ti-btn ti-btn-primary" id="parseBtn">解析任务 →</button>
@@ -681,7 +705,7 @@ export function renderManagerTaskIntakePage(params: {
         ${meetingsEnabled ? `
         <div class="ti-source-panel" id="meetingSourcePanel" role="tabpanel" aria-labelledby="meetingTabBtn" hidden>
           <div class="ti-meeting-toolbar">
-            <div class="ti-meeting-hint">只显示当前登录主管参与、主持或创建的闪记会议。选择会议后会读取转写正文并进入同一套核对入库流程。</div>
+            <div class="ti-meeting-hint">只显示当前登录主管参与、主持或创建的会议。已缓存的 AI 听记会直接导入；未缓存时再尝试读取云录制转写。</div>
             <button type="button" class="ti-btn ti-btn-ghost" id="loadMeetingsBtn">刷新最近会议</button>
           </div>
           <div class="ti-feedback" id="meetingFeedback"></div>
@@ -1412,6 +1436,14 @@ ${buildWorkbenchContactComboClientJs()}
     }
   }
 
+  function meetingTranscriptLabel(meeting) {
+    if (!meeting || !meeting.transcriptCached) return "待读取转写";
+    if (meeting.transcriptSource === "ai_minutes") return "AI 听记已缓存";
+    if (meeting.transcriptSource === "cloud_record") return "云录制转写已缓存";
+    if (meeting.transcriptSource === "cloud_record_asr") return "云录制 ASR 已缓存";
+    return "已缓存转写";
+  }
+
   function renderMeetingList(meetings) {
     var list = document.getElementById("meetingList");
     if (!list) return;
@@ -1430,7 +1462,7 @@ ${buildWorkbenchContactComboClientJs()}
       var time = formatMeetingTime(meeting.startTimeMs);
       if (time) meta.push(time);
       if (meeting.flashStatus) meta.push(meeting.flashStatus);
-      meta.push(meeting.transcriptCached ? "已缓存转写" : "待读取转写");
+      meta.push(meetingTranscriptLabel(meeting));
       var body = document.createElement("div");
       body.innerHTML =
         '<div class="ti-meeting-title">' + esc(meeting.title || meeting.conferenceId) + '</div>' +

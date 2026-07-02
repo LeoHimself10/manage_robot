@@ -17,9 +17,9 @@
 ## 向导流程
 
 ```
-步骤 1  粘贴文本 + 可选父任务标题提示
+步骤 1  粘贴正文（已拆任务清单 / AI 听记正文）+ 可选主题提示
         POST /api/workbench/manager/task-intake/preview
-        或在“最近会议”Tab 选择本人相关闪记会议
+        或在“最近会议”Tab 选择本人相关 AI 听记 / 云录制会议
         GET  /api/workbench/manager/task-intake/meetings?days=14
         POST /api/workbench/manager/task-intake/meetings/preview
 步骤 2  分组预览（新建父任务组 / 追加到已有 / 未分配）
@@ -39,13 +39,14 @@
 3. **`resolve-assignees.ts`** — 姓名 → `userId`（复用 meeting-import `resolveAssigneeByName`）。
 4. **描述兜底** — 仅一个新建组且模型未给 `newGroupDescription` 时，服务端与 UI 均回退 `structure-input` 的 `parentDescription`。
 
-### 最近会议（mingsibot 可选）
+### 最近会议（实例级可选）
 
-- 开关：`TASK_INTAKE_DINGTALK_MEETINGS_ENABLED=1` 后，步骤 1 会出现“粘贴录入 / 最近会议”两个 Tab；默认关闭，建议仅在 mingsibot env 开启。
-- 事件：`dingtalk-bot` Stream 监听“闪记状态变更开放事件”，收到 `conferenceId` 后写入 `dingtalk_meetings` / `dingtalk_meeting_members` 缓存；事件字段不足时按需补拉会议基本信息与成员列表。
-- 正文：主管点击“导入转写”时，服务端调用 `GET /v1.0/conference/videoConferences/{conferenceId}/cloudRecords/getTexts` 拉取并缓存转写，再复用同一套 preview / 分组 / commit 流程。
+- 开关：`TASK_INTAKE_DINGTALK_MEETINGS_ENABLED=1` 后，步骤 1 会出现“粘贴录入 / 最近会议”两个 Tab；默认关闭，每个钉钉组织实例在权限与事件订阅就绪后可独立开启。
+- 事件：`dingtalk-bot` Stream 监听闪记状态变更与会议 ASR 转写结果事件。收到 `conferenceId` 后写入 `dingtalk_meetings` / `dingtalk_meeting_members` 缓存；ASR 句子片段写入 `dingtalk_meeting_transcript_fragments` 去重后合成正文。
+- 正文：主管点击“导入转写”时，服务端优先使用已缓存的 AI 听记正文；若无缓存，再调用 `GET /v1.0/conference/videoConferences/{conferenceId}/cloudRecords/getTexts` 尝试读取云录制转写，然后复用同一套 preview / 分组 / commit 流程。
+- 历史兜底：机器人无法保证服务端直接拉取所有历史 shanji AI 听记正文；历史会议可通过“粘贴录入”粘贴 AI 听记正文或可直接读取的网页链接。
 - 范围：API 按当前登录主管的 `unionId` 过滤，只展示/导入创建人、主持人或成员列表包含本人的会议；Admin 组织全量视图本期不做。
-- 前提：钉钉应用需授权 `VideoConference.Conference.Read`，并订阅闪记状态变更事件；工作台需要能从 `dingtalk_contacts` 解析当前用户 `unionId`（通常开启 `DINGTALK_CONTACT_SYNC_ENABLED=1`）。
+- 前提：钉钉应用需授权 `VideoConference.Conference.Read`，并订阅闪记状态变更事件与会议 ASR 转写结果事件；工作台需要能从 `dingtalk_contacts` 解析当前用户 `unionId`（通常开启 `DINGTALK_CONTACT_SYNC_ENABLED=1`）。
 
 ### 步骤 2 分组视图
 
@@ -82,9 +83,9 @@ UI 注意：负责人 combobox 在卡片内展开时使用 `focus-within` 抬升
 | `src/agent/task-intake/task-intake-llm.ts` | LLM 策略与测试 hook |
 | `src/agent/task-intake/task-intake-flag.ts` | `TASK_INTAKE_ENABLED` |
 | `src/agent/task-intake/dingtalk-meetings-flag.ts` | 最近会议 Tab 开关 |
-| `src/integrations/dingtalk/meeting-recording.ts` | 钉钉闪记转写正文 client |
-| `src/integrations/dingtalk/meeting-events.ts` | Stream 闪记事件缓存 |
-| `src/infra/dingtalk-meeting-store.ts` | 会议与成员 SQLite 缓存 |
+| `src/integrations/dingtalk/meeting-recording.ts` | 钉钉云录制转写正文 client |
+| `src/integrations/dingtalk/meeting-events.ts` | Stream 闪记 / ASR 事件缓存 |
+| `src/infra/dingtalk-meeting-store.ts` | 会议、成员与转写片段 SQLite 缓存 |
 | `src/web/task-intake-api.ts` | preview / commit / append HTTP 处理器 |
 | `src/web/manager-task-intake-page.ts` | 向导 UI |
 | `scripts/local-task-intake-dev.ts` | 本地免钉钉开发 |

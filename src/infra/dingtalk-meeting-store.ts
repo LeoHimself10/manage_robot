@@ -25,6 +25,17 @@ export interface DingTalkMeetingUpsertInput {
   rawJson?: Record<string, unknown>;
 }
 
+export interface DingTalkMeetingTranscriptFragmentInput {
+  fragmentKey?: string;
+  source?: string;
+  speakerName?: string;
+  unionId?: string;
+  startTimeMs?: number;
+  endTimeMs?: number;
+  text: string;
+  rawJson?: Record<string, unknown>;
+}
+
 export interface DingTalkMeetingRow {
   conferenceId: string;
   title?: string;
@@ -40,6 +51,7 @@ export interface DingTalkMeetingRow {
   flashStatus?: string;
   transcriptText?: string;
   transcriptFetchedAt?: string;
+  transcriptSource?: string;
   transcriptCached: boolean;
   lastError?: string;
   createdAt: string;
@@ -61,7 +73,12 @@ export interface DingTalkMeetingStore {
   listMeetingsForUnionId(input: { unionId: string; sinceMs?: number; limit?: number }): DingTalkMeetingRow[];
   userCanAccessMeeting(conferenceId: string, unionId: string): boolean;
   getMeeting(conferenceId: string): DingTalkMeetingRow | undefined;
-  setMeetingTranscript(input: { conferenceId: string; transcriptText: string; fetchedAt?: string }): void;
+  setMeetingTranscript(input: { conferenceId: string; transcriptText: string; fetchedAt?: string; source?: string }): void;
+  appendMeetingTranscriptFragments(input: {
+    conferenceId: string;
+    source?: string;
+    fragments: DingTalkMeetingTranscriptFragmentInput[];
+  }): number;
   setMeetingLastError(input: { conferenceId: string; errorText: string }): void;
   close(): void;
 }
@@ -84,6 +101,13 @@ function encodeJson(value: Record<string, unknown> | undefined): string | null {
   return value ? JSON.stringify(value) : null;
 }
 
+function transcriptLine(fragment: Pick<DingTalkMeetingTranscriptFragmentInput, "speakerName" | "text">): string {
+  const text = String(fragment.text ?? "").trim();
+  if (!text) return "";
+  const speaker = String(fragment.speakerName ?? "").trim();
+  return speaker ? `${speaker}: ${text}` : text;
+}
+
 function mapMeeting(row: Record<string, unknown>): DingTalkMeetingRow {
   const transcriptText = asString(row.transcript_text);
   return {
@@ -101,6 +125,7 @@ function mapMeeting(row: Record<string, unknown>): DingTalkMeetingRow {
     flashStatus: asString(row.flash_status),
     transcriptText,
     transcriptFetchedAt: asString(row.transcript_fetched_at),
+    transcriptSource: asString(row.transcript_source),
     transcriptCached: Boolean(transcriptText),
     lastError: asString(row.last_error),
     createdAt: String(row.created_at ?? ""),
@@ -135,6 +160,7 @@ function ensureSchema(db: DatabaseSync): void {
       flash_status TEXT,
       transcript_text TEXT,
       transcript_fetched_at TEXT,
+      transcript_source TEXT,
       last_error TEXT,
       raw_json TEXT,
       created_at TEXT NOT NULL,
@@ -151,9 +177,32 @@ function ensureSchema(db: DatabaseSync): void {
       updated_at TEXT NOT NULL,
       PRIMARY KEY(conference_id, union_id)
     );
+    CREATE TABLE IF NOT EXISTS dingtalk_meeting_transcript_fragments (
+      conference_id TEXT NOT NULL,
+      fragment_key TEXT NOT NULL,
+      source TEXT,
+      speaker_name TEXT,
+      union_id TEXT,
+      start_time_ms INTEGER,
+      end_time_ms INTEGER,
+      text TEXT NOT NULL,
+      raw_json TEXT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(conference_id, fragment_key)
+    );
     CREATE INDEX IF NOT EXISTS idx_dingtalk_meetings_start ON dingtalk_meetings(start_time_ms);
     CREATE INDEX IF NOT EXISTS idx_dingtalk_meeting_members_union ON dingtalk_meeting_members(union_id);
+    CREATE INDEX IF NOT EXISTS idx_dingtalk_meeting_fragments_order
+      ON dingtalk_meeting_transcript_fragments(conference_id, start_time_ms, created_at);
   `);
+  const meetingColumns = new Set(
+    (db.prepare("PRAGMA table_info(dingtalk_meetings)").all() as Array<{ name?: string }>).map((row) =>
+      String(row.name ?? ""),
+    ),
+  );
+  if (!meetingColumns.has("transcript_source")) {
+    db.exec("ALTER TABLE dingtalk_meetings ADD COLUMN transcript_source TEXT");
+  }
 }
 
 export function createDingTalkMeetingStore(dbPath = resolveWorkbenchSqlitePath()): DingTalkMeetingStore {
@@ -306,14 +355,102 @@ export function createDingTalkMeetingStore(dbPath = resolveWorkbenchSqlitePath()
       const now = nowIso();
       db.prepare(
         `UPDATE dingtalk_meetings
-            SET transcript_text = ?, transcript_fetched_at = ?, last_error = NULL, updated_at = ?
+            SET transcript_text = ?,
+                transcript_fetched_at = ?,
+                transcript_source = COALESCE(?, transcript_source),
+                last_error = NULL,
+                updated_at = ?
           WHERE conference_id = ?`,
       ).run(
         String(input.transcriptText ?? ""),
         String(input.fetchedAt ?? now),
+        asString(input.source) ?? null,
         now,
         String(input.conferenceId ?? "").trim(),
       );
+    },
+
+    appendMeetingTranscriptFragments(input) {
+      const conferenceId = String(input.conferenceId ?? "").trim();
+      if (!conferenceId) throw new Error("conferenceId is required");
+      const source = asString(input.source) ?? "asr_event";
+      const now = nowIso();
+      const unique = new Map<string, DingTalkMeetingTranscriptFragmentInput>();
+      for (const fragment of input.fragments ?? []) {
+        const text = String(fragment.text ?? "").trim();
+        if (!text) continue;
+        const key = asString(fragment.fragmentKey) ?? [
+          source,
+          asString(fragment.unionId) ?? "",
+          fragment.startTimeMs ?? "",
+          text,
+        ].join(":");
+        if (!unique.has(key)) unique.set(key, { ...fragment, text, fragmentKey: key });
+      }
+      if (!unique.size) return 0;
+
+      let inserted = 0;
+      db.exec("BEGIN");
+      try {
+        const insert = db.prepare(
+          `INSERT OR IGNORE INTO dingtalk_meeting_transcript_fragments(
+             conference_id, fragment_key, source, speaker_name, union_id,
+             start_time_ms, end_time_ms, text, raw_json, created_at
+           ) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+        );
+        for (const [fragmentKey, fragment] of unique) {
+          const result = insert.run(
+            conferenceId,
+            fragmentKey,
+            source,
+            asString(fragment.speakerName) ?? null,
+            asString(fragment.unionId) ?? null,
+            fragment.startTimeMs ?? null,
+            fragment.endTimeMs ?? null,
+            String(fragment.text ?? "").trim(),
+            encodeJson(fragment.rawJson),
+            now,
+          );
+          if (Number(result.changes ?? 0) > 0) inserted += 1;
+        }
+        if (inserted > 0) {
+          const rows = db
+            .prepare(
+              `SELECT speaker_name, text
+                 FROM dingtalk_meeting_transcript_fragments
+                WHERE conference_id = ?
+                ORDER BY COALESCE(start_time_ms, 0), created_at, fragment_key`,
+            )
+            .all(conferenceId) as Array<Record<string, unknown>>;
+          const fragmentsText = rows
+            .map((row) => transcriptLine({ speakerName: asString(row.speaker_name), text: String(row.text ?? "") }))
+            .filter(Boolean)
+            .join("\n");
+          const current = qMeeting.get(conferenceId) as Record<string, unknown> | undefined;
+          const currentText = asString(current?.transcript_text);
+          const currentSource = asString(current?.transcript_source);
+          const nextText =
+            !currentText || !currentSource || currentSource === source
+              ? fragmentsText
+              : [currentText, ...[...unique.values()].map(transcriptLine).filter((line) => line && !currentText.includes(line))]
+                  .filter(Boolean)
+                  .join("\n");
+          db.prepare(
+            `UPDATE dingtalk_meetings
+                SET transcript_text = ?,
+                    transcript_fetched_at = ?,
+                    transcript_source = ?,
+                    last_error = NULL,
+                    updated_at = ?
+              WHERE conference_id = ?`,
+          ).run(nextText, now, source, now, conferenceId);
+        }
+        db.exec("COMMIT");
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+      return inserted;
     },
 
     setMeetingLastError(input) {

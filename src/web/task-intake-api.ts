@@ -153,6 +153,7 @@ function presentMeeting(row: DingTalkMeetingRow): {
   endTimeMs?: number;
   flashStatus?: string;
   transcriptCached: boolean;
+  transcriptSource?: string;
   lastError?: string;
 } {
   return {
@@ -162,6 +163,7 @@ function presentMeeting(row: DingTalkMeetingRow): {
     endTimeMs: row.endTimeMs,
     flashStatus: row.flashStatus,
     transcriptCached: row.transcriptCached,
+    transcriptSource: row.transcriptSource,
     lastError: row.lastError,
   };
 }
@@ -383,6 +385,7 @@ export async function handleTaskIntakeMeetingPreview(input: {
           conferenceId,
           transcriptText,
           fetchedAt: transcript.fetchedAt,
+          source: "cloud_record",
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

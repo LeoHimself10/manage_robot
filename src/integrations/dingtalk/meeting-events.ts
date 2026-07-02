@@ -1,8 +1,10 @@
 import {
   createDingTalkMeetingStore,
   type DingTalkMeetingMemberInput,
+  type DingTalkMeetingTranscriptFragmentInput,
   type DingTalkMeetingStore,
 } from "../../infra/dingtalk-meeting-store";
+import { createHash } from "node:crypto";
 import {
   createDingTalkMeetingRecordingClient,
   type DingTalkMeetingRecordingClient,
@@ -41,12 +43,29 @@ function parseJsonMaybe(value: unknown): unknown {
 }
 
 function collectRecords(value: unknown, out: JsonRecord[] = [], depth = 0): JsonRecord[] {
-  if (depth > 4) return out;
+  if (depth > 8) return out;
   const parsed = parseJsonMaybe(value);
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) collectRecords(item, out, depth + 1);
+    return out;
+  }
   const record = asRecord(parsed);
   if (!record) return out;
   out.push(record);
-  for (const key of ["data", "eventData", "payload", "content", "bizData", "event", "result"]) {
+  for (const key of [
+    "data",
+    "eventData",
+    "payload",
+    "content",
+    "bizData",
+    "event",
+    "result",
+    "sentenceList",
+    "sentences",
+    "paragraphList",
+    "paragraphs",
+    "list",
+  ]) {
     if (key in record) collectRecords(record[key], out, depth + 1);
   }
   return out;
@@ -73,6 +92,104 @@ function readNumber(records: JsonRecord[], keys: string[]): number | undefined {
   if (!value) return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function readScalarString(records: JsonRecord[], keys: string[]): string | undefined {
+  const wanted = new Set(keys.map(normalizeKey));
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record)) {
+      if (!wanted.has(normalizeKey(key))) continue;
+      if (value && typeof value === "object") continue;
+      const text = String(value ?? "").trim();
+      if (text) return text;
+    }
+  }
+  return undefined;
+}
+
+function textHash(value: string): string {
+  return createHash("sha1").update(value).digest("hex").slice(0, 16);
+}
+
+function transcriptSource(records: JsonRecord[]): string {
+  const bizType = String(readScalarString(records, ["bizType", "biz_type"]) ?? "").toLowerCase();
+  if (bizType.includes("minute")) return "ai_minutes";
+  if (bizType.includes("cloud")) return "cloud_record_asr";
+  return "asr_event";
+}
+
+function readTranscriptFragments(records: JsonRecord[]): DingTalkMeetingTranscriptFragmentInput[] {
+  const source = transcriptSource(records);
+  const eventId = readScalarString(records, ["eventId", "event_id", "bizId", "biz_id", "syncId", "sync_id"]);
+  const fragments: DingTalkMeetingTranscriptFragmentInput[] = [];
+  const seen = new Set<string>();
+  for (const record of records) {
+    const text = readScalarString(record ? [record] : [], [
+      "sentence",
+      "sentenceText",
+      "paragraph",
+      "text",
+      "asrText",
+      "transcriptText",
+      "resultText",
+    ]);
+    if (!text) continue;
+    const unionId = readScalarString([record], [
+      "unionId",
+      "union_id",
+      "speakerUnionId",
+      "speaker_union_id",
+      "userUnionId",
+      "memberUnionId",
+    ]);
+    const speakerName = readScalarString([record], [
+      "nickName",
+      "speakerName",
+      "speaker",
+      "userName",
+      "memberName",
+      "name",
+    ]);
+    const startTimeMs = readNumber([record], [
+      "startTimeMs",
+      "startTime",
+      "beginTime",
+      "begin_time",
+      "sentenceStartTime",
+    ]);
+    const endTimeMs = readNumber([record], ["endTimeMs", "endTime", "finishTime", "sentenceEndTime"]);
+    const rawKey = readScalarString([record], [
+      "sentenceId",
+      "sentence_id",
+      "recordId",
+      "record_id",
+      "paragraphId",
+      "paragraph_id",
+      "segmentId",
+      "id",
+    ]);
+    const fragmentKey = [
+      source,
+      eventId ?? "",
+      rawKey ?? "",
+      unionId ?? "",
+      startTimeMs ?? "",
+      textHash(text),
+    ].join(":");
+    if (seen.has(fragmentKey)) continue;
+    seen.add(fragmentKey);
+    fragments.push({
+      fragmentKey,
+      source,
+      speakerName,
+      unionId,
+      startTimeMs,
+      endTimeMs,
+      text,
+      rawJson: record,
+    });
+  }
+  return fragments;
 }
 
 function readMembers(records: JsonRecord[]): DingTalkMeetingMemberInput[] {
@@ -134,8 +251,12 @@ export async function handleDingTalkMeetingEventMessage(
   if (!conferenceId) return { handled: false };
 
   const eventType = eventTypeText(headers, records);
+  const transcriptFragments = readTranscriptFragments(records);
   if (
     eventType &&
+    !transcriptFragments.length &&
+    !eventType.includes("asr") &&
+    !eventType.includes("meeting") &&
     !eventType.includes("flash") &&
     !eventType.includes("minute") &&
     !eventType.includes("record") &&
@@ -193,6 +314,23 @@ export async function handleDingTalkMeetingEventMessage(
     });
     if (members.length) {
       meetingStore.replaceMeetingMembers(conferenceId, members);
+    }
+    if (transcriptFragments.length) {
+      meetingStore.appendMeetingTranscriptFragments({
+        conferenceId,
+        source: transcriptSource(records),
+        fragments: transcriptFragments,
+      });
+      for (const fragment of transcriptFragments) {
+        addMemberIfPresent(members, {
+          unionId: fragment.unionId ?? "",
+          nickName: fragment.speakerName,
+          role: "speaker",
+        });
+      }
+      if (members.length) {
+        meetingStore.replaceMeetingMembers(conferenceId, members);
+      }
     }
     const needsHydration = !readString(records, ["title", "meetingTitle", "conferenceTitle", "subject"]) ||
       !creatorUnionId ||

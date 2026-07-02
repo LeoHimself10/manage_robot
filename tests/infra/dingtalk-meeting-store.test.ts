@@ -57,4 +57,61 @@ describe("dingtalk meeting store", () => {
     ]);
     store.close();
   });
+
+  it("appends AI minutes transcript fragments idempotently", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dt-meeting-store-fragments-"));
+    process.env.WORKBENCH_SQLITE_PATH = join(dir, "wb.sqlite");
+    const store = createDingTalkMeetingStore();
+    const now = Date.now();
+
+    store.upsertMeeting({
+      conferenceId: "conf-ai",
+      title: "AI minutes review",
+      creatorUnionId: "union-mgr",
+      startTimeMs: now - 1000,
+      flashStatus: "minutes",
+    });
+
+    const inserted = store.appendMeetingTranscriptFragments({
+      conferenceId: "conf-ai",
+      source: "ai_minutes",
+      fragments: [
+        {
+          fragmentKey: "frag-1",
+          speakerName: "Yao",
+          unionId: "union-mgr",
+          startTimeMs: 1000,
+          text: "Define AI log scope",
+        },
+        {
+          fragmentKey: "frag-2",
+          speakerName: "Cao",
+          unionId: "union-cao",
+          startTimeMs: 2000,
+          text: "Confirm rollout users",
+        },
+      ],
+    });
+    const duplicateInserted = store.appendMeetingTranscriptFragments({
+      conferenceId: "conf-ai",
+      source: "ai_minutes",
+      fragments: [
+        {
+          fragmentKey: "frag-1",
+          speakerName: "Yao",
+          unionId: "union-mgr",
+          startTimeMs: 1000,
+          text: "Define AI log scope",
+        },
+      ],
+    });
+
+    const meeting = store.getMeeting("conf-ai");
+    expect(inserted).toBe(2);
+    expect(duplicateInserted).toBe(0);
+    expect(meeting?.transcriptCached).toBe(true);
+    expect(meeting?.transcriptSource).toBe("ai_minutes");
+    expect(meeting?.transcriptText).toBe("Yao: Define AI log scope\nCao: Confirm rollout users");
+    store.close();
+  });
 });

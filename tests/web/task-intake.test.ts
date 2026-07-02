@@ -214,6 +214,48 @@ describe("task-intake HTTP", () => {
     expect(body.meetings.map((m: { conferenceId: string }) => m.conferenceId)).toEqual(["conf-visible"]);
   });
 
+  it("lists AI minutes cached from ASR events as an importable meeting source", async () => {
+    seedContact("mgr-plain", "Manager", "union-mgr");
+    const meetingStore = createDingTalkMeetingStore();
+    const now = Date.now();
+    meetingStore.upsertMeeting({
+      conferenceId: "conf-ai-minutes",
+      title: "AI minutes review",
+      creatorUnionId: "union-other",
+      startTimeMs: now - 1000,
+      flashStatus: "minutes",
+    });
+    meetingStore.replaceMeetingMembers("conf-ai-minutes", [{ unionId: "union-mgr", nickName: "Manager" }]);
+    meetingStore.appendMeetingTranscriptFragments({
+      conferenceId: "conf-ai-minutes",
+      source: "ai_minutes",
+      fragments: [
+        {
+          fragmentKey: "asr-1",
+          speakerName: "Manager",
+          unionId: "union-mgr",
+          startTimeMs: 1000,
+          text: "Import this AI minutes action item",
+        },
+      ],
+    });
+
+    const result = await handleTaskIntakeMeetingsList({
+      managerUserId: "mgr-plain",
+      days: 14,
+      meetingStore,
+      nowMs: now,
+    });
+
+    expect(result.meetings).toHaveLength(1);
+    expect(result.meetings[0]).toMatchObject({
+      conferenceId: "conf-ai-minutes",
+      transcriptCached: true,
+      transcriptSource: "ai_minutes",
+    });
+    meetingStore.close();
+  });
+
   it("syncs recent DingTalk calendar meetings before listing", async () => {
     seedContact("mgr-plain", "涓荤", "union-mgr");
     const meetingStore = createDingTalkMeetingStore();
