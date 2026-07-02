@@ -8,10 +8,12 @@ import {
   handleAssignmentHttp,
 } from "../../src/web/assignment-workbench";
 import { renderManagerTaskIntakePage } from "../../src/web/manager-task-intake-page";
+import { handleTaskIntakeMeetingPreview, handleTaskIntakeMeetingsList } from "../../src/web/task-intake-api";
 import { __setTaskIntakeLlmForTest } from "../../src/agent/task-intake/task-intake-llm";
 import { findMainThreadSession } from "../../src/web/conversation-thread-resolver";
 import { createPeopleDirectoryStore } from "../../src/infra/people-directory-store";
 import { createDingTalkMeetingStore } from "../../src/infra/dingtalk-meeting-store";
+import type { DingTalkMeetingRecordingClient } from "../../src/integrations/dingtalk/meeting-recording";
 
 function seedContact(userId: string, name: string, unionId?: string): void {
   const store = createPeopleDirectoryStore();
@@ -210,6 +212,123 @@ describe("task-intake HTTP", () => {
     const body = JSON.parse(res.captured().body);
     expect(body.ok).toBe(true);
     expect(body.meetings.map((m: { conferenceId: string }) => m.conferenceId)).toEqual(["conf-visible"]);
+  });
+
+  it("syncs recent DingTalk calendar meetings before listing", async () => {
+    seedContact("mgr-plain", "涓荤", "union-mgr");
+    const meetingStore = createDingTalkMeetingStore();
+    const now = Date.parse("2026-07-02T06:30:00.000Z");
+    const meetingClient = {
+      async listCalendarVideoMeetings() {
+        return [
+          {
+            calendarEventId: "evt-ai-log",
+            conferenceId: "calendar-conf",
+            title: "AI日志助手 需求收集",
+            roomCode: "899106669",
+            organizerUnionId: "union-owner",
+            attendeeUnionIds: ["union-mgr"],
+            startTimeMs: Date.parse("2026-07-02T11:00:00+08:00"),
+            endTimeMs: Date.parse("2026-07-02T12:00:00+08:00"),
+            rawJson: { id: "evt-ai-log" },
+          },
+        ];
+      },
+      async listVideoConferencesByRoomCode() {
+        return [
+          {
+            conferenceId: "actual-conf",
+            title: "AI日志助手 需求收集",
+            roomCode: "899106669",
+            creatorUnionId: "union-owner",
+            startTimeMs: Date.parse("2026-07-02T11:00:05+08:00"),
+            endTimeMs: Date.parse("2026-07-02T11:47:42+08:00"),
+            status: "1",
+          },
+        ];
+      },
+      async getCloudRecordTranscript() {
+        throw new Error("not used");
+      },
+      async getVideoConference() {
+        throw new Error("not used");
+      },
+      async listVideoConferenceMembers() {
+        return [];
+      },
+    } satisfies DingTalkMeetingRecordingClient;
+
+    const result = await handleTaskIntakeMeetingsList({
+      managerUserId: "mgr-plain",
+      days: 14,
+      meetingStore,
+      meetingClient,
+      nowMs: now,
+    });
+
+    expect(result.meetings.map((m) => m.conferenceId)).toEqual(["actual-conf"]);
+    expect(result.meetings[0]).toMatchObject({
+      title: "AI日志助手 需求收集",
+      transcriptCached: false,
+    });
+    expect(meetingStore.userCanAccessMeeting("actual-conf", "union-mgr")).toBe(true);
+    meetingStore.close();
+  });
+
+  it("previews AI minutes with the recording owner unionId when the manager is only an attendee", async () => {
+    seedContact("mgr-plain", "涓荤", "union-mgr");
+    const meetingStore = createDingTalkMeetingStore();
+    meetingStore.upsertMeeting({
+      conferenceId: "actual-conf",
+      title: "颅内项目周会",
+      creatorUnionId: "union-owner",
+      startTimeMs: Date.parse("2026-06-22T17:17:30+08:00"),
+    });
+    meetingStore.replaceMeetingMembers("actual-conf", [{ unionId: "union-mgr", nickName: "涓荤" }]);
+    const requestedUnionIds: string[] = [];
+    const meetingClient = {
+      async getCloudRecordTranscript(input) {
+        requestedUnionIds.push(String(input.unionId ?? ""));
+        if (input.unionId !== "union-owner") throw new Error("wrong unionId");
+        return {
+          conferenceId: "actual-conf",
+          text: "曹杰: 更新入组进展\n姚凯珩: 跟进日志助手任务",
+          paragraphs: [],
+          fetchedAt: "2026-07-02T00:00:00.000Z",
+        };
+      },
+      async getVideoConference() {
+        throw new Error("not used");
+      },
+      async listVideoConferenceMembers() {
+        return [];
+      },
+    } satisfies DingTalkMeetingRecordingClient;
+    __setTaskIntakeLlmForTest(async (input) =>
+      JSON.stringify({
+        parentTitle: "颅内项目周会跟进",
+        parentDescription: "来自AI听记",
+        subtasks: [
+          {
+            title: input.user.includes("日志助手") ? "跟进日志助手任务" : "未读取AI听记",
+            objective: "落实会议行动项",
+            deliverables: "行动项更新",
+            completionCriteria: "完成同步",
+          },
+        ],
+      }),
+    );
+
+    const result = await handleTaskIntakeMeetingPreview({
+      managerUserId: "mgr-plain",
+      conferenceId: "actual-conf",
+      meetingStore,
+      meetingClient,
+    });
+
+    expect(requestedUnionIds).toEqual(["union-owner"]);
+    expect(result.rows[0]?.title).toBe("跟进日志助手任务");
+    meetingStore.close();
   });
 
   it("previews a cached DingTalk meeting transcript and rejects unrelated meetings", async () => {

@@ -115,6 +115,110 @@ describe("DingTalk meeting recording client", () => {
     } satisfies Partial<DingTalkMeetingApiError>);
   });
 
+  it("treats a missing AI minutes cloud record as an empty transcript", async () => {
+    const { fetchImpl } = buildFetchMock([
+      () => jsonRes({ accessToken: "token-1", expireIn: 7200 }),
+      () => jsonRes({ code: "cloudRecordNotFound%!(EXTRA string=50513)", message: "cloudRecordNotFound" }, 400),
+    ]);
+    const client = createDingTalkMeetingRecordingClient({ fetchImpl });
+
+    await expect(
+      client.getCloudRecordTranscript({ conferenceId: "conf-no-record", unionId: "union-mgr" }),
+    ).rejects.toMatchObject({
+      name: "DingTalkMeetingApiError",
+      code: "empty_transcript",
+    } satisfies Partial<DingTalkMeetingApiError>);
+  });
+
+  it("lists calendar video meetings for a user and extracts the room code", async () => {
+    const { fetchImpl, calls } = buildFetchMock([
+      () => jsonRes({ accessToken: "token-1", expireIn: 7200 }),
+      (req) => {
+        expect(req.url).toContain("/v1.0/calendar/users/union-mgr/calendars/primary/events");
+        expect(req.url).toContain("maxResults=50");
+        return jsonRes({
+          events: [
+            {
+              id: "evt-1",
+              summary: "AI日志助手 需求收集",
+              start: { dateTime: "2026-07-02T11:00:00+08:00" },
+              end: { dateTime: "2026-07-02T12:00:00+08:00" },
+              organizer: { id: "union-owner", displayName: "Owner" },
+              attendees: [{ id: "union-mgr", displayName: "Manager" }],
+              onlineMeetingInfo: {
+                conferenceId: "calendar-conf",
+                extraInfo: { roomCode: "899 106 669" },
+                type: "dingtalk",
+              },
+            },
+          ],
+        });
+      },
+    ]);
+    const client = createDingTalkMeetingRecordingClient({ fetchImpl });
+
+    const result = await client.listCalendarVideoMeetings?.({
+      unionId: "union-mgr",
+      timeMinMs: Date.parse("2026-06-18T00:00:00.000Z"),
+      timeMaxMs: Date.parse("2026-07-02T00:00:00.000Z"),
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        calendarEventId: "evt-1",
+        conferenceId: "calendar-conf",
+        title: "AI日志助手 需求收集",
+        roomCode: "899106669",
+        startTimeMs: Date.parse("2026-07-02T11:00:00+08:00"),
+        endTimeMs: Date.parse("2026-07-02T12:00:00+08:00"),
+        organizerUnionId: "union-owner",
+      }),
+    ]);
+    expect(calls.filter((call) => call.url.includes("/oauth2/accessToken"))).toHaveLength(1);
+  });
+
+  it("lists historical video conferences by room code", async () => {
+    const { fetchImpl } = buildFetchMock([
+      () => jsonRes({ accessToken: "token-1", expireIn: 7200 }),
+      (req) => {
+        expect(req.url).toContain("/v1.0/conference/roomCodes/899106669/infos");
+        expect(req.url).toContain("maxResults=20");
+        return jsonRes({
+          hasMore: false,
+          totalCount: 1,
+          conferenceList: [
+            {
+              conferenceId: "actual-conf",
+              title: "AI日志助手 需求收集",
+              roomCode: "899106669",
+              status: 1,
+              startTime: 1782961205000,
+              endTime: 1782964062000,
+              creatorId: "union-mgr",
+            },
+          ],
+        });
+      },
+    ]);
+    const client = createDingTalkMeetingRecordingClient({ fetchImpl });
+
+    const result = await client.listVideoConferencesByRoomCode?.({
+      roomCode: "899 106 669",
+      maxResults: 20,
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        conferenceId: "actual-conf",
+        title: "AI日志助手 需求收集",
+        roomCode: "899106669",
+        creatorUnionId: "union-mgr",
+        startTimeMs: 1782961205000,
+        endTimeMs: 1782964062000,
+      }),
+    ]);
+  });
+
   it("fetches video conference details and paginates members", async () => {
     const now = Date.now();
     const { fetchImpl, calls } = buildFetchMock([

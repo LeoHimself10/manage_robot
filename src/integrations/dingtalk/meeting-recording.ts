@@ -81,6 +81,18 @@ export interface DingTalkVideoConferenceInfo {
   flashStatus?: string;
 }
 
+export interface DingTalkCalendarVideoMeeting {
+  calendarEventId: string;
+  conferenceId?: string;
+  title?: string;
+  roomCode?: string;
+  organizerUnionId?: string;
+  attendeeUnionIds: string[];
+  startTimeMs?: number;
+  endTimeMs?: number;
+  rawJson?: Record<string, unknown>;
+}
+
 export interface DingTalkVideoConferenceMember {
   unionId: string;
   userId?: string;
@@ -116,6 +128,16 @@ export interface DingTalkMeetingRecordingClient {
   getVideoConference(input: {
     conferenceId: string;
   }): Promise<DingTalkVideoConferenceInfo>;
+  listCalendarVideoMeetings?(input: {
+    unionId: string;
+    timeMinMs: number;
+    timeMaxMs: number;
+    maxResults?: number;
+  }): Promise<DingTalkCalendarVideoMeeting[]>;
+  listVideoConferencesByRoomCode?(input: {
+    roomCode: string;
+    maxResults?: number;
+  }): Promise<DingTalkVideoConferenceInfo[]>;
   listVideoConferenceMembers(input: {
     conferenceId: string;
     maxResults?: number;
@@ -156,6 +178,9 @@ function tokenFromBody(body: AccessTokenResp): { token: string; expiresIn: numbe
 function apiErrorCode(status: number, body: AccessTokenResp | CloudRecordTextResp | ConferenceApiResp): DingTalkMeetingApiErrorCode {
   const rawCode = String(body.code ?? body.errcode ?? "").toLowerCase();
   const rawMsg = String(body.message ?? body.errmsg ?? "").toLowerCase();
+  if (rawCode.includes("cloudrecordnotfound") || rawMsg.includes("cloudrecordnotfound")) {
+    return "empty_transcript";
+  }
   if (status === 401 || status === 403) return "permission_denied";
   if (rawCode.includes("permission") || rawMsg.includes("permission") || rawMsg.includes("no permission")) {
     return "permission_denied";
@@ -179,6 +204,24 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function parseJsonMaybe(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) return value;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function normalizeRoomCode(value: unknown): string | undefined {
+  const raw = String(value ?? "").trim();
+  if (!raw) return undefined;
+  const digits = raw.replace(/\D/g, "");
+  return digits || raw;
 }
 
 function normalizeKey(key: string): string {
@@ -218,12 +261,13 @@ function readNumber(records: Record<string, unknown>[], keys: string[]): number 
 function normalizeConferenceInfo(conferenceId: string, body: ConferenceApiResp): DingTalkVideoConferenceInfo {
   const records = recordCandidates(body);
   return {
-    conferenceId,
+    conferenceId: readString(records, ["conferenceId", "conference_id"]) ?? conferenceId,
     title: readString(records, ["title", "meetingTitle", "conferenceTitle", "subject"]),
-    roomCode: readString(records, ["roomCode", "room_code"]),
+    roomCode: normalizeRoomCode(readString(records, ["roomCode", "room_code"])),
     scheduleConferenceId: readString(records, ["scheduleConferenceId", "schedule_conference_id"]),
     creatorUserId: readString(records, ["creatorUserId", "creator_user_id", "operator", "userId"]),
     creatorUnionId: readString(records, [
+      "creatorId",
       "creatorUnionId",
       "creator_union_id",
       "operatorUnionId",
@@ -236,6 +280,59 @@ function normalizeConferenceInfo(conferenceId: string, body: ConferenceApiResp):
     endTimeMs: readNumber(records, ["endTimeMs", "endTime", "meetingEndTime", "conferenceEndTime"]),
     status: readString(records, ["status", "meetingStatus", "conferenceStatus"]),
     flashStatus: readString(records, ["flashStatus", "minutesStatus", "recordStatus", "cloudRecordStatus"]),
+  };
+}
+
+function dateTimeMs(value: unknown): number | undefined {
+  const record = asRecord(value);
+  const raw = String(record?.dateTime ?? record?.date ?? value ?? "").trim();
+  if (!raw) return undefined;
+  const n = Date.parse(raw);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function eventPersonUnionId(value: unknown): string | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  return readString([record], ["unionId", "union_id", "id", "userId", "user_id"]);
+}
+
+function eventAttendeeUnionIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const unionId = eventPersonUnionId(item);
+    if (unionId && !out.includes(unionId)) out.push(unionId);
+  }
+  return out;
+}
+
+function calendarEvents(body: ConferenceApiResp): Record<string, unknown>[] {
+  const root = asRecord(body);
+  const candidates = [root?.events, root?.items, root?.data, root?.list].filter(Array.isArray) as unknown[][];
+  return candidates[0]?.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item)) ?? [];
+}
+
+function normalizeCalendarMeeting(event: Record<string, unknown>): DingTalkCalendarVideoMeeting | undefined {
+  const online = asRecord(event.onlineMeetingInfo);
+  if (!online) return undefined;
+  const extra = asRecord(parseJsonMaybe(online.extraInfo)) ?? {};
+  const conferenceId = readString([online], ["conferenceId", "conference_id"]);
+  const roomCode = normalizeRoomCode(
+    readString([extra, online], ["roomCode", "room_code"]) ??
+      String(online.url ?? "").match(/roomCode=([^&]+)/)?.[1],
+  );
+  if (!conferenceId && !roomCode) return undefined;
+  return {
+    calendarEventId: String(event.id ?? ""),
+    conferenceId,
+    title: readString([event], ["summary", "title", "subject"]),
+    roomCode,
+    organizerUnionId: eventPersonUnionId(event.organizer),
+    attendeeUnionIds: eventAttendeeUnionIds(event.attendees),
+    startTimeMs: dateTimeMs(event.start),
+    endTimeMs: dateTimeMs(event.end),
+    rawJson: event,
   };
 }
 
@@ -383,6 +480,55 @@ export function createDingTalkMeetingRecordingClient(options: {
       const url = `https://api.dingtalk.com/v1.0/conference/videoConferences/${encodeURIComponent(conferenceId)}`;
       const body = await fetchConferenceJson(url);
       return normalizeConferenceInfo(conferenceId, body);
+    },
+
+    async listCalendarVideoMeetings(input) {
+      const unionId = String(input.unionId ?? "").trim();
+      if (!unionId) {
+        throw new DingTalkMeetingApiError("unionId is required", "api_error", 400);
+      }
+      const maxResults = Math.min(Math.max(Math.floor(Number(input.maxResults ?? 50)), 1), 100);
+      const params = new URLSearchParams();
+      params.set("timeMin", new Date(input.timeMinMs).toISOString());
+      params.set("timeMax", new Date(input.timeMaxMs).toISOString());
+      params.set("maxResults", String(maxResults));
+      const url =
+        `https://api.dingtalk.com/v1.0/calendar/users/${encodeURIComponent(unionId)}` +
+        `/calendars/primary/events?${params.toString()}`;
+      const body = await fetchConferenceJson(url);
+      return calendarEvents(body).map(normalizeCalendarMeeting).filter((item): item is DingTalkCalendarVideoMeeting => Boolean(item));
+    },
+
+    async listVideoConferencesByRoomCode(input) {
+      const roomCode = normalizeRoomCode(input.roomCode);
+      if (!roomCode) {
+        throw new DingTalkMeetingApiError("roomCode is required", "api_error", 400);
+      }
+      const maxResults = Math.min(Math.max(Math.floor(Number(input.maxResults ?? 20)), 1), 100);
+      const meetings: DingTalkVideoConferenceInfo[] = [];
+      let nextToken: string | undefined = "0";
+      for (let i = 0; i < 20; i += 1) {
+        const params = new URLSearchParams();
+        params.set("maxResults", String(maxResults));
+        if (nextToken) params.set("nextToken", nextToken);
+        const url =
+          `https://api.dingtalk.com/v1.0/conference/roomCodes/${encodeURIComponent(roomCode)}` +
+          `/infos?${params.toString()}`;
+        const body = await fetchConferenceJson(url);
+        const list = Array.isArray(body.conferenceList) ? body.conferenceList : [];
+        for (const item of list) {
+          const record = asRecord(item);
+          if (!record) continue;
+          const conferenceId = readString([record], ["conferenceId", "conference_id"]);
+          if (!conferenceId) continue;
+          meetings.push(normalizeConferenceInfo(conferenceId, record));
+        }
+        if (!body.hasMore) break;
+        const token = String(body.nextToken ?? body.nextTtoken ?? "").trim();
+        if (!token || token === nextToken) break;
+        nextToken = token;
+      }
+      return meetings;
     },
 
     async listVideoConferenceMembers(input) {

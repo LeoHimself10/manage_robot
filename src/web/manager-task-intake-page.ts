@@ -1299,7 +1299,7 @@ ${buildWorkbenchContactComboClientJs()}
   }
 
   function applyPreviewData(data, feedbackId) {
-    if (!data.ok) throw new Error(data.error || "解析失败");
+    if (!data.ok) throw new Error(data.message || data.error || "解析失败");
     var rows = data.rows || [];
     if (!rows.length) {
       setFb(feedbackId, "未识别到任务，请检查内容", true);
@@ -1470,7 +1470,7 @@ ${buildWorkbenchContactComboClientJs()}
     try {
       var res = await fetch("/api/workbench/manager/task-intake/meetings?days=14");
       var data = await res.json();
-      if (!data.ok) throw new Error(data.error || "加载会议失败");
+      if (!data.ok) throw new Error(data.message || data.error || "加载会议失败");
       renderMeetingList(data.meetings || []);
       setFb("meetingFeedback", "", false);
     } catch (err) {

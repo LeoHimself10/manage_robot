@@ -12,7 +12,9 @@ import { fetchUrlContent } from "../integrations/url-fetch/fetch-url-content";
 import {
   DingTalkMeetingApiError,
   createDingTalkMeetingRecordingClient,
+  type DingTalkCalendarVideoMeeting,
   type DingTalkMeetingRecordingClient,
+  type DingTalkVideoConferenceInfo,
 } from "../integrations/dingtalk/meeting-recording";
 import {
   createDingTalkMeetingStore,
@@ -164,28 +166,182 @@ function presentMeeting(row: DingTalkMeetingRow): {
   };
 }
 
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  const out: string[] = [];
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text && !out.includes(text)) out.push(text);
+  }
+  return out;
+}
+
+function conferenceMatchesCalendarEvent(
+  info: DingTalkVideoConferenceInfo,
+  event: DingTalkCalendarVideoMeeting,
+  sinceMs: number,
+  nowMs: number,
+): boolean {
+  const start = Number(info.startTimeMs ?? 0);
+  if (!Number.isFinite(start) || start <= 0) return true;
+  if (start < sinceMs || start > nowMs + 24 * 60 * 60 * 1000) return false;
+  const eventStart = Number(event.startTimeMs ?? 0);
+  if (!Number.isFinite(eventStart) || eventStart <= 0) return true;
+  const eventEnd = Number(event.endTimeMs ?? eventStart);
+  const lower = eventStart - 30 * 60 * 1000;
+  const upper = eventEnd + 2 * 60 * 60 * 1000;
+  return start >= lower && start <= upper;
+}
+
+function membersFromCalendarMeeting(
+  unionId: string,
+  event: DingTalkCalendarVideoMeeting,
+  info: DingTalkVideoConferenceInfo,
+) {
+  return uniqueStrings([
+    unionId,
+    event.organizerUnionId,
+    info.creatorUnionId,
+    info.hostUnionId,
+    ...(event.attendeeUnionIds ?? []),
+  ]).map((memberUnionId) => ({
+    unionId: memberUnionId,
+    role: memberUnionId === unionId ? "current_user" : memberUnionId === info.creatorUnionId ? "creator" : undefined,
+  }));
+}
+
+async function syncRecentCalendarMeetingsForUnionId(input: {
+  unionId: string;
+  days: number;
+  meetingStore: DingTalkMeetingStore;
+  meetingClient?: DingTalkMeetingRecordingClient;
+  nowMs?: number;
+}): Promise<string[]> {
+  const client = input.meetingClient ?? createDingTalkMeetingRecordingClient();
+  if (!client.listCalendarVideoMeetings) return [];
+  const nowMs = input.nowMs ?? Date.now();
+  const sinceMs = nowMs - input.days * 24 * 60 * 60 * 1000;
+  const warnings: string[] = [];
+  let events: DingTalkCalendarVideoMeeting[] = [];
+  try {
+    events = await client.listCalendarVideoMeetings({
+      unionId: input.unionId,
+      timeMinMs: sinceMs,
+      timeMaxMs: nowMs,
+      maxResults: 50,
+    });
+  } catch (err) {
+    warnings.push(err instanceof Error ? err.message : String(err));
+    return warnings;
+  }
+
+  const seen = new Set<string>();
+  for (const event of events) {
+    const historical = event.roomCode && client.listVideoConferencesByRoomCode
+      ? await client.listVideoConferencesByRoomCode({ roomCode: event.roomCode, maxResults: 20 }).catch((err) => {
+          warnings.push(err instanceof Error ? err.message : String(err));
+          return [] as DingTalkVideoConferenceInfo[];
+        })
+      : [];
+    const infos = historical.filter((info) => conferenceMatchesCalendarEvent(info, event, sinceMs, nowMs));
+    if (!infos.length && event.conferenceId) {
+      infos.push({
+        conferenceId: event.conferenceId,
+        title: event.title,
+        roomCode: event.roomCode,
+        creatorUnionId: event.organizerUnionId,
+        startTimeMs: event.startTimeMs,
+        endTimeMs: event.endTimeMs,
+        status: "calendar",
+      });
+    }
+    for (const info of infos) {
+      const conferenceId = String(info.conferenceId ?? "").trim();
+      if (!conferenceId || seen.has(conferenceId)) continue;
+      seen.add(conferenceId);
+      input.meetingStore.upsertMeeting({
+        conferenceId,
+        title: info.title || event.title,
+        roomCode: info.roomCode || event.roomCode,
+        scheduleConferenceId: info.scheduleConferenceId || event.conferenceId,
+        creatorUnionId: info.creatorUnionId || event.organizerUnionId,
+        creatorUserId: info.creatorUserId,
+        creatorNick: info.creatorNick,
+        hostUnionId: info.hostUnionId,
+        startTimeMs: info.startTimeMs || event.startTimeMs,
+        endTimeMs: info.endTimeMs || event.endTimeMs,
+        status: info.status || "calendar",
+        flashStatus: info.flashStatus || "AI 听记待读取",
+        rawJson: {
+          source: "calendar_backfill",
+          calendarEvent: event.rawJson ?? {},
+          historicalConference: info,
+        },
+      });
+      input.meetingStore.replaceMeetingMembers(
+        conferenceId,
+        membersFromCalendarMeeting(input.unionId, event, info),
+      );
+    }
+  }
+  return warnings;
+}
+
 export async function handleTaskIntakeMeetingsList(input: {
   managerUserId: string;
   days?: number;
   meetingStore?: DingTalkMeetingStore;
-}): Promise<{ meetings: ReturnType<typeof presentMeeting>[] }> {
+  meetingClient?: DingTalkMeetingRecordingClient;
+  nowMs?: number;
+}): Promise<{ meetings: ReturnType<typeof presentMeeting>[]; warnings?: string[] }> {
   if (!isTaskIntakeDingTalkMeetingsEnabled()) {
     throw new TaskIntakeMeetingError("meetings_disabled", "DingTalk meetings import is disabled", 404);
   }
   const unionId = resolveManagerUnionId(input.managerUserId);
   const days = normalizeDays(input.days);
-  const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+  const nowMs = input.nowMs ?? Date.now();
+  const sinceMs = nowMs - days * 24 * 60 * 60 * 1000;
   const ownStore = input.meetingStore ? undefined : createDingTalkMeetingStore();
   const meetingStore = input.meetingStore ?? ownStore!;
   try {
+    const warnings = await syncRecentCalendarMeetingsForUnionId({
+      unionId,
+      days,
+      meetingStore,
+      meetingClient: input.meetingClient,
+      nowMs,
+    });
     return {
       meetings: meetingStore
         .listMeetingsForUnionId({ unionId, sinceMs, limit: 50 })
         .map(presentMeeting),
+      warnings: warnings.length ? warnings : undefined,
     };
   } finally {
     ownStore?.close();
   }
+}
+
+async function fetchMeetingTranscriptWithCandidates(input: {
+  client: DingTalkMeetingRecordingClient;
+  conferenceId: string;
+  unionIds: string[];
+}): Promise<{ text: string; fetchedAt: string }> {
+  let lastError: unknown;
+  for (const unionId of input.unionIds) {
+    try {
+      const transcript = await input.client.getCloudRecordTranscript({
+        conferenceId: input.conferenceId,
+        unionId,
+      });
+      return { text: transcript.text, fetchedAt: transcript.fetchedAt };
+    } catch (err) {
+      lastError = err;
+      if (err instanceof DingTalkMeetingApiError && (err.code === "config_missing" || err.code === "token_failed")) {
+        throw err;
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "meeting transcript fetch failed"));
 }
 
 export async function handleTaskIntakeMeetingPreview(input: {
@@ -217,7 +373,11 @@ export async function handleTaskIntakeMeetingPreview(input: {
     if (!transcriptText) {
       const client = input.meetingClient ?? createDingTalkMeetingRecordingClient();
       try {
-        const transcript = await client.getCloudRecordTranscript({ conferenceId, unionId });
+        const transcript = await fetchMeetingTranscriptWithCandidates({
+          client,
+          conferenceId,
+          unionIds: uniqueStrings([meeting.creatorUnionId, meeting.hostUnionId, unionId]),
+        });
         transcriptText = transcript.text;
         meetingStore.setMeetingTranscript({
           conferenceId,
