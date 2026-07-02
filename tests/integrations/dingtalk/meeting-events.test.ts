@@ -3,7 +3,10 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createDingTalkMeetingStore } from "../../../src/infra/dingtalk-meeting-store";
-import { handleDingTalkMeetingEventMessage } from "../../../src/integrations/dingtalk/meeting-events";
+import {
+  handleDingTalkMeetingEventMessage,
+  summarizeDingTalkMeetingEventMessage,
+} from "../../../src/integrations/dingtalk/meeting-events";
 import type { DingTalkMeetingRecordingClient } from "../../../src/integrations/dingtalk/meeting-recording";
 
 describe("DingTalk meeting flash events", () => {
@@ -154,5 +157,60 @@ describe("DingTalk meeting flash events", () => {
     });
     expect(store.userCanAccessMeeting("conf-asr", "union-yao")).toBe(true);
     store.close();
+  });
+
+  it("accepts AI minutes events that identify the meeting as businessOrder", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dt-meeting-event-business-order-"));
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", join(dir, "wb.sqlite"));
+    const store = createDingTalkMeetingStore();
+    const now = Date.parse("2026-07-02T07:40:00.000Z");
+
+    const result = await handleDingTalkMeetingEventMessage({
+      message: {
+        headers: { eventType: "meeting_asr_result_event", eventId: "evt-asr-business-order" },
+        data: JSON.stringify({
+          businessOrder: "conf-business-order",
+          meetingTitle: "Ad-hoc AI minutes",
+          bizType: "minutes",
+          startTime: now,
+          sentenceList: [
+            {
+              sentenceId: "s1",
+              unionId: "union-owner",
+              nickName: "Owner",
+              sentence: "Capture ad-hoc meeting action items",
+            },
+          ],
+        }),
+      },
+      meetingStore: store,
+      now: () => now,
+    });
+
+    expect(result).toEqual({ handled: true, conferenceId: "conf-business-order" });
+    expect(store.getMeeting("conf-business-order")).toMatchObject({
+      title: "Ad-hoc AI minutes",
+      transcriptCached: true,
+      transcriptText: "Owner: Capture ad-hoc meeting action items",
+    });
+    store.close();
+  });
+
+  it("summarizes unhandled meeting events without transcript content", () => {
+    const summary = summarizeDingTalkMeetingEventMessage({
+      headers: { eventType: "meeting_asr_result_event" },
+      data: JSON.stringify({
+        bizType: "minutes",
+        payload: {
+          result: {
+            sentenceList: [{ sentence: "Sensitive transcript text", nickName: "Owner" }],
+          },
+        },
+      }),
+    });
+
+    expect(summary.eventType).toContain("meeting_asr_result_event");
+    expect(summary.transcriptFragmentCount).toBe(1);
+    expect(JSON.stringify(summary)).not.toContain("Sensitive transcript text");
   });
 });

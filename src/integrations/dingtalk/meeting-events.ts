@@ -17,6 +17,17 @@ export interface DingTalkMeetingEventResult {
   conferenceId?: string;
 }
 
+export interface DingTalkMeetingEventSummary {
+  eventType: string;
+  conferenceId?: string;
+  bizType?: string;
+  transcriptFragmentCount: number;
+  topLevelKeys: string[];
+  dataKeys: string[];
+  recordKeys: string[];
+  maybeMeetingEvent: boolean;
+}
+
 export interface DingTalkMeetingEventMessageInput {
   message: unknown;
   meetingStore?: DingTalkMeetingStore;
@@ -232,26 +243,92 @@ function eventTypeText(headers: JsonRecord | undefined, records: JsonRecord[]): 
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
 
-export async function handleDingTalkMeetingEventMessage(
-  input: DingTalkMeetingEventMessageInput,
-): Promise<DingTalkMeetingEventResult> {
-  const root = asRecord(input.message) ?? {};
+function resolveConferenceId(records: JsonRecord[]): string | undefined {
+  return readString(records, [
+    "conferenceId",
+    "conference_id",
+    "videoConferenceId",
+    "video_conference_id",
+    "businessOrder",
+    "business_order",
+    "meetingId",
+    "meeting_id",
+    "meetingUuid",
+    "meeting_uuid",
+  ]);
+}
+
+function safeKeys(record: JsonRecord | undefined, limit = 24): string[] {
+  if (!record) return [];
+  return Object.keys(record).slice(0, limit);
+}
+
+function uniqueKeys(records: JsonRecord[], limit = 40): string[] {
+  const keys: string[] = [];
+  for (const record of records) {
+    for (const key of Object.keys(record)) {
+      if (!keys.includes(key)) keys.push(key);
+      if (keys.length >= limit) return keys;
+    }
+  }
+  return keys;
+}
+
+function meetingEventContext(message: unknown): {
+  root: JsonRecord;
+  headers?: JsonRecord;
+  records: JsonRecord[];
+  conferenceId?: string;
+  eventType: string;
+  transcriptFragments: DingTalkMeetingTranscriptFragmentInput[];
+} {
+  const root = asRecord(message) ?? {};
   const headers = asRecord(root.headers);
   const records = [
     ...collectRecords(root),
     ...collectRecords(root.data),
     ...collectRecords(root.message),
   ];
-  const conferenceId = readString(records, [
-    "conferenceId",
-    "conference_id",
-    "videoConferenceId",
-    "video_conference_id",
-  ]);
+  return {
+    root,
+    headers,
+    records,
+    conferenceId: resolveConferenceId(records),
+    eventType: eventTypeText(headers, records),
+    transcriptFragments: readTranscriptFragments(records),
+  };
+}
+
+export function summarizeDingTalkMeetingEventMessage(message: unknown): DingTalkMeetingEventSummary {
+  const { root, records, conferenceId, eventType, transcriptFragments } = meetingEventContext(message);
+  const parsedData = asRecord(parseJsonMaybe(root.data));
+  const bizType = readScalarString(records, ["bizType", "biz_type"]);
+  const haystack = [eventType, bizType ?? "", uniqueKeys(records).join(" ")].join(" ").toLowerCase();
+  return {
+    eventType,
+    conferenceId,
+    bizType,
+    transcriptFragmentCount: transcriptFragments.length,
+    topLevelKeys: safeKeys(root),
+    dataKeys: safeKeys(parsedData),
+    recordKeys: uniqueKeys(records),
+    maybeMeetingEvent:
+      Boolean(conferenceId) ||
+      transcriptFragments.length > 0 ||
+      haystack.includes("asr") ||
+      haystack.includes("meeting") ||
+      haystack.includes("minute") ||
+      haystack.includes("flash") ||
+      haystack.includes("conference"),
+  };
+}
+
+export async function handleDingTalkMeetingEventMessage(
+  input: DingTalkMeetingEventMessageInput,
+): Promise<DingTalkMeetingEventResult> {
+  const { root, headers, records, conferenceId, eventType, transcriptFragments } = meetingEventContext(input.message);
   if (!conferenceId) return { handled: false };
 
-  const eventType = eventTypeText(headers, records);
-  const transcriptFragments = readTranscriptFragments(records);
   if (
     eventType &&
     !transcriptFragments.length &&

@@ -82,7 +82,10 @@ import { createDailyReportProjectViewPrewarmScheduler } from "./agent/daily-repo
 import { createDailyReportProjectViewDigestScheduler } from "./agent/daily-report-digest/daily-report-project-view-digest-scheduler";
 import { isDailyReportProjectViewDigestEnabled } from "./agent/daily-report-digest/daily-report-project-view-digest-flag";
 import { isTaskIntakeDingTalkMeetingsEnabled } from "./agent/task-intake/dingtalk-meetings-flag";
-import { handleDingTalkMeetingEventMessage } from "./integrations/dingtalk/meeting-events";
+import {
+  handleDingTalkMeetingEventMessage,
+  summarizeDingTalkMeetingEventMessage,
+} from "./integrations/dingtalk/meeting-events";
 import {
   appendMemoryEvents,
   loadMemoryContextForPlan,
@@ -1078,12 +1081,26 @@ async function main(): Promise<void> {
   client
     .registerAllEventListener((eventMessage: DWClientDownStream) => {
       if (taskIntakeMeetingsEnabled) {
+        const summary = summarizeDingTalkMeetingEventMessage(eventMessage);
         void handleDingTalkMeetingEventMessage({ message: eventMessage })
           .then((result) => {
             if (result.handled) {
               logStructured({
                 event: "dingtalk_meeting_event_cached",
                 conferenceId: result.conferenceId,
+                eventType: summary.eventType,
+                transcriptFragmentCount: summary.transcriptFragmentCount,
+              });
+            } else if (summary.maybeMeetingEvent) {
+              logStructured({
+                event: "dingtalk_meeting_event_unhandled",
+                eventType: summary.eventType,
+                conferenceId: summary.conferenceId,
+                bizType: summary.bizType,
+                transcriptFragmentCount: summary.transcriptFragmentCount,
+                topLevelKeys: summary.topLevelKeys,
+                dataKeys: summary.dataKeys,
+                recordKeys: summary.recordKeys,
               });
             }
           })
