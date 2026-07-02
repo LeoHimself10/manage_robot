@@ -4,6 +4,7 @@ import {
   loadTaskIntakePolicy,
   type TaskIntakePolicy,
 } from "./task-intake-llm";
+import type { TaskIntakeSourceKind } from "./structure-input";
 
 export interface ExistingTaskStub {
   planId: string;
@@ -35,12 +36,14 @@ const SYSTEM_PROMPT = [
   "",
   "规则：",
   "1. 已有父任务匹配：仅当子任务标题/目标与已有父任务标题语义明确重叠时才选 A，confidence ≥ 0.6。",
-  "2. 新建分组：对于不归属已有任务的子任务，按语义相似性聚类，同类子任务分配相同 newGroupId（如 ng_1、ng_2…），并给出合适的父任务标题 newGroupTitle 与描述/背景 newGroupDescription（1-2 句，说明该组子任务的整体目标与来由）。同一 newGroupId 的条目 newGroupTitle/newGroupDescription 须一致。一个子任务只属于一个新建组。",
-  "3. 不确定：若既无法匹配已有任务、又无法确定新建组归属（confidence < 0.6），则 targetPlanId 和 newGroupId 均输出 null。",
-  "4. confidence 表示对当前决策的把握程度（0~1）。",
-  "5. reason 用一句简短中文说明依据（≤20字）。",
-  "6. 每条子任务必须有且仅有一条结果，itemId 原样保留。",
-  "7. targetPlanId 和 newGroupId 互斥：若 targetPlanId 非 null，则 newGroupId 必须为 null，反之亦然。",
+  "2. 如果新子任务来自会议纪要或会议原文转写，它往往是已有项目/父任务的后续动作；优先追加到语义明确相关的已有父任务，避免重复建项。",
+  "3. 不要因为来源是会议就新建泛泛的会议跟进组；新建组标题必须来自行动项本身的业务主题。",
+  "4. 新建分组：对于不归属已有任务的子任务，按语义相似性聚类，同类子任务分配相同 newGroupId（如 ng_1、ng_2…），并给出合适的父任务标题 newGroupTitle 与描述/背景 newGroupDescription（1-2 句，说明该组子任务的整体目标与来由）。同一 newGroupId 的条目 newGroupTitle/newGroupDescription 须一致。一个子任务只属于一个新建组。",
+  "5. 不确定：若既无法匹配已有任务、又无法确定新建组归属（confidence < 0.6），则 targetPlanId 和 newGroupId 均输出 null。",
+  "6. confidence 表示对当前决策的把握程度（0~1）。",
+  "7. reason 用一句简短中文说明依据（≤20字）。",
+  "8. 每条子任务必须有且仅有一条结果，itemId 原样保留。",
+  "9. targetPlanId 和 newGroupId 互斥：若 targetPlanId 非 null，则 newGroupId 必须为 null，反之亦然。",
   "",
   "输出严格 JSON 数组，不要任何解释或 markdown：",
   '[{"itemId":string,"targetPlanId":string|null,"newGroupId":string|null,"newGroupTitle":string|null,"newGroupDescription":string|null,"confidence":number,"reason":string}]',
@@ -49,6 +52,8 @@ const SYSTEM_PROMPT = [
 function buildUserMessage(input: {
   subtasks: Array<{ itemId: string; title: string; objective?: string }>;
   existingTasks: ExistingTaskStub[];
+  sourceKind?: TaskIntakeSourceKind;
+  sourceTitle?: string;
 }): string {
   const taskLines = input.existingTasks.length
     ? input.existingTasks.map((t) => `- planId=${t.planId} taskNo=${t.taskNo} 标题：${t.title}`).join("\n")
@@ -59,12 +64,15 @@ function buildUserMessage(input: {
     .join("\n");
 
   return [
+    input.sourceKind === "meeting_transcript" ? "来源：会议原文转写" : "来源：粘贴录入",
+    input.sourceTitle ? `来源标题：${input.sourceTitle}` : "",
+    "",
     "已有父任务列表：",
     taskLines,
     "",
     "新子任务列表（需判断归属）：",
     subtaskLines,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 function coerceSuggestions(
@@ -142,6 +150,8 @@ function coerceSuggestions(
 export async function suggestTaskTargets(input: {
   subtasks: Array<{ itemId: string; title: string; objective?: string }>;
   existingTasks: ExistingTaskStub[];
+  sourceKind?: TaskIntakeSourceKind;
+  sourceTitle?: string;
   policy?: TaskIntakePolicy;
 }): Promise<TargetSuggestion[]> {
   const noSuggestions = input.subtasks.map((s) => ({ itemId: s.itemId, confidence: 0 }));

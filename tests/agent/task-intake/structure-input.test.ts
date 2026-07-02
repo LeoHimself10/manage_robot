@@ -10,6 +10,51 @@ afterEach(() => {
 });
 
 describe("task-intake structure-input", () => {
+  it("instructs the LLM to handle explicit task lists and meeting notes safely", async () => {
+    let seenSystem = "";
+    let seenUser = "";
+    __setTaskIntakeLlmForTest(async (input) => {
+      seenSystem = input.system;
+      seenUser = input.user;
+      return JSON.stringify({
+        parentTitle: "会议行动项",
+        parentDescription: "从会议纪要中提取明确行动项",
+        subtasks: [
+          {
+            title: "整理客户反馈清单",
+            objective: "汇总会议中明确要求整理的反馈",
+            deliverables: "客户反馈清单",
+            completionCriteria: "反馈项完整并发给参会人确认",
+          },
+        ],
+      });
+    });
+
+    await structureTasksFromText({ pastedText: "会议纪要：王五负责整理客户反馈清单。其他部分只是背景讨论。" });
+
+    expect(seenSystem).toContain("明确的任务列表");
+    expect(seenSystem).toContain("有清晰待办的会议纪要");
+    expect(seenSystem).toContain("没有清晰待办的会议纪要");
+    expect(seenSystem).toContain("禁止把背景讨论、观点、寒暄或会议标题扩写成任务");
+    expect(seenUser).toContain("可能是任务清单，也可能是会议纪要/会议原文");
+  });
+
+  it("accepts an LLM result with no clear action items without falling back to transcript lines", async () => {
+    __setTaskIntakeLlmForTest(async () =>
+      JSON.stringify({
+        parentTitle: "会议讨论记录",
+        parentDescription: "本次内容只有背景讨论，未形成明确可入库行动项",
+        subtasks: [],
+      }),
+    );
+
+    const res = await structureTasksFromText({ pastedText: "会议讨论了市场背景，没有负责人、交付物或下一步。" });
+
+    expect(res.usedFallback).toBe(false);
+    expect(res.structured.subtasks).toHaveLength(0);
+    expect(res.warnings).toContain("no_clear_action_items");
+  });
+
   it("faithfully maps N items to N subtasks via LLM without merging", async () => {
     __setTaskIntakeLlmForTest(async () =>
       JSON.stringify({

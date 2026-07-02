@@ -6,20 +6,27 @@ import {
 } from "./task-intake-llm";
 import type { TaskIntakeStructured, TaskIntakeSubtask } from "./types";
 
+export type TaskIntakeSourceKind = "pasted" | "meeting_transcript";
+
 const SYSTEM_PROMPT = [
-  "你是任务录入助手。用户已经**自行把任务拆解好**，你的职责是：",
-  "① 把用户给出的文本**忠实地**映射为结构化 JSON（绝不重新拆解）；",
-  "② 同时为必填字段生成合理草稿（若用户未明确说明，根据上下文推断）。",
+  "你是任务录入助手。输入可能是三类内容：明确的任务列表、有清晰待办的会议纪要、没有清晰待办的会议纪要/会议原文。",
+  "你的职责是先判断输入类型，再把可执行事项转为结构化 JSON；如果没有明确待办，必须返回空 subtasks。",
   "",
-  "硬性纪律（忠实映射，不可违反）：",
-  "1. 用户列了几条任务，就输出几条 subtasks——禁止增加、删除、合并或再拆分条目。",
-  "2. 子任务标题原样保留用户的措辞，禁止改写、润色、翻译或补充。",
-  "3. dueAt 用 YYYY-MM-DD，仅当用户给了明确日期时填写。",
-  "4. 只提到模糊时间（如「三天左右」「本周内」「尽快」）时，不填 dueAt；改填 dueMode='self'，并把原话写到 dueExpectation。",
-  "5. assigneeName 仅当用户明确写了负责人姓名时填写，禁止编造。",
-  "6. actions / dependsOn 仅当用户明确提及时填写，禁止编造。",
+  "输入类型处理：",
+  "1. 明确的任务列表：用户列了几条任务，就输出几条 subtasks；禁止增加、删除、合并或再拆分条目；标题尽量保留用户措辞。",
+  "2. 有清晰待办的会议纪要：只提取会议中已经形成的明确行动项/负责人承诺/下一步安排，可按行动项生成 subtasks；不要把整段纪要逐行拆成任务。",
+  "3. 没有清晰待办的会议纪要：如果只有背景、讨论、观点、同步信息、寒暄、议程或结论但没有可执行行动，输出 subtasks: []。",
+  "4. 会议原文转写：只从会议原文中提取明确待办；它不是钉钉 AI 纪要摘要，也不是已整理的待办清单。",
   "",
-  "必填字段（必须输出，可根据上下文合理推断，勿留空）：",
+  "硬性纪律（不可违反）：",
+  "1. 禁止把背景讨论、观点、寒暄或会议标题扩写成任务。",
+  "2. dueAt 用 YYYY-MM-DD，仅当用户给了明确日期时填写。",
+  "3. 只提到模糊时间（如「三天左右」「本周内」「尽快」）时，不填 dueAt；改填 dueMode='self'，并把原话写到 dueExpectation。",
+  "4. assigneeName 仅当用户明确写了负责人姓名时填写，禁止编造。",
+  "5. actions / dependsOn 仅当用户明确提及时填写，禁止编造。",
+  "6. 对会议纪要/转写，只能提取明确待办；不确定的事项宁可不入库。",
+  "",
+  "必填字段（有 subtask 时必须输出，可根据上下文合理推断，勿留空）：",
   "A. parentDescription：用 1-2 句话说明这批任务的整体目标与背景，供下属理解来龙去脉。",
   "B. 每条 subtask 的 objective：用一句话说明该子任务的核心目标。若用户未明确，根据标题合理推断。",
   "C. 每条 subtask 的 deliverables：该子任务完成后产出的具体交付物（如文档/报告/代码/方案），多项用「；」分隔。若用户未明确，根据任务标题合理推断 1 条。",
@@ -53,7 +60,8 @@ export function splitLinesToSubtasks(text: string): TaskIntakeSubtask[] {
 function coerceStructured(parsed: unknown): TaskIntakeStructured | null {
   if (!parsed || typeof parsed !== "object") return null;
   const obj = parsed as Record<string, unknown>;
-  const rawSubtasks = Array.isArray(obj.subtasks) ? obj.subtasks : [];
+  if (!Array.isArray(obj.subtasks)) return null;
+  const rawSubtasks = obj.subtasks;
   const subtasks: TaskIntakeSubtask[] = rawSubtasks
     .map((raw) => {
       const r = (raw ?? {}) as Record<string, unknown>;
@@ -86,7 +94,7 @@ function coerceStructured(parsed: unknown): TaskIntakeStructured | null {
       return subtask;
     })
     .filter((s): s is TaskIntakeSubtask => s !== null);
-  if (subtasks.length === 0) return null;
+  if (rawSubtasks.length > 0 && subtasks.length === 0) return null;
   return {
     parentTitle: clip(obj.parentTitle, 200),
     parentDescription: clip(obj.parentDescription, 2000),
@@ -103,11 +111,16 @@ export interface StructureTasksResult {
 export async function structureTasksFromText(input: {
   pastedText: string;
   parentTitleHint?: string;
+  sourceKind?: TaskIntakeSourceKind;
+  sourceTitle?: string;
   policy?: TaskIntakePolicy;
 }): Promise<StructureTasksResult> {
   const warnings: string[] = [];
   const pasted = String(input.pastedText ?? "").trim();
   const hint = String(input.parentTitleHint ?? "").trim();
+  const sourceKind: TaskIntakeSourceKind =
+    input.sourceKind === "meeting_transcript" ? "meeting_transcript" : "pasted";
+  const sourceTitle = String(input.sourceTitle ?? "").trim();
 
   if (!pasted) {
     return {
@@ -120,28 +133,46 @@ export async function structureTasksFromText(input: {
   const policy = input.policy ?? loadTaskIntakePolicy();
   const userMessage = [
     hint ? `父任务标题（用户已指定，请直接采用）：${hint}` : "父任务标题：用户未指定，请从内容中提炼一个简洁标题。",
+    sourceTitle ? `来源标题（仅用于理解背景，不要机械套用为任务标题）：${sourceTitle}` : "",
     "",
-    "以下是用户已经拆好的任务清单，请忠实映射：",
+    sourceKind === "meeting_transcript"
+      ? "以下内容来自会议原文转写（录音转文字），不是钉钉 AI 纪要摘要。请只从会议原文中提取明确待办："
+      : "以下内容可能是任务清单，也可能是会议纪要/会议原文。请先判断类型，再提取可入库的明确待办：",
     pasted,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const raw = await callTaskIntakeLlm({ system: SYSTEM_PROMPT, user: userMessage, policy });
   if (raw) {
     const coerced = coerceStructured(extractJsonFromLlmContent(raw));
     if (coerced) {
+      const nextWarnings = coerced.subtasks.length === 0
+        ? [...warnings, "no_clear_action_items"]
+        : warnings;
       return {
         structured: {
-          parentTitle: hint || coerced.parentTitle || "新建任务",
+          parentTitle: hint || coerced.parentTitle || sourceTitle || "新建任务",
           parentDescription: coerced.parentDescription,
           subtasks: coerced.subtasks,
         },
-        warnings,
+        warnings: nextWarnings,
         usedFallback: false,
       };
     }
     warnings.push("ai_parse_failed_fallback_lines");
   } else {
     warnings.push("ai_unavailable_fallback_lines");
+  }
+
+  if (sourceKind === "meeting_transcript") {
+    return {
+      structured: {
+        parentTitle: hint || sourceTitle || "会议转写待办",
+        parentDescription: "",
+        subtasks: [],
+      },
+      warnings: [...warnings, "meeting_transcript_ai_extract_failed"],
+      usedFallback: false,
+    };
   }
 
   const subtasks = splitLinesToSubtasks(pasted);

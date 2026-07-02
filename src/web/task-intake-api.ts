@@ -3,7 +3,7 @@ import { createPeopleDirectoryStore } from "../infra/people-directory-store";
 import { resolveEmployeeProfileDir } from "../infra/assignment-env";
 import { createWorkbenchPublishNotifier } from "../integrations/dingtalk/workbench-notify";
 import { createWorkbenchFormalTaskStore } from "../infra/workbench-formal-task-store";
-import { structureTasksFromText } from "../agent/task-intake/structure-input";
+import { structureTasksFromText, type TaskIntakeSourceKind } from "../agent/task-intake/structure-input";
 import { buildPreviewRows } from "../agent/task-intake/resolve-assignees";
 import { suggestTaskTargets, type ExistingTaskStub } from "../agent/task-intake/suggest-targets";
 import { appendTaskIntake, commitTaskIntake } from "../agent/task-intake/commit-task-intake";
@@ -73,6 +73,8 @@ export async function handleTaskIntakePreview(input: {
   parentTitle?: string;
   docUrl?: string;
   existingTasks?: ExistingTaskStub[];
+  sourceKind?: TaskIntakeSourceKind;
+  sourceTitle?: string;
 }): Promise<{
   parentTitle: string;
   parentDescription: string;
@@ -83,6 +85,8 @@ export async function handleTaskIntakePreview(input: {
   const pastedText = String(input.pastedText ?? "");
   const parentTitleHint = String(input.parentTitle ?? "");
   const docUrl = String(input.docUrl ?? "").trim();
+  const sourceKind = input.sourceKind === "meeting_transcript" ? "meeting_transcript" : "pasted";
+  const sourceTitle = String(input.sourceTitle ?? "").trim();
   const warnings: string[] = [];
   let sourceText = pastedText;
 
@@ -98,8 +102,13 @@ export async function handleTaskIntakePreview(input: {
     }
   }
 
-  // Structure first (faithfully maps pasted text to subtasks).
-  const result = await structureTasksFromText({ pastedText: sourceText, parentTitleHint });
+  // Structure first: preserve explicit task lists, or extract only clear action items from notes/transcripts.
+  const result = await structureTasksFromText({
+    pastedText: sourceText,
+    parentTitleHint,
+    sourceKind,
+    sourceTitle,
+  });
 
   // Then suggest targets — depends on structured subtask list; failure is non-fatal.
   const subtaskStubs = result.structured.subtasks.map((s, i) => ({
@@ -110,6 +119,8 @@ export async function handleTaskIntakePreview(input: {
   const suggestions = await suggestTaskTargets({
     subtasks: subtaskStubs,
     existingTasks: input.existingTasks ?? [],
+    sourceKind,
+    sourceTitle,
   }).catch(() => undefined);
 
   let rows = buildPreviewRows(result.structured, suggestions);
@@ -406,7 +417,8 @@ export async function handleTaskIntakeMeetingPreview(input: {
     const pastedText = transcriptText.trim();
     const preview = await handleTaskIntakePreview({
       pastedText,
-      parentTitle: `${meetingTitle}跟进`,
+      sourceKind: "meeting_transcript",
+      sourceTitle: meetingTitle,
       existingTasks: input.existingTasks,
     });
     return {

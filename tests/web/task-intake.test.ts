@@ -134,6 +134,11 @@ describe("task-intake HTTP", () => {
     expect(html).toContain("docUrl:");
     expect(html).toContain("最近会议");
     expect(html).toContain("task-intake/meetings");
+    expect(html).toContain("导入任务清单或会议原文转写");
+    expect(html).toContain("可以粘贴明确任务列表、会议纪要，或没有整理过的会议正文");
+    expect(html).toContain("这里导入的是会议原文（录音转文字）");
+    expect(html).toContain("从转写提取待办");
+    expect(html).not.toContain("导入任务清单或 AI 听记正文");
   });
 
   it("previews tasks from a readable URL when no text is pasted", async () => {
@@ -391,11 +396,13 @@ describe("task-intake HTTP", () => {
       fetchedAt: "2026-07-02T00:00:00.000Z",
     });
     const seenPrompts: string[] = [];
+    const seenSystemPrompts: string[] = [];
     __setTaskIntakeLlmForTest(async (input) => {
       seenPrompts.push(input.user);
+      seenSystemPrompts.push(input.system);
       return JSON.stringify({
-        parentTitle: "AI log requirements follow-up",
-        parentDescription: "Imported from AI minutes",
+        parentTitle: "AI log requirements action items",
+        parentDescription: "Imported from meeting transcript",
         subtasks: [
           {
             title: input.user.includes("[meeting]") ? "bad synthetic meeting marker" : "draft AI log requirements",
@@ -414,6 +421,10 @@ describe("task-intake HTTP", () => {
     });
 
     expect(seenPrompts[0]).not.toContain("[meeting]");
+    expect(seenPrompts[0]).toContain("会议原文转写（录音转文字）");
+    expect(seenPrompts[0]).toContain("不是钉钉 AI 纪要摘要");
+    expect(seenSystemPrompts[0]).toContain("只从会议原文中提取明确待办");
+    expect(result.parentTitle).toBe("AI log requirements action items");
     expect(result.rows[0]?.title).toBe("draft AI log requirements");
     meetingStore.close();
   });

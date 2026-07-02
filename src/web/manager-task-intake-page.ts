@@ -671,7 +671,7 @@ export function renderManagerTaskIntakePage(params: {
   <!-- Step 1 -->
   <div class="ti-panel" id="step1Panel">
     <div class="ti-panel-inner">
-      <div class="ti-section-head"><h2>导入任务清单或 AI 听记正文</h2></div>
+      <div class="ti-section-head"><h2>导入任务清单或会议原文转写</h2></div>
       <div class="ti-section-body" style="display:flex;flex-direction:column;gap:14px;">
         ${meetingsEnabled ? `
         <div class="ti-source-tabs" role="tablist" aria-label="录入来源">
@@ -682,7 +682,7 @@ export function renderManagerTaskIntakePage(params: {
         <div class="ti-source-panel" id="pasteSourcePanel" role="tabpanel" aria-labelledby="pasteTabBtn">
         <div class="ti-field-wrap">
           <span class="ti-lbl ti-lbl-req">正文</span>
-          <textarea id="pastedText" class="ti-paste-area" placeholder="粘贴已拆好的任务清单，或从 AI 听记复制出的正文。&#10;每行一条任务，可带负责人、截止日期、交付物等信息。&#10;&#10;示例：&#10;1. 整理临床资料 — 负责人：张三 — 截止 06-10&#10;2. 撰写技术要求 — 负责人：李四 — 截止 06-12"></textarea>
+          <textarea id="pastedText" class="ti-paste-area" placeholder="可以粘贴明确任务列表、会议纪要，或没有整理过的会议正文。&#10;系统只会提取明确待办；没有清晰待办时不会硬拆。&#10;&#10;示例：&#10;1. 整理临床资料 — 负责人：张三 — 截止 06-10&#10;2. 撰写技术要求 — 负责人：李四 — 截止 06-12"></textarea>
         </div>
         <details class="ti-optional-details">
           <summary>可选补充</summary>
@@ -692,7 +692,7 @@ export function renderManagerTaskIntakePage(params: {
               <input id="parentTitle" type="text" class="ti-box-input" placeholder="如：6月注册申报准备" />
             </div>
             <div class="ti-field-wrap">
-              <span class="ti-lbl">网页链接备用 <span class="ti-lbl-hint">可选；仅适合可直接读取的页面，AI 听记优先用“最近会议”或粘贴正文</span></span>
+              <span class="ti-lbl">网页链接备用 <span class="ti-lbl-hint">可选；仅适合可直接读取的页面，会议内容优先用“最近会议”或粘贴正文</span></span>
               <input id="docUrl" type="url" class="ti-box-input" placeholder="https://..." />
             </div>
           </div>
@@ -705,7 +705,7 @@ export function renderManagerTaskIntakePage(params: {
         ${meetingsEnabled ? `
         <div class="ti-source-panel" id="meetingSourcePanel" role="tabpanel" aria-labelledby="meetingTabBtn" hidden>
           <div class="ti-meeting-toolbar">
-            <div class="ti-meeting-hint">只显示当前登录主管参与、主持或创建的会议。已缓存的 AI 听记会直接导入；未缓存时再尝试读取云录制转写。</div>
+            <div class="ti-meeting-hint">只显示当前登录主管参与、主持或创建的会议。这里导入的是会议原文（录音转文字），系统会从原文里提取明确待办。</div>
             <button type="button" class="ti-btn ti-btn-ghost" id="loadMeetingsBtn">刷新最近会议</button>
           </div>
           <div class="ti-feedback" id="meetingFeedback"></div>
@@ -1438,9 +1438,9 @@ ${buildWorkbenchContactComboClientJs()}
 
   function meetingTranscriptLabel(meeting) {
     if (!meeting || !meeting.transcriptCached) return "待读取转写";
-    if (meeting.transcriptSource === "ai_minutes") return "AI 听记已缓存";
-    if (meeting.transcriptSource === "cloud_record") return "云录制转写已缓存";
-    if (meeting.transcriptSource === "cloud_record_asr") return "云录制 ASR 已缓存";
+    if (meeting.transcriptSource === "ai_minutes") return "会议原文转写已缓存";
+    if (meeting.transcriptSource === "cloud_record") return "会议原文转写已缓存";
+    if (meeting.transcriptSource === "cloud_record_asr") return "会议原文转写已缓存";
     return "已缓存转写";
   }
 
@@ -1451,7 +1451,7 @@ ${buildWorkbenchContactComboClientJs()}
     if (!meetings.length) {
       var empty = document.createElement("div");
       empty.className = "ti-meeting-hint";
-      empty.textContent = "最近 14 天暂无可导入的本人相关闪记会议。";
+      empty.textContent = "最近 14 天暂无可导入的本人相关会议转写。";
       list.appendChild(empty);
       return;
     }
@@ -1470,12 +1470,12 @@ ${buildWorkbenchContactComboClientJs()}
       var btn = document.createElement("button");
       btn.type = "button";
       btn.className = "ti-btn ti-btn-primary";
-      btn.textContent = "导入转写";
+      btn.textContent = "从转写提取待办";
       btn.addEventListener("click", async function () {
         var oldText = btn.textContent;
         btn.disabled = true;
         btn.textContent = "导入中…";
-        setFb("meetingFeedback", "读取会议转写并解析中（约 5-10 秒）…", false);
+        setFb("meetingFeedback", "读取会议原文转写，并从中提取明确待办（约 5-10 秒）…", false);
         try {
           var res = await fetch("/api/workbench/manager/task-intake/meetings/preview", {
             method: "POST",
