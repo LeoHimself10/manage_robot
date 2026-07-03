@@ -82,6 +82,14 @@ import {
   listDynamicWorkbenchPortfolioManagers,
   setDynamicWorkbenchPortfolioManager,
 } from "../security/workbench-portfolio-directory";
+import {
+  addWorkbenchManagerGroupMember,
+  createWorkbenchManagerGroup,
+  listWorkbenchManagerGroups,
+  removeWorkbenchManagerGroupMember,
+  updateWorkbenchManagerGroup,
+  type WorkbenchManagerGroup,
+} from "../security/workbench-manager-groups";
 import { listWorkbenchProjectPortfolioUserIds } from "../security/workbench-project-portfolio";
 import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
 import {
@@ -375,6 +383,21 @@ function withPeopleDirectoryStore<T>(fn: (store: ReturnType<typeof createPeopleD
 function getFormalTaskStore(): ReturnType<typeof createWorkbenchFormalTaskStore> {
   formalTaskStore = formalTaskStore ?? createWorkbenchFormalTaskStore();
   return formalTaskStore;
+}
+
+function mapManagerGroupForAdminApi(
+  group: WorkbenchManagerGroup,
+  store = getFormalTaskStore(),
+): Record<string, unknown> {
+  return {
+    ...group,
+    taskCount: store.countTasksForManagerGroup(group.groupId),
+    projectCount: store.countProjectsForManagerGroup(group.groupId),
+    members: group.memberUserIds.map((userId) => ({
+      userId,
+      name: withPeopleDirectoryStore((people) => people.getContact(userId)?.name?.trim() ?? ""),
+    })),
+  };
 }
 
 export function __setDingTalkAuthClientForTest(client?: DingTalkAuthClient): void {
@@ -4949,6 +4972,164 @@ export function handleAssignmentHttp(
     const session = requireSession(req, res, "admin");
     if (!session) return true;
     writeJson(res, 200, opsPayload);
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/admin/manager-groups") {
+    const session = requireSession(req, res, "admin");
+    if (!session) return true;
+    const store = getFormalTaskStore();
+    writeJson(res, 200, {
+      ok: true,
+      groups: listWorkbenchManagerGroups().map((group) => mapManagerGroupForAdminApi(group, store)),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/admin/manager-groups") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "admin");
+        if (!session) return;
+        const body = await readJsonBody(req);
+        const groupId = String(body.groupId ?? "").trim();
+        const status: WorkbenchManagerGroup["status"] = body.status === "inactive" ? "inactive" : "active";
+        const patch: {
+          name?: string;
+          description?: string;
+          status?: WorkbenchManagerGroup["status"];
+          portfolioEnabled?: boolean;
+        } = {};
+        if (!groupId || body.name !== undefined) {
+          patch.name = String(body.name ?? "").trim();
+        }
+        if (body.description !== undefined) {
+          patch.description = String(body.description ?? "").trim();
+        }
+        if (body.status !== undefined) {
+          patch.status = status;
+        }
+        if (body.portfolioEnabled !== undefined) {
+          patch.portfolioEnabled = body.portfolioEnabled === true;
+        }
+        let group = groupId
+          ? updateWorkbenchManagerGroup(groupId, patch)
+          : createWorkbenchManagerGroup({
+            name: patch.name ?? "",
+            description: patch.description,
+            portfolioEnabled: patch.portfolioEnabled,
+          });
+        if (!groupId && status === "inactive") {
+          group = updateWorkbenchManagerGroup(group.groupId, { status });
+        }
+        getFormalTaskStore().appendPermissionEvent({
+          actorUserId: session.userId,
+          targetUserId: group.groupId,
+          before: Boolean(groupId),
+          after: true,
+          payload: {
+            source: "admin_api",
+            permissionKind: "manager_group",
+            action: groupId ? "update_group" : "create_group",
+            groupId: group.groupId,
+            status: group.status,
+            memberUserIds: group.memberUserIds,
+          },
+        });
+        writeJson(res, 200, { ok: true, group: mapManagerGroupForAdminApi(group) });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "manager group save failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/admin/manager-groups/members") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "admin");
+        if (!session) return;
+        const body = await readJsonBody(req);
+        const groupId = String(body.groupId ?? "").trim();
+        const userId = String(body.userId ?? "").trim();
+        const enabled = body.enabled !== false;
+        if (enabled) {
+          const contact = withPeopleDirectoryStore((store) => store.getContact(userId));
+          if (!contact) {
+            writeJson(res, 404, { ok: false, error: "contact not found" });
+            return;
+          }
+          if (!contact.active) {
+            writeJson(res, 400, { ok: false, error: "cannot add inactive contact to manager group" });
+            return;
+          }
+        }
+        const group = enabled
+          ? addWorkbenchManagerGroupMember(groupId, userId)
+          : removeWorkbenchManagerGroupMember(groupId, userId);
+        getFormalTaskStore().appendPermissionEvent({
+          actorUserId: session.userId,
+          targetUserId: userId,
+          before: !enabled,
+          after: enabled,
+          payload: {
+            source: "admin_api",
+            permissionKind: "manager_group_member",
+            action: enabled ? "add_member" : "remove_member",
+            groupId: group.groupId,
+            memberUserIds: group.memberUserIds,
+          },
+        });
+        writeJson(res, 200, { ok: true, group: mapManagerGroupForAdminApi(group) });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "manager group member save failed",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/admin/manager-groups/migrate") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "admin");
+        if (!session) return;
+        const body = await readJsonBody(req);
+        const groupId = String(body.groupId ?? "").trim();
+        const managerUserId = String(body.managerUserId ?? "").trim();
+        if (!listWorkbenchManagerGroups().some((group) => group.groupId === groupId)) {
+          writeJson(res, 400, { ok: false, error: "manager group not found" });
+          return;
+        }
+        const result = getFormalTaskStore().migrateManagerObjectsToGroup({
+          managerUserId,
+          managerGroupId: groupId,
+        });
+        getFormalTaskStore().appendPermissionEvent({
+          actorUserId: session.userId,
+          targetUserId: managerUserId,
+          before: false,
+          after: true,
+          payload: {
+            source: "admin_api",
+            permissionKind: "manager_group_migration",
+            groupId,
+            ...result,
+          },
+        });
+        writeJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "manager group migration failed",
+        });
+      }
+    })();
     return true;
   }
 

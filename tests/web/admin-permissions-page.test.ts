@@ -19,4 +19,12 @@ describe("admin permissions page", () => {
     expect(html).toContain("grantPortfolioBtn");
     expect(html).toContain("/workbench/admin/permissions");
   });
+
+  it("permissions page exposes manager group management", () => {
+    const html = renderAdminPermissionsPage({ userLabel: "管理员" });
+    expect(html).toContain("主管组");
+    expect(html).toContain("/api/workbench/admin/manager-groups");
+    expect(html).toContain("managerGroupListMount");
+    expect(html).toContain("createManagerGroupBtn");
+  });
 });

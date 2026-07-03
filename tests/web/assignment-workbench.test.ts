@@ -218,6 +218,19 @@ describe("assignment-workbench HTTP handler", () => {
     people.close();
   }
 
+  async function loginCookie(userId: string, role: "admin" | "manager" | "employee" = "manager"): Promise<string> {
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId, role }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    return String(loginRes.captured().headers["Set-Cookie"] ?? "");
+  }
+
   afterEach(() => {
     __resetWorkbenchStoresForTest();
     __resetExternalLoginRateLimitsForTest();
@@ -1791,6 +1804,86 @@ describe("assignment-workbench HTTP handler", () => {
     handleAssignmentHttp(req, res);
     expect(captured().statusCode).toBe(200);
     expect(captured().body).toContain("emp-search");
+  });
+
+  it("admin can create manager group and add a member", async () => {
+    vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "1");
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_FILE", join(tmpdir(), `test-manager-groups-${Date.now()}.json`));
+    seedContact("admin-1", "管理部", "Admin");
+    seedContact("mgr-a", "项目部", "Manager");
+    const cookie = await loginCookie("admin-1", "admin");
+
+    const createReq = stubReq({
+      url: "/api/workbench/admin/manager-groups",
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "明思项目主管组", description: "项目任务共享", portfolioEnabled: true }),
+    });
+    const createRes = stubRes();
+    expect(handleAssignmentHttp(createReq, createRes.res)).toBe(true);
+    await flushAsync();
+    const created = JSON.parse(createRes.captured().body) as {
+      ok?: boolean;
+      group?: { groupId?: string; portfolioEnabled?: boolean };
+    };
+    expect(createRes.captured().statusCode).toBe(200);
+    expect(created.ok).toBe(true);
+    expect(created.group?.groupId).toMatch(/^mgrgrp:/);
+    expect(created.group?.portfolioEnabled).toBe(true);
+
+    const updateReq = stubReq({
+      url: "/api/workbench/admin/manager-groups",
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ groupId: created.group?.groupId, status: "inactive" }),
+    });
+    const updateRes = stubRes();
+    expect(handleAssignmentHttp(updateReq, updateRes.res)).toBe(true);
+    await flushAsync();
+    const updated = JSON.parse(updateRes.captured().body) as {
+      ok?: boolean;
+      group?: { name?: string; status?: string };
+    };
+    expect(updateRes.captured().statusCode).toBe(200);
+    expect(updated.ok).toBe(true);
+    expect(updated.group).toMatchObject({ name: "明思项目主管组", status: "inactive" });
+
+    const addReq = stubReq({
+      url: "/api/workbench/admin/manager-groups/members",
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ groupId: created.group?.groupId, userId: "mgr-a", enabled: true }),
+    });
+    const addRes = stubRes();
+    expect(handleAssignmentHttp(addReq, addRes.res)).toBe(true);
+    await flushAsync();
+    expect(addRes.captured().statusCode).toBe(200);
+    expect(JSON.parse(addRes.captured().body).ok).toBe(true);
+
+    const listReq = stubReq({
+      url: "/api/workbench/admin/manager-groups",
+      method: "GET",
+      headers: { cookie },
+    });
+    const listRes = stubRes();
+    expect(handleAssignmentHttp(listReq, listRes.res)).toBe(true);
+    const listed = JSON.parse(listRes.captured().body) as {
+      ok?: boolean;
+      groups?: Array<{
+        groupId?: string;
+        memberUserIds?: string[];
+        members?: Array<{ userId?: string; name?: string }>;
+        taskCount?: number;
+        projectCount?: number;
+      }>;
+    };
+    expect(listRes.captured().statusCode).toBe(200);
+    expect(listed.ok).toBe(true);
+    expect(listed.groups?.[0]?.memberUserIds).toContain("mgr-a");
+    expect(listed.groups?.[0]?.members?.[0]).toMatchObject({ userId: "mgr-a", name: "mgr-a" });
+    expect(listed.groups?.[0]?.taskCount).toBe(0);
+    expect(listed.groups?.[0]?.projectCount).toBe(0);
   });
 
   it("employee can update profile via api without touching contacts", async () => {
