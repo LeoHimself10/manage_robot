@@ -327,6 +327,19 @@ ssh -i hh.pem root@你的ECS公网IP "
 | `WORKBENCH_ADMIN_USER_IDS` | 逗号分隔 admin userId（**仅 env**；例：姚凯珩 + Rain） |
 | `WORKBENCH_MANAGER_USER_IDS` | env 静态主管；另可与 `data/workbench-managers.json` 动态名单并集 |
 
+#### Manager groups（mingsibot 试点）
+
+`WORKBENCH_MANAGER_GROUPS_ENABLED=1` 后，Admin 可在「权限中心」创建多个主管组，并把主管加入对应组。普通主管最多属于一个组；组内成员对正式任务、项目、周报 Dashboard、绩效看板和主管操作同权；不同主管组之间隔离。未发布的个人对话草案仍不共享。
+
+建议先只在 `mingsibot` 开启：
+
+```env
+WORKBENCH_MANAGER_GROUPS_ENABLED=1
+WORKBENCH_MANAGER_GROUPS_FILE=/app/data/workbench-manager-groups.json
+```
+
+开启后先由 Admin 创建主管组并迁入历史个人任务/项目，再让业务主管使用。改 `/etc/manage-robot-mingsibot.env` 后必须 `docker stop && docker rm && docker run --env-file ...` 重建容器，`docker restart` 不会读取新 env。
+
 一键校正链接并重建容器：`bash scripts/ecs-fix-mingsibot-urls.sh`（在 ECS `/opt/manage_robot` 执行）。首次搭 mingsibot：`bash scripts/ecs-setup-mingsibot.sh`。
 
 **授予 Admin 权限**（保留既有主管）：编辑 `/etc/manage-robot-mingsibot.env` 的 `WORKBENCH_ADMIN_USER_IDS`，确保目标 userId 仍在主管名单（env 或 `/opt/manage_robot-mingsibot/data/workbench-managers.json`），然后 **stop/rm/run** 重建 `manage-robot-mingsibot`（不可只 restart）。
@@ -473,6 +486,8 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DINGTALK_ASSIGNMENT_MOCK` | 否 | `1` 使用 mock 钉钉交互卡片（无需真实卡片回调） |
 | `WORKBENCH_MANAGER_USER_IDS` | 否 | 钉钉 **主管** 身份白名单（与 `TASK_INITIATOR_USER_IDS` 独立），逗号分隔 `userId`。供后续工作台网页应用 Session 判定；未配或空则人均按非主管处理（见 `src/security/workbench-manager-whitelist.ts`） |
 | `WORKBENCH_MANAGER_IDS_FILE` | 否 | 主管名单 JSON 数组文件路径（格式同 `TASK_INITIATOR_IDS_FILE`）；存在且为数组时优先于 `WORKBENCH_MANAGER_USER_IDS` |
+| `WORKBENCH_MANAGER_GROUPS_ENABLED` | 否 | `1` 开启 Admin 管理的主管组；组内共享正式任务/项目/看板和主管操作，组间隔离（建议 mingsibot 试点） |
+| `WORKBENCH_MANAGER_GROUPS_FILE` | 否 | 主管组 JSON 文件路径；容器内建议 `/app/data/workbench-manager-groups.json` |
 | `FOLLOWUP_REMINDER_ENABLED` | 否 | `1` 开启催办 scheduler（默认 `0`）；**单实例**假设，**切勿水平扩容** `dingtalk-bot` |
 | `FOLLOWUP_SCAN_INTERVAL_MS` | 否 | scheduler 扫描间隔（默认 `300000`） |
 | `FOLLOWUP_TIMEZONE` | 否 | 自然日与静默时段时区（默认 `Asia/Shanghai`）；纯日期 `due_at` 默认 **当天 18:00** 过期 |
