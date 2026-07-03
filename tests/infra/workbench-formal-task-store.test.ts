@@ -1472,7 +1472,7 @@ describe("workbench-formal-task-store projects", () => {
     ).toThrow(/Invalid or inaccessible project_id/);
   });
 
-  it("requires manager_group_id match when looking up projects for group scope", () => {
+  it("keeps own ungrouped projects accessible after joining a manager group", () => {
     const store = createWorkbenchFormalTaskStore();
     const sameGroup = store.createProject({
       ownerUserId: "mgr-a",
@@ -1494,10 +1494,12 @@ describe("workbench-formal-task-store projects", () => {
       sameGroup.projectId,
     );
     expect(store.getProjectForManagerScope(sameOwnerDifferentGroup.projectId, scope)).toBeUndefined();
-    expect(store.getProjectForManagerScope(sameOwnerUngrouped.projectId, scope)).toBeUndefined();
+    expect(store.getProjectForManagerScope(sameOwnerUngrouped.projectId, scope)?.projectId).toBe(
+      sameOwnerUngrouped.projectId,
+    );
   });
 
-  it("filters group unassigned tasks without leaking other group or personal tasks", () => {
+  it("keeps own ungrouped tasks visible after joining a manager group without leaking other personal tasks", () => {
     const store = createWorkbenchFormalTaskStore();
     store.publishFromSession({
       planId: "plan-group-unassigned",
@@ -1522,14 +1524,65 @@ describe("workbench-formal-task-store projects", () => {
       initiatorDepartment: "ops",
       actorUserId: "mgr-b",
     });
+    store.publishFromSession({
+      planId: "plan-other-personal-unassigned",
+      session: baseSession("plan-other-personal-unassigned"),
+      managerUserId: "mgr-a",
+      initiatorDepartment: "ops",
+      actorUserId: "mgr-a",
+    });
 
     const rows = store.listManagerTasks(
       { managerUserId: "mgr-b", managerGroupId: "mgrgrp:mingsi" },
       { projectId: "__unassigned__" },
     );
 
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.planId).toBe("plan-group-unassigned");
+    expect(rows.map((row) => row.planId).sort()).toEqual([
+      "plan-group-unassigned",
+      "plan-personal-unassigned",
+    ]);
+  });
+
+  it("keeps own ungrouped tasks in performance datasets after joining a manager group", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const dueSession = (planId: string): PlanSession => {
+      const session = baseSession(planId);
+      const draft = session.latestDraft as { tasks: Array<{ timeNode?: { dueAt: string } }> };
+      draft.tasks[0]!.timeNode = { dueAt: "2026-05-20" };
+      return session;
+    };
+    store.publishFromSession({
+      planId: "plan-group-performance",
+      session: dueSession("plan-group-performance"),
+      managerUserId: "mgr-a",
+      managerGroupId: "mgrgrp:mingsi",
+      initiatorDepartment: "ops",
+      actorUserId: "mgr-a",
+    });
+    store.publishFromSession({
+      planId: "plan-personal-performance",
+      session: dueSession("plan-personal-performance"),
+      managerUserId: "mgr-b",
+      initiatorDepartment: "ops",
+      actorUserId: "mgr-b",
+    });
+    store.publishFromSession({
+      planId: "plan-other-personal-performance",
+      session: dueSession("plan-other-personal-performance"),
+      managerUserId: "mgr-c",
+      initiatorDepartment: "ops",
+      actorUserId: "mgr-c",
+    });
+
+    const dataset = store.loadPerformanceDataset({
+      managerUserId: "mgr-b",
+      managerGroupId: "mgrgrp:mingsi",
+    });
+
+    expect(dataset.subtasks.map((row) => row.planId).sort()).toEqual([
+      "plan-group-performance",
+      "plan-personal-performance",
+    ]);
   });
 
   it("migrates existing personal tasks and projects into a manager group", () => {

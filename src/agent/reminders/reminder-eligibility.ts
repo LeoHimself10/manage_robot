@@ -183,7 +183,9 @@ export function listFollowUpCandidatesForActor(
 
   const rows = taskStore.listActiveSubtasksForReminders().filter((r) => {
     if (opts.isAdmin) return true;
-    if (opts.managerGroupId) return r.managerGroupId === opts.managerGroupId;
+    if (opts.managerGroupId) {
+      return r.managerGroupId === opts.managerGroupId || (!r.managerGroupId && r.managerUserId === actorUserId);
+    }
     return r.managerUserId === actorUserId;
   });
 

@@ -40,17 +40,22 @@ describe("reminder-eligibility", () => {
     delete process.env.FOLLOWUP_SCAN_INTERVAL_MS;
   });
 
-  function seedPublishedWithDue(dueAt: string) {
+  function seedPublishedWithDue(
+    dueAt: string,
+    opts: { planId?: string; managerUserId?: string; managerGroupId?: string; assigneeUserId?: string } = {},
+  ) {
     const planSessionStore = createPlanSessionStore();
-    const chatKeyHash = "reminder-seed";
+    const chatKeyHash = `reminder-seed-${opts.planId ?? "default"}`;
     const now = new Date().toISOString();
-    const planId = "plan-reminder-1";
+    const planId = opts.planId ?? "plan-reminder-1";
+    const managerUserId = opts.managerUserId ?? "mgr-1";
+    const assigneeUserId = opts.assigneeUserId ?? "emp-1";
     planSessionStore.save({
       chatKeyHash,
       planId,
       createdAt: now,
       updatedAt: now,
-      senderStaffId: "mgr-1",
+      senderStaffId: managerUserId,
       knownFacts: [],
       conversationHistory: [],
       latestDraft: {
@@ -69,7 +74,7 @@ describe("reminder-eligibility", () => {
         ],
       },
       latestAssignment: {
-        assignments: [{ taskId: "task-1", primary: { userId: "emp-1", displayName: "E1" } }],
+        assignments: [{ taskId: "task-1", primary: { userId: assigneeUserId, displayName: assigneeUserId } }],
       },
     });
     const session = planSessionStore.loadByChatKeyHash(chatKeyHash)!;
@@ -77,12 +82,13 @@ describe("reminder-eligibility", () => {
     store.publishFromSession({
       planId,
       session,
-      managerUserId: "mgr-1",
-      actorUserId: "mgr-1",
+      managerUserId,
+      managerGroupId: opts.managerGroupId,
+      actorUserId: managerUserId,
     });
     const detail = store.getTaskDetail(planId)!;
     const sid = detail.subtasks[0]!.subtaskId;
-    store.updateSubtaskStatus({ subtaskId: sid, actorUserId: "emp-1", action: "accept" });
+    store.updateSubtaskStatus({ subtaskId: sid, actorUserId: assigneeUserId, action: "accept" });
     return { store, sid, detail };
   }
 
@@ -129,5 +135,35 @@ describe("reminder-eligibility", () => {
     expect(mgr.length).toBeGreaterThanOrEqual(1);
     const other = listFollowUpCandidatesForActor(store, "other-mgr", { bucket: "overdue" });
     expect(other.length).toBe(0);
+  });
+
+  it("listFollowUpCandidates keeps own ungrouped tasks after joining a manager group", () => {
+    const { store } = seedPublishedWithDue("2026-05-20", {
+      planId: "plan-follow-group",
+      managerUserId: "mgr-a",
+      managerGroupId: "mgrgrp:mingsi",
+      assigneeUserId: "emp-a",
+    });
+    seedPublishedWithDue("2026-05-20", {
+      planId: "plan-follow-personal",
+      managerUserId: "mgr-b",
+      assigneeUserId: "emp-b",
+    });
+    seedPublishedWithDue("2026-05-20", {
+      planId: "plan-follow-other-personal",
+      managerUserId: "mgr-c",
+      assigneeUserId: "emp-c",
+    });
+
+    const rows = listFollowUpCandidatesForActor(store, "mgr-b", {
+      bucket: "overdue",
+      managerGroupId: "mgrgrp:mingsi",
+      now: new Date("2026-05-21T12:00:00.000Z"),
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows.some((row) => row.assigneeUserId === "emp-a")).toBe(true);
+    expect(rows.some((row) => row.assigneeUserId === "emp-b")).toBe(true);
+    expect(rows.some((row) => row.assigneeUserId === "emp-c")).toBe(false);
   });
 });

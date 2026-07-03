@@ -237,6 +237,24 @@ describe("weekly dashboard facts", () => {
       managerGroupId: "mgrgrp:mingsi",
       assigneeUserId: "emp-a",
     });
+    const personal = seedTask({
+      planId: "plan-weekly-personal",
+      managerUserId: "mgr-b",
+      assigneeUserId: "emp-b",
+    });
+    personal.store.appendTaskEvent({
+      taskId: personal.detail.task.taskId,
+      subtaskId: personal.detail.subtasks[0]!.subtaskId,
+      eventType: "SUBTASK_CUSTOMIZE_NOTE",
+      actorUserId: "emp-b",
+      note: "personal note",
+      occurredAt: "2026-05-20T04:00:00.000Z",
+    });
+    seedTask({
+      planId: "plan-weekly-other-personal",
+      managerUserId: "mgr-c",
+      assigneeUserId: "emp-c",
+    });
     const facts = buildWeeklyDashboardFacts({
       taskStore: store,
       managerUserId: "mgr-b",
@@ -259,5 +277,8 @@ describe("weekly dashboard facts", () => {
       },
     });
     expect(facts.tasks.some((group) => group.task.planId === "plan-weekly-group")).toBe(true);
+    expect(facts.tasks.some((group) => group.task.planId === "plan-weekly-personal")).toBe(true);
+    expect(facts.tasks.some((group) => group.task.planId === "plan-weekly-other-personal")).toBe(false);
+    expect(facts.feed.items.some((item) => item.eventType === "SUBTASK_CUSTOMIZE_NOTE")).toBe(true);
   });
 });

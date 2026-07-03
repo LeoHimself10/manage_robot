@@ -854,12 +854,30 @@ export function createWorkbenchFormalTaskStore() {
     };
   }
 
+  function managerScopeSql(input: {
+    managerUserId: string;
+    managerGroupId?: string;
+    tableAlias?: string;
+    ownerColumn?: "manager_user_id" | "owner_user_id";
+  }): { clause: string; params: string[] } {
+    const prefix = input.tableAlias ? `${input.tableAlias}.` : "";
+    const ownerColumn = input.ownerColumn ?? "manager_user_id";
+    const managerUserId = String(input.managerUserId ?? "").trim();
+    const managerGroupId = asString(input.managerGroupId);
+    if (!managerGroupId) {
+      return { clause: `${prefix}${ownerColumn} = ?`, params: [managerUserId] };
+    }
+    return {
+      clause: `(${prefix}manager_group_id = ? OR (${prefix}${ownerColumn} = ? AND (${prefix}manager_group_id IS NULL OR ${prefix}manager_group_id = '')))`,
+      params: [managerGroupId, managerUserId],
+    };
+  }
+
   function projectAccessibleForScope(project: Record<string, unknown>, scope: {
     managerUserId: string;
     managerGroupId?: string;
   }): boolean {
-    if (String(project.owner_user_id ?? "").trim() === scope.managerUserId) return true;
-    return Boolean(scope.managerGroupId && asString(project.manager_group_id) === scope.managerGroupId);
+    return managerOwnedRowAccessible(project, scope);
   }
 
   function managerOwnedRowAccessible(row: Record<string, unknown>, scope: {
@@ -1049,8 +1067,9 @@ export function createWorkbenchFormalTaskStore() {
     }> {
       const resolvedScope = normalizeManagerTaskScope(scope);
       const pid = String(filter?.projectId ?? "").trim();
-      const clauses = [resolvedScope.managerGroupId ? "t.manager_group_id = ?" : "t.manager_user_id = ?"];
-      const params: string[] = [resolvedScope.managerGroupId ?? resolvedScope.managerUserId];
+      const scopeSql = managerScopeSql({ ...resolvedScope, tableAlias: "t" });
+      const clauses = [scopeSql.clause];
+      const params: string[] = [...scopeSql.params];
       if (pid === UNASSIGNED_PROJECT_BUCKET) {
         clauses.push("(t.project_id IS NULL OR t.project_id = '')");
       } else if (pid) {
@@ -1174,17 +1193,17 @@ export function createWorkbenchFormalTaskStore() {
 
     listProjectsForManagerScope(scope: WorkbenchManagerTaskScope): WorkbenchProjectRow[] {
       const resolvedScope = normalizeManagerTaskScope(scope);
-      const rows = resolvedScope.managerGroupId
-        ? db
-            .prepare(
-              "SELECT * FROM projects WHERE manager_group_id = ? ORDER BY CASE WHEN status = 'archived' THEN 1 ELSE 0 END, updated_at DESC",
-            )
-            .all(resolvedScope.managerGroupId) as Array<Record<string, unknown>>
-        : db
-            .prepare(
-              "SELECT * FROM projects WHERE owner_user_id = ? ORDER BY CASE WHEN status = 'archived' THEN 1 ELSE 0 END, updated_at DESC",
-            )
-            .all(resolvedScope.managerUserId) as Array<Record<string, unknown>>;
+      const scopeSql = managerScopeSql({
+        ...resolvedScope,
+        ownerColumn: "owner_user_id",
+      });
+      const rows = db
+        .prepare(
+          `SELECT * FROM projects
+           WHERE ${scopeSql.clause}
+           ORDER BY CASE WHEN status = 'archived' THEN 1 ELSE 0 END, updated_at DESC`,
+        )
+        .all(...scopeSql.params) as Array<Record<string, unknown>>;
       return rows.map((row) => mapProjectRow(row));
     },
 
@@ -1193,14 +1212,10 @@ export function createWorkbenchFormalTaskStore() {
       scope: WorkbenchManagerTaskScope,
     ): WorkbenchProjectRow | undefined {
       const resolvedScope = normalizeManagerTaskScope(scope);
-      const row = resolvedScope.managerGroupId
-        ? db
-            .prepare("SELECT * FROM projects WHERE project_id = ? AND manager_group_id = ? LIMIT 1")
-            .get(projectId.trim(), resolvedScope.managerGroupId) as Record<string, unknown> | undefined
-        : db
-            .prepare("SELECT * FROM projects WHERE project_id = ? AND owner_user_id = ? LIMIT 1")
-            .get(projectId.trim(), resolvedScope.managerUserId) as Record<string, unknown> | undefined;
-      return row ? mapProjectRow(row) : undefined;
+      const row = db
+        .prepare("SELECT * FROM projects WHERE project_id = ? LIMIT 1")
+        .get(projectId.trim()) as Record<string, unknown> | undefined;
+      return row && projectAccessibleForScope(row, resolvedScope) ? mapProjectRow(row) : undefined;
     },
 
     migrateManagerObjectsToGroup(input: {
@@ -2355,12 +2370,10 @@ export function createWorkbenchFormalTaskStore() {
         WHERE s.due_at IS NOT NULL`;
       const clauses: string[] = [];
       const params: string[] = [];
-      if (managerGroupId) {
-        clauses.push("t.manager_group_id = ?");
-        params.push(managerGroupId);
-      } else if (managerUserId) {
-        clauses.push("t.manager_user_id = ?");
-        params.push(managerUserId);
+      if (managerUserId || managerGroupId) {
+        const scopeSql = managerScopeSql({ managerUserId, managerGroupId, tableAlias: "t" });
+        clauses.push(scopeSql.clause);
+        params.push(...scopeSql.params);
       }
       if (projectId === "__unassigned__") {
         clauses.push("(t.project_id IS NULL OR t.project_id = '')");
@@ -2703,11 +2716,12 @@ export function createWorkbenchFormalTaskStore() {
       const untilIso = String(input.untilIso ?? "").trim();
       const untilClause = untilIso ? " AND e.occurred_at < ?" : "";
       const managerGroupId = String(input.managerGroupId ?? "").trim();
-      const scopeClause = managerGroupId ? "t.manager_group_id = ?" : "t.manager_user_id = ?";
-      const params: Array<string | number | null> = [
-        managerGroupId || input.managerUserId,
-        input.sinceIso,
-      ];
+      const scopeSql = managerScopeSql({
+        managerUserId: input.managerUserId,
+        managerGroupId,
+        tableAlias: "t",
+      });
+      const params: Array<string | number | null> = [...scopeSql.params, input.sinceIso];
       if (untilIso) params.push(untilIso);
       params.push(...types, limit, offset);
       return db
@@ -2716,7 +2730,7 @@ export function createWorkbenchFormalTaskStore() {
              FROM task_events e
              JOIN tasks t ON t.task_id = e.task_id
              LEFT JOIN subtasks s ON s.subtask_id = e.subtask_id
-            WHERE ${scopeClause}
+            WHERE ${scopeSql.clause}
               AND e.occurred_at >= ?${untilClause}
               ${typeClause}
             ORDER BY e.occurred_at DESC, e.id DESC
@@ -2737,11 +2751,12 @@ export function createWorkbenchFormalTaskStore() {
       const untilIso = String(input.untilIso ?? "").trim();
       const untilClause = untilIso ? " AND e.occurred_at < ?" : "";
       const managerGroupId = String(input.managerGroupId ?? "").trim();
-      const scopeClause = managerGroupId ? "t.manager_group_id = ?" : "t.manager_user_id = ?";
-      const params: Array<string | number | null> = [
-        managerGroupId || input.managerUserId,
-        input.sinceIso,
-      ];
+      const scopeSql = managerScopeSql({
+        managerUserId: input.managerUserId,
+        managerGroupId,
+        tableAlias: "t",
+      });
+      const params: Array<string | number | null> = [...scopeSql.params, input.sinceIso];
       if (untilIso) params.push(untilIso);
       params.push(...types);
       const row = db
@@ -2749,7 +2764,7 @@ export function createWorkbenchFormalTaskStore() {
           `SELECT COUNT(*) AS count
              FROM task_events e
              JOIN tasks t ON t.task_id = e.task_id
-            WHERE ${scopeClause}
+            WHERE ${scopeSql.clause}
               AND e.occurred_at >= ?${untilClause}
               ${typeClause}`,
         )
