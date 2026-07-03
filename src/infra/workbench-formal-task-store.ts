@@ -1176,10 +1176,13 @@ export function createWorkbenchFormalTaskStore() {
       scope: WorkbenchManagerTaskScope,
     ): WorkbenchProjectRow | undefined {
       const resolvedScope = normalizeManagerTaskScope(scope);
-      const row = db
-        .prepare("SELECT * FROM projects WHERE project_id = ? LIMIT 1")
-        .get(projectId.trim()) as Record<string, unknown> | undefined;
-      if (!row || !projectAccessibleForScope(row, resolvedScope)) return undefined;
+      const row = resolvedScope.managerGroupId
+        ? db
+            .prepare("SELECT * FROM projects WHERE project_id = ? AND manager_group_id = ? LIMIT 1")
+            .get(projectId.trim(), resolvedScope.managerGroupId) as Record<string, unknown> | undefined
+        : db
+            .prepare("SELECT * FROM projects WHERE project_id = ? AND owner_user_id = ? LIMIT 1")
+            .get(projectId.trim(), resolvedScope.managerUserId) as Record<string, unknown> | undefined;
       return row ? mapProjectRow(row) : undefined;
     },
 

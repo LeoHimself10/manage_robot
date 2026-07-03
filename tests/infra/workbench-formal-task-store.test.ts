@@ -1472,6 +1472,66 @@ describe("workbench-formal-task-store projects", () => {
     ).toThrow(/Invalid or inaccessible project_id/);
   });
 
+  it("requires manager_group_id match when looking up projects for group scope", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const sameGroup = store.createProject({
+      ownerUserId: "mgr-a",
+      managerGroupId: "mgrgrp:mingsi",
+      name: "Same group project",
+    });
+    const sameOwnerDifferentGroup = store.createProject({
+      ownerUserId: "mgr-b",
+      managerGroupId: "mgrgrp:other",
+      name: "Same owner different group",
+    });
+    const sameOwnerUngrouped = store.createProject({
+      ownerUserId: "mgr-b",
+      name: "Same owner ungrouped",
+    });
+    const scope = { managerUserId: "mgr-b", managerGroupId: "mgrgrp:mingsi" };
+
+    expect(store.getProjectForManagerScope(sameGroup.projectId, scope)?.projectId).toBe(
+      sameGroup.projectId,
+    );
+    expect(store.getProjectForManagerScope(sameOwnerDifferentGroup.projectId, scope)).toBeUndefined();
+    expect(store.getProjectForManagerScope(sameOwnerUngrouped.projectId, scope)).toBeUndefined();
+  });
+
+  it("filters group unassigned tasks without leaking other group or personal tasks", () => {
+    const store = createWorkbenchFormalTaskStore();
+    store.publishFromSession({
+      planId: "plan-group-unassigned",
+      session: baseSession("plan-group-unassigned"),
+      managerUserId: "mgr-b",
+      managerGroupId: "mgrgrp:mingsi",
+      initiatorDepartment: "ops",
+      actorUserId: "mgr-b",
+    });
+    store.publishFromSession({
+      planId: "plan-other-group-unassigned",
+      session: baseSession("plan-other-group-unassigned"),
+      managerUserId: "mgr-c",
+      managerGroupId: "mgrgrp:other",
+      initiatorDepartment: "ops",
+      actorUserId: "mgr-c",
+    });
+    store.publishFromSession({
+      planId: "plan-personal-unassigned",
+      session: baseSession("plan-personal-unassigned"),
+      managerUserId: "mgr-b",
+      initiatorDepartment: "ops",
+      actorUserId: "mgr-b",
+    });
+
+    const rows = store.listManagerTasks(
+      { managerUserId: "mgr-b", managerGroupId: "mgrgrp:mingsi" },
+      { projectId: "__unassigned__" },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.planId).toBe("plan-group-unassigned");
+  });
+
   it("migrates existing personal tasks and projects into a manager group", () => {
     const store = createWorkbenchFormalTaskStore();
     const project = store.createProject({
@@ -1514,6 +1574,47 @@ describe("workbench-formal-task-store projects", () => {
     expect(
       store.listProjectsForManagerScope({ managerUserId: "manager-x", managerGroupId: "mgrgrp:mingsi" }),
     ).toHaveLength(1);
+  });
+
+  it("does not overwrite existing manager_group_id values during migration", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const existingGroupProject = store.createProject({
+      ownerUserId: "manager-1",
+      managerGroupId: "mgrgrp:existing",
+      name: "Existing group project",
+    });
+    store.publishFromSession({
+      planId: "plan-existing-group",
+      session: baseSession("plan-existing-group"),
+      managerUserId: "manager-1",
+      managerGroupId: "mgrgrp:existing",
+      initiatorDepartment: "ops",
+      actorUserId: "manager-1",
+      projectId: existingGroupProject.projectId,
+    });
+    const ungroupedProject = store.createProject({
+      ownerUserId: "manager-1",
+      name: "Ungrouped project",
+    });
+    store.publishFromSession({
+      planId: "plan-ungrouped",
+      session: baseSession("plan-ungrouped"),
+      managerUserId: "manager-1",
+      initiatorDepartment: "ops",
+      actorUserId: "manager-1",
+      projectId: ungroupedProject.projectId,
+    });
+
+    const result = store.migrateManagerObjectsToGroup({
+      managerUserId: "manager-1",
+      managerGroupId: "mgrgrp:mingsi",
+    });
+
+    expect(result).toEqual({ tasksUpdated: 1, projectsUpdated: 1 });
+    expect(store.countTasksForManagerGroup("mgrgrp:existing")).toBe(1);
+    expect(store.countProjectsForManagerGroup("mgrgrp:existing")).toBe(1);
+    expect(store.countTasksForManagerGroup("mgrgrp:mingsi")).toBe(1);
+    expect(store.countProjectsForManagerGroup("mgrgrp:mingsi")).toBe(1);
   });
 
   it("adds nullable manager group columns and indexes when opening legacy databases", () => {
