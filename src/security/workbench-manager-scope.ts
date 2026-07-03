@@ -36,12 +36,16 @@ export function resolveWorkbenchManagerScope(actorUserId: string): WorkbenchMana
 }
 
 export function canAccessManagerOwnedObject(object: ManagerOwnedObject, scope: WorkbenchManagerScope): boolean {
+  const objectManagerUserId = normalizeId(object.managerUserId);
+  const scopeManagerUserId = normalizeId(scope.managerUserId);
   const objectGroupId = normalizeOptionalId(object.managerGroupId);
   const scopeGroupId = normalizeOptionalId(scope.managerGroupId);
 
+  // Callers should pass a resolved scope, but missing owner ids must still fail closed.
+  if (!objectManagerUserId || !scopeManagerUserId) return false;
   if (objectGroupId && scopeGroupId) return objectGroupId === scopeGroupId;
   if (objectGroupId && !scopeGroupId) return false;
-  return normalizeId(object.managerUserId) === normalizeId(scope.managerUserId);
+  return objectManagerUserId === scopeManagerUserId;
 }
 
 export function managerScopeLabel(scope: WorkbenchManagerScope): string {
