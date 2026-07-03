@@ -1406,4 +1406,199 @@ describe("workbench-formal-task-store projects", () => {
     expect(unassigned).toHaveLength(1);
     expect(unassigned[0]?.planId).toBe("plan-b");
   });
+
+  it("publishes projects and tasks into a manager group scope", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const project = store.createProject({
+      ownerUserId: "mgr-a",
+      managerGroupId: "mgrgrp:mingsi",
+      name: "Mingsi launch",
+    });
+    const published = store.publishFromSession({
+      planId: "plan-group-a",
+      session: baseSession("plan-group-a"),
+      managerUserId: "mgr-b",
+      managerGroupId: "mgrgrp:mingsi",
+      initiatorDepartment: "ops",
+      actorUserId: "mgr-b",
+      projectId: project.projectId,
+    });
+
+    expect(project.managerGroupId).toBe("mgrgrp:mingsi");
+    expect(published.task.managerGroupId).toBe("mgrgrp:mingsi");
+    expect(published.task.projectId).toBe(project.projectId);
+    expect(store.countTasksForManagerGroup("mgrgrp:mingsi")).toBe(1);
+    expect(store.countProjectsForManagerGroup("mgrgrp:mingsi")).toBe(1);
+
+    const groupTasks = store.listManagerTasks({
+      managerUserId: "mgr-b",
+      managerGroupId: "mgrgrp:mingsi",
+    });
+    expect(groupTasks).toHaveLength(1);
+    expect(groupTasks[0]?.planId).toBe("plan-group-a");
+
+    const filtered = store.listManagerTasks(
+      { managerUserId: "mgr-b", managerGroupId: "mgrgrp:mingsi" },
+      { projectId: project.projectId },
+    );
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.projectId).toBe(project.projectId);
+
+    expect(
+      store.listManagerTasks({ managerUserId: "mgr-c", managerGroupId: "mgrgrp:other" }),
+    ).toHaveLength(0);
+    expect(
+      store.getProjectForManagerScope(project.projectId, {
+        managerUserId: "mgr-b",
+        managerGroupId: "mgrgrp:mingsi",
+      })?.projectId,
+    ).toBe(project.projectId);
+    expect(
+      store.getProjectForManagerScope(project.projectId, {
+        managerUserId: "mgr-c",
+        managerGroupId: "mgrgrp:other",
+      }),
+    ).toBeUndefined();
+    expect(() =>
+      store.publishFromSession({
+        planId: "plan-group-other",
+        session: baseSession("plan-group-other"),
+        managerUserId: "mgr-c",
+        managerGroupId: "mgrgrp:other",
+        initiatorDepartment: "ops",
+        actorUserId: "mgr-c",
+        projectId: project.projectId,
+      }),
+    ).toThrow(/Invalid or inaccessible project_id/);
+  });
+
+  it("migrates existing personal tasks and projects into a manager group", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const project = store.createProject({
+      ownerUserId: "manager-1",
+      name: "Legacy personal project",
+    });
+    store.publishFromSession({
+      planId: "plan-legacy-personal",
+      session: baseSession("plan-legacy-personal"),
+      managerUserId: "manager-1",
+      initiatorDepartment: "ops",
+      actorUserId: "manager-1",
+      projectId: project.projectId,
+    });
+    store.createProject({
+      ownerUserId: "manager-2",
+      name: "Other manager project",
+    });
+    store.publishFromSession({
+      planId: "plan-other-manager",
+      session: baseSession("plan-other-manager"),
+      managerUserId: "manager-2",
+      initiatorDepartment: "ops",
+      actorUserId: "manager-2",
+    });
+
+    const result = store.migrateManagerObjectsToGroup({
+      managerUserId: "manager-1",
+      managerGroupId: "mgrgrp:mingsi",
+    });
+
+    expect(result).toEqual({ tasksUpdated: 1, projectsUpdated: 1 });
+    expect(store.countTasksForManagerGroup("mgrgrp:mingsi")).toBe(1);
+    expect(store.countProjectsForManagerGroup("mgrgrp:mingsi")).toBe(1);
+    expect(store.listManagerTasks("manager-1")).toHaveLength(1);
+    expect(
+      store.listManagerTasks({ managerUserId: "manager-x", managerGroupId: "mgrgrp:mingsi" }),
+    ).toHaveLength(1);
+    expect(store.listProjectsForOwner("manager-1")).toHaveLength(1);
+    expect(
+      store.listProjectsForManagerScope({ managerUserId: "manager-x", managerGroupId: "mgrgrp:mingsi" }),
+    ).toHaveLength(1);
+  });
+
+  it("adds nullable manager group columns and indexes when opening legacy databases", () => {
+    const temp = mkdtempSync(join(tmpdir(), "formal-store-legacy-manager-group-"));
+    const legacyPath = join(temp, "legacy-manager-group.sqlite");
+    const raw = new DatabaseSync(legacyPath);
+    raw.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE tasks (
+        task_id TEXT PRIMARY KEY,
+        task_no TEXT UNIQUE,
+        plan_id TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL,
+        initiator_user_id TEXT NOT NULL,
+        initiator_department TEXT NOT NULL,
+        manager_user_id TEXT NOT NULL,
+        source_trace_id TEXT,
+        published_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        project_id TEXT
+      );
+      CREATE TABLE projects (
+        project_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        owner_user_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        aliases_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE subtasks (
+        subtask_id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        source_task_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        objective TEXT,
+        deliverables TEXT,
+        completion_criteria TEXT,
+        due_at TEXT,
+        feedback_frequency TEXT,
+        assignee_user_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        progress_note TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(task_id, source_task_key)
+      );
+      CREATE TABLE task_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        subtask_id TEXT,
+        event_type TEXT NOT NULL,
+        actor_user_id TEXT NOT NULL,
+        note TEXT,
+        payload_json TEXT,
+        occurred_at TEXT NOT NULL
+      );
+      CREATE TABLE permission_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor_user_id TEXT NOT NULL,
+        target_user_id TEXT NOT NULL,
+        before_value INTEGER NOT NULL,
+        after_value INTEGER NOT NULL,
+        occurred_at TEXT NOT NULL,
+        payload_json TEXT
+      );
+    `);
+    raw.close();
+
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", legacyPath);
+    createWorkbenchFormalTaskStore();
+
+    const db = new DatabaseSync(legacyPath);
+    const taskCols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
+    const projectCols = db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
+    const indexes = db.prepare("PRAGMA index_list(tasks)").all() as Array<{ name: string }>;
+    const projectIndexes = db.prepare("PRAGMA index_list(projects)").all() as Array<{ name: string }>;
+    expect(taskCols.some((c) => c.name === "manager_group_id")).toBe(true);
+    expect(projectCols.some((c) => c.name === "manager_group_id")).toBe(true);
+    expect(indexes.some((idx) => idx.name === "idx_tasks_manager_group")).toBe(true);
+    expect(projectIndexes.some((idx) => idx.name === "idx_projects_manager_group")).toBe(true);
+    db.close();
+  });
 });

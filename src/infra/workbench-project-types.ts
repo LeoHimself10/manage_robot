@@ -5,6 +5,7 @@ export interface WorkbenchProjectRow {
   name: string;
   description?: string;
   ownerUserId: string;
+  managerGroupId?: string;
   status: WorkbenchProjectStatus;
   aliases: string[];
   createdAt: string;

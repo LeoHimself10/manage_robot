@@ -44,6 +44,7 @@ export interface WorkbenchTaskRow {
   initiatorUserId: string;
   initiatorDepartment: string;
   managerUserId: string;
+  managerGroupId?: string;
   sourceTraceId?: string;
   publishedAt: string;
   createdAt: string;
@@ -53,6 +54,8 @@ export interface WorkbenchTaskRow {
   /** 会议入库批次（仅本场新建的父任务） */
   sourceMeetingBatchId?: string;
 }
+
+export type WorkbenchManagerTaskScope = string | { managerUserId: string; managerGroupId?: string };
 
 export interface WorkbenchSubtaskRow {
   subtaskId: string;
@@ -247,11 +250,20 @@ function ensureProjectsTable(db: DatabaseSync): void {
       owner_user_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
       aliases_json TEXT,
+      manager_group_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_user_id);
   `);
+}
+
+function ensureProjectsManagerGroupColumn(db: DatabaseSync): void {
+  const rows = db.prepare("PRAGMA table_info(projects)").all() as Array<{ name?: string }>;
+  if (!rows.some((r) => String(r.name ?? "") === "manager_group_id")) {
+    db.exec("ALTER TABLE projects ADD COLUMN manager_group_id TEXT");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_projects_manager_group ON projects(manager_group_id)");
 }
 
 function ensureTaskProjectIdColumn(db: DatabaseSync): void {
@@ -260,6 +272,14 @@ function ensureTaskProjectIdColumn(db: DatabaseSync): void {
     db.exec("ALTER TABLE tasks ADD COLUMN project_id TEXT");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id)");
+}
+
+function ensureTaskManagerGroupColumn(db: DatabaseSync): void {
+  const rows = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>;
+  if (!rows.some((r) => String(r.name ?? "") === "manager_group_id")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN manager_group_id TEXT");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_manager_group ON tasks(manager_group_id)");
 }
 
 function ensureAppendSubtaskIdempotencyTable(db: DatabaseSync): void {
@@ -336,6 +356,7 @@ function mapProjectRow(row: Record<string, unknown>): WorkbenchProjectRow {
     name: String(row.name ?? ""),
     description: asString(row.description),
     ownerUserId: String(row.owner_user_id ?? ""),
+    managerGroupId: asString(row.manager_group_id),
     status: (String(row.status ?? "active") === "archived" ? "archived" : "active") as WorkbenchProjectStatus,
     aliases: parseAliasesJson(row.aliases_json),
     createdAt: String(row.created_at ?? ""),
@@ -510,6 +531,7 @@ export function createWorkbenchFormalTaskStore() {
       initiator_user_id TEXT NOT NULL,
       initiator_department TEXT NOT NULL,
       manager_user_id TEXT NOT NULL,
+      manager_group_id TEXT,
       source_trace_id TEXT,
       published_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
@@ -622,7 +644,9 @@ export function createWorkbenchFormalTaskStore() {
   ensureSubtaskDueMetaColumns(db);
   ensureTaskDescriptionColumn(db);
   ensureProjectsTable(db);
+  ensureProjectsManagerGroupColumn(db);
   ensureTaskProjectIdColumn(db);
+  ensureTaskManagerGroupColumn(db);
   ensureSubtaskReminderStateColumns(db);
   ensureAppendSubtaskIdempotencyTable(db);
   ensureMeetingImportSchema(db);
@@ -640,15 +664,6 @@ export function createWorkbenchFormalTaskStore() {
   const qTaskById = db.prepare("SELECT * FROM tasks WHERE task_id = ?");
   const qTaskByNo = db.prepare("SELECT * FROM tasks WHERE task_no = ?");
   const qTaskSubtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ? ORDER BY subtask_id ASC");
-  const qManagerTasks = db.prepare(`
-    SELECT
-      t.*,
-      (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id) AS subtasks_count,
-      (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id AND s.status = 'BLOCKED') AS blocked_count
-    FROM tasks t
-    WHERE t.manager_user_id = ?
-    ORDER BY t.updated_at DESC
-  `);
   const qEmployeeSubtasks = db.prepare(
     "SELECT s.*, t.task_no, t.plan_id, t.title AS task_title, t.description AS task_description, t.manager_user_id, t.initiator_department FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.assignee_user_id = ? ORDER BY CASE WHEN s.status = 'REJECTED' THEN 1 ELSE 0 END ASC, s.updated_at DESC",
   );
@@ -709,6 +724,7 @@ export function createWorkbenchFormalTaskStore() {
       initiatorUserId: String(row.initiator_user_id ?? ""),
       initiatorDepartment: String(row.initiator_department ?? ""),
       managerUserId: String(row.manager_user_id ?? ""),
+      managerGroupId: asString(row.manager_group_id),
       sourceTraceId: asString(row.source_trace_id),
       publishedAt: String(row.published_at ?? ""),
       createdAt: String(row.created_at ?? ""),
@@ -825,6 +841,27 @@ export function createWorkbenchFormalTaskStore() {
     return asString(timeNode?.dueAt);
   }
 
+  function normalizeManagerTaskScope(scope: WorkbenchManagerTaskScope): {
+    managerUserId: string;
+    managerGroupId?: string;
+  } {
+    if (typeof scope === "string") {
+      return { managerUserId: scope.trim() };
+    }
+    return {
+      managerUserId: scope.managerUserId.trim(),
+      managerGroupId: asString(scope.managerGroupId),
+    };
+  }
+
+  function projectAccessibleForScope(project: Record<string, unknown>, scope: {
+    managerUserId: string;
+    managerGroupId?: string;
+  }): boolean {
+    if (String(project.owner_user_id ?? "").trim() === scope.managerUserId) return true;
+    return Boolean(scope.managerGroupId && asString(project.manager_group_id) === scope.managerGroupId);
+  }
+
   return {
     publishFromSession(input: {
       planId: string;
@@ -835,6 +872,7 @@ export function createWorkbenchFormalTaskStore() {
       actorName?: string;
       /** 大项目 id；非 portfolio 路径应省略，落库为 NULL */
       projectId?: string | null;
+      managerGroupId?: string | null;
     }): {
       task: WorkbenchTaskRow;
       subtasks: WorkbenchSubtaskRow[];
@@ -897,23 +935,27 @@ export function createWorkbenchFormalTaskStore() {
       const taskTitle = asString((input.session.latestDraft as Record<string, unknown> | undefined)?.title)
         || inferTitleFromSession(input.session);
       const taskDescription = extractTaskDescriptionFromLatestDraft(input.session.latestDraft);
+      const managerScope = {
+        managerUserId: input.managerUserId.trim(),
+        managerGroupId: asString(input.managerGroupId),
+      };
       const rawProjectId = String(input.projectId ?? "").trim();
       let resolvedProjectId: string | null = null;
       if (rawProjectId) {
         const proj = db
           .prepare(
-            "SELECT * FROM projects WHERE project_id = ? AND owner_user_id = ? AND status = 'active' LIMIT 1",
+            "SELECT * FROM projects WHERE project_id = ? AND status = 'active' LIMIT 1",
           )
-          .get(rawProjectId, input.managerUserId.trim()) as Record<string, unknown> | undefined;
-        if (!proj) {
+          .get(rawProjectId) as Record<string, unknown> | undefined;
+        if (!proj || !projectAccessibleForScope(proj, managerScope)) {
           throw new Error(`Invalid or inaccessible project_id: ${rawProjectId}`);
         }
         resolvedProjectId = rawProjectId;
       }
       runInTransaction(() => {
         db.prepare(
-          `INSERT INTO tasks(task_id, task_no, plan_id, title, description, status, initiator_user_id, initiator_department, manager_user_id, source_trace_id, published_at, created_at, updated_at, project_id)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO tasks(task_id, task_no, plan_id, title, description, status, initiator_user_id, initiator_department, manager_user_id, manager_group_id, source_trace_id, published_at, created_at, updated_at, project_id)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         ).run(
           taskId,
           taskNo,
@@ -924,6 +966,7 @@ export function createWorkbenchFormalTaskStore() {
           asString(input.session.senderStaffId) || input.managerUserId,
           input.initiatorDepartment || "未配置部门",
           input.managerUserId,
+          managerScope.managerGroupId ?? null,
           asString(input.session.lastTraceId) || null,
           publishedAt,
           publishedAt,
@@ -988,40 +1031,32 @@ export function createWorkbenchFormalTaskStore() {
     },
 
     listManagerTasks(
-      managerUserId: string,
+      scope: WorkbenchManagerTaskScope,
       filter?: { projectId?: string },
     ): Array<WorkbenchTaskRow & {
       subtasksCount: number;
       blockedCount: number;
     }> {
-      const mid = managerUserId.trim();
+      const resolvedScope = normalizeManagerTaskScope(scope);
       const pid = String(filter?.projectId ?? "").trim();
-      let rows: Array<Record<string, unknown>>;
+      const clauses = [resolvedScope.managerGroupId ? "t.manager_group_id = ?" : "t.manager_user_id = ?"];
+      const params: string[] = [resolvedScope.managerGroupId ?? resolvedScope.managerUserId];
       if (pid === UNASSIGNED_PROJECT_BUCKET) {
-        rows = db
-          .prepare(
-            `SELECT t.*,
-              (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id) AS subtasks_count,
-              (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id AND s.status = 'BLOCKED') AS blocked_count
-             FROM tasks t
-             WHERE t.manager_user_id = ? AND (t.project_id IS NULL OR t.project_id = '')
-             ORDER BY t.updated_at DESC`,
-          )
-          .all(mid) as Array<Record<string, unknown>>;
+        clauses.push("(t.project_id IS NULL OR t.project_id = '')");
       } else if (pid) {
-        rows = db
-          .prepare(
-            `SELECT t.*,
-              (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id) AS subtasks_count,
-              (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id AND s.status = 'BLOCKED') AS blocked_count
-             FROM tasks t
-             WHERE t.manager_user_id = ? AND t.project_id = ?
-             ORDER BY t.updated_at DESC`,
-          )
-          .all(mid, pid) as Array<Record<string, unknown>>;
-      } else {
-        rows = qManagerTasks.all(mid) as Array<Record<string, unknown>>;
+        clauses.push("t.project_id = ?");
+        params.push(pid);
       }
+      const rows = db
+        .prepare(
+          `SELECT t.*,
+            (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id) AS subtasks_count,
+            (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id AND s.status = 'BLOCKED') AS blocked_count
+           FROM tasks t
+           WHERE ${clauses.join(" AND ")}
+           ORDER BY t.updated_at DESC`,
+        )
+        .all(...params) as Array<Record<string, unknown>>;
       return rows.map((row) => ({
         ...mapTaskRow(row),
         subtasksCount: Number(row.subtasks_count ?? 0),
@@ -1034,6 +1069,7 @@ export function createWorkbenchFormalTaskStore() {
       name: string;
       description?: string;
       aliases?: string[];
+      managerGroupId?: string | null;
     }): WorkbenchProjectRow {
       const name = input.name.trim();
       if (!name) throw new Error("project name is required");
@@ -1042,9 +1078,10 @@ export function createWorkbenchFormalTaskStore() {
       const now = nowIso();
       const projectId = `proj:${randomUUID()}`;
       const aliases = normalizeRichStringList(input.aliases ?? []).slice(0, 10);
+      const managerGroupId = asString(input.managerGroupId);
       db.prepare(
-        `INSERT INTO projects(project_id, name, description, owner_user_id, status, aliases_json, created_at, updated_at)
-         VALUES(?,?,?,?,?,?,?,?)`,
+        `INSERT INTO projects(project_id, name, description, owner_user_id, status, aliases_json, manager_group_id, created_at, updated_at)
+         VALUES(?,?,?,?,?,?,?,?,?)`,
       ).run(
         projectId,
         name,
@@ -1052,6 +1089,7 @@ export function createWorkbenchFormalTaskStore() {
         ownerUserId,
         "active",
         aliases.length > 0 ? JSON.stringify(aliases) : null,
+        managerGroupId ?? null,
         now,
         now,
       );
@@ -1115,6 +1153,69 @@ export function createWorkbenchFormalTaskStore() {
         )
         .all(ownerUserId.trim()) as Array<Record<string, unknown>>;
       return rows.map((row) => mapProjectRow(row));
+    },
+
+    listProjectsForManagerScope(scope: WorkbenchManagerTaskScope): WorkbenchProjectRow[] {
+      const resolvedScope = normalizeManagerTaskScope(scope);
+      const rows = resolvedScope.managerGroupId
+        ? db
+            .prepare(
+              "SELECT * FROM projects WHERE manager_group_id = ? ORDER BY CASE WHEN status = 'archived' THEN 1 ELSE 0 END, updated_at DESC",
+            )
+            .all(resolvedScope.managerGroupId) as Array<Record<string, unknown>>
+        : db
+            .prepare(
+              "SELECT * FROM projects WHERE owner_user_id = ? ORDER BY CASE WHEN status = 'archived' THEN 1 ELSE 0 END, updated_at DESC",
+            )
+            .all(resolvedScope.managerUserId) as Array<Record<string, unknown>>;
+      return rows.map((row) => mapProjectRow(row));
+    },
+
+    getProjectForManagerScope(
+      projectId: string,
+      scope: WorkbenchManagerTaskScope,
+    ): WorkbenchProjectRow | undefined {
+      const resolvedScope = normalizeManagerTaskScope(scope);
+      const row = db
+        .prepare("SELECT * FROM projects WHERE project_id = ? LIMIT 1")
+        .get(projectId.trim()) as Record<string, unknown> | undefined;
+      if (!row || !projectAccessibleForScope(row, resolvedScope)) return undefined;
+      return row ? mapProjectRow(row) : undefined;
+    },
+
+    migrateManagerObjectsToGroup(input: {
+      managerUserId: string;
+      managerGroupId: string;
+    }): { tasksUpdated: number; projectsUpdated: number } {
+      const managerUserId = input.managerUserId.trim();
+      const managerGroupId = input.managerGroupId.trim();
+      if (!managerUserId) throw new Error("managerUserId is required");
+      if (!managerGroupId) throw new Error("managerGroupId is required");
+      const tasksUpdated = db
+        .prepare(
+          "UPDATE tasks SET manager_group_id = ?, updated_at = ? WHERE manager_user_id = ? AND (manager_group_id IS NULL OR manager_group_id = '')",
+        )
+        .run(managerGroupId, nowIso(), managerUserId).changes;
+      const projectsUpdated = db
+        .prepare(
+          "UPDATE projects SET manager_group_id = ?, updated_at = ? WHERE owner_user_id = ? AND (manager_group_id IS NULL OR manager_group_id = '')",
+        )
+        .run(managerGroupId, nowIso(), managerUserId).changes;
+      return { tasksUpdated: Number(tasksUpdated), projectsUpdated: Number(projectsUpdated) };
+    },
+
+    countTasksForManagerGroup(managerGroupId: string): number {
+      const row = db
+        .prepare("SELECT COUNT(*) AS count FROM tasks WHERE manager_group_id = ?")
+        .get(managerGroupId.trim()) as { count?: number } | undefined;
+      return Number(row?.count ?? 0);
+    },
+
+    countProjectsForManagerGroup(managerGroupId: string): number {
+      const row = db
+        .prepare("SELECT COUNT(*) AS count FROM projects WHERE manager_group_id = ?")
+        .get(managerGroupId.trim()) as { count?: number } | undefined;
+      return Number(row?.count ?? 0);
     },
 
     setTaskProject(input: {
