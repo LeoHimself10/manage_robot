@@ -1886,6 +1886,69 @@ describe("assignment-workbench HTTP handler", () => {
     expect(listed.groups?.[0]?.projectCount).toBe(0);
   });
 
+  it("manager group members can list and open each other's group tasks", async () => {
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "1");
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_FILE", join(tmpdir(), `test-manager-groups-${Date.now()}.json`));
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "");
+    const { createWorkbenchManagerGroup, addWorkbenchManagerGroupMember } = await import(
+      "../../src/security/workbench-manager-groups"
+    );
+    const group = createWorkbenchManagerGroup({ name: "明思项目主管组" });
+    addWorkbenchManagerGroupMember(group.groupId, "mgr-a");
+    addWorkbenchManagerGroupMember(group.groupId, "mgr-b");
+    await seedPublishedTask({ planId: "plan-group-visible", managerUserId: "mgr-a", assigneeUserId: "emp-a" });
+    createWorkbenchFormalTaskStore().migrateManagerObjectsToGroup({
+      managerUserId: "mgr-a",
+      managerGroupId: group.groupId,
+    });
+    const cookie = await loginCookie("mgr-b", "manager");
+
+    const listReq = stubReq({ url: "/api/workbench/manager/tasks", method: "GET", headers: { cookie } });
+    const listRes = stubRes();
+    expect(handleAssignmentHttp(listReq, listRes.res)).toBe(true);
+    const listed = JSON.parse(listRes.captured().body) as { tasks?: Array<{ planId?: string }> };
+    expect(listed.tasks?.some((t) => t.planId === "plan-group-visible")).toBe(true);
+
+    const taskNo = createWorkbenchFormalTaskStore().getTaskDetail("plan-group-visible")?.task.taskNo ?? "";
+    const detailReq = stubReq({
+      url: `/api/workbench/tasks/detail?taskNo=${encodeURIComponent(taskNo)}`,
+      method: "GET",
+      headers: { cookie },
+    });
+    const detailRes = stubRes();
+    expect(handleAssignmentHttp(detailReq, detailRes.res)).toBe(true);
+    expect(detailRes.captured().statusCode).toBe(200);
+  });
+
+  it("different manager groups cannot open each other's tasks", async () => {
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "1");
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_FILE", join(tmpdir(), `test-manager-groups-${Date.now()}.json`));
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "");
+    const { createWorkbenchManagerGroup, addWorkbenchManagerGroupMember } = await import(
+      "../../src/security/workbench-manager-groups"
+    );
+    const a = createWorkbenchManagerGroup({ name: "明思项目主管组" });
+    const b = createWorkbenchManagerGroup({ name: "商务部主管组" });
+    addWorkbenchManagerGroupMember(a.groupId, "mgr-a");
+    addWorkbenchManagerGroupMember(b.groupId, "mgr-b");
+    await seedPublishedTask({ planId: "plan-group-private", managerUserId: "mgr-a", assigneeUserId: "emp-a" });
+    createWorkbenchFormalTaskStore().migrateManagerObjectsToGroup({
+      managerUserId: "mgr-a",
+      managerGroupId: a.groupId,
+    });
+    const cookie = await loginCookie("mgr-b", "manager");
+
+    const taskNo = createWorkbenchFormalTaskStore().getTaskDetail("plan-group-private")?.task.taskNo ?? "";
+    const detailReq = stubReq({
+      url: `/api/workbench/tasks/detail?taskNo=${encodeURIComponent(taskNo)}`,
+      method: "GET",
+      headers: { cookie },
+    });
+    const detailRes = stubRes();
+    expect(handleAssignmentHttp(detailReq, detailRes.res)).toBe(true);
+    expect(detailRes.captured().statusCode).toBe(403);
+  });
+
   it("employee can update profile via api without touching contacts", async () => {
     seedContact("emp-profile", "研发部", "Engineer");
     const loginReq = stubReq({
@@ -2354,6 +2417,64 @@ describe("assignment-workbench HTTP handler", () => {
       };
       expect(listed.ok).toBe(true);
       expect(listed.cards?.some((c) => c.name === "OCT 上市")).toBe(true);
+    });
+
+    it("manager group portfolio members can share projects and assign group tasks", async () => {
+      vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "1");
+      vi.stubEnv("WORKBENCH_MANAGER_GROUPS_FILE", join(tmpdir(), `test-manager-groups-${Date.now()}.json`));
+      vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "");
+      vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "");
+      const { createWorkbenchManagerGroup, addWorkbenchManagerGroupMember } = await import(
+        "../../src/security/workbench-manager-groups"
+      );
+      const group = createWorkbenchManagerGroup({ name: "明思项目主管组", portfolioEnabled: true });
+      addWorkbenchManagerGroupMember(group.groupId, "mgr-a");
+      addWorkbenchManagerGroupMember(group.groupId, "mgr-b");
+      const cookieA = await loginCookie("mgr-a");
+      const createReq = stubReq({
+        url: "/api/workbench/manager/projects",
+        method: "POST",
+        headers: { cookie: cookieA, "content-type": "application/json" },
+        body: JSON.stringify({ name: "组内共享项目", description: "项目组共享" }),
+      });
+      const createRes = stubRes();
+      handleAssignmentHttp(createReq, createRes.res);
+      await flushAsync();
+      expect(createRes.captured().statusCode).toBe(200);
+      const created = JSON.parse(createRes.captured().body) as { project?: { projectId?: string } };
+      const projectId = created.project?.projectId ?? "";
+
+      await seedPublishedTask({
+        planId: "plan-group-project",
+        managerUserId: "mgr-a",
+        assigneeUserId: "emp-project-group",
+      });
+      const store = createWorkbenchFormalTaskStore();
+      store.migrateManagerObjectsToGroup({ managerUserId: "mgr-a", managerGroupId: group.groupId });
+      const taskNo = store.getTaskDetail("plan-group-project")?.task.taskNo ?? "";
+      const cookieB = await loginCookie("mgr-b");
+      const listReq = stubReq({
+        url: "/api/workbench/manager/projects",
+        method: "GET",
+        headers: { cookie: cookieB },
+      });
+      const listRes = stubRes();
+      handleAssignmentHttp(listReq, listRes.res);
+      expect(listRes.captured().statusCode).toBe(200);
+      const listed = JSON.parse(listRes.captured().body) as { cards?: Array<{ projectId?: string }> };
+      expect(listed.cards?.some((card) => card.projectId === projectId)).toBe(true);
+
+      const assignReq = stubReq({
+        url: "/api/workbench/manager/tasks/" + encodeURIComponent(taskNo) + "/project",
+        method: "POST",
+        headers: { cookie: cookieB, "content-type": "application/json" },
+        body: JSON.stringify({ projectId }),
+      });
+      const assignRes = stubRes();
+      handleAssignmentHttp(assignReq, assignRes.res);
+      await flushAsync();
+      expect(assignRes.captured().statusCode).toBe(200);
+      expect(store.getTaskDetail("plan-group-project")?.task.projectId).toBe(projectId);
     });
 
     it("POST /api/workbench/manager/tasks/{taskNo}/project assigns project", async () => {

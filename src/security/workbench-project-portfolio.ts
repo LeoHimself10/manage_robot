@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolveWorkbenchDynamicPortfolioManagersPath } from "./workbench-portfolio-dynamic-path";
+import { listWorkbenchManagerGroups } from "./workbench-manager-groups";
 
 /**
  * Workbench project portfolio view (大项目).
@@ -44,6 +45,10 @@ export function listWorkbenchProjectPortfolioUserIds(): Set<string> {
     } catch {
       // ignore malformed dynamic list
     }
+  }
+  for (const group of listWorkbenchManagerGroups()) {
+    if (group.status !== "active" || !group.portfolioEnabled) continue;
+    for (const id of group.memberUserIds) allow.add(id);
   }
   return allow;
 }

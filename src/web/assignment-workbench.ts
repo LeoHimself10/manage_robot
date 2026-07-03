@@ -15,6 +15,7 @@ import {
 } from "../infra/plan-session-store";
 import {
   createWorkbenchFormalTaskStore,
+  type WorkbenchManagerTaskScope,
   type SubtaskOpenDeclineKind,
   type WorkbenchTaskStatus,
 } from "../infra/workbench-formal-task-store";
@@ -103,6 +104,11 @@ import {
 } from "../security/workbench-capabilities";
 import { isWorkbenchProjectPortfolioEnabled } from "../security/workbench-project-portfolio";
 import { resolveWorkbenchRole, type WorkbenchRole } from "../security/workbench-role-resolver";
+import {
+  canAccessManagerOwnedObject,
+  resolveWorkbenchManagerScope,
+  type WorkbenchManagerScope,
+} from "../security/workbench-manager-scope";
 import { verifyAssignmentEntry } from "../security/web-entry-token";
 import { parseRosterFile } from "../agent/assignment/roster-parser";
 import { readMultipartSingleFile } from "./multipart-single-file";
@@ -398,6 +404,31 @@ function mapManagerGroupForAdminApi(
       name: withPeopleDirectoryStore((people) => people.getContact(userId)?.name?.trim() ?? ""),
     })),
   };
+}
+
+function resolveSessionManagerScope(session: { userId: string }): WorkbenchManagerScope {
+  return resolveWorkbenchManagerScope(session.userId);
+}
+
+function managerTaskScopeForSession(session: { userId: string }): WorkbenchManagerTaskScope {
+  const scope = resolveSessionManagerScope(session);
+  return { managerUserId: scope.managerUserId, managerGroupId: scope.managerGroupId };
+}
+
+function canSessionManageTask(
+  session: { role: WorkbenchRole; userId: string },
+  task: { managerUserId: string; managerGroupId?: string },
+): boolean {
+  if (session.role === "admin") return true;
+  if (session.role !== "manager") return false;
+  return canAccessManagerOwnedObject(task, resolveSessionManagerScope(session));
+}
+
+function ownerManagerForTaskMutation(
+  session: { role: WorkbenchRole; userId: string },
+  task: { managerUserId: string; managerGroupId?: string },
+): string {
+  return session.role === "admin" ? task.managerUserId : task.managerUserId || session.userId;
 }
 
 export function __setDingTalkAuthClientForTest(client?: DingTalkAuthClient): void {
@@ -3825,7 +3856,7 @@ export function handleAssignmentHttp(
       ? String(url.searchParams.get("projectId") ?? "").trim()
       : "";
     const tasks = enrichManagerTasksForApi(
-      session.userId,
+      managerTaskScopeForSession(session),
       projectId ? { projectId } : undefined,
     );
     writeJson(res, 200, { ok: true, tasks });
@@ -4370,7 +4401,7 @@ export function handleAssignmentHttp(
         }
         const body = await readJsonBody(req);
         const existing = getFormalTaskStore()
-          .listManagerTasks(session.userId)
+          .listManagerTasks(managerTaskScopeForSession(session))
           .filter((t) => t.status !== "DONE" && t.status !== "STOPPED")
           .map((t) => ({ planId: t.planId, title: t.title, taskNo: t.taskNo }));
         const result = await handleTaskIntakePreview({
@@ -4428,7 +4459,7 @@ export function handleAssignmentHttp(
         }
         const body = await readJsonBody(req);
         const existing = getFormalTaskStore()
-          .listManagerTasks(session.userId)
+          .listManagerTasks(managerTaskScopeForSession(session))
           .filter((t) => t.status !== "DONE" && t.status !== "STOPPED")
           .map((t) => ({ planId: t.planId, title: t.title, taskNo: t.taskNo }));
         const result = await handleTaskIntakeMeetingPreview({
@@ -4546,7 +4577,7 @@ export function handleAssignmentHttp(
     const session = requireSession(req, res, "manager");
     if (!session) return true;
     if (!requirePortfolioManager(session, res)) return true;
-    const payload = buildManagerProjectsListResponse(session.userId);
+    const payload = buildManagerProjectsListResponse(managerTaskScopeForSession(session));
     writeJson(res, 200, { ok: true, ...payload });
     return true;
   }
@@ -4559,7 +4590,7 @@ export function handleAssignmentHttp(
     if (!session) return true;
     if (!requirePortfolioManager(session, res)) return true;
     const projectId = decodeURIComponent(managerProjectDetailMatch[1] ?? "");
-    const detail = buildManagerProjectDetailResponse(session.userId, projectId);
+    const detail = buildManagerProjectDetailResponse(managerTaskScopeForSession(session), projectId);
     if (!detail) {
       writeJson(res, 404, { ok: false, error: "project_not_found" });
       return true;
@@ -4581,8 +4612,10 @@ export function handleAssignmentHttp(
           return;
         }
         const store = getFormalTaskStore();
+        const scope = managerTaskScopeForSession(session);
         const project = store.createProject({
           ownerUserId: session.userId,
+          managerGroupId: typeof scope === "string" ? undefined : scope.managerGroupId,
           name,
           description: String(body.description ?? "").trim() || undefined,
           aliases: Array.isArray(body.aliases)
@@ -4609,9 +4642,11 @@ export function handleAssignmentHttp(
         const projectId = decodeURIComponent(managerProjectDetailMatch[1] ?? "");
         const body = await readJsonBody(req);
         const store = getFormalTaskStore();
+        const scope = managerTaskScopeForSession(session);
         const project = store.updateProject({
           projectId,
           ownerUserId: session.userId,
+          managerGroupId: typeof scope === "string" ? undefined : scope.managerGroupId,
           name: body.name !== undefined ? String(body.name).trim() : undefined,
           description:
             body.description !== undefined ? String(body.description).trim() : undefined,
@@ -4650,9 +4685,20 @@ export function handleAssignmentHttp(
             ? null
             : String(rawPid).trim() || null;
         const store = getFormalTaskStore();
+        const scope = managerTaskScopeForSession(session);
+        const detail = store.getTaskDetail(taskNo);
+        if (!detail) {
+          writeJson(res, 404, { ok: false, error: "task not found" });
+          return;
+        }
+        if (!canSessionManageTask(session, detail.task)) {
+          writeJson(res, 403, { ok: false, error: "Task is outside current manager scope" });
+          return;
+        }
         const task = store.setTaskProject({
           taskNo,
-          managerUserId: session.userId,
+          managerUserId: typeof scope === "string" ? scope : scope.managerUserId,
+          managerGroupId: typeof scope === "string" ? undefined : scope.managerGroupId,
           projectId,
         });
         writeJson(res, 200, { ok: true, task });
@@ -4677,10 +4723,11 @@ export function handleAssignmentHttp(
           ?? findMainThreadSession(session.userId);
         const pid = String(body.projectId ?? "").trim();
         const store = getFormalTaskStore();
+        const scope = managerTaskScopeForSession(session);
         if (!pid) {
           target.activeProjectId = undefined;
         } else {
-          const proj = store.getProject(pid, session.userId);
+          const proj = store.getProjectForManagerScope(pid, scope);
           if (!proj || proj.status !== "active") {
             writeJson(res, 400, { ok: false, error: "invalid_project" });
             return;
@@ -4692,7 +4739,7 @@ export function handleAssignmentHttp(
           ok: true,
           projectId: target.activeProjectId ?? null,
           projectName: target.activeProjectId
-            ? store.getProject(target.activeProjectId, session.userId)?.name
+            ? store.getProjectForManagerScope(target.activeProjectId, scope)?.name
             : null,
         });
       } catch (err) {
@@ -4800,7 +4847,7 @@ export function handleAssignmentHttp(
       writeJson(res, 404, { ok: false, error: "Task not found" });
       return true;
     }
-    if (session.role === "manager" && detail.task.managerUserId !== session.userId) {
+    if (session.role === "manager" && !canSessionManageTask(session, detail.task)) {
       writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
       return true;
     }
@@ -5363,14 +5410,12 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "Task not found for planId" });
           return;
         }
-        let managerUserIdForReassign = session.userId;
+        let managerUserIdForReassign = ownerManagerForTaskMutation(session, detailForAuth.task);
         if (session.role === "manager") {
-          if (detailForAuth.task.managerUserId !== session.userId) {
+          if (!canSessionManageTask(session, detailForAuth.task)) {
             writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
             return;
           }
-        } else {
-          managerUserIdForReassign = detailForAuth.task.managerUserId;
         }
         const { task: updated } = executeReassignWithSideEffects(
           {
@@ -5463,14 +5508,12 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "Task not found for planId" });
           return;
         }
-        let managerUserId = session.userId;
+        let managerUserId = ownerManagerForTaskMutation(session, detail.task);
         if (session.role === "manager") {
-          if (detail.task.managerUserId !== session.userId) {
+          if (!canSessionManageTask(session, detail.task)) {
             writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
             return;
           }
-        } else {
-          managerUserId = detail.task.managerUserId;
         }
         const targetSid =
           subtaskIdRaw
@@ -5552,14 +5595,12 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "Task not found for planId" });
           return;
         }
-        let managerUserId = session.userId;
+        let managerUserId = ownerManagerForTaskMutation(session, detail.task);
         if (session.role === "manager") {
-          if (detail.task.managerUserId !== session.userId) {
+          if (!canSessionManageTask(session, detail.task)) {
             writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
             return;
           }
-        } else {
-          managerUserId = detail.task.managerUserId;
         }
         const targetSid = subtaskIdRaw || detail.subtasks[0]?.subtaskId || "";
         if (!targetSid) {
@@ -5638,12 +5679,11 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "Subtask not found" });
           return;
         }
-        if (session.role === "manager" && pair.task.managerUserId !== session.userId) {
+        if (session.role === "manager" && !canSessionManageTask(session, pair.task)) {
           writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
           return;
         }
-        const actorUserId =
-          session.role === "admin" ? pair.task.managerUserId : session.userId;
+        const actorUserId = ownerManagerForTaskMutation(session, pair.task);
         const peopleStore = createPeopleDirectoryStore();
         try {
           const result = await sendSubtaskReminder(
@@ -5720,14 +5760,12 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "Task not found for planId" });
           return;
         }
-        let managerUserId = session.userId;
+        let managerUserId = ownerManagerForTaskMutation(session, detailForAuth.task);
         if (session.role === "manager") {
-          if (detailForAuth.task.managerUserId !== session.userId) {
+          if (!canSessionManageTask(session, detailForAuth.task)) {
             writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
             return;
           }
-        } else {
-          managerUserId = detailForAuth.task.managerUserId;
         }
         const result = store.stopTask({
           planId,
@@ -5847,14 +5885,12 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "Task not found for planId" });
           return;
         }
-        let managerUserId = session.userId;
+        let managerUserId = ownerManagerForTaskMutation(session, detailForAuth.task);
         if (session.role === "manager") {
-          if (detailForAuth.task.managerUserId !== session.userId) {
+          if (!canSessionManageTask(session, detailForAuth.task)) {
             writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
             return;
           }
-        } else {
-          managerUserId = detailForAuth.task.managerUserId;
         }
         const dueAtRaw = String(body.dueAt ?? "").trim();
         const completionCriteria = String(body.completionCriteria ?? "").trim();
@@ -5983,10 +6019,8 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "Subtask not found" });
           return;
         }
-        const managerUserId = session.role === "manager"
-          ? session.userId
-          : detail.task.managerUserId;
-        if (session.role === "manager" && detail.task.managerUserId !== session.userId) {
+        const managerUserId = ownerManagerForTaskMutation(session, detail.task);
+        if (session.role === "manager" && !canSessionManageTask(session, detail.task)) {
           writeJson(res, 403, { ok: false, error: "Subtask does not belong to current manager" });
           return;
         }
@@ -6073,14 +6107,12 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "Task not found for planId" });
           return;
         }
-        let managerUserId = session.userId;
+        let managerUserId = ownerManagerForTaskMutation(session, detailForAuth.task);
         if (session.role === "manager") {
-          if (detailForAuth.task.managerUserId !== session.userId) {
+          if (!canSessionManageTask(session, detailForAuth.task)) {
             writeJson(res, 403, { ok: false, error: "Task does not belong to current manager" });
             return;
           }
-        } else {
-          managerUserId = detailForAuth.task.managerUserId;
         }
         const result = store.stopSubtask({
           planId,
@@ -6621,8 +6653,9 @@ export function handleAssignmentHttp(
     const resolvedPid = activePid || draftPid;
     let activeProjectName: string | undefined;
     if (resolvedPid) {
+      const scope = managerTaskScopeForSession(session);
       activeProjectName = getFormalTaskStore()
-        .getProject(resolvedPid, session.userId)
+        .getProjectForManagerScope(resolvedPid, scope)
         ?.name;
     }
     writeJson(res, 200, {

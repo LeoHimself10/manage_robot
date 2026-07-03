@@ -1,4 +1,7 @@
-import { createWorkbenchFormalTaskStore } from "../infra/workbench-formal-task-store";
+import {
+  createWorkbenchFormalTaskStore,
+  type WorkbenchManagerTaskScope,
+} from "../infra/workbench-formal-task-store";
 import {
   buildProjectRollupCards,
   type ProjectRollupCard,
@@ -81,24 +84,25 @@ function enrichOneManagerTask(
 }
 
 export function enrichManagerTasksForApi(
-  managerUserId: string,
+  managerScope: WorkbenchManagerTaskScope,
   filter?: { projectId?: string },
 ): ManagerTaskApiRow[] {
   const store = getFormalTaskStore();
-  const projects = store.listProjectsForOwner(managerUserId);
+  const managerUserId = typeof managerScope === "string" ? managerScope : managerScope.managerUserId;
+  const projects = store.listProjectsForManagerScope(managerScope);
   const projectNameById = new Map(projects.map((p) => [p.projectId, p.name]));
   const pid = String(filter?.projectId ?? "").trim();
-  const tasks = store.listManagerTasks(managerUserId, pid ? { projectId: pid } : undefined);
+  const tasks = store.listManagerTasks(managerScope, pid ? { projectId: pid } : undefined);
   return tasks.map((t) => enrichOneManagerTask(managerUserId, t, projectNameById));
 }
 
-export function buildManagerProjectsListResponse(managerUserId: string): {
+export function buildManagerProjectsListResponse(managerScope: WorkbenchManagerTaskScope): {
   projects: WorkbenchProjectRow[];
   cards: ProjectRollupCard[];
 } {
   const store = getFormalTaskStore();
-  const projects = store.listProjectsForOwner(managerUserId);
-  const tasks = store.listManagerTasks(managerUserId);
+  const projects = store.listProjectsForManagerScope(managerScope);
+  const tasks = store.listManagerTasks(managerScope);
   const cards = buildProjectRollupCards({
     projects,
     tasks,
@@ -117,13 +121,14 @@ export function buildManagerProjectsListResponse(managerUserId: string): {
 }
 
 export function buildManagerProjectDetailResponse(
-  managerUserId: string,
+  managerScope: WorkbenchManagerTaskScope,
   projectId: string,
 ): { project: WorkbenchProjectRow; tasks: ManagerTaskApiRow[] } | null {
   const store = getFormalTaskStore();
+  const managerUserId = typeof managerScope === "string" ? managerScope : managerScope.managerUserId;
   const pid = projectId.trim();
   if (pid === UNASSIGNED_PROJECT_BUCKET) {
-    const tasks = enrichManagerTasksForApi(managerUserId, { projectId: UNASSIGNED_PROJECT_BUCKET });
+    const tasks = enrichManagerTasksForApi(managerScope, { projectId: UNASSIGNED_PROJECT_BUCKET });
     return {
       project: {
         projectId: UNASSIGNED_PROJECT_BUCKET,
@@ -137,8 +142,8 @@ export function buildManagerProjectDetailResponse(
       tasks,
     };
   }
-  const project = store.getProject(pid, managerUserId);
+  const project = store.getProjectForManagerScope(pid, managerScope);
   if (!project) return null;
-  const tasks = enrichManagerTasksForApi(managerUserId, { projectId: pid });
+  const tasks = enrichManagerTasksForApi(managerScope, { projectId: pid });
   return { project, tasks };
 }

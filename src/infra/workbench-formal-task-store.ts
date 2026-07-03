@@ -862,6 +862,16 @@ export function createWorkbenchFormalTaskStore() {
     return Boolean(scope.managerGroupId && asString(project.manager_group_id) === scope.managerGroupId);
   }
 
+  function managerOwnedRowAccessible(row: Record<string, unknown>, scope: {
+    managerUserId: string;
+    managerGroupId?: string;
+  }): boolean {
+    const rowGroupId = asString(row.manager_group_id);
+    if (scope.managerGroupId && rowGroupId) return rowGroupId === scope.managerGroupId;
+    if (rowGroupId && !scope.managerGroupId) return false;
+    return String(row.manager_user_id ?? row.owner_user_id ?? "").trim() === scope.managerUserId;
+  }
+
   return {
     publishFromSession(input: {
       planId: string;
@@ -1103,6 +1113,7 @@ export function createWorkbenchFormalTaskStore() {
     updateProject(input: {
       projectId: string;
       ownerUserId: string;
+      managerGroupId?: string | null;
       name?: string;
       description?: string;
       status?: WorkbenchProjectStatus;
@@ -1110,10 +1121,16 @@ export function createWorkbenchFormalTaskStore() {
     }): WorkbenchProjectRow {
       const projectId = input.projectId.trim();
       const ownerUserId = input.ownerUserId.trim();
+      const managerGroupId = asString(input.managerGroupId);
       const existing = db
-        .prepare("SELECT * FROM projects WHERE project_id = ? AND owner_user_id = ? LIMIT 1")
-        .get(projectId, ownerUserId) as Record<string, unknown> | undefined;
-      if (!existing) throw new Error("project not found");
+        .prepare("SELECT * FROM projects WHERE project_id = ? LIMIT 1")
+        .get(projectId) as Record<string, unknown> | undefined;
+      if (
+        !existing
+        || !projectAccessibleForScope(existing, { managerUserId: ownerUserId, managerGroupId })
+      ) {
+        throw new Error("project not found");
+      }
       const now = nowIso();
       const name = input.name !== undefined ? input.name.trim() : String(existing.name ?? "");
       if (!name) throw new Error("project name is required");
@@ -1224,24 +1241,28 @@ export function createWorkbenchFormalTaskStore() {
     setTaskProject(input: {
       taskNo: string;
       managerUserId: string;
+      managerGroupId?: string | null;
       projectId: string | null;
     }): WorkbenchTaskRow {
       const taskNo = input.taskNo.trim();
       const managerUserId = input.managerUserId.trim();
+      const managerGroupId = asString(input.managerGroupId);
       const taskRow = qTaskByNo.get(taskNo) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("task not found");
-      if (String(taskRow.manager_user_id ?? "").trim() !== managerUserId) {
+      if (
+        !managerOwnedRowAccessible(taskRow, { managerUserId, managerGroupId })
+      ) {
         throw new Error("task not managed by actor");
       }
       let resolved: string | null = null;
       const pid = input.projectId === null ? "" : String(input.projectId ?? "").trim();
       if (pid && pid !== UNASSIGNED_PROJECT_BUCKET) {
         const proj = db
-          .prepare(
-            "SELECT project_id FROM projects WHERE project_id = ? AND owner_user_id = ? AND status = 'active' LIMIT 1",
-          )
-          .get(pid, managerUserId) as Record<string, unknown> | undefined;
-        if (!proj) throw new Error("Invalid or inaccessible project_id");
+          .prepare("SELECT * FROM projects WHERE project_id = ? AND status = 'active' LIMIT 1")
+          .get(pid) as Record<string, unknown> | undefined;
+        if (!proj || !projectAccessibleForScope(proj, { managerUserId, managerGroupId })) {
+          throw new Error("Invalid or inaccessible project_id");
+        }
         resolved = pid;
       }
       const now = nowIso();
