@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -91,5 +91,25 @@ describe("workbench manager groups", () => {
     const raw = JSON.parse(readFileSync(file, "utf8")) as { groups: unknown[] };
     expect(raw.groups).toHaveLength(1);
     expect(listWorkbenchManagerGroups()[0].memberUserIds).toEqual(["a", "b"]);
+  });
+
+  it("does not activate inactive or invalid-status persisted group members", () => {
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "1");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        groups: [
+          { groupId: "mgrgrp:active", name: "Active", status: "active", memberUserIds: ["active-mgr"] },
+          { groupId: "mgrgrp:inactive", name: "Inactive", status: "inactive", memberUserIds: ["inactive-mgr"] },
+          { groupId: "mgrgrp:invalid", name: "Invalid", status: "paused", memberUserIds: ["invalid-mgr"] },
+          { groupId: "mgrgrp:legacy", name: "Legacy", memberUserIds: ["legacy-mgr"] },
+        ],
+      }),
+      "utf8",
+    );
+
+    expect(listWorkbenchManagerGroupMemberIds()).toEqual(new Set(["active-mgr", "legacy-mgr"]));
+    expect(findWorkbenchManagerGroupForUser("inactive-mgr")).toBeUndefined();
+    expect(findWorkbenchManagerGroupForUser("invalid-mgr")).toBeUndefined();
   });
 });

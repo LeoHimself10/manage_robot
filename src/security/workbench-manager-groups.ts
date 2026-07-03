@@ -42,8 +42,10 @@ function normalizeOptionalText(value: unknown): string | undefined {
   return String(value ?? "").trim() || undefined;
 }
 
-function normalizeStatus(value: unknown): WorkbenchManagerGroupStatus {
-  return value === "inactive" ? "inactive" : "active";
+function normalizeStatus(value: unknown, hasStatus: boolean): WorkbenchManagerGroupStatus {
+  if (!hasStatus) return "active";
+  if (value === "active" || value === "inactive") return value;
+  return "inactive";
 }
 
 function normalizeGroup(raw: unknown, now: string): WorkbenchManagerGroup | undefined {
@@ -68,7 +70,7 @@ function normalizeGroup(raw: unknown, now: string): WorkbenchManagerGroup | unde
     groupId: String(obj.groupId ?? "").trim() || `mgrgrp:${randomUUID()}`,
     name,
     description: normalizeOptionalText(obj.description),
-    status: normalizeStatus(obj.status),
+    status: normalizeStatus(obj.status, Object.hasOwn(obj, "status")),
     portfolioEnabled: obj.portfolioEnabled === true,
     memberUserIds,
     createdAt: String(obj.createdAt ?? "").trim() || now,
@@ -124,6 +126,7 @@ function assertUniqueMember(groups: WorkbenchManagerGroup[], targetGroupId: stri
 }
 
 export function migrateLegacyManagerGroupFile(groups: unknown[]): void {
+  // Explicit migration helper only; normal reads tolerate legacy arrays without rewriting the file.
   writeManagerGroupFile({ groups: normalizeGroups(groups) });
 }
 

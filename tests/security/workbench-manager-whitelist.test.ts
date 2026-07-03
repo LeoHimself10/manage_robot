@@ -91,4 +91,26 @@ describe("isWorkbenchManager", () => {
 
     expect(isWorkbenchManager("group-mgr")).toBe(true);
   });
+
+  it("does not include inactive or invalid-status manager group members", () => {
+    const groupFile = join(tmpdir(), `test-workbench-manager-groups-${Date.now()}.json`);
+    writeFileSync(
+      groupFile,
+      JSON.stringify({
+        groups: [
+          { groupId: "mgrgrp:active", name: "Active", status: "active", memberUserIds: ["active-mgr"] },
+          { groupId: "mgrgrp:inactive", name: "Inactive", status: "inactive", memberUserIds: ["inactive-mgr"] },
+          { groupId: "mgrgrp:invalid", name: "Invalid", status: "paused", memberUserIds: ["invalid-mgr"] },
+        ],
+      }),
+      "utf8",
+    );
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "1");
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_FILE", groupFile);
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "");
+
+    expect(isWorkbenchManager("active-mgr")).toBe(true);
+    expect(isWorkbenchManager("inactive-mgr")).toBe(false);
+    expect(isWorkbenchManager("invalid-mgr")).toBe(false);
+  });
 });
