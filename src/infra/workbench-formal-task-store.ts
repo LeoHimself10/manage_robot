@@ -2486,13 +2486,14 @@ export function createWorkbenchFormalTaskStore() {
       status: WorkbenchTaskStatus;
       assigneeUserId: string;
       managerUserId: string;
+      managerGroupId?: string;
       updatedAt: string;
     }> {
       const rows = db
         .prepare(
           `SELECT s.subtask_id, s.task_id, s.source_task_key, s.title AS subtask_title, s.due_at, s.status,
                   s.assignee_user_id, s.updated_at,
-                  t.plan_id, t.task_no, t.title AS task_title, t.manager_user_id
+                  t.plan_id, t.task_no, t.title AS task_title, t.manager_user_id, t.manager_group_id
              FROM subtasks s
              JOIN tasks t ON t.task_id = s.task_id
             WHERE s.status IN ('IN_PROGRESS','BLOCKED')`,
@@ -2510,6 +2511,7 @@ export function createWorkbenchFormalTaskStore() {
         status: normalizeStatus(String(row.status ?? "IN_PROGRESS")),
         assigneeUserId: String(row.assignee_user_id ?? ""),
         managerUserId: String(row.manager_user_id ?? ""),
+        managerGroupId: asString(row.manager_group_id),
         updatedAt: String(row.updated_at ?? ""),
       }));
     },

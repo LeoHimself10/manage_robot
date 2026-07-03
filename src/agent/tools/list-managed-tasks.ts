@@ -1,5 +1,6 @@
 import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
+import { resolveWorkbenchManagerScope } from "../../security/workbench-manager-scope";
 
 export const LIST_MANAGED_TASKS_TOOL: ToolDefinition = {
   type: "function",
@@ -24,7 +25,11 @@ export function buildListManagedTasksHandler(
   return (args: Record<string, unknown>) => {
     const actorUserId = String(args.actorUserId ?? "").trim();
     if (!actorUserId) throw new Error("actorUserId is required");
-    const tasks = taskStore.listManagerTasks(actorUserId);
-    return { ok: true, actorUserId, tasks };
+    const scope = resolveWorkbenchManagerScope(actorUserId);
+    const tasks = taskStore.listManagerTasks({
+      managerUserId: scope.managerUserId,
+      managerGroupId: scope.managerGroupId,
+    });
+    return { ok: true, actorUserId, managerGroupId: scope.managerGroupId ?? "", tasks };
   };
 }

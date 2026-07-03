@@ -2,6 +2,10 @@ import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client
 import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import type { WorkbenchSubtaskRow } from "../../infra/workbench-formal-task-store";
+import {
+  canAccessManagerOwnedObject,
+  resolveWorkbenchManagerScope,
+} from "../../security/workbench-manager-scope";
 
 export const GET_TASK_DETAIL_TOOL: ToolDefinition = {
   type: "function",
@@ -125,8 +129,11 @@ export function buildGetTaskDetailHandler(
         queriedKey: key,
       };
     }
-    if (actorRole === "manager" && detail.task.managerUserId !== actorUserId) {
-      return { ok: false, reason: "task_not_owned", hint: "该任务不在你的管理范围" };
+    if (actorRole === "manager") {
+      const scope = resolveWorkbenchManagerScope(actorUserId);
+      if (!canAccessManagerOwnedObject(detail.task, scope)) {
+        return { ok: false, reason: "task_not_owned", hint: "该任务不在你的管理范围" };
+      }
     }
     if (actorRole === "employee") {
       const own = detail.subtasks.some((subtask) => subtask.assigneeUserId === actorUserId);

@@ -26,6 +26,7 @@ export interface PreDueEmployeeReminder {
   dueAtMs: number;
   assigneeUserId: string;
   managerUserId: string;
+  managerGroupId?: string;
   status: string;
 }
 
@@ -40,6 +41,7 @@ export interface ManagerOverdueAlert {
   dueAtMs: number;
   assigneeUserId: string;
   managerUserId: string;
+  managerGroupId?: string;
   status: string;
   overdueSince: string;
   assigneeDisplayName?: string;
@@ -85,6 +87,7 @@ export function listPreDueEmployeeReminders(
       dueAtMs: dueMs,
       assigneeUserId: row.assigneeUserId,
       managerUserId: row.managerUserId,
+      managerGroupId: row.managerGroupId,
       status: row.status,
     });
   }
@@ -124,6 +127,7 @@ export function listManagerOverdueAlerts(
       dueAtMs: dueMs,
       assigneeUserId: row.assigneeUserId,
       managerUserId: row.managerUserId,
+      managerGroupId: row.managerGroupId,
       status: row.status,
       overdueSince,
       assigneeDisplayName: resolveDisplayName?.(row.assigneeUserId),
@@ -164,6 +168,7 @@ export function listFollowUpCandidatesForActor(
   opts: {
     bucket?: FollowUpBucket;
     isAdmin?: boolean;
+    managerGroupId?: string;
     resolveDisplayName?: (userId: string) => string | undefined;
     now?: Date;
     timezone?: string;
@@ -178,6 +183,7 @@ export function listFollowUpCandidatesForActor(
 
   const rows = taskStore.listActiveSubtasksForReminders().filter((r) => {
     if (opts.isAdmin) return true;
+    if (opts.managerGroupId) return r.managerGroupId === opts.managerGroupId;
     return r.managerUserId === actorUserId;
   });
 

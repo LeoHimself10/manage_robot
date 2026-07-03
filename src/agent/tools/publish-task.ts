@@ -4,6 +4,7 @@ import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workb
 import type { WorkbenchSubtaskRow } from "../../infra/workbench-formal-task-store";
 import { isStagingStale } from "../publish-helpers";
 import { resolvePublishProjectIdForSession } from "./resolve-publish-project-id";
+import { resolveWorkbenchManagerScope } from "../../security/workbench-manager-scope";
 
 type SubtaskRichFields = Pick<WorkbenchSubtaskRow, "dependsOn" | "checkpoints" | "risks" | "inputMaterials" | "actions" | "collaborators" | "inScope" | "outOfScope" | "dueAt" | "dueSetBy" | "dueExpectation">;
 
@@ -11,6 +12,7 @@ type PublishFromSessionFn = (input: {
   planId: string;
   session: PlanSession;
   managerUserId: string;
+  managerGroupId?: string | null;
   initiatorDepartment: string;
   actorUserId: string;
   actorName?: string;
@@ -157,11 +159,13 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
 
     let published: ReturnType<PublishFromSessionFn>;
     try {
+      const scope = resolveWorkbenchManagerScope(trustedActor);
       const projectId = resolvePublishProjectIdForSession(session, trustedActor);
       published = deps.publishFromSession({
         planId,
         session,
         managerUserId: trustedActor,
+        managerGroupId: scope.managerGroupId ?? null,
         initiatorDepartment: deps.initiatorDepartment,
         actorUserId: trustedActor,
         actorName: deps.actorName,

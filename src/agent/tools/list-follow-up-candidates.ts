@@ -2,6 +2,7 @@ import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 import { isWorkbenchAdmin } from "../../security/workbench-role-resolver";
+import { resolveWorkbenchManagerScope } from "../../security/workbench-manager-scope";
 import {
   listFollowUpCandidatesForActor,
   type FollowUpBucket,
@@ -42,9 +43,12 @@ export function buildListFollowUpCandidatesHandler(
       : undefined;
     const people = createPeopleDirectoryStore();
     try {
+      const isAdmin = isWorkbenchAdmin(actorUserId);
+      const scope = resolveWorkbenchManagerScope(actorUserId);
       const candidates = listFollowUpCandidatesForActor(taskStore, actorUserId, {
         bucket,
-        isAdmin: isWorkbenchAdmin(actorUserId),
+        isAdmin,
+        managerGroupId: isAdmin ? undefined : scope.managerGroupId,
         resolveDisplayName: (uid) => people.getContact(uid)?.name?.trim(),
       });
       return { ok: true, actorUserId, count: candidates.length, candidates };

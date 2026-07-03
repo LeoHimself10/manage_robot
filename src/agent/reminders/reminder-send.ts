@@ -3,6 +3,10 @@ import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workb
 import type { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import type { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 import { isWorkbenchAdmin } from "../../security/workbench-role-resolver";
+import {
+  canAccessManagerOwnedObject,
+  resolveWorkbenchManagerScope,
+} from "../../security/workbench-manager-scope";
 import { logStructured } from "../../infra/logger";
 import {
   formatDateInTz,
@@ -81,7 +85,10 @@ export async function sendSubtaskReminder(input: ReminderSendInput, deps: {
   const now = new Date();
   const nowIso = now.toISOString();
   const isAdmin = isWorkbenchAdmin(input.actorUserId);
-  if (!isAdmin && task.managerUserId !== input.actorUserId) {
+  if (
+    !isAdmin
+    && !canAccessManagerOwnedObject(task, resolveWorkbenchManagerScope(input.actorUserId))
+  ) {
     return { ok: false, error: "forbidden" };
   }
 

@@ -2,6 +2,7 @@ import type { ToolDefinition, ToolHandler } from "../demo/qwen-compatible-client
 import type { PlanSession } from "../../infra/plan-session-store";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import { isWorkbenchProjectPortfolioEnabled } from "../../security/workbench-project-portfolio";
+import { resolveWorkbenchManagerScope } from "../../security/workbench-manager-scope";
 import { resolvePublishProjectIdForSession } from "./resolve-publish-project-id";
 
 export { resolvePublishProjectIdForSession };
@@ -129,7 +130,8 @@ export function buildProjectPortfolioToolHandlers(deps: {
   const listHandler: ToolHandler = (args) => {
     const actor = resolvePortfolioActor(args, trusted);
     requirePortfolio(actor);
-    const projects = taskStore.listProjectsForOwner(actor);
+    const scope = resolveWorkbenchManagerScope(actor);
+    const projects = taskStore.listProjectsForManagerScope(scope);
     return { ok: true, actorUserId: actor, projects };
   };
 
@@ -142,6 +144,7 @@ export function buildProjectPortfolioToolHandlers(deps: {
       : [];
     const project = taskStore.createProject({
       ownerUserId: actor,
+      managerGroupId: resolveWorkbenchManagerScope(actor).managerGroupId ?? null,
       name,
       description: String(args.description ?? "").trim() || undefined,
       aliases,
@@ -154,7 +157,8 @@ export function buildProjectPortfolioToolHandlers(deps: {
     requirePortfolio(actor);
     const userMessage = String(args.userMessage ?? "").trim();
     if (!userMessage) return { ok: false, reason: "userMessage required" };
-    const projects = taskStore.listProjectsForOwner(actor).filter((p) => p.status === "active");
+    const scope = resolveWorkbenchManagerScope(actor);
+    const projects = taskStore.listProjectsForManagerScope(scope).filter((p) => p.status === "active");
     const ranked = projects
       .map((p) => {
         const { score, reason } = scoreProject(p, userMessage);
@@ -185,7 +189,8 @@ export function buildProjectPortfolioToolHandlers(deps: {
       deps.onSessionMutated?.(session);
       return { ok: true, cleared: true };
     }
-    const proj = taskStore.getProject(pid, actor);
+    const scope = resolveWorkbenchManagerScope(actor);
+    const proj = taskStore.getProjectForManagerScope(pid, scope);
     if (!proj || proj.status !== "active") {
       return { ok: false, reason: "invalid_project", hint: "project_id 无效或非本人 active 项目" };
     }

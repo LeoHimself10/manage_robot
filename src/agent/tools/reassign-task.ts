@@ -8,6 +8,10 @@ import { executeReassignWithSideEffects } from "../workbench/reassign-with-side-
 import { voidFireReassignAssigneeNotify } from "../workbench/reassign-notify-side-effect";
 import type { WorkbenchPublishNotifier } from "../../integrations/dingtalk/workbench-notify";
 import type { DingTalkContactRow } from "../../infra/people-directory-store";
+import {
+  canAccessManagerOwnedObject,
+  resolveWorkbenchManagerScope,
+} from "../../security/workbench-manager-scope";
 
 function findLatestSessionByPlanId(planId: string): (PlanSession & { chatKeyHash: string }) | undefined {
   try {
@@ -105,10 +109,17 @@ export function buildReassignTaskHandler(
     if (!actorUserId || !planId || !assigneeUserId) {
       throw new Error("actorUserId, planId, assigneeUserId are required");
     }
+    const detail = taskStore.getTaskDetail(planId);
+    if (!detail) return { ok: false, reason: "task_not_found" };
+    const scope = resolveWorkbenchManagerScope(actorUserId);
+    if (!canAccessManagerOwnedObject(detail.task, scope)) {
+      return { ok: false, reason: "task_not_owned", hint: "该任务不在你的管理范围" };
+    }
+    const managerUserIdForMutation = detail.task.managerUserId;
     const result = executeReassignWithSideEffects(
       {
         planId,
-        managerUserId: actorUserId,
+        managerUserId: managerUserIdForMutation,
         assigneeUserId,
         note,
         actorName: actorName || undefined,
@@ -130,7 +141,7 @@ export function buildReassignTaskHandler(
         taskStore,
         taskId: result.task.taskId,
         planId,
-        managerUserId: actorUserId,
+        managerUserId: managerUserIdForMutation,
         assigneeUserId,
         subtaskIdRaw: subtaskIdRaw || undefined,
       });
