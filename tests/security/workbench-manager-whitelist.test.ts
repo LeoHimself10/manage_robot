@@ -76,4 +76,19 @@ describe("isWorkbenchManager", () => {
     vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "");
     expect(isWorkbenchManager("anyone")).toBe(false);
   });
+
+  it("includes manager group members when manager groups are enabled", async () => {
+    const { addWorkbenchManagerGroupMember, createWorkbenchManagerGroup } = await import(
+      "../../src/security/workbench-manager-groups"
+    );
+    const groupFile = join(tmpdir(), `test-workbench-manager-groups-${Date.now()}.json`);
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "1");
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_FILE", groupFile);
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "");
+
+    const group = createWorkbenchManagerGroup({ name: "Mingsi project managers" });
+    addWorkbenchManagerGroupMember(group.groupId, "group-mgr");
+
+    expect(isWorkbenchManager("group-mgr")).toBe(true);
+  });
 });

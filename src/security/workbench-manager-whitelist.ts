@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolveWorkbenchDynamicManagersPath } from "./workbench-manager-dynamic-path";
+import { listWorkbenchManagerGroupMemberIds } from "./workbench-manager-groups";
 
 /**
  * Workbench manager whitelist.
@@ -44,6 +45,10 @@ export function listWorkbenchManagerIds(): Set<string> {
     } catch {
       // ignore malformed dynamic list
     }
+  }
+
+  for (const id of listWorkbenchManagerGroupMemberIds()) {
+    allow.add(id);
   }
   return allow;
 }
