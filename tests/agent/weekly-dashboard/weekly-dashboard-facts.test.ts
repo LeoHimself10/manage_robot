@@ -22,6 +22,7 @@ describe("weekly dashboard facts", () => {
   function seedTask(input: {
     planId: string;
     managerUserId?: string;
+    managerGroupId?: string;
     assigneeUserId?: string;
     dueAt?: string;
     title?: string;
@@ -61,6 +62,7 @@ describe("weekly dashboard facts", () => {
       planId: input.planId,
       session,
       managerUserId,
+      managerGroupId: input.managerGroupId,
       initiatorDepartment: "测试部",
       actorUserId: managerUserId,
     });
@@ -226,5 +228,36 @@ describe("weekly dashboard facts", () => {
       },
     });
     expect(facts.tasks.map((g) => g.task.planId)).toEqual(["plan-a"]);
+  });
+
+  it("loads weekly facts by manager group scope", () => {
+    const { store } = seedTask({
+      planId: "plan-weekly-group",
+      managerUserId: "mgr-a",
+      managerGroupId: "mgrgrp:mingsi",
+      assigneeUserId: "emp-a",
+    });
+    const facts = buildWeeklyDashboardFacts({
+      taskStore: store,
+      managerUserId: "mgr-b",
+      managerGroupId: "mgrgrp:mingsi",
+      week: "2026-05-20",
+      span: 1,
+      now: new Date("2026-05-20T04:00:00.000Z"),
+      policy: {
+        timezone: "Asia/Shanghai",
+        defaultSpan: 1,
+        maxSpan: 6,
+        feedPageSize: 50,
+        feedMaxPageSize: 100,
+        advisorLlmEnabled: false,
+        advisorLlmModel: "test",
+        advisorLlmTimeoutMs: 10,
+        advisorLlmMaxTokens: 100,
+        advisorLlmBaseUrl: "http://example.test",
+        advisorLlmApiKey: "",
+      },
+    });
+    expect(facts.tasks.some((group) => group.task.planId === "plan-weekly-group")).toBe(true);
   });
 });

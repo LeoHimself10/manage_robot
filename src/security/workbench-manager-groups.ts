@@ -146,6 +146,14 @@ export function listWorkbenchManagerGroupMemberIds(): Set<string> {
   return ids;
 }
 
+export function listWorkbenchManagerGroupMembers(groupId: string): string[] {
+  const normalizedGroupId = String(groupId ?? "").trim();
+  const group = listWorkbenchManagerGroups().find(
+    (item) => item.status === "active" && item.groupId === normalizedGroupId,
+  );
+  return group ? [...group.memberUserIds] : [];
+}
+
 export function findWorkbenchManagerGroupForUser(userId: string): WorkbenchManagerGroup | undefined {
   const normalizedUserId = normalizeUserId(userId);
   if (!normalizedUserId) return undefined;

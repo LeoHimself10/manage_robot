@@ -150,6 +150,7 @@ function mapFeedItem(row: Record<string, unknown>, resolveName?: (uid: string) =
 export function buildWeeklyDashboardFacts(input: {
   taskStore: TaskStore;
   managerUserId: string;
+  managerGroupId?: string;
   week?: string;
   span?: number;
   feedCursor?: string;
@@ -171,12 +172,17 @@ export function buildWeeklyDashboardFacts(input: {
   });
   const current = isCurrentWeek({ center: weekSpan.center, now, timezone: policy.timezone });
   const projectFilter = String(input.projectId ?? "").trim();
+  const managerScope = {
+    managerUserId: input.managerUserId,
+    managerGroupId: input.managerGroupId,
+  };
   const allTaskSummaries = input.taskStore.listManagerTasks(
-    input.managerUserId,
+    managerScope,
     projectFilter ? { projectId: projectFilter } : undefined,
   );
   const eventQuery = {
     managerUserId: input.managerUserId,
+    managerGroupId: input.managerGroupId,
     sinceIso: weekSpan.center.startIso,
     untilIso: weekSpan.center.endIso,
     eventTypes: WEEKLY_DASHBOARD_EVENT_TYPES,

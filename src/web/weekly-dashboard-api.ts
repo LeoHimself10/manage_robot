@@ -87,7 +87,8 @@ export function serializeWeeklyDashboardForClient(input: {
 
 export function buildWeeklyDashboardHttpPayload(input: {
   taskStore: TaskStore;
-  managerUserId: string;
+  managerUserId: string;
+  managerGroupId?: string;
   week?: string;
   span?: unknown;
   feedCursor?: string;
@@ -103,7 +104,8 @@ export function buildWeeklyDashboardHttpPayload(input: {
   const feedLimit = clampWeeklyFeedLimit(input.feedLimit, policy);
   const facts = buildWeeklyDashboardFacts({
     taskStore: input.taskStore,
-    managerUserId: input.managerUserId,
+    managerUserId: input.managerUserId,
+    managerGroupId: input.managerGroupId,
     week: input.week,
     span,
     feedCursor: input.feedCursor,
@@ -136,7 +138,8 @@ export function buildWeeklyDashboardHttpPayload(input: {
 
 export async function buildWeeklyAdvisorHttpPayload(input: {
   taskStore: TaskStore;
-  managerUserId: string;
+  managerUserId: string;
+  managerGroupId?: string;
   week?: string;
   span?: unknown;
   projectId?: string;
@@ -147,7 +150,8 @@ export async function buildWeeklyAdvisorHttpPayload(input: {
   const span = clampWeeklyDashboardSpan(input.span, policy);
   const facts = buildWeeklyDashboardFacts({
     taskStore: input.taskStore,
-    managerUserId: input.managerUserId,
+    managerUserId: input.managerUserId,
+    managerGroupId: input.managerGroupId,
     week: input.week,
     span,
     policy,

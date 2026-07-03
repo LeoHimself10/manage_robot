@@ -3873,9 +3873,11 @@ export function handleAssignmentHttp(
     const feedOnly = url.searchParams.get("feedOnly") === "1";
     const peopleStore = createPeopleDirectoryStore();
     try {
+      const managerScope = managerTaskScopeForSession(session);
       const payload = buildWeeklyDashboardHttpPayload({
         taskStore: getFormalTaskStore(),
         managerUserId: session.userId,
+        managerGroupId: typeof managerScope === "string" ? undefined : managerScope.managerGroupId,
         week: String(url.searchParams.get("week") ?? "").trim() || undefined,
         span: url.searchParams.get("span"),
         feedCursor: String(url.searchParams.get("feedCursor") ?? "").trim() || undefined,
@@ -3901,9 +3903,11 @@ export function handleAssignmentHttp(
         const projectId = portfolioEnabled ? String(body.projectId ?? "").trim() : "";
         const peopleStore = createPeopleDirectoryStore();
         try {
+          const managerScope = managerTaskScopeForSession(session);
           const payload = await buildWeeklyAdvisorHttpPayload({
             taskStore: getFormalTaskStore(),
             managerUserId: session.userId,
+            managerGroupId: typeof managerScope === "string" ? undefined : managerScope.managerGroupId,
             week: String(body.week ?? "").trim() || undefined,
             span: body.span,
             projectId: projectId || undefined,

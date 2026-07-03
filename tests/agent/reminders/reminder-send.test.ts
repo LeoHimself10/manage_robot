@@ -8,6 +8,7 @@ import { createPeopleDirectoryStore } from "../../../src/infra/people-directory-
 import { sendManagerOverdueAlert, sendPreDueEmployeeReminder } from "../../../src/agent/reminders/reminder-send";
 import { loadReminderPolicy } from "../../../src/agent/reminders/reminder-policy";
 import type { WorkbenchPublishNotifier } from "../../../src/integrations/dingtalk/workbench-notify";
+import { addWorkbenchManagerGroupMember, createWorkbenchManagerGroup } from "../../../src/security/workbench-manager-groups";
 
 describe("reminder-send", () => {
   let sqlitePath = "";
@@ -24,9 +25,11 @@ describe("reminder-send", () => {
   afterEach(() => {
     delete process.env.WORKBENCH_SQLITE_PATH;
     delete process.env.PLAN_SESSION_DIR;
+    delete process.env.WORKBENCH_MANAGER_GROUPS_ENABLED;
+    delete process.env.WORKBENCH_MANAGER_GROUPS_FILE;
   });
 
-  function seedSubtask(dueAt: string) {
+  function seedSubtask(dueAt: string, managerGroupId?: string) {
     const planSessionStore = createPlanSessionStore();
     const chatKeyHash = "send-seed";
     const now = new Date().toISOString();
@@ -63,6 +66,7 @@ describe("reminder-send", () => {
       planId,
       session,
       managerUserId: "mgr-1",
+      managerGroupId: managerGroupId ?? null,
       actorUserId: "mgr-1",
     });
     const sid = taskStore.getTaskDetail(planId)!.subtasks[0]!.subtaskId;
@@ -140,5 +144,45 @@ describe("reminder-send", () => {
     const second = await sendManagerOverdueAlert({ subtaskId: sid, overdueSince }, deps);
     expect(second.ok).toBe(false);
     expect(second.skipped).toBeTruthy();
+  });
+
+  it("notifies all active manager group members for employee feedback", async () => {
+    process.env.WORKBENCH_MANAGER_GROUPS_ENABLED = "1";
+    process.env.WORKBENCH_MANAGER_GROUPS_FILE = join(tmpdir(), `reminder-groups-${Date.now()}.json`);
+    const group = createWorkbenchManagerGroup({ name: "Mingsi managers" });
+    addWorkbenchManagerGroupMember(group.groupId, "mgr-1");
+    addWorkbenchManagerGroupMember(group.groupId, "mgr-2");
+    const { taskStore, peopleStore, sid } = seedSubtask("2026-05-20", group.groupId);
+    peopleStore.upsertContact({
+      userId: "mgr-2",
+      name: "Mgr2",
+      departmentIds: ["1"],
+      departmentNames: ["Management"],
+      active: true,
+      isAdmin: false,
+      isBoss: false,
+      isSenior: false,
+      lastSyncedAt: new Date().toISOString(),
+    });
+    const sentTo: string[] = [];
+    const notifier: WorkbenchPublishNotifier = {
+      ...mockNotifier,
+      notifyManagerSubtaskOverdue: async (payload) => {
+        sentTo.push(payload.managerUserId);
+        return {
+          enabled: true,
+          success: [{ userId: payload.managerUserId, robotMessageKey: `mock-${payload.managerUserId}` }],
+          failed: [],
+        };
+      },
+    };
+
+    const result = await sendManagerOverdueAlert(
+      { subtaskId: sid, overdueSince: "2026-05-20T10:00:00.000Z" },
+      { taskStore, peopleStore, notifier, policy: loadReminderPolicy() },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(sentTo.sort()).toEqual(["mgr-1", "mgr-2"]);
   });
 });

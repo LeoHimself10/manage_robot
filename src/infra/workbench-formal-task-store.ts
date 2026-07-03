@@ -2321,7 +2321,7 @@ export function createWorkbenchFormalTaskStore() {
      * scope.managerUserId 为空 → 全员（admin/老板视角）；否则仅该主管名下任务的子任务。
      * 仅返回 due_at 非空的子任务（无截止无法判定迟交）。
      */
-    loadPerformanceDataset(scope?: { managerUserId?: string; projectId?: string }): {
+    loadPerformanceDataset(scope?: { managerUserId?: string; managerGroupId?: string; projectId?: string }): {
       subtasks: Array<{
         subtaskId: string;
         assigneeUserId: string;
@@ -2334,6 +2334,7 @@ export function createWorkbenchFormalTaskStore() {
         taskTitle?: string;
         planId?: string;
         managerUserId?: string;
+        managerGroupId?: string;
         projectId?: string;
         projectName?: string;
       }>;
@@ -2342,10 +2343,11 @@ export function createWorkbenchFormalTaskStore() {
       reassignedSubtaskIds: string[];
     } {
       const managerUserId = String(scope?.managerUserId ?? "").trim();
+      const managerGroupId = String(scope?.managerGroupId ?? "").trim();
       const projectId = String(scope?.projectId ?? "").trim();
       const baseSql = `
         SELECT s.subtask_id, s.assignee_user_id, s.status, s.due_at, s.completed_at, s.title AS subtask_title,
-               t.task_id, t.task_no, t.title AS task_title, t.plan_id, t.manager_user_id, t.project_id,
+               t.task_id, t.task_no, t.title AS task_title, t.plan_id, t.manager_user_id, t.manager_group_id, t.project_id,
                p.name AS project_name
         FROM subtasks s
         JOIN tasks t ON t.task_id = s.task_id
@@ -2353,7 +2355,10 @@ export function createWorkbenchFormalTaskStore() {
         WHERE s.due_at IS NOT NULL`;
       const clauses: string[] = [];
       const params: string[] = [];
-      if (managerUserId) {
+      if (managerGroupId) {
+        clauses.push("t.manager_group_id = ?");
+        params.push(managerGroupId);
+      } else if (managerUserId) {
         clauses.push("t.manager_user_id = ?");
         params.push(managerUserId);
       }
@@ -2377,6 +2382,7 @@ export function createWorkbenchFormalTaskStore() {
         taskTitle: asString(row.task_title),
         planId: asString(row.plan_id),
         managerUserId: asString(row.manager_user_id),
+        managerGroupId: asString(row.manager_group_id),
         projectId: asString(row.project_id),
         projectName: asString(row.project_name),
       }));
@@ -2683,6 +2689,7 @@ export function createWorkbenchFormalTaskStore() {
 
     listTaskEventsForManagerSince(input: {
       managerUserId: string;
+      managerGroupId?: string;
       sinceIso: string;
       untilIso?: string;
       eventTypes?: string[];
@@ -2695,7 +2702,12 @@ export function createWorkbenchFormalTaskStore() {
       const offset = Math.max(0, Math.floor(input.offset ?? 0));
       const untilIso = String(input.untilIso ?? "").trim();
       const untilClause = untilIso ? " AND e.occurred_at < ?" : "";
-      const params: Array<string | number | null> = [input.managerUserId, input.sinceIso];
+      const managerGroupId = String(input.managerGroupId ?? "").trim();
+      const scopeClause = managerGroupId ? "t.manager_group_id = ?" : "t.manager_user_id = ?";
+      const params: Array<string | number | null> = [
+        managerGroupId || input.managerUserId,
+        input.sinceIso,
+      ];
       if (untilIso) params.push(untilIso);
       params.push(...types, limit, offset);
       return db
@@ -2704,7 +2716,7 @@ export function createWorkbenchFormalTaskStore() {
              FROM task_events e
              JOIN tasks t ON t.task_id = e.task_id
              LEFT JOIN subtasks s ON s.subtask_id = e.subtask_id
-            WHERE t.manager_user_id = ?
+            WHERE ${scopeClause}
               AND e.occurred_at >= ?${untilClause}
               ${typeClause}
             ORDER BY e.occurred_at DESC, e.id DESC
@@ -2715,6 +2727,7 @@ export function createWorkbenchFormalTaskStore() {
 
     countTaskEventsForManagerInRange(input: {
       managerUserId: string;
+      managerGroupId?: string;
       sinceIso: string;
       untilIso?: string;
       eventTypes?: string[];
@@ -2723,7 +2736,12 @@ export function createWorkbenchFormalTaskStore() {
       const typeClause = types.length > 0 ? ` AND e.event_type IN (${types.map(() => "?").join(", ")})` : "";
       const untilIso = String(input.untilIso ?? "").trim();
       const untilClause = untilIso ? " AND e.occurred_at < ?" : "";
-      const params: Array<string | number | null> = [input.managerUserId, input.sinceIso];
+      const managerGroupId = String(input.managerGroupId ?? "").trim();
+      const scopeClause = managerGroupId ? "t.manager_group_id = ?" : "t.manager_user_id = ?";
+      const params: Array<string | number | null> = [
+        managerGroupId || input.managerUserId,
+        input.sinceIso,
+      ];
       if (untilIso) params.push(untilIso);
       params.push(...types);
       const row = db
@@ -2731,7 +2749,7 @@ export function createWorkbenchFormalTaskStore() {
           `SELECT COUNT(*) AS count
              FROM task_events e
              JOIN tasks t ON t.task_id = e.task_id
-            WHERE t.manager_user_id = ?
+            WHERE ${scopeClause}
               AND e.occurred_at >= ?${untilClause}
               ${typeClause}`,
         )

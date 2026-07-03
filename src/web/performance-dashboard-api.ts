@@ -77,7 +77,9 @@ function loadScopedDataset(
   projectId?: string,
 ) {
   return taskStore.loadPerformanceDataset({
-    ...(scope.kind === "manager" ? { managerUserId: scope.managerUserId } : {}),
+    ...(scope.kind === "manager"
+      ? { managerUserId: scope.managerUserId, managerGroupId: scope.managerGroupId }
+      : {}),
     ...(projectId ? { projectId } : {}),
   });
 }

@@ -7,6 +7,7 @@ import {
   canAccessManagerOwnedObject,
   resolveWorkbenchManagerScope,
 } from "../../security/workbench-manager-scope";
+import { listWorkbenchManagerGroupMembers } from "../../security/workbench-manager-groups";
 import { logStructured } from "../../infra/logger";
 import {
   formatDateInTz,
@@ -340,35 +341,63 @@ export async function sendManagerOverdueAlert(
     ? `${baseUrl}/workbench/manager/task?taskNo=${encodeURIComponent(task.taskNo)}`
     : undefined;
 
-  const notifyResult = await deps.notifier.notifyManagerSubtaskOverdue({
-    managerUserId: task.managerUserId,
-    taskNo: task.taskNo,
-    taskTitle: task.title,
-    subtaskId: subtask.subtaskId,
-    subtaskTitle: subtask.title,
-    assigneeUserId: subtask.assigneeUserId,
-    assigneeDisplayName: assigneeName,
-    subject,
-    markdown,
-    detailUrl,
-    sourceId,
-  });
+  const managerRecipients = task.managerGroupId
+    ? listWorkbenchManagerGroupMembers(task.managerGroupId)
+    : [];
+  const recipients = Array.from(new Set(managerRecipients.length > 0 ? managerRecipients : [task.managerUserId]));
+  const deliveredManagers: string[] = [];
+  const failedManagers: Array<{ managerUserId: string; reason?: string }> = [];
 
-  if (notifyResult.success.length > 0) {
+  for (const managerUserId of recipients) {
+    const notifyResult = await deps.notifier.notifyManagerSubtaskOverdue({
+      managerUserId,
+      taskNo: task.taskNo,
+      taskTitle: task.title,
+      subtaskId: subtask.subtaskId,
+      subtaskTitle: subtask.title,
+      assigneeUserId: subtask.assigneeUserId,
+      assigneeDisplayName: assigneeName,
+      subject,
+      markdown,
+      detailUrl,
+      sourceId,
+    });
+    if (notifyResult.success.length > 0) {
+      deliveredManagers.push(managerUserId);
+    } else {
+      failedManagers.push({
+        managerUserId,
+        reason: notifyResult.skippedReason ?? notifyResult.failed[0]?.reason,
+      });
+    }
+  }
+
+  if (deliveredManagers.length > 0) {
     deps.taskStore.appendTaskEvent({
       taskId: task.taskId,
       subtaskId: subtask.subtaskId,
       eventType: "MANAGER_OVERDUE_ALERT_SENT",
       actorUserId: task.managerUserId,
-      payload: { sourceId, templateVersion: REMINDER_TEMPLATE_VERSION },
+      payload: {
+        sourceId,
+        templateVersion: REMINDER_TEMPLATE_VERSION,
+        managerGroupId: task.managerGroupId ?? "",
+        deliveredManagers,
+        failedManagers,
+      },
     });
     logStructured({
       event: "manager_overdue_alert_sent",
       subtaskId: subtask.subtaskId,
       taskNo: task.taskNo,
       managerUserId: task.managerUserId,
+      managerGroupId: task.managerGroupId,
+      deliveredManagers,
     });
-    return { ok: true, channels: ["robot"] };
+    return { ok: true, channels: ["robot"], failed: failedManagers.map((item) => ({
+      channel: `manager:${item.managerUserId}`,
+      reason: item.reason ?? "notify_failed",
+    })) };
   }
 
   deps.taskStore.appendTaskEvent({
@@ -376,12 +405,16 @@ export async function sendManagerOverdueAlert(
     subtaskId: subtask.subtaskId,
     eventType: "MANAGER_OVERDUE_ALERT_FAILED",
     actorUserId: task.managerUserId,
-    payload: { sourceId, reason: notifyResult.skippedReason ?? notifyResult.failed[0]?.reason },
+    payload: {
+      sourceId,
+      managerGroupId: task.managerGroupId ?? "",
+      failedManagers,
+    },
   });
   return {
     ok: false,
     error: "notify_failed",
-    skipped: notifyResult.skippedReason ?? notifyResult.failed[0]?.reason,
+    skipped: failedManagers[0]?.reason,
   };
 }
 

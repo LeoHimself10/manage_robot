@@ -1,12 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildPerformanceDashboardPayload,
   buildPerformanceEmployeeDetailPayload,
   parsePerformanceConversationHistory,
+  resolvePerformanceScope,
   resolvePerformanceWindowDays,
   isPerformanceDashboardEnabled,
 } from "../../src/web/performance-dashboard-api";
 import { renderPerformanceDashboardPage } from "../../src/web/performance-dashboard-page";
+import { addWorkbenchManagerGroupMember, createWorkbenchManagerGroup } from "../../src/security/workbench-manager-groups";
 
 const DATASET = {
   subtasks: [
@@ -28,6 +33,10 @@ const DATASET = {
 };
 
 describe("performance dashboard api", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("builds payload from store dataset with names, kpi and projects", () => {
     const fakeStore = { loadPerformanceDataset: () => DATASET };
     const payload = buildPerformanceDashboardPayload({
@@ -105,6 +114,20 @@ describe("performance dashboard api", () => {
 
   it("enabled by default", () => {
     expect(isPerformanceDashboardEnabled()).toBe(true);
+  });
+
+  it("manager performance scope carries managerGroupId", () => {
+    const dir = mkdtempSync(join(tmpdir(), "performance-manager-groups-"));
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "1");
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_FILE", join(dir, "groups.json"));
+    const group = createWorkbenchManagerGroup({ name: "Mingsi managers" });
+    addWorkbenchManagerGroupMember(group.groupId, "mgr-b");
+
+    expect(resolvePerformanceScope({ userId: "mgr-b", role: "manager" })).toEqual({
+      kind: "manager",
+      managerUserId: "mgr-b",
+      managerGroupId: group.groupId,
+    });
   });
 
   it("parsePerformanceConversationHistory keeps user/assistant turns with caps", () => {
