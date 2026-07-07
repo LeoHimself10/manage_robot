@@ -7,7 +7,7 @@ import {
   canAccessManagerOwnedObject,
   resolveWorkbenchManagerScope,
 } from "../../security/workbench-manager-scope";
-import { listWorkbenchManagerGroupMembers } from "../../security/workbench-manager-groups";
+import { listWorkbenchManagerRecipientsForTask } from "../../security/workbench-manager-groups";
 import { logStructured } from "../../infra/logger";
 import {
   formatDateInTz,
@@ -341,10 +341,10 @@ export async function sendManagerOverdueAlert(
     ? `${baseUrl}/workbench/manager/task?taskNo=${encodeURIComponent(task.taskNo)}`
     : undefined;
 
-  const managerRecipients = task.managerGroupId
-    ? listWorkbenchManagerGroupMembers(task.managerGroupId)
-    : [];
-  const recipients = Array.from(new Set(managerRecipients.length > 0 ? managerRecipients : [task.managerUserId]));
+  const recipients = listWorkbenchManagerRecipientsForTask({
+    managerUserId: task.managerUserId,
+    managerGroupId: task.managerGroupId,
+  });
   const deliveredManagers: string[] = [];
   const failedManagers: Array<{ managerUserId: string; reason?: string }> = [];
 

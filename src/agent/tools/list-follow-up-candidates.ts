@@ -49,6 +49,7 @@ export function buildListFollowUpCandidatesHandler(
         bucket,
         isAdmin,
         managerGroupId: isAdmin ? undefined : scope.managerGroupId,
+        managerGroupMemberUserIds: isAdmin ? undefined : scope.managerGroupMemberUserIds,
         resolveDisplayName: (uid) => people.getContact(uid)?.name?.trim(),
       });
       return { ok: true, actorUserId, count: candidates.length, candidates };

@@ -4,6 +4,7 @@ export interface WorkbenchManagerScope {
   actorUserId: string;
   managerUserId: string;
   managerGroupId?: string;
+  managerGroupMemberUserIds?: string[];
 }
 
 export interface ManagerOwnedObject {
@@ -20,6 +21,16 @@ function normalizeOptionalId(value: string | undefined): string | undefined {
   return normalized || undefined;
 }
 
+function normalizeMemberIds(values: readonly string[] | undefined, fallbackUserId: string): string[] {
+  const out: string[] = [];
+  for (const value of values ?? []) {
+    const normalized = normalizeId(value);
+    if (normalized && !out.includes(normalized)) out.push(normalized);
+  }
+  if (fallbackUserId && !out.includes(fallbackUserId)) out.push(fallbackUserId);
+  return out;
+}
+
 export function resolveWorkbenchManagerScope(actorUserId: string): WorkbenchManagerScope {
   const normalizedActorUserId = normalizeId(actorUserId);
   const group = findWorkbenchManagerGroupForUser(normalizedActorUserId);
@@ -32,6 +43,7 @@ export function resolveWorkbenchManagerScope(actorUserId: string): WorkbenchMana
   return {
     ...baseScope,
     managerGroupId: group.groupId,
+    managerGroupMemberUserIds: normalizeMemberIds(group.memberUserIds, normalizedActorUserId),
   };
 }
 
@@ -40,11 +52,13 @@ export function canAccessManagerOwnedObject(object: ManagerOwnedObject, scope: W
   const scopeManagerUserId = normalizeId(scope.managerUserId);
   const objectGroupId = normalizeOptionalId(object.managerGroupId);
   const scopeGroupId = normalizeOptionalId(scope.managerGroupId);
+  const groupMemberIds = normalizeMemberIds(scope.managerGroupMemberUserIds, scopeManagerUserId);
 
   // Callers should pass a resolved scope, but missing owner ids must still fail closed.
   if (!objectManagerUserId || !scopeManagerUserId) return false;
   if (objectGroupId && scopeGroupId) return objectGroupId === scopeGroupId;
   if (objectGroupId && !scopeGroupId) return false;
+  if (scopeGroupId) return groupMemberIds.includes(objectManagerUserId);
   return objectManagerUserId === scopeManagerUserId;
 }
 

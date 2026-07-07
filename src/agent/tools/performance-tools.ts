@@ -65,6 +65,7 @@ export interface PerformanceScope {
   kind: "manager" | "all";
   managerUserId?: string;
   managerGroupId?: string;
+  managerGroupMemberUserIds?: string[];
 }
 
 export interface PerformanceQueryDefaults {
@@ -116,7 +117,11 @@ export function buildGetEmployeePerformanceHandler(deps: {
 
     const dataset = taskStore.loadPerformanceDataset({
       ...(deps.scope.kind === "manager"
-        ? { managerUserId: deps.scope.managerUserId, managerGroupId: deps.scope.managerGroupId }
+        ? {
+            managerUserId: deps.scope.managerUserId,
+            managerGroupId: deps.scope.managerGroupId,
+            managerGroupMemberUserIds: deps.scope.managerGroupMemberUserIds,
+          }
         : {}),
       ...(projectId ? { projectId } : {}),
     });

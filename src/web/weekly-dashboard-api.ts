@@ -89,7 +89,8 @@ export function buildWeeklyDashboardHttpPayload(input: {
   taskStore: TaskStore;
   managerUserId: string;
   managerGroupId?: string;
-  week?: string;
+  managerGroupMemberUserIds?: string[];
+  week?: string;
   span?: unknown;
   feedCursor?: string;
   feedLimit?: unknown;
@@ -106,7 +107,8 @@ export function buildWeeklyDashboardHttpPayload(input: {
     taskStore: input.taskStore,
     managerUserId: input.managerUserId,
     managerGroupId: input.managerGroupId,
-    week: input.week,
+    managerGroupMemberUserIds: input.managerGroupMemberUserIds,
+    week: input.week,
     span,
     feedCursor: input.feedCursor,
     feedLimit,
@@ -140,7 +142,8 @@ export async function buildWeeklyAdvisorHttpPayload(input: {
   taskStore: TaskStore;
   managerUserId: string;
   managerGroupId?: string;
-  week?: string;
+  managerGroupMemberUserIds?: string[];
+  week?: string;
   span?: unknown;
   projectId?: string;
   policy?: WeeklyDashboardPolicy;
@@ -152,7 +155,8 @@ export async function buildWeeklyAdvisorHttpPayload(input: {
     taskStore: input.taskStore,
     managerUserId: input.managerUserId,
     managerGroupId: input.managerGroupId,
-    week: input.week,
+    managerGroupMemberUserIds: input.managerGroupMemberUserIds,
+    week: input.week,
     span,
     policy,
     projectId: input.projectId,

@@ -55,7 +55,11 @@ export interface WorkbenchTaskRow {
   sourceMeetingBatchId?: string;
 }
 
-export type WorkbenchManagerTaskScope = string | { managerUserId: string; managerGroupId?: string };
+export type WorkbenchManagerTaskScope = string | {
+  managerUserId: string;
+  managerGroupId?: string;
+  managerGroupMemberUserIds?: string[];
+};
 
 export interface WorkbenchSubtaskRow {
   subtaskId: string;
@@ -844,6 +848,7 @@ export function createWorkbenchFormalTaskStore() {
   function normalizeManagerTaskScope(scope: WorkbenchManagerTaskScope): {
     managerUserId: string;
     managerGroupId?: string;
+    managerGroupMemberUserIds?: string[];
   } {
     if (typeof scope === "string") {
       return { managerUserId: scope.trim() };
@@ -851,12 +856,31 @@ export function createWorkbenchFormalTaskStore() {
     return {
       managerUserId: scope.managerUserId.trim(),
       managerGroupId: asString(scope.managerGroupId),
+      managerGroupMemberUserIds: normalizeManagerGroupMemberUserIds(
+        scope.managerGroupMemberUserIds,
+        scope.managerUserId,
+      ),
     };
+  }
+
+  function normalizeManagerGroupMemberUserIds(
+    values: readonly string[] | undefined,
+    fallbackUserId: string,
+  ): string[] {
+    const out: string[] = [];
+    for (const value of values ?? []) {
+      const normalized = String(value ?? "").trim();
+      if (normalized && !out.includes(normalized)) out.push(normalized);
+    }
+    const fallback = String(fallbackUserId ?? "").trim();
+    if (fallback && !out.includes(fallback)) out.push(fallback);
+    return out.length > 0 ? out : [fallback];
   }
 
   function managerScopeSql(input: {
     managerUserId: string;
     managerGroupId?: string;
+    managerGroupMemberUserIds?: string[];
     tableAlias?: string;
     ownerColumn?: "manager_user_id" | "owner_user_id";
   }): { clause: string; params: string[] } {
@@ -867,15 +891,18 @@ export function createWorkbenchFormalTaskStore() {
     if (!managerGroupId) {
       return { clause: `${prefix}${ownerColumn} = ?`, params: [managerUserId] };
     }
+    const memberUserIds = normalizeManagerGroupMemberUserIds(input.managerGroupMemberUserIds, managerUserId);
+    const memberPlaceholders = memberUserIds.map(() => "?").join(", ");
     return {
-      clause: `(${prefix}manager_group_id = ? OR (${prefix}${ownerColumn} = ? AND (${prefix}manager_group_id IS NULL OR ${prefix}manager_group_id = '')))`,
-      params: [managerGroupId, managerUserId],
+      clause: `(${prefix}manager_group_id = ? OR ((${prefix}manager_group_id IS NULL OR ${prefix}manager_group_id = '') AND ${prefix}${ownerColumn} IN (${memberPlaceholders})))`,
+      params: [managerGroupId, ...memberUserIds],
     };
   }
 
   function projectAccessibleForScope(project: Record<string, unknown>, scope: {
     managerUserId: string;
     managerGroupId?: string;
+    managerGroupMemberUserIds?: string[];
   }): boolean {
     return managerOwnedRowAccessible(project, scope);
   }
@@ -883,11 +910,17 @@ export function createWorkbenchFormalTaskStore() {
   function managerOwnedRowAccessible(row: Record<string, unknown>, scope: {
     managerUserId: string;
     managerGroupId?: string;
+    managerGroupMemberUserIds?: string[];
   }): boolean {
     const rowGroupId = asString(row.manager_group_id);
     if (scope.managerGroupId && rowGroupId) return rowGroupId === scope.managerGroupId;
     if (rowGroupId && !scope.managerGroupId) return false;
-    return String(row.manager_user_id ?? row.owner_user_id ?? "").trim() === scope.managerUserId;
+    const ownerUserId = String(row.manager_user_id ?? row.owner_user_id ?? "").trim();
+    if (scope.managerGroupId) {
+      return normalizeManagerGroupMemberUserIds(scope.managerGroupMemberUserIds, scope.managerUserId)
+        .includes(ownerUserId);
+    }
+    return ownerUserId === scope.managerUserId;
   }
 
   return {
@@ -1133,6 +1166,7 @@ export function createWorkbenchFormalTaskStore() {
       projectId: string;
       ownerUserId: string;
       managerGroupId?: string | null;
+      managerGroupMemberUserIds?: string[];
       name?: string;
       description?: string;
       status?: WorkbenchProjectStatus;
@@ -1146,7 +1180,11 @@ export function createWorkbenchFormalTaskStore() {
         .get(projectId) as Record<string, unknown> | undefined;
       if (
         !existing
-        || !projectAccessibleForScope(existing, { managerUserId: ownerUserId, managerGroupId })
+        || !projectAccessibleForScope(existing, {
+          managerUserId: ownerUserId,
+          managerGroupId,
+          managerGroupMemberUserIds: input.managerGroupMemberUserIds,
+        })
       ) {
         throw new Error("project not found");
       }
@@ -1257,6 +1295,7 @@ export function createWorkbenchFormalTaskStore() {
       taskNo: string;
       managerUserId: string;
       managerGroupId?: string | null;
+      managerGroupMemberUserIds?: string[];
       projectId: string | null;
     }): WorkbenchTaskRow {
       const taskNo = input.taskNo.trim();
@@ -1265,7 +1304,11 @@ export function createWorkbenchFormalTaskStore() {
       const taskRow = qTaskByNo.get(taskNo) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("task not found");
       if (
-        !managerOwnedRowAccessible(taskRow, { managerUserId, managerGroupId })
+        !managerOwnedRowAccessible(taskRow, {
+          managerUserId,
+          managerGroupId,
+          managerGroupMemberUserIds: input.managerGroupMemberUserIds,
+        })
       ) {
         throw new Error("task not managed by actor");
       }
@@ -1275,7 +1318,11 @@ export function createWorkbenchFormalTaskStore() {
         const proj = db
           .prepare("SELECT * FROM projects WHERE project_id = ? AND status = 'active' LIMIT 1")
           .get(pid) as Record<string, unknown> | undefined;
-        if (!proj || !projectAccessibleForScope(proj, { managerUserId, managerGroupId })) {
+        if (!proj || !projectAccessibleForScope(proj, {
+          managerUserId,
+          managerGroupId,
+          managerGroupMemberUserIds: input.managerGroupMemberUserIds,
+        })) {
           throw new Error("Invalid or inaccessible project_id");
         }
         resolved = pid;
@@ -2336,7 +2383,12 @@ export function createWorkbenchFormalTaskStore() {
      * scope.managerUserId 为空 → 全员（admin/老板视角）；否则仅该主管名下任务的子任务。
      * 仅返回 due_at 非空的子任务（无截止无法判定迟交）。
      */
-    loadPerformanceDataset(scope?: { managerUserId?: string; managerGroupId?: string; projectId?: string }): {
+    loadPerformanceDataset(scope?: {
+      managerUserId?: string;
+      managerGroupId?: string;
+      managerGroupMemberUserIds?: string[];
+      projectId?: string;
+    }): {
       subtasks: Array<{
         subtaskId: string;
         assigneeUserId: string;
@@ -2359,6 +2411,10 @@ export function createWorkbenchFormalTaskStore() {
     } {
       const managerUserId = String(scope?.managerUserId ?? "").trim();
       const managerGroupId = String(scope?.managerGroupId ?? "").trim();
+      const managerGroupMemberUserIds = normalizeManagerGroupMemberUserIds(
+        scope?.managerGroupMemberUserIds,
+        managerUserId,
+      );
       const projectId = String(scope?.projectId ?? "").trim();
       const baseSql = `
         SELECT s.subtask_id, s.assignee_user_id, s.status, s.due_at, s.completed_at, s.title AS subtask_title,
@@ -2371,7 +2427,12 @@ export function createWorkbenchFormalTaskStore() {
       const clauses: string[] = [];
       const params: string[] = [];
       if (managerUserId || managerGroupId) {
-        const scopeSql = managerScopeSql({ managerUserId, managerGroupId, tableAlias: "t" });
+        const scopeSql = managerScopeSql({
+          managerUserId,
+          managerGroupId,
+          managerGroupMemberUserIds,
+          tableAlias: "t",
+        });
         clauses.push(scopeSql.clause);
         params.push(...scopeSql.params);
       }
@@ -2703,6 +2764,7 @@ export function createWorkbenchFormalTaskStore() {
     listTaskEventsForManagerSince(input: {
       managerUserId: string;
       managerGroupId?: string;
+      managerGroupMemberUserIds?: string[];
       sinceIso: string;
       untilIso?: string;
       eventTypes?: string[];
@@ -2719,6 +2781,7 @@ export function createWorkbenchFormalTaskStore() {
       const scopeSql = managerScopeSql({
         managerUserId: input.managerUserId,
         managerGroupId,
+        managerGroupMemberUserIds: input.managerGroupMemberUserIds,
         tableAlias: "t",
       });
       const params: Array<string | number | null> = [...scopeSql.params, input.sinceIso];
@@ -2742,6 +2805,7 @@ export function createWorkbenchFormalTaskStore() {
     countTaskEventsForManagerInRange(input: {
       managerUserId: string;
       managerGroupId?: string;
+      managerGroupMemberUserIds?: string[];
       sinceIso: string;
       untilIso?: string;
       eventTypes?: string[];
@@ -2754,6 +2818,7 @@ export function createWorkbenchFormalTaskStore() {
       const scopeSql = managerScopeSql({
         managerUserId: input.managerUserId,
         managerGroupId,
+        managerGroupMemberUserIds: input.managerGroupMemberUserIds,
         tableAlias: "t",
       });
       const params: Array<string | number | null> = [...scopeSql.params, input.sinceIso];

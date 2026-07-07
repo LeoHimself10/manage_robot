@@ -154,6 +154,19 @@ export function listWorkbenchManagerGroupMembers(groupId: string): string[] {
   return group ? [...group.memberUserIds] : [];
 }
 
+export function listWorkbenchManagerRecipientsForTask(input: {
+  managerUserId: string;
+  managerGroupId?: string | null;
+}): string[] {
+  const managerUserId = normalizeUserId(input.managerUserId);
+  const managerGroupId = String(input.managerGroupId ?? "").trim();
+  const groupMembers = managerGroupId
+    ? listWorkbenchManagerGroupMembers(managerGroupId)
+    : findWorkbenchManagerGroupForUser(managerUserId)?.memberUserIds ?? [];
+  const recipients = groupMembers.length > 0 ? groupMembers : [managerUserId];
+  return Array.from(new Set(recipients.map((id) => normalizeUserId(id)).filter(Boolean)));
+}
+
 export function findWorkbenchManagerGroupForUser(userId: string): WorkbenchManagerGroup | undefined {
   const normalizedUserId = normalizeUserId(userId);
   if (!normalizedUserId) return undefined;

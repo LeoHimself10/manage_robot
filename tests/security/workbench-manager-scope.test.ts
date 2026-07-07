@@ -50,6 +50,7 @@ describe("workbench manager scope", () => {
     vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "1");
     const group = createWorkbenchManagerGroup({ name: "Project managers" });
     addWorkbenchManagerGroupMember(group.groupId, "manager-1");
+    addWorkbenchManagerGroupMember(group.groupId, "manager-2");
 
     const scope = resolveWorkbenchManagerScope(" manager-1 ");
 
@@ -57,6 +58,7 @@ describe("workbench manager scope", () => {
       actorUserId: "manager-1",
       managerUserId: "manager-1",
       managerGroupId: group.groupId,
+      managerGroupMemberUserIds: ["manager-1", "manager-2"],
     });
     expect(managerScopeLabel(scope)).toBe(`group:${group.groupId}`);
   });
@@ -78,13 +80,15 @@ describe("workbench manager scope", () => {
       actorUserId: "manager-1",
       managerUserId: "manager-1",
       managerGroupId: "mgrgrp:alpha",
+      managerGroupMemberUserIds: ["manager-1", "manager-2"],
     };
 
     expect(
       canAccessManagerOwnedObject({ managerUserId: "manager-2", managerGroupId: "mgrgrp:alpha" }, groupScope),
     ).toBe(true);
     expect(canAccessManagerOwnedObject({ managerUserId: "manager-1" }, groupScope)).toBe(true);
-    expect(canAccessManagerOwnedObject({ managerUserId: "manager-2" }, groupScope)).toBe(false);
+    expect(canAccessManagerOwnedObject({ managerUserId: "manager-2" }, groupScope)).toBe(true);
+    expect(canAccessManagerOwnedObject({ managerUserId: "manager-3" }, groupScope)).toBe(false);
     expect(
       canAccessManagerOwnedObject({ managerUserId: "manager-1", managerGroupId: "mgrgrp:beta" }, groupScope),
     ).toBe(false);

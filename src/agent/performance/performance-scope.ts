@@ -12,7 +12,12 @@ export function resolvePerformanceScope(session: Pick<WorkbenchSession, "role" |
     return { kind: "all" };
   }
   const scope = resolveWorkbenchManagerScope(session.userId);
-  return { kind: "manager", managerUserId: session.userId, managerGroupId: scope.managerGroupId };
+  return {
+    kind: "manager",
+    managerUserId: session.userId,
+    managerGroupId: scope.managerGroupId,
+    managerGroupMemberUserIds: scope.managerGroupMemberUserIds,
+  };
 }
 
 export function performanceScopeLabel(scope: PerformanceScope): string {

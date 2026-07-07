@@ -185,4 +185,33 @@ describe("reminder-send", () => {
     expect(result.ok).toBe(true);
     expect(sentTo.sort()).toEqual(["mgr-1", "mgr-2"]);
   });
+
+  it("notifies the owner manager group for legacy ungrouped overdue tasks", async () => {
+    process.env.WORKBENCH_MANAGER_GROUPS_ENABLED = "1";
+    process.env.WORKBENCH_MANAGER_GROUPS_FILE = join(tmpdir(), `reminder-legacy-groups-${Date.now()}.json`);
+    const group = createWorkbenchManagerGroup({ name: "Legacy owners" });
+    addWorkbenchManagerGroupMember(group.groupId, "mgr-1");
+    addWorkbenchManagerGroupMember(group.groupId, "mgr-2");
+    const { taskStore, peopleStore, sid } = seedSubtask("2026-05-20");
+    const sentTo: string[] = [];
+    const notifier: WorkbenchPublishNotifier = {
+      ...mockNotifier,
+      notifyManagerSubtaskOverdue: async (payload) => {
+        sentTo.push(payload.managerUserId);
+        return {
+          enabled: true,
+          success: [{ userId: payload.managerUserId, robotMessageKey: `mock-${payload.managerUserId}` }],
+          failed: [],
+        };
+      },
+    };
+
+    const result = await sendManagerOverdueAlert(
+      { subtaskId: sid, overdueSince: "2026-05-20T10:00:00.000Z" },
+      { taskStore, peopleStore, notifier, policy: loadReminderPolicy() },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(sentTo.sort()).toEqual(["mgr-1", "mgr-2"]);
+  });
 });

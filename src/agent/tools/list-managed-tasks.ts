@@ -29,6 +29,7 @@ export function buildListManagedTasksHandler(
     const tasks = taskStore.listManagerTasks({
       managerUserId: scope.managerUserId,
       managerGroupId: scope.managerGroupId,
+      managerGroupMemberUserIds: scope.managerGroupMemberUserIds,
     });
     return { ok: true, actorUserId, managerGroupId: scope.managerGroupId ?? "", tasks };
   };

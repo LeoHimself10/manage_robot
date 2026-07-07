@@ -1,4 +1,5 @@
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
+import { listWorkbenchManagerRecipientsForTask } from "../../security/workbench-manager-groups";
 import type { ManagerEmployeeNotifyKind, WorkbenchPublishNotifier } from "./workbench-notify";
 import { resolveManagerNotifyDetailFocus, resolveManagerTaskDetailUrl } from "./workbench-notify";
 
@@ -27,7 +28,11 @@ export async function notifyManagerOfEmployeeActionAfterUpdate(input: {
   if (!pair) return;
   const managerUserId = pair.task.managerUserId?.trim();
   if (!managerUserId) return;
-  if (managerUserId === input.actorUserId.trim()) return;
+  const recipients = listWorkbenchManagerRecipientsForTask({
+    managerUserId,
+    managerGroupId: pair.task.managerGroupId,
+  }).filter((recipient) => recipient !== input.actorUserId.trim());
+  if (recipients.length === 0) return;
 
   const employeeDisplayName =
     input.getDisplayName?.(input.actorUserId)?.trim() || input.actorUserId;
@@ -37,42 +42,53 @@ export async function notifyManagerOfEmployeeActionAfterUpdate(input: {
     ...(focus ? { focus } : {}),
   });
 
-  let result: Awaited<ReturnType<WorkbenchPublishNotifier["notifyManagerOfEmployeeAction"]>>;
-  try {
-    result = await notifyFn.call(input.notifier, {
-      managerUserId,
-      employeeUserId: input.actorUserId,
-      employeeDisplayName,
-      taskNo: pair.task.taskNo,
-      taskTitle: pair.task.title,
-      subtaskId: pair.subtask.subtaskId,
-      subtaskTitle: pair.subtask.title,
-      kind: input.kind,
-      note: input.note,
-      workbenchTaskUrl: taskUrl,
-    });
-  } catch (err) {
-    input.taskStore.appendTaskEvent({
-      taskId: pair.task.taskId,
-      subtaskId: pair.subtask.subtaskId,
-      eventType: "MANAGER_NOTIFY_FAILED",
-      actorUserId: input.actorUserId,
-      note: (err instanceof Error ? err.message : String(err)).slice(0, 500),
-      payload: { phase: "notifyManagerOfEmployeeAction_throw", kind: input.kind },
-    });
-    return;
-  }
+  for (const recipientManagerUserId of recipients) {
+    let result: Awaited<ReturnType<WorkbenchPublishNotifier["notifyManagerOfEmployeeAction"]>>;
+    try {
+      result = await notifyFn.call(input.notifier, {
+        managerUserId: recipientManagerUserId,
+        employeeUserId: input.actorUserId,
+        employeeDisplayName,
+        taskNo: pair.task.taskNo,
+        taskTitle: pair.task.title,
+        subtaskId: pair.subtask.subtaskId,
+        subtaskTitle: pair.subtask.title,
+        kind: input.kind,
+        note: input.note,
+        workbenchTaskUrl: taskUrl,
+      });
+    } catch (err) {
+      input.taskStore.appendTaskEvent({
+        taskId: pair.task.taskId,
+        subtaskId: pair.subtask.subtaskId,
+        eventType: "MANAGER_NOTIFY_FAILED",
+        actorUserId: input.actorUserId,
+        note: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+        payload: {
+          phase: "notifyManagerOfEmployeeAction_throw",
+          kind: input.kind,
+          managerUserId: recipientManagerUserId,
+        },
+      });
+      continue;
+    }
 
-  const notifiedOk = result.success.some((s) => s.userId === managerUserId);
-  if (result.enabled && !notifiedOk) {
-    const reasons = result.failed.map((f) => f.reason).join("; ") || "no success entry";
-    input.taskStore.appendTaskEvent({
-      taskId: pair.task.taskId,
-      subtaskId: pair.subtask.subtaskId,
-      eventType: "MANAGER_NOTIFY_FAILED",
-      actorUserId: input.actorUserId,
-      note: reasons.slice(0, 500),
-      payload: { kind: input.kind, failed: result.failed, skippedReason: result.skippedReason },
-    });
+    const notifiedOk = result.success.some((s) => s.userId === recipientManagerUserId);
+    if (result.enabled && !notifiedOk) {
+      const reasons = result.failed.map((f) => f.reason).join("; ") || "no success entry";
+      input.taskStore.appendTaskEvent({
+        taskId: pair.task.taskId,
+        subtaskId: pair.subtask.subtaskId,
+        eventType: "MANAGER_NOTIFY_FAILED",
+        actorUserId: input.actorUserId,
+        note: reasons.slice(0, 500),
+        payload: {
+          kind: input.kind,
+          managerUserId: recipientManagerUserId,
+          failed: result.failed,
+          skippedReason: result.skippedReason,
+        },
+      });
+    }
   }
 }

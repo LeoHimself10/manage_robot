@@ -250,6 +250,19 @@ describe("weekly dashboard facts", () => {
       note: "personal note",
       occurredAt: "2026-05-20T04:00:00.000Z",
     });
+    const sameGroupMemberPersonal = seedTask({
+      planId: "plan-weekly-same-group-member-personal",
+      managerUserId: "mgr-a",
+      assigneeUserId: "emp-a2",
+    });
+    sameGroupMemberPersonal.store.appendTaskEvent({
+      taskId: sameGroupMemberPersonal.detail.task.taskId,
+      subtaskId: sameGroupMemberPersonal.detail.subtasks[0]!.subtaskId,
+      eventType: "SUBTASK_CUSTOMIZE_NOTE",
+      actorUserId: "emp-a2",
+      note: "same group member personal note",
+      occurredAt: "2026-05-20T05:00:00.000Z",
+    });
     seedTask({
       planId: "plan-weekly-other-personal",
       managerUserId: "mgr-c",
@@ -259,6 +272,7 @@ describe("weekly dashboard facts", () => {
       taskStore: store,
       managerUserId: "mgr-b",
       managerGroupId: "mgrgrp:mingsi",
+      managerGroupMemberUserIds: ["mgr-a", "mgr-b"],
       week: "2026-05-20",
       span: 1,
       now: new Date("2026-05-20T04:00:00.000Z"),
@@ -278,7 +292,10 @@ describe("weekly dashboard facts", () => {
     });
     expect(facts.tasks.some((group) => group.task.planId === "plan-weekly-group")).toBe(true);
     expect(facts.tasks.some((group) => group.task.planId === "plan-weekly-personal")).toBe(true);
+    expect(facts.tasks.some((group) => group.task.planId === "plan-weekly-same-group-member-personal")).toBe(true);
     expect(facts.tasks.some((group) => group.task.planId === "plan-weekly-other-personal")).toBe(false);
-    expect(facts.feed.items.some((item) => item.eventType === "SUBTASK_CUSTOMIZE_NOTE")).toBe(true);
+    expect(
+      facts.feed.items.filter((item) => item.eventType === "SUBTASK_CUSTOMIZE_NOTE"),
+    ).toHaveLength(2);
   });
 });

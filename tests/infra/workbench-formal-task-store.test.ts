@@ -1472,7 +1472,7 @@ describe("workbench-formal-task-store projects", () => {
     ).toThrow(/Invalid or inaccessible project_id/);
   });
 
-  it("keeps own ungrouped projects accessible after joining a manager group", () => {
+  it("keeps same-group ungrouped projects accessible after joining a manager group", () => {
     const store = createWorkbenchFormalTaskStore();
     const sameGroup = store.createProject({
       ownerUserId: "mgr-a",
@@ -1488,7 +1488,19 @@ describe("workbench-formal-task-store projects", () => {
       ownerUserId: "mgr-b",
       name: "Same owner ungrouped",
     });
-    const scope = { managerUserId: "mgr-b", managerGroupId: "mgrgrp:mingsi" };
+    const sameGroupMemberUngrouped = store.createProject({
+      ownerUserId: "mgr-a",
+      name: "Same group member ungrouped",
+    });
+    const outsideGroupUngrouped = store.createProject({
+      ownerUserId: "mgr-c",
+      name: "Outside group ungrouped",
+    });
+    const scope = {
+      managerUserId: "mgr-b",
+      managerGroupId: "mgrgrp:mingsi",
+      managerGroupMemberUserIds: ["mgr-a", "mgr-b"],
+    } as any;
 
     expect(store.getProjectForManagerScope(sameGroup.projectId, scope)?.projectId).toBe(
       sameGroup.projectId,
@@ -1497,9 +1509,13 @@ describe("workbench-formal-task-store projects", () => {
     expect(store.getProjectForManagerScope(sameOwnerUngrouped.projectId, scope)?.projectId).toBe(
       sameOwnerUngrouped.projectId,
     );
+    expect(store.getProjectForManagerScope(sameGroupMemberUngrouped.projectId, scope)?.projectId).toBe(
+      sameGroupMemberUngrouped.projectId,
+    );
+    expect(store.getProjectForManagerScope(outsideGroupUngrouped.projectId, scope)).toBeUndefined();
   });
 
-  it("keeps own ungrouped tasks visible after joining a manager group without leaking other personal tasks", () => {
+  it("keeps same-group ungrouped tasks visible after joining a manager group without leaking outside personal tasks", () => {
     const store = createWorkbenchFormalTaskStore();
     store.publishFromSession({
       planId: "plan-group-unassigned",
@@ -1525,25 +1541,37 @@ describe("workbench-formal-task-store projects", () => {
       actorUserId: "mgr-b",
     });
     store.publishFromSession({
-      planId: "plan-other-personal-unassigned",
-      session: baseSession("plan-other-personal-unassigned"),
+      planId: "plan-same-group-member-personal-unassigned",
+      session: baseSession("plan-same-group-member-personal-unassigned"),
       managerUserId: "mgr-a",
       initiatorDepartment: "ops",
       actorUserId: "mgr-a",
     });
+    store.publishFromSession({
+      planId: "plan-outside-personal-unassigned",
+      session: baseSession("plan-outside-personal-unassigned"),
+      managerUserId: "mgr-c",
+      initiatorDepartment: "ops",
+      actorUserId: "mgr-c",
+    });
 
     const rows = store.listManagerTasks(
-      { managerUserId: "mgr-b", managerGroupId: "mgrgrp:mingsi" },
+      {
+        managerUserId: "mgr-b",
+        managerGroupId: "mgrgrp:mingsi",
+        managerGroupMemberUserIds: ["mgr-a", "mgr-b"],
+      } as any,
       { projectId: "__unassigned__" },
     );
 
     expect(rows.map((row) => row.planId).sort()).toEqual([
       "plan-group-unassigned",
       "plan-personal-unassigned",
+      "plan-same-group-member-personal-unassigned",
     ]);
   });
 
-  it("keeps own ungrouped tasks in performance datasets after joining a manager group", () => {
+  it("keeps same-group ungrouped tasks in performance datasets after joining a manager group", () => {
     const store = createWorkbenchFormalTaskStore();
     const dueSession = (planId: string): PlanSession => {
       const session = baseSession(planId);
@@ -1567,6 +1595,13 @@ describe("workbench-formal-task-store projects", () => {
       actorUserId: "mgr-b",
     });
     store.publishFromSession({
+      planId: "plan-same-group-member-personal-performance",
+      session: dueSession("plan-same-group-member-personal-performance"),
+      managerUserId: "mgr-a",
+      initiatorDepartment: "ops",
+      actorUserId: "mgr-a",
+    });
+    store.publishFromSession({
       planId: "plan-other-personal-performance",
       session: dueSession("plan-other-personal-performance"),
       managerUserId: "mgr-c",
@@ -1577,11 +1612,13 @@ describe("workbench-formal-task-store projects", () => {
     const dataset = store.loadPerformanceDataset({
       managerUserId: "mgr-b",
       managerGroupId: "mgrgrp:mingsi",
-    });
+      managerGroupMemberUserIds: ["mgr-a", "mgr-b"],
+    } as any);
 
     expect(dataset.subtasks.map((row) => row.planId).sort()).toEqual([
       "plan-group-performance",
       "plan-personal-performance",
+      "plan-same-group-member-personal-performance",
     ]);
   });
 

@@ -169,6 +169,7 @@ export function listFollowUpCandidatesForActor(
     bucket?: FollowUpBucket;
     isAdmin?: boolean;
     managerGroupId?: string;
+    managerGroupMemberUserIds?: string[];
     resolveDisplayName?: (userId: string) => string | undefined;
     now?: Date;
     timezone?: string;
@@ -184,7 +185,13 @@ export function listFollowUpCandidatesForActor(
   const rows = taskStore.listActiveSubtasksForReminders().filter((r) => {
     if (opts.isAdmin) return true;
     if (opts.managerGroupId) {
-      return r.managerGroupId === opts.managerGroupId || (!r.managerGroupId && r.managerUserId === actorUserId);
+      const memberUserIds = Array.from(new Set(
+        [...(opts.managerGroupMemberUserIds ?? []), actorUserId]
+          .map((id) => String(id ?? "").trim())
+          .filter(Boolean),
+      ));
+      return r.managerGroupId === opts.managerGroupId
+        || (!r.managerGroupId && memberUserIds.includes(r.managerUserId));
     }
     return r.managerUserId === actorUserId;
   });

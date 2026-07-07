@@ -127,6 +127,7 @@ describe("performance dashboard api", () => {
       kind: "manager",
       managerUserId: "mgr-b",
       managerGroupId: group.groupId,
+      managerGroupMemberUserIds: ["mgr-b"],
     });
   });
 

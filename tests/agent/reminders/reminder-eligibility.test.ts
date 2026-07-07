@@ -137,7 +137,7 @@ describe("reminder-eligibility", () => {
     expect(other.length).toBe(0);
   });
 
-  it("listFollowUpCandidates keeps own ungrouped tasks after joining a manager group", () => {
+  it("listFollowUpCandidates keeps same-group ungrouped tasks after joining a manager group", () => {
     const { store } = seedPublishedWithDue("2026-05-20", {
       planId: "plan-follow-group",
       managerUserId: "mgr-a",
@@ -150,7 +150,12 @@ describe("reminder-eligibility", () => {
       assigneeUserId: "emp-b",
     });
     seedPublishedWithDue("2026-05-20", {
-      planId: "plan-follow-other-personal",
+      planId: "plan-follow-same-group-member-personal",
+      managerUserId: "mgr-a",
+      assigneeUserId: "emp-a2",
+    });
+    seedPublishedWithDue("2026-05-20", {
+      planId: "plan-follow-outside-personal",
       managerUserId: "mgr-c",
       assigneeUserId: "emp-c",
     });
@@ -158,11 +163,13 @@ describe("reminder-eligibility", () => {
     const rows = listFollowUpCandidatesForActor(store, "mgr-b", {
       bucket: "overdue",
       managerGroupId: "mgrgrp:mingsi",
+      managerGroupMemberUserIds: ["mgr-a", "mgr-b"],
       now: new Date("2026-05-21T12:00:00.000Z"),
-    });
+    } as any);
 
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows.some((row) => row.assigneeUserId === "emp-a")).toBe(true);
+    expect(rows.some((row) => row.assigneeUserId === "emp-a2")).toBe(true);
     expect(rows.some((row) => row.assigneeUserId === "emp-b")).toBe(true);
     expect(rows.some((row) => row.assigneeUserId === "emp-c")).toBe(false);
   });

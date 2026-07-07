@@ -412,7 +412,11 @@ function resolveSessionManagerScope(session: { userId: string }): WorkbenchManag
 
 function managerTaskScopeForSession(session: { userId: string }): WorkbenchManagerTaskScope {
   const scope = resolveSessionManagerScope(session);
-  return { managerUserId: scope.managerUserId, managerGroupId: scope.managerGroupId };
+  return {
+    managerUserId: scope.managerUserId,
+    managerGroupId: scope.managerGroupId,
+    managerGroupMemberUserIds: scope.managerGroupMemberUserIds,
+  };
 }
 
 function canSessionManageTask(
@@ -3878,6 +3882,7 @@ export function handleAssignmentHttp(
         taskStore: getFormalTaskStore(),
         managerUserId: session.userId,
         managerGroupId: typeof managerScope === "string" ? undefined : managerScope.managerGroupId,
+        managerGroupMemberUserIds: typeof managerScope === "string" ? undefined : managerScope.managerGroupMemberUserIds,
         week: String(url.searchParams.get("week") ?? "").trim() || undefined,
         span: url.searchParams.get("span"),
         feedCursor: String(url.searchParams.get("feedCursor") ?? "").trim() || undefined,
@@ -3908,6 +3913,7 @@ export function handleAssignmentHttp(
             taskStore: getFormalTaskStore(),
             managerUserId: session.userId,
             managerGroupId: typeof managerScope === "string" ? undefined : managerScope.managerGroupId,
+            managerGroupMemberUserIds: typeof managerScope === "string" ? undefined : managerScope.managerGroupMemberUserIds,
             week: String(body.week ?? "").trim() || undefined,
             span: body.span,
             projectId: projectId || undefined,
@@ -4651,6 +4657,7 @@ export function handleAssignmentHttp(
           projectId,
           ownerUserId: session.userId,
           managerGroupId: typeof scope === "string" ? undefined : scope.managerGroupId,
+          managerGroupMemberUserIds: typeof scope === "string" ? undefined : scope.managerGroupMemberUserIds,
           name: body.name !== undefined ? String(body.name).trim() : undefined,
           description:
             body.description !== undefined ? String(body.description).trim() : undefined,
@@ -4703,6 +4710,7 @@ export function handleAssignmentHttp(
           taskNo,
           managerUserId: typeof scope === "string" ? scope : scope.managerUserId,
           managerGroupId: typeof scope === "string" ? undefined : scope.managerGroupId,
+          managerGroupMemberUserIds: typeof scope === "string" ? undefined : scope.managerGroupMemberUserIds,
           projectId,
         });
         writeJson(res, 200, { ok: true, task });

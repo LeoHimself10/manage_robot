@@ -151,6 +151,7 @@ export function buildWeeklyDashboardFacts(input: {
   taskStore: TaskStore;
   managerUserId: string;
   managerGroupId?: string;
+  managerGroupMemberUserIds?: string[];
   week?: string;
   span?: number;
   feedCursor?: string;
@@ -175,6 +176,7 @@ export function buildWeeklyDashboardFacts(input: {
   const managerScope = {
     managerUserId: input.managerUserId,
     managerGroupId: input.managerGroupId,
+    managerGroupMemberUserIds: input.managerGroupMemberUserIds,
   };
   const allTaskSummaries = input.taskStore.listManagerTasks(
     managerScope,
@@ -183,6 +185,7 @@ export function buildWeeklyDashboardFacts(input: {
   const eventQuery = {
     managerUserId: input.managerUserId,
     managerGroupId: input.managerGroupId,
+    managerGroupMemberUserIds: input.managerGroupMemberUserIds,
     sinceIso: weekSpan.center.startIso,
     untilIso: weekSpan.center.endIso,
     eventTypes: WEEKLY_DASHBOARD_EVENT_TYPES,
