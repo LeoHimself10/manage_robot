@@ -1,4 +1,5 @@
 import { renderWorkbenchPage } from "./workbench-shell";
+import { isWorkbenchManagerGroupsEnabled } from "../security/workbench-manager-groups";
 
 export const ADMIN_PERMISSIONS_CSS = `
 .admin-perm-hub {
@@ -399,7 +400,133 @@ export const ADMIN_PERMISSIONS_CSS = `
 }
 `;
 
-function buildAdminPermissionsClientJs(): string {
+function buildAdminPermissionsClientJs(managerGroupsEnabled: boolean): string {
+  const managerGroupStateJs = managerGroupsEnabled ? "  var managerGroupRows = [];\n" : "";
+  const reloadPermissionsJs = managerGroupsEnabled
+    ? "Promise.all([loadManagers(), loadPortfolioManagers(), loadManagerGroups()])"
+    : "Promise.all([loadManagers(), loadPortfolioManagers()])";
+  const managerGroupClientJs = managerGroupsEnabled ? `
+  function selectedManagerGroupId() {
+    var sel = document.getElementById('managerGroupMemberSelect');
+    return sel ? String(sel.value || '').trim() : '';
+  }
+
+  function renderManagerGroupSelect() {
+    var sel = document.getElementById('managerGroupMemberSelect');
+    if (!sel) return;
+    var previous = sel.value || '';
+    sel.innerHTML = '<option value="">选择主管组</option>' + managerGroupRows.map(function (g) {
+      return '<option value="' + esc(g.groupId) + '">' + esc(g.name || g.groupId) + '</option>';
+    }).join('');
+    if (previous && managerGroupRows.some(function (g) { return g.groupId === previous; })) {
+      sel.value = previous;
+    }
+  }
+
+  function renderManagerGroups() {
+    var mount = document.getElementById('managerGroupListMount');
+    var countEl = document.getElementById('managerGroupCount');
+    if (!mount) return;
+    if (countEl) countEl.textContent = String(managerGroupRows.length);
+    renderManagerGroupSelect();
+    if (!managerGroupRows.length) {
+      mount.innerHTML = '<div class="empty-state" style="padding:12px 0;margin:0;">暂无主管组</div>';
+      return;
+    }
+    mount.innerHTML = managerGroupRows.map(function (g) {
+      var memberCount = (g.memberUserIds || []).length;
+      var members = (g.members || []).map(function (m) { return m.name || m.userId; }).filter(Boolean).join('、');
+      var meta = esc(g.groupId) + ' · 成员 ' + esc(String(memberCount)) + ' · 任务 ' + esc(String(g.taskCount || 0)) + ' · 项目 ' + esc(String(g.projectCount || 0));
+      if (members) meta += '<br>' + esc(members);
+      return '<div class="admin-perm-row">'
+        + '<span class="admin-perm-av">' + esc(permInitial(g.name || g.groupId)) + '</span>'
+        + '<div><div class="admin-perm-row__name">' + esc(g.name || g.groupId) + '</div><div class="admin-perm-row__id">' + meta + '</div></div>'
+        + '<button type="button" class="btn btn-ghost btn-sm" data-manager-group-select="' + esc(g.groupId) + '">' + (g.status === 'inactive' ? '停用' : '启用') + '</button>'
+        + '</div>';
+    }).join('');
+    Array.prototype.forEach.call(mount.querySelectorAll('[data-manager-group-select]'), function (node) {
+      node.addEventListener('click', function () {
+        var sel = document.getElementById('managerGroupMemberSelect');
+        if (sel) sel.value = node.getAttribute('data-manager-group-select') || '';
+      });
+    });
+  }
+
+  async function loadManagerGroups() {
+    var res = await fetch('/api/workbench/admin/manager-groups');
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    managerGroupRows = data.groups || [];
+    renderManagerGroups();
+  }
+
+  async function createManagerGroup() {
+    var nameEl = document.getElementById('managerGroupName');
+    var descEl = document.getElementById('managerGroupDesc');
+    var portfolioEl = document.getElementById('managerGroupPortfolio');
+    var name = String(nameEl && nameEl.value || '').trim();
+    if (!name) {
+      setFb('permFeedback', '请填写主管组名称', 'err');
+      return;
+    }
+    var res = await fetch('/api/workbench/admin/manager-groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: name,
+        description: String(descEl && descEl.value || '').trim(),
+        portfolioEnabled: Boolean(portfolioEl && portfolioEl.checked)
+      })
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    if (nameEl) nameEl.value = '';
+    if (descEl) descEl.value = '';
+    if (portfolioEl) portfolioEl.checked = false;
+    setFb('permFeedback', '已创建主管组：' + name, 'ok');
+    await Promise.all([loadManagerGroups(), loadManagers()]);
+  }
+
+  async function saveManagerGroupMember(enabled) {
+    if (!selectedUser || !selectedUser.userId) {
+      setFb('permFeedback', '请先搜索并点选一位员工', 'err');
+      return;
+    }
+    var groupId = selectedManagerGroupId();
+    if (!groupId) {
+      setFb('permFeedback', '请选择主管组', 'err');
+      return;
+    }
+    var res = await fetch('/api/workbench/admin/manager-groups/members', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groupId: groupId, userId: selectedUser.userId, enabled: enabled })
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    selectedUser.isManager = enabled || selectedUser.isManager;
+    renderSelected();
+    setFb('permFeedback', (enabled ? '已加入主管组：' : '已移出主管组：') + (selectedUser.name || selectedUser.userId), 'ok');
+    await Promise.all([loadManagerGroups(), loadManagers()]);
+  }
+` : "";
+  const managerGroupListenersJs = managerGroupsEnabled ? `
+  document.getElementById('createManagerGroupBtn').addEventListener('click', function () {
+    void createManagerGroup().catch(function (e) {
+      setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
+    });
+  });
+  document.getElementById('addManagerGroupMemberBtn').addEventListener('click', function () {
+    void saveManagerGroupMember(true).catch(function (e) {
+      setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
+    });
+  });
+  document.getElementById('removeManagerGroupMemberBtn').addEventListener('click', function () {
+    void saveManagerGroupMember(false).catch(function (e) {
+      setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
+    });
+  });
+` : "";
   return `<script>
 (function () {
   function setFb(id, msg, kind) {
@@ -441,7 +568,7 @@ function buildAdminPermissionsClientJs(): string {
   var searchTimer = null;
   var activeIndex = -1;
   var currentResults = [];
-  var managerGroupRows = [];
+${managerGroupStateJs}
 
   function comboInput() { return document.getElementById('employeeKeyword'); }
   function comboMenu() { return document.getElementById('employeeOptions'); }
@@ -564,109 +691,7 @@ function buildAdminPermissionsClientJs(): string {
     renderRows('portfolioListMount', 'portfolioCount', rows, '暂无项目管理主管', 'is-portfolio');
   }
 
-  function selectedManagerGroupId() {
-    var sel = document.getElementById('managerGroupMemberSelect');
-    return sel ? String(sel.value || '').trim() : '';
-  }
-
-  function renderManagerGroupSelect() {
-    var sel = document.getElementById('managerGroupMemberSelect');
-    if (!sel) return;
-    var previous = sel.value || '';
-    sel.innerHTML = '<option value="">选择主管组</option>' + managerGroupRows.map(function (g) {
-      return '<option value="' + esc(g.groupId) + '">' + esc(g.name || g.groupId) + '</option>';
-    }).join('');
-    if (previous && managerGroupRows.some(function (g) { return g.groupId === previous; })) {
-      sel.value = previous;
-    }
-  }
-
-  function renderManagerGroups() {
-    var mount = document.getElementById('managerGroupListMount');
-    var countEl = document.getElementById('managerGroupCount');
-    if (!mount) return;
-    if (countEl) countEl.textContent = String(managerGroupRows.length);
-    renderManagerGroupSelect();
-    if (!managerGroupRows.length) {
-      mount.innerHTML = '<div class="empty-state" style="padding:12px 0;margin:0;">暂无主管组</div>';
-      return;
-    }
-    mount.innerHTML = managerGroupRows.map(function (g) {
-      var memberCount = (g.memberUserIds || []).length;
-      var members = (g.members || []).map(function (m) { return m.name || m.userId; }).filter(Boolean).join('、');
-      var meta = esc(g.groupId) + ' · 成员 ' + esc(String(memberCount)) + ' · 任务 ' + esc(String(g.taskCount || 0)) + ' · 项目 ' + esc(String(g.projectCount || 0));
-      if (members) meta += '<br>' + esc(members);
-      return '<div class="admin-perm-row">'
-        + '<span class="admin-perm-av">' + esc(permInitial(g.name || g.groupId)) + '</span>'
-        + '<div><div class="admin-perm-row__name">' + esc(g.name || g.groupId) + '</div><div class="admin-perm-row__id">' + meta + '</div></div>'
-        + '<button type="button" class="btn btn-ghost btn-sm" data-manager-group-select="' + esc(g.groupId) + '">' + (g.status === 'inactive' ? '停用' : '启用') + '</button>'
-        + '</div>';
-    }).join('');
-    Array.prototype.forEach.call(mount.querySelectorAll('[data-manager-group-select]'), function (node) {
-      node.addEventListener('click', function () {
-        var sel = document.getElementById('managerGroupMemberSelect');
-        if (sel) sel.value = node.getAttribute('data-manager-group-select') || '';
-      });
-    });
-  }
-
-  async function loadManagerGroups() {
-    var res = await fetch('/api/workbench/admin/manager-groups');
-    var data = await res.json().catch(function () { return {}; });
-    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-    managerGroupRows = data.groups || [];
-    renderManagerGroups();
-  }
-
-  async function createManagerGroup() {
-    var nameEl = document.getElementById('managerGroupName');
-    var descEl = document.getElementById('managerGroupDesc');
-    var portfolioEl = document.getElementById('managerGroupPortfolio');
-    var name = String(nameEl && nameEl.value || '').trim();
-    if (!name) {
-      setFb('permFeedback', '请填写主管组名称', 'err');
-      return;
-    }
-    var res = await fetch('/api/workbench/admin/manager-groups', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: name,
-        description: String(descEl && descEl.value || '').trim(),
-        portfolioEnabled: Boolean(portfolioEl && portfolioEl.checked)
-      })
-    });
-    var data = await res.json().catch(function () { return {}; });
-    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-    if (nameEl) nameEl.value = '';
-    if (descEl) descEl.value = '';
-    if (portfolioEl) portfolioEl.checked = false;
-    setFb('permFeedback', '已创建主管组：' + name, 'ok');
-    await Promise.all([loadManagerGroups(), loadManagers()]);
-  }
-
-  async function saveManagerGroupMember(enabled) {
-    if (!selectedUser || !selectedUser.userId) {
-      setFb('permFeedback', '请先搜索并点选一位员工', 'err');
-      return;
-    }
-    var groupId = selectedManagerGroupId();
-    if (!groupId) {
-      setFb('permFeedback', '请选择主管组', 'err');
-      return;
-    }
-    var res = await fetch('/api/workbench/admin/manager-groups/members', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groupId: groupId, userId: selectedUser.userId, enabled: enabled })
-    });
-    var data = await res.json().catch(function () { return {}; });
-    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-    selectedUser.isManager = enabled || selectedUser.isManager;
-    renderSelected();
-    setFb('permFeedback', (enabled ? '已加入主管组：' : '已移出主管组：') + (selectedUser.name || selectedUser.userId), 'ok');
-    await Promise.all([loadManagerGroups(), loadManagers()]);
-  }
+${managerGroupClientJs}
 
   async function savePermission(kind, enabled) {
     if (!selectedUser || !selectedUser.userId) {
@@ -688,7 +713,7 @@ function buildAdminPermissionsClientJs(): string {
     if (kind === 'portfolio') selectedUser.isPortfolioManager = enabled;
     else selectedUser.isManager = enabled;
     renderSelected();
-    await Promise.all([loadManagers(), loadPortfolioManagers(), loadManagerGroups()]);
+    await ${reloadPermissionsJs};
   }
 
   var inputEl = comboInput();
@@ -749,21 +774,7 @@ function buildAdminPermissionsClientJs(): string {
       setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
     });
   });
-  document.getElementById('createManagerGroupBtn').addEventListener('click', function () {
-    void createManagerGroup().catch(function (e) {
-      setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
-    });
-  });
-  document.getElementById('addManagerGroupMemberBtn').addEventListener('click', function () {
-    void saveManagerGroupMember(true).catch(function (e) {
-      setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
-    });
-  });
-  document.getElementById('removeManagerGroupMemberBtn').addEventListener('click', function () {
-    void saveManagerGroupMember(false).catch(function (e) {
-      setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
-    });
-  });
+${managerGroupListenersJs}
   document.getElementById('logoutBtn').addEventListener('click', async function () {
     var res = await fetch('/api/workbench/logout', { method: 'POST' });
     var data = {};
@@ -771,7 +782,7 @@ function buildAdminPermissionsClientJs(): string {
     window.location.href = (data && data.redirectTo) ? data.redirectTo : '/workbench';
   });
 
-  void Promise.all([loadManagers(), loadPortfolioManagers(), loadManagerGroups()]).catch(function (e) {
+  void ${reloadPermissionsJs}.catch(function (e) {
     setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
   });
 })();
@@ -782,6 +793,43 @@ export function renderAdminPermissionsPage(params: {
   userLabel?: string;
   sessionUserId?: string;
 }): string {
+  const managerGroupsEnabled = isWorkbenchManagerGroupsEnabled();
+  const managerGroupActionHtml = managerGroupsEnabled ? `
+            <div class="admin-perm-action is-manager-group">
+              <div class="admin-perm-action__title">主管组</div>
+              <div class="admin-perm-action__hint">创建组后，可将选中的员工加入或移出对应主管组。</div>
+              <div class="admin-perm-action__fields">
+                <label>组名
+                  <input id="managerGroupName" type="text" placeholder="如：商务部主管组" />
+                </label>
+                <label>说明
+                  <input id="managerGroupDesc" type="text" placeholder="可选" />
+                </label>
+                <label class="admin-perm-check">
+                  <input id="managerGroupPortfolio" type="checkbox" /> 启用项目管理能力
+                </label>
+              </div>
+              <div class="admin-perm-action__buttons">
+                <button class="btn btn-primary btn-sm" id="createManagerGroupBtn" type="button">新建主管组</button>
+              </div>
+              <label>成员主管组
+                <select id="managerGroupMemberSelect">
+                  <option value="">选择主管组</option>
+                </select>
+              </label>
+              <div class="admin-perm-action__buttons">
+                <button class="btn btn-secondary btn-sm" id="addManagerGroupMemberBtn" type="button">加入选中员工</button>
+                <button class="btn btn-ghost btn-sm" id="removeManagerGroupMemberBtn" type="button">移出选中员工</button>
+              </div>
+            </div>` : "";
+  const managerGroupListHtml = managerGroupsEnabled ? `
+        <section class="admin-perm-list-card">
+          <div class="admin-perm-list-card__head">
+            <h4>主管组</h4>
+            <span class="admin-perm-count" id="managerGroupCount">0</span>
+          </div>
+          <div class="admin-perm-list-card__body" id="managerGroupListMount">加载中…</div>
+        </section>` : "";
   return renderWorkbenchPage({
     role: "admin",
     activeNav: "adm-perms",
@@ -840,33 +888,7 @@ export function renderAdminPermissionsPage(params: {
                 <button class="btn btn-ghost btn-sm" id="revokePortfolioBtn" type="button">移除项目管理主管</button>
               </div>
             </div>
-            <div class="admin-perm-action is-manager-group">
-              <div class="admin-perm-action__title">主管组</div>
-              <div class="admin-perm-action__hint">创建组后，可将选中的员工加入或移出对应主管组。</div>
-              <div class="admin-perm-action__fields">
-                <label>组名
-                  <input id="managerGroupName" type="text" placeholder="如：商务部主管组" />
-                </label>
-                <label>说明
-                  <input id="managerGroupDesc" type="text" placeholder="可选" />
-                </label>
-                <label class="admin-perm-check">
-                  <input id="managerGroupPortfolio" type="checkbox" /> 启用项目管理能力
-                </label>
-              </div>
-              <div class="admin-perm-action__buttons">
-                <button class="btn btn-primary btn-sm" id="createManagerGroupBtn" type="button">新建主管组</button>
-              </div>
-              <label>成员主管组
-                <select id="managerGroupMemberSelect">
-                  <option value="">选择主管组</option>
-                </select>
-              </label>
-              <div class="admin-perm-action__buttons">
-                <button class="btn btn-secondary btn-sm" id="addManagerGroupMemberBtn" type="button">加入选中员工</button>
-                <button class="btn btn-ghost btn-sm" id="removeManagerGroupMemberBtn" type="button">移出选中员工</button>
-              </div>
-            </div>
+${managerGroupActionHtml}
           </div>
           <div class="feedback muted" id="permFeedback"></div>
         </div>
@@ -887,19 +909,13 @@ export function renderAdminPermissionsPage(params: {
           </div>
           <div class="admin-perm-list-card__body" id="portfolioListMount">加载中…</div>
         </section>
-        <section class="admin-perm-list-card">
-          <div class="admin-perm-list-card__head">
-            <h4>主管组</h4>
-            <span class="admin-perm-count" id="managerGroupCount">0</span>
-          </div>
-          <div class="admin-perm-list-card__body" id="managerGroupListMount">加载中…</div>
-        </section>
+${managerGroupListHtml}
       </div>
     </div>
 
     <p class="admin-perm-footnote">标签「环境变量」表示来自服务器配置，无法在此页移除；「动态」表示通过本页或 Agent 维护，可在此页撤销。</p>
   </div>`,
-    scriptHtml: buildAdminPermissionsClientJs(),
+    scriptHtml: buildAdminPermissionsClientJs(managerGroupsEnabled),
   });
 }
 

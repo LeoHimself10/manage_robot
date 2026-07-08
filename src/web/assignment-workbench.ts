@@ -86,6 +86,7 @@ import {
 import {
   addWorkbenchManagerGroupMember,
   createWorkbenchManagerGroup,
+  isWorkbenchManagerGroupsEnabled,
   listWorkbenchManagerGroups,
   removeWorkbenchManagerGroupMember,
   updateWorkbenchManagerGroup,
@@ -1055,6 +1056,14 @@ function requirePortfolioManager(
 ): boolean {
   if (!isWorkbenchProjectPortfolioEnabled(session.userId)) {
     writeJson(res, 404, { ok: false, error: "project_portfolio_not_enabled" });
+    return false;
+  }
+  return true;
+}
+
+function requireManagerGroupsEnabled(res: ServerResponse): boolean {
+  if (!isWorkbenchManagerGroupsEnabled()) {
+    writeJson(res, 404, { ok: false, error: "manager_groups_disabled" });
     return false;
   }
   return true;
@@ -5037,6 +5046,7 @@ export function handleAssignmentHttp(
   if (isGetOrHead && url.pathname === "/api/workbench/admin/manager-groups") {
     const session = requireSession(req, res, "admin");
     if (!session) return true;
+    if (!requireManagerGroupsEnabled(res)) return true;
     const store = getFormalTaskStore();
     writeJson(res, 200, {
       ok: true,
@@ -5050,6 +5060,7 @@ export function handleAssignmentHttp(
       try {
         const session = requireSession(req, res, "admin");
         if (!session) return;
+        if (!requireManagerGroupsEnabled(res)) return;
         const body = await readJsonBody(req);
         const groupId = String(body.groupId ?? "").trim();
         const status: WorkbenchManagerGroup["status"] = body.status === "inactive" ? "inactive" : "active";
@@ -5111,6 +5122,7 @@ export function handleAssignmentHttp(
       try {
         const session = requireSession(req, res, "admin");
         if (!session) return;
+        if (!requireManagerGroupsEnabled(res)) return;
         const body = await readJsonBody(req);
         const groupId = String(body.groupId ?? "").trim();
         const userId = String(body.userId ?? "").trim();
@@ -5158,6 +5170,7 @@ export function handleAssignmentHttp(
       try {
         const session = requireSession(req, res, "admin");
         if (!session) return;
+        if (!requireManagerGroupsEnabled(res)) return;
         const body = await readJsonBody(req);
         const groupId = String(body.groupId ?? "").trim();
         const managerUserId = String(body.managerUserId ?? "").trim();

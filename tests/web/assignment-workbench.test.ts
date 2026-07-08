@@ -1806,6 +1806,27 @@ describe("assignment-workbench HTTP handler", () => {
     expect(captured().body).toContain("emp-search");
   });
 
+  it("admin manager group write APIs are disabled when manager groups are off", async () => {
+    vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "0");
+    seedContact("admin-1", "管理部", "Admin");
+    const cookie = await loginCookie("admin-1", "admin");
+
+    const createReq = stubReq({
+      url: "/api/workbench/admin/manager-groups",
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Disabled group" }),
+    });
+    const createRes = stubRes();
+    expect(handleAssignmentHttp(createReq, createRes.res)).toBe(true);
+    await flushAsync();
+
+    const body = JSON.parse(createRes.captured().body) as { ok?: boolean; error?: string };
+    expect(createRes.captured().statusCode).toBe(404);
+    expect(body).toMatchObject({ ok: false, error: "manager_groups_disabled" });
+  });
+
   it("admin can create manager group and add a member", async () => {
     vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
     vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "1");
