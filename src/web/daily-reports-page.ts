@@ -494,6 +494,16 @@ function buildDailyReportsClientJs(opts: {
   if (INIT_DATE && dateInput) dateInput.value = INIT_DATE;
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function fmtTime(ms){ if(!ms) return ''; try { return new Date(Number(ms)).toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}); } catch(e){ return ''; } }
+  function bindLogout(){
+    var logoutBtn = document.getElementById('logoutBtn');
+    if(!logoutBtn) return;
+    logoutBtn.addEventListener('click', function(){
+      fetch('/api/workbench/logout', { method:'POST' })
+        .then(function(r){ return r.json().catch(function(){ return {}; }); })
+        .then(function(data){ location.href = data.redirectTo || "/workbench/login"; })
+        .catch(function(){ location.href = "/workbench/login"; });
+    });
+  }
   function renderViewTabs(access){
     if(!viewSwitch) return;
     var html = '';
@@ -688,6 +698,7 @@ function buildDailyReportsClientJs(opts: {
   ${projectViewRosterBlock}
   if(dateInput) dateInput.addEventListener('change', function(){ load(false); });
   if(refreshBtn) refreshBtn.addEventListener('click', function(){ load(true); });
+  bindLogout();
   renderViewTabs(null);
   load();
 })();

@@ -575,6 +575,17 @@ describe("daily-reports-page render", () => {
     expect(html).toContain('data-wb-nav="mgr-daily-reports"');
   });
 
+  it("binds the shared logout button on the daily reports page", () => {
+    process.env.DAILY_REPORTS_PAGE_ENABLED = "1";
+    const html = renderDailyReportsPage({
+      role: "manager",
+      activeNav: "mgr-daily-reports",
+    });
+    expect(html).toContain('id="logoutBtn"');
+    expect(html).toContain("fetch('/api/workbench/logout'");
+    expect(html).toContain('location.href = "/workbench/login"');
+  });
+
   it("shows project view roster panel markup", () => {
     process.env.DAILY_REPORTS_PAGE_ENABLED = "1";
     const html = renderDailyReportsPage({

@@ -9,6 +9,7 @@ declare global {
     __WB_CONFIGURED_CORP_ID?: string;
     __WB_TEST_LOGIN_ENABLED?: boolean;
     __wbTryDingTalkLogin?: () => Promise<void>;
+    __wbShowFallbackLogin?: (message?: string) => void;
     /** Legacy DingTalk container global; older webviews may expose this API surface. */
     dd?: legacyDingTalkContainer & Record<string, unknown>;
   }
@@ -59,6 +60,12 @@ function setSsoHint(msg: string): void {
 function setResult(msg: string): void {
   const el = document.getElementById("result");
   if (el) el.textContent = msg;
+}
+
+function showFallbackLogin(message?: string): void {
+  if (typeof window.__wbShowFallbackLogin === "function") {
+    window.__wbShowFallbackLogin(message);
+  }
 }
 
 function errMsg(err: unknown): string {
@@ -278,6 +285,7 @@ async function tryDingTalkLogin(): Promise<void> {
     if (testLoginEnabled) {
       setSsoHint("当前不是钉钉容器，已跳过自动免登。可用下方入口进入对应页面。");
       setResult("在钉钉工作台打开 /workbench 后会自动免登。");
+      showFallbackLogin("当前不是钉钉容器，已展开备用登录入口。");
     } else {
       setSsoHint("请在钉钉工作台中打开本应用。");
       setResult("当前页面需在钉钉内访问以完成自动登录。");
@@ -329,6 +337,7 @@ async function tryDingTalkLogin(): Promise<void> {
         ? "若在钉钉内仍失败：请核对微应用 AgentId、应用首页 URL 与当前页面 URL 一致，并确认已开通免登/JSAPI 权限。"
         : "请确认您从钉钉工作台打开本应用，且网络连接正常。",
     );
+    if (testLoginEnabled) showFallbackLogin("自动免登暂未完成，已展开备用登录入口。");
     return;
   }
 
@@ -338,11 +347,13 @@ async function tryDingTalkLogin(): Promise<void> {
     authCode = await resolveAuthCode(corpId);
   } catch (err) {
     setResult(`免登失败：${errMsg(err)}`);
+    if (testLoginEnabled) showFallbackLogin("免登失败，已展开备用登录入口。");
     return;
   }
 
   if (!authCode) {
     setResult("免登失败：无法获取 authCode");
+    if (testLoginEnabled) showFallbackLogin("免登失败，已展开备用登录入口。");
     return;
   }
 
@@ -362,6 +373,7 @@ async function tryDingTalkLogin(): Promise<void> {
     window.location.href = data.redirectTo || "/workbench";
   } catch (err) {
     setResult(`免登失败：${errMsg(err)}`);
+    if (testLoginEnabled) showFallbackLogin("免登失败，已展开备用登录入口。");
   }
 }
 

@@ -300,6 +300,20 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).not.toContain("娴嬭瘯鐧诲綍");
   });
 
+  it("GET /workbench login page keeps fallback account fields hidden while trying DingTalk SSO", () => {
+    vi.stubEnv("WORKBENCH_TEST_LOGIN_ENABLED", "1");
+    const req = stubReq({ url: "/workbench", method: "GET" });
+    const { res, captured } = stubRes();
+    expect(handleAssignmentHttp(req, res)).toBe(true);
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(c.body).toContain("请从钉钉工作台打开");
+    expect(c.body).toContain('id="fallbackLoginToggle"');
+    expect(c.body).toContain('id="fallbackLoginPanel" hidden');
+    expect(c.body).toMatch(/id="fallbackLoginPanel" hidden[\s\S]*id="userId"/);
+    expect(c.body).toContain("__wbShowFallbackLogin");
+  });
+
   it("unauthenticated daily reports page preserves target through login redirect", () => {
     const target = "/workbench/daily-reports?date=2026-07-08&view=custom%3Aoverview";
     const req = stubReq({ url: target, method: "GET" });

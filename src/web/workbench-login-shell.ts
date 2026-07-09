@@ -58,7 +58,11 @@ body.wb-login-page {
   cursor: pointer; border: 1px solid transparent; font-family: inherit;
 }
 .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary-hover); width: 100%; margin-top: 12px; min-height: var(--touch-min); }
+.btn-secondary { background: var(--surface); color: var(--primary); border-color: #bfdbfe; width: 100%; min-height: var(--touch-min); }
+.btn-secondary:hover { background: var(--primary-soft); }
 .muted { color: var(--muted); font-size: var(--text-sm); margin-top: 10px; min-height: 1.2em; }
+.wb-login-sso-title { text-align: center; font-size: 17px; font-weight: 700; margin-top: 2px; }
+.wb-login-sso-copy { text-align: center; margin: 6px 0 0; color: var(--muted); font-size: var(--text-sm); }
 .wb-login-spinner {
   width: 28px; height: 28px; border: 3px solid #e2e8f0; border-top-color: var(--primary);
   border-radius: 50%; animation: wb-spin 0.8s linear infinite; margin: 12px auto;
@@ -66,6 +70,11 @@ body.wb-login-page {
 @keyframes wb-spin { to { transform: rotate(360deg); } }
 a { color: var(--primary); }
 .wb-login-alt-entry { margin-top: 18px; text-align: center; font-size: var(--text-sm); }
+.wb-login-fallback-toggle { margin-top: 18px; }
+.wb-login-fallback[hidden] { display: none !important; }
+.wb-login-fallback { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.wb-login-fallback-title { font-size: var(--text-sm); font-weight: 700; color: var(--text); }
+.wb-login-fallback-note { margin-top: 4px; }
 `;
 
 function isWorkbenchTestLoginEnabled(): boolean {
@@ -78,7 +87,11 @@ export function renderWorkbenchDingTalkEntryHtml(): string {
   const corpId = getDingTalkCorpId() ?? "";
   const testLoginEnabled = isWorkbenchTestLoginEnabled();
   const loginFormHtml = testLoginEnabled
-    ? `<label>钉钉 userId
+    ? `<button id="fallbackLoginToggle" type="button" class="btn btn-secondary wb-login-fallback-toggle" aria-controls="fallbackLoginPanel" aria-expanded="false">无法自动登录？使用备用入口</button>
+  <div class="wb-login-fallback" id="fallbackLoginPanel" hidden>
+  <div class="wb-login-fallback-title">备用登录入口</div>
+  <p class="muted wb-login-fallback-note">仅在钉钉免登异常或排障时使用，正常情况下不需要输入账号。</p>
+  <label>钉钉 userId
     <input id="userId" placeholder="例如 641871342" />
   </label>
   <label>身份
@@ -89,13 +102,14 @@ export function renderWorkbenchDingTalkEntryHtml(): string {
       <option value="employee">员工</option>
     </select>
   </label>
-  <button id="loginBtn" type="button" class="btn btn-primary">登录工作台</button>`
+  <button id="loginBtn" type="button" class="btn btn-primary">登录工作台</button>
+  </div>`
     : `<div class="muted">请在钉钉工作台中打开本应用，将自动完成登录。</div>`;
   const externalLoginFooter = isWorkbenchExternalLoginEnabled()
     ? `<p class="muted wb-login-alt-entry">非钉钉用户？<a href="${EXTERNAL_WORKBENCH_LOGIN_PATH}">外部执行者登录</a></p>`
     : "";
   const heroHint = testLoginEnabled
-    ? "钉钉内将自动免登；无法自动登录时可使用下方入口。"
+    ? "请从钉钉工作台打开，系统会自动完成免登。"
     : "钉钉内打开将自动免登，并按身份进入对应工作台。";
   const initialResult = testLoginEnabled ? "正在尝试钉钉免登…" : "正在为您连接钉钉账号…";
   return `<!DOCTYPE html>
@@ -117,6 +131,8 @@ export function renderWorkbenchDingTalkEntryHtml(): string {
     <p>${heroHint}</p>
   </div>
   <div class="wb-login-card">
+  <div class="wb-login-sso-title">钉钉免登中</div>
+  <p class="wb-login-sso-copy">正在通过钉钉识别您的身份，无需输入账号。</p>
   <div class="wb-login-spinner" id="loginSpinner" aria-hidden="true"></div>
   <div class="muted" id="ssoHint"></div>
   ${loginFormHtml}
@@ -128,13 +144,30 @@ export function renderWorkbenchDingTalkEntryHtml(): string {
 window.__WB_CONFIGURED_CORP_ID = ${JSON.stringify(corpId)};
 window.__WB_TEST_LOGIN_ENABLED = ${testLoginEnabled ? "true" : "false"};
 </script>
-<script src="/static/workbench-dd-login.js?v=next-redirect-20260709"></script>
+<script src="/static/workbench-dd-login.js?v=sso-fallback-20260709"></script>
 <script>
 (function () {
   const btn = document.getElementById('loginBtn');
+  const fallbackToggle = document.getElementById('fallbackLoginToggle');
+  const fallbackPanel = document.getElementById('fallbackLoginPanel');
+  const spinner = document.getElementById('loginSpinner');
   function setResult(msg) {
     var result = document.getElementById('result');
     if (result) result.textContent = msg;
+  }
+  window.__wbShowFallbackLogin = function (msg) {
+    if (fallbackPanel) fallbackPanel.hidden = false;
+    if (fallbackToggle) {
+      fallbackToggle.hidden = true;
+      fallbackToggle.setAttribute('aria-expanded', 'true');
+    }
+    if (spinner) spinner.style.display = 'none';
+    if (msg) setResult(msg);
+  };
+  if (fallbackToggle) {
+    fallbackToggle.addEventListener('click', function () {
+      window.__wbShowFallbackLogin('已展开备用登录入口。');
+    });
   }
   function readNextPath() {
     try {
