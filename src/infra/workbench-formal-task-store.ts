@@ -265,7 +265,13 @@ function ensureProjectsTable(db: DatabaseSync): void {
 function ensureProjectsManagerGroupColumn(db: DatabaseSync): void {
   const rows = db.prepare("PRAGMA table_info(projects)").all() as Array<{ name?: string }>;
   if (!rows.some((r) => String(r.name ?? "") === "manager_group_id")) {
-    db.exec("ALTER TABLE projects ADD COLUMN manager_group_id TEXT");
+    try {
+      db.exec("ALTER TABLE projects ADD COLUMN manager_group_id TEXT");
+    } catch (err) {
+      if (!String(err instanceof Error ? err.message : err).includes("duplicate column name")) {
+        throw err;
+      }
+    }
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_projects_manager_group ON projects(manager_group_id)");
 }
@@ -281,7 +287,13 @@ function ensureTaskProjectIdColumn(db: DatabaseSync): void {
 function ensureTaskManagerGroupColumn(db: DatabaseSync): void {
   const rows = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>;
   if (!rows.some((r) => String(r.name ?? "") === "manager_group_id")) {
-    db.exec("ALTER TABLE tasks ADD COLUMN manager_group_id TEXT");
+    try {
+      db.exec("ALTER TABLE tasks ADD COLUMN manager_group_id TEXT");
+    } catch (err) {
+      if (!String(err instanceof Error ? err.message : err).includes("duplicate column name")) {
+        throw err;
+      }
+    }
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_manager_group ON tasks(manager_group_id)");
 }

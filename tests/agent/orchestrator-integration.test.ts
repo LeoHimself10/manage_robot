@@ -80,7 +80,7 @@ const CHOICE_THINKING_EMPTY_CONTENT = {
 };
 
 // ============================================================
-// CHOICE4 = tool_call（调 get_current_time）
+// CHOICE4 = tool_call（调当前 planner 可用工具 search_employees）
 // ============================================================
 const CHOICE_TOOL_CALL_1 = {
   id: "req-005a",
@@ -96,8 +96,8 @@ const CHOICE_TOOL_CALL_1 = {
             id: "call_1",
             type: "function",
             function: {
-              name: "get_current_time",
-              arguments: JSON.stringify({}),
+              name: "search_employees",
+              arguments: JSON.stringify({ name: "张三" }),
             },
           },
         ],
@@ -188,8 +188,8 @@ const CHOICE_OCT_MULTI_TOOL_1 = {
             id: "call_oct_m1",
             type: "function",
             function: {
-              name: "get_current_time",
-              arguments: JSON.stringify({}),
+              name: "search_employees",
+              arguments: JSON.stringify({ name: "张三" }),
             },
           },
           {
@@ -384,7 +384,7 @@ describe("orchestrator integration — Qwen3 response patterns", () => {
   });
 
   // ==========================================
-  it("5. 模型调用 tool (get_current_time) 然后生成回复 → 正常", async () => {
+  it("5. 模型调用 tool (search_employees) 然后生成回复 → 正常", async () => {
     mockFetch
       .mockResolvedValueOnce(makeFetchOk(CHOICE_TOOL_CALL_1))
       .mockResolvedValueOnce(makeFetchOk(CHOICE_TOOL_CALL_1_RESULT));

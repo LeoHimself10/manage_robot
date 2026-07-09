@@ -15,7 +15,7 @@ describe("daily-report-workbench-link", () => {
     delete process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL;
   });
 
-  it("wraps neutral URL with dingtalk applink for outbound", () => {
+  it("wraps neutral daily-reports URL with dingtalk applink for outbound", () => {
     process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL = "https://mingsibot.example.com";
     process.env.DINGTALK_WORKBENCH_APPLINK = "1";
     const url = buildDailyReportsPublicUrlForDingtalkOutbound({ dateYmd: "2026-06-08" });

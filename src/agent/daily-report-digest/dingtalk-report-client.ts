@@ -13,6 +13,7 @@ import {
   parseAttachmentsFromValue,
   parseReportImages,
 } from "./daily-report-attachments";
+import { withDingTalkRateLimitRetry } from "./dingtalk-rate-limit-retry";
 
 export type { ReportAttachment };
 
@@ -145,23 +146,26 @@ export function createDingTalkReportClient(opts?: { fetchImpl?: typeof fetch }) 
       };
       if (params.templateName) body.template_name = params.templateName;
 
-      const res = await fetchImpl(
-        `https://oapi.dingtalk.com/topapi/report/list?access_token=${encodeURIComponent(token)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
-      const data = (await res.json().catch(() => ({}))) as ReportListResp;
-      if (!res.ok || (typeof data.errcode === "number" && data.errcode !== 0)) {
-        throw new Error(
-          `report/list failed (userid=${params.userid}): ${res.status} ${JSON.stringify({
-            errcode: data.errcode,
-            errmsg: data.errmsg,
-          })}`,
+      const data = await withDingTalkRateLimitRetry(async () => {
+        const res = await fetchImpl(
+          `https://oapi.dingtalk.com/topapi/report/list?access_token=${encodeURIComponent(token)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
         );
-      }
+        const data = (await res.json().catch(() => ({}))) as ReportListResp;
+        if (!res.ok || (typeof data.errcode === "number" && data.errcode !== 0)) {
+          throw new Error(
+            `report/list failed (userid=${params.userid}): ${res.status} ${JSON.stringify({
+              errcode: data.errcode,
+              errmsg: data.errmsg,
+            })}`,
+          );
+        }
+        return data;
+      });
       const list = data.result?.data_list ?? [];
       for (const item of list) entries.push(normalizeEntry(item));
 

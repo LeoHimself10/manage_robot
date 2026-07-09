@@ -26,6 +26,8 @@ export interface ProjectViewDigestContext {
   fromCache: boolean;
   poolCount?: number;
   scannedAt?: string;
+  collectErrors?: OrgDigest["errors"];
+  scanContactCount?: number;
 }
 
 export function findOrgForProjectView(
@@ -99,6 +101,8 @@ export async function loadOrCollectProjectViewDigest(params: {
       poolCount: unified.poolCount,
       fromCache: unified.fromCache,
       scannedAt: unified.scannedAt,
+      collectErrors: unified.errors,
+      scanContactCount: unified.scanContactCount,
     };
   } finally {
     if (ownsPartitionStore) partitionStore.close();

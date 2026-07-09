@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDingTalkContactDirectory } from "../../../src/agent/daily-report-digest/dingtalk-contact-search";
 
 function makeFetchMock() {
@@ -43,6 +43,62 @@ function makeFetchMock() {
 }
 
 describe("dingtalk-contact-search", () => {
+  afterEach(() => {
+    delete process.env.DINGTALK_RATE_LIMIT_RETRY_DELAY_MS;
+    delete process.env.DINGTALK_RATE_LIMIT_RETRY_ATTEMPTS;
+    vi.restoreAllMocks();
+  });
+
+  it("retries transient DingTalk rate limits while enumerating departments", async () => {
+    process.env.DINGTALK_RATE_LIMIT_RETRY_DELAY_MS = "0";
+    process.env.DINGTALK_RATE_LIMIT_RETRY_ATTEMPTS = "2";
+
+    let listsubCalls = 0;
+    const fetchImpl = vi.fn(async (url: string, init?: { body?: string }) => {
+      if (url.includes("oauth2/accessToken")) {
+        return {
+          ok: true,
+          json: async () => ({ accessToken: "tok-123", expireIn: 7200 }),
+        } as unknown as Response;
+      }
+      if (url.includes("topapi/v2/department/listsub")) {
+        listsubCalls += 1;
+        if (listsubCalls === 1) {
+          return {
+            ok: true,
+            json: async () => ({
+              errcode: 88,
+              errmsg: "total requests >1200, limit until 07:00:06",
+            }),
+          } as unknown as Response;
+        }
+        return {
+          ok: true,
+          json: async () => ({ errcode: 0, result: [] }),
+        } as unknown as Response;
+      }
+      if (url.includes("topapi/v2/user/list")) {
+        return {
+          ok: true,
+          json: async () => ({
+            errcode: 0,
+            result: {
+              has_more: false,
+              list: [{ userid: "u1", name: "User 1", dept_id_list: [1] }],
+            },
+          }),
+        } as unknown as Response;
+      }
+      return { ok: true, json: async () => ({}) } as unknown as Response;
+    });
+
+    const dir = createDingTalkContactDirectory({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await expect(dir.search("KEY", "SECRET", "")).resolves.toHaveLength(1);
+    expect(listsubCalls).toBe(2);
+  });
+
   it("enumerates departments + users and filters by name", async () => {
     const { fetchImpl } = makeFetchMock();
     const dir = createDingTalkContactDirectory({ fetchImpl: fetchImpl as unknown as typeof fetch });

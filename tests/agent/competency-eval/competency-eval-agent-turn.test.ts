@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -39,6 +39,18 @@ describe("competency-eval agent turn", () => {
     const employeeRepo = createEmployeeProfileRepo(
       mkdtempSync(join(tmpdir(), "competency-eval-emp-")),
     );
+    const jobReqDir = join(dataDir, "users", "actor1", "job-reqs", "job-req-abc");
+    mkdirSync(jobReqDir, { recursive: true });
+    writeFileSync(join(jobReqDir, "source.md"), "岗位要求：关注跨部门推动和复盘质量。", "utf8");
+    writeFileSync(
+      join(jobReqDir, "meta.json"),
+      JSON.stringify({
+        jobReqId: "job-req-abc",
+        filename: "岗位要求.md",
+        uploadedAt: "2026-07-09T00:00:00.000Z",
+      }),
+      "utf8",
+    );
 
     const result = await runCompetencyEvalTurn({
       userMessage: "评估张三最近表现",
@@ -52,7 +64,7 @@ describe("competency-eval agent turn", () => {
     expect(runOrchestrator).toHaveBeenCalledTimes(1);
 
     const [userMessage, config] = vi.mocked(runOrchestrator).mock.calls[0]!;
-    expect(userMessage).toContain("activeJobReqId=job-req-abc");
+    expect(userMessage).toContain("岗位要求：关注跨部门推动和复盘质量。");
     expect(config.toolProfile).toBe("competency_eval");
     expect(config.promptProfile).toBe("competency_eval");
     expect(config.competencyEvalActorUserId).toBe("actor1");

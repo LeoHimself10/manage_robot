@@ -13,10 +13,9 @@ import {
   buildCtoRollupMorningDigestPayload,
   sendCtoRollupMorningDigestToUser,
 } from "../src/agent/daily-report-digest/daily-report-cto-rollup-digest-send";
+import { buildCtoRollupDigestForDay } from "../src/agent/daily-report-digest/daily-report-cto-rollup-build";
 import { createProjectViewCacheStore } from "../src/agent/daily-report-digest/daily-report-project-view-cache";
-import { loadOrCollectProjectViewDigest } from "../src/agent/daily-report-digest/daily-report-project-view-digest-collect";
 import { createProjectViewDigestStateStore } from "../src/agent/daily-report-digest/daily-report-project-view-digest-state";
-import { ensureProjectViewCtoOverview } from "../src/agent/daily-report-digest/daily-report-project-view-summaries";
 import {
   groupProjectViewDigestPlansByUser,
   isProjectViewDigestEnabledForView,
@@ -91,30 +90,31 @@ async function main(): Promise<void> {
   }
 
   const cacheStore = createProjectViewCacheStore();
-  const dateLabel = `${range.labelDisplay}（${range.labelYmd}）`;
-  const overviewByViewId = new Map<string, string>();
-  const contexts = await Promise.all(
-    uniqueViewIds.map(async (viewId) => {
-      const ctx = await loadOrCollectProjectViewDigest({
-        config,
-        viewId,
-        range,
-        cacheStore,
-        ownsCacheStore: false,
-      });
-      const overview = await ensureProjectViewCtoOverview({
-        viewId: ctx.view.id,
-        viewLabel: ctx.view.label,
-        dateYmd: range.labelYmd,
-        dateLabel,
-        rosterCount: ctx.rosterCount,
-        orgDigest: ctx.orgDigest,
-        cacheStore,
-      });
-      overviewByViewId.set(viewId, overview);
-      return ctx;
-    }),
-  );
+  const built = await buildCtoRollupDigestForDay({
+    config,
+    range,
+    viewIds: uniqueViewIds,
+    cacheStore,
+  });
+  if (!built.quality.ok) {
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          error: "cto_rollup_quality_failed",
+          date: range.labelYmd,
+          viewIds: uniqueViewIds,
+          reasons: built.quality.reasons,
+          errorCount: built.quality.errorCount,
+        },
+        null,
+        2,
+      ),
+    );
+    process.exit(1);
+  }
+  const contexts = built.contexts;
+  const overviewByViewId = built.overviewByViewId;
 
   const stateStore = createProjectViewDigestStateStore();
   try {

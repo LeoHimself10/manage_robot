@@ -26,7 +26,7 @@ export function buildDailyReportsPublicUrl(input: {
   return qs ? `${base}${path}?${qs}` : `${base}${path}`;
 }
 
-/** 钉钉 outbound（群 Markdown / 机器人卡片）：角色中立入口 + applink 内开。 */
+/** 钉钉 outbound（群 Markdown / 机器人卡片）：角色中立日报入口 + applink 内开。 */
 export function buildDailyReportsPublicUrlForDingtalkOutbound(input: {
   dateYmd: string;
   view?: DailyReportsViewMode;

@@ -25,6 +25,7 @@ import { logStructured } from "../../infra/logger";
 
 export interface UnifiedDayCollectResult {
   poolCount: number;
+  scanContactCount?: number;
   byViewId: Map<string, OrgDigest>;
   errors: OrgDigest["errors"];
 }
@@ -109,6 +110,7 @@ export async function collectUnifiedDayPartition(params: {
   const merged = mergePartitionedReports(params.org.label, partitionedRows, viewIds);
   return {
     poolCount: merged.poolUserIds.size,
+    scanContactCount: contacts.length,
     byViewId: merged.byViewId,
     errors,
   };
@@ -127,7 +129,7 @@ export async function collectUnifiedDayForOrg(
 ): Promise<UnifiedDayCollectResult> {
   const projectViews = listProjectViewsFromConfig([org]);
   if (!projectViews.length) {
-    return { poolCount: 0, byViewId: new Map(), errors: [] };
+    return { poolCount: 0, scanContactCount: 0, byViewId: new Map(), errors: [] };
   }
   return collectUnifiedDayPartition({
     org,

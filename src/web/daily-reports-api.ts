@@ -30,6 +30,10 @@ import {
   resolvePersonBriefForEmployee,
 } from "../agent/daily-report-digest/daily-report-project-view-person-briefs";
 import {
+  createProjectViewRosterStore,
+  listProjectViewRoster,
+} from "../agent/daily-report-digest/daily-report-project-view-roster-store";
+import {
   resolveDayRangeForYmd,
   resolveReportRange,
 } from "../agent/daily-report-digest/daily-report-window";
@@ -284,6 +288,7 @@ export async function buildDailyReportsHttpPayload(input?: {
     const refresh = input?.refresh === true;
     const cacheStore = createProjectViewCacheStore();
     const partitionStore = createDayPartitionCacheStore();
+    const rosterStore = createProjectViewRosterStore();
     try {
       if (refresh) {
         deleteDayPartitionCache(org.label, range.labelYmd, partitionStore);
@@ -292,17 +297,89 @@ export async function buildDailyReportsHttpPayload(input?: {
         }
       }
 
-        const unified = await loadOrCollectUnifiedDay({
-          org,
-          range,
-          refresh,
-          scanMode: refresh ? "full" : "fast",
-          partitionStore,
-          projectViewCacheStore: cacheStore,
-          ownsPartitionStore: false,
-          ownsProjectViewCacheStore: false,
-          fetchImpl: input?.fetchImpl,
-        });
+      const rosterCount = listProjectViewRoster(customViewId, rosterStore).length;
+      const cached = refresh ? null : getProjectViewCache(customViewId, range.labelYmd, cacheStore);
+      if (cached) {
+        const digest: OrgDigest = {
+          label: org.label,
+          submitted: cached.payload.submitted,
+          missing: [],
+          onLeave: [],
+          errors: cached.payload.errors,
+        };
+        const orgPayload = mapOrgDigest(digest, new Map());
+        return {
+          ok: true,
+          configured: true,
+          view,
+          access,
+          date: range.labelYmd,
+          dateLabel: range.labelDisplay,
+          generatedAt: now.toISOString(),
+          submittedCount: orgPayload.submitted.length,
+          missingCount: 0,
+          onLeaveCount: 0,
+          errorCount: orgPayload.errors.length,
+          rosterCount,
+          poolCount: rosterCount,
+          cacheScannedAt: cached.scannedAt,
+          partialScan: false,
+          scanning: false,
+          customProjectView: {
+            id: viewDef.id,
+            label: viewDef.label,
+            orgLabel: viewDef.orgLabel,
+            orgs: [orgPayload],
+          },
+        };
+      }
+
+      if (rosterCount === 0) {
+        const digest: OrgDigest = {
+          label: org.label,
+          submitted: [],
+          missing: [],
+          onLeave: [],
+          errors: [],
+        };
+        return {
+          ok: true,
+          configured: true,
+          view,
+          access,
+          date: range.labelYmd,
+          dateLabel: range.labelDisplay,
+          generatedAt: now.toISOString(),
+          submittedCount: 0,
+          missingCount: 0,
+          onLeaveCount: 0,
+          errorCount: 0,
+          rosterCount: 0,
+          poolCount: 0,
+          partialScan: true,
+          scanning: true,
+          customProjectView: {
+            id: viewDef.id,
+            label: viewDef.label,
+            orgLabel: viewDef.orgLabel,
+            orgs: [mapOrgDigest(digest, new Map())],
+          },
+        };
+      }
+
+      const unified = await loadOrCollectUnifiedDay({
+        org,
+        range,
+        refresh,
+        scanMode: "fast",
+        partitionStore,
+        projectViewCacheStore: cacheStore,
+        rosterStore,
+        ownsPartitionStore: false,
+        ownsProjectViewCacheStore: false,
+        ownsRosterStore: false,
+        fetchImpl: input?.fetchImpl,
+      });
 
       const poolCount = unified.poolCount;
       const digest: OrgDigest =
@@ -314,7 +391,7 @@ export async function buildDailyReportsHttpPayload(input?: {
           errors: unified.errors,
         };
 
-      const cached = getProjectViewCache(customViewId, range.labelYmd, cacheStore);
+      const updatedCache = getProjectViewCache(customViewId, range.labelYmd, cacheStore);
       const briefs = await ensureProjectViewPersonBriefs({
         viewId: customViewId,
         viewLabel: viewDef.label,
@@ -340,9 +417,9 @@ export async function buildDailyReportsHttpPayload(input?: {
         missingCount: 0,
         onLeaveCount: 0,
         errorCount: orgPayload.errors.length,
-        rosterCount: poolCount,
+        rosterCount,
         poolCount,
-        cacheScannedAt: unified.scannedAt ?? cached?.scannedAt,
+        cacheScannedAt: unified.scannedAt ?? updatedCache?.scannedAt,
         partialScan: !unified.fromCache && unified.scanMode === "fast",
         scanning: false,
         customProjectView: {
@@ -353,6 +430,7 @@ export async function buildDailyReportsHttpPayload(input?: {
         },
       };
     } finally {
+      rosterStore.close();
       partitionStore.close();
       cacheStore.close();
     }

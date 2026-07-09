@@ -89,13 +89,13 @@ export function renderWorkbenchDingTalkEntryHtml(): string {
       <option value="employee">员工</option>
     </select>
   </label>
-  <button id="loginBtn" type="button" class="btn btn-primary">测试登录（非钉钉环境）</button>`
+  <button id="loginBtn" type="button" class="btn btn-primary">登录工作台</button>`
     : `<div class="muted">请在钉钉工作台中打开本应用，将自动完成登录。</div>`;
   const externalLoginFooter = isWorkbenchExternalLoginEnabled()
     ? `<p class="muted wb-login-alt-entry">非钉钉用户？<a href="${EXTERNAL_WORKBENCH_LOGIN_PATH}">外部执行者登录</a></p>`
     : "";
   const heroHint = testLoginEnabled
-    ? "钉钉内将自动免登；本地开发可用下方测试登录。"
+    ? "钉钉内将自动免登；无法自动登录时可使用下方入口。"
     : "钉钉内打开将自动免登，并按身份进入对应工作台。";
   const initialResult = testLoginEnabled ? "正在尝试钉钉免登…" : "正在为您连接钉钉账号…";
   return `<!DOCTYPE html>
@@ -128,13 +128,25 @@ export function renderWorkbenchDingTalkEntryHtml(): string {
 window.__WB_CONFIGURED_CORP_ID = ${JSON.stringify(corpId)};
 window.__WB_TEST_LOGIN_ENABLED = ${testLoginEnabled ? "true" : "false"};
 </script>
-<script src="/static/workbench-dd-login.js"></script>
+<script src="/static/workbench-dd-login.js?v=next-redirect-20260709"></script>
 <script>
 (function () {
   const btn = document.getElementById('loginBtn');
   function setResult(msg) {
     var result = document.getElementById('result');
     if (result) result.textContent = msg;
+  }
+  function readNextPath() {
+    try {
+      var next = new URLSearchParams(window.location.search).get('next');
+      if (next && next.indexOf('/workbench/') === 0 && next.indexOf('\\\\') === -1 && next.indexOf('//') === -1) {
+        return next;
+      }
+    } catch (e) {}
+    if (window.location.pathname && window.location.pathname !== '/workbench') {
+      return window.location.pathname + window.location.search;
+    }
+    return '';
   }
   if (typeof window.__wbTryDingTalkLogin === 'function') {
     void window.__wbTryDingTalkLogin();
@@ -151,10 +163,11 @@ window.__WB_TEST_LOGIN_ENABLED = ${testLoginEnabled ? "true" : "false"};
       }
       setResult('登录中...');
       try {
+        const next = readNextPath();
         const res = await fetch('/api/workbench/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, role }),
+          body: JSON.stringify({ userId, role, next }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) {

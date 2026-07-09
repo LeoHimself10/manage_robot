@@ -7,6 +7,7 @@
  *   之后按姓名/userid 子串过滤。首次（或缓存过期后）较慢，命中缓存后即时。
  */
 import { createDingTalkReportClient } from "./dingtalk-report-client";
+import { withDingTalkRateLimitRetry } from "./dingtalk-rate-limit-retry";
 
 export interface ContactCandidate {
   userid: string;
@@ -62,24 +63,26 @@ export function createDingTalkContactDirectory(opts?: {
     path: string,
     body: Record<string, unknown>,
   ): Promise<T> {
-    const res = await fetchImpl(
-      `https://oapi.dingtalk.com/${path}?access_token=${encodeURIComponent(token)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    );
-    const data = (await res.json().catch(() => ({}))) as T & DingTalkOapiError;
-    if (!res.ok || (typeof data.errcode === "number" && data.errcode !== 0)) {
-      throw new Error(
-        `${path} failed: ${res.status} ${JSON.stringify({
-          errcode: data.errcode,
-          errmsg: data.errmsg,
-        })}`,
+    return withDingTalkRateLimitRetry(async () => {
+      const res = await fetchImpl(
+        `https://oapi.dingtalk.com/${path}?access_token=${encodeURIComponent(token)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
       );
-    }
-    return data;
+      const data = (await res.json().catch(() => ({}))) as T & DingTalkOapiError;
+      if (!res.ok || (typeof data.errcode === "number" && data.errcode !== 0)) {
+        throw new Error(
+          `${path} failed: ${res.status} ${JSON.stringify({
+            errcode: data.errcode,
+            errmsg: data.errmsg,
+          })}`,
+        );
+      }
+      return data;
+    });
   }
 
   /** 递归枚举全部部门，返回 deptId -> 部门名 映射。 */

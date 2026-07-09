@@ -21,6 +21,44 @@ import {
   type ProjectViewDigestStateStore,
 } from "./daily-report-project-view-digest-state";
 
+export interface CtoRollupDigestQuality {
+  ok: boolean;
+  reasons: string[];
+  errorCount: number;
+}
+
+export function countDistinctCtoRollupSubmitters(
+  contexts: ProjectViewDigestContext[],
+): number {
+  const userIds = new Set<string>();
+  for (const ctx of contexts) {
+    for (const item of ctx.orgDigest.submitted) {
+      const id = item.userid?.trim();
+      if (id) userIds.add(id);
+    }
+  }
+  return userIds.size;
+}
+
+export function evaluateCtoRollupDigestQuality(
+  contexts: ProjectViewDigestContext[],
+): CtoRollupDigestQuality {
+  const reasons: string[] = [];
+  const errors = contexts.flatMap((ctx) => [
+    ...(ctx.collectErrors ?? []),
+    ...(ctx.orgDigest.errors ?? []),
+  ]);
+  if (errors.length > 0) {
+    reasons.push(`collection_errors:${errors.length}`);
+  }
+  for (const ctx of contexts) {
+    if (!ctx.fromCache && ctx.scanContactCount === 0) {
+      reasons.push(`empty_scan:${ctx.view.id}`);
+    }
+  }
+  return { ok: reasons.length === 0, reasons, errorCount: errors.length };
+}
+
 export async function buildCtoRollupMorningDigestPayload(
   contexts: ProjectViewDigestContext[],
   range: ReportTimeRange,
@@ -86,6 +124,7 @@ export async function buildCtoRollupMorningDigestPayload(
     dateLabel,
     dateYmd: range.labelYmd,
     projectLines,
+    totalDistinctSubmittedCount: countDistinctCtoRollupSubmitters(contexts),
     workbenchUrl: workbenchUrl || undefined,
   });
 
@@ -137,6 +176,18 @@ export async function sendCtoRollupMorningDigestToUser(params: {
       submittedCount,
       rosterCount,
     };
+  }
+
+  const quality = evaluateCtoRollupDigestQuality(params.contexts);
+  if (!quality.ok) {
+    logStructured({
+      event: "daily_report_cto_rollup_digest_quality_failed",
+      dateYmd,
+      userId,
+      reasons: quality.reasons,
+      errorCount: quality.errorCount,
+    });
+    throw new Error(`cto_rollup_quality_failed: ${quality.reasons.join("; ")}`);
   }
 
   const payload = await buildCtoRollupMorningDigestPayload(

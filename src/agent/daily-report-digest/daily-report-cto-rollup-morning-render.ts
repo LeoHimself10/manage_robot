@@ -57,6 +57,7 @@ export function renderCtoRollupMorningMarkdown(input: {
   dateLabel: string;
   dateYmd: string;
   projectLines: CtoRollupProjectLine[];
+  totalDistinctSubmittedCount?: number;
   workbenchUrl?: string;
 }): CtoRollupMorningRenderResult {
   const parts: string[] = [];
@@ -67,14 +68,15 @@ export function renderCtoRollupMorningMarkdown(input: {
   parts.push("### 各项目昨日");
   for (const p of input.projectLines) {
     parts.push(
-      `- **${p.viewLabel}** · ${p.submittedCount}/${p.rosterCount} 人 · ${p.line}`,
+      `- **${p.viewLabel}** · ${p.submittedCount} 人 · ${p.line}`,
     );
   }
 
   const totalSubmitted = input.projectLines.reduce((n, p) => n + p.submittedCount, 0);
+  const distinctSubmitted = input.totalDistinctSubmittedCount ?? totalSubmitted;
   parts.push("");
   parts.push(
-    `**合计**：${input.projectLines.length} 个项目 · 昨日共 ${totalSubmitted} 人次提交相关日报`,
+    `**合计**：${input.projectLines.length} 个项目 · ${totalSubmitted} 项目人次 / ${distinctSubmitted} 人提交`,
   );
 
   if (input.workbenchUrl) {

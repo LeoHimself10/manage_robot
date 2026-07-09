@@ -24,7 +24,9 @@ import { getLocalTimeParts } from "../reminders/reminder-policy";
 import { isDailyReportProjectViewsEnabled } from "./daily-report-project-view-flag";
 
 function envInt(name: string, defaultValue: number): number {
-  const n = Number(String(process.env[name] ?? "").trim());
+  const raw = String(process.env[name] ?? "").trim();
+  if (!raw) return defaultValue;
+  const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : defaultValue;
 }
 

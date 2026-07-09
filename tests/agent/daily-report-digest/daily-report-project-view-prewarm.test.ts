@@ -63,6 +63,17 @@ describe("isProjectViewPrewarmWindow", () => {
     expect(isProjectViewPrewarmWindow(tue0647, config)).toBe(true);
   });
 
+  it("defaults missing env to Tue 06:45 window", () => {
+    delete process.env.DAILY_REPORT_PROJECT_VIEW_PREWARM_HOUR;
+    delete process.env.DAILY_REPORT_PROJECT_VIEW_PREWARM_MINUTE;
+
+    const tue0647 = new Date("2026-06-09T06:47:00+08:00");
+    const tue0002 = new Date("2026-06-09T00:02:00+08:00");
+
+    expect(isProjectViewPrewarmWindow(tue0647, config)).toBe(true);
+    expect(isProjectViewPrewarmWindow(tue0002, config)).toBe(false);
+  });
+
   it("returns false Mon 06:47 local (skip Monday)", () => {
     const mon0647 = new Date("2026-06-08T06:47:00+08:00");
     expect(isProjectViewPrewarmWindow(mon0647, config)).toBe(false);

@@ -21,6 +21,8 @@ import { listProjectViewsFromConfig } from "./daily-report-project-views";
 import type { ReportTimeRange } from "./daily-report-window";
 
 export type DayPartitionCachePayload = {
+  errors?: OrgDigest["errors"];
+  scanContactCount?: number;
   views: Record<string, { submitted: OrgDigest["submitted"]; errors: OrgDigest["errors"] }>;
 };
 
@@ -124,7 +126,7 @@ function payloadFromCollect(result: UnifiedDayCollectResult): DayPartitionCacheP
   for (const [viewId, digest] of result.byViewId) {
     views[viewId] = { submitted: digest.submitted, errors: digest.errors };
   }
-  return { views };
+  return { views, errors: result.errors, scanContactCount: result.scanContactCount };
 }
 
 export function syncProjectViewCachesFromPartition(
@@ -133,10 +135,11 @@ export function syncProjectViewCachesFromPartition(
   projectViewCacheStore: ProjectViewCacheStore,
 ): void {
   for (const [viewId, digest] of result.byViewId) {
+    const errors = [...digest.errors, ...result.errors];
     putProjectViewCache(
       viewId,
       dateYmd,
-      { submitted: digest.submitted, errors: digest.errors },
+      { submitted: digest.submitted, errors },
       projectViewCacheStore,
     );
   }
@@ -162,6 +165,7 @@ export async function loadOrCollectUnifiedDay(params: {
   fromCache: boolean;
   scannedAt?: string;
   scanMode?: UnifiedDayScanMode;
+  scanContactCount?: number;
 }> {
   const partitionStore =
     params.partitionStore ?? createDayPartitionCacheStore();
@@ -188,10 +192,11 @@ export async function loadOrCollectUnifiedDay(params: {
         return {
           poolCount: cached.poolCount,
           byViewId,
-          errors: [],
+          errors: cached.payload.errors ?? [],
           fromCache: true,
           scannedAt: cached.scannedAt,
           scanMode: "full",
+          scanContactCount: cached.payload.scanContactCount,
         };
       }
     } else {
@@ -217,10 +222,10 @@ export async function loadOrCollectUnifiedDay(params: {
         payloadFromCollect(result),
         partitionStore,
       );
+    }
 
-      if (projectViewCacheStore) {
-        syncProjectViewCachesFromPartition(dateYmd, result, projectViewCacheStore);
-      }
+    if (projectViewCacheStore) {
+      syncProjectViewCachesFromPartition(dateYmd, result, projectViewCacheStore);
     }
 
     return {
@@ -230,6 +235,7 @@ export async function loadOrCollectUnifiedDay(params: {
       fromCache: false,
       scannedAt,
       scanMode,
+      scanContactCount: result.scanContactCount,
     };
   } finally {
     if (ownsPartitionStore) partitionStore.close();

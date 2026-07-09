@@ -75,7 +75,13 @@ describe("submit_employee_response tool", () => {
     const handler = buildSubmitEmployeeResponseHandler({
       taskStore: { updateSubtaskStatus, appendTaskEvent, getSubtaskWithTask: () => ({
         task: { taskId: "tid", taskNo: "W-2", title: "Main", managerUserId: "mgr-1", planId: "p1" },
-        subtask: { subtaskId: "sid", title: "Sub", assigneeUserId: "e1" },
+        subtask: {
+          subtaskId: "sid",
+          title: "Sub",
+          assigneeUserId: "e1",
+          dueAt: "2026-07-10",
+          dueSetBy: "manager",
+        },
       }) } as any,
       notifier: { notifyManagerOfEmployeeAction, notifyEmployeeTodoOnAccept } as any,
       getContact: () => ({ unionId: "uni-e1" }),

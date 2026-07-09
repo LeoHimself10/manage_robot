@@ -325,6 +325,27 @@ function isEmployeeWorkbenchHtmlPath(pathname: string): boolean {
   return EMPLOYEE_WORKBENCH_PAGE_PATHS.has(pathname);
 }
 
+function sanitizeInternalWorkbenchNextPath(raw: string | null | undefined): string | undefined {
+  const value = String(raw ?? "").trim();
+  if (!value.startsWith("/workbench/")) return undefined;
+  if (value.startsWith("//") || value.includes("\\")) return undefined;
+  try {
+    const parsed = new URL(value, "http://workbench.local");
+    if (parsed.origin !== "http://workbench.local") return undefined;
+    if (!isWorkbenchHtmlPath(parsed.pathname)) return undefined;
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildWorkbenchLoginUrl(next?: string): string {
+  const safeNext = sanitizeInternalWorkbenchNextPath(next);
+  return safeNext
+    ? `${WORKBENCH_LOGIN_PATH}?next=${encodeURIComponent(safeNext)}`
+    : WORKBENCH_LOGIN_PATH;
+}
+
 function resolveUnauthenticatedWorkbenchLoginRedirect(
   pathname: string,
   search: string,
@@ -332,7 +353,7 @@ function resolveUnauthenticatedWorkbenchLoginRedirect(
   if (isEmployeeWorkbenchHtmlPath(pathname) && isWorkbenchExternalLoginEnabled()) {
     return buildExternalLoginUrl(`${pathname}${search}`);
   }
-  return WORKBENCH_LOGIN_PATH;
+  return buildWorkbenchLoginUrl(`${pathname}${search}`);
 }
 
 interface PlanSummary {
@@ -3357,7 +3378,8 @@ export function handleAssignmentHttp(
     const body = readFileSync(bundlePath);
     res.writeHead(200, {
       "Content-Type": "application/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=3600",
+      "Cache-Control": "no-store, must-revalidate",
+      "Pragma": "no-cache",
     });
     if (req.method === "HEAD") {
       res.end();
@@ -3463,6 +3485,7 @@ export function handleAssignmentHttp(
           writeJson(res, 400, { ok: false, error: "authCode is required" });
           return;
         }
+        const next = sanitizeInternalWorkbenchNextPath(String(body.next ?? "").trim());
         const dingIdentity = await dingtalkAuthClient.resolveIdentityByAuthCode(authCode);
         const role = defaultLoginViewRole(dingIdentity.userId);
         logStructured({
@@ -3492,7 +3515,7 @@ export function handleAssignmentHttp(
             userId: dingIdentity.userId,
             name: dingIdentity.name ?? null,
             role,
-            redirectTo: defaultPathForRole(role),
+            redirectTo: next ?? defaultPathForRole(role),
           }),
         );
       } catch (err) {
@@ -3557,6 +3580,7 @@ export function handleAssignmentHttp(
         const body = await readJsonBody(req);
         const userId = String(body.userId ?? "").trim();
         const roleInput = String(body.role ?? "auto").trim();
+        const next = sanitizeInternalWorkbenchNextPath(String(body.next ?? "").trim());
         if (!userId) {
           writeJson(res, 400, { ok: false, error: "userId is required" });
           return;
@@ -3597,7 +3621,7 @@ export function handleAssignmentHttp(
           JSON.stringify({
             ok: true,
             role,
-            redirectTo: defaultPathForRole(role),
+            redirectTo: next ?? defaultPathForRole(role),
           }),
         );
       } catch (err) {

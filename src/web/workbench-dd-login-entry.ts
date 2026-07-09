@@ -79,6 +79,23 @@ function getQueryValue(...names: string[]): string {
   return "";
 }
 
+function readWorkbenchNextPath(): string {
+  const next = getQueryValue("next");
+  if (
+    next &&
+    next.startsWith("/workbench/") &&
+    !next.startsWith("//") &&
+    !next.includes("\\") &&
+    !next.includes("//")
+  ) {
+    return next;
+  }
+  if (window.location.pathname && window.location.pathname !== "/workbench") {
+    return `${window.location.pathname}${window.location.search}`;
+  }
+  return "";
+}
+
 function isLikelyDingTalkWebview(): boolean {
   const ua = navigator.userAgent.toLowerCase();
   return (
@@ -259,7 +276,7 @@ async function tryDingTalkLogin(): Promise<void> {
   const testLoginEnabled = window.__WB_TEST_LOGIN_ENABLED === true;
   if (!isLikelyDingTalkWebview()) {
     if (testLoginEnabled) {
-      setSsoHint("当前不是钉钉容器，已跳过自动免登。可用下方测试登录验证员工/主管页面。");
+      setSsoHint("当前不是钉钉容器，已跳过自动免登。可用下方入口进入对应页面。");
       setResult("在钉钉工作台打开 /workbench 后会自动免登。");
     } else {
       setSsoHint("请在钉钉工作台中打开本应用。");
@@ -333,7 +350,7 @@ async function tryDingTalkLogin(): Promise<void> {
     const res = await fetch("/api/workbench/auth/dingtalk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ authCode }),
+      body: JSON.stringify({ authCode, next: readWorkbenchNextPath() }),
     });
     const data = (await res.json().catch(() => ({}))) as {
       ok?: boolean;

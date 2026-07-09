@@ -132,18 +132,25 @@ describe("assignment-workbench HTTP handler", () => {
     const desc =
       params.taskDescription ??
       "默认任务整体背景（测试种子数据），满足发布链路可读性。";
+    const defaultTimeNode = { dueAt: "2026-07-10" };
     const tasks =
       params.secondAssignee ?
         [
-          { id: "task-1", title: "测试子任务", deliverables: "本人交付物（测试）" },
+          {
+            id: "task-1",
+            title: "测试子任务",
+            deliverables: "本人交付物（测试）",
+            timeNode: defaultTimeNode,
+          },
           {
             id: "task-2",
             title: params.secondAssignee.title ?? "同事子任务",
             deliverables: "同事交付物（不应泄露给员工 API）",
             objective: "同事目标",
+            timeNode: defaultTimeNode,
           },
         ]
-      : [{ id: "task-1", title: "测试子任务" }];
+      : [{ id: "task-1", title: "测试子任务", timeNode: defaultTimeNode }];
     const assignments =
       params.secondAssignee ?
         [
@@ -252,6 +259,7 @@ describe("assignment-workbench HTTP handler", () => {
     const c = captured();
     expect(c.statusCode).toBe(200);
     expect(String(c.headers["Content-Type"] ?? "")).toContain("javascript");
+    expect(String(c.headers["Cache-Control"] ?? "")).toContain("no-store");
     const bodyStr = typeof c.body === "string" ? c.body : Buffer.from(c.body as Uint8Array).toString("utf8");
     expect(bodyStr.length).toBeGreaterThan(500);
     expect(bodyStr).toContain("__wbTryDingTalkLogin");
@@ -263,7 +271,7 @@ describe("assignment-workbench HTTP handler", () => {
     expect(handleAssignmentHttp(req, res)).toBe(true);
     const c = captured();
     expect(c.statusCode).toBe(200);
-    expect(c.body).toContain('/static/workbench-dd-login.js');
+    expect(c.body).toContain('/static/workbench-dd-login.js?v=');
     expect(c.body).toContain("__WB_CONFIGURED_CORP_ID");
   });
 
@@ -277,6 +285,55 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).toContain("__WB_TEST_LOGIN_ENABLED = false");
     expect(c.body).not.toContain("测试登录");
     expect(c.body).not.toContain("任务规划工作台登录");
+  });
+
+  it("GET /workbench login page does not show test environment wording when test login is enabled", () => {
+    vi.stubEnv("WORKBENCH_TEST_LOGIN_ENABLED", "1");
+    const req = stubReq({ url: "/workbench", method: "GET" });
+    const { res, captured } = stubRes();
+    expect(handleAssignmentHttp(req, res)).toBe(true);
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(c.body).not.toContain("测试环境");
+    expect(c.body).not.toContain("测试登录");
+    expect(c.body).not.toContain("娴嬭瘯鐜");
+    expect(c.body).not.toContain("娴嬭瘯鐧诲綍");
+  });
+
+  it("unauthenticated daily reports page preserves target through login redirect", () => {
+    const target = "/workbench/daily-reports?date=2026-07-08&view=custom%3Aoverview";
+    const req = stubReq({ url: target, method: "GET" });
+    const { res, captured } = stubRes();
+    expect(handleAssignmentHttp(req, res)).toBe(true);
+    const c = captured();
+    expect(c.statusCode).toBe(302);
+    expect(c.headers.Location).toBe(`/workbench?next=${encodeURIComponent(target)}`);
+  });
+
+  it("logged-in manager daily reports neutral page resolves to manager page", async () => {
+    vi.stubEnv("DAILY_REPORTS_PAGE_ENABLED", "1");
+    const loginReq = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const cookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+    const req = stubReq({
+      url: "/workbench/daily-reports?date=2026-07-08&view=custom%3Aoverview",
+      method: "GET",
+      headers: { cookie },
+    });
+    const { res, captured } = stubRes();
+    expect(handleAssignmentHttp(req, res)).toBe(true);
+    const c = captured();
+    expect(c.statusCode).toBe(302);
+    expect(c.headers.Location).toBe(
+      "/workbench/manager/daily-reports?date=2026-07-08&view=custom%3Aoverview",
+    );
   });
 
   it("employee task detail page JS uses 前往待承接 footer copy", () => {
@@ -355,6 +412,49 @@ describe("assignment-workbench HTTP handler", () => {
     expect(String(c.headers["Set-Cookie"] ?? "")).toContain("wb_session=");
     expect(c.body).toContain('"ok":true');
     expect(c.body).toContain('"userId":"user-abc"');
+  });
+
+  it("POST /api/workbench/auth/dingtalk preserves daily reports next path", async () => {
+    __setDingTalkAuthClientForTest({
+      resolveIdentityByAuthCode: vi.fn(async () => ({
+        userId: "manager-1",
+        name: "Manager One",
+        unionId: "union-manager",
+      })),
+    } satisfies DingTalkAuthClient);
+    const next = "/workbench/manager/daily-reports?date=2026-07-08&view=custom%3Aoverview";
+    const req = stubReq({
+      url: "/api/workbench/auth/dingtalk",
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ authCode: "abc", next }),
+    });
+    const { res, captured } = stubRes();
+    const handled = handleAssignmentHttp(req, res);
+    expect(handled).toBe(true);
+    await flushAsync();
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(JSON.parse(c.body).redirectTo).toBe(next);
+  });
+
+  it("POST /api/workbench/login preserves daily reports next path", async () => {
+    const next = "/workbench/manager/daily-reports?date=2026-07-08&view=custom%3Aoverview";
+    const req = stubReq({
+      url: "/api/workbench/login",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "manager-1", role: "manager", next }),
+    });
+    const { res, captured } = stubRes();
+    const handled = handleAssignmentHttp(req, res);
+    expect(handled).toBe(true);
+    await flushAsync();
+    const c = captured();
+    expect(c.statusCode).toBe(200);
+    expect(JSON.parse(c.body).redirectTo).toBe(next);
   });
 
   it("POST /api/workbench/auth/dingtalk returns mapped auth error", async () => {

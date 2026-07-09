@@ -1,10 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildCtoRollupProjectLine,
   renderCtoRollupMorningMarkdown,
   sanitizeCtoRollupOverviewLine,
 } from "../../../src/agent/daily-report-digest/daily-report-cto-rollup-morning-render";
+import { sendCtoRollupMorningDigestToUser } from "../../../src/agent/daily-report-digest/daily-report-cto-rollup-digest-send";
+import { createProjectViewDigestStateStore } from "../../../src/agent/daily-report-digest/daily-report-project-view-digest-state";
 import {
   normalizePlainTextOverview,
   stripMarkdownCodeFence,
@@ -23,6 +28,16 @@ const FILTER = {
 };
 
 describe("cto rollup morning render", () => {
+  let tmpDir = "";
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (tmpDir) {
+      rmSync(tmpDir, { recursive: true, force: true });
+      tmpDir = "";
+    }
+  });
+
   it("renderCtoRollupMorningMarkdown lists all projects", () => {
     const rendered = renderCtoRollupMorningMarkdown({
       dateLabel: "2026-06-20（周五）（2026-06-20）",
@@ -48,6 +63,94 @@ describe("cto rollup morning render", () => {
     expect(rendered.text).toContain("CLA");
     expect(rendered.text).toContain("355 试产推进");
     expect(rendered.text).toContain("暂无相关记录");
+  });
+
+  it("does not render misleading submitted/roster ratios", () => {
+    const rendered = renderCtoRollupMorningMarkdown({
+      dateLabel: "2026-07-08",
+      dateYmd: "2026-07-08",
+      totalDistinctSubmittedCount: 63,
+      projectLines: [
+        {
+          viewId: "cla",
+          viewLabel: "CLA",
+          rosterCount: 17,
+          submittedCount: 21,
+          line: "sample",
+        },
+        {
+          viewId: "oct",
+          viewLabel: "OCT",
+          rosterCount: 17,
+          submittedCount: 32,
+          line: "sample",
+        },
+      ],
+    });
+
+    expect(rendered.text).not.toMatch(/\d+\/\d+\s/);
+    expect(rendered.text).toContain("63");
+    expect(rendered.text).toContain("53");
+  });
+
+  it("does not send CTO rollup when collection errors are present", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "cto-rollup-state-"));
+    const stateStore = createProjectViewDigestStateStore(join(tmpDir, "state.sqlite"));
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ processQueryKey: "robot-key" }),
+    })) as unknown as typeof fetch;
+
+    try {
+      await expect(
+        sendCtoRollupMorningDigestToUser({
+          contexts: [
+            {
+              view: {
+                id: "cla",
+                label: "CLA",
+                viewers: ["cto"],
+                orgLabel: "org",
+                filters: FILTER,
+              },
+              org: {
+                label: "org",
+                appKey: "k",
+                appSecret: "s",
+                employees: [],
+              },
+              orgDigest: {
+                label: "org",
+                submitted: [],
+                missing: [],
+                onLeave: [],
+                errors: [{ userid: "u1", name: "User 1", reason: "rate limited" }],
+              },
+              roster: [],
+              rosterCount: 0,
+              fromCache: false,
+              collectErrors: [{ userid: "u1", name: "User 1", reason: "rate limited" }],
+              scanContactCount: 1,
+            },
+          ],
+          range: {
+            labelYmd: "2026-07-08",
+            labelDisplay: "2026-07-08",
+            startTime: 0,
+            endTime: 1,
+          },
+          userId: "cto",
+          stateStore,
+          accessToken: "token",
+          robotCode: "robot",
+          fetchImpl,
+        }),
+      ).rejects.toThrow(/quality/i);
+
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      stateStore.close();
+    }
   });
 
   it("buildCtoRollupProjectLine sanitizes overview", () => {

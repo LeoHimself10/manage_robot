@@ -4,6 +4,7 @@ import {
   loadDailyReportDigestConfig,
   type DailyReportDigestConfig,
 } from "./daily-report-config";
+import { buildCtoRollupDigestForDay } from "./daily-report-cto-rollup-build";
 import { isCtoRollupDigestEnabled } from "./daily-report-cto-rollup-digest-flag";
 import { sendCtoRollupMorningDigestToUser } from "./daily-report-cto-rollup-digest-send";
 import { loadOrCollectProjectViewDigest } from "./daily-report-project-view-digest-collect";
@@ -20,7 +21,6 @@ import {
   type ProjectViewDigestStateStore,
 } from "./daily-report-project-view-digest-state";
 import { sendProjectViewMorningDigestToUser } from "./daily-report-project-view-digest-send";
-import { ensureProjectViewCtoOverview } from "./daily-report-project-view-summaries";
 import { isDailyReportProjectViewsEnabled } from "./daily-report-project-view-flag";
 import {
   groupProjectViewDigestPlansByUser,
@@ -87,48 +87,33 @@ export function createDailyReportProjectViewDigestScheduler(
     );
     const viewIdsNeeded = new Set(digestViews.map((v) => v.id));
 
-    const dateLabel = `${range.labelDisplay}（${range.labelYmd}）`;
-    const overviewByViewId = new Map<string, string>();
-    const contextByViewId = new Map<
-      string,
-      Awaited<ReturnType<typeof loadOrCollectProjectViewDigest>>
-    >();
-
-    for (const viewId of viewIdsNeeded) {
-      const ctx = await loadOrCollectProjectViewDigest({
-        config,
-        viewId,
-        range,
-        cacheStore,
-        ownsCacheStore: false,
-      });
-      contextByViewId.set(viewId, ctx);
-      const overview = await ensureProjectViewCtoOverview({
-        viewId: ctx.view.id,
-        viewLabel: ctx.view.label,
+    const built = await buildCtoRollupDigestForDay({
+      config,
+      range,
+      viewIds: [...viewIdsNeeded],
+      cacheStore,
+      fetchImpl,
+    });
+    if (!built.quality.ok) {
+      logStructured({
+        event: "daily_report_cto_rollup_digest_quality_failed",
         dateYmd: range.labelYmd,
-        dateLabel,
-        rosterCount: ctx.rosterCount,
-        orgDigest: ctx.orgDigest,
-        cacheStore,
-        fetchImpl,
+        userCount: usersInWindow.length,
+        reasons: built.quality.reasons,
+        errorCount: built.quality.errorCount,
       });
-      overviewByViewId.set(viewId, overview);
+      return;
     }
 
     for (const userId of usersInWindow) {
-      const contexts = digestViews
-        .map((view) => contextByViewId.get(view.id))
-        .filter((ctx): ctx is NonNullable<typeof ctx> => ctx != null);
-
       try {
         await sendCtoRollupMorningDigestToUser({
-          contexts,
+          contexts: built.contexts,
           range,
           userId,
           stateStore,
           fetchImpl,
-          overviewByViewId,
+          overviewByViewId: built.overviewByViewId,
           cacheStore,
         });
       } catch (err) {
