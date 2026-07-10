@@ -690,8 +690,8 @@ export function createWorkbenchFormalTaskStore() {
       (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.task_id AND s.status = 'BLOCKED') AS blocked_count
     FROM tasks t
     WHERE (? = '' OR t.status = ?)
-      AND (? = '' OR t.initiator_department = ?)
-      AND (? = '' OR t.task_no = ?)
+      AND (? = '' OR lower(t.initiator_department) LIKE '%' || lower(?) || '%')
+      AND (? = '' OR lower(t.task_no) LIKE '%' || lower(?) || '%')
       AND (? = '' OR t.title LIKE '%' || ? || '%' OR t.plan_id LIKE '%' || ? || '%')
       AND (? = '' OR EXISTS (
         SELECT 1 FROM subtasks s

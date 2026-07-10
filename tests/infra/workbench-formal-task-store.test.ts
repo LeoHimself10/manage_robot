@@ -64,6 +64,45 @@ describe("workbench-formal-task-store mapping", () => {
     expect(published.subtasks[0].sourceTaskKey).toBe("draft-task-a");
   });
 
+  it("filters admin tasks by partial task number and department", () => {
+    const store = createWorkbenchFormalTaskStore();
+    const publish = (planId: string, department: string, title: string) =>
+      store.publishFromSession({
+        planId,
+        session: {
+          chatKeyHash: `hash-${planId}`,
+          planId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          senderStaffId: "manager-1",
+          knownFacts: [],
+          conversationHistory: [],
+          latestDraft: { title, tasks: [{ id: "task-1", title: `${title}子任务` }] },
+          latestAssignment: {
+            assignments: [{ taskId: "task-1", primary: { userId: `employee-${planId}` } }],
+          },
+        },
+        managerUserId: "manager-1",
+        initiatorDepartment: department,
+        actorUserId: "manager-1",
+      });
+
+    const research = publish("plan-admin-filter-research", "医疗研发中心", "研发验证");
+    publish("plan-admin-filter-sales", "华东销售部", "销售跟进");
+    const taskNoFragment = research.task.taskNo.slice(-4);
+
+    expect(store.listAdminTasks({ taskNo: taskNoFragment }).map((row) => row.planId)).toEqual([
+      "plan-admin-filter-research",
+    ]);
+    expect(store.listAdminTasks({ department: "研发" }).map((row) => row.planId)).toEqual([
+      "plan-admin-filter-research",
+    ]);
+    expect(
+      store.listAdminTasks({ department: "研发", keyword: "验证" }).map((row) => row.planId),
+    ).toEqual(["plan-admin-filter-research"]);
+    expect(store.listAdminTasks({ department: "研发", keyword: "销售" })).toEqual([]);
+  });
+
   it("persists rich fields from draft into flat columns", () => {
     const store = createWorkbenchFormalTaskStore();
     const session: PlanSession = {
