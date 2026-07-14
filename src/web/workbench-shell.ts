@@ -5,6 +5,7 @@ import { isDailyReportsPageEnabled } from "../agent/daily-report-digest/daily-re
 import { isMeetingImportEnabled } from "../agent/meeting-import/meeting-import-flag";
 import { isCompetencyEvalUser } from "../agent/competency-eval/competency-eval-access";
 import { isCompetencyEvalEnabled } from "../agent/competency-eval/competency-eval-flag";
+import { resolveQualityCapabilities } from "../security/quality-capabilities";
 
 function resolveCompetencyEvalNavEnabled(params: {
   sessionUserId?: string;
@@ -38,7 +39,9 @@ export type WorkbenchNavId =
   | "adm-perms"
   | "adm-ops"
   | "adm-daily-reports"
-  | "adm-perf";
+  | "adm-perf"
+  | "quality-tracking"
+  | "quality-opinions";
 
 function escapeHtml(v: string): string {
   return v
@@ -130,6 +133,41 @@ function buildAdminRail(activeNav: WorkbenchNavId, competencyEvalEnabled = false
   ${isDailyReportsPageEnabled() ? railLink("/workbench/admin/daily-reports", "日报汇总", "adm-daily-reports", activeNav, "admin") : ""}
   ${competencyEvalEnabled ? railLink("/workbench/manager/competency-eval", "能力评估", "mgr-competency-eval", activeNav, "admin") : ""}
   ${railLink("/workbench/admin/permissions", "权限中心", "adm-perms", activeNav, "admin", { id: "navAdminPerms" })}
+</div>`;
+}
+
+function buildQualityRail(params: {
+  activeNav: WorkbenchNavId;
+  role: WorkbenchShellRole;
+  sessionUserId?: string;
+  disabled?: boolean;
+}): string {
+  if (params.disabled) return "";
+  const caps = resolveQualityCapabilities(String(params.sessionUserId ?? ""));
+  const links = [
+    caps.canAccessTracking
+      ? railLink(
+        "/workbench/quality",
+        "质量追踪",
+        "quality-tracking",
+        params.activeNav,
+        params.role,
+      )
+      : "",
+    caps.canAccessOpinions || caps.roles.includes("quality_specialist")
+      ? railLink(
+        "/workbench/quality/opinions",
+        "质量意见",
+        "quality-opinions",
+        params.activeNav,
+        params.role,
+      )
+      : "",
+  ].filter(Boolean).join("");
+  if (!links) return "";
+  return `<div class="wb-rail-grp">
+  <div class="wb-rail-grp-lbl">质量</div>
+  ${links}
 </div>`;
 }
 
@@ -269,6 +307,7 @@ export function renderWorkbenchPage(params: {
   showAdminOpsLink?: boolean;
   competencyEvalEnabled?: boolean;
   canExecuteAsManager?: boolean;
+  qualityAccessDisabled?: boolean;
   bodyClass?: string;
   mainClass?: string;
   mainBodyClass?: string;
@@ -278,7 +317,7 @@ export function renderWorkbenchPage(params: {
   scriptHtml?: string;
 }): string {
   const competencyEvalEnabled = resolveCompetencyEvalNavEnabled(params);
-  const railNav =
+  const baseRailNav =
     params.role === "manager"
       ? buildManagerRail(
         params.activeNav,
@@ -289,6 +328,12 @@ export function renderWorkbenchPage(params: {
       : params.role === "employee"
         ? buildEmployeeRail(params.activeNav)
         : buildAdminRail(params.activeNav, competencyEvalEnabled);
+  const railNav = `${baseRailNav}${buildQualityRail({
+    activeNav: params.activeNav,
+    role: params.role,
+    sessionUserId: params.sessionUserId,
+    disabled: params.qualityAccessDisabled,
+  })}`;
 
   const descBlock = params.description
     ? `<p class="wb-main-desc">${escapeHtml(params.description)}</p>`

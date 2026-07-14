@@ -20,6 +20,7 @@ export function renderDailyReportsPage(params: {
   canManageRoster?: boolean;
   canManageProjectGroups?: boolean;
   canExecuteAsManager?: boolean;
+  qualityAccessDisabled?: boolean;
 }): string {
   const apiBase = params.apiBase ?? DAILY_REPORTS_API;
   const canManageRoster = Boolean(params.canManageRoster);
@@ -103,6 +104,7 @@ export function renderDailyReportsPage(params: {
     portfolioEnabled: Boolean(params.portfolioEnabled),
     showAdminOpsLink: params.showAdminOpsLink,
     canExecuteAsManager: Boolean(params.canExecuteAsManager),
+    qualityAccessDisabled: params.qualityAccessDisabled,
     extraCss: DAILY_REPORTS_PAGE_CSS,
     mainHtml: `
   <div class="dr-root ${roleClass}">

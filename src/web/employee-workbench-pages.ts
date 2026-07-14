@@ -6,6 +6,8 @@ import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippe
 /** Single-page employee workbench: `?view=new|current|history|profile|security` */
 export function renderEmployeeWorkbenchPage(params?: {
   canExecuteAsManager?: boolean;
+  sessionUserId?: string;
+  qualityAccessDisabled?: boolean;
 }): string {
   return renderWorkbenchPage({
     role: "employee",
@@ -13,6 +15,14 @@ export function renderEmployeeWorkbenchPage(params?: {
     title: "待承接",
     pageTitle: "员工工作台",
     canExecuteAsManager: Boolean(params?.canExecuteAsManager),
+    sessionUserId: params?.sessionUserId,
+    qualityAccessDisabled: params?.qualityAccessDisabled,
+    extraCss: `
+.emp-quality-context{margin:10px 0;padding:11px 12px;border:1px solid #c7d2fe;border-radius:10px;background:#f8faff}
+.emp-quality-context__head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:#3730a3}
+.emp-quality-context__badge{display:inline-flex;padding:2px 8px;border-radius:999px;background:#e0e7ff;color:#3730a3;font-size:11px;font-weight:700}
+.emp-quality-context p{margin:5px 0 0;font-size:12px;color:#475569;white-space:pre-wrap;overflow-wrap:anywhere}
+`,
     mainHtml: `
   <div id="panelNew">
     <section class="kpis kpis--2" aria-live="polite">
@@ -195,6 +205,7 @@ export function renderEmployeeWorkbenchPage(params?: {
         <label>说明（必填）
           <textarea id="progNote" rows="4" placeholder="本阶段进展、风险与下一步计划"></textarea>
         </label>
+        <p class="info-banner info-banner--note" id="qualityCompletionHint" hidden>质量任务完成前需先上传证据，并从质量完成入口提交上级验收。</p>
       </div>
     </div>
     <div class="wb-modal__foot">
@@ -202,6 +213,15 @@ export function renderEmployeeWorkbenchPage(params?: {
       <button type="button" class="btn btn-secondary" id="progCancelBtn">取消</button>
       <button type="button" class="btn btn-primary" id="progSubmitBtn">提交</button>
     </div>
+  </div>
+</div>
+
+<!-- 弹窗：质量证据 -->
+<div class="wb-modal-overlay" id="qualityEvidenceModalOverlay" role="dialog" aria-modal="true" aria-labelledby="qualityEvidenceModalTitle">
+  <div class="wb-modal" role="document">
+    <div class="wb-modal__head"><h3 class="wb-modal__title" id="qualityEvidenceModalTitle">上传质量证据</h3><button type="button" class="wb-modal__close" id="qualityEvidenceModalClose" aria-label="关闭">×</button></div>
+    <div class="wb-modal__body"><form class="form-stack" id="qualityEvidenceForm"><label>证据摘要<textarea id="qualityEvidenceSummary" maxlength="2000" required placeholder="说明检查过程、结论与文件内容"></textarea></label><label>证据文件（单个不超过 20 MB）<input id="qualityEvidenceFile" type="file" required></label><button class="btn btn-secondary" type="submit">上传证据</button></form><p class="info-banner info-banner--note">如主管已向下分配，下级证据会汇总到链路，不需重复上传。</p></div>
+    <div class="wb-modal__foot"><div class="feedback muted" id="qualityEvidenceFeedback"></div><button type="button" class="btn btn-secondary" id="qualityEvidenceDoneBtn">关闭</button><button type="button" class="btn btn-primary" id="qualitySubmitCompletionBtn">提交完成并送上级验收</button></div>
   </div>
 </div>
 
@@ -384,13 +404,13 @@ export function renderEmployeeWorkbenchPage(params?: {
   }
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape') {
-      ['acceptDueModalOverlay', 'actionModalOverlay', 'progressModalOverlay', 'noteModalOverlay'].forEach(function (id) {
+      ['acceptDueModalOverlay', 'actionModalOverlay', 'progressModalOverlay', 'qualityEvidenceModalOverlay', 'noteModalOverlay'].forEach(function (id) {
         var ov = document.getElementById(id);
         if (ov && ov.getAttribute('data-open') === 'true') closeModal(id);
       });
     }
   });
-  ['acceptDueModalOverlay', 'actionModalOverlay', 'progressModalOverlay', 'noteModalOverlay'].forEach(function (id) {
+  ['acceptDueModalOverlay', 'actionModalOverlay', 'progressModalOverlay', 'qualityEvidenceModalOverlay', 'noteModalOverlay'].forEach(function (id) {
     var ov = document.getElementById(id);
     if (!ov) return;
     ov.addEventListener('click', function (ev) {
@@ -513,13 +533,17 @@ export function renderEmployeeWorkbenchPage(params?: {
     var tn = String(t.taskNo || '').trim();
     var fromView = getView();
     var detailLink = tn ? ('<p class="meta"><a class="task-detail-readonly-link" href="/workbench/employee/task?taskNo='+encodeURIComponent(tn)+'&fromView='+encodeURIComponent(fromView)+'">完整背景与分工</a></p>') : '';
+    var q = t.qualityContext || null;
+    var qualityContext = q ? ('<div class="emp-quality-context"><div class="emp-quality-context__head"><span class="emp-quality-context__badge">质量任务</span><strong>'+esc(q.eventNo||'')+' · '+esc(q.eventTitle||'')+'</strong></div>'
+      + '<p>'+esc(q.eventSummary||'')+'</p>'
+      + '<p>原主责：'+esc(q.primaryAssigneeUserId||'待确定')+' · 直接上级：'+esc(q.parentAssigneeUserId||'暂无')+' · 完成时需上传证据</p></div>') : '';
     var coreLines = subtaskCardCoreLines(t, [t]);
     var actions = actionsHtml || '';
-    return '<article class="'+cardCls+'" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'" data-search-key="'+esc(((t.title||'')+' '+(t.taskNo||'')+' '+(t.taskDescription||'')).toLowerCase())+'">'
+    return '<article class="'+cardCls+'" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'" data-quality-node-id="'+esc(q&&q.nodeId?q.nodeId:'')+'" data-quality-node-version="'+esc(q&&q.nodeVersion?q.nodeVersion:'')+'" data-search-key="'+esc(((t.title||'')+' '+(t.taskNo||'')+' '+(t.taskDescription||'')).toLowerCase())+'">'
       + '<div class="head"><div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+st+'</div>'
       + '<p class="title">'+esc(t.title||t.taskNo||'子任务')+'</p>'
       + '<p class="meta">业务编号 <code>'+esc(t.taskNo||'—')+'</code>'+mgrLine+'</p>'
-      + descLine + coreLines + detailLink
+      + descLine + qualityContext + coreLines + detailLink
       + formatDue(t)
       + '</div></div>'+actions+'</article>';
   }
@@ -690,12 +714,16 @@ export function renderEmployeeWorkbenchPage(params?: {
       }
       mount.innerHTML = renderTaskCardList(tasks, function (t) {
         return '<div class="actions" style="justify-content:space-between;">'
-          +'<span></span><button type="button" class="btn btn-secondary" data-prog="1">填写进度</button></div>';
+          +'<span></span>'+(t.qualityContext?'<button type="button" class="btn btn-secondary" data-quality-evidence="1">证据与完成</button>':'')+'<button type="button" class="btn btn-secondary" data-prog="1">填写进度</button></div>';
       });
       mount.querySelectorAll('.task-card').forEach(function (card) {
         var btn = card.querySelector('button[data-prog]');
         if (btn) btn.addEventListener('click', function () {
-          openProgressModal(card.getAttribute('data-subtask-id') || '');
+          openProgressModal(card.getAttribute('data-subtask-id') || '', card.getAttribute('data-quality-node-id') || '');
+        });
+        var evidenceBtn = card.querySelector('button[data-quality-evidence]');
+        if (evidenceBtn) evidenceBtn.addEventListener('click', function () {
+          openQualityEvidenceModal(card.getAttribute('data-quality-node-id') || '', Number(card.getAttribute('data-quality-node-version') || 0));
         });
       });
       bindSearch('searchCur', 'cardsCur');
@@ -733,6 +761,8 @@ export function renderEmployeeWorkbenchPage(params?: {
   /* ---------- 弹窗：拒绝 / 协助 ---------- */
   var pending = null;
   var progressSubtaskId = '';
+  var progressQualityNodeId = '';
+  var qualityEvidenceNode = null;
   function openActionModal(planId, subtaskId, action) {
     pending = { planId: planId, subtaskId: subtaskId, action: action };
     document.getElementById('actionNote').value = '';
@@ -752,12 +782,20 @@ export function renderEmployeeWorkbenchPage(params?: {
     setFb('actionFeedback', '', 'muted');
     openModal('actionModalOverlay');
   }
-  function openProgressModal(subtaskId) {
+  function openProgressModal(subtaskId, qualityNodeId) {
     progressSubtaskId = subtaskId;
+    progressQualityNodeId = qualityNodeId || '';
     document.getElementById('progNote').value = '';
     document.getElementById('progStatus').value = 'IN_PROGRESS';
+    document.getElementById('qualityCompletionHint').hidden = true;
     setFb('progPanelFb', '', 'muted');
     openModal('progressModalOverlay');
+  }
+  function openQualityEvidenceModal(nodeId, version) {
+    qualityEvidenceNode = { nodeId: nodeId, version: version };
+    document.getElementById('qualityEvidenceForm').reset();
+    setFb('qualityEvidenceFeedback', '', 'muted');
+    openModal('qualityEvidenceModalOverlay');
   }
 
   document.getElementById('actionModalClose').addEventListener('click', function () { closeModal('actionModalOverlay'); });
@@ -768,6 +806,26 @@ export function renderEmployeeWorkbenchPage(params?: {
   document.getElementById('progCancelBtn').addEventListener('click', function () { closeModal('progressModalOverlay'); });
   document.getElementById('noteModalClose').addEventListener('click', function () { closeModal('noteModalOverlay'); });
   document.getElementById('noteModalOkBtn').addEventListener('click', function () { closeModal('noteModalOverlay'); });
+  document.getElementById('qualityEvidenceModalClose').addEventListener('click', function () { closeModal('qualityEvidenceModalOverlay'); });
+  document.getElementById('qualityEvidenceDoneBtn').addEventListener('click', function () { closeModal('qualityEvidenceModalOverlay'); });
+  document.getElementById('progStatus').addEventListener('change', function () {
+    document.getElementById('qualityCompletionHint').hidden = !(progressQualityNodeId && this.value === 'DONE');
+  });
+  document.getElementById('qualityEvidenceForm').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    if (!qualityEvidenceNode) return;
+    var file = document.getElementById('qualityEvidenceFile').files[0];
+    var summary = (document.getElementById('qualityEvidenceSummary').value || '').trim();
+    if (!file || !summary) { setFb('qualityEvidenceFeedback', '请选择文件并填写摘要', 'err'); return; }
+    var form = new FormData(); form.append('requestId', newIdempotencyKey()); form.append('summary', summary); form.append('file', file);
+    setFb('qualityEvidenceFeedback', '上传中…', 'muted');
+    try { var res = await fetch('/api/workbench/quality/nodes/'+encodeURIComponent(qualityEvidenceNode.nodeId)+'/evidence',{method:'POST',body:form}); var data=await res.json().catch(function(){return {};}); if(!res.ok||!data.ok)throw new Error(data.error||('请求失败（'+res.status+'）')); document.getElementById('qualityEvidenceForm').reset(); setFb('qualityEvidenceFeedback', '证据已上传，可继续上传或提交完成', 'ok'); } catch(e) { setFb('qualityEvidenceFeedback', String(e&&e.message?e.message:e), 'err'); }
+  });
+  document.getElementById('qualitySubmitCompletionBtn').addEventListener('click', async function () {
+    if (!qualityEvidenceNode) return;
+    setFb('qualityEvidenceFeedback', '提交中…', 'muted');
+    try { var res=await fetch('/api/workbench/quality/nodes/'+encodeURIComponent(qualityEvidenceNode.nodeId)+'/submit-completion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedVersion:qualityEvidenceNode.version,requestId:newIdempotencyKey()})}); var data=await res.json().catch(function(){return {};}); if(!res.ok||!data.ok)throw new Error(data.error||('请求失败（'+res.status+'）')); closeModal('qualityEvidenceModalOverlay'); await loadCurrent(); } catch(e) { setFb('qualityEvidenceFeedback', String(e&&e.message?e.message:e), 'err'); }
+  });
 
   async function submitDirect(planId, subtaskId, action, note, opts) {
     var res = await fetch('/api/workbench/employee/subtasks/action', {
@@ -851,6 +909,11 @@ export function renderEmployeeWorkbenchPage(params?: {
     var progressStatus = (document.getElementById('progStatus').value || '').trim();
     var note = (document.getElementById('progNote').value || '').trim();
     if (!note) { setFb('progPanelFb', '请填写说明', 'err'); return; }
+    if (progressQualityNodeId && progressStatus === 'DONE') {
+      document.getElementById('qualityCompletionHint').hidden = false;
+      setFb('progPanelFb', '质量任务完成前需先上传证据', 'err');
+      return;
+    }
     var btn = document.getElementById('progSubmitBtn');
     btn.disabled = true;
     setFb('progPanelFb', '提交中…', 'muted');

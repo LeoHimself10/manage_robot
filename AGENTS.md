@@ -27,7 +27,7 @@
 - 已知遗留问题：`docs/已知遗留问题-backlog.md`
 - 历史设计稿：`docs/superpowers/`（文首标注快照，勿作现网依据）
 
-## 当前实现边界（2026-06-15）
+## 当前实现边界（2026-07-13）
 
 ### 编排与 Policy 分工
 
@@ -135,6 +135,21 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 - `subtasks` 8 个富字段列（`depends_on`、`checkpoints`、`risks`、`input_materials`、`actions`、`collaborators`、`in_scope`、`out_of_scope`）发布时从草案写入。
 - 员工画像 + 钉钉通讯录：`people-directory-store`、`dingtalk_contacts`（`DINGTALK_CONTACT_SYNC_ENABLED=1`）。
 - **子任务状态**：员工「接受」后直接 **`IN_PROGRESS`**（不落库 `ACCEPTED`；历史行启动时迁移）。
+
+### 质量追踪（独立模块）
+
+- 页面：`/workbench/quality`；售后主管和质量专员始终保留入口，普通用户及外部密码会话在服务端拒绝。
+- 角色：`QUALITY_AFTERSALES_MANAGER_USER_IDS`、`QUALITY_SPECIALIST_USER_IDS`、`QUALITY_SPECIALIST_REPORTS_FILE`；质量意见页为 `/workbench/quality/opinions`。
+- 来源：仅用企业内部应用的钉钉表格 GET 接口读取“客户端问题反馈记录表”；需 `DINGTALK_CLIENT_ID`、`DINGTALK_CLIENT_SECRET`、`QUALITY_SOURCE_WORKBOOK_ID`、`QUALITY_SOURCE_OPERATOR_UNION_ID` 四项完整。
+- 同步：进程启动立即读取一次，之后每 2 小时读取；失败时保留最近成功缓存。`QUALITY_SOURCE_SYNC_ENABLED=0` 可显式禁用。
+- 存储：质量事件、快照、链路、证据、验收、私密评论、审计和通知均使用独立 `quality_*` SQLite 表；附件使用 `QUALITY_FILE_DIR` / `QUALITY_EVIDENCE_DIR`。质量节点仅通过确定性桥接复用正式任务能力，普通任务数据与行为不变。
+- 任务桥接：质量专员指定原主责后，每个分配节点以 `quality-node:{nodeId}` 确定性键桥接到原正式任务/子任务；主管和员工在原任务页承接、驳回、查看背景和继续分配，不改动普通任务 JSON 与流程。
+- 证据与验收：叶子节点必须上传至少一份证据才能提交；证据退回不删历史版本；直接上级逐级验收，原主责看全链路证据包并整体通过后送质量专员。
+- 终验：质量专员可指定节点退回、填写结论关闭、说明原因并选节点重开；关闭事件只读，历史证据和审计不删除。
+- 私密评论：`/workbench/quality/opinions` 仅允许配置下级与对应质量专员双方查看；第三人及 admin 无旁路权限；正文不进入公开审计、任务事件、证据包或通知摘要。
+- 通知：业务事务只写 `quality_notification_outbox`，后台每 30 秒异步发送；1/5/15/60/360 分钟阶梯退避，最多 8 次后由质量专员在事件详情人工重新入队。质量节点复用现有正式子任务 T-1 与直接上级逾期提醒，附加扫描只补原主责和质量专员，避免重复通知承接人。
+- 权限：质量专员看全部已通报事件公开全链；售后主管只看自己通报事件；原主责看整树；协同主管看自己的分支；执行人只看自己的节点。查询与下载均在服务端校验。
+- 测试：`tests/security/quality-capabilities.test.ts`、`tests/quality/`、`tests/web/quality-*.test.ts`；Vitest 默认禁止真实网络同步。
 
 ### 钉钉通知（`WORKBENCH_DINGTALK_NOTIFY_ENABLED=1`）
 

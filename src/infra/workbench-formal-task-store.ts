@@ -936,6 +936,129 @@ export function createWorkbenchFormalTaskStore() {
   }
 
   return {
+    createIntegrationTask(input: {
+      integrationKey: string;
+      title: string;
+      description: string;
+      initiatorUserId: string;
+      initiatorDepartment: string;
+      managerUserId: string;
+      assigneeUserId: string;
+      dueAt: string;
+      sourceTraceId: string;
+    }): {
+      task: WorkbenchTaskRow;
+      subtask: WorkbenchSubtaskRow;
+      alreadyCreated: boolean;
+    } {
+      const integrationKey = input.integrationKey.trim();
+      const title = input.title.trim();
+      const managerUserId = input.managerUserId.trim();
+      const assigneeUserId = input.assigneeUserId.trim();
+      if (!integrationKey || integrationKey.length > 300) throw new Error("integrationKey is required");
+      if (!title || title.length > 500) throw new Error("integration title is required");
+      if (!managerUserId || !assigneeUserId) throw new Error("integration actors are required");
+      const planId = `integration:${integrationKey}`;
+      const taskId = `task:${planId}`;
+      const subtaskId = `${taskId}:work`;
+
+      const loadExisting = (): {
+        task: WorkbenchTaskRow;
+        subtask: WorkbenchSubtaskRow;
+        alreadyCreated: true;
+      } | null => {
+        const rawTask = qTaskByPlan.get(planId) as Record<string, unknown> | undefined;
+        if (!rawTask) return null;
+        const task = mapTaskRow(rawTask);
+        const rows = qTaskSubtasks.all(task.taskId) as Array<Record<string, unknown>>;
+        const rawSubtask = rows.find((row) => String(row.source_task_key ?? "") === "work");
+        if (
+          task.taskId !== taskId
+          || task.managerUserId !== managerUserId
+          || task.title !== title
+          || rows.length !== 1
+          || !rawSubtask
+          || String(rawSubtask.assignee_user_id ?? "") !== assigneeUserId
+        ) {
+          throw new Error("integration task conflict");
+        }
+        return {
+          task,
+          subtask: mapSubtaskRow({ ...rawSubtask, plan_id: planId }),
+          alreadyCreated: true,
+        };
+      };
+
+      const existing = loadExisting();
+      if (existing) return existing;
+      const occurredAt = nowIso();
+      const dueAt = formatDueAtForStorage(input.dueAt);
+      if (!dueAt) throw new Error("integration dueAt is required");
+      const description = input.description.trim().slice(0, TASK_DESCRIPTION_MAX_DB);
+      try {
+        runInTransaction(() => {
+          db.prepare(
+            `INSERT INTO tasks(task_id, task_no, plan_id, title, description, status,
+              initiator_user_id, initiator_department, manager_user_id, manager_group_id,
+              source_trace_id, published_at, created_at, updated_at, project_id)
+             VALUES(?,?,?,?,?,'ASSIGNED',?,?,?,?,?,?,?,?,NULL)`,
+          ).run(
+            taskId,
+            buildTaskNoForDate(),
+            planId,
+            title,
+            description || null,
+            input.initiatorUserId.trim(),
+            input.initiatorDepartment.trim() || "质量部",
+            managerUserId,
+            null,
+            input.sourceTraceId.trim() || null,
+            occurredAt,
+            occurredAt,
+            occurredAt,
+          );
+          db.prepare(
+            `INSERT INTO subtasks(subtask_id, task_id, source_task_key, title, objective,
+              deliverables, completion_criteria, due_at, due_set_by, due_expectation,
+              feedback_frequency, assignee_user_id, status, progress_note, created_at,
+              updated_at, depends_on, checkpoints, risks, input_materials, actions,
+              collaborators, in_scope, out_of_scope)
+             VALUES(?,?, 'work', ?,?,?,?,?,'manager',NULL,NULL,?,'ASSIGNED',NULL,?,?,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)`,
+          ).run(
+            subtaskId,
+            taskId,
+            title,
+            description || null,
+            "处理质量节点并提交证据",
+            "证据通过直接上级验收",
+            dueAt,
+            assigneeUserId,
+            occurredAt,
+            occurredAt,
+          );
+          db.prepare(
+            `INSERT INTO task_events(task_id, subtask_id, event_type, actor_user_id,
+              note, payload_json, occurred_at) VALUES(?,?,?,?,?,?,?)`,
+          ).run(
+            taskId,
+            null,
+            "TASK_PUBLISHED",
+            input.initiatorUserId.trim(),
+            "integration task created",
+            stringify({ integrationKey, sourceTraceId: input.sourceTraceId }),
+            occurredAt,
+          );
+        });
+      } catch (error) {
+        const recovered = loadExisting();
+        if (recovered) return recovered;
+        throw error;
+      }
+      const created = loadExisting();
+      if (!created) throw new Error("integration task was not created");
+      return { ...created, alreadyCreated: false };
+    },
+
     publishFromSession(input: {
       planId: string;
       session: PlanSession;

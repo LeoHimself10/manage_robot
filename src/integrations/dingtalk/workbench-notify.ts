@@ -159,6 +159,13 @@ export interface WorkbenchProgressDigestNotifyInput {
   sourceId: string;
 }
 
+export interface WorkbenchQualityActionNotifyInput {
+  recipientUserId: string;
+  subject: string;
+  markdown: string;
+  detailUrl: string;
+}
+
 export interface WorkbenchManagerSubtaskOverdueNotifyInput {
   managerUserId: string;
   taskNo: string;
@@ -174,6 +181,7 @@ export interface WorkbenchManagerSubtaskOverdueNotifyInput {
 }
 
 export interface WorkbenchPublishNotifier {
+  notifyQualityAction(input: WorkbenchQualityActionNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyPublishedTask(input: WorkbenchPublishTaskNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyReassignedAssignee(input: WorkbenchReassignNotifyInput): Promise<WorkbenchNotifyResult>;
   notifyTaskStopped(input: WorkbenchTaskStoppedNotifyInput): Promise<WorkbenchNotifyResult>;
@@ -649,6 +657,33 @@ export function createWorkbenchPublishNotifier(
   fetchImpl: typeof fetch = fetch,
 ): WorkbenchPublishNotifier {
   return {
+    async notifyQualityAction(input: WorkbenchQualityActionNotifyInput): Promise<WorkbenchNotifyResult> {
+      const userId = String(input.recipientUserId ?? "").trim();
+      if (!userId) return { enabled: false, skippedReason: "recipientUserId missing", success: [], failed: [] };
+      if (isExternalContact(userId)) return { enabled: true, success: [], failed: [], skippedExternal: [{ userId }] };
+      if (!isNotifyEnabled()) return { enabled: false, skippedReason: "WORKBENCH_DINGTALK_NOTIFY_ENABLED is off", success: [], failed: [] };
+      const agentId = env("DINGTALK_AGENT_ID") || env("WORKBENCH_DINGTALK_NOTIFY_AGENT_ID");
+      const robotEnabled = isRobotMsgEnabled(); const robotCode = resolveRobotCode();
+      if (!agentId && (!robotEnabled || !robotCode)) return { enabled: false, skippedReason: "missing DingTalk notification channel configuration", success: [], failed: [] };
+      let token: string;
+      try { token = await getAccessToken(fetchImpl); }
+      catch (error) { return { enabled: true, success: [], failed: [{ userId, reason: `getAccessToken failed: ${error instanceof Error ? error.message : String(error)}` }] }; }
+      const success: WorkbenchNotifyResult["success"] = []; const failed: WorkbenchNotifyResult["failed"] = [];
+      const outcome: WorkbenchNotifyResult["success"][number] = { userId }; let delivered = false;
+      const detailUrl = wrapNotifyUrlForDingtalkClient(input.detailUrl);
+      const subject = clipNotifyText(input.subject, 200); const markdown = enforceNotifyMarkdownLimit(input.markdown);
+      if (agentId) {
+        try { outcome.cardMessageId = await sendCard({ fetchImpl, accessToken: token, agentId, userId, title: subject, markdown, detailUrl }); delivered = true; }
+        catch (error) { failed.push({ userId, reason: `send card failed: ${error instanceof Error ? error.message : String(error)}` }); }
+      }
+      if (robotEnabled && robotCode) {
+        try { outcome.robotMessageKey = await sendRobotChatMessage({ fetchImpl, accessToken: token, robotCode, userId, title: subject, markdown, detailUrl }); delivered = true; }
+        catch (error) { failed.push({ userId, reason: `robot chat message failed: ${error instanceof Error ? error.message : String(error)}` }); }
+      }
+      if (delivered) success.push(outcome);
+      return { enabled: true, success, failed };
+    },
+
     async notifyPublishedTask(
       input: WorkbenchPublishTaskNotifyInput,
     ): Promise<WorkbenchNotifyResult> {

@@ -80,6 +80,7 @@ import { loadProgressDigestPolicy } from "./agent/progress-digest/progress-diges
 import { createDailyReportDigestScheduler } from "./agent/daily-report-digest/daily-report-scheduler";
 import { createDailyReportProjectViewPrewarmScheduler } from "./agent/daily-report-digest/daily-report-project-view-prewarm";
 import { createDailyReportProjectViewDigestScheduler } from "./agent/daily-report-digest/daily-report-project-view-digest-scheduler";
+import { createQualityNotificationScheduler } from "./quality/notifications/quality-notification-scheduler";
 import { isDailyReportProjectViewDigestEnabled } from "./agent/daily-report-digest/daily-report-project-view-digest-flag";
 import { isTaskIntakeDingTalkMeetingsEnabled } from "./agent/task-intake/dingtalk-meetings-flag";
 import {
@@ -92,6 +93,7 @@ import {
 } from "./infra/workbench-memory-store";
 import { createRecentPublishStore } from "./agent/tools/publish-task";
 import { KNOWN_TOOL_NAMES } from "./agent/tools/registry";
+import { createQualitySourceRuntime } from "./quality/source/quality-source-runtime";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -317,6 +319,8 @@ async function main(): Promise<void> {
   }
   const reminderScheduler = createReminderScheduler();
   reminderScheduler.startIntervalLoop();
+  const qualityNotificationScheduler = createQualityNotificationScheduler();
+  qualityNotificationScheduler.startIntervalLoop();
   const progressDigestPolicy = loadProgressDigestPolicy();
   const progressDigestScheduler = createProgressDigestScheduler();
   progressDigestScheduler.startIntervalLoop();
@@ -356,6 +360,9 @@ async function main(): Promise<void> {
     enabled: isDailyReportProjectViewDigestEnabled(),
     scanIntervalMs: dailyReportScheduler.config.scanIntervalMs,
   });
+
+  const qualitySourceRuntime = createQualitySourceRuntime({ log: logStructured });
+  qualitySourceRuntime.start();
 
   client.registerCallbackListener(TOPIC_ROBOT, (res: DWClientDownStream) => {
     void (async () => {

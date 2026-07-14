@@ -31,6 +31,13 @@ export interface CreatedFolder {
   name: string;
 }
 
+export interface DingTalkSheetProperties {
+  id: string;
+  name: string;
+  lastNonEmptyRow: number;
+  lastNonEmptyColumn: number;
+}
+
 function asString(v: unknown): string {
   return v == null ? "" : String(v).trim();
 }
@@ -43,6 +50,45 @@ function colLetter(colIndex: number): string {
     n = Math.floor(n / 26) - 1;
   }
   return s;
+}
+
+const DINGTALK_MAX_RANGE_CELLS = 30_000;
+
+function colIndexFromLetter(column: string): number {
+  let value = 0;
+  for (const char of column.toUpperCase()) {
+    value = value * 26 + char.charCodeAt(0) - 64;
+  }
+  return value - 1;
+}
+
+function splitRangeForRead(range: string): string[] {
+  const match = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i.exec(range);
+  if (!match) return [range];
+  const startColumn = match[1]!.toUpperCase();
+  const startRow = Number(match[2]);
+  const endColumn = match[3]!.toUpperCase();
+  const endRow = Number(match[4]);
+  const columnCount = colIndexFromLetter(endColumn) - colIndexFromLetter(startColumn) + 1;
+  if (
+    !Number.isInteger(startRow)
+    || !Number.isInteger(endRow)
+    || startRow < 1
+    || endRow < startRow
+    || columnCount < 1
+  ) {
+    return [range];
+  }
+  const maxRowsPerRequest = Math.floor(DINGTALK_MAX_RANGE_CELLS / columnCount);
+  if (maxRowsPerRequest < 1 || (endRow - startRow + 1) <= maxRowsPerRequest) {
+    return [range];
+  }
+  const chunks: string[] = [];
+  for (let row = startRow; row <= endRow; row += maxRowsPerRequest) {
+    const chunkEndRow = Math.min(endRow, row + maxRowsPerRequest - 1);
+    chunks.push(`${startColumn}${row}:${endColumn}${chunkEndRow}`);
+  }
+  return chunks;
 }
 
 function estimateRowHeight(cellValue: string): number {
@@ -180,6 +226,62 @@ export function createDingTalkWorkbookClient(opts?: { fetchImpl?: typeof fetch }
     }));
   }
 
+  async function getSheetProperties(
+    appKey: string,
+    appSecret: string,
+    doc: DailyReportDocConfig,
+    workbookId: string,
+    sheetId: string,
+  ): Promise<DingTalkSheetProperties> {
+    const data = await apiCall<Record<string, unknown>>(
+      appKey,
+      appSecret,
+      "GET",
+      `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}?operatorId=${encodeURIComponent(doc.operatorUnionId)}`,
+    );
+    const id = asString(data.id ?? sheetId);
+    const name = asString(data.name);
+    const lastNonEmptyRow = Number(data.lastNonEmptyRow);
+    const lastNonEmptyColumn = Number(data.lastNonEmptyColumn);
+    if (
+      !id
+      || !name
+      || !Number.isInteger(lastNonEmptyRow)
+      || lastNonEmptyRow < 0
+      || !Number.isInteger(lastNonEmptyColumn)
+      || lastNonEmptyColumn < 0
+    ) {
+      throw new Error(`getSheetProperties missing non-empty bounds: ${JSON.stringify(data)}`);
+    }
+    return { id, name, lastNonEmptyRow, lastNonEmptyColumn };
+  }
+
+  async function readSheetValues(
+    appKey: string,
+    appSecret: string,
+    doc: DailyReportDocConfig,
+    workbookId: string,
+    sheetId: string,
+    rangeAddress: string,
+  ): Promise<unknown[][]> {
+    const range = rangeAddress.trim();
+    if (!range) throw new Error("rangeAddress is required");
+    const rows: unknown[][] = [];
+    for (const chunk of splitRangeForRead(range)) {
+      const data = await apiCall<{ values?: unknown[][] }>(
+        appKey,
+        appSecret,
+        "GET",
+        `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}/ranges/${encodeURIComponent(chunk)}?select=values&operatorId=${encodeURIComponent(doc.operatorUnionId)}`,
+      );
+      if (!Array.isArray(data.values)) {
+        throw new Error(`readSheetValues missing values: ${JSON.stringify(data)}`);
+      }
+      rows.push(...data.values);
+    }
+    return rows;
+  }
+
   async function deleteSheet(
     appKey: string,
     appSecret: string,
@@ -296,6 +398,8 @@ export function createDingTalkWorkbookClient(opts?: { fetchImpl?: typeof fetch }
     createFolder,
     createSheet,
     listSheets,
+    getSheetProperties,
+    readSheetValues,
     deleteSheet,
     writeSheetValues,
     formatSheetLayout,

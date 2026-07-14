@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -243,6 +243,13 @@ import {
   shouldUseSecureWorkbenchCookies,
 } from "./external-workbench-login";
 import { renderWorkbenchDingTalkEntryHtml } from "./workbench-login-shell";
+import {
+  handleQualityHttp,
+  isQualityApiPath,
+  isQualityPagePath,
+} from "./quality-http";
+import { createQualityAssignmentService } from "../quality/assignments/quality-assignment-service";
+import { getQualityContextBySubtaskIds } from "../quality/assignments/quality-task-context";
 
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
@@ -317,6 +324,7 @@ function isWorkbenchHtmlPath(pathname: string): boolean {
     MANAGER_WORKBENCH_PAGE_PATHS.has(pathname) ||
     EMPLOYEE_WORKBENCH_PAGE_PATHS.has(pathname) ||
     ADMIN_WORKBENCH_PAGE_PATHS.has(pathname) ||
+    isQualityPagePath(pathname) ||
     pathname in LEGACY_WORKBENCH_REDIRECTS
   );
 }
@@ -1071,6 +1079,18 @@ function mapEmployeeSubtaskForApi(
   };
 }
 
+function mapEmployeeSubtasksForApi(
+  tasks: ReturnType<ReturnType<typeof createWorkbenchFormalTaskStore>["listEmployeeSubtasks"]>,
+  viewerUserId: string,
+) {
+  const contexts = getQualityContextBySubtaskIds(tasks.map((task) => task.subtaskId), viewerUserId);
+  return tasks.map((task) => {
+    const mapped = mapEmployeeSubtaskForApi(task);
+    const qualityContext = contexts.get(task.subtaskId);
+    return qualityContext ? { ...mapped, qualityContext } : mapped;
+  });
+}
+
 function requirePortfolioManager(
   session: WorkbenchSession,
   res: ServerResponse,
@@ -1189,6 +1209,8 @@ export function renderTaskEventsPage(params: {
   roleLabel: "employee" | "manager" | "admin";
   backPath: string;
   detailPath: string;
+  sessionUserId?: string;
+  qualityAccessDisabled?: boolean;
 }): string {
   const shellRole =
     params.roleLabel === "admin" ? "admin" : params.roleLabel === "employee" ? "employee" : "manager";
@@ -1206,6 +1228,8 @@ export function renderTaskEventsPage(params: {
     description: "含系统通知、待办投递等完整日志。",
     breadcrumbHtml: `<a href="${params.detailPath}">任务详情</a> › 全部事件`,
     headToolbarHtml: `<a class="btn btn-ghost btn-sm" href="${params.detailPath}">← 返回详情</a> <a class="btn btn-ghost btn-sm" href="${params.backPath}">返回列表</a>`,
+    sessionUserId: params.sessionUserId,
+    qualityAccessDisabled: params.qualityAccessDisabled,
     mainBodyClass: "wb-main-body--detail",
     mainHtml: `
   <div class="card" id="taskMount">加载中…</div>
@@ -1249,6 +1273,8 @@ export function renderTaskDetailPage(params: {
   backPath: string;
   enforceActionGuards: boolean;
   eventsPagePath?: string;
+  sessionUserId?: string;
+  qualityAccessDisabled?: boolean;
 }): string {
   const employeeActionBar =
     params.roleLabel === "employee"
@@ -1285,6 +1311,8 @@ export function renderTaskDetailPage(params: {
     pageTitle: "任务详情",
     breadcrumbHtml: `<a href="${params.backPath}">${backCrumbLabel}</a> › <span id="detailBreadcrumbTitle">加载中…</span>`,
     headToolbarHtml: toolbarHtml,
+    sessionUserId: params.sessionUserId,
+    qualityAccessDisabled: params.qualityAccessDisabled,
     mainBodyClass: params.roleLabel === "employee" ? "wb-main-body--detail-emp" : "wb-main-body--detail",
     mainHtml: `${infoBar}
   <div class="card" id="focusContextBanner" style="display:none;" role="status"></div>
@@ -3062,6 +3090,7 @@ function renderDailyReportsWorkbenchPage(params: {
   portfolioEnabled?: boolean;
   initialDate?: string;
   initialView?: string;
+  qualityAccessDisabled?: boolean;
 }): string {
   const caps = resolveWorkbenchCapabilities(params.userId);
   const { config, errors } = loadDailyReportDigestConfig();
@@ -3079,6 +3108,7 @@ function renderDailyReportsWorkbenchPage(params: {
     canManageRoster: caps.canAccessAdmin && hasLegacyDailyReports,
     canManageProjectGroups: (caps.canManage || caps.canAccessAdmin) && hasLegacyDailyReports,
     canExecuteAsManager: caps.canExecuteAsManager,
+    qualityAccessDisabled: params.qualityAccessDisabled,
   });
 }
 
@@ -5298,7 +5328,7 @@ export function handleAssignmentHttp(
     const subs = getFormalTaskStore()
       .listEmployeeSubtasks(session.userId)
       .filter((t) => t.status === "ASSIGNED" || t.status === "REJECTED");
-    const mapped = subs.map((t) => mapEmployeeSubtaskForApi(t));
+    const mapped = mapEmployeeSubtasksForApi(subs, session.userId);
     const actionable = mapped.filter((t) => t.status === "ASSIGNED" && !t.openSignal);
     const waiting = mapped.filter(
       (t) => t.status === "REJECTED" || (t.status === "ASSIGNED" && Boolean(t.openSignal)),
@@ -5329,7 +5359,7 @@ export function handleAssignmentHttp(
       200,
       {
         ok: true,
-        tasks: tasks.map((t) => mapEmployeeSubtaskForApi(t)),
+        tasks: mapEmployeeSubtasksForApi(tasks, session.userId),
       },
       { ...NO_STORE_HEADERS },
     );
@@ -5348,7 +5378,7 @@ export function handleAssignmentHttp(
       200,
       {
         ok: true,
-        tasks: tasks.map((t) => mapEmployeeSubtaskForApi(t)),
+        tasks: mapEmployeeSubtasksForApi(tasks, session.userId),
       },
       { ...NO_STORE_HEADERS },
     );
@@ -6294,6 +6324,79 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "Subtask not found" });
           return;
         }
+        const qualityContext = getQualityContextBySubtaskIds([targetSubtaskId], session.userId)
+          .get(targetSubtaskId);
+        const requestedQualityId = String(body.idempotencyKey ?? "").trim();
+        const qualityRequestId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+          .test(requestedQualityId)
+          ? requestedQualityId
+          : randomUUID();
+        if (qualityContext && (action === "accept" || action === "reject")) {
+          const qualityService = createQualityAssignmentService();
+          let qualityResult;
+          try {
+            qualityResult = action === "accept"
+              ? await qualityService.acceptNode({
+                  nodeId: qualityContext.nodeId,
+                  actorUserId: session.userId,
+                  expectedVersion: qualityContext.nodeVersion,
+                  requestId: qualityRequestId,
+                })
+              : await qualityService.rejectNode({
+                  nodeId: qualityContext.nodeId,
+                  actorUserId: session.userId,
+                  expectedVersion: qualityContext.nodeVersion,
+                  requestId: qualityRequestId,
+                  reason: note,
+                });
+          } finally {
+            qualityService.close();
+          }
+          const store = getFormalTaskStore();
+          const updated = store.getSubtaskWithTask(targetSubtaskId);
+          if (!updated) throw new Error("Subtask not found after quality action");
+          if (action === "reject") {
+            store.appendTaskEvent({
+              taskId: updated.task.taskId,
+              subtaskId: updated.subtask.subtaskId,
+              eventType: "EMPLOYEE_RESPONSE_SUMMARY",
+              actorUserId: session.userId,
+              note,
+              payload: { action, source: "employee_web", qualityNodeId: qualityContext.nodeId },
+            });
+            await notifyManagerOfEmployeeActionAfterUpdate({
+              taskStore: store,
+              notifier: workbenchPublishNotifier,
+              subtaskId: updated.subtask.subtaskId,
+              actorUserId: session.userId,
+              kind: "rejected",
+              note,
+              getDisplayName: (uid) =>
+                withPeopleDirectoryStore((s) => s.getContact(uid)?.name?.trim()),
+            });
+          } else {
+            await notifyEmployeeTodoOnAcceptAfterUpdate({
+              taskStore: store,
+              notifier: workbenchPublishNotifier,
+              subtaskId: updated.subtask.subtaskId,
+              actorUserId: session.userId,
+              previousStatus: subtaskDetail.subtask.status,
+              action: "accept",
+              getContact: (uid) => withPeopleDirectoryStore((s) => s.getContact(uid)) ?? undefined,
+            });
+          }
+          emitWorkbenchApiActivity(session, url.pathname);
+          writeJson(res, 200, {
+            ok: true,
+            planId: updated.task.planId,
+            taskStatus: updated.task.status,
+            subtaskId: updated.subtask.subtaskId,
+            status: updated.subtask.status,
+            statusLabel: taskStatusLabel(updated.subtask.status),
+            qualityNodeId: qualityResult.node.nodeId,
+          });
+          return;
+        }
         const needsProposedDueAt = action === "accept"
           && !String(subtaskDetail.subtask.dueAt ?? "").trim()
           && String(subtaskDetail.subtask.dueSetBy ?? "") !== "manager";
@@ -6343,6 +6446,20 @@ export function handleAssignmentHttp(
             note,
             payload: { action, source: "employee_web" },
           });
+        }
+        if (qualityContext && (action === "request_changes" || action === "customize")) {
+          const qualityService = createQualityAssignmentService();
+          try {
+            qualityService.appendPublicNodeNote({
+              nodeId: qualityContext.nodeId,
+              actorUserId: session.userId,
+              kind: action,
+              note,
+              requestId: qualityRequestId,
+            });
+          } finally {
+            qualityService.close();
+          }
         }
         const notifyKind =
           action === "reject"
@@ -6477,6 +6594,15 @@ export function handleAssignmentHttp(
             .find((item) => item.planId === planId)?.subtaskId;
         if (!targetSubtaskId) {
           writeJson(res, 404, { ok: false, error: "Subtask not found" });
+          return;
+        }
+
+        if (progressStatus === "DONE"
+          && getQualityContextBySubtaskIds([targetSubtaskId], session.userId).has(targetSubtaskId)) {
+          writeJson(res, 409, {
+            ok: false,
+            error: "质量任务完成前必须上传证据，并从质量完成入口提交",
+          });
           return;
         }
 
@@ -7219,6 +7345,19 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if (isQualityPagePath(url.pathname) || isQualityApiPath(url.pathname)) {
+    const session = resolveEffectiveSession(req, res);
+    if (!session) {
+      if (isQualityPagePath(url.pathname)) {
+        redirect(res, resolveUnauthenticatedWorkbenchLoginRedirect(url.pathname, url.search));
+      } else {
+        writeAuthError(res, 401, "Session required");
+      }
+      return true;
+    }
+    return handleQualityHttp({ req, res, url, session });
+  }
+
   if (isGetOrHead && isWorkbenchHtmlPath(url.pathname)) {
     const session = resolveEffectiveSession(req, res);
     if (!session) {
@@ -7394,12 +7533,14 @@ export function handleAssignmentHttp(
                 roleLabel: "manager",
                 backPath: managerBackPath,
                 detailPath: `/workbench/manager/task?taskNo=${encodeURIComponent(mgrTaskNo)}&returnTo=${encodeURIComponent(managerBackPath)}`,
+                sessionUserId: session.userId,
               })
               : renderTaskDetailPage({
                 roleLabel: "manager",
                 backPath: managerBackPath,
                 enforceActionGuards: shouldEnforceActionGuards(),
                 eventsPagePath: "/workbench/manager/task/events",
+                sessionUserId: session.userId,
               });
       emitWorkbenchPageView(session, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
@@ -7430,6 +7571,7 @@ export function handleAssignmentHttp(
             roleLabel: "admin",
             backPath: "/workbench/admin",
             detailPath: `/workbench/admin/task?taskNo=${encodeURIComponent(adminTaskNo)}`,
+            sessionUserId: session.userId,
           })
           : url.pathname === "/workbench/admin/task"
             ? renderTaskDetailPage({
@@ -7437,6 +7579,7 @@ export function handleAssignmentHttp(
               backPath: "/workbench/admin",
               enforceActionGuards: shouldEnforceActionGuards(),
               eventsPagePath: "/workbench/admin/task/events",
+              sessionUserId: session.userId,
             })
             : url.pathname === "/workbench/admin/ops"
               ? renderAdminOpsDashboardPage({ userLabel, sessionUserId: session.userId })
@@ -7509,6 +7652,8 @@ export function handleAssignmentHttp(
             roleLabel: "employee",
             backPath: empListBack,
             detailPath: `/workbench/employee/task?taskNo=${encodeURIComponent(url.searchParams.get("taskNo") ?? "")}&fromView=${encodeURIComponent(fromView)}`,
+            sessionUserId: employeeSession.userId,
+            qualityAccessDisabled: isExternalPasswordSession(employeeSession),
           })
           : url.pathname === "/workbench/employee/task"
             ? renderTaskDetailPage({
@@ -7516,6 +7661,8 @@ export function handleAssignmentHttp(
               backPath: empListBack,
               enforceActionGuards: shouldEnforceActionGuards(),
               eventsPagePath: "/workbench/employee/task/events",
+              sessionUserId: employeeSession.userId,
+              qualityAccessDisabled: isExternalPasswordSession(employeeSession),
             })
             : url.pathname === "/workbench/employee/daily-reports"
               ? renderDailyReportsWorkbenchPage({
@@ -7525,9 +7672,12 @@ export function handleAssignmentHttp(
                 userLabel: empUserLabel,
                 initialDate: url.searchParams.get("date")?.trim() ?? "",
                 initialView: parseDailyReportsPageViewParam(url.searchParams.get("view")),
+                qualityAccessDisabled: isExternalPasswordSession(employeeSession),
               })
             : renderEmployeeWorkbenchPage({
               canExecuteAsManager: resolveWorkbenchCapabilities(employeeSession.userId).canExecuteAsManager,
+              sessionUserId: employeeSession.userId,
+              qualityAccessDisabled: isExternalPasswordSession(employeeSession),
             });
       emitWorkbenchPageView(employeeSession, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);

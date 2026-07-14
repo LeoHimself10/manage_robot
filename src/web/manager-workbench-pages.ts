@@ -7,6 +7,61 @@ import {
 } from "./workbench-tasks-portfolio-snippet";
 import { WORKBENCH_TASKS_FILTER_UNIFIED_CSS } from "./workbench-project-overview-styles";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
+import { hasQualityAssignmentNodesForUser } from "../quality/infra/quality-read-store";
+
+const MANAGER_QUALITY_CSS = String.raw`
+.mq-card{border-color:#c7d2fe;background:linear-gradient(180deg,#fff,#f8faff)}
+.mq-head,.mq-row-head,.mq-actions{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.mq-head h2,.mq-row h3{margin:0}.mq-list{display:grid;gap:10px;margin-top:14px}.mq-row{border:1px solid #dbeafe;border-radius:12px;padding:13px;background:#fff}
+.mq-meta,.mq-summary{font-size:13px;color:#64748b;margin:5px 0 0;overflow-wrap:anywhere}.mq-summary{color:#334155;white-space:pre-wrap}
+.mq-badge{display:inline-flex;border-radius:999px;padding:3px 9px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:700}
+.mq-dialog{width:min(620px,calc(100vw - 28px));border:0;border-radius:14px;padding:20px}.mq-dialog::backdrop{background:rgba(15,23,42,.45)}
+.mq-contact-list{display:grid;gap:6px;max-height:180px;overflow:auto}.mq-contact-option{display:flex;justify-content:space-between;gap:8px;text-align:left;border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:9px;cursor:pointer}
+.mq-review-list,.mq-package-list{display:grid;gap:8px;margin-top:10px}.mq-review-item,.mq-package-item{border:1px solid #e2e8f0;border-radius:10px;padding:10px;background:#f8fafc}.mq-review-item h4,.mq-package-item h4{margin:0 0 5px}.mq-file-link{display:block;font-size:12px;margin-top:4px}
+@media(max-width:640px){.mq-actions .btn{width:100%}.mq-dialog{width:100vw;max-width:none;height:100dvh;border-radius:0}}
+`;
+
+function buildManagerQualityClientJs(): string {
+  return String.raw`(function () {
+  var mount = document.getElementById('managerQualityList');
+  if (!mount) return;
+  var dialog = document.getElementById('managerQualityDelegateDialog');
+  var evidenceDialog = document.getElementById('managerQualityEvidenceDialog');
+  var packageDialog = document.getElementById('managerQualityPackageDialog');
+  var current = null;
+  var evidenceCurrent = null;
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = String(text); return n; }
+  function uuid() { return crypto.randomUUID(); }
+  function statusText(value) { return ({PENDING_ACCEPTANCE:'待我承接',IN_PROGRESS:'处理中',PENDING_PARENT_REVIEW:'待上级验收',APPROVED:'已通过',RETURNED:'已退回'})[value] || value; }
+  async function qualityApi(path, options) { var r = await fetch(path, options || {}); var p = await r.json().catch(function(){return {};}); if (!r.ok || !p.ok) throw new Error(p.error || ('请求失败（'+r.status+'）')); return p.data || {}; }
+  function post(path, body) { return qualityApi(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }
+  async function action(node, kind) {
+    if (kind === 'reject') { var reason = window.prompt('请输入驳回原因'); if (!reason) return; await post('/api/workbench/manager/quality-nodes/'+encodeURIComponent(node.nodeId)+'/reject',{expectedVersion:node.version,requestId:uuid(),reason:reason}); }
+    else await post('/api/workbench/manager/quality-nodes/'+encodeURIComponent(node.nodeId)+'/accept',{expectedVersion:node.version,requestId:uuid()});
+    await load();
+  }
+  function card(node) {
+    var row=el('article','mq-row'); var head=el('div','mq-row-head'); var title=el('div'); title.append(el('h3','',node.eventNo+' · '+node.eventTitle),el('div','mq-meta','质量任务 · 节点期限：'+new Date(node.dueAt).toLocaleString('zh-CN',{hour12:false}))); head.append(title,el('span','mq-badge',statusText(node.status))); row.append(head,el('p','mq-summary',node.eventSummary),el('p','mq-meta','来源质量专员：'+(node.specialistUserId||'暂无')+' · 原主责：'+(node.primaryAssigneeUserId||'待首次承接确定')+' · 直接上级：'+(node.parentAssigneeUserId||node.specialistUserId||'暂无')),el('p','mq-meta','节点要求：'+node.requirement));
+    if(node.reviewChildren&&node.reviewChildren.length){var reviewList=el('section','mq-review-list');reviewList.appendChild(el('h4','','待我验收的下级证据'));node.reviewChildren.forEach(function(child){var item=el('div','mq-review-item');item.append(el('h4','',child.assigneeUserId+' · '+child.departmentName),el('p','mq-meta','要求：'+child.requirement));(child.evidence||[]).forEach(function(file){var a=el('a','mq-file-link','第 '+file.evidenceVersion+' 版 · '+file.originalName+' · '+file.summary);a.href='/api/workbench/quality/evidence/'+encodeURIComponent(file.evidenceId);item.appendChild(a);});var ra=el('div','mq-actions');var ok=el('button','btn btn-primary btn-sm','通过');ok.type='button';ok.addEventListener('click',function(){void post('/api/workbench/quality/nodes/'+encodeURIComponent(child.nodeId)+'/review',{decision:'APPROVE',expectedVersion:child.version,requestId:uuid()}).then(load).catch(showError);});var back=el('button','btn btn-secondary btn-sm','退回');back.type='button';back.addEventListener('click',function(){var reason=window.prompt('请填写退回原因');if(!reason)return;void post('/api/workbench/quality/nodes/'+encodeURIComponent(child.nodeId)+'/review',{decision:'RETURN',reason:reason,expectedVersion:child.version,requestId:uuid()}).then(load).catch(showError);});ra.append(ok,back);item.appendChild(ra);reviewList.appendChild(item);});row.appendChild(reviewList);}
+    var actions=el('div','mq-actions');
+    if(node.status==='PENDING_ACCEPTANCE'){var accept=el('button','btn btn-primary btn-sm','承接');accept.type='button';accept.addEventListener('click',function(){void action(node,'accept').catch(showError);});var reject=el('button','btn btn-secondary btn-sm','驳回');reject.type='button';reject.addEventListener('click',function(){void action(node,'reject').catch(showError);});actions.append(accept,reject);}
+    if(node.status==='IN_PROGRESS'&&node.assigneeKind==='MANAGER'){var delegate=el('button','btn btn-secondary btn-sm','分配给下属或其他部门主管');delegate.type='button';delegate.addEventListener('click',function(){current=node;document.getElementById('mqDelegateForm').reset();document.getElementById('mqTargetUserId').value='';document.getElementById('mqContactOptions').replaceChildren();dialog.showModal();});var evidence=el('button','btn btn-primary btn-sm','证据与完成');evidence.type='button';evidence.addEventListener('click',function(){evidenceCurrent=node;document.getElementById('mqEvidenceForm').reset();document.getElementById('mqEvidenceFeedback').textContent='';evidenceDialog.showModal();});actions.append(delegate,evidence);}
+    if(node.isPrimary&&node.eventStatus==='PENDING_PRIMARY_REVIEW'){var overall=el('button','btn btn-primary btn-sm','查看全链路证据并整体验收');overall.type='button';overall.addEventListener('click',function(){void openPackage(node).catch(showError);});actions.appendChild(overall);}
+    if(actions.childNodes.length)row.append(actions);return row;
+  }
+  function showError(error){var fb=document.getElementById('managerQualityFeedback');if(fb)fb.textContent=error&&error.message?error.message:String(error);}
+  async function load(){var data=await qualityApi('/api/workbench/manager/quality-nodes');mount.replaceChildren();if(!data.nodes.length){document.getElementById('managerQualitySection').hidden=true;return;}data.nodes.forEach(function(node){mount.appendChild(card(node));});}
+  var search=document.getElementById('mqContactSearch'); if(search)search.addEventListener('input',function(){var q=search.value.trim();if(q.length<1)return;void fetch('/api/workbench/manager/contacts?keyword='+encodeURIComponent(q)).then(function(r){return r.json();}).then(function(data){var box=document.getElementById('mqContactOptions');box.replaceChildren();(data.contacts||[]).filter(function(c){return c.active;}).forEach(function(c){var b=el('button','mq-contact-option',c.name+' · '+c.departmentSummary);b.type='button';b.addEventListener('click',function(){document.getElementById('mqTargetUserId').value=c.userId;document.getElementById('mqDepartment').value=c.departmentName;search.value=c.name;box.replaceChildren();});box.appendChild(b);});}).catch(showError);});
+  document.getElementById('mqDelegateCancel').addEventListener('click',function(){dialog.close();});
+  document.getElementById('mqDelegateForm').addEventListener('submit',function(event){event.preventDefault();if(!current)return;var body={assigneeUserId:document.getElementById('mqTargetUserId').value,assigneeKind:document.getElementById('mqTargetKind').value,departmentName:document.getElementById('mqDepartment').value,dueAt:document.getElementById('mqDueAt').value,requirement:document.getElementById('mqRequirement').value,expectedVersion:current.version,requestId:uuid()};void post('/api/workbench/manager/quality-nodes/'+encodeURIComponent(current.nodeId)+'/delegate',body).then(function(){dialog.close();return load();}).catch(showError);});
+  document.getElementById('mqEvidenceCancel').addEventListener('click',function(){evidenceDialog.close();});
+  document.getElementById('mqEvidenceForm').addEventListener('submit',function(event){event.preventDefault();if(!evidenceCurrent)return;var file=document.getElementById('mqEvidenceFile').files[0];var summary=document.getElementById('mqEvidenceSummary').value.trim();if(!file||!summary)return;var form=new FormData();form.append('requestId',uuid());form.append('summary',summary);form.append('file',file);var fb=document.getElementById('mqEvidenceFeedback');fb.textContent='上传中…';void fetch('/api/workbench/quality/nodes/'+encodeURIComponent(evidenceCurrent.nodeId)+'/evidence',{method:'POST',body:form}).then(function(r){return r.json().then(function(p){if(!r.ok||!p.ok)throw new Error(p.error||('请求失败（'+r.status+'）'));return p;});}).then(function(){document.getElementById('mqEvidenceForm').reset();fb.textContent='证据已上传，可继续上传或提交完成';}).catch(showError);});
+  document.getElementById('mqSubmitCompletion').addEventListener('click',function(){if(!evidenceCurrent)return;void post('/api/workbench/quality/nodes/'+encodeURIComponent(evidenceCurrent.nodeId)+'/submit-completion',{expectedVersion:evidenceCurrent.version,requestId:uuid()}).then(function(){evidenceDialog.close();return load();}).catch(showError);});
+  async function openPackage(node){var data=await qualityApi('/api/workbench/quality/events/'+encodeURIComponent(node.eventId)+'/evidence-package');var mount=document.getElementById('mqPackageList');mount.replaceChildren();data.nodes.forEach(function(item){var box=el('div','mq-package-item');box.append(el('h4','',Array(item.depth+1).join('└ ') + item.assigneeUserId+' · '+item.departmentName),el('p','mq-meta','状态：'+statusText(item.status)+' · 期限：'+new Date(item.dueAt).toLocaleString('zh-CN',{hour12:false})));(item.evidence||[]).forEach(function(file){var a=el('a','mq-file-link','第 '+file.evidenceVersion+' 版 · '+file.originalName+' · '+file.summary);a.href='/api/workbench/quality/evidence/'+encodeURIComponent(file.evidenceId);box.appendChild(a);});if(!item.isPrimary){var back=el('button','btn btn-secondary btn-sm','退回此分支');back.type='button';back.addEventListener('click',function(){var reason=window.prompt('请填写退回原因');if(!reason)return;void post('/api/workbench/quality/events/'+encodeURIComponent(node.eventId)+'/primary-review',{decision:'RETURN_NODE',returnedNodeId:item.nodeId,reason:reason,expectedVersion:data.event.version,requestId:uuid()}).then(function(){packageDialog.close();return load();}).catch(showError);});box.appendChild(back);}mount.appendChild(box);});document.getElementById('mqPackageApprove').onclick=function(){void post('/api/workbench/quality/events/'+encodeURIComponent(node.eventId)+'/primary-review',{decision:'APPROVE',expectedVersion:data.event.version,requestId:uuid()}).then(function(){packageDialog.close();return load();}).catch(showError);};packageDialog.showModal();}
+  document.getElementById('mqPackageClose').addEventListener('click',function(){packageDialog.close();});
+  void load().catch(showError);
+})();`;
+}
 
 function escapeHtml(v: string): string {
   return v
@@ -41,6 +96,7 @@ export function renderManagerTasksPage(params: {
   showAdminOpsLink?: boolean;
 }): string {
   const who = params.userLabel ? escapeHtml(params.userLabel) : "主管";
+  const hasQualityTasks = Boolean(params.sessionUserId && hasQualityAssignmentNodesForUser(params.sessionUserId));
   const portfolio = Boolean(params.projectPortfolioEnabled);
   const initialProjectId = escapeHtml(params.initialProjectId ?? "");
   const initialView = params.initialView === "flat" ? "flat" : "group";
@@ -85,8 +141,12 @@ export function renderManagerTasksPage(params: {
     sessionUserId: params.sessionUserId,
     portfolioEnabled: portfolio,
     showAdminOpsLink: params.showAdminOpsLink,
-    extraCss: portfolio ? WORKBENCH_TASKS_PORTFOLIO_CSS + WORKBENCH_TASKS_FILTER_UNIFIED_CSS : "",
+    extraCss: (portfolio ? WORKBENCH_TASKS_PORTFOLIO_CSS + WORKBENCH_TASKS_FILTER_UNIFIED_CSS : "") + (hasQualityTasks ? MANAGER_QUALITY_CSS : ""),
     mainHtml: `
+  ${hasQualityTasks ? `<section class="card mq-card" id="managerQualitySection"><div class="mq-head"><div><h2>质量任务 · 待我承接</h2><p class="muted">质量任务在本页承接、驳回和继续分配，不需要进入独立质量页。</p></div><span class="mq-badge">质量任务</span></div><div class="mq-list" id="managerQualityList"><div class="empty-state">正在加载…</div></div><div class="feedback err" id="managerQualityFeedback"></div></section>
+  <dialog class="mq-dialog" id="managerQualityDelegateDialog"><form class="form-stack" id="mqDelegateForm"><h2>分配质量任务</h2><label>搜索承接人<input id="mqContactSearch" type="search" autocomplete="off"><input id="mqTargetUserId" type="hidden"><div class="mq-contact-list" id="mqContactOptions"></div></label><label>承接人类型<select id="mqTargetKind"><option value="EMPLOYEE">本部门或其他部门员工</option><option value="MANAGER">其他部门主管</option></select></label><label>部门<input id="mqDepartment" required></label><label>子节点期限<input id="mqDueAt" type="datetime-local" required></label><label>处理要求<textarea id="mqRequirement" required maxlength="5000"></textarea></label><div class="mq-actions"><button class="btn btn-secondary" type="button" id="mqDelegateCancel">取消</button><button class="btn btn-primary" type="submit">确认分配</button></div></form></dialog>
+  <dialog class="mq-dialog" id="managerQualityEvidenceDialog"><form class="form-stack" id="mqEvidenceForm"><h2>质量证据与完成</h2><label>证据摘要<textarea id="mqEvidenceSummary" required maxlength="2000"></textarea></label><label>证据文件（单个不超过 20 MB）<input id="mqEvidenceFile" type="file" required></label><button class="btn btn-secondary" type="submit">上传证据</button><p class="muted">已向下分配时，待所有直接子节点通过后直接提交汇总，无需重复上传下级证据。</p><div class="feedback" id="mqEvidenceFeedback"></div><div class="mq-actions"><button class="btn btn-secondary" type="button" id="mqEvidenceCancel">关闭</button><button class="btn btn-primary" type="button" id="mqSubmitCompletion">提交完成并送上级验收</button></div></form></dialog>
+  <dialog class="mq-dialog" id="managerQualityPackageDialog"><h2>全链路证据包</h2><p class="muted">按分配层级展示责任人、期限、每版证据与验收历史。</p><div class="mq-package-list" id="mqPackageList"></div><div class="mq-actions"><button class="btn btn-secondary" type="button" id="mqPackageClose">关闭</button><button class="btn btn-primary" type="button" id="mqPackageApprove">整体通过并送质量专员</button></div></dialog>` : ""}
   <div class="card mgr-tasks-card">
     <div class="tabs" role="tablist" aria-label="任务操作">
       <button type="button" class="tabs-btn" role="tab" aria-selected="true" aria-controls="mgrPanelList" id="mgrTabList" data-tab-target="mgrPanelList">任务列表</button>
@@ -802,7 +862,7 @@ ${portfolio ? `<dialog id="assignProjectDialog">
   wbRestoreListStateFromUrl();
   ${portfolio ? buildWorkbenchTasksPortfolioClientJs({ initialProjectId, initialView }) : "void loadTasks();"}
 })();
-</script>`,
+</script>${hasQualityTasks ? `<script>${buildManagerQualityClientJs()}</script>` : ""}`,
   });
 }
 

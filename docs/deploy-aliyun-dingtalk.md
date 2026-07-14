@@ -24,6 +24,33 @@
 
 官方教程索引：[Stream 模式说明](https://opensource.dingtalk.com/developerpedia/docs/learn/stream/overview)。
 
+### 1.1 质量追踪所需的钉钉表格授权
+
+启用质量追踪来源同步前，在同一个企业内部应用中开通“钉钉表格读取”相关只读权限，并发布应用版本。目标表还要把 `QUALITY_SOURCE_OPERATOR_UNION_ID` 对应的内部成员加入查看范围；应用权限与成员表格权限缺一不可。
+
+环境文件至少增加：
+
+```env
+QUALITY_AFTERSALES_MANAGER_USER_IDS=售后主管userId，多个用逗号分隔
+QUALITY_SPECIALIST_USER_IDS=质量专员userId，多个用逗号分隔
+QUALITY_SPECIALIST_REPORTS_FILE=/app/data/quality-specialist-reports.json
+QUALITY_SOURCE_WORKBOOK_ID=需求管理记录表的表格标识
+QUALITY_SOURCE_OPERATOR_UNION_ID=有目标表查看权限的内部成员unionId
+QUALITY_SOURCE_SYNC_ENABLED=1
+QUALITY_FILE_DIR=/app/data/quality-files
+QUALITY_EVIDENCE_DIR=/app/data/quality-files/evidence
+```
+
+`quality-specialist-reports.json` 示例：
+
+```json
+{
+  "质量专员userId": ["下级userId"]
+}
+```
+
+权限验证应只做 GET：启动日志应显示首个子表“客户端问题反馈记录表”读取成功；页面显示最近成功同步时间。403 通常表示应用接口权限或操作人表格权限不完整，429 应等待退避后重试，500/网络失败会继续使用最近一次成功缓存，不会清空来源数据。同步只读第一个子表，默认启动立即执行一次，之后每 2 小时一次。
+
 ## 二、阿里云 ECS（推荐最小路径）
 
 1. 你已购买 ECS 后，在控制台确认：**分配公网 IP**（或通过跳板访问），并能用 **SSH** 登录（密钥对或密码）。
@@ -486,6 +513,14 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `DINGTALK_ASSIGNMENT_MOCK` | 否 | `1` 使用 mock 钉钉交互卡片（无需真实卡片回调） |
 | `WORKBENCH_MANAGER_USER_IDS` | 否 | 钉钉 **主管** 身份白名单（与 `TASK_INITIATOR_USER_IDS` 独立），逗号分隔 `userId`。供后续工作台网页应用 Session 判定；未配或空则人均按非主管处理（见 `src/security/workbench-manager-whitelist.ts`） |
 | `WORKBENCH_MANAGER_IDS_FILE` | 否 | 主管名单 JSON 数组文件路径（格式同 `TASK_INITIATOR_IDS_FILE`）；存在且为数组时优先于 `WORKBENCH_MANAGER_USER_IDS` |
+| `QUALITY_AFTERSALES_MANAGER_USER_IDS` | 否 | 逗号分隔的售后主管 userId；配置后始终显示“质量追踪”入口。该角色不能分配主责、验收或关闭事件。 |
+| `QUALITY_SPECIALIST_USER_IDS` | 否 | 逗号分隔的质量专员 userId；按角色授权，不在代码中硬编码姓名。 |
+| `QUALITY_SPECIALIST_REPORTS_FILE` | 否 | 质量专员到其直属下级的 JSON 映射文件，格式为 `{ "specialistUserId": ["reportUserId"] }`；下级仅获得“质量意见”入口。建议放在实例独立数据卷。 |
+| `QUALITY_SOURCE_WORKBOOK_ID` | 是（启用来源同步时） | “需求管理记录表”的钉钉表格标识；仅读取第一个子表。 |
+| `QUALITY_SOURCE_OPERATOR_UNION_ID` | 是（启用来源同步时） | 对目标表有查看权限的内部成员 unionId，例如已获授权的杨贺新账号。 |
+| `QUALITY_SOURCE_SYNC_ENABLED` | 否 | 默认启用；设为 `0` 时停止启动同步和每两小时同步。 |
+| `QUALITY_FILE_DIR` | 否 | 质量通报附件持久化目录，容器内建议 `/app/data/quality-files`。 |
+| `QUALITY_EVIDENCE_DIR` | 否 | 质量节点证据目录；缺省为 `QUALITY_FILE_DIR/evidence`。 |
 | `WORKBENCH_MANAGER_GROUPS_ENABLED` | 否 | `1` 开启 Admin 管理的主管组；组内共享正式任务/项目/看板和主管操作，组间隔离（建议 mingsibot 试点） |
 | `WORKBENCH_MANAGER_GROUPS_FILE` | 否 | 主管组 JSON 文件路径；容器内建议 `/app/data/workbench-manager-groups.json` |
 | `FOLLOWUP_REMINDER_ENABLED` | 否 | `1` 开启催办 scheduler（默认 `0`）；**单实例**假设，**切勿水平扩容** `dingtalk-bot` |
@@ -559,6 +594,17 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 npm install
 npm run dingtalk-bot
 ```
+
+### 质量追踪运行、备份与回滚
+
+- **持久卷**：工作台 SQLite、来源缓存、质量附件、证据、私密评论审计和通知 outbox 都必须位于实例自己的 `/app/data` 挂载卷。两个企业实例不得共用同一个数据目录、角色文件或环境文件。
+- **单写实例**：质量通知调度器与来源同步器跟随 `dingtalk-bot` 启动。一个实例的数据卷只允许一个业务容器写入；不要让蓝绿两个容器同时挂载并写同一 SQLite。
+- **通知**：业务请求不直接访问钉钉通知接口，只写持久化 outbox。后台默认每 30 秒单批处理 50 条；发送失败按 1 分钟、5 分钟、15 分钟、1 小时、6 小时退避，最多 8 次。进入“人工处理”的记录由质量专员在事件详情点击“重新入队”，不得直接删除审计或改通知正文。
+- **提醒去重**：原正式任务调度器继续负责承接人 T-1 和直接上级逾期提醒；质量调度器只补原主责和质量专员，不再给直接承接人发送第二份相同提醒。
+- **备份**：发布前停止对应容器或进入短暂只读窗口，对 `/opt/manage_robot*/data` 做同文件系统快照/完整复制；至少保留 `workbench.sqlite`、`quality-files/` 和 `quality-specialist-reports.json`。SQLite 与附件目录必须取同一时间点，避免元数据与文件不一致。
+- **恢复验证**：在隔离目录恢复备份，先运行 `PRAGMA integrity_check;`，再核对 `quality_events`、`quality_evidence`、`quality_audit_events`、`quality_notification_outbox` 数量及附件 SHA-256；验证无误后才替换数据卷。
+- **代码回滚**：停止新容器，保留当前数据卷快照，使用上一个已验证镜像启动。质量表只做向后兼容的 `CREATE TABLE IF NOT EXISTS` 扩展；若旧镜像不理解新状态，应先恢复与该镜像同批次的数据快照，禁止直接删表或清空 outbox。
+- **失败人工处理**：来源同步失败先查 403/429/500 与表格授权；通知失败只重试安全摘要，不记录 access token、Client Secret、物理文件路径或私密评论正文。
 
 ## 四、运维与注意事项
 
