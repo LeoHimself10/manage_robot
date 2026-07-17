@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { commitTaskIntake } from "../../../src/agent/task-intake/commit-task-intake";
+import {
+  appendTaskIntake,
+  commitTaskIntake,
+} from "../../../src/agent/task-intake/commit-task-intake";
 import type { TaskIntakeCommitRow } from "../../../src/agent/task-intake/types";
 import type { WorkbenchPublishNotifier } from "../../../src/integrations/dingtalk/workbench-notify";
 
@@ -230,5 +233,88 @@ describe("commitTaskIntake", () => {
       stageDraft: vi.fn(),
     });
     expect(result.mode).toBe("empty");
+  });
+});
+
+describe("appendTaskIntake", () => {
+  function appendStore(options?: { duplicated?: boolean }) {
+    const appendTaskEvent = vi.fn();
+    const appendSubtask = vi.fn((input: { title: string; assigneeUserId: string }) => ({
+      task: {
+        taskId: "task-existing",
+        taskNo: "TASK-EXISTING",
+        planId: "plan-existing",
+        title: "已有父任务",
+        description: "父任务背景",
+      },
+      subtask: {
+        subtaskId: `sub-${input.title}`,
+        title: input.title,
+        assigneeUserId: input.assigneeUserId,
+      },
+      duplicated: options?.duplicated === true,
+    }));
+    return {
+      store: { appendSubtask, appendTaskEvent } as unknown as Parameters<
+        typeof appendTaskIntake
+      >[0]["taskStore"],
+      appendSubtask,
+      appendTaskEvent,
+    };
+  }
+
+  it("sends one grouped publish notification and audits every appended subtask", async () => {
+    const { store, appendTaskEvent } = appendStore();
+    const notifyPublishedTask = vi.fn(async (
+      _input: Parameters<WorkbenchPublishNotifier["notifyPublishedTask"]>[0],
+    ) => ({
+      enabled: true,
+      success: [{ userId: "emp-1", cardMessageId: "card-1", robotMessageKey: "robot-1" }],
+      failed: [],
+      skippedExternal: [],
+    }));
+
+    const result = await appendTaskIntake({
+      taskStore: store,
+      managerUserId: "mgr-1",
+      targetPlanId: "plan-existing",
+      actorName: "主管甲",
+      rows: [
+        row({ itemId: "ti-1", title: "追加一", assigneeUserId: "emp-1" }),
+        row({ itemId: "ti-2", title: "追加二", assigneeUserId: "emp-1" }),
+      ],
+      notifier: { notifyPublishedTask } as unknown as WorkbenchPublishNotifier,
+      getContact: (userId) => ({ name: userId === "mgr-1" ? "主管甲" : "员工甲" }),
+    });
+
+    expect(result.mode).toBe("appended");
+    expect(notifyPublishedTask).toHaveBeenCalledTimes(1);
+    const notifyInput = notifyPublishedTask.mock.calls[0][0];
+    expect(notifyInput.assignees).toHaveLength(1);
+    expect(notifyInput.assignees[0].subtasks).toEqual([
+      { title: "追加一" },
+      { title: "追加二" },
+    ]);
+    expect(appendTaskEvent).toHaveBeenCalledTimes(2);
+    expect(appendTaskEvent.mock.calls.every(([event]) => event.eventType === "SUBTASK_ADD_NOTIFY_OK"))
+      .toBe(true);
+  });
+
+  it("does not send another notification when appendSubtask reports a duplicate", async () => {
+    const { store, appendTaskEvent } = appendStore({ duplicated: true });
+    const notifyPublishedTask = vi.fn();
+
+    const result = await appendTaskIntake({
+      taskStore: store,
+      managerUserId: "mgr-1",
+      targetPlanId: "plan-existing",
+      rows: [row({ itemId: "ti-1", title: "重复追加", assigneeUserId: "emp-1" })],
+      notifier: { notifyPublishedTask } as unknown as WorkbenchPublishNotifier,
+      getContact: () => undefined,
+    });
+
+    expect(result.mode).toBe("appended");
+    expect(notifyPublishedTask).not.toHaveBeenCalled();
+    expect(appendTaskEvent).not.toHaveBeenCalled();
   });
 });

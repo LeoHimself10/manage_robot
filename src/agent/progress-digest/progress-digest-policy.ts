@@ -12,6 +12,7 @@ export interface ProgressDigestPolicy {
   maxTaskLines: number;
   contentMode: ProgressDigestContentMode;
   horizonDays: number;
+  excludeUserIds: string[];
 }
 
 function env(name: string): string {
@@ -36,6 +37,10 @@ function envContentMode(name: string, defaultValue: ProgressDigestContentMode): 
   return defaultValue;
 }
 
+function envUserIds(name: string): string[] {
+  return [...new Set(env(name).split(",").map((item) => item.trim()).filter(Boolean))];
+}
+
 export function loadProgressDigestPolicy(): ProgressDigestPolicy {
   return {
     enabled: envFlag("PROGRESS_DIGEST_ENABLED", false),
@@ -48,6 +53,7 @@ export function loadProgressDigestPolicy(): ProgressDigestPolicy {
     maxTaskLines: envInt("PROGRESS_DIGEST_MAX_TASK_LINES", 8),
     contentMode: envContentMode("PROGRESS_DIGEST_MODE", "delivery_reminder"),
     horizonDays: envInt("PROGRESS_DIGEST_HORIZON_DAYS", 7),
+    excludeUserIds: envUserIds("PROGRESS_DIGEST_EXCLUDE_USER_IDS"),
   };
 }
 

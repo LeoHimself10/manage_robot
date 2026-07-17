@@ -246,6 +246,8 @@ export async function commitTaskIntake(input: {
 export async function appendTaskIntake(
   input: TaskIntakeAppendInput & {
     taskStore: TaskStore;
+    notifier: WorkbenchPublishNotifier;
+    getContact: (userId: string) => { name?: string } | undefined;
   },
 ): Promise<TaskIntakeAppendResult> {
   const selected = input.rows.filter((r) => r.selected);
@@ -293,6 +295,10 @@ export async function appendTaskIntake(
   const errors: TaskIntakeAppendResult["errors"] = [];
   let appendedCount = 0;
   let targetTask: TaskIntakeAppendResult["targetTask"];
+  const appendedForNotify: Array<{
+    task: ReturnType<TaskStore["appendSubtask"]>["task"];
+    subtask: ReturnType<TaskStore["appendSubtask"]>["subtask"];
+  }> = [];
 
   for (const row of selected) {
     try {
@@ -322,6 +328,9 @@ export async function appendTaskIntake(
             : "请承接时自报截止",
         });
       }
+      if (!result.duplicated) {
+        appendedForNotify.push({ task: result.task, subtask: result.subtask });
+      }
       appendedCount++;
       if (!targetTask) {
         targetTask = {
@@ -340,6 +349,73 @@ export async function appendTaskIntake(
 
   if (appendedCount === 0) {
     return { mode: "invalid", appendedCount: 0, errors };
+  }
+
+  if (appendedForNotify.length > 0) {
+    const first = appendedForNotify[0];
+    const grouped = new Map<string, typeof appendedForNotify>();
+    for (const item of appendedForNotify) {
+      const userId = item.subtask.assigneeUserId;
+      const existing = grouped.get(userId) ?? [];
+      existing.push(item);
+      grouped.set(userId, existing);
+    }
+
+    try {
+      const notifyResult = await input.notifier.notifyPublishedTask({
+        taskNo: first.task.taskNo,
+        title: first.task.title,
+        managerUserId: input.managerUserId,
+        managerDisplayName:
+          input.actorName?.trim() || input.getContact(input.managerUserId)?.name?.trim(),
+        taskDescription: first.task.description,
+        assignees: [...grouped.entries()].map(([userId, items]) => ({
+          userId,
+          displayName: input.getContact(userId)?.name?.trim(),
+          subtasks: items.map((item) => ({ title: item.subtask.title })),
+        })),
+      });
+
+      for (const item of appendedForNotify) {
+        const userId = item.subtask.assigneeUserId;
+        const success = notifyResult.success.filter((entry) => entry.userId === userId);
+        const failed = notifyResult.failed.filter((entry) => entry.userId === userId);
+        const skippedExternal = (notifyResult.skippedExternal ?? []).filter(
+          (entry) => entry.userId === userId,
+        );
+        const ok = success.length > 0;
+        input.taskStore.appendTaskEvent({
+          taskId: item.task.taskId,
+          subtaskId: item.subtask.subtaskId,
+          eventType: ok ? "SUBTASK_ADD_NOTIFY_OK" : "SUBTASK_ADD_NOTIFY_FAILED",
+          actorUserId: input.managerUserId,
+          note: ok
+            ? undefined
+            : notifyResult.skippedReason
+              || failed[0]?.reason
+              || (skippedExternal.length > 0 ? "external contact notification skipped" : "no notification channel succeeded"),
+          payload: {
+            enabled: notifyResult.enabled,
+            skippedReason: notifyResult.skippedReason,
+            success,
+            failed,
+            skippedExternal,
+            source: "task_intake_append",
+          },
+        });
+      }
+    } catch (err) {
+      for (const item of appendedForNotify) {
+        input.taskStore.appendTaskEvent({
+          taskId: item.task.taskId,
+          subtaskId: item.subtask.subtaskId,
+          eventType: "SUBTASK_ADD_NOTIFY_FAILED",
+          actorUserId: input.managerUserId,
+          note: err instanceof Error ? err.message : String(err),
+          payload: { source: "task_intake_append" },
+        });
+      }
+    }
   }
 
   return { mode: "appended", appendedCount, targetTask, errors: [...errors, ...warnings] };

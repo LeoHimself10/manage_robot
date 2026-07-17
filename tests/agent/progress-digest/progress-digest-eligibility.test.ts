@@ -38,6 +38,7 @@ describe("progress-digest-eligibility", () => {
     delete process.env.PROGRESS_DIGEST_MINUTE;
     delete process.env.PROGRESS_DIGEST_SCAN_INTERVAL_MS;
     delete process.env.PROGRESS_DIGEST_WEEKDAYS_ONLY;
+    delete process.env.PROGRESS_DIGEST_EXCLUDE_USER_IDS;
   });
 
   function seedTask() {
@@ -90,6 +91,29 @@ describe("progress-digest-eligibility", () => {
     const emp = recipients.find((r) => r.userId === "emp-1");
     expect(mgr?.audience).toBe("manager");
     expect(emp?.audience).toBe("employee");
+  });
+
+  it("drops historical participants after all of their subtasks are finished", () => {
+    const store = seedTask();
+    const subtaskId = store.getTaskDetail("plan-elig-1")!.subtasks[0].subtaskId;
+    store.updateSubtaskStatus({ subtaskId, actorUserId: "emp-1", action: "accept" });
+    store.updateSubtaskStatus({
+      subtaskId,
+      actorUserId: "emp-1",
+      action: "progress",
+      progressStatus: "DONE",
+    });
+
+    expect(listDigestRecipients(store)).toEqual([]);
+  });
+
+  it("honors the instance-level exclusion list", () => {
+    const store = seedTask();
+    process.env.PROGRESS_DIGEST_EXCLUDE_USER_IDS = " emp-1, missing,emp-1 ";
+    const monday9 = new Date("2026-05-18T01:02:00.000Z");
+    const recipients = listEligibleDigestRecipients(store, monday9);
+
+    expect(recipients).toEqual([{ userId: "mgr-1", audience: "manager" }]);
   });
 
   it("fires on weekday 9:00 window only", () => {

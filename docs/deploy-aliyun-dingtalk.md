@@ -501,6 +501,7 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `PROGRESS_DIGEST_ENABLED` | 否 | `1` 开启每日任务进展推送 scheduler（默认 `0`）；**单实例**假设 |
 | `PROGRESS_DIGEST_MODE` | 否 | `delivery_reminder`（默认，近一周交付单表）或 `full`（legacy 三表+LLM） |
 | `PROGRESS_DIGEST_HORIZON_DAYS` | 否 | 交付提醒滚动窗口自然日数（默认 `7`） |
+| `PROGRESS_DIGEST_EXCLUDE_USER_IDS` | 否 | 实例级排除名单（逗号分隔）；用于多组织隔离。系统同时只选择当前仍有未完成任务的主管/员工 |
 | `PROGRESS_DIGEST_SCAN_INTERVAL_MS` | 否 | 扫描间隔（默认 `300000`） |
 | `PROGRESS_DIGEST_TIMEZONE` | 否 | 发送时刻与自然日判定时区（默认 `Asia/Shanghai`） |
 | `PROGRESS_DIGEST_HOUR` | 否 | 发送小时（默认 `9`） |

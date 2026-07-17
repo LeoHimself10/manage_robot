@@ -10,9 +10,21 @@ export interface DigestRecipient {
 
 type TaskStore = ReturnType<typeof createWorkbenchFormalTaskStore>;
 
-export function listDigestRecipients(taskStore: TaskStore): DigestRecipient[] {
-  const managers = new Set(taskStore.listProgressDigestManagerUserIds());
-  const employees = new Set(taskStore.listProgressDigestEmployeeUserIds());
+export function listDigestRecipients(
+  taskStore: TaskStore,
+  excludeUserIds: Iterable<string> = [],
+): DigestRecipient[] {
+  const excluded = new Set([...excludeUserIds].map((id) => id.trim()).filter(Boolean));
+  const managers = new Set(
+    taskStore
+      .listProgressDigestManagerUserIds()
+      .filter((userId) => !excluded.has(userId) && taskStore.hasActiveTasksAsManager(userId)),
+  );
+  const employees = new Set(
+    taskStore
+      .listProgressDigestEmployeeUserIds()
+      .filter((userId) => !excluded.has(userId) && taskStore.hasActiveSubtasksAsEmployee(userId)),
+  );
   const all = new Set([...managers, ...employees]);
   const out: DigestRecipient[] = [];
   for (const userId of all) {
@@ -40,5 +52,5 @@ export function listEligibleDigestRecipients(
   policy: ProgressDigestPolicy = loadProgressDigestPolicy(),
 ): DigestRecipient[] {
   if (!isProgressDigestScanDue(now, policy)) return [];
-  return listDigestRecipients(taskStore);
+  return listDigestRecipients(taskStore, policy.excludeUserIds);
 }

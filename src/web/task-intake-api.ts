@@ -441,13 +441,21 @@ export async function handleTaskIntakeAppend(input: {
     row.dueMode = normalizeDueMode(row);
     row.dueExpectation = String(row.dueExpectation ?? "").trim();
   }
-  return appendTaskIntake({
-    taskStore: input.taskStore,
-    managerUserId: input.managerUserId,
-    targetPlanId: input.targetPlanId,
-    rows: input.rows,
-    actorName: input.actorName,
-  });
+  const peopleStore = createPeopleDirectoryStore();
+  const notifier = createWorkbenchPublishNotifier();
+  try {
+    return await appendTaskIntake({
+      taskStore: input.taskStore,
+      managerUserId: input.managerUserId,
+      targetPlanId: input.targetPlanId,
+      rows: input.rows,
+      actorName: input.actorName,
+      notifier,
+      getContact: (userId) => peopleStore.getContact(userId),
+    });
+  } finally {
+    peopleStore.close();
+  }
 }
 
 export async function handleTaskIntakeCommit(input: {
