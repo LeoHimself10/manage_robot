@@ -32,6 +32,18 @@ describe("renderTaskDetailPage", () => {
     expect(html).not.toContain("/workbench/manager/tasks?planId=");
   });
 
+  it("manager return links reuse the existing task-list history entry", () => {
+    const html = renderTaskDetailPage({
+      roleLabel: "manager",
+      backPath: "/workbench/manager/tasks?view=group&expandedProjectId=proj-a",
+      enforceActionGuards: false,
+    });
+    expect(html.match(/data-manager-history-back="1"/g)).toHaveLength(2);
+    expect(html).toContain("ref.pathname === '/workbench/manager/tasks'");
+    expect(html).toContain("window.history.back()");
+    expect(html).toContain("if (!canReturnToManagerListHistory()) return");
+  });
+
   it("employee HTML uses shared subtask planning helpers for mine section", () => {
     const html = renderTaskDetailPage({
       roleLabel: "employee",
@@ -40,5 +52,6 @@ describe("renderTaskDetailPage", () => {
     });
     expect(html).toContain("function subtaskCoreDtDds");
     expect(html).not.toContain("function subtaskMoreDtDds");
+    expect(html).not.toContain('data-manager-history-back="1"');
   });
 });

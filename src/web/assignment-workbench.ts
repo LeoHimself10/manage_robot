@@ -1271,19 +1271,21 @@ export function renderTaskDetailPage(params: {
       : params.roleLabel === "admin"
         ? "任务总览"
         : "历史任务";
+  const managerHistoryBackAttr =
+    params.roleLabel === "manager" ? ' data-manager-history-back="1"' : "";
   const infoBar =
     params.roleLabel === "employee"
       ? '<div class="wb-info-bar wb-info-bar--emp" role="note">接受、拒绝、进度等操作请在「待承接 / 进行中」列表完成；本页仅供查看完整背景与团队分工。</div>'
       : params.roleLabel === "admin"
         ? '<div class="wb-info-bar wb-info-bar--adm" role="note">管理员视图：可改派与停止任务，不含规划助手入口。</div>'
         : "";
-  const toolbarHtml = `<a class="btn btn-ghost btn-sm" href="${params.backPath}">← 返回列表</a>`;
+  const toolbarHtml = `<a class="btn btn-ghost btn-sm"${managerHistoryBackAttr} href="${params.backPath}">← 返回列表</a>`;
   return renderWorkbenchPage({
     role: shellRole,
     activeNav,
     title: "任务详情",
     pageTitle: "任务详情",
-    breadcrumbHtml: `<a href="${params.backPath}">${backCrumbLabel}</a> › <span id="detailBreadcrumbTitle">加载中…</span>`,
+    breadcrumbHtml: `<a${managerHistoryBackAttr} href="${params.backPath}">${backCrumbLabel}</a> › <span id="detailBreadcrumbTitle">加载中…</span>`,
     headToolbarHtml: toolbarHtml,
     mainBodyClass: params.roleLabel === "employee" ? "wb-main-body--detail-emp" : "wb-main-body--detail",
     mainHtml: `${infoBar}
@@ -1390,6 +1392,26 @@ export function renderTaskDetailPage(params: {
   var mgrRowHandlersBound = false;
   var taskActionHandlersBound = false;
   var lastSubsForReassign = [];
+  function canReturnToManagerListHistory() {
+    if (ROLE !== 'manager' || !window.history || window.history.length <= 1) return false;
+    try {
+      var ref = new URL(document.referrer || '', window.location.href);
+      return ref.origin === window.location.origin && ref.pathname === '/workbench/manager/tasks';
+    } catch (e0) {
+      return false;
+    }
+  }
+  document.addEventListener('click', function (event) {
+    var target = event.target;
+    var link = target && typeof target.closest === 'function'
+      ? target.closest('[data-manager-history-back]')
+      : null;
+    if (!link || event.defaultPrevented || event.button !== 0
+      || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!canReturnToManagerListHistory()) return;
+    event.preventDefault();
+    window.history.back();
+  });
   function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   function cssEscAttr(v){
     var s = String(v||'');
