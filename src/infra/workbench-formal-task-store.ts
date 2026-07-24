@@ -11,6 +11,7 @@ import {
   type WorkbenchProjectStatus,
 } from "./workbench-project-types";
 import { formatDueAtForStorage } from "../agent/reminders/due-at-parse";
+import { resolveWorkbenchManagerScope } from "../security/workbench-manager-scope";
 import { logStructured } from "./logger";
 
 export type WorkbenchTaskStatus =
@@ -935,6 +936,10 @@ export function createWorkbenchFormalTaskStore() {
     return ownerUserId === scope.managerUserId;
   }
 
+  function managerMutationAccessible(row: Record<string, unknown>, managerUserId: string): boolean {
+    return managerOwnedRowAccessible(row, resolveWorkbenchManagerScope(managerUserId));
+  }
+
   return {
     publishFromSession(input: {
       planId: string;
@@ -1542,11 +1547,11 @@ export function createWorkbenchFormalTaskStore() {
     } {
       const subtask = db
         .prepare(
-          "SELECT s.*, t.plan_id, t.manager_user_id, t.task_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
+          "SELECT s.*, t.plan_id, t.manager_user_id, t.manager_group_id, t.task_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
         )
         .get(input.subtaskId) as Record<string, unknown> | undefined;
       if (!subtask) throw new Error("Subtask not found");
-      if (String(subtask.manager_user_id ?? "").trim() !== input.managerUserId.trim()) {
+      if (!managerMutationAccessible(subtask, input.managerUserId)) {
         throw new Error("Task does not belong to current manager");
       }
       const types = (qSubtaskEventTypesAsc.all(input.subtaskId) as Array<{ event_type?: unknown }>).map((r) =>
@@ -1597,11 +1602,11 @@ export function createWorkbenchFormalTaskStore() {
     }): void {
       const row = db
         .prepare(
-          "SELECT s.subtask_id, t.task_id, t.manager_user_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
+          "SELECT s.subtask_id, t.task_id, t.manager_user_id, t.manager_group_id FROM subtasks s JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?",
         )
         .get(input.subtaskId) as Record<string, unknown> | undefined;
       if (!row) throw new Error("Subtask not found");
-      if (String(row.manager_user_id ?? "").trim() !== input.managerUserId.trim()) {
+      if (!managerMutationAccessible(row, input.managerUserId)) {
         throw new Error("Task does not belong to current manager");
       }
       const taskId = String(row.task_id ?? "");
@@ -1633,7 +1638,7 @@ export function createWorkbenchFormalTaskStore() {
       const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("Task not found for planId");
       const task = mapTaskRow(taskRow);
-      if (task.managerUserId !== input.managerUserId) {
+      if (!managerMutationAccessible(taskRow, input.managerUserId)) {
         throw new Error("Task does not belong to current manager");
       }
       const subtaskRow = db
@@ -1698,7 +1703,7 @@ export function createWorkbenchFormalTaskStore() {
       const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("Task not found for planId");
       const task = mapTaskRow(taskRow);
-      if (task.managerUserId !== input.managerUserId) {
+      if (!managerMutationAccessible(taskRow, input.managerUserId)) {
         throw new Error("Task does not belong to current manager");
       }
       const subtaskRows = qTaskSubtasks.all(task.taskId) as Array<Record<string, unknown>>;
@@ -1784,7 +1789,7 @@ export function createWorkbenchFormalTaskStore() {
       const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("Task not found for planId");
       const task = mapTaskRow(taskRow);
-      if (task.managerUserId !== input.managerUserId) {
+      if (!managerMutationAccessible(taskRow, input.managerUserId)) {
         throw new Error("Task does not belong to current manager");
       }
       const existingSubtaskRows = qTaskSubtasks.all(task.taskId) as Array<Record<string, unknown>>;
@@ -1973,7 +1978,7 @@ export function createWorkbenchFormalTaskStore() {
       const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("Task not found for planId");
       const task = mapTaskRow(taskRow);
-      if (task.managerUserId !== input.managerUserId) {
+      if (!managerMutationAccessible(taskRow, input.managerUserId)) {
         throw new Error("Task does not belong to current manager");
       }
       const existingSubtaskRows = qTaskSubtasks.all(task.taskId) as Array<Record<string, unknown>>;
@@ -2121,7 +2126,7 @@ export function createWorkbenchFormalTaskStore() {
         .get(input.subtaskId) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("Subtask not found");
       const task = mapTaskRow(taskRow);
-      if (task.managerUserId !== input.managerUserId) {
+      if (!managerMutationAccessible(taskRow, input.managerUserId)) {
         throw new Error("Subtask does not belong to current manager");
       }
       const subtask = this.setSubtaskDueAt({
@@ -2141,8 +2146,7 @@ export function createWorkbenchFormalTaskStore() {
     }): void {
       const taskRow = qTaskById.get(input.taskId) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("Task not found");
-      const task = mapTaskRow(taskRow);
-      if (task.managerUserId !== input.managerUserId) {
+      if (!managerMutationAccessible(taskRow, input.managerUserId)) {
         throw new Error("Task does not belong to current manager");
       }
       db.prepare("UPDATE tasks SET source_meeting_batch_id = ?, updated_at = ? WHERE task_id = ?").run(
@@ -2160,12 +2164,12 @@ export function createWorkbenchFormalTaskStore() {
     }): void {
       const row = db
         .prepare(
-          `SELECT s.*, t.plan_id, t.manager_user_id FROM subtasks s
+          `SELECT s.*, t.plan_id, t.manager_user_id, t.manager_group_id FROM subtasks s
            JOIN tasks t ON t.task_id = s.task_id WHERE s.subtask_id = ?`,
         )
         .get(input.subtaskId) as Record<string, unknown> | undefined;
       if (!row) throw new Error("Subtask not found");
-      if (String(row.manager_user_id ?? "") !== input.managerUserId.trim()) {
+      if (!managerMutationAccessible(row, input.managerUserId)) {
         throw new Error("Subtask does not belong to current manager");
       }
       db.prepare(
@@ -2273,7 +2277,7 @@ export function createWorkbenchFormalTaskStore() {
       const taskRow = qTaskByPlan.get(input.planId) as Record<string, unknown> | undefined;
       if (!taskRow) throw new Error("Task not found for planId");
       const task = mapTaskRow(taskRow);
-      if (task.managerUserId !== input.managerUserId) {
+      if (!managerMutationAccessible(taskRow, input.managerUserId)) {
         throw new Error("Task does not belong to current manager");
       }
 

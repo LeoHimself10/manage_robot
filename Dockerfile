@@ -16,7 +16,8 @@ COPY docs ./docs/
 COPY fixtures ./fixtures/
 COPY scripts ./scripts
 
-RUN chmod +x ./scripts/docker-entrypoint-dingtalk.sh
+RUN sed -i 's/\r$//' ./scripts/docker-entrypoint-dingtalk.sh \
+    && chmod +x ./scripts/docker-entrypoint-dingtalk.sh
 
 EXPOSE 8080
 

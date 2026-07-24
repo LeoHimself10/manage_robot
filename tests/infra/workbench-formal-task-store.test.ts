@@ -9,6 +9,10 @@ import {
   TASK_DESCRIPTION_MAX_DB,
 } from "../../src/infra/workbench-formal-task-store";
 import type { PlanSession } from "../../src/infra/plan-session-store";
+import {
+  addWorkbenchManagerGroupMember,
+  createWorkbenchManagerGroup,
+} from "../../src/security/workbench-manager-groups";
 
 describe("workbench-formal-task-store mapping", () => {
   beforeEach(() => {
@@ -1608,6 +1612,71 @@ describe("workbench-formal-task-store projects", () => {
       "plan-personal-unassigned",
       "plan-same-group-member-personal-unassigned",
     ]);
+  });
+
+  it("allows same-group managers to mutate legacy personal tasks without leaking across groups", () => {
+    const groupDir = mkdtempSync(join(tmpdir(), "formal-store-manager-mutations-"));
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "1");
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_FILE", join(groupDir, "groups.json"));
+    const group = createWorkbenchManagerGroup({ name: "Shared managers" });
+    addWorkbenchManagerGroupMember(group.groupId, "mgr-a");
+    addWorkbenchManagerGroupMember(group.groupId, "mgr-b");
+
+    const store = createWorkbenchFormalTaskStore();
+    const published = store.publishFromSession({
+      planId: "plan-shared-legacy",
+      session: baseSession("plan-shared-legacy"),
+      managerUserId: "mgr-a",
+      initiatorDepartment: "ops",
+      actorUserId: "mgr-a",
+    });
+
+    const appended = store.appendSubtask({
+      planId: "plan-shared-legacy",
+      managerUserId: "mgr-b",
+      title: "Same-group appended task",
+      assigneeUserId: "employee-b",
+      objective: "Confirm same-group mutation access",
+      deliverables: "Updated task row",
+      completionCriteria: "The subtask is persisted",
+    });
+    expect(appended.task.managerUserId).toBe("mgr-a");
+    expect(appended.task.managerGroupId).toBeUndefined();
+
+    const originalSubtaskId = published.subtasks[0]?.subtaskId;
+    if (!originalSubtaskId) throw new Error("expected original subtask");
+    expect(
+      store.managerSetSubtaskDueAt({
+        managerUserId: "mgr-b",
+        subtaskId: originalSubtaskId,
+        dueAt: "2026-08-01",
+      }).task.managerUserId,
+    ).toBe("mgr-a");
+
+    expect(() =>
+      store.appendSubtask({
+        planId: "plan-shared-legacy",
+        managerUserId: "mgr-outside",
+        title: "Outside-group append",
+        assigneeUserId: "employee-outside",
+        objective: "Should be rejected",
+        deliverables: "None",
+        completionCriteria: "Rejected",
+      }),
+    ).toThrow(/Task does not belong to current manager/);
+
+    vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "0");
+    expect(() =>
+      store.appendSubtask({
+        planId: "plan-shared-legacy",
+        managerUserId: "mgr-b",
+        title: "Disabled-group append",
+        assigneeUserId: "employee-b",
+        objective: "Should be rejected when groups are disabled",
+        deliverables: "None",
+        completionCriteria: "Rejected",
+      }),
+    ).toThrow(/Task does not belong to current manager/);
   });
 
   it("keeps same-group ungrouped tasks in performance datasets after joining a manager group", () => {
