@@ -114,4 +114,87 @@ describe("dingtalk meeting store", () => {
     expect(meeting?.transcriptText).toBe("Yao: Define AI log scope\nCao: Confirm rollout users");
     store.close();
   });
+
+  it("merges conferenceId and taskUuid into one canonical meeting in either arrival order", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dt-meeting-store-unified-"));
+    process.env.WORKBENCH_SQLITE_PATH = join(dir, "wb.sqlite");
+    const store = createDingTalkMeetingStore();
+    const startTimeMs = Date.parse("2026-07-24T02:00:00.000Z");
+
+    store.upsertMeeting({
+      conferenceId: "minutes:task-unified",
+      sourceKind: "ai_minutes",
+      taskUuid: "task-unified",
+      title: "Product review",
+      creatorUnionId: "union-manager",
+      startTimeMs: startTimeMs + 20_000,
+    });
+    store.replaceMeetingMembers("minutes:task-unified", [
+      { unionId: "union-manager", role: "creator" },
+      { unionId: "union-speaker", role: "speaker" },
+    ]);
+    store.setMeetingTranscript({
+      conferenceId: "minutes:task-unified",
+      transcriptText: "Manager: confirm the release plan",
+      source: "ai_minutes_dws",
+    });
+
+    const merged = store.upsertMeeting({
+      conferenceId: "conference-unified",
+      videoConferenceId: "conference-unified",
+      sourceKind: "video_conference",
+      title: "Product review",
+      creatorUnionId: "union-manager",
+      startTimeMs,
+    });
+
+    expect(merged).toMatchObject({
+      conferenceId: "conference-unified",
+      videoConferenceId: "conference-unified",
+      taskUuid: "task-unified",
+      sourceKind: "unified",
+      transcriptText: "Manager: confirm the release plan",
+    });
+    expect(store.getMeeting("minutes:task-unified")).toMatchObject({
+      conferenceId: "conference-unified",
+      sourceKind: "unified",
+    });
+    expect(store.userCanAccessMeeting("minutes:task-unified", "union-manager")).toBe(true);
+    expect(store.listMeetingMembers("conference-unified").map((member) => member.unionId).sort()).toEqual([
+      "union-manager",
+      "union-speaker",
+    ]);
+    expect(
+      store.listMeetingsForUnionId({
+        unionId: "union-manager",
+        sinceMs: startTimeMs - 60_000,
+      }),
+    ).toHaveLength(1);
+    store.close();
+  });
+
+  it("does not merge nearby meetings when their creators differ", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dt-meeting-store-no-false-merge-"));
+    process.env.WORKBENCH_SQLITE_PATH = join(dir, "wb.sqlite");
+    const store = createDingTalkMeetingStore();
+    const startTimeMs = Date.parse("2026-07-24T02:00:00.000Z");
+    store.upsertMeeting({
+      conferenceId: "conference-a",
+      title: "Weekly review",
+      creatorUnionId: "union-a",
+      startTimeMs,
+    });
+    store.upsertMeeting({
+      conferenceId: "minutes:task-b",
+      sourceKind: "ai_minutes",
+      taskUuid: "task-b",
+      title: "Weekly review",
+      creatorUnionId: "union-b",
+      startTimeMs: startTimeMs + 10_000,
+    });
+
+    expect(store.getMeeting("conference-a")).toBeDefined();
+    expect(store.getMeeting("minutes:task-b")).toBeDefined();
+    store.close();
+  });
 });

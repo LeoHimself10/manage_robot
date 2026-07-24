@@ -15,11 +15,13 @@ type JsonRecord = Record<string, unknown>;
 export interface DingTalkMeetingEventResult {
   handled: boolean;
   conferenceId?: string;
+  taskUuid?: string;
 }
 
 export interface DingTalkMeetingEventSummary {
   eventType: string;
   conferenceId?: string;
+  taskUuid?: string;
   bizType?: string;
   transcriptFragmentCount: number;
   topLevelKeys: string[];
@@ -235,6 +237,17 @@ function addMemberIfPresent(members: DingTalkMeetingMemberInput[], input: DingTa
   members.push({ ...input, unionId });
 }
 
+function mergeStoredMeetingMembers(
+  meetingStore: DingTalkMeetingStore,
+  conferenceId: string,
+  members: DingTalkMeetingMemberInput[],
+): void {
+  for (const member of meetingStore.listMeetingMembers(conferenceId)) {
+    addMemberIfPresent(members, member);
+  }
+  if (members.length) meetingStore.replaceMeetingMembers(conferenceId, members);
+}
+
 function eventTypeText(headers: JsonRecord | undefined, records: JsonRecord[]): string {
   const parts = [
     readString(headers ? [headers] : [], ["eventType", "topic", "eventName"]),
@@ -258,6 +271,10 @@ function resolveConferenceId(records: JsonRecord[]): string | undefined {
   ]);
 }
 
+function resolveTaskUuid(records: JsonRecord[]): string | undefined {
+  return readString(records, ["taskUuid", "task_uuid"]);
+}
+
 function safeKeys(record: JsonRecord | undefined, limit = 24): string[] {
   if (!record) return [];
   return Object.keys(record).slice(0, limit);
@@ -279,6 +296,7 @@ function meetingEventContext(message: unknown): {
   headers?: JsonRecord;
   records: JsonRecord[];
   conferenceId?: string;
+  taskUuid?: string;
   eventType: string;
   transcriptFragments: DingTalkMeetingTranscriptFragmentInput[];
 } {
@@ -294,19 +312,22 @@ function meetingEventContext(message: unknown): {
     headers,
     records,
     conferenceId: resolveConferenceId(records),
+    taskUuid: resolveTaskUuid(records),
     eventType: eventTypeText(headers, records),
     transcriptFragments: readTranscriptFragments(records),
   };
 }
 
 export function summarizeDingTalkMeetingEventMessage(message: unknown): DingTalkMeetingEventSummary {
-  const { root, records, conferenceId, eventType, transcriptFragments } = meetingEventContext(message);
+  const { root, records, conferenceId, taskUuid, eventType, transcriptFragments } =
+    meetingEventContext(message);
   const parsedData = asRecord(parseJsonMaybe(root.data));
   const bizType = readScalarString(records, ["bizType", "biz_type"]);
   const haystack = [eventType, bizType ?? "", uniqueKeys(records).join(" ")].join(" ").toLowerCase();
   return {
     eventType,
     conferenceId,
+    taskUuid,
     bizType,
     transcriptFragmentCount: transcriptFragments.length,
     topLevelKeys: safeKeys(root),
@@ -314,6 +335,7 @@ export function summarizeDingTalkMeetingEventMessage(message: unknown): DingTalk
     recordKeys: uniqueKeys(records),
     maybeMeetingEvent:
       Boolean(conferenceId) ||
+      Boolean(taskUuid) ||
       transcriptFragments.length > 0 ||
       haystack.includes("asr") ||
       haystack.includes("meeting") ||
@@ -323,10 +345,106 @@ export function summarizeDingTalkMeetingEventMessage(message: unknown): DingTalk
   };
 }
 
+export function persistDingTalkMinutesTaskEventMessage(
+  input: Omit<DingTalkMeetingEventMessageInput, "meetingClient">,
+): DingTalkMeetingEventResult | undefined {
+  const {
+    root,
+    headers,
+    records,
+    conferenceId: videoConferenceId,
+    taskUuid,
+    transcriptFragments,
+  } = meetingEventContext(input.message);
+  if (!taskUuid) return undefined;
+  const conferenceId = videoConferenceId ?? `minutes:${taskUuid}`;
+  const creatorUnionId = readString(records, [
+    "creatorUnionId",
+    "creator_union_id",
+    "operatorUnionId",
+    "ownerUnionId",
+    "minutesOwnerUnionId",
+  ]);
+  const creatorUserId = readString(records, [
+    "creatorUserId",
+    "creator_user_id",
+    "operator",
+    "userId",
+  ]);
+  const creatorNick = readString(records, [
+    "creatorNick",
+    "creatorName",
+    "operatorName",
+    "nickName",
+  ]);
+  const ownStore = input.meetingStore ? undefined : createDingTalkMeetingStore();
+  const meetingStore = input.meetingStore ?? ownStore!;
+  try {
+    const storedMeeting = meetingStore.upsertMeeting({
+      conferenceId,
+      sourceKind: videoConferenceId ? "unified" : "ai_minutes",
+      videoConferenceId,
+      taskUuid,
+      title: readString(records, ["title", "meetingTitle", "conferenceTitle", "subject"]),
+      creatorUnionId,
+      creatorUserId,
+      creatorNick,
+      startTimeMs:
+        readNumber(records, ["startTimeMs", "startTime", "meetingStartTime"]) ??
+        input.now?.() ??
+        Date.now(),
+      endTimeMs: readNumber(records, ["endTimeMs", "endTime", "meetingEndTime"]),
+      status: readString(records, ["status", "taskStatus"]),
+      flashStatus: readString(records, ["minutesStatus", "status", "taskStatus"]),
+      rawJson: {
+        headers: headers ?? {},
+        data: asRecord(parseJsonMaybe(root.data)) ?? root,
+      },
+    });
+    const members = readMembers(records);
+    addMemberIfPresent(members, {
+      unionId: creatorUnionId ?? "",
+      userId: creatorUserId,
+      nickName: creatorNick,
+      role: "creator",
+    });
+    if (transcriptFragments.length) {
+      meetingStore.appendMeetingTranscriptFragments({
+        conferenceId: storedMeeting.conferenceId,
+        source: "ai_minutes",
+        fragments: transcriptFragments,
+      });
+      for (const fragment of transcriptFragments) {
+        addMemberIfPresent(members, {
+          unionId: fragment.unionId ?? "",
+          nickName: fragment.speakerName,
+          role: "speaker",
+        });
+      }
+    }
+    mergeStoredMeetingMembers(meetingStore, storedMeeting.conferenceId, members);
+    return { handled: true, conferenceId: storedMeeting.conferenceId, taskUuid };
+  } finally {
+    ownStore?.close();
+  }
+}
+
 export async function handleDingTalkMeetingEventMessage(
   input: DingTalkMeetingEventMessageInput,
 ): Promise<DingTalkMeetingEventResult> {
-  const { root, headers, records, conferenceId, eventType, transcriptFragments } = meetingEventContext(input.message);
+  const {
+    root,
+    headers,
+    records,
+    conferenceId: rawConferenceId,
+    taskUuid,
+    eventType,
+    transcriptFragments,
+  } = meetingEventContext(input.message);
+  if (taskUuid) {
+    return persistDingTalkMinutesTaskEventMessage(input) ?? { handled: false };
+  }
+  const conferenceId = rawConferenceId ?? (taskUuid ? `minutes:${taskUuid}` : undefined);
   if (!conferenceId) return { handled: false };
 
   if (
@@ -360,8 +478,11 @@ export async function handleDingTalkMeetingEventMessage(
   const ownStore = input.meetingStore ? undefined : createDingTalkMeetingStore();
   const meetingStore = input.meetingStore ?? ownStore!;
   try {
-    meetingStore.upsertMeeting({
+    const storedMeeting = meetingStore.upsertMeeting({
       conferenceId,
+      videoConferenceId: conferenceId,
+      sourceKind: taskUuid ? "ai_minutes" : "video_conference",
+      taskUuid,
       title: readString(records, ["title", "meetingTitle", "conferenceTitle", "subject"]),
       roomCode: readString(records, ["roomCode", "room_code"]),
       scheduleConferenceId: readString(records, ["scheduleConferenceId", "schedule_conference_id"]),
@@ -390,11 +511,11 @@ export async function handleDingTalkMeetingEventMessage(
       role: "host",
     });
     if (members.length) {
-      meetingStore.replaceMeetingMembers(conferenceId, members);
+      mergeStoredMeetingMembers(meetingStore, storedMeeting.conferenceId, members);
     }
     if (transcriptFragments.length) {
       meetingStore.appendMeetingTranscriptFragments({
-        conferenceId,
+        conferenceId: storedMeeting.conferenceId,
         source: transcriptSource(records),
         fragments: transcriptFragments,
       });
@@ -406,18 +527,21 @@ export async function handleDingTalkMeetingEventMessage(
         });
       }
       if (members.length) {
-        meetingStore.replaceMeetingMembers(conferenceId, members);
+        mergeStoredMeetingMembers(meetingStore, storedMeeting.conferenceId, members);
       }
     }
-    const needsHydration = !readString(records, ["title", "meetingTitle", "conferenceTitle", "subject"]) ||
-      !creatorUnionId ||
-      members.length === 0;
+    const needsHydration =
+      !taskUuid &&
+      (!readString(records, ["title", "meetingTitle", "conferenceTitle", "subject"]) ||
+        !creatorUnionId ||
+        members.length === 0);
     if (needsHydration) {
       const client = input.meetingClient ?? createDingTalkMeetingRecordingClient();
       try {
         const info = await client.getVideoConference({ conferenceId });
-        meetingStore.upsertMeeting({
+        const hydratedMeeting = meetingStore.upsertMeeting({
           ...info,
+          videoConferenceId: conferenceId,
           rawJson: {
             headers: headers ?? {},
             data: asRecord(parseJsonMaybe(root.data)) ?? root,
@@ -426,8 +550,9 @@ export async function handleDingTalkMeetingEventMessage(
         });
         const apiMembers = await client.listVideoConferenceMembers({ conferenceId });
         if (apiMembers.length) {
-          meetingStore.replaceMeetingMembers(
-            conferenceId,
+          mergeStoredMeetingMembers(
+            meetingStore,
+            hydratedMeeting.conferenceId,
             apiMembers.map((member) => ({
               unionId: member.unionId,
               userId: member.userId,
@@ -439,12 +564,12 @@ export async function handleDingTalkMeetingEventMessage(
         }
       } catch (err) {
         meetingStore.setMeetingLastError({
-          conferenceId,
+          conferenceId: storedMeeting.conferenceId,
           errorText: err instanceof Error ? err.message : String(err),
         });
       }
     }
-    return { handled: true, conferenceId };
+    return { handled: true, conferenceId: storedMeeting.conferenceId };
   } finally {
     ownStore?.close();
   }

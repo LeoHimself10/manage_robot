@@ -13,7 +13,14 @@ import { __setTaskIntakeLlmForTest } from "../../src/agent/task-intake/task-inta
 import { findMainThreadSession } from "../../src/web/conversation-thread-resolver";
 import { createPeopleDirectoryStore } from "../../src/infra/people-directory-store";
 import { createDingTalkMeetingStore } from "../../src/infra/dingtalk-meeting-store";
-import type { DingTalkMeetingRecordingClient } from "../../src/integrations/dingtalk/meeting-recording";
+import {
+  DingTalkMeetingApiError,
+  type DingTalkMeetingRecordingClient,
+} from "../../src/integrations/dingtalk/meeting-recording";
+import {
+  DingTalkMinutesError,
+  type DingTalkMinutesClient,
+} from "../../src/integrations/dingtalk/dingtalk-minutes";
 
 function seedContact(userId: string, name: string, unionId?: string): void {
   const store = createPeopleDirectoryStore();
@@ -194,6 +201,11 @@ describe("task-intake HTTP", () => {
       flashStatus: "video_generated",
     });
     meetingStore.replaceMeetingMembers("conf-visible", [{ unionId: "union-mgr", nickName: "主管" }]);
+    meetingStore.setMeetingTranscript({
+      conferenceId: "conf-visible",
+      transcriptText: "Manager: confirm project action items",
+      source: "cloud_record",
+    });
     meetingStore.upsertMeeting({
       conferenceId: "conf-hidden",
       title: "无关会议",
@@ -202,6 +214,11 @@ describe("task-intake HTTP", () => {
       flashStatus: "video_generated",
     });
     meetingStore.replaceMeetingMembers("conf-hidden", [{ unionId: "union-other", nickName: "别人" }]);
+    meetingStore.setMeetingTranscript({
+      conferenceId: "conf-hidden",
+      transcriptText: "Other: should stay hidden",
+      source: "cloud_record",
+    });
     meetingStore.close();
     const cookie = await loginManager();
 
@@ -261,6 +278,202 @@ describe("task-intake HTTP", () => {
     meetingStore.close();
   });
 
+  it("backfills temporary AI minutes by manager OAuth and imports the full transcription", async () => {
+    seedContact("mgr-plain", "Manager", "union-mgr");
+    const meetingStore = createDingTalkMeetingStore();
+    const now = Date.parse("2026-07-24T03:30:00.000Z");
+    const minutesClient = {
+      async listAccessible() {
+        return [
+          {
+            taskUuid: "task-ad-hoc-1",
+            title: "临时需求碰头",
+            creatorNick: "Manager",
+            creatorUnionId: "union-mgr",
+            startTimeMs: now - 60_000,
+            status: "FINISHED",
+          },
+        ];
+      },
+      async getTranscription() {
+        return {
+          taskUuid: "task-ad-hoc-1",
+          text: "Manager: 整理需求清单\nEmployee: 周五前给出排期",
+          fetchedAt: "2026-07-24T03:31:00.000Z",
+        };
+      },
+    } satisfies DingTalkMinutesClient;
+    __setTaskIntakeLlmForTest(async () =>
+      JSON.stringify({
+        parentTitle: "临时需求碰头待办",
+        parentDescription: "来自 AI 听记",
+        subtasks: [
+          {
+            title: "整理需求清单",
+            objective: "形成可排期清单",
+            deliverables: "需求清单",
+            completionCriteria: "主管确认",
+          },
+        ],
+      }),
+    );
+
+    const listed = await handleTaskIntakeMeetingsList({
+      managerUserId: "mgr-plain",
+      days: 14,
+      meetingStore,
+      minutesClient,
+      nowMs: now,
+    });
+    expect(listed.meetings).toEqual([
+      expect.objectContaining({
+        conferenceId: "minutes:task-ad-hoc-1",
+        sourceKind: "ai_minutes",
+        taskUuid: "task-ad-hoc-1",
+        title: "临时需求碰头",
+        transcriptCached: false,
+      }),
+    ]);
+
+    const preview = await handleTaskIntakeMeetingPreview({
+      managerUserId: "mgr-plain",
+      conferenceId: "minutes:task-ad-hoc-1",
+      meetingStore,
+      minutesClient,
+    });
+    expect(preview.rows[0]?.title).toBe("整理需求清单");
+    expect(meetingStore.getMeeting("minutes:task-ad-hoc-1")).toMatchObject({
+      transcriptCached: true,
+      transcriptSource: "ai_minutes_dws",
+    });
+    meetingStore.close();
+  });
+
+  it("falls back to app-authorized cloud transcription when manager minutes OAuth is unavailable", async () => {
+    seedContact("mgr-plain", "Manager", "union-mgr");
+    const meetingStore = createDingTalkMeetingStore();
+    const startTimeMs = Date.parse("2026-07-24T03:30:00.000Z");
+    meetingStore.upsertMeeting({
+      conferenceId: "conference-fallback",
+      videoConferenceId: "conference-fallback",
+      title: "Unified meeting",
+      creatorUnionId: "union-owner",
+      startTimeMs,
+    });
+    const unified = meetingStore.upsertMeeting({
+      conferenceId: "minutes:task-fallback",
+      sourceKind: "ai_minutes",
+      taskUuid: "task-fallback",
+      title: "Unified meeting",
+      creatorUnionId: "union-owner",
+      startTimeMs: startTimeMs + 10_000,
+    });
+    meetingStore.replaceMeetingMembers(unified.conferenceId, [
+      { unionId: "union-mgr", role: "authorized_viewer" },
+    ]);
+    const minutesClient = {
+      async listAccessible() {
+        return [];
+      },
+      async getTranscription() {
+        throw new DingTalkMinutesError("auth_required", "OAuth required");
+      },
+    } satisfies DingTalkMinutesClient;
+    const meetingClient = {
+      async getCloudRecordTranscript() {
+        return {
+          conferenceId: "conference-fallback",
+          text: "Owner: complete the unified meeting action",
+          paragraphs: [],
+          fetchedAt: "2026-07-24T03:31:00.000Z",
+        };
+      },
+      async getVideoConference() {
+        throw new Error("not used");
+      },
+      async listVideoConferenceMembers() {
+        return [];
+      },
+    } satisfies DingTalkMeetingRecordingClient;
+    __setTaskIntakeLlmForTest(async () =>
+      JSON.stringify({
+        parentTitle: "Unified meeting actions",
+        parentDescription: "Cloud fallback",
+        subtasks: [
+          {
+            title: "complete the unified meeting action",
+            objective: "Complete it",
+            deliverables: "Result",
+            completionCriteria: "Done",
+          },
+        ],
+      }),
+    );
+
+    const preview = await handleTaskIntakeMeetingPreview({
+      managerUserId: "mgr-plain",
+      conferenceId: unified.conferenceId,
+      meetingStore,
+      minutesClient,
+      meetingClient,
+    });
+
+    expect(preview.rows[0]?.title).toBe("complete the unified meeting action");
+    expect(meetingStore.getMeeting(unified.conferenceId)).toMatchObject({
+      sourceKind: "unified",
+      transcriptCached: true,
+      transcriptSource: "cloud_record",
+    });
+    meetingStore.close();
+  });
+
+  it("omits calendar meetings that have neither AI minutes nor readable transcription", async () => {
+    seedContact("mgr-plain", "Manager", "union-mgr");
+    const meetingStore = createDingTalkMeetingStore();
+    const now = Date.parse("2026-07-24T03:30:00.000Z");
+    const meetingClient = {
+      async listCalendarVideoMeetings() {
+        return [
+          {
+            calendarEventId: "event-without-minutes",
+            conferenceId: "conference-without-minutes",
+            title: "Meeting without notes",
+            organizerUnionId: "union-mgr",
+            attendeeUnionIds: ["union-mgr"],
+            startTimeMs: now - 60_000,
+            endTimeMs: now,
+          },
+        ];
+      },
+      async listVideoConferencesByRoomCode() {
+        return [];
+      },
+      async getCloudRecordTranscript() {
+        throw new DingTalkMeetingApiError(
+          "No transcript",
+          "empty_transcript",
+          404,
+        );
+      },
+      async getVideoConference() {
+        throw new Error("not used");
+      },
+      async listVideoConferenceMembers() {
+        return [];
+      },
+    } satisfies DingTalkMeetingRecordingClient;
+
+    const result = await handleTaskIntakeMeetingsList({
+      managerUserId: "mgr-plain",
+      meetingStore,
+      meetingClient,
+      nowMs: now,
+    });
+
+    expect(result.meetings).toEqual([]);
+    meetingStore.close();
+  });
+
   it("syncs recent DingTalk calendar meetings before listing", async () => {
     seedContact("mgr-plain", "涓荤", "union-mgr");
     const meetingStore = createDingTalkMeetingStore();
@@ -295,7 +508,12 @@ describe("task-intake HTTP", () => {
         ];
       },
       async getCloudRecordTranscript() {
-        throw new Error("not used");
+        return {
+          conferenceId: "actual-conf",
+          text: "Owner: confirm AI log requirements",
+          paragraphs: [],
+          fetchedAt: "2026-07-02T04:00:00.000Z",
+        };
       },
       async getVideoConference() {
         throw new Error("not used");
@@ -316,7 +534,7 @@ describe("task-intake HTTP", () => {
     expect(result.meetings.map((m) => m.conferenceId)).toEqual(["actual-conf"]);
     expect(result.meetings[0]).toMatchObject({
       title: "AI日志助手 需求收集",
-      transcriptCached: false,
+      transcriptCached: true,
     });
     expect(meetingStore.userCanAccessMeeting("actual-conf", "union-mgr")).toBe(true);
     meetingStore.close();

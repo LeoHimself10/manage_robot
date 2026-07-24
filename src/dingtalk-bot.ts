@@ -84,6 +84,7 @@ import { isDailyReportProjectViewDigestEnabled } from "./agent/daily-report-dige
 import { isTaskIntakeDingTalkMeetingsEnabled } from "./agent/task-intake/dingtalk-meetings-flag";
 import {
   handleDingTalkMeetingEventMessage,
+  persistDingTalkMinutesTaskEventMessage,
   summarizeDingTalkMeetingEventMessage,
 } from "./integrations/dingtalk/meeting-events";
 import {
@@ -1082,12 +1083,34 @@ async function main(): Promise<void> {
     .registerAllEventListener((eventMessage: DWClientDownStream) => {
       if (taskIntakeMeetingsEnabled) {
         const summary = summarizeDingTalkMeetingEventMessage(eventMessage);
+        if (summary.taskUuid) {
+          try {
+            const result = persistDingTalkMinutesTaskEventMessage({ message: eventMessage });
+            logStructured({
+              event: "dingtalk_meeting_event_cached",
+              conferenceId: result?.conferenceId,
+              taskUuid: result?.taskUuid,
+              eventType: summary.eventType,
+              transcriptFragmentCount: summary.transcriptFragmentCount,
+            });
+            return { status: EventAck.SUCCESS };
+          } catch (err) {
+            logStructured({
+              event: "dingtalk_meeting_event_cache_failed",
+              taskUuid: summary.taskUuid,
+              reason: err instanceof Error ? err.message : String(err),
+              retryRequested: true,
+            });
+            return { status: EventAck.LATER };
+          }
+        }
         void handleDingTalkMeetingEventMessage({ message: eventMessage })
           .then((result) => {
             if (result.handled) {
               logStructured({
                 event: "dingtalk_meeting_event_cached",
                 conferenceId: result.conferenceId,
+                taskUuid: result.taskUuid,
                 eventType: summary.eventType,
                 transcriptFragmentCount: summary.transcriptFragmentCount,
               });
@@ -1096,6 +1119,7 @@ async function main(): Promise<void> {
                 event: "dingtalk_meeting_event_unhandled",
                 eventType: summary.eventType,
                 conferenceId: summary.conferenceId,
+                taskUuid: summary.taskUuid,
                 bizType: summary.bizType,
                 transcriptFragmentCount: summary.transcriptFragmentCount,
                 topLevelKeys: summary.topLevelKeys,

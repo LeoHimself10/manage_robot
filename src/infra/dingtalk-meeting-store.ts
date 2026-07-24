@@ -11,6 +11,9 @@ export interface DingTalkMeetingMemberInput {
 
 export interface DingTalkMeetingUpsertInput {
   conferenceId: string;
+  sourceKind?: "video_conference" | "ai_minutes" | "unified";
+  videoConferenceId?: string;
+  taskUuid?: string;
   title?: string;
   roomCode?: string;
   scheduleConferenceId?: string;
@@ -38,6 +41,9 @@ export interface DingTalkMeetingTranscriptFragmentInput {
 
 export interface DingTalkMeetingRow {
   conferenceId: string;
+  sourceKind: "video_conference" | "ai_minutes" | "unified";
+  videoConferenceId?: string;
+  taskUuid?: string;
   title?: string;
   roomCode?: string;
   scheduleConferenceId?: string;
@@ -110,8 +116,20 @@ function transcriptLine(fragment: Pick<DingTalkMeetingTranscriptFragmentInput, "
 
 function mapMeeting(row: Record<string, unknown>): DingTalkMeetingRow {
   const transcriptText = asString(row.transcript_text);
+  const taskUuid = asString(row.task_uuid);
+  const videoConferenceId =
+    asString(row.video_conference_id) ??
+    (row.source_kind !== "ai_minutes" ? asString(row.conference_id) : undefined);
   return {
     conferenceId: String(row.conference_id ?? ""),
+    sourceKind:
+      taskUuid && videoConferenceId
+        ? "unified"
+        : taskUuid
+          ? "ai_minutes"
+          : "video_conference",
+    videoConferenceId,
+    taskUuid,
     title: asString(row.title),
     roomCode: asString(row.room_code),
     scheduleConferenceId: asString(row.schedule_conference_id),
@@ -147,6 +165,9 @@ function ensureSchema(db: DatabaseSync): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS dingtalk_meetings (
       conference_id TEXT PRIMARY KEY,
+      source_kind TEXT NOT NULL DEFAULT 'video_conference',
+      video_conference_id TEXT,
+      task_uuid TEXT,
       title TEXT,
       room_code TEXT,
       schedule_conference_id TEXT,
@@ -190,10 +211,17 @@ function ensureSchema(db: DatabaseSync): void {
       created_at TEXT NOT NULL,
       PRIMARY KEY(conference_id, fragment_key)
     );
+    CREATE TABLE IF NOT EXISTS dingtalk_meeting_aliases (
+      alias_id TEXT PRIMARY KEY,
+      meeting_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_dingtalk_meetings_start ON dingtalk_meetings(start_time_ms);
     CREATE INDEX IF NOT EXISTS idx_dingtalk_meeting_members_union ON dingtalk_meeting_members(union_id);
     CREATE INDEX IF NOT EXISTS idx_dingtalk_meeting_fragments_order
       ON dingtalk_meeting_transcript_fragments(conference_id, start_time_ms, created_at);
+    CREATE INDEX IF NOT EXISTS idx_dingtalk_meeting_aliases_meeting
+      ON dingtalk_meeting_aliases(meeting_id);
   `);
   const meetingColumns = new Set(
     (db.prepare("PRAGMA table_info(dingtalk_meetings)").all() as Array<{ name?: string }>).map((row) =>
@@ -203,6 +231,24 @@ function ensureSchema(db: DatabaseSync): void {
   if (!meetingColumns.has("transcript_source")) {
     db.exec("ALTER TABLE dingtalk_meetings ADD COLUMN transcript_source TEXT");
   }
+  if (!meetingColumns.has("source_kind")) {
+    db.exec("ALTER TABLE dingtalk_meetings ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'video_conference'");
+  }
+  if (!meetingColumns.has("task_uuid")) {
+    db.exec("ALTER TABLE dingtalk_meetings ADD COLUMN task_uuid TEXT");
+  }
+  if (!meetingColumns.has("video_conference_id")) {
+    db.exec("ALTER TABLE dingtalk_meetings ADD COLUMN video_conference_id TEXT");
+    db.exec(
+      "UPDATE dingtalk_meetings SET video_conference_id = conference_id WHERE source_kind <> 'ai_minutes' AND conference_id NOT LIKE 'minutes:%'",
+    );
+  }
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_dingtalk_meetings_task_uuid ON dingtalk_meetings(task_uuid) WHERE task_uuid IS NOT NULL",
+  );
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_dingtalk_meetings_video_conference_id ON dingtalk_meetings(video_conference_id) WHERE video_conference_id IS NOT NULL",
+  );
 }
 
 export function createDingTalkMeetingStore(dbPath = resolveWorkbenchSqlitePath()): DingTalkMeetingStore {
@@ -215,19 +261,242 @@ export function createDingTalkMeetingStore(dbPath = resolveWorkbenchSqlitePath()
     "SELECT * FROM dingtalk_meeting_members WHERE conference_id = ? ORDER BY union_id ASC",
   );
 
+  function resolveMeetingId(value: unknown): string {
+    const id = String(value ?? "").trim();
+    if (!id) return "";
+    const alias = db
+      .prepare("SELECT meeting_id FROM dingtalk_meeting_aliases WHERE alias_id = ?")
+      .get(id) as Record<string, unknown> | undefined;
+    return asString(alias?.meeting_id) ?? id;
+  }
+
+  function normalizeMeetingTitle(value: unknown): string {
+    return String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s\p{P}\p{S}]+/gu, "");
+  }
+
+  function findCrossSourceMatch(input: DingTalkMeetingUpsertInput): string | undefined {
+    const startTimeMs = Number(input.startTimeMs);
+    const title = normalizeMeetingTitle(input.title);
+    if (!Number.isFinite(startTimeMs) || startTimeMs <= 0 || title.length < 2) return undefined;
+    const wantsAi = input.sourceKind === "ai_minutes" || Boolean(input.taskUuid);
+    const rows = db
+      .prepare(
+        `SELECT *
+           FROM dingtalk_meetings
+          WHERE start_time_ms BETWEEN ? AND ?
+            AND ${wantsAi ? "video_conference_id IS NOT NULL" : "task_uuid IS NOT NULL"}
+          ORDER BY updated_at DESC
+          LIMIT 20`,
+      )
+      .all(startTimeMs - 5 * 60_000, startTimeMs + 5 * 60_000) as Array<Record<string, unknown>>;
+    const matches = rows.filter((row) => {
+      const candidateTitle = normalizeMeetingTitle(row.title);
+      const titleMatches =
+        candidateTitle === title ||
+        (Math.min(candidateTitle.length, title.length) >= 6 &&
+          (candidateTitle.includes(title) || title.includes(candidateTitle)));
+      if (!titleMatches) return false;
+      const incomingCreator = asString(input.creatorUnionId);
+      const existingCreator = asString(row.creator_union_id);
+      if (incomingCreator && existingCreator && incomingCreator !== existingCreator) return false;
+      if (!incomingCreator && !existingCreator) {
+        return Math.abs(Number(row.start_time_ms ?? 0) - startTimeMs) <= 60_000;
+      }
+      return true;
+    });
+    return matches.length === 1 ? String(matches[0]?.conference_id ?? "") || undefined : undefined;
+  }
+
+  function mergeMeetingRows(preferredId: string, duplicateId: string): void {
+    if (!preferredId || !duplicateId || preferredId === duplicateId) return;
+    const preferred = qMeeting.get(preferredId) as Record<string, unknown> | undefined;
+    const duplicate = qMeeting.get(duplicateId) as Record<string, unknown> | undefined;
+    if (!preferred || !duplicate) return;
+    const now = nowIso();
+    db.exec("BEGIN");
+    try {
+      // Release unique identifiers before moving them to the canonical row.
+      db.prepare(
+        "UPDATE dingtalk_meetings SET task_uuid = NULL, video_conference_id = NULL WHERE conference_id = ?",
+      ).run(duplicateId);
+      const preferredSource = asString(preferred.transcript_source);
+      const duplicateSource = asString(duplicate.transcript_source);
+      const preferDuplicateTranscript =
+        Boolean(asString(duplicate.transcript_text)) &&
+        (!asString(preferred.transcript_text) ||
+          (duplicateSource?.startsWith("ai_minutes") &&
+            !preferredSource?.startsWith("ai_minutes")));
+      db.prepare(
+        `UPDATE dingtalk_meetings
+            SET source_kind = 'unified',
+                video_conference_id = COALESCE(video_conference_id, ?),
+                task_uuid = COALESCE(task_uuid, ?),
+                title = COALESCE(title, ?),
+                room_code = COALESCE(room_code, ?),
+                schedule_conference_id = COALESCE(schedule_conference_id, ?),
+                creator_user_id = COALESCE(creator_user_id, ?),
+                creator_union_id = COALESCE(creator_union_id, ?),
+                creator_nick = COALESCE(creator_nick, ?),
+                host_union_id = COALESCE(host_union_id, ?),
+                start_time_ms = COALESCE(start_time_ms, ?),
+                end_time_ms = COALESCE(end_time_ms, ?),
+                status = COALESCE(status, ?),
+                flash_status = COALESCE(flash_status, ?),
+                transcript_text = ?,
+                transcript_fetched_at = ?,
+                transcript_source = ?,
+                last_error = CASE WHEN ? IS NOT NULL THEN NULL ELSE COALESCE(last_error, ?) END,
+                updated_at = ?
+          WHERE conference_id = ?`,
+      ).run(
+        asString(duplicate.video_conference_id) ?? null,
+        asString(duplicate.task_uuid) ?? null,
+        asString(duplicate.title) ?? null,
+        asString(duplicate.room_code) ?? null,
+        asString(duplicate.schedule_conference_id) ?? null,
+        asString(duplicate.creator_user_id) ?? null,
+        asString(duplicate.creator_union_id) ?? null,
+        asString(duplicate.creator_nick) ?? null,
+        asString(duplicate.host_union_id) ?? null,
+        asNumber(duplicate.start_time_ms) ?? null,
+        asNumber(duplicate.end_time_ms) ?? null,
+        asString(duplicate.status) ?? null,
+        asString(duplicate.flash_status) ?? null,
+        preferDuplicateTranscript
+          ? asString(duplicate.transcript_text) ?? null
+          : asString(preferred.transcript_text) ?? asString(duplicate.transcript_text) ?? null,
+        preferDuplicateTranscript
+          ? asString(duplicate.transcript_fetched_at) ?? null
+          : asString(preferred.transcript_fetched_at) ??
+              asString(duplicate.transcript_fetched_at) ??
+              null,
+        preferDuplicateTranscript
+          ? duplicateSource ?? null
+          : preferredSource ?? duplicateSource ?? null,
+        preferDuplicateTranscript
+          ? asString(duplicate.transcript_text) ?? null
+          : asString(preferred.transcript_text) ?? asString(duplicate.transcript_text) ?? null,
+        asString(duplicate.last_error) ?? null,
+        now,
+        preferredId,
+      );
+      db.prepare(
+        `INSERT INTO dingtalk_meeting_members(
+           conference_id, union_id, user_id, nick_name, role, raw_json, created_at, updated_at
+         )
+         SELECT ?, union_id, user_id, nick_name, role, raw_json, created_at, ?
+           FROM dingtalk_meeting_members
+          WHERE conference_id = ?
+         ON CONFLICT(conference_id, union_id) DO UPDATE SET
+           user_id = COALESCE(dingtalk_meeting_members.user_id, excluded.user_id),
+           nick_name = COALESCE(dingtalk_meeting_members.nick_name, excluded.nick_name),
+           role = COALESCE(dingtalk_meeting_members.role, excluded.role),
+           updated_at = excluded.updated_at`,
+      ).run(preferredId, now, duplicateId);
+      db.prepare(
+        `INSERT OR IGNORE INTO dingtalk_meeting_transcript_fragments(
+           conference_id, fragment_key, source, speaker_name, union_id,
+           start_time_ms, end_time_ms, text, raw_json, created_at
+         )
+         SELECT ?, fragment_key, source, speaker_name, union_id,
+                start_time_ms, end_time_ms, text, raw_json, created_at
+           FROM dingtalk_meeting_transcript_fragments
+          WHERE conference_id = ?`,
+      ).run(preferredId, duplicateId);
+      db.prepare("DELETE FROM dingtalk_meeting_members WHERE conference_id = ?").run(duplicateId);
+      db.prepare("DELETE FROM dingtalk_meeting_transcript_fragments WHERE conference_id = ?").run(
+        duplicateId,
+      );
+      db.prepare("DELETE FROM dingtalk_meetings WHERE conference_id = ?").run(duplicateId);
+      db.prepare("UPDATE dingtalk_meeting_aliases SET meeting_id = ? WHERE meeting_id = ?").run(
+        preferredId,
+        duplicateId,
+      );
+      db.prepare(
+        `INSERT INTO dingtalk_meeting_aliases(alias_id, meeting_id, created_at)
+         VALUES(?,?,?)
+         ON CONFLICT(alias_id) DO UPDATE SET meeting_id = excluded.meeting_id`,
+      ).run(duplicateId, preferredId, now);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   return {
     upsertMeeting(input) {
-      const conferenceId = String(input.conferenceId ?? "").trim();
-      if (!conferenceId) throw new Error("conferenceId is required");
+      const rawRequestedId = String(input.conferenceId ?? "").trim();
+      const requestedId = resolveMeetingId(rawRequestedId);
+      if (!requestedId) throw new Error("conferenceId is required");
+      const taskUuid = asString(input.taskUuid);
+      const incomingVideoConferenceId =
+        asString(input.videoConferenceId) ??
+        (input.sourceKind !== "ai_minutes" && !requestedId.startsWith("minutes:")
+          ? requestedId
+          : undefined);
+      const byTask = taskUuid
+        ? (db
+            .prepare("SELECT conference_id FROM dingtalk_meetings WHERE task_uuid = ?")
+            .get(taskUuid) as Record<string, unknown> | undefined)
+        : undefined;
+      const byVideo = incomingVideoConferenceId
+        ? (db
+            .prepare(
+              "SELECT conference_id FROM dingtalk_meetings WHERE video_conference_id = ? OR conference_id = ?",
+            )
+            .get(incomingVideoConferenceId, incomingVideoConferenceId) as
+            | Record<string, unknown>
+            | undefined)
+        : undefined;
+      const taskMeetingId = asString(byTask?.conference_id);
+      const videoMeetingId = asString(byVideo?.conference_id);
+      const crossSourceMeetingId = findCrossSourceMatch(input);
+      let conferenceId =
+        videoMeetingId ??
+        (crossSourceMeetingId && crossSourceMeetingId !== taskMeetingId
+          ? crossSourceMeetingId
+          : undefined) ??
+        taskMeetingId ??
+        crossSourceMeetingId ??
+        (incomingVideoConferenceId || requestedId);
+
+      if (incomingVideoConferenceId && conferenceId.startsWith("minutes:")) {
+        const now = nowIso();
+        db.prepare(
+          `INSERT OR IGNORE INTO dingtalk_meetings(
+             conference_id, source_kind, video_conference_id, created_at, updated_at
+           ) VALUES(?, 'video_conference', ?, ?, ?)`,
+        ).run(incomingVideoConferenceId, incomingVideoConferenceId, now, now);
+        mergeMeetingRows(incomingVideoConferenceId, conferenceId);
+        conferenceId = incomingVideoConferenceId;
+      }
+      if (taskMeetingId && taskMeetingId !== conferenceId) {
+        mergeMeetingRows(conferenceId, taskMeetingId);
+      }
+      if (videoMeetingId && videoMeetingId !== conferenceId) {
+        mergeMeetingRows(conferenceId, videoMeetingId);
+      }
       const now = nowIso();
       db.prepare(
         `INSERT INTO dingtalk_meetings(
-           conference_id, title, room_code, schedule_conference_id,
+           conference_id, source_kind, video_conference_id, task_uuid, title, room_code, schedule_conference_id,
            creator_user_id, creator_union_id, creator_nick, host_union_id,
            start_time_ms, end_time_ms, status, flash_status, raw_json,
            created_at, updated_at
-         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(conference_id) DO UPDATE SET
+           source_kind = CASE
+             WHEN COALESCE(excluded.task_uuid, dingtalk_meetings.task_uuid) IS NOT NULL
+              AND COALESCE(excluded.video_conference_id, dingtalk_meetings.video_conference_id) IS NOT NULL
+             THEN 'unified'
+             ELSE COALESCE(excluded.source_kind, dingtalk_meetings.source_kind)
+           END,
+           video_conference_id = COALESCE(excluded.video_conference_id, dingtalk_meetings.video_conference_id),
+           task_uuid = COALESCE(excluded.task_uuid, dingtalk_meetings.task_uuid),
            title = COALESCE(excluded.title, dingtalk_meetings.title),
            room_code = COALESCE(excluded.room_code, dingtalk_meetings.room_code),
            schedule_conference_id = COALESCE(excluded.schedule_conference_id, dingtalk_meetings.schedule_conference_id),
@@ -243,6 +512,9 @@ export function createDingTalkMeetingStore(dbPath = resolveWorkbenchSqlitePath()
            updated_at = excluded.updated_at`,
       ).run(
         conferenceId,
+        input.sourceKind ?? "video_conference",
+        incomingVideoConferenceId ?? null,
+        taskUuid ?? null,
         asString(input.title) ?? null,
         asString(input.roomCode) ?? null,
         asString(input.scheduleConferenceId) ?? null,
@@ -262,7 +534,7 @@ export function createDingTalkMeetingStore(dbPath = resolveWorkbenchSqlitePath()
     },
 
     replaceMeetingMembers(conferenceId, members) {
-      const id = String(conferenceId ?? "").trim();
+      const id = resolveMeetingId(conferenceId);
       if (!id) throw new Error("conferenceId is required");
       const now = nowIso();
       const unique = new Map<string, DingTalkMeetingMemberInput>();
@@ -299,7 +571,7 @@ export function createDingTalkMeetingStore(dbPath = resolveWorkbenchSqlitePath()
     },
 
     listMeetingMembers(conferenceId) {
-      return (qMembers.all(String(conferenceId ?? "").trim()) as Array<Record<string, unknown>>).map(mapMember);
+      return (qMembers.all(resolveMeetingId(conferenceId)) as Array<Record<string, unknown>>).map(mapMember);
     },
 
     listMeetingsForUnionId(input) {
@@ -326,7 +598,7 @@ export function createDingTalkMeetingStore(dbPath = resolveWorkbenchSqlitePath()
     },
 
     userCanAccessMeeting(conferenceId, unionId) {
-      const id = String(conferenceId ?? "").trim();
+      const id = resolveMeetingId(conferenceId);
       const uid = String(unionId ?? "").trim();
       if (!id || !uid) return false;
       const row = db
@@ -347,7 +619,7 @@ export function createDingTalkMeetingStore(dbPath = resolveWorkbenchSqlitePath()
     },
 
     getMeeting(conferenceId) {
-      const row = qMeeting.get(String(conferenceId ?? "").trim()) as Record<string, unknown> | undefined;
+      const row = qMeeting.get(resolveMeetingId(conferenceId)) as Record<string, unknown> | undefined;
       return row ? mapMeeting(row) : undefined;
     },
 
@@ -366,12 +638,12 @@ export function createDingTalkMeetingStore(dbPath = resolveWorkbenchSqlitePath()
         String(input.fetchedAt ?? now),
         asString(input.source) ?? null,
         now,
-        String(input.conferenceId ?? "").trim(),
+        resolveMeetingId(input.conferenceId),
       );
     },
 
     appendMeetingTranscriptFragments(input) {
-      const conferenceId = String(input.conferenceId ?? "").trim();
+      const conferenceId = resolveMeetingId(input.conferenceId);
       if (!conferenceId) throw new Error("conferenceId is required");
       const source = asString(input.source) ?? "asr_event";
       const now = nowIso();
@@ -458,7 +730,7 @@ export function createDingTalkMeetingStore(dbPath = resolveWorkbenchSqlitePath()
       db.prepare("UPDATE dingtalk_meetings SET last_error = ?, updated_at = ? WHERE conference_id = ?").run(
         String(input.errorText ?? "").slice(0, 1000),
         now,
-        String(input.conferenceId ?? "").trim(),
+        resolveMeetingId(input.conferenceId),
       );
     },
 

@@ -42,11 +42,13 @@
 ### 最近会议（实例级可选）
 
 - 开关：`TASK_INTAKE_DINGTALK_MEETINGS_ENABLED=1` 后，步骤 1 会出现“粘贴录入 / 最近会议”两个 Tab；默认关闭，每个钉钉组织实例在权限与事件订阅就绪后可独立开启。
-- 事件：`dingtalk-bot` Stream 监听闪记状态变更与会议 ASR 转写结果事件。收到 `conferenceId` 后写入 `dingtalk_meetings` / `dingtalk_meeting_members` 缓存；ASR 句子片段写入 `dingtalk_meeting_transcript_fragments` 去重后合成正文。
-- 正文：主管点击“导入转写”时，服务端优先使用已缓存的 AI 听记正文；若无缓存，再调用 `GET /v1.0/conference/videoConferences/{conferenceId}/cloudRecords/getTexts` 尝试读取云录制转写，然后复用同一套 preview / 分组 / commit 流程。
-- 历史兜底：机器人无法保证服务端直接拉取所有历史 shanji AI 听记正文；历史会议可通过“粘贴录入”粘贴 AI 听记正文或可直接读取的网页链接。
+- 统一模型：系统只有一种“会议”。`conferenceId`、`taskUuid`、日历事件 ID、会议室码只是同一会议的不同来源标识，不再把正式会议和临时会议存成两类业务对象。拿到多个标识时优先按明确标识归并；缺少直接关系时，仅在创建人一致、标题高相似且开始时间相差不超过 5 分钟、并且候选唯一时自动合并。
+- 事件：`dingtalk-bot` Stream 同时接收会议、录制、ASR 与 `minutes_task_status_change` 事件。`taskUuid` 事件在返回 ACK 前同步落库；SQLite 暂时失败时返回 `LATER` 请求钉钉重投，避免会议静默丢失。
+- 统一读取：主管点击导入时依次使用：① 已缓存的完整转写；② 当前主管 OAuth 可读的 `taskUuid` AI 听记（按 `nextToken` 拉完）；③ 企业应用免个人授权可读的 `conferenceId` 云录制转写。某一路权限不足或不可用时自动回退下一路，不要求用户判断会议类型。
+- 发现与过滤：日历、Stream 事件和 DWS `list all`（本人创建 + 被共享）共同发现会议。列表只展示已经有转写，或已经确认存在 `taskUuid` AI 听记的会议；只有日历记录、没有任何 AI 听记/云转写的会议不展示、不处理。
+- 授权：主管个人 OAuth 只用于扩大其可读取的 AI 听记范围，不改变会议类型。每位主管使用独立 DWS HOME；即使未完成个人授权，只要实时 ASR 缓存或企业应用云录制接口可读，仍可免个人授权导入。
 - 范围：API 按当前登录主管的 `unionId` 过滤，只展示/导入创建人、主持人或成员列表包含本人的会议；Admin 组织全量视图本期不做。
-- 前提：钉钉应用需授权 `VideoConference.Conference.Read`，并订阅闪记状态变更事件与会议 ASR 转写结果事件；工作台需要能从 `dingtalk_contacts` 解析当前用户 `unionId`（通常开启 `DINGTALK_CONTACT_SYNC_ENABLED=1`）。
+- 前提：企业应用云录制读取需授权 `VideoConference.Conference.Read`；听记发现需订阅 `minutes_task_status_change`；需要读取本人/共享历史听记的主管配置独立 DWS OAuth profile。工作台还需要能从 `dingtalk_contacts` 解析当前用户 `unionId`（通常开启 `DINGTALK_CONTACT_SYNC_ENABLED=1`）。
 
 ### 步骤 2 分组视图
 
@@ -100,6 +102,13 @@ UI 注意：负责人 combobox 在卡片内展开时使用 `focus-within` 抬升
 | `TASK_INTAKE_LLM_TIMEOUT_MS` | `30000` | |
 | `TASK_INTAKE_LLM_MAX_TOKENS` | `4000` | |
 | `TASK_INTAKE_DINGTALK_MEETINGS_ENABLED` | `0` | `1` 开启“最近会议”Tab、会议缓存事件处理与会议 preview API |
+| `DINGTALK_MINUTES_DWS_ENABLED` | `0` | `1` 开启 AI 听记历史补查与 taskUuid 转写读取 |
+| `DINGTALK_MINUTES_DWS_PATH` | — | 官方 `dws` 可执行文件绝对路径 |
+| `DINGTALK_MINUTES_DWS_PROFILES_FILE` | — | JSON：主管 userId 到其隔离 OAuth HOME 的映射 |
+| `DINGTALK_MINUTES_DWS_HOME` | — | 单主管试点的 OAuth HOME；须配合 userId 白名单 |
+| `DINGTALK_MINUTES_DWS_MANAGER_USER_IDS` | — | 允许使用单一 OAuth HOME 的主管 userId，逗号分隔 |
+| `DINGTALK_MINUTES_DWS_TIMEOUT_MS` | `30000` | 单次 DWS 调用超时 |
+| `DINGTALK_MINUTES_DWS_MAX_PAGES` | `20` | 列表或完整转写最大翻页数 |
 
 ## 本地开发
 

@@ -196,6 +196,82 @@ describe("DingTalk meeting flash events", () => {
     store.close();
   });
 
+  it("persists minutes_task_status_change events identified only by taskUuid", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dt-minutes-task-event-"));
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", join(dir, "wb.sqlite"));
+    const store = createDingTalkMeetingStore();
+    const now = Date.parse("2026-07-24T02:10:00.000Z");
+
+    const message = {
+      headers: {
+        eventType: "minutes_task_status_change event",
+        eventId: "evt-minutes-task-1",
+      },
+      data: JSON.stringify({
+        bizType: "5",
+        taskUuid: "7632756964323839abc123",
+        creatorUnionId: "union-manager",
+        status: "FINISHED",
+      }),
+    };
+    const result = await handleDingTalkMeetingEventMessage({
+      message,
+      meetingStore: store,
+      now: () => now,
+    });
+
+    expect(result).toEqual({
+      handled: true,
+      conferenceId: "minutes:7632756964323839abc123",
+      taskUuid: "7632756964323839abc123",
+    });
+    expect(store.getMeeting("minutes:7632756964323839abc123")).toMatchObject({
+      sourceKind: "ai_minutes",
+      taskUuid: "7632756964323839abc123",
+      creatorUnionId: "union-manager",
+      flashStatus: "FINISHED",
+      startTimeMs: now,
+    });
+    expect(store.userCanAccessMeeting("minutes:7632756964323839abc123", "union-manager")).toBe(true);
+    expect(summarizeDingTalkMeetingEventMessage(message)).toMatchObject({
+      taskUuid: "7632756964323839abc123",
+      maybeMeetingEvent: true,
+    });
+    store.close();
+  });
+
+  it("stores conferenceId and taskUuid from one event as identifiers of the same meeting", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dt-minutes-unified-event-"));
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", join(dir, "wb.sqlite"));
+    const store = createDingTalkMeetingStore();
+
+    const result = await handleDingTalkMeetingEventMessage({
+      message: {
+        headers: { eventType: "minutes_task_status_change" },
+        data: JSON.stringify({
+          conferenceId: "conference-with-minutes",
+          taskUuid: "task-with-conference",
+          creatorUnionId: "union-manager",
+          status: "FINISHED",
+        }),
+      },
+      meetingStore: store,
+    });
+
+    expect(result).toEqual({
+      handled: true,
+      conferenceId: "conference-with-minutes",
+      taskUuid: "task-with-conference",
+    });
+    expect(store.getMeeting("conference-with-minutes")).toMatchObject({
+      sourceKind: "unified",
+      videoConferenceId: "conference-with-minutes",
+      taskUuid: "task-with-conference",
+    });
+    expect(store.getMeeting("minutes:task-with-conference")).toBeUndefined();
+    store.close();
+  });
+
   it("summarizes unhandled meeting events without transcript content", () => {
     const summary = summarizeDingTalkMeetingEventMessage({
       headers: { eventType: "meeting_asr_result_event" },

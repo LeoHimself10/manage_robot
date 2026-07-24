@@ -17,6 +17,12 @@ import {
   type DingTalkVideoConferenceInfo,
 } from "../integrations/dingtalk/meeting-recording";
 import {
+  DingTalkMinutesError,
+  createDingTalkMinutesClient,
+  isDingTalkMinutesDwsEnabled,
+  type DingTalkMinutesClient,
+} from "../integrations/dingtalk/dingtalk-minutes";
+import {
   createDingTalkMeetingStore,
   type DingTalkMeetingRow,
   type DingTalkMeetingStore,
@@ -159,6 +165,8 @@ function resolveManagerUnionId(userId: string): string {
 
 function presentMeeting(row: DingTalkMeetingRow): {
   conferenceId: string;
+  sourceKind: "video_conference" | "ai_minutes" | "unified";
+  taskUuid?: string;
   title: string;
   startTimeMs?: number;
   endTimeMs?: number;
@@ -169,7 +177,12 @@ function presentMeeting(row: DingTalkMeetingRow): {
 } {
   return {
     conferenceId: row.conferenceId,
-    title: row.title || row.roomCode || row.conferenceId,
+    sourceKind: row.sourceKind,
+    taskUuid: row.taskUuid,
+    title:
+      row.title ||
+      row.roomCode ||
+      (row.taskUuid ? `AI 听记 ${row.taskUuid.slice(-8)}` : row.conferenceId),
     startTimeMs: row.startTimeMs,
     endTimeMs: row.endTimeMs,
     flashStatus: row.flashStatus,
@@ -234,6 +247,11 @@ async function syncRecentCalendarMeetingsForUnionId(input: {
   const nowMs = input.nowMs ?? Date.now();
   const sinceMs = nowMs - input.days * 24 * 60 * 60 * 1000;
   const warnings: string[] = [];
+  const cloudProbeJobs: Array<{
+    meetingId: string;
+    videoConferenceId: string;
+    unionIds: string[];
+  }> = [];
   let events: DingTalkCalendarVideoMeeting[] = [];
   try {
     events = await client.listCalendarVideoMeetings({
@@ -271,8 +289,9 @@ async function syncRecentCalendarMeetingsForUnionId(input: {
       const conferenceId = String(info.conferenceId ?? "").trim();
       if (!conferenceId || seen.has(conferenceId)) continue;
       seen.add(conferenceId);
-      input.meetingStore.upsertMeeting({
+      const storedMeeting = input.meetingStore.upsertMeeting({
         conferenceId,
+        videoConferenceId: conferenceId,
         title: info.title || event.title,
         roomCode: info.roomCode || event.roomCode,
         scheduleConferenceId: info.scheduleConferenceId || event.conferenceId,
@@ -291,12 +310,127 @@ async function syncRecentCalendarMeetingsForUnionId(input: {
         },
       });
       input.meetingStore.replaceMeetingMembers(
-        conferenceId,
+        storedMeeting.conferenceId,
         membersFromCalendarMeeting(input.unionId, event, info),
       );
+      if (!storedMeeting.transcriptCached) {
+        cloudProbeJobs.push({
+          meetingId: storedMeeting.conferenceId,
+          videoConferenceId: conferenceId,
+          unionIds: uniqueStrings([
+            info.creatorUnionId,
+            info.hostUnionId,
+            event.organizerUnionId,
+            input.unionId,
+          ]),
+        });
+      }
     }
   }
+  let probeCursor = 0;
+  const workers = Array.from(
+    { length: Math.min(4, cloudProbeJobs.length) },
+    async () => {
+      while (probeCursor < cloudProbeJobs.length) {
+        const job = cloudProbeJobs[probeCursor];
+        probeCursor += 1;
+        if (!job) continue;
+        try {
+          const transcript = await fetchMeetingTranscriptWithCandidates({
+            client,
+            conferenceId: job.videoConferenceId,
+            unionIds: job.unionIds,
+          });
+          input.meetingStore.setMeetingTranscript({
+            conferenceId: job.meetingId,
+            transcriptText: transcript.text,
+            fetchedAt: transcript.fetchedAt,
+            source: "cloud_record",
+          });
+        } catch (error) {
+          input.meetingStore.setMeetingLastError({
+            conferenceId: job.meetingId,
+            errorText: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    },
+  );
+  await Promise.all(workers);
   return warnings;
+}
+
+async function syncRecentMinutesForManager(input: {
+  managerUserId: string;
+  unionId: string;
+  days: number;
+  meetingStore: DingTalkMeetingStore;
+  minutesClient?: DingTalkMinutesClient;
+  nowMs?: number;
+}): Promise<string[]> {
+  if (!input.minutesClient && !isDingTalkMinutesDwsEnabled()) return [];
+  const client = input.minutesClient ?? createDingTalkMinutesClient();
+  const nowMs = input.nowMs ?? Date.now();
+  const sinceMs = nowMs - input.days * 24 * 60 * 60 * 1000;
+  try {
+    const minutes = await client.listAccessible({
+      managerUserId: input.managerUserId,
+      startTimeMs: sinceMs,
+      endTimeMs: nowMs,
+      limit: 100,
+    });
+    for (const item of minutes) {
+      const conferenceId = `minutes:${item.taskUuid}`;
+      const endTimeMs =
+        item.endTimeMs ??
+        (item.startTimeMs && item.durationMs
+          ? item.startTimeMs + item.durationMs
+          : undefined);
+      const storedMeeting = input.meetingStore.upsertMeeting({
+        conferenceId,
+        sourceKind: "ai_minutes",
+        taskUuid: item.taskUuid,
+        title: item.title,
+        creatorUnionId: item.creatorUnionId,
+        creatorNick: item.creatorNick,
+        startTimeMs: item.startTimeMs,
+        endTimeMs,
+        status: item.status,
+        flashStatus: item.status || "AI 听记可读取",
+        rawJson: {
+          source: "dws_minutes_backfill",
+          detail: item.rawJson ?? {},
+        },
+      });
+      const members = input.meetingStore
+        .listMeetingMembers(storedMeeting.conferenceId)
+        .map((member) => ({
+        unionId: member.unionId,
+        userId: member.userId,
+        nickName: member.nickName,
+        role: member.role,
+        }));
+      members.push({
+        unionId: input.unionId,
+        userId: input.managerUserId,
+        nickName: undefined,
+        role: "authorized_viewer",
+      });
+      if (item.creatorUnionId) {
+        members.push({
+          unionId: item.creatorUnionId,
+          userId: undefined,
+          nickName: item.creatorNick,
+          role: "creator",
+        });
+      }
+      input.meetingStore.replaceMeetingMembers(storedMeeting.conferenceId, members);
+    }
+    return [];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return [`AI 听记补查未完成：${message}`];
+  }
 }
 
 export async function handleTaskIntakeMeetingsList(input: {
@@ -304,6 +438,7 @@ export async function handleTaskIntakeMeetingsList(input: {
   days?: number;
   meetingStore?: DingTalkMeetingStore;
   meetingClient?: DingTalkMeetingRecordingClient;
+  minutesClient?: DingTalkMinutesClient;
   nowMs?: number;
 }): Promise<{ meetings: ReturnType<typeof presentMeeting>[]; warnings?: string[] }> {
   if (!isTaskIntakeDingTalkMeetingsEnabled()) {
@@ -316,16 +451,28 @@ export async function handleTaskIntakeMeetingsList(input: {
   const ownStore = input.meetingStore ? undefined : createDingTalkMeetingStore();
   const meetingStore = input.meetingStore ?? ownStore!;
   try {
-    const warnings = await syncRecentCalendarMeetingsForUnionId({
+    const [calendarWarnings, minutesWarnings] = await Promise.all([
+      syncRecentCalendarMeetingsForUnionId({
       unionId,
       days,
       meetingStore,
       meetingClient: input.meetingClient,
       nowMs,
-    });
+      }),
+      syncRecentMinutesForManager({
+        managerUserId: input.managerUserId,
+        unionId,
+        days,
+        meetingStore,
+        minutesClient: input.minutesClient,
+        nowMs,
+      }),
+    ]);
+    const warnings = [...calendarWarnings, ...minutesWarnings];
     return {
       meetings: meetingStore
         .listMeetingsForUnionId({ unionId, sinceMs, limit: 50 })
+        .filter((meeting) => meeting.transcriptCached || Boolean(meeting.taskUuid))
         .map(presentMeeting),
       warnings: warnings.length ? warnings : undefined,
     };
@@ -357,12 +504,58 @@ async function fetchMeetingTranscriptWithCandidates(input: {
   throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "meeting transcript fetch failed"));
 }
 
+async function fetchUnifiedMeetingTranscript(input: {
+  managerUserId: string;
+  managerUnionId: string;
+  meeting: DingTalkMeetingRow;
+  meetingClient?: DingTalkMeetingRecordingClient;
+  minutesClient?: DingTalkMinutesClient;
+}): Promise<{ text: string; fetchedAt: string; source: "ai_minutes_dws" | "cloud_record" }> {
+  let minutesError: unknown;
+  if (input.meeting.taskUuid) {
+    try {
+      const transcript = await (
+        input.minutesClient ?? createDingTalkMinutesClient()
+      ).getTranscription({
+        managerUserId: input.managerUserId,
+        taskUuid: input.meeting.taskUuid,
+      });
+      return { ...transcript, source: "ai_minutes_dws" };
+    } catch (error) {
+      minutesError = error;
+    }
+  }
+
+  let cloudError: unknown;
+  if (input.meeting.videoConferenceId) {
+    try {
+      const transcript = await fetchMeetingTranscriptWithCandidates({
+        client: input.meetingClient ?? createDingTalkMeetingRecordingClient(),
+        conferenceId: input.meeting.videoConferenceId,
+        unionIds: uniqueStrings([
+          input.meeting.creatorUnionId,
+          input.meeting.hostUnionId,
+          input.managerUnionId,
+        ]),
+      });
+      return { ...transcript, source: "cloud_record" };
+    } catch (error) {
+      cloudError = error;
+    }
+  }
+
+  if (minutesError) throw minutesError;
+  if (cloudError) throw cloudError;
+  throw new DingTalkMinutesError("empty_transcript", "该会议没有可读取的 AI 听记");
+}
+
 export async function handleTaskIntakeMeetingPreview(input: {
   managerUserId: string;
   conferenceId: string;
   existingTasks?: ExistingTaskStub[];
   meetingStore?: DingTalkMeetingStore;
   meetingClient?: DingTalkMeetingRecordingClient;
+  minutesClient?: DingTalkMinutesClient;
 }): Promise<Awaited<ReturnType<typeof handleTaskIntakePreview>> & { meeting: ReturnType<typeof presentMeeting> }> {
   if (!isTaskIntakeDingTalkMeetingsEnabled()) {
     throw new TaskIntakeMeetingError("meetings_disabled", "DingTalk meetings import is disabled", 404);
@@ -384,19 +577,20 @@ export async function handleTaskIntakeMeetingPreview(input: {
     }
     let transcriptText = meeting.transcriptText?.trim() ?? "";
     if (!transcriptText) {
-      const client = input.meetingClient ?? createDingTalkMeetingRecordingClient();
       try {
-        const transcript = await fetchMeetingTranscriptWithCandidates({
-          client,
-          conferenceId,
-          unionIds: uniqueStrings([meeting.creatorUnionId, meeting.hostUnionId, unionId]),
+        const transcript = await fetchUnifiedMeetingTranscript({
+          managerUserId: input.managerUserId,
+          managerUnionId: unionId,
+          meeting,
+          meetingClient: input.meetingClient,
+          minutesClient: input.minutesClient,
         });
         transcriptText = transcript.text;
         meetingStore.setMeetingTranscript({
           conferenceId,
           transcriptText,
           fetchedAt: transcript.fetchedAt,
-          source: "cloud_record",
+          source: transcript.source,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -406,6 +600,19 @@ export async function handleTaskIntakeMeetingPreview(input: {
         }
         if (err instanceof DingTalkMeetingApiError && err.code === "permission_denied") {
           throw new TaskIntakeMeetingError("meeting_transcript_denied", "钉钉拒绝读取该会议转写", 403);
+        }
+        if (
+          err instanceof DingTalkMinutesError &&
+          (err.code === "auth_required" || err.code === "not_configured")
+        ) {
+          throw new TaskIntakeMeetingError(
+            "minutes_auth_required",
+            "当前主管尚未完成钉钉 AI 听记授权，请授权后重试",
+            403,
+          );
+        }
+        if (err instanceof DingTalkMinutesError && err.code === "empty_transcript") {
+          throw new TaskIntakeMeetingError("meeting_transcript_empty", message, 404);
         }
         throw new TaskIntakeMeetingError("meeting_transcript_fetch_failed", message, 502);
       }

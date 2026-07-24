@@ -2,6 +2,12 @@ FROM node:22-alpine
 
 WORKDIR /app
 
+ARG DWS_VERSION=1.0.54
+
+RUN apk add --no-cache gcompat \
+    && npm install -g "dingtalk-workspace-cli@${DWS_VERSION}" \
+    && dws --version
+
 COPY package.json package-lock.json ./
 RUN npm ci
 
