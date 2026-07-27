@@ -5,6 +5,7 @@ import {
   type DailyReportDigestConfig,
 } from "./daily-report-config";
 import { buildCtoRollupDigestForDay } from "./daily-report-cto-rollup-build";
+import { evaluateCtoRollupDigestQuality } from "./daily-report-cto-rollup-digest-send";
 import { isCtoRollupDigestEnabled } from "./daily-report-cto-rollup-digest-flag";
 import { sendCtoRollupMorningDigestToUser } from "./daily-report-cto-rollup-digest-send";
 import { loadOrCollectProjectViewDigest } from "./daily-report-project-view-digest-collect";
@@ -21,6 +22,7 @@ import {
   type ProjectViewDigestStateStore,
 } from "./daily-report-project-view-digest-state";
 import { sendProjectViewMorningDigestToUser } from "./daily-report-project-view-digest-send";
+import type { ProjectViewDigestContext } from "./daily-report-project-view-digest-collect";
 import { isDailyReportProjectViewsEnabled } from "./daily-report-project-view-flag";
 import {
   groupProjectViewDigestPlansByUser,
@@ -33,6 +35,15 @@ import { resolveReportRange } from "./daily-report-window";
 const DEFAULT_SEND_HOUR = 8;
 const DEFAULT_SEND_MINUTE = 0;
 const SEND_WINDOW_MINUTES = 5;
+
+/** 合并卡片也必须按收件人的订阅范围裁剪，不能把其它项目顺带发给单项目接收人。 */
+export function selectProjectViewContextsForDigestRecipient(
+  contexts: ProjectViewDigestContext[],
+  viewIds: Iterable<string>,
+): ProjectViewDigestContext[] {
+  const allowed = new Set(viewIds);
+  return contexts.filter((ctx) => allowed.has(ctx.view.id));
+}
 
 export interface DailyReportProjectViewDigestSchedulerDeps {
   config?: DailyReportDigestConfig;
@@ -94,28 +105,45 @@ export function createDailyReportProjectViewDigestScheduler(
       cacheStore,
       fetchImpl,
     });
-    if (!built.quality.ok) {
-      logStructured({
-        event: "daily_report_cto_rollup_digest_quality_failed",
-        dateYmd: range.labelYmd,
-        userCount: usersInWindow.length,
-        reasons: built.quality.reasons,
-        errorCount: built.quality.errorCount,
-      });
-      return;
-    }
-
     for (const userId of usersInWindow) {
       try {
-        await sendCtoRollupMorningDigestToUser({
-          contexts: built.contexts,
-          range,
-          userId,
-          stateStore,
-          fetchImpl,
-          overviewByViewId: built.overviewByViewId,
-          cacheStore,
-        });
+        const plans = plansByUser.get(userId) ?? [];
+        const contexts = selectProjectViewContextsForDigestRecipient(
+          built.contexts,
+          plans.map((plan) => plan.view.id),
+        );
+        const quality = evaluateCtoRollupDigestQuality(contexts);
+        if (!quality.ok) {
+          logStructured({
+            event: "daily_report_cto_rollup_digest_quality_failed",
+            dateYmd: range.labelYmd,
+            userId,
+            reasons: quality.reasons,
+            errorCount: quality.errorCount,
+          });
+          continue;
+        }
+
+        // 单项目接收人使用项目卡：含逐人事项、工时、项目进展和该项目工作台深链。
+        if (contexts.length === 1) {
+          await sendProjectViewMorningDigestToUser({
+            ctx: contexts[0]!,
+            range,
+            userId,
+            stateStore,
+            fetchImpl,
+          });
+        } else {
+          await sendCtoRollupMorningDigestToUser({
+            contexts,
+            range,
+            userId,
+            stateStore,
+            fetchImpl,
+            overviewByViewId: built.overviewByViewId,
+            cacheStore,
+          });
+        }
       } catch (err) {
         logStructured({
           event: "daily_report_cto_rollup_digest_send_failed",

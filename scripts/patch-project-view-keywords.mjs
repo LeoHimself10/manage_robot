@@ -10,7 +10,7 @@ const VIEW_PATCH = {
   oct: { label: "OCT", keyword: "OCT" },
   "laser-shockwave": { label: "冲击波", keyword: "冲击波" },
   "large-vessel-plaque": { label: "斑块减容", keyword: "斑块减容" },
-  "semiconductor-vein": { label: "半导体", keyword: "半导体" },
+  "semiconductor-vein": { label: "静脉腔闭合系统", costProjectContains: "静脉腔" },
 };
 
 const path = process.argv[2] || "data/daily-report-digest.config.json";
@@ -21,7 +21,12 @@ for (const org of cfg.orgs ?? []) {
     if (!patch) continue;
     pv.label = patch.label;
     pv.filters = pv.filters || {};
-    pv.filters.keyword = patch.keyword;
+    if (patch.keyword) pv.filters.keyword = patch.keyword;
+    else {
+      delete pv.filters.keyword;
+      delete pv.filters.workModuleContains;
+      pv.filters.costProjectContains = patch.costProjectContains;
+    }
   }
 }
 fs.writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");

@@ -79,6 +79,17 @@ export function moduleBlockMatchesPairFilter(
   );
 }
 
+/** 同一模块序号内：仅成本归属项目包含指定文本。 */
+export function moduleBlockMatchesCostProjectFilter(
+  contents: ReportContentField[],
+  idx: string,
+  costProjectContains: string,
+): boolean {
+  const needle = normalizeLabel(costProjectContains);
+  if (!needle) return false;
+  return normalizeLabel(fieldForModule(contents, idx, "project")?.value ?? "").includes(needle);
+}
+
 export function filterReportEntryByKeyword(entry: ReportEntry, keyword: string): ReportEntry {
   const needle = normalizeLabel(keyword);
   if (!needle) return { ...entry, contents: [] };
@@ -129,6 +140,31 @@ export function filterReportEntryByModuleProjectPair(
   return { ...entry, contents };
 }
 
+/**
+ * 微光多模块模板：只按「成本归属项目」保留对应工作块。
+ * 用于项目名称就是唯一口径的场景，避免工作模块或其它编号把无关日志混入。
+ */
+export function filterReportEntryByCostProject(
+  entry: ReportEntry,
+  costProjectContains: string,
+): ReportEntry {
+  const needle = normalizeLabel(costProjectContains);
+  if (!needle) return { ...entry, contents: [] };
+
+  const kept = new Set<string>();
+  for (const idx of MODULE_INDICES) {
+    if (moduleBlockMatchesCostProjectFilter(entry.contents, idx, needle)) kept.add(idx);
+  }
+  if (kept.size === 0) return { ...entry, contents: [] };
+
+  const contents = entry.contents.filter((f) => {
+    if (SEPARATOR_KEY_RE.test(f.key.trim())) return false;
+    const idx = moduleIndexFromKey(f.key);
+    return Boolean(idx && isModuleField(f.key) && kept.has(idx));
+  });
+  return { ...entry, contents };
+}
+
 export function filterReportEntryForView(entry: ReportEntry, filter: ProjectViewFilter): ReportEntry {
   const keyword = normalizeLabel(filter.keyword ?? "");
   if (keyword) return filterReportEntryByKeyword(entry, keyword);
@@ -140,5 +176,6 @@ export function filterReportEntryForView(entry: ReportEntry, filter: ProjectView
       { workModuleContains: work, costProjectContains: project },
     );
   }
+  if (project) return filterReportEntryByCostProject(entry, project);
   return { ...entry, contents: [] };
 }
