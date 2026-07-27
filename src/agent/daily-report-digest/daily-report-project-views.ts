@@ -96,7 +96,7 @@ export function parseProjectViewConfig(raw: unknown, orgLabel: string): DailyRep
   const costProjectContains = asString(filtersRaw.costProjectContains);
   if (!id || !label || viewers.length === 0) return null;
   const isOthers = role === "others" || id === OTHERS_PROJECT_VIEW_ID;
-  if (!isOthers && !keyword && (!workModuleContains || !costProjectContains)) return null;
+  if (!isOthers && !keyword && !workModuleContains && !costProjectContains) return null;
   const digest = parseDigestConfig(o.digest);
   return {
     id,

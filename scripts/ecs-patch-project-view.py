@@ -17,19 +17,19 @@ ORG_LABEL = "微光"
 
 VIEW = {
     "id": "semiconductor-vein",
-    "label": "半导体",
-    "viewers": ["01451725613871", "641871342"],
+    "label": "静脉腔闭合系统",
+    "viewers": ["01451725613871", "641871342", "044923400223814768"],
     "exclusiveForViewers": True,
     "discoveryDays": 30,
     "filters": {
-        "keyword": "半导体",
-        "workModuleContains": "半导体激光",
-        "costProjectContains": "静脉腔内闭合系统",
+        # 仅按日志模块中的成本归属项目筛选；不使用工作模块、半导体或项目编号。
+        "costProjectContains": "静脉腔",
     },
     "digest": {
         "enabled": True,
         "sendHour": 7,
         "sendMinute": 0,
+        "recipients": ["044923400223814768"],
     },
 }
 

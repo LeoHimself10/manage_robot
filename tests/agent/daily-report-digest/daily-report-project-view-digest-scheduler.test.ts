@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   isProjectViewDigestSendWindow,
   createDailyReportProjectViewDigestScheduler,
+  selectProjectViewContextsForDigestRecipient,
 } from "../../../src/agent/daily-report-digest/daily-report-project-view-digest-scheduler";
 import {
   parseDailyReportDigestConfig,
@@ -69,6 +70,16 @@ describe("isProjectViewDigestSendWindow", () => {
 });
 
 describe("project view digest scheduler", () => {
+  it("limits a recipient to the project views they subscribed to", () => {
+    const contexts = [
+      { view: { id: "vein" } },
+      { view: { id: "oct" } },
+    ] as any;
+    expect(
+      selectProjectViewContextsForDigestRecipient(contexts, ["vein"]).map((context) => context.view.id),
+    ).toEqual(["vein"]);
+  });
+
   it("skips when env digest disabled", async () => {
     delete process.env.DAILY_REPORT_PROJECT_VIEW_DIGEST_ENABLED;
     process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED = "1";

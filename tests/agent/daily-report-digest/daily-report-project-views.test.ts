@@ -96,6 +96,19 @@ describe("parseProjectViewConfig filters", () => {
     expect(v?.filters.keyword).toBe("CLA");
   });
 
+  it("parseProjectViewConfig accepts cost-project-only filter", () => {
+    const v = parseProjectViewConfig(
+      {
+        id: "vein",
+        label: "静脉腔闭合系统",
+        viewers: ["u1"],
+        filters: { costProjectContains: "静脉腔" },
+      },
+      "微光",
+    );
+    expect(v?.filters).toEqual({ costProjectContains: "静脉腔" });
+  });
+
   it("parseProjectViewConfig accepts others role without keyword", () => {
     const v = parseProjectViewConfig(
       {

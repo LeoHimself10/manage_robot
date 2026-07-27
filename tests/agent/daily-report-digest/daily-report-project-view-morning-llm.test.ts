@@ -70,10 +70,25 @@ describe("daily-report-project-view-morning-render", () => {
       summary,
       submittedCount: 1,
       rosterCount: 7,
+      orgDigest: {
+        ...SAMPLE_DIGEST,
+        submitted: [{
+          ...SAMPLE_DIGEST.submitted[0]!,
+          reports: [{
+            ...SAMPLE_DIGEST.submitted[0]!.reports[0]!,
+            contents: [
+              { key: "事项-结果②", value: "完成联调" },
+              { key: "工时统计②", value: "3 小时" },
+            ],
+          }],
+        }],
+      },
       workbenchUrl: "https://example.com/daily-reports?view=custom:semiconductor-vein",
     });
     expect(rendered.text).toContain("项目组早报");
     expect(rendered.text).toContain("统计名单内 7 人");
+    expect(rendered.text).toContain("昨日工作与工时");
+    expect(rendered.text).toContain("完成联调（工时：3 小时）");
     expect(rendered.text).not.toMatch(/命中|未交|请假/i);
     expect(rendered.text).toContain("semiconductor-vein");
   });

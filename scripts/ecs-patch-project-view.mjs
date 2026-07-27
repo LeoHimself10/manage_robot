@@ -26,19 +26,19 @@ const ORG_LABEL = "微光";
 
 const SEMICONDUCTOR_VEIN_VIEW = {
   id: "semiconductor-vein",
-  label: "半导体",
-  viewers: ["01451725613871", "641871342"], // 曹一挥、姚凯珩（微光 userid）
+  label: "静脉腔闭合系统",
+  viewers: ["01451725613871", "641871342", "044923400223814768"], // 曹一挥、姚凯珩、席东星（微光 userid）
   exclusiveForViewers: true,
   discoveryDays: 30,
   filters: {
-    keyword: "半导体",
-    workModuleContains: "半导体激光",
-    costProjectContains: "静脉腔内闭合系统",
+    // 只看日志模块的「成本归属项目」，不使用工作模块、半导体或项目编号。
+    costProjectContains: "静脉腔",
   },
   digest: {
     enabled: true,
     sendHour: 7,
     sendMinute: 0,
+    recipients: ["044923400223814768"], // 席东星
   },
 };
 

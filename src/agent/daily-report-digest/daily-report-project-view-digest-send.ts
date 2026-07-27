@@ -111,6 +111,7 @@ export async function buildProjectViewMorningDigestPayload(
     summary,
     submittedCount,
     rosterCount: ctx.rosterCount,
+    orgDigest: ctx.orgDigest,
     workbenchUrl: workbenchUrl || undefined,
   });
 
