@@ -98,14 +98,14 @@ function pickFallbackContentFromDigest(orgDigest: OrgDigest): string | null {
   return preferred[0] ?? fallback[0] ?? null;
 }
 
-const WORKBENCH_SYSTEM_PROMPT = `你是企业内部项目组早报编辑。根据 JSON 中「统计名单内员工」昨日与指定项目相关的钉钉日报，只输出一个 JSON：
+const WORKBENCH_SYSTEM_PROMPT = `你是企业内部项目组早报编辑。根据 JSON 中昨日与指定项目相关的钉钉日报，只输出一个 JSON：
 {"overview":"...","personBriefs":[{"name":"...","brief":"..."}],"closing":"..."}
 
 规则：
 - overview：2-3 句中文，概括与 viewLabel 相关的整体进展，不超过 180 字
 - personBriefs：仅针对 people[] 中有正文的员工，每人一条 brief 不超过 50 字
 - closing：1-2 句收束
-- submittedCount 为 0 时：overview 与 closing 应自然说明「昨日暂无与该项目相关的日报记录」，并提及 rosterCount（统计名单人数）
+- submittedCount 为 0 时：overview 与 closing 应自然说明「昨日暂无与该项目相关的日报记录」
 - 禁止出现内部术语：命中、filter、roster、成对匹配、模块块
 - 禁止在任意字段出现组织标签（如「明思」「微光」）
 - 只基于 JSON 事实，禁止编造
@@ -177,14 +177,14 @@ export function fallbackProjectViewMorningSummary(
 
   if (meta.submittedCount === 0) {
     return {
-      overview: `${dateLabel}，统计名单内共 ${rosterCount} 人；昨日暂无与「${viewLabel}」相关的日报记录。`,
+      overview: `${dateLabel}，昨日暂无与「${viewLabel}」相关的日报记录。`,
       personBriefs: [],
       closing: "可打开工作台查看完整日报汇总。",
     };
   }
 
   return {
-    overview: `${dateLabel}，统计名单内 ${rosterCount} 人，昨日有 ${meta.submittedCount} 人提交了与「${viewLabel}」相关的日报。`,
+    overview: `${dateLabel}，昨日有 ${meta.submittedCount} 人提交了与「${viewLabel}」相关的日报。`,
     personBriefs: personBriefs.slice(0, 8),
     closing: "整体推进详见个人简述与工作台日报汇总。",
   };
