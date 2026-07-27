@@ -14,24 +14,27 @@ function compact(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-/** 直接使用已过滤的日志字段，确保卡片明确列出每个人昨天做了什么和登记工时。 */
-export function renderProjectViewPersonWorkHours(digest: OrgDigest): string[] {
-  return digest.submitted.flatMap((person) => {
-    const items = person.reports.flatMap((report) =>
-      MODULE_INDICES.flatMap((idx) => {
-        const result = compact(
-          report.contents.find((field) => field.key.includes("事项-结果") && field.key.includes(idx))?.value ?? "",
-        );
-        const hours = compact(
+/** 汇总每位相关人员登记在已过滤项目模块中的工时，不把原始日志全文复制进卡片。 */
+export function sumProjectViewPersonHours(digest: OrgDigest): Map<string, number> {
+  const hoursByName = new Map<string, number>();
+  for (const person of digest.submitted) {
+    let total = 0;
+    for (const report of person.reports) {
+      for (const idx of MODULE_INDICES) {
+        const raw = compact(
           report.contents.find((field) => field.key.includes("工时统计") && field.key.includes(idx))?.value ?? "",
         );
-        if (!result && !hours) return [];
-        if (result && hours) return [`${result}（工时：${hours}）`];
-        return [result || `工时：${hours}`];
-      }),
-    );
-    return items.length > 0 ? [`- ${person.name}：${items.join("；")}`] : [];
-  });
+        const amounts = raw.match(/\d+(?:\.\d+)?/g) ?? [];
+        total += amounts.reduce((sum, value) => sum + Number(value), 0);
+      }
+    }
+    if (total > 0) hoursByName.set(person.name, total);
+  }
+  return hoursByName;
+}
+
+function formatHours(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
 
 export function renderProjectViewMorningMarkdown(input: {
@@ -52,19 +55,18 @@ export function renderProjectViewMorningMarkdown(input: {
   parts.push("### 昨日综述");
   parts.push("**整体进展**");
   parts.push(input.summary.overview);
-  const personWorkHours = input.orgDigest
-    ? renderProjectViewPersonWorkHours(input.orgDigest)
-    : [];
-  if (personWorkHours.length > 0) {
+  const hoursByName = input.orgDigest
+    ? sumProjectViewPersonHours(input.orgDigest)
+    : new Map<string, number>();
+  const submittedNames = input.orgDigest?.submitted.map((person) => person.name) ?? [];
+  const briefByName = new Map(input.summary.personBriefs.map((person) => [person.name, person.brief]));
+  if (submittedNames.length > 0) {
     parts.push("");
-    parts.push("**昨日工作与工时**");
-    parts.push(...personWorkHours);
-  }
-  if (input.summary.personBriefs.length > 0) {
-    parts.push("");
-    parts.push("**个人简述**");
-    for (const p of input.summary.personBriefs) {
-      parts.push(`- ${p.name}：${p.brief}`);
+    parts.push("**个人简述与工时**");
+    for (const name of submittedNames) {
+      const brief = briefByName.get(name) || "已提交相关日报，详情见工作台原日志。";
+      const hours = hoursByName.get(name);
+      parts.push(`- ${name}：${brief}${hours == null ? "" : `（工时：${formatHours(hours)}小时）`}`);
     }
   }
   parts.push("");
@@ -72,9 +74,7 @@ export function renderProjectViewMorningMarkdown(input: {
   parts.push(input.summary.closing);
 
   parts.push("");
-  parts.push(
-    `**统计**：统计名单内 ${input.rosterCount} 人 · 昨日有 ${input.submittedCount} 人提交了与「${input.viewLabel}」相关的日报`,
-  );
+  parts.push(`**统计**：昨日与「${input.viewLabel}」相关的日报共 ${input.submittedCount} 人提交`);
 
   if (input.workbenchUrl) {
     parts.push("");

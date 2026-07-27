@@ -82,12 +82,14 @@ export async function buildProjectViewMorningDigestPayload(
 ): Promise<{ title: string; markdown: string; detailUrl: string; submittedCount: number; rosterCount: number }> {
   const dateLabel = `${range.labelDisplay}（${range.labelYmd}）`;
   const submittedCount = ctx.orgDigest.submitted.length;
+  // 项目视图的相关人员由当天实际命中的日志决定，不能展示全员日报池人数。
+  const relevantPeopleCount = submittedCount;
   const llmConfig = loadDailyReportMorningLlmConfig();
   const summary = llmConfig
     ? await summarizeProjectViewMorningWithLlm(
         ctx.view.label,
         dateLabel,
-        ctx.rosterCount,
+        relevantPeopleCount,
         ctx.orgDigest,
         llmConfig,
         fetchImpl,
@@ -95,7 +97,7 @@ export async function buildProjectViewMorningDigestPayload(
     : fallbackProjectViewMorningSummary(
         ctx.view.label,
         dateLabel,
-        ctx.rosterCount,
+        relevantPeopleCount,
         ctx.orgDigest,
       );
 
@@ -110,7 +112,7 @@ export async function buildProjectViewMorningDigestPayload(
     dateYmd: range.labelYmd,
     summary,
     submittedCount,
-    rosterCount: ctx.rosterCount,
+    rosterCount: relevantPeopleCount,
     orgDigest: ctx.orgDigest,
     workbenchUrl: workbenchUrl || undefined,
   });
@@ -123,7 +125,7 @@ export async function buildProjectViewMorningDigestPayload(
     markdown: rendered.text,
     detailUrl,
     submittedCount,
-    rosterCount: ctx.rosterCount,
+    rosterCount: relevantPeopleCount,
   };
 }
 
@@ -133,6 +135,8 @@ export async function sendProjectViewMorningDigestToUser(params: {
   userId: string;
   stateStore: ProjectViewDigestStateStore;
   dryRun?: boolean;
+  /** 仅用于人工预览重发；定时发送仍保持按日期去重。 */
+  skipStateDedup?: boolean;
   previewTitleSuffix?: string;
   fetchImpl?: typeof fetch;
   accessToken?: string;
@@ -143,7 +147,7 @@ export async function sendProjectViewMorningDigestToUser(params: {
   const dateYmd = params.range.labelYmd;
   const userId = params.userId.trim();
 
-  if (hasProjectViewDigestSent(viewId, dateYmd, userId, params.stateStore)) {
+  if (!params.skipStateDedup && hasProjectViewDigestSent(viewId, dateYmd, userId, params.stateStore)) {
     return {
       userId,
       skipped: true,

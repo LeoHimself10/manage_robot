@@ -30,24 +30,27 @@ function parseArgs(): {
   toUserId: string;
   dateYmd?: string;
   dryRun: boolean;
+  force: boolean;
 } {
   let viewId = DEFAULT_VIEW_ID;
   let toUserId = DEFAULT_TO_USER_ID;
   let dateYmd: string | undefined;
   let dryRun = false;
+  let force = false;
 
   for (const arg of process.argv.slice(2)) {
     if (arg === "--dry-run") dryRun = true;
+    else if (arg === "--force") force = true;
     else if (arg.startsWith("--view=")) viewId = arg.slice("--view=".length).trim() || DEFAULT_VIEW_ID;
     else if (arg.startsWith("--to=")) toUserId = arg.slice("--to=".length).trim() || DEFAULT_TO_USER_ID;
     else if (arg.startsWith("--date=")) dateYmd = arg.slice("--date=".length).trim() || undefined;
   }
 
-  return { viewId, toUserId, dateYmd, dryRun };
+  return { viewId, toUserId, dateYmd, dryRun, force };
 }
 
 async function main(): Promise<void> {
-  const { viewId, toUserId, dateYmd, dryRun } = parseArgs();
+  const { viewId, toUserId, dateYmd, dryRun, force } = parseArgs();
 
   const { config, errors } = loadDailyReportDigestConfig();
   if (errors.length > 0) {
@@ -100,6 +103,7 @@ async function main(): Promise<void> {
       userId: toUserId,
       stateStore,
       previewTitleSuffix: "预览（私发）",
+      skipStateDedup: force,
     });
 
     console.log(

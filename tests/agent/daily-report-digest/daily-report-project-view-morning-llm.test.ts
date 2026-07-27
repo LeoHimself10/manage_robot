@@ -43,7 +43,7 @@ describe("daily-report-project-view-morning-llm", () => {
     const empty: OrgDigest = { ...SAMPLE_DIGEST, submitted: [] };
     const fb = fallbackProjectViewMorningSummary(VIEW_LABEL, "2026-06-08", 7, empty);
     expect(fb.overview).toContain("暂无");
-    expect(fb.overview).toContain("7 人");
+    expect(fb.overview).not.toContain("7 人");
     expect(fb.personBriefs).toHaveLength(0);
     expect(JSON.stringify(fb)).not.toMatch(/命中|filter|roster/i);
   });
@@ -86,9 +86,10 @@ describe("daily-report-project-view-morning-render", () => {
       workbenchUrl: "https://example.com/daily-reports?view=custom:semiconductor-vein",
     });
     expect(rendered.text).toContain("项目组早报");
-    expect(rendered.text).toContain("统计名单内 7 人");
-    expect(rendered.text).toContain("昨日工作与工时");
-    expect(rendered.text).toContain("完成联调（工时：3 小时）");
+    expect(rendered.text).toContain("个人简述与工时");
+    expect(rendered.text).toContain("周毓凡：完成联调（工时：3小时）");
+    expect(rendered.text).toContain("相关的日报共 1 人提交");
+    expect(rendered.text).not.toContain("统计名单内");
     expect(rendered.text).not.toMatch(/命中|未交|请假/i);
     expect(rendered.text).toContain("semiconductor-vein");
   });
