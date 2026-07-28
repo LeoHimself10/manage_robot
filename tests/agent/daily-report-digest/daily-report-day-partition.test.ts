@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  listProjectViewIdsForPartition,
   mergePartitionedReports,
   partitionReportEntry,
 } from "../../../src/agent/daily-report-digest/daily-report-day-partition";
@@ -138,6 +139,34 @@ describe("partitionReportEntry", () => {
     const { byViewId } = partitionReportEntry(entry, pairOnlyViews);
     expect(byViewId.get("semiconductor-vein")?.length).toBe(1);
     expect(byViewId.has("others")).toBe(false);
+  });
+
+  it("routes block via cost-project-only filter and includes it in the unified partition", () => {
+    const costOnlyViews: typeof projectViews = [
+      {
+        id: "vein-closure-system",
+        label: "静脉腔闭合系统",
+        viewers: ["m1"],
+        orgLabel: "微光",
+        filters: { costProjectContains: "静脉腔" },
+      },
+      projectViews.find((view) => view.id === "others")!,
+    ];
+    const entry: ReportEntry = {
+      creatorUserId: "u6",
+      creatorName: "成本筛选",
+      templateName: "研发管理者日志模板",
+      createTime: 1,
+      contents: block("①", "任意工作模块", "2517-静脉腔内闭合系统（RFL-I）中国"),
+    };
+
+    const { byViewId } = partitionReportEntry(entry, costOnlyViews);
+    expect(byViewId.get("vein-closure-system")?.length).toBe(1);
+    expect(byViewId.has("others")).toBe(false);
+    expect(listProjectViewIdsForPartition(costOnlyViews)).toEqual([
+      "vein-closure-system",
+      "others",
+    ]);
   });
 });
 
