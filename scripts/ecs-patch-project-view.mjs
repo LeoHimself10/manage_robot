@@ -38,7 +38,8 @@ const SEMICONDUCTOR_VEIN_VIEW = {
     enabled: true,
     sendHour: 7,
     sendMinute: 0,
-    recipients: ["044923400223814768"], // 席东星
+    // 曹一挥保留原有的合并早报；席东星只接收本项目卡片。
+    recipients: ["01451725613871", "044923400223814768"],
   },
 };
 
