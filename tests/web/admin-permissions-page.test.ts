@@ -15,10 +15,13 @@ describe("admin permissions page", () => {
     expect(html).not.toContain("saveManagerBtn");
   });
 
-  it("permissions page exposes manager and portfolio sections", () => {
+  it("permissions page exposes manager, portfolio, and competency sections", () => {
     const html = renderAdminPermissionsPage({ userLabel: "Admin" });
     expect(html).toContain("/api/workbench/admin/portfolio-managers");
     expect(html).toContain("grantPortfolioBtn");
+    expect(html).toContain("/api/workbench/admin/competency-eval-users");
+    expect(html).toContain("grantCompetencyEvalBtn");
+    expect(html).toContain("能力评估助手可见名单");
     expect(html).toContain("/workbench/admin/permissions");
   });
 

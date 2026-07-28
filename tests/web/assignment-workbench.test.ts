@@ -1920,6 +1920,61 @@ describe("assignment-workbench HTTP handler", () => {
     expect(captured().body).toContain("emp-search");
   });
 
+  it("admin can grant and remove competency eval access without redeploying", async () => {
+    seedContact("admin-1", "管理部", "Admin");
+    seedContact("eval-user", "研发部", "Engineer");
+    vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "manager-1,eval-user");
+    vi.stubEnv("COMPETENCY_EVAL_USER_IDS", "eval-user");
+    vi.stubEnv(
+      "COMPETENCY_EVAL_MANAGED_USER_IDS_FILE",
+      `${sqlitePath}.competency-users.json`,
+    );
+    const cookie = await loginCookie("admin-1", "admin");
+
+    const initialReq = stubReq({
+      url: "/api/workbench/admin/competency-eval-users",
+      method: "GET",
+      headers: { cookie },
+    });
+    const initialRes = stubRes();
+    handleAssignmentHttp(initialReq, initialRes.res);
+    expect(JSON.parse(initialRes.captured().body)).toMatchObject({
+      ok: true,
+      managed: false,
+      users: [{ userId: "eval-user" }],
+    });
+
+    const revokeReq = stubReq({
+      url: "/api/workbench/admin/competency-eval-users",
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ userId: "eval-user", enabled: false }),
+    });
+    const revokeRes = stubRes();
+    handleAssignmentHttp(revokeReq, revokeRes.res);
+    await flushAsync();
+    expect(JSON.parse(revokeRes.captured().body)).toMatchObject({
+      ok: true,
+      before: true,
+      after: false,
+      changed: true,
+    });
+
+    const finalReq = stubReq({
+      url: "/api/workbench/admin/competency-eval-users",
+      method: "GET",
+      headers: { cookie },
+    });
+    const finalRes = stubRes();
+    handleAssignmentHttp(finalReq, finalRes.res);
+    expect(JSON.parse(finalRes.captured().body)).toMatchObject({
+      ok: true,
+      managed: true,
+      users: [],
+    });
+  });
+
   it("admin manager group write APIs are disabled when manager groups are off", async () => {
     vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
     vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "0");

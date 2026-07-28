@@ -180,7 +180,12 @@ import {
 import { parseCompEvalSessionIdFromPath } from "../agent/competency-eval/competency-eval-session-store";
 import { renderCompetencyEvalPage } from "./competency-eval-page";
 import { startSseHeartbeat } from "./sse-heartbeat";
-import { isCompetencyEvalUser } from "../agent/competency-eval/competency-eval-access";
+import {
+  isCompetencyEvalUser,
+  listCompetencyEvalUserIds,
+  listManagedCompetencyEvalUserIds,
+  setCompetencyEvalUser,
+} from "../agent/competency-eval/competency-eval-access";
 import { renderManagerMeetingImportPage } from "./manager-meeting-import-page";
 import {
   handleMeetingImportAnalyze,
@@ -5026,8 +5031,84 @@ export function handleAssignmentHttp(
         active: contact.active,
         isManager: listWorkbenchManagerIds().has(contact.userId),
         isPortfolioManager: listWorkbenchProjectPortfolioUserIds().has(contact.userId),
+        hasCompetencyEvalAccess: isCompetencyEvalUser(contact.userId),
       }));
     writeJson(res, 200, { ok: true, employees });
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/admin/competency-eval-users") {
+    const session = requireSession(req, res, "admin");
+    if (!session) return true;
+    const managedIds = listManagedCompetencyEvalUserIds();
+    writeJson(res, 200, {
+      ok: true,
+      managed: managedIds !== undefined,
+      users: listCompetencyEvalUserIds().map((id) => ({
+        userId: id,
+        name: withPeopleDirectoryStore((s) => s.getContact(id)?.name?.trim() ?? ""),
+      })),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/admin/competency-eval-users") {
+    void (async () => {
+      try {
+        const session = requireSession(req, res, "admin");
+        if (!session) return;
+        const body = await readJsonBody(req);
+        const userId = String(body.userId ?? "").trim();
+        const enabled = Boolean(body.enabled);
+        const contact = withPeopleDirectoryStore((store) => store.getContact(userId));
+        if (!contact) {
+          writeJson(res, 404, { ok: false, error: "contact not found" });
+          return;
+        }
+        if (enabled && !contact.active) {
+          writeJson(res, 400, {
+            ok: false,
+            error: "cannot grant competency eval access to inactive contact",
+          });
+          return;
+        }
+        const targetCapabilities = resolveWorkbenchCapabilities(userId);
+        if (enabled && !targetCapabilities.canManage) {
+          writeJson(res, 400, {
+            ok: false,
+            error: "competency eval access requires manager permission",
+          });
+          return;
+        }
+        const mutation = setCompetencyEvalUser(userId, enabled);
+        getFormalTaskStore().appendPermissionEvent({
+          actorUserId: session.userId,
+          targetUserId: userId,
+          before: mutation.before,
+          after: mutation.after,
+          payload: {
+            changed: mutation.changed,
+            source: "admin_api",
+            permissionKind: "competency_eval_access",
+          },
+        });
+        writeJson(res, 200, {
+          ok: true,
+          userId,
+          before: mutation.before,
+          after: mutation.after,
+          changed: mutation.changed,
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error:
+            err instanceof Error
+              ? err.message
+              : "update competency eval permission failed",
+        });
+      }
+    })();
     return true;
   }
 

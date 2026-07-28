@@ -246,6 +246,11 @@ export const ADMIN_PERMISSIONS_CSS = `
   border-color: rgba(15, 118, 110, 0.22);
   background: linear-gradient(180deg, rgba(15, 118, 110, 0.04), #fff 72%);
 }
+.admin-perm-action.is-competency {
+  grid-column: 1 / -1;
+  border-color: rgba(124, 58, 237, 0.2);
+  background: linear-gradient(180deg, rgba(124, 58, 237, 0.04), #fff 72%);
+}
 .admin-perm-action.is-manager-group {
   grid-column: 1 / -1;
   border-color: rgba(79, 70, 229, 0.2);
@@ -366,6 +371,10 @@ export const ADMIN_PERMISSIONS_CSS = `
   background: rgba(15, 118, 110, 0.12);
   color: #0f766e;
 }
+.admin-perm-av.is-competency {
+  background: rgba(124, 58, 237, 0.12);
+  color: #6d28d9;
+}
 .admin-perm-row__name {
   font-size: 13px;
   font-weight: 700;
@@ -403,8 +412,8 @@ export const ADMIN_PERMISSIONS_CSS = `
 function buildAdminPermissionsClientJs(managerGroupsEnabled: boolean): string {
   const managerGroupStateJs = managerGroupsEnabled ? "  var managerGroupRows = [];\n" : "";
   const reloadPermissionsJs = managerGroupsEnabled
-    ? "Promise.all([loadManagers(), loadPortfolioManagers(), loadManagerGroups()])"
-    : "Promise.all([loadManagers(), loadPortfolioManagers()])";
+    ? "Promise.all([loadManagers(), loadPortfolioManagers(), loadCompetencyEvalUsers(), loadManagerGroups()])"
+    : "Promise.all([loadManagers(), loadPortfolioManagers(), loadCompetencyEvalUsers()])";
   const managerGroupClientJs = managerGroupsEnabled ? `
   function selectedManagerGroupId() {
     var sel = document.getElementById('managerGroupMemberSelect');
@@ -591,6 +600,7 @@ ${managerGroupStateJs}
     var tags = [];
     if (selectedUser.isManager) tags.push('主管');
     if (selectedUser.isPortfolioManager) tags.push('项目管理主管');
+    if (selectedUser.hasCompetencyEvalAccess) tags.push('能力评估');
     var sub = (selectedUser.departmentName || '-') + (tags.length ? ' · ' + tags.join('、') : '') + ' · ' + selectedUser.userId;
     document.getElementById('selectedSub').textContent = sub;
   }
@@ -622,6 +632,7 @@ ${managerGroupStateJs}
       var tags = [];
       if (e.isManager) tags.push('主管');
       if (e.isPortfolioManager) tags.push('项目管理主管');
+      if (e.hasCompetencyEvalAccess) tags.push('能力评估');
       var tagHtml = tags.length ? '<span class="admin-perm-combo__tags">' + esc(tags.join('、')) + '</span>' : '';
       return '<div class="admin-perm-combo__opt' + (i === activeIndex ? ' is-active' : '') + '" role="option" data-idx="' + i + '">'
         + '<span class="admin-perm-combo__av">' + esc(permInitial(e.name || e.userId)) + '</span>'
@@ -691,6 +702,20 @@ ${managerGroupStateJs}
     renderRows('portfolioListMount', 'portfolioCount', rows, '暂无项目管理主管', 'is-portfolio');
   }
 
+  async function loadCompetencyEvalUsers() {
+    var res = await fetch('/api/workbench/admin/competency-eval-users');
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    var rows = (data.users || []).map(function (row) {
+      return {
+        userId: row.userId,
+        name: row.name || '',
+        source: data.managed ? 'dynamic' : 'env',
+      };
+    });
+    renderRows('competencyEvalListMount', 'competencyEvalCount', rows, '暂无可使用人员', 'is-competency');
+  }
+
 ${managerGroupClientJs}
 
   async function savePermission(kind, enabled) {
@@ -699,7 +724,11 @@ ${managerGroupClientJs}
       return;
     }
     var userId = selectedUser.userId;
-    var url = kind === 'portfolio' ? '/api/workbench/admin/portfolio-managers' : '/api/workbench/admin/managers';
+    var url = kind === 'portfolio'
+      ? '/api/workbench/admin/portfolio-managers'
+      : kind === 'competency'
+        ? '/api/workbench/admin/competency-eval-users'
+        : '/api/workbench/admin/managers';
     setFb('permFeedback', '保存中…', 'muted');
     var res = await fetch(url, {
       method: 'POST',
@@ -708,9 +737,10 @@ ${managerGroupClientJs}
     });
     var data = await res.json().catch(function () { return {}; });
     if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-    var label = kind === 'portfolio' ? '项目管理主管' : '主管';
+    var label = kind === 'portfolio' ? '项目管理主管' : kind === 'competency' ? '能力评估助手' : '主管';
     setFb('permFeedback', (enabled ? '已授予' : '已移除') + (selectedUser.name || userId) + ' 的' + label + '权限', 'ok');
     if (kind === 'portfolio') selectedUser.isPortfolioManager = enabled;
+    else if (kind === 'competency') selectedUser.hasCompetencyEvalAccess = enabled;
     else selectedUser.isManager = enabled;
     renderSelected();
     await ${reloadPermissionsJs};
@@ -771,6 +801,16 @@ ${managerGroupClientJs}
   });
   document.getElementById('revokePortfolioBtn').addEventListener('click', function () {
     void savePermission('portfolio', false).catch(function (e) {
+      setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
+    });
+  });
+  document.getElementById('grantCompetencyEvalBtn').addEventListener('click', function () {
+    void savePermission('competency', true).catch(function (e) {
+      setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
+    });
+  });
+  document.getElementById('revokeCompetencyEvalBtn').addEventListener('click', function () {
+    void savePermission('competency', false).catch(function (e) {
       setFb('permFeedback', String(e && e.message ? e.message : e), 'err');
     });
   });
@@ -835,7 +875,7 @@ export function renderAdminPermissionsPage(params: {
     activeNav: "adm-perms",
     title: "权限中心",
     pageTitle: "权限中心",
-    description: "维护主管与项目管理主管身份；动态名单与环境变量合并生效。",
+    description: "维护主管、项目管理主管及能力评估助手的可见范围。",
     userLabel: params.userLabel,
     sessionUserId: params.sessionUserId,
     extraCss: ADMIN_PERMISSIONS_CSS,
@@ -843,7 +883,7 @@ export function renderAdminPermissionsPage(params: {
   <div class="admin-perm-hub">
     <section class="admin-perm-hero">
       <h2>权限中心</h2>
-      <p>在此授予或移除<strong>主管</strong>与<strong>项目管理主管</strong>身份。动态变更立即生效；环境变量名单需运维更新后重建容器。</p>
+      <p>在此统一维护<strong>主管</strong>、<strong>项目管理主管</strong>及<strong>能力评估助手</strong>的使用权限。动态变更保存后立即生效。</p>
     </section>
 
     <div class="admin-perm-grid">
@@ -888,6 +928,14 @@ export function renderAdminPermissionsPage(params: {
                 <button class="btn btn-ghost btn-sm" id="revokePortfolioBtn" type="button">移除项目管理主管</button>
               </div>
             </div>
+            <div class="admin-perm-action is-competency">
+              <div class="admin-perm-action__title">能力评估助手</div>
+              <div class="admin-perm-action__hint">仅主管可获授权；管理员如需使用，请先授予自己主管身份。授权后会看到“能力评估”入口，移除后立即不可访问。</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-primary btn-sm" id="grantCompetencyEvalBtn" type="button">允许使用能力评估</button>
+                <button class="btn btn-ghost btn-sm" id="revokeCompetencyEvalBtn" type="button">移除能力评估权限</button>
+              </div>
+            </div>
 ${managerGroupActionHtml}
           </div>
           <div class="feedback muted" id="permFeedback"></div>
@@ -909,11 +957,18 @@ ${managerGroupActionHtml}
           </div>
           <div class="admin-perm-list-card__body" id="portfolioListMount">加载中…</div>
         </section>
+        <section class="admin-perm-list-card">
+          <div class="admin-perm-list-card__head">
+            <h4>能力评估助手可见名单</h4>
+            <span class="admin-perm-count" id="competencyEvalCount">0</span>
+          </div>
+          <div class="admin-perm-list-card__body" id="competencyEvalListMount">加载中…</div>
+        </section>
 ${managerGroupListHtml}
       </div>
     </div>
 
-    <p class="admin-perm-footnote">标签「环境变量」表示来自服务器配置，无法在此页移除；「动态」表示通过本页或 Agent 维护，可在此页撤销。</p>
+    <p class="admin-perm-footnote">主管类权限仍区分服务器配置与动态名单；能力评估名单在管理员首次调整后完全由本页管理，因此原有人员也可以直接移除。</p>
   </div>`,
     scriptHtml: buildAdminPermissionsClientJs(managerGroupsEnabled),
   });
