@@ -1,6 +1,7 @@
 import type { OrgDigest } from "./daily-report-build";
 import { filterReportEntry } from "./daily-report-content-filter";
 import {
+  moduleBlockMatchesCostProjectFilter,
   moduleBlockMatchesKeywordFilter,
   moduleBlockMatchesPairFilter,
 } from "./daily-report-project-view-filter";
@@ -77,6 +78,9 @@ export function blockMatchesProjectView(
       workModuleContains: work,
       costProjectContains: project,
     });
+  }
+  if (project) {
+    return moduleBlockMatchesCostProjectFilter(contents, idx, project);
   }
   return false;
 }
@@ -215,7 +219,7 @@ function viewParticipatesInPartition(view: DailyReportProjectViewConfig): boolea
   if (view.filters.keyword?.trim()) return true;
   const work = view.filters.workModuleContains?.trim();
   const project = view.filters.costProjectContains?.trim();
-  return Boolean(work && project);
+  return Boolean(project);
 }
 
 export function listProjectViewIdsForPartition(
