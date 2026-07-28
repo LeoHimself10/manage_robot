@@ -215,7 +215,6 @@ export const DAILY_REPORTS_PAGE_CSS = `
   border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);
 }
 .drm-m-name{font-weight:600;font-size:var(--text-sm);}
-.drm-m-uid{color:var(--muted);font-size:var(--text-xs);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
 .drm-m-spacer{flex:1 1 auto;}
 .drm-x{
   appearance:none;border:0;background:transparent;cursor:pointer;color:var(--muted);
@@ -245,7 +244,6 @@ export const DAILY_REPORTS_PAGE_CSS = `
 .drm-result:disabled{cursor:default;color:var(--muted);}
 .drm-r-name{font-weight:600;font-size:var(--text-sm);}
 .drm-r-dept{color:var(--muted);font-size:var(--text-xs);}
-.drm-r-uid{color:var(--muted);font-size:var(--text-xs);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin-left:auto;}
 .drm-r-tag{font-size:var(--text-xs);color:var(--success);margin-left:auto;}
 .drm-note{color:var(--muted);font-size:var(--text-sm);padding:9px 12px;}
 .drm-spin{

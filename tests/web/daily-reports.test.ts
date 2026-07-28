@@ -661,6 +661,8 @@ describe("daily-reports-page render", () => {
     });
     expect(adminHtml).toContain('id="drmToggle"');
     expect(adminHtml).toContain('id="dpgToggle"');
+    expect(adminHtml).not.toContain("drm-m-uid");
+    expect(adminHtml).not.toContain("drm-r-uid");
     expect(mgrHtml).toContain('id="drmToggle"');
     expect(mgrHtml).toContain('id="dpgToggle"');
     expect(empHtml).not.toContain('id="drmToggle"');

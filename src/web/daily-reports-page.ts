@@ -174,7 +174,7 @@ function buildDailyReportsClientJs(opts: {
         : '<span class="drm-cred indep">独立应用</span>';
       var members = (o.employees||[]).map(function(e){
         return '<div class="drm-member"><span class="drm-m-name">'+esc(e.name||e.userid)+'</span>'
-          + '<span class="drm-m-uid">'+esc(e.userid)+'</span><span class="drm-m-spacer"></span>'
+          + '<span class="drm-m-spacer"></span>'
           + '<button class="drm-x" title="移除" data-action="remove" data-org="'+esc(o.label)+'" data-userid="'+esc(e.userid)+'">×</button></div>';
       }).join('');
       if(!members) members = '<div class="drm-members-empty">暂无成员</div>';
@@ -221,7 +221,7 @@ function buildDailyReportsClientJs(opts: {
             return '<button class="drm-result" disabled><span class="drm-r-name">'+esc(c.name||c.userid)+'</span><span class="drm-r-tag">已在名单</span></button>';
           }
           return '<button class="drm-result" data-action="add" data-org="'+esc(org)+'" data-userid="'+esc(c.userid)+'" data-name="'+esc(c.name||'')+'">'
-            + '<span class="drm-r-name">'+esc(c.name||c.userid)+'</span><span class="drm-r-uid">'+esc(c.userid)+'</span></button>';
+            + '<span class="drm-r-name">'+esc(c.name||c.userid)+'</span></button>';
         }).join('');
       })
       .catch(function(e){ box.innerHTML='<div class="drm-note">搜索失败：'+esc(e.message||e)+'</div>'; });
@@ -374,7 +374,7 @@ function buildDailyReportsClientJs(opts: {
       var src = m.source === 'discovery' ? '自动' : (m.source === 'manual' ? '手动' : '');
       var tag = src ? ('<span class="drm-r-tag">'+esc(src)+'</span>') : '';
       return '<div class="drm-member"><span class="drm-m-name">'+esc(m.name||m.userid)+'</span>'
-        + '<span class="drm-m-uid">'+esc(m.userid)+'</span>'+tag+'<span class="drm-m-spacer"></span>'
+        + tag+'<span class="drm-m-spacer"></span>'
         + '<button class="drm-x" title="移除" data-pv-action="remove" data-userid="'+esc(m.userid)+'">×</button></div>';
     }).join('');
     if(!rows) rows = '<div class="drm-members-empty">暂无成员 · 可搜索加入或点「重新发现」</div>';
@@ -421,7 +421,7 @@ function buildDailyReportsClientJs(opts: {
             return '<button class="drm-result" disabled><span class="drm-r-name">'+esc(c.name||c.userid)+'</span><span class="drm-r-tag">已在名单</span></button>';
           }
           return '<button class="drm-result" data-pv-action="add" data-userid="'+esc(c.userid)+'" data-name="'+esc(c.name||'')+'">'
-            + '<span class="drm-r-name">'+esc(c.name||c.userid)+'</span><span class="drm-r-uid">'+esc(c.userid)+'</span></button>';
+            + '<span class="drm-r-name">'+esc(c.name||c.userid)+'</span></button>';
         }).join('');
       })
       .catch(function(e){ box.innerHTML='<div class="drm-note">搜索失败：'+esc(e.message||e)+'</div>'; });
