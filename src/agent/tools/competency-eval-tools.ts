@@ -64,7 +64,7 @@ export const ANALYZE_EMPLOYEE_LOG_HOURS_TOOL: ToolDefinition = {
         groupBy: {
           type: "array",
           description:
-            "分组维度，最多组合3项。project=项目，workModule=工作模块，taskType=任务类型，date=日期，template=日志模板。",
+            "候选分组维度，最多组合3项。工具只使用日志模板实际存在的维度；不存在的维度会自动忽略并在 unsupportedDimensions 中说明。",
           items: {
             type: "string",
             enum: ["project", "workModule", "taskType", "date", "template"],

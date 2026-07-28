@@ -28,6 +28,8 @@ export interface EvalLogAnalysisGroup {
 }
 
 export interface EvalLogHoursAnalysis {
+  availableDimensions: EvalLogAnalysisDimension[];
+  unsupportedDimensions: EvalLogAnalysisDimension[];
   groupBy: EvalLogAnalysisDimension[];
   filters: EvalLogAnalysisFilters;
   sourceTotalHours: number;
@@ -72,7 +74,32 @@ export function normalizeEvalLogAnalysisDimensions(
     .map((value) => String(value ?? "").trim())
     .filter((value): value is EvalLogAnalysisDimension => allowed.has(value));
   const unique = [...new Set(normalized)];
-  return unique.length > 0 ? unique.slice(0, 3) : ["project"];
+  return unique.slice(0, 3);
+}
+
+function resolveAvailableDimensions(
+  summary: EvalWorkHoursSummary,
+): EvalLogAnalysisDimension[] {
+  const configured = Array.isArray(summary.availableDimensions)
+    ? summary.availableDimensions
+    : [];
+  const inferred = EVAL_LOG_ANALYSIS_DIMENSIONS.filter(
+    (dimension) =>
+      dimension === "date"
+      || dimension === "template"
+      || summary.items.some((item) => {
+        if (dimension === "project") return item.project !== undefined;
+        if (dimension === "workModule") return item.workModule !== undefined;
+        if (dimension === "taskType") return item.taskType !== undefined;
+        return false;
+      }),
+  );
+  return [...new Set<EvalLogAnalysisDimension>([
+    ...configured,
+    ...inferred,
+    "date",
+    "template",
+  ])];
 }
 
 export function analyzeEvalWorkHours(
@@ -83,11 +110,42 @@ export function analyzeEvalWorkHours(
     limit?: number;
   },
 ): EvalLogHoursAnalysis {
-  const groupBy = normalizeEvalLogAnalysisDimensions(input?.groupBy);
-  const filters: EvalLogAnalysisFilters = {
+  const availableDimensions = resolveAvailableDimensions(summary);
+  const availableSet = new Set<EvalLogAnalysisDimension>(availableDimensions);
+  const requestedGroupBy = normalizeEvalLogAnalysisDimensions(input?.groupBy);
+  const unsupportedDimensions = requestedGroupBy.filter(
+    (dimension) => !availableSet.has(dimension),
+  );
+  const supportedRequested = requestedGroupBy.filter(
+    (dimension) => availableSet.has(dimension),
+  );
+  const defaultDimension = ([
+    "workModule",
+    "taskType",
+    "project",
+    "date",
+    "template",
+  ] as EvalLogAnalysisDimension[]).find((dimension) => availableSet.has(dimension));
+  const groupBy = supportedRequested.length > 0
+    ? supportedRequested
+    : defaultDimension
+      ? [defaultDimension]
+      : [];
+  const requestedFilters: EvalLogAnalysisFilters = {
     projectContains: String(input?.filters?.projectContains ?? "").trim() || undefined,
     workModuleContains: String(input?.filters?.workModuleContains ?? "").trim() || undefined,
     taskTypeContains: String(input?.filters?.taskTypeContains ?? "").trim() || undefined,
+  };
+  const filters: EvalLogAnalysisFilters = {
+    projectContains: availableSet.has("project")
+      ? requestedFilters.projectContains
+      : undefined,
+    workModuleContains: availableSet.has("workModule")
+      ? requestedFilters.workModuleContains
+      : undefined,
+    taskTypeContains: availableSet.has("taskType")
+      ? requestedFilters.taskTypeContains
+      : undefined,
   };
   const projectQuery = normalizeContains(filters.projectContains);
   const workModuleQuery = normalizeContains(filters.workModuleContains);
@@ -136,6 +194,8 @@ export function analyzeEvalWorkHours(
     .slice(0, limit);
 
   return {
+    availableDimensions,
+    unsupportedDimensions,
     groupBy,
     filters,
     sourceTotalHours: summary.totalHours,

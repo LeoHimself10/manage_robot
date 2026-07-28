@@ -159,4 +159,53 @@ describe("competency-eval tools", () => {
       },
     ]);
   });
+
+  it("falls back to a real template dimension instead of inventing project data", async () => {
+    const fetchReports = vi.fn().mockResolvedValue({
+      ok: true,
+      reports: [],
+      truncated: false,
+      totalChars: 0,
+      workHours: {
+        totalHours: 8,
+        reportCount: 1,
+        coveredReportCount: 1,
+        loggedItemCount: 1,
+        unparsedHourFieldCount: 0,
+        availableDimensions: ["workModule", "taskType"],
+        byProject: [],
+        byWorkModule: [],
+        byTaskType: [],
+        items: [{
+          date: "2026-07-28",
+          templateName: "总经办日志",
+          slot: "①",
+          hours: 8,
+          workModule: "智能体工程-企业",
+          taskType: "解决问题",
+        }],
+      },
+    });
+    const handler = buildAnalyzeEmployeeLogHoursHandler({
+      actorUserId: "actor1",
+      fetchReports,
+    });
+
+    const result = await handler({
+      userId: "u_a",
+      groupBy: ["project"],
+    }) as {
+      groupBy: string[];
+      availableDimensions: string[];
+      unsupportedDimensions: string[];
+      groups: Array<{ dimensions: Record<string, string> }>;
+    };
+
+    expect(result.availableDimensions).not.toContain("project");
+    expect(result.unsupportedDimensions).toEqual(["project"]);
+    expect(result.groupBy).toEqual(["workModule"]);
+    expect(result.groups[0].dimensions).toEqual({
+      workModule: "智能体工程-企业",
+    });
+  });
 });

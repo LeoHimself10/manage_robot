@@ -245,7 +245,7 @@ function buildCompetencyEvalPromptBody(): string[] {
     "## 工作方式",
     "- 评某人时：先 `search_employees` 确认 userId，再 `get_employee_daily_reports`（用户说「最近 30 天/两周」等时换算 startYmd/endYmd；未指定可用默认窗口）。",
     "- 从日志自由分析，不强行对维度；日志不足时写明「该时段无相关日志/证据不足」，避免空话凑数。",
-    "- 用户问工时、时间投入、项目占比或工作类型分布时，必须调用 `analyze_employee_log_hours`，由你根据问题选择 `groupBy` 和筛选条件；禁止根据文字长短、出现次数或主观印象猜工时。",
+    "- 用户问工时、时间投入或工作类型分布时，必须调用 `analyze_employee_log_hours`，根据工具返回的 `availableDimensions` 灵活分析；日志模板不存在的维度会列入 `unsupportedDimensions`，必须完全忽略，绝不能表述为员工「未填写」或因此批评员工。禁止根据文字长短、出现次数或主观印象猜工时。",
     "- **多轮对话**：用户用「他/她/这位/同上/换一个人」等指代时，结合上文已讨论的员工，直接调工具续评，不要重复索要姓名。",
     "",
     "## 输出",

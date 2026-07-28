@@ -121,6 +121,11 @@ describe("buildEvalWorkHoursSummary", () => {
     expect(summary.coveredReportCount).toBe(2);
     expect(summary.loggedItemCount).toBe(3);
     expect(summary.unparsedHourFieldCount).toBe(0);
+    expect(summary.availableDimensions.sort()).toEqual([
+      "project",
+      "taskType",
+      "workModule",
+    ]);
     expect(summary.byProject[0]).toEqual({
       label: "OCT 中国注册",
       hours: 14.5,
@@ -142,6 +147,25 @@ describe("buildEvalWorkHoursSummary", () => {
     expect(summary.totalHours).toBe(0);
     expect(summary.loggedItemCount).toBe(0);
     expect(summary.unparsedHourFieldCount).toBe(1);
+  });
+
+  it("does not treat a dimension missing from the template as unfilled", () => {
+    const summary = buildEvalWorkHoursSummary([
+      report({
+        contents: [
+          { key: "工作模块①", value: "智能体工程-企业" },
+          { key: "任务类型①", value: "解决问题" },
+          { key: "工时统计①", value: "8" },
+        ],
+      }),
+    ]);
+
+    expect(summary.availableDimensions.sort()).toEqual([
+      "taskType",
+      "workModule",
+    ]);
+    expect(summary.byProject).toEqual([]);
+    expect(summary.byWorkModule[0].label).toBe("智能体工程-企业");
   });
 });
 

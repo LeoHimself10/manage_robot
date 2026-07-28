@@ -41,12 +41,19 @@ export interface EvalWorkHourBreakdown {
   sharePct: number;
 }
 
+export type EvalWorkHourSourceDimension =
+  | "project"
+  | "workModule"
+  | "taskType";
+
 export interface EvalWorkHoursSummary {
   totalHours: number;
   reportCount: number;
   coveredReportCount: number;
   loggedItemCount: number;
   unparsedHourFieldCount: number;
+  /** Dimensions that actually exist in the employee's report template(s). */
+  availableDimensions: EvalWorkHourSourceDimension[];
   byProject: EvalWorkHourBreakdown[];
   byWorkModule: EvalWorkHourBreakdown[];
   byTaskType: EvalWorkHourBreakdown[];
@@ -142,6 +149,7 @@ export function buildEvalWorkHoursSummary(
   timezone = "Asia/Shanghai",
 ): EvalWorkHoursSummary {
   const items: EvalWorkHourItem[] = [];
+  const availableDimensions = new Set<EvalWorkHourSourceDimension>();
   let coveredReportCount = 0;
   let unparsedHourFieldCount = 0;
 
@@ -164,6 +172,9 @@ export function buildEvalWorkHoursSummary(
       const workModuleSlot = fieldSlot(key, WORK_MODULE_FIELD_PREFIX);
       const projectSlot = fieldSlot(key, PROJECT_FIELD_PREFIX);
       const taskTypeSlot = fieldSlot(key, TASK_TYPE_FIELD_PREFIX);
+      if (workModuleSlot) availableDimensions.add("workModule");
+      if (projectSlot) availableDimensions.add("project");
+      if (taskTypeSlot) availableDimensions.add("taskType");
       const slot = workModuleSlot ?? projectSlot ?? taskTypeSlot;
       if (!slot || !display) continue;
       const grouped = fieldsBySlot.get(slot) ?? {};
@@ -193,15 +204,24 @@ export function buildEvalWorkHoursSummary(
   }
 
   const totalHours = roundHours(items.reduce((sum, item) => sum + item.hours, 0));
+  const hasDimension = (dimension: EvalWorkHourSourceDimension): boolean =>
+    availableDimensions.has(dimension);
   return {
     totalHours,
     reportCount: entries.length,
     coveredReportCount,
     loggedItemCount: items.length,
     unparsedHourFieldCount,
-    byProject: buildBreakdown(items, totalHours, (item) => item.project ?? "未填写项目"),
-    byWorkModule: buildBreakdown(items, totalHours, (item) => item.workModule ?? "未填写工作模块"),
-    byTaskType: buildBreakdown(items, totalHours, (item) => item.taskType ?? "未填写任务类型"),
+    availableDimensions: [...availableDimensions],
+    byProject: hasDimension("project")
+      ? buildBreakdown(items, totalHours, (item) => item.project ?? "未填写项目")
+      : [],
+    byWorkModule: hasDimension("workModule")
+      ? buildBreakdown(items, totalHours, (item) => item.workModule ?? "未填写工作模块")
+      : [],
+    byTaskType: hasDimension("taskType")
+      ? buildBreakdown(items, totalHours, (item) => item.taskType ?? "未填写任务类型")
+      : [],
     items,
   };
 }
