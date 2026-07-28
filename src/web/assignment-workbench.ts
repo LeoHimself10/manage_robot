@@ -179,6 +179,7 @@ import {
 } from "./competency-eval-api";
 import { parseCompEvalSessionIdFromPath } from "../agent/competency-eval/competency-eval-session-store";
 import { renderCompetencyEvalPage } from "./competency-eval-page";
+import { startSseHeartbeat } from "./sse-heartbeat";
 import { isCompetencyEvalUser } from "../agent/competency-eval/competency-eval-access";
 import { renderManagerMeetingImportPage } from "./manager-meeting-import-page";
 import {
@@ -3279,16 +3280,32 @@ async function handleCompetencyEvalChatPost(
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     });
+    res.flushHeaders();
     writeCompetencyEvalChatSse(res, "status", { phase: "thinking" });
-    const turn = await runCompetencyEvalTurn({
-      ...turnInput,
-      onStreamStatus: (phase) => writeCompetencyEvalChatSse(res, "status", { phase }),
-      onStreamDelta: (messagePreview) =>
-        writeCompetencyEvalChatSse(res, "delta", { message: messagePreview }),
-    });
-    writeCompetencyEvalChatSse(res, "done", { ok: true, message: turn.message });
-    res.end();
+    const stopHeartbeat = startSseHeartbeat(res);
+    try {
+      const turn = await runCompetencyEvalTurn({
+        ...turnInput,
+        onStreamStatus: (phase) => {
+          if (!res.destroyed && !res.writableEnded) {
+            writeCompetencyEvalChatSse(res, "status", { phase });
+          }
+        },
+        onStreamDelta: (messagePreview) => {
+          if (!res.destroyed && !res.writableEnded) {
+            writeCompetencyEvalChatSse(res, "delta", { message: messagePreview });
+          }
+        },
+      });
+      if (!res.destroyed && !res.writableEnded) {
+        writeCompetencyEvalChatSse(res, "done", { ok: true, message: turn.message });
+        res.end();
+      }
+    } finally {
+      stopHeartbeat();
+    }
     return;
   }
 

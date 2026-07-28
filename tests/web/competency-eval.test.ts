@@ -13,6 +13,7 @@ import {
 } from "../../src/web/competency-eval-api";
 import { renderCompetencyEvalPage } from "../../src/web/competency-eval-page";
 import { COMPETENCY_EVAL_PAGE_CSS } from "../../src/web/competency-eval-page-styles";
+import { startSseHeartbeat } from "../../src/web/sse-heartbeat";
 import { renderManagerDashboardPage } from "../../src/web/manager-dashboard-page";
 import { renderAdminOpsDashboardPage } from "../../src/web/admin-ops-dashboard-page";
 import {
@@ -108,6 +109,40 @@ describe("competency-eval api helpers", () => {
     expect(isCompetencyEvalPageEnabled()).toBe(true);
     vi.stubEnv("COMPETENCY_EVAL_ENABLED", "0");
     expect(isCompetencyEvalPageEnabled()).toBe(false);
+  });
+});
+
+describe("competency-eval SSE heartbeat", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps a long-running stream active and stops cleanly", () => {
+    vi.useFakeTimers();
+    const listeners = new Map<string, () => void>();
+    const response = {
+      destroyed: false,
+      writableEnded: false,
+      write: vi.fn(),
+      once: vi.fn((event: string, listener: () => void) => {
+        listeners.set(event, listener);
+        return response;
+      }),
+      off: vi.fn((event: string) => {
+        listeners.delete(event);
+        return response;
+      }),
+    };
+
+    const stop = startSseHeartbeat(response as unknown as ServerResponse, 10_000);
+    vi.advanceTimersByTime(30_000);
+
+    expect(response.write).toHaveBeenCalledTimes(3);
+    expect(response.write).toHaveBeenCalledWith(": keep-alive\n\n");
+
+    stop();
+    vi.advanceTimersByTime(20_000);
+    expect(response.write).toHaveBeenCalledTimes(3);
   });
 });
 
