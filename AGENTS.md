@@ -174,7 +174,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
   - **Resolver**：`conversation-thread-resolver.ts`（`createSideThreadSession` 等；主线程见 canonical）。
 - **任务快录入库（task-intake，v1.2）**（`/workbench/manager/task-intake`）：并列于会议入库的**已拆清单**录入向导；**不挂 Portfolio 门禁**（`TASK_INTAKE_ENABLED`，默认开）。三步：粘贴 → **分组预览**（新建父任务组可多个 / 追加到已有 / 未分配）→ 提交。Preview：`structure-input`（N 进 N 出忠实映射）→ `suggest-targets`（已有 `planId` 匹配或 `newGroupId`+标题+描述/背景聚类，confidence < 0.6 未分配）→ 指派人解析；单新建组缺描述时回退 `parentDescription`。Commit：新建组全有负责人→`publishFromSession`，否则→主线程 `stageDraft`+Excel 深链；追加组→`POST .../task-intake/append`。**截止支持双模式**：主管指定 `dueAt` 或负责人自报（`dueMode=self` + `dueExpectation`）；员工承接时提交 `proposedDueAt` 立即生效，主管可在详情页强制改期（`SUBTASK_DUE_CHANGED` 审计）。本地 `npm run dev:task-intake`；测试 `tests/agent/task-intake/`、`tests/web/task-intake.test.ts`。详见 `docs/task-intake.md`。
 - **Admin 工作台**：
-  - **运营看板** `/workbench/admin/ops`；**权限中心** `/workbench/admin/permissions`（搜索选人为 **combobox** 单框：输入即搜、点选员工、授予/移除主管或 Portfolio 权限）。
+  - **运营看板** `/workbench/admin/ops`；**权限中心** `/workbench/admin/permissions`（搜索选人为 **combobox** 单框：输入即搜、点选员工、授予/移除主管、Portfolio 或能力评估权限）。
   - `GET /api/workbench/admin/managers` 返回 `dynamicManagers` + `effectiveManagers`（env ∪ 动态文件），每项含 `userId` + 通讯录 `name`（修复前 env 内主管仅 ID 时 UI 显示「—」）。
   - `POST .../admin/managers|portfolio-managers` 写动态 JSON + `appendPermissionEvent` 审计；**不能**通过 UI 授予 admin（须改 `WORKBENCH_ADMIN_USER_IDS` 并重建容器）。
   - 实例级功能分叉示例：明思侧 `DAILY_REPORTS_PAGE_ENABLED=1`（微光默认关），见 `.env.example` 注释。
@@ -246,7 +246,8 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 ## 能力评估（Competency Eval，v1）
 
 - **定位**：对照用户上传的 rubric 与钉钉日报，对被评估人做**定性**能力复盘与辅导建议（非交付 KPI、不改动任务）。
-- **页面**：`/workbench/manager/competency-eval`（`COMPETENCY_EVAL_ENABLED=1` + 白名单 `COMPETENCY_EVAL_USER_IDS`）；ChatGPT 风格 UI：侧栏会话历史（可收起）、服务端持久化、上传 `.md`/`.docx` 标准。
+- **页面**：`/workbench/manager/competency-eval`（`COMPETENCY_EVAL_ENABLED=1` + 访问名单）；ChatGPT 风格 UI：侧栏会话历史（可收起）、服务端持久化、上传 `.md` 标准。
+- **动态权限**：Admin 在 `/workbench/admin/permissions` 搜索主管并授予/移除能力评估权限，保存后入口与 API 立即生效。首次调整前沿用 `COMPETENCY_EVAL_USER_IDS` / `_FILE`；首次调整会把现有名单继承到 `COMPETENCY_EVAL_DATA_DIR/access-users.json`，之后以该动态名单为准，因此原配置人员也可从页面移除。
 - **试点**：微光 managebot（曹一挥、姚凯珩白名单）；部署脚本 `scripts/ecs-deploy-competency-eval-managebot.sh`。
 - **隔离 Agent**：`promptProfile=competency_eval` + `toolProfile=competency_eval`（`list_rubrics` / `get_rubric` / `get_employee_daily_reports` / `search_employees` / `get_current_time`），入口 `runCompetencyEvalTurn`（`src/agent/competency-eval/competency-eval-agent-turn.ts`），不接 planner 草案/发放 FSM。
 - **数据**：rubric 与评估会话存 `data/competency-eval/`（`COMPETENCY_EVAL_DATA_DIR`）；日报证据来自 digest 配置的 roster（与早报采集名单联动）。
@@ -257,6 +258,7 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 |------|------|------|
 | `COMPETENCY_EVAL_ENABLED` | `0` | 功能开关 |
 | `COMPETENCY_EVAL_USER_IDS` | — | 白名单 userId（逗号分隔） |
+| `COMPETENCY_EVAL_MANAGED_USER_IDS_FILE` | `COMPETENCY_EVAL_DATA_DIR/access-users.json` | 权限中心首次调整后使用的动态访问名单 |
 | `COMPETENCY_EVAL_DATA_DIR` | `data/competency-eval` | rubric + 会话目录 |
 | `COMPETENCY_EVAL_QWEN_THINKING` | `1`（隐式） | 能力评估 LLM thinking |
 
