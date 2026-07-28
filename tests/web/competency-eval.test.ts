@@ -210,6 +210,7 @@ describe("competency-eval page render", () => {
     expect(html).toContain('id="compEvalNewSession"');
     expect(html).toContain("/api/workbench/competency-eval");
     expect(html).toContain("/static/performance-chat-markdown.js");
+    expect(html).toContain("performance-chat-markdown.js?v=headings-20260728");
     expect(html).toContain('data-wb-nav="mgr-competency-eval"');
   });
 

@@ -105,7 +105,7 @@ export function renderCompetencyEvalPage(params: {
       </footer>
     </div>
   </div>`,
-    scriptHtml: `<script src="/static/performance-chat-markdown.js"></script><script>${buildCompetencyEvalClientJs()}</script>`,
+    scriptHtml: `<script src="/static/performance-chat-markdown.js?v=headings-20260728"></script><script>${buildCompetencyEvalClientJs()}</script>`,
   });
 }
 

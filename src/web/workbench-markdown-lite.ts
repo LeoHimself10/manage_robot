@@ -212,7 +212,7 @@ function renderBlockGroup(blockLines: string[]): string {
   }
 
   if (blockLines.length === 1) {
-    const m = /^(#{1,3})\s+(.+)$/.exec(blockLines[0]!);
+    const m = /^(#{1,6})\s+(.+)$/.exec(blockLines[0]!);
     if (m) {
       const level = m[1]!.length;
       const tag = `h${level}`;
@@ -272,8 +272,8 @@ function renderEscapedMarkdown(esc: string): string {
         continue;
       }
       // Standalone header lines get their own block regardless of what follows
-      if (/^#{1,3}\s+./.test(ln) && blockLines.length === 0) {
-        const m = /^(#{1,3})\s+(.*)$/.exec(ln);
+      if (/^#{1,6}\s+./.test(ln) && blockLines.length === 0) {
+        const m = /^(#{1,6})\s+(.*)$/.exec(ln);
         if (m) {
           const level = m[1]!.length;
           const tag = `h${level}`;

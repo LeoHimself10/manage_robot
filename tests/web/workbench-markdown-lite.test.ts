@@ -11,8 +11,10 @@ describe("formatWorkbenchAssistantHtml", () => {
   });
 
   it("renders headings, bold, lists, and horizontal rules", () => {
-    const html = formatWorkbenchAssistantHtml("### Title\n\n**bold** line\n\n- one\n- two\n\n---\n\nend");
+    const html = formatWorkbenchAssistantHtml("### Title\n\n#### Detail\n\n###### Note\n\n**bold** line\n\n- one\n- two\n\n---\n\nend");
     expect(html).toContain("msg-md-h3");
+    expect(html).toContain('<h4 class="msg-md-h msg-md-h4">Detail</h4>');
+    expect(html).toContain('<h6 class="msg-md-h msg-md-h6">Note</h6>');
     expect(html).toContain("<strong");
     expect(html).toContain("msg-md-ul");
     expect(html).toContain("msg-md-hr");

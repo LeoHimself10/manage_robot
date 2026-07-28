@@ -428,6 +428,9 @@ body.wb-has-rail.page-shell--comp-eval .wb-main-body {
 .ce-msg-body .msg-md-h1 { font-size: 1.25rem; }
 .ce-msg-body .msg-md-h2 { font-size: 1.1rem; }
 .ce-msg-body .msg-md-h3 { font-size: 1rem; }
+.ce-msg-body .msg-md-h4 { font-size: .95rem; font-weight: 650; }
+.ce-msg-body .msg-md-h5 { font-size: .9rem; font-weight: 650; }
+.ce-msg-body .msg-md-h6 { font-size: .875rem; font-weight: 650; color: var(--ce-muted); }
 .ce-msg-body .msg-md-ul, .ce-msg-body .msg-md-ol { margin: 8px 0 12px; padding-left: 1.35rem; }
 .ce-msg-body .msg-md-li { margin: 4px 0; }
 .ce-msg-body .msg-md-bq {
