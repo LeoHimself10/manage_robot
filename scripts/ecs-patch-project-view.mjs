@@ -24,22 +24,40 @@ const MINGSIBOT_CONFIG_FALLBACK =
   "/opt/manage_robot-mingsibot/data/daily-report-digest.config.json";
 const ORG_LABEL = "微光";
 
-const SEMICONDUCTOR_VEIN_VIEW = {
+// Restore the existing semiconductor view exactly as an independent project view.
+const SEMICONDUCTOR_VIEW = {
   id: "semiconductor-vein",
-  label: "静脉腔闭合系统",
-  viewers: ["01451725613871", "641871342", "044923400223814768"], // 曹一挥、姚凯珩、席东星（微光 userid）
+  label: "半导体",
+  viewers: ["01451725613871", "641871342"], // 曹一挥、姚凯珩（微光 userid）
   exclusiveForViewers: true,
   discoveryDays: 30,
   filters: {
-    // 只看日志模块的「成本归属项目」，不使用工作模块、半导体或项目编号。
+    keyword: "半导体",
+  },
+  digest: {
+    enabled: true,
+    sendHour: 7,
+    sendMinute: 0,
+    recipients: ["01451725613871", "641871342"],
+  },
+};
+
+// New, separate view: only match the cost-attribution project field.
+const VEIN_CLOSURE_SYSTEM_VIEW = {
+  id: "vein-closure-system",
+  label: "静脉腔闭合系统",
+  viewers: ["01451725613871", "641871342", "044923400223814768"],
+  exclusiveForViewers: true,
+  discoveryDays: 30,
+  filters: {
     costProjectContains: "静脉腔",
   },
   digest: {
     enabled: true,
     sendHour: 7,
     sendMinute: 0,
-    // 曹一挥保留原有的合并早报；席东星只接收本项目卡片。
-    recipients: ["01451725613871", "044923400223814768"],
+    // 姚凯珩收到两个项目的合并卡；席东星只收到本项目卡。
+    recipients: ["641871342", "044923400223814768"],
   },
 };
 
@@ -95,16 +113,18 @@ if (!org) {
 }
 
 const views = Array.isArray(org.projectViews) ? [...org.projectViews] : [];
-const idx = views.findIndex((v) => v?.id === SEMICONDUCTOR_VEIN_VIEW.id);
-if (idx >= 0) {
-  views[idx] = SEMICONDUCTOR_VEIN_VIEW;
-} else {
-  views.push(SEMICONDUCTOR_VEIN_VIEW);
+for (const view of [SEMICONDUCTOR_VIEW, VEIN_CLOSURE_SYSTEM_VIEW]) {
+  const idx = views.findIndex((v) => v?.id === view.id);
+  if (idx >= 0) {
+    views[idx] = view;
+  } else {
+    views.push(view);
+  }
 }
 org.projectViews = views;
 
 fs.mkdirSync(CONFIG_PATH.replace(/[/\\][^/\\]+$/, ""), { recursive: true });
 fs.writeFileSync(CONFIG_PATH, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
 console.log(
-  `[ok] managebot config ${CONFIG_PATH}: projectViews patched for ${ORG_LABEL} → ${SEMICONDUCTOR_VEIN_VIEW.id}`,
+  `[ok] managebot config ${CONFIG_PATH}: restored ${SEMICONDUCTOR_VIEW.id} and added ${VEIN_CLOSURE_SYSTEM_VIEW.id}`,
 );

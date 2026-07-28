@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""为五 projectView 写入短 label + filters.keyword（保留 legacy 成对字段）。"""
+"""Restore the semiconductor view and keep the vein-closure view cost-project-only."""
 import json
 import sys
 from pathlib import Path
@@ -9,7 +9,8 @@ VIEW_PATCH = {
     "oct": {"label": "OCT", "keyword": "OCT"},
     "laser-shockwave": {"label": "冲击波", "keyword": "冲击波"},
     "large-vessel-plaque": {"label": "斑块减容", "keyword": "斑块减容"},
-    "semiconductor-vein": {"label": "静脉腔闭合系统", "costProjectContains": "静脉腔"},
+    "semiconductor-vein": {"label": "半导体", "keyword": "半导体"},
+    "vein-closure-system": {"label": "静脉腔闭合系统", "costProjectContains": "静脉腔"},
 }
 
 path = Path(sys.argv[1] if len(sys.argv) > 1 else "data/daily-report-digest.config.json")
@@ -23,6 +24,8 @@ for org in cfg.get("orgs") or []:
         filters = pv.setdefault("filters", {})
         if "keyword" in patch:
             filters["keyword"] = patch["keyword"]
+            filters.pop("workModuleContains", None)
+            filters.pop("costProjectContains", None)
         else:
             filters.pop("keyword", None)
             filters.pop("workModuleContains", None)

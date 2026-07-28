@@ -15,22 +15,38 @@ FALLBACK = os.environ.get(
 )
 ORG_LABEL = "微光"
 
-VIEW = {
+SEMICONDUCTOR_VIEW = {
     "id": "semiconductor-vein",
+    "label": "半导体",
+    "viewers": ["01451725613871", "641871342"],
+    "exclusiveForViewers": True,
+    "discoveryDays": 30,
+    "filters": {
+        "keyword": "半导体",
+    },
+    "digest": {
+        "enabled": True,
+        "sendHour": 7,
+        "sendMinute": 0,
+        "recipients": ["01451725613871", "641871342"],
+    },
+}
+
+VEIN_CLOSURE_SYSTEM_VIEW = {
+    "id": "vein-closure-system",
     "label": "静脉腔闭合系统",
     "viewers": ["01451725613871", "641871342", "044923400223814768"],
     "exclusiveForViewers": True,
     "discoveryDays": 30,
     "filters": {
-        # 仅按日志模块中的成本归属项目筛选；不使用工作模块、半导体或项目编号。
+        # 仅按日志模块中的成本归属项目筛选。
         "costProjectContains": "静脉腔",
     },
     "digest": {
         "enabled": True,
         "sendHour": 7,
         "sendMinute": 0,
-        # 曹一挥保留原有的合并早报；席东星只接收本项目卡片。
-        "recipients": ["01451725613871", "044923400223814768"],
+        "recipients": ["641871342", "044923400223814768"],
     },
 }
 
@@ -81,11 +97,12 @@ def main() -> None:
         print(f"org not found: {ORG_LABEL}", file=sys.stderr)
         sys.exit(1)
     views = list(org.get("projectViews") or [])
-    idx = next((i for i, v in enumerate(views) if v.get("id") == VIEW["id"]), -1)
-    if idx >= 0:
-        views[idx] = VIEW
-    else:
-        views.append(VIEW)
+    for view in (SEMICONDUCTOR_VIEW, VEIN_CLOSURE_SYSTEM_VIEW):
+        idx = next((i for i, v in enumerate(views) if v.get("id") == view["id"]), -1)
+        if idx >= 0:
+            views[idx] = view
+        else:
+            views.append(view)
     org["projectViews"] = views
     # 与 mingsibot 微光 org 对齐：勿默认 templateName=日报（会导致 report/list 40035）
     fb = Path(FALLBACK)
@@ -97,7 +114,10 @@ def main() -> None:
     path = Path(CONFIG_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"[ok] managebot config {CONFIG_PATH}: projectViews patched → {VIEW['id']}")
+    print(
+        f"[ok] managebot config {CONFIG_PATH}: restored {SEMICONDUCTOR_VIEW['id']} "
+        f"and added {VEIN_CLOSURE_SYSTEM_VIEW['id']}"
+    )
 
 
 if __name__ == "__main__":
