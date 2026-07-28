@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 
 import { isCompetencyEvalUser } from "../agent/competency-eval/competency-eval-access";
 import { isCompetencyEvalEnabled } from "../agent/competency-eval/competency-eval-flag";
@@ -91,11 +91,26 @@ export async function saveJobReq(input: {
   filename: string;
   buffer: Buffer;
 }): Promise<{ ok: true; meta: JobReqMeta } | { ok: false; reason: string; message: string }> {
+  const filename = input.filename.trim() || "upload.md";
+  if (extname(filename).toLowerCase() !== ".md") {
+    return {
+      ok: false,
+      reason: "unsupported_file_type",
+      message: "岗位要求仅支持 Markdown（.md）文件。",
+    };
+  }
+  const content = input.buffer.toString("utf8");
+  if (!content.trim()) {
+    return {
+      ok: false,
+      reason: "empty_file",
+      message: "上传的 Markdown 文件内容为空。",
+    };
+  }
   const root = userJobReqsRoot(input.userId);
   if (!root) return { ok: false, reason: "invalid_user", message: "无效的用户标识。" };
   const jobReqId = randomUUID();
   const uploadedAt = new Date().toISOString();
-  const filename = input.filename.trim() || "upload.md";
   const dir = join(root, jobReqId);
   try {
     mkdirSync(dir, { recursive: true });
@@ -107,7 +122,7 @@ export async function saveJobReq(input: {
   const tmpSource = join(dir, `source.md.tmp-${pid}`);
   const tmpMeta = join(dir, `meta.json.tmp-${pid}`);
   try {
-    writeFileSync(tmpSource, input.buffer.toString("utf8"), "utf8");
+    writeFileSync(tmpSource, content, "utf8");
     writeFileSync(tmpMeta, `${JSON.stringify(meta, null, 2)}\n`, "utf8");
     renameSync(tmpSource, join(dir, "source.md"));
     renameSync(tmpMeta, join(dir, "meta.json"));

@@ -70,7 +70,9 @@ import {
   type PerformanceScope,
 } from "./performance-tools";
 import {
+  ANALYZE_EMPLOYEE_LOG_HOURS_TOOL,
   GET_EMPLOYEE_DAILY_REPORTS_TOOL,
+  buildAnalyzeEmployeeLogHoursHandler,
   buildGetEmployeeDailyReportsHandler,
 } from "./competency-eval-tools";
 import {
@@ -197,6 +199,7 @@ export type ToolProfile =
 
 export const KNOWN_TOOL_NAMES = [
   "search_employees",
+  "analyze_employee_log_hours",
   "get_employee_details",
   "read_uploaded_roster_text",
   "resolve_roster_names",
@@ -632,6 +635,10 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
       definition: GET_EMPLOYEE_DAILY_REPORTS_TOOL,
       handler: buildGetEmployeeDailyReportsHandler({ actorUserId: competencyEvalActor }),
     };
+    all.analyze_employee_log_hours = {
+      definition: ANALYZE_EMPLOYEE_LOG_HOURS_TOOL,
+      handler: buildAnalyzeEmployeeLogHoursHandler({ actorUserId: competencyEvalActor }),
+    };
   }
 
   // Never trust actor identity from model arguments.
@@ -751,6 +758,7 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Record<string, ToolRe
     // 隔离的能力评估 Agent：日报证据 + 查人 + 时间，无任务操作。
     competency_eval: [
       "get_employee_daily_reports",
+      "analyze_employee_log_hours",
       "search_employees",
       "get_current_time",
     ],

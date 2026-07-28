@@ -1,15 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
 
 import { parseDailyReportDigestConfig } from "../../../src/agent/daily-report-digest/daily-report-config";
-import { addProjectViewRosterMember, createProjectViewRosterStore } from "../../../src/agent/daily-report-digest/daily-report-project-view-roster-store";
-import {
-  findOrgsForEvalUser,
-  isUserInEvalRoster,
-  loadEvalRosterUserIds,
-} from "../../../src/agent/competency-eval/eval-roster";
+import type {
+  ContactCandidate,
+  DingTalkContactDirectory,
+} from "../../../src/agent/daily-report-digest/dingtalk-contact-search";
+import { findOrgsForEvalUser } from "../../../src/agent/competency-eval/eval-roster";
 
 const MOCK_CONFIG = parseDailyReportDigestConfig({
   orgs: [
@@ -26,91 +22,57 @@ const MOCK_CONFIG = parseDailyReportDigestConfig({
       label: "微光",
       appKey: "ak2",
       appSecret: "as2",
-      employees: [{ userid: "u_c", name: "王五" }],
+      employees: [],
     },
   ],
 }).config;
 
-describe("eval-roster", () => {
-  let tmpDir = "";
-  let dbPath = "";
+function mockDirectory(
+  usersByAppKey: Record<string, ContactCandidate[]>,
+): DingTalkContactDirectory {
+  return {
+    search: vi.fn(async (appKey, _appSecret, query, limit = 30) =>
+      (usersByAppKey[appKey] ?? [])
+        .filter((user) => user.userid.includes(query) || user.name.includes(query))
+        .slice(0, limit)),
+    listAll: vi.fn(async (appKey, _appSecret, limit = 5000) =>
+      (usersByAppKey[appKey] ?? []).slice(0, limit)),
+    invalidate: vi.fn(),
+  };
+}
 
-  function useEmptyWorkbenchDb() {
-    tmpDir = mkdtempSync(join(tmpdir(), "eval-roster-"));
-    dbPath = join(tmpDir, "workbench.sqlite");
-    process.env.WORKBENCH_SQLITE_PATH = dbPath;
-  }
+describe("eval organisation access", () => {
+  it("keeps configured legacy employees available", async () => {
+    const directory = mockDirectory({});
+    const orgs = await findOrgsForEvalUser("u_a", MOCK_CONFIG, { directory });
 
-  function cleanupDb() {
-    delete process.env.WORKBENCH_SQLITE_PATH;
-    if (dbPath) {
-      rmSync(dbPath, { force: true });
-      rmSync(`${dbPath}-shm`, { force: true });
-      rmSync(`${dbPath}-wal`, { force: true });
-    }
-    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
-    tmpDir = "";
-    dbPath = "";
-  }
-
-  it("unions employees from all orgs", () => {
-    useEmptyWorkbenchDb();
-    try {
-      expect(loadEvalRosterUserIds(MOCK_CONFIG).sort()).toEqual(["u_a", "u_b", "u_c"]);
-    } finally {
-      cleanupDb();
-    }
+    expect(orgs.map((org) => org.label)).toEqual(["明思"]);
   });
 
-  it("isUserInEvalRoster checks membership", () => {
-    useEmptyWorkbenchDb();
-    try {
-      expect(isUserInEvalRoster("u_a", MOCK_CONFIG)).toBe(true);
-      expect(isUserInEvalRoster("u_c", MOCK_CONFIG)).toBe(true);
-      expect(isUserInEvalRoster("unknown", MOCK_CONFIG)).toBe(false);
-      expect(isUserInEvalRoster("", MOCK_CONFIG)).toBe(false);
-    } finally {
-      cleanupDb();
-    }
+  it("accepts a current organisation contact outside the historical project roster", async () => {
+    const directory = mockDirectory({
+      ak2: [{ userid: "u_current", name: "当前员工", departments: ["研发中心"] }],
+    });
+    const orgs = await findOrgsForEvalUser("u_current", MOCK_CONFIG, { directory });
+
+    expect(orgs.map((org) => org.label)).toEqual(["微光"]);
   });
 
-  it("includes project view roster members (managebot)", () => {
-    useEmptyWorkbenchDb();
-    const store = createProjectViewRosterStore(dbPath);
-    addProjectViewRosterMember(
-      "semiconductor-vein",
-      { userid: "pv_u1", name: "项目组员", source: "manual" },
-      store,
-    );
-    store.close();
+  it("requires an exact userid match", async () => {
+    const directory = mockDirectory({
+      ak2: [{ userid: "u_current_2", name: "当前员工", departments: ["研发中心"] }],
+    });
+    const orgs = await findOrgsForEvalUser("u_current", MOCK_CONFIG, { directory });
 
-    const cfg = parseDailyReportDigestConfig({
-    orgs: [
-      {
-        label: "微光",
-        appKey: "ak",
-        appSecret: "as",
-        employees: [],
-        projectViews: [
-          {
-            id: "semiconductor-vein",
-            label: "半导体激光·静脉项目",
-            viewers: ["01451725613871"],
-            filters: {
-              workModuleContains: "半导体激光",
-              costProjectContains: "静脉",
-            },
-          },
-        ],
-      },
-    ],
-  }).config;
+    expect(orgs).toEqual([]);
+  });
 
-    try {
-      expect(isUserInEvalRoster("pv_u1", cfg)).toBe(true);
-      expect(findOrgsForEvalUser("pv_u1", cfg).map((o) => o.label)).toEqual(["微光"]);
-    } finally {
-      cleanupDb();
-    }
+  it("surfaces directory failures when no configured organisation can be verified", async () => {
+    const directory = mockDirectory({});
+    vi.mocked(directory.search).mockRejectedValue(new Error("directory unavailable"));
+
+    await expect(
+      findOrgsForEvalUser("u_unknown", MOCK_CONFIG, { directory }),
+    ).rejects.toThrow("directory unavailable");
   });
 });

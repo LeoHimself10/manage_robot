@@ -5,8 +5,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
+  getJobReq,
+  listJobReqs,
   parseCompetencyEvalConversationHistory,
   isCompetencyEvalPageEnabled,
+  saveJobReq,
 } from "../../src/web/competency-eval-api";
 import { renderCompetencyEvalPage } from "../../src/web/competency-eval-page";
 import { COMPETENCY_EVAL_PAGE_CSS } from "../../src/web/competency-eval-page-styles";
@@ -105,6 +108,50 @@ describe("competency-eval api helpers", () => {
     expect(isCompetencyEvalPageEnabled()).toBe(true);
     vi.stubEnv("COMPETENCY_EVAL_ENABLED", "0");
     expect(isCompetencyEvalPageEnabled()).toBe(false);
+  });
+});
+
+describe("competency-eval job requirement upload", () => {
+  let tmpDir = "";
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "comp-eval-job-req-"));
+    vi.stubEnv("COMPETENCY_EVAL_DATA_DIR", tmpDir);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("accepts and preserves Markdown content", async () => {
+    const saved = await saveJobReq({
+      userId: "manager-1",
+      filename: "研发主管要求.md",
+      buffer: Buffer.from("# 评估标准\n关注交付和协作。", "utf8"),
+    });
+
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    expect(listJobReqs("manager-1")).toHaveLength(1);
+    const loaded = getJobReq("manager-1", saved.meta.jobReqId);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) expect(loaded.content).toContain("关注交付和协作");
+  });
+
+  it("rejects docx uploads", async () => {
+    const saved = await saveJobReq({
+      userId: "manager-1",
+      filename: "研发主管要求.docx",
+      buffer: Buffer.from("PK binary docx"),
+    });
+
+    expect(saved).toEqual({
+      ok: false,
+      reason: "unsupported_file_type",
+      message: "岗位要求仅支持 Markdown（.md）文件。",
+    });
+    expect(listJobReqs("manager-1")).toEqual([]);
   });
 });
 

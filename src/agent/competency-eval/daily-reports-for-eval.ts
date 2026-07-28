@@ -1,20 +1,21 @@
 import {
-  formatAttachmentSummary,
   formatFieldDisplayValue,
 } from "../daily-report-digest/daily-report-attachments";
 import { filterReportContentsWithBody } from "../daily-report-digest/daily-report-content-filter";
 import {
   loadDailyReportDigestConfig,
   type DailyReportDigestConfig,
+  type DailyReportOrgConfig,
 } from "../daily-report-digest/daily-report-config";
 import {
   createDingTalkReportClient,
   type DingTalkReportClient,
   type ReportEntry,
 } from "../daily-report-digest/dingtalk-report-client";
+import type { DingTalkContactDirectory } from "../daily-report-digest/dingtalk-contact-search";
 import { resolveDayRangeForYmd } from "../daily-report-digest/daily-report-window";
 import { formatDateInTz } from "../reminders/reminder-policy";
-import { findOrgsForEvalUser, isUserInEvalRoster } from "./eval-roster";
+import { findOrgsForEvalUser } from "./eval-roster";
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -24,9 +25,32 @@ export interface EvalReportItem {
   lines: string[];
 }
 
-export function getCompetencyEvalReportMaxChars(): number {
-  const n = Number(process.env.COMPETENCY_EVAL_REPORT_MAX_CHARS ?? 48000);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 48000;
+export interface EvalWorkHourItem {
+  date: string;
+  templateName: string;
+  slot: string;
+  hours: number;
+  project?: string;
+  workModule?: string;
+  taskType?: string;
+}
+
+export interface EvalWorkHourBreakdown {
+  label: string;
+  hours: number;
+  sharePct: number;
+}
+
+export interface EvalWorkHoursSummary {
+  totalHours: number;
+  reportCount: number;
+  coveredReportCount: number;
+  loggedItemCount: number;
+  unparsedHourFieldCount: number;
+  byProject: EvalWorkHourBreakdown[];
+  byWorkModule: EvalWorkHourBreakdown[];
+  byTaskType: EvalWorkHourBreakdown[];
+  items: EvalWorkHourItem[];
 }
 
 function ymdFromCreateTime(createTime: number, timezone: string): string {
@@ -44,51 +68,142 @@ function formatReportEntryLines(report: ReportEntry): string[] {
       lines.push(display);
     }
   }
-  if ((report.images?.length ?? 0) > 0) {
-    lines.push(`图片：${formatAttachmentSummary(report.images!)}`);
-  }
-  if (lines.length === 0) lines.push("（无内容）");
+  if (lines.length === 0) lines.push("（无文本内容）");
   return lines;
 }
 
-/** Pure formatter + truncator for eval LLM injection. */
+/** Preserve every text log entry for evaluation; no character-based truncation. */
 export function buildEvalReportLinesFromEntries(
   entries: ReportEntry[],
-  maxChars: number,
   timezone = "Asia/Shanghai",
-): { reports: EvalReportItem[]; truncated: boolean; totalChars: number } {
+): { reports: EvalReportItem[]; truncated: false; totalChars: number } {
   const sorted = [...entries].sort((a, b) => a.createTime - b.createTime);
   const reports: EvalReportItem[] = [];
   let totalChars = 0;
-  let truncated = false;
 
-  outer: for (const entry of sorted) {
+  for (const entry of sorted) {
     const lines = formatReportEntryLines(entry);
-    const item: EvalReportItem = {
+    reports.push({
       date: ymdFromCreateTime(entry.createTime, timezone),
       templateName: entry.templateName?.trim() || "日志",
-      lines: [],
-    };
-
-    for (const line of lines) {
-      if (totalChars + line.length > maxChars) {
-        const remaining = maxChars - totalChars;
-        if (remaining > 0) {
-          item.lines.push(line.slice(0, remaining));
-          totalChars += remaining;
-        }
-        truncated = true;
-        if (item.lines.length > 0) reports.push(item);
-        break outer;
-      }
-      item.lines.push(line);
-      totalChars += line.length;
-    }
-
-    if (item.lines.length > 0) reports.push(item);
+      lines,
+    });
+    totalChars += lines.reduce((sum, line) => sum + line.length, 0);
   }
 
-  return { reports, truncated, totalChars };
+  return { reports, truncated: false, totalChars };
+}
+
+const HOUR_FIELD_PREFIX = "工时统计";
+const WORK_MODULE_FIELD_PREFIX = "工作模块";
+const PROJECT_FIELD_PREFIX = "成本归属项目";
+const TASK_TYPE_FIELD_PREFIX = "任务类型";
+
+function fieldSlot(key: string, prefix: string): string | null {
+  const normalized = key.trim();
+  if (!normalized.startsWith(prefix)) return null;
+  return normalized.slice(prefix.length).trim() || "默认";
+}
+
+function parseHours(raw: string): number | null {
+  const normalized = raw.trim().replaceAll("，", ".");
+  const matched = normalized.match(/\d+(?:\.\d+)?/);
+  if (!matched) return null;
+  const hours = Number(matched[0]);
+  return Number.isFinite(hours) && hours >= 0 ? hours : null;
+}
+
+function roundHours(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function buildBreakdown(
+  items: EvalWorkHourItem[],
+  totalHours: number,
+  labelOf: (item: EvalWorkHourItem) => string,
+): EvalWorkHourBreakdown[] {
+  const totals = new Map<string, number>();
+  for (const item of items) {
+    const label = labelOf(item).trim();
+    totals.set(label, (totals.get(label) ?? 0) + item.hours);
+  }
+  return [...totals.entries()]
+    .map(([label, hours]) => ({
+      label,
+      hours: roundHours(hours),
+      sharePct: totalHours > 0 ? Math.round((hours / totalHours) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.hours - a.hours || a.label.localeCompare(b.label, "zh-Hans-CN"));
+}
+
+/** Deterministic work-hour aggregation; the LLM explains these numbers but never guesses them. */
+export function buildEvalWorkHoursSummary(
+  entries: ReportEntry[],
+  timezone = "Asia/Shanghai",
+): EvalWorkHoursSummary {
+  const items: EvalWorkHourItem[] = [];
+  let coveredReportCount = 0;
+  let unparsedHourFieldCount = 0;
+
+  for (const entry of entries) {
+    const fieldsBySlot = new Map<string, {
+      project?: string;
+      workModule?: string;
+      taskType?: string;
+    }>();
+    const hourFields: Array<{ slot: string; raw: string }> = [];
+
+    for (const field of entry.contents) {
+      const key = field.key.trim();
+      const display = formatFieldDisplayValue(field).trim();
+      const hourSlot = fieldSlot(key, HOUR_FIELD_PREFIX);
+      if (hourSlot) {
+        hourFields.push({ slot: hourSlot, raw: display });
+        continue;
+      }
+      const workModuleSlot = fieldSlot(key, WORK_MODULE_FIELD_PREFIX);
+      const projectSlot = fieldSlot(key, PROJECT_FIELD_PREFIX);
+      const taskTypeSlot = fieldSlot(key, TASK_TYPE_FIELD_PREFIX);
+      const slot = workModuleSlot ?? projectSlot ?? taskTypeSlot;
+      if (!slot || !display) continue;
+      const grouped = fieldsBySlot.get(slot) ?? {};
+      if (workModuleSlot) grouped.workModule = display;
+      if (projectSlot) grouped.project = display;
+      if (taskTypeSlot) grouped.taskType = display;
+      fieldsBySlot.set(slot, grouped);
+    }
+
+    let reportCovered = false;
+    for (const hourField of hourFields) {
+      const hours = parseHours(hourField.raw);
+      if (hours == null) {
+        if (hourField.raw) unparsedHourFieldCount += 1;
+        continue;
+      }
+      reportCovered = true;
+      items.push({
+        date: ymdFromCreateTime(entry.createTime, timezone),
+        templateName: entry.templateName?.trim() || "日志",
+        slot: hourField.slot,
+        hours: roundHours(hours),
+        ...fieldsBySlot.get(hourField.slot),
+      });
+    }
+    if (reportCovered) coveredReportCount += 1;
+  }
+
+  const totalHours = roundHours(items.reduce((sum, item) => sum + item.hours, 0));
+  return {
+    totalHours,
+    reportCount: entries.length,
+    coveredReportCount,
+    loggedItemCount: items.length,
+    unparsedHourFieldCount,
+    byProject: buildBreakdown(items, totalHours, (item) => item.project ?? "未填写项目"),
+    byWorkModule: buildBreakdown(items, totalHours, (item) => item.workModule ?? "未填写工作模块"),
+    byTaskType: buildBreakdown(items, totalHours, (item) => item.taskType ?? "未填写任务类型"),
+    items,
+  };
 }
 
 function dedupeReportEntries(entries: ReportEntry[]): ReportEntry[] {
@@ -110,24 +225,23 @@ export async function fetchEmployeeDailyReportsForEval(
   deps?: {
     config?: DailyReportDigestConfig;
     reportClient?: DingTalkReportClient;
+    contactDirectory?: DingTalkContactDirectory;
     fetchImpl?: typeof fetch;
   },
 ): Promise<
-  | { ok: true; reports: EvalReportItem[]; truncated: boolean; totalChars: number }
+  | {
+      ok: true;
+      reports: EvalReportItem[];
+      workHours: EvalWorkHoursSummary;
+      truncated: false;
+      totalChars: number;
+    }
   | { ok: false; reason: string; message: string }
 > {
   const userId = String(input.userId ?? "").trim();
   const startYmd = String(input.startYmd ?? "").trim();
   const endYmd = String(input.endYmd ?? "").trim();
   const config = deps?.config ?? loadDailyReportDigestConfig().config;
-
-  if (!isUserInEvalRoster(userId, config)) {
-    return {
-      ok: false,
-      reason: "not_in_eval_roster",
-      message: "该员工不在可评估日报名单内",
-    };
-  }
 
   if (!YMD_RE.test(startYmd) || !YMD_RE.test(endYmd)) {
     return {
@@ -137,12 +251,23 @@ export async function fetchEmployeeDailyReportsForEval(
     };
   }
 
-  const matchingOrgs = findOrgsForEvalUser(userId, config);
+  let matchingOrgs: DailyReportOrgConfig[];
+  try {
+    matchingOrgs = await findOrgsForEvalUser(userId, config, {
+      directory: deps?.contactDirectory,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      reason: "directory_lookup_failed",
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
   if (matchingOrgs.length === 0) {
     return {
       ok: false,
-      reason: "not_in_eval_roster",
-      message: "该员工不在可评估日报名单内",
+      reason: "not_in_configured_org",
+      message: "未在已配置的钉钉组织通讯录中找到该员工",
     };
   }
 
@@ -186,12 +311,11 @@ export async function fetchEmployeeDailyReportsForEval(
   }
 
   const merged = dedupeReportEntries(allEntries);
-  const maxChars = getCompetencyEvalReportMaxChars();
   const { reports, truncated, totalChars } = buildEvalReportLinesFromEntries(
     merged,
-    maxChars,
     timezone,
   );
+  const workHours = buildEvalWorkHoursSummary(merged, timezone);
 
-  return { ok: true, reports, truncated, totalChars };
+  return { ok: true, reports, workHours, truncated, totalChars };
 }

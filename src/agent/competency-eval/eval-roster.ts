@@ -3,90 +3,66 @@ import {
   type DailyReportDigestConfig,
   type DailyReportOrgConfig,
 } from "../daily-report-digest/daily-report-config";
-import { parseProjectViewConfig } from "../daily-report-digest/daily-report-project-views";
 import {
-  createProjectViewRosterStore,
-  listProjectViewRoster,
-} from "../daily-report-digest/daily-report-project-view-roster-store";
+  createDingTalkContactDirectory,
+  type DingTalkContactDirectory,
+} from "../daily-report-digest/dingtalk-contact-search";
+
+const defaultEvalContactDirectory = createDingTalkContactDirectory();
 
 function resolveConfig(config?: DailyReportDigestConfig): DailyReportDigestConfig {
   return config ?? loadDailyReportDigestConfig().config;
 }
 
-function loadDigestEmployeeUserIds(config: DailyReportDigestConfig): string[] {
-  const ids = new Set<string>();
-  for (const org of config.orgs) {
-    for (const emp of org.employees) {
-      const userid = String(emp.userid ?? "").trim();
-      if (userid) ids.add(userid);
-    }
-  }
-  return [...ids];
-}
-
-/** managebot 项目组视图名单（SQLite roster，与 legacy org.employees 互补）。 */
-export function loadProjectViewRosterUserIds(): string[] {
-  const store = createProjectViewRosterStore();
-  try {
-    const rows = store.db
-      .prepare("SELECT DISTINCT user_id FROM daily_report_project_view_roster")
-      .all() as Array<{ user_id: string }>;
-    return rows.map((r) => String(r.user_id ?? "").trim()).filter(Boolean);
-  } finally {
-    store.close();
-  }
+function isConfiguredEmployee(org: DailyReportOrgConfig, userId: string): boolean {
+  return org.employees.some((employee) => String(employee.userid ?? "").trim() === userId);
 }
 
 /**
- * 可评估名单：digest `org.employees` ∪ 全部 projectView roster。
- * managebot 侧通常只有后者（employees 为空）。
+ * Resolve the configured DingTalk organisations that contain the employee.
+ *
+ * Competency evaluation used to depend on the historical project-view roster.
+ * The daily-report pipeline now scans the organisation directory, so evaluation
+ * must use that same current source of truth instead of a manually discovered list.
  */
-export function loadEvalRosterUserIds(config?: DailyReportDigestConfig): string[] {
-  const cfg = resolveConfig(config);
-  const ids = new Set<string>(loadDigestEmployeeUserIds(cfg));
-  for (const uid of loadProjectViewRosterUserIds()) ids.add(uid);
-  return [...ids];
-}
-
-export function isUserInEvalRoster(userId: string, config?: DailyReportDigestConfig): boolean {
-  const id = String(userId ?? "").trim();
-  if (!id) return false;
-  return loadEvalRosterUserIds(config).includes(id);
-}
-
-/** 为拉日报解析钉钉 org 凭证：employees 命中或 projectView roster 命中。 */
-export function findOrgsForEvalUser(
+export async function findOrgsForEvalUser(
   userId: string,
   config?: DailyReportDigestConfig,
-): DailyReportOrgConfig[] {
+  deps?: { directory?: DingTalkContactDirectory },
+): Promise<DailyReportOrgConfig[]> {
   const cfg = resolveConfig(config);
   const id = String(userId ?? "").trim();
   if (!id) return [];
 
-  const fromEmployees = cfg.orgs.filter((org) =>
-    org.employees.some((emp) => emp.userid === id),
-  );
-  if (fromEmployees.length > 0) return fromEmployees;
+  const directMatches = cfg.orgs.filter((org) => isConfiguredEmployee(org, id));
+  const directLabels = new Set(directMatches.map((org) => org.label));
+  const directory = deps?.directory ?? defaultEvalContactDirectory;
 
-  const views: Array<{ id: string; orgLabel: string }> = [];
-  for (const org of cfg.orgs) {
-    for (const raw of org.projectViews ?? []) {
-      const parsed = parseProjectViewConfig(raw, org.label);
-      if (parsed) views.push({ id: parsed.id, orgLabel: org.label });
-    }
+  const lookups = await Promise.allSettled(
+    cfg.orgs
+      .filter((org) => !directLabels.has(org.label))
+      .map(async (org) => {
+        if (!org.appKey?.trim() || !org.appSecret?.trim()) return undefined;
+        const candidates = await directory.search(org.appKey, org.appSecret, id, 10);
+        return candidates.some((candidate) => candidate.userid.trim() === id)
+          ? org
+          : undefined;
+      }),
+  );
+
+  const directoryMatches = lookups.flatMap((result) =>
+    result.status === "fulfilled" && result.value ? [result.value] : [],
+  );
+  const matches = [...directMatches, ...directoryMatches];
+  if (matches.length > 0) return matches;
+
+  const firstFailure = lookups.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (firstFailure) {
+    throw firstFailure.reason instanceof Error
+      ? firstFailure.reason
+      : new Error(String(firstFailure.reason));
   }
-  const store = createProjectViewRosterStore();
-  try {
-    const orgLabels = new Set<string>();
-    for (const view of views) {
-      const members = listProjectViewRoster(view.id, store);
-      if (members.some((m) => m.userid === id)) {
-        orgLabels.add(view.orgLabel);
-      }
-    }
-    if (orgLabels.size === 0) return [];
-    return cfg.orgs.filter((org) => orgLabels.has(org.label));
-  } finally {
-    store.close();
-  }
+  return [];
 }
