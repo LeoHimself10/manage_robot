@@ -54,7 +54,14 @@ function railLink(
   navId: WorkbenchNavId,
   activeNav: WorkbenchNavId,
   role: WorkbenchShellRole,
-  opts?: { badge?: string; badgeTone?: "blue" | "green" | "amber"; hidden?: boolean; id?: string },
+  opts?: {
+    badge?: string;
+    badgeTone?: "blue" | "green" | "amber";
+    hidden?: boolean;
+    id?: string;
+    switchView?: WorkbenchShellRole;
+    redirectTo?: string;
+  },
 ): string {
   const on = activeNav === navId;
   const cls = [
@@ -71,7 +78,10 @@ function railLink(
       : "";
   const hidden = opts?.hidden ? " hidden" : "";
   const idAttr = opts?.id ? ` id="${escapeHtml(opts.id)}"` : "";
-  return `<a class="${cls}" href="${href}" data-wb-nav="${navId}"${idAttr}${hidden}>${escapeHtml(label)}${badge}</a>`;
+  const viewAttr = opts?.switchView
+    ? ` data-wb-view="${escapeHtml(opts.switchView)}" data-wb-redirect="${escapeHtml(opts.redirectTo ?? href)}"`
+    : "";
+  return `<a class="${cls}" href="${href}" data-wb-nav="${navId}"${idAttr}${viewAttr}${hidden}>${escapeHtml(label)}${badge}</a>`;
 }
 
 function buildManagerRail(
@@ -128,7 +138,7 @@ function buildAdminRail(activeNav: WorkbenchNavId, competencyEvalEnabled = false
   ${railLink("/workbench/admin/ops", "运营看板", "adm-ops", activeNav, "admin")}
   ${railLink("/workbench/admin/performance", "交付绩效", "adm-perf", activeNav, "admin")}
   ${isDailyReportsPageEnabled() ? railLink("/workbench/admin/daily-reports", "日报汇总", "adm-daily-reports", activeNav, "admin") : ""}
-  ${competencyEvalEnabled ? railLink("/workbench/manager/competency-eval", "能力评估", "mgr-competency-eval", activeNav, "admin") : ""}
+  ${competencyEvalEnabled ? railLink("/workbench/manager/competency-eval", "能力评估", "mgr-competency-eval", activeNav, "admin", { switchView: "manager" }) : ""}
   ${railLink("/workbench/admin/permissions", "权限中心", "adm-perms", activeNav, "admin", { id: "navAdminPerms" })}
 </div>`;
 }

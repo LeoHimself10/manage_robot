@@ -234,6 +234,8 @@ describe("competency-eval page render", () => {
     });
     expect(html).toContain("能力评估");
     expect(html).toContain('href="/workbench/manager/competency-eval"');
+    expect(html).toContain('data-wb-view="manager"');
+    expect(html).toContain('data-wb-redirect="/workbench/manager/competency-eval"');
   });
 });
 
@@ -302,5 +304,44 @@ describe("competency-eval HTTP access", () => {
     expect(res.captured().statusCode).toBe(200);
     expect(res.captured().body).toContain('id="compEvalChatCard"');
     expect(res.captured().body).toContain("能力评估助手");
+  });
+
+  it("lets a dual-role admin switch to the competency eval manager page", async () => {
+    vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "641871342");
+    const loginReq = stubReq({
+      method: "POST",
+      url: "/api/workbench/login",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "641871342", role: "admin" }),
+    });
+    const loginRes = stubRes();
+    handleAssignmentHttp(loginReq, loginRes.res);
+    await flushAsync();
+    const adminCookie = String(loginRes.captured().headers["Set-Cookie"] ?? "");
+
+    const switchReq = stubReq({
+      method: "POST",
+      url: "/api/workbench/switch-view",
+      headers: {
+        cookie: adminCookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ view: "manager" }),
+    });
+    const switchRes = stubRes();
+    handleAssignmentHttp(switchReq, switchRes.res);
+    await flushAsync();
+    expect(switchRes.captured().statusCode).toBe(200);
+    const managerCookie = String(switchRes.captured().headers["Set-Cookie"] ?? "");
+
+    const pageReq = stubReq({
+      url: "/workbench/manager/competency-eval",
+      headers: { cookie: managerCookie },
+    });
+    const pageRes = stubRes();
+    handleAssignmentHttp(pageReq, pageRes.res);
+    await flushAsync();
+    expect(pageRes.captured().statusCode).toBe(200);
+    expect(pageRes.captured().body).toContain("能力评估助手");
   });
 });
