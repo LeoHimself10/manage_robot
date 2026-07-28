@@ -48,6 +48,27 @@ describe("filterReportEntryForView keyword mode", () => {
   });
 });
 
+describe("complete vein-closure project name", () => {
+  it("excludes the similarly named 2511 cost project", () => {
+    const mixed: ReportEntry = {
+      ...entry,
+      contents: [
+        ...block("①", "Y1b13 半导体激光", "2511—一次性使用静脉腔内射频闭合导管（RF-3-60、RF-7-60）中国"),
+        ...block("②", "Y1b13 半导体激光", "2517—静脉腔内闭合系统（RFL-I）中国"),
+      ],
+    };
+
+    const filtered = filterReportEntryForView(mixed, {
+      costProjectContains: "静脉腔内闭合系统",
+    });
+    expect(filtered.contents.map((field) => field.key)).toEqual([
+      "② 工作模块",
+      "② 成本归属项目",
+      "② 事项-结果",
+    ]);
+  });
+});
+
 describe("filterReportEntryForView cost-project-only mode", () => {
   it("keeps only the module whose cost project contains the project name", () => {
     expect(moduleBlockMatchesCostProjectFilter(entry.contents, "②", "静脉腔")).toBe(true);

@@ -170,6 +170,39 @@ describe("partitionReportEntry", () => {
   });
 });
 
+describe("cost-project-only partition precision", () => {
+  it("does not route the similarly named 2511 project into the vein-closure view", () => {
+    const costOnlyViews: typeof projectViews = [
+      {
+        id: "vein-closure-system",
+        label: "静脉腔闭合系统",
+        viewers: ["m1"],
+        orgLabel: "微光",
+        filters: { costProjectContains: "静脉腔内闭合系统" },
+      },
+      projectViews.find((view) => view.id === "others")!,
+    ];
+    const report: ReportEntry = {
+      creatorUserId: "u7",
+      creatorName: "精确筛选",
+      templateName: "研发中心日志（总结及计划）模板",
+      createTime: 1,
+      contents: [
+        ...block("①", "Y1b13 半导体激光", "2511—一次性使用静脉腔内射频闭合导管（RF-3-60、RF-7-60）中国"),
+        ...block("②", "Y1b13 半导体激光", "2517—静脉腔内闭合系统（RFL-I）中国"),
+      ],
+    };
+
+    const { byViewId } = partitionReportEntry(report, costOnlyViews);
+    const vein = byViewId.get("vein-closure-system")?.[0];
+    expect(vein?.contents.map((field) => field.key)).toEqual([
+      "工作模块②",
+      "成本归属项目②",
+      "事项-结果②",
+    ]);
+  });
+});
+
 describe("mergePartitionedReports", () => {
   it("counts each user once in pool despite multi-tab assignment", () => {
     const { byViewId } = partitionReportEntry(
