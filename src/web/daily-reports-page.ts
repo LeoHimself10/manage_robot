@@ -672,12 +672,10 @@ function buildDailyReportsClientJs(opts: {
         if(dateInput && data.date && !dateInput.value) dateInput.value = data.date;
         var tail = data.errorCount ? (' · 读取失败 '+data.errorCount) : '';
         var scanNote = data.scanning ? ' · <span class="drm-spin"></span> 正在扫描…' : '';
-        var poolN = data.poolCount != null ? data.poolCount : data.rosterCount;
-        var poolNote = (poolN != null && isCustomViewActive()) ? (' · 当日提交 '+poolN+' 人') : '';
         var partialNote = data.partialScan ? ' · 名册快扫（刷新=全量）' : '';
         var cacheNote = data.cacheScannedAt ? (' · 缓存 '+esc(fmtTime(Date.parse(data.cacheScannedAt)))) : '';
         if(data.customProjectView){
-          meta.innerHTML = (data.dateLabel||data.date||'')+' · '+esc(data.customProjectView.label)+' · 命中 '+(data.submittedCount||0)+' 人'+poolNote+partialNote+cacheNote+scanNote+tail;
+          meta.innerHTML = (data.dateLabel||data.date||'')+' · '+esc(data.customProjectView.label)+' · 命中 '+(data.submittedCount||0)+' 人'+partialNote+cacheNote+scanNote+tail;
           content.innerHTML = renderCustomProjectView(data.customProjectView);
           if(isCustomViewActive()) loadProjectViewRoster(false);
           return;

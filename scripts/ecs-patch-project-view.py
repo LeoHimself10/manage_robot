@@ -40,7 +40,7 @@ VEIN_CLOSURE_SYSTEM_VIEW = {
     "discoveryDays": 30,
     "filters": {
         # 仅按日志模块中的成本归属项目筛选。
-        "costProjectContains": "静脉腔",
+        "costProjectContains": "静脉腔内闭合系统",
     },
     "digest": {
         "enabled": True,

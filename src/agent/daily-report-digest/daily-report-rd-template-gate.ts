@@ -30,8 +30,7 @@ export function reportMatchesAnyProjectKeyword(
     if (isOthersProjectView(view)) continue;
     const hasFilter =
       view.filters.keyword?.trim()
-      || (view.filters.workModuleContains?.trim()
-        && view.filters.costProjectContains?.trim());
+      || view.filters.costProjectContains?.trim();
     if (!hasFilter) continue;
     const filtered = filterReportEntryForView(entry, view.filters);
     if (filtered.contents.length > 0) return true;

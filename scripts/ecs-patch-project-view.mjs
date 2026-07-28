@@ -50,7 +50,7 @@ const VEIN_CLOSURE_SYSTEM_VIEW = {
   exclusiveForViewers: true,
   discoveryDays: 30,
   filters: {
-    costProjectContains: "静脉腔",
+    costProjectContains: "静脉腔内闭合系统",
   },
   digest: {
     enabled: true,

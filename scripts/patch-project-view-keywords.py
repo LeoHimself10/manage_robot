@@ -10,7 +10,7 @@ VIEW_PATCH = {
     "laser-shockwave": {"label": "冲击波", "keyword": "冲击波"},
     "large-vessel-plaque": {"label": "斑块减容", "keyword": "斑块减容"},
     "semiconductor-vein": {"label": "半导体", "keyword": "半导体"},
-    "vein-closure-system": {"label": "静脉腔闭合系统", "costProjectContains": "静脉腔"},
+    "vein-closure-system": {"label": "静脉腔闭合系统", "costProjectContains": "静脉腔内闭合系统"},
 }
 
 path = Path(sys.argv[1] if len(sys.argv) > 1 else "data/daily-report-digest.config.json")
