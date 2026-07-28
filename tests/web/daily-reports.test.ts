@@ -543,6 +543,47 @@ describe("daily-reports project view roster HTTP", () => {
     expect(denyRes.captured().statusCode).toBe(403);
   });
 
+  it("allows a manager to read and update the shared cross-company roster", async () => {
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "shared-roster-manager");
+    const managerCookie = await loginDailyReportsUser("shared-roster-manager", "manager");
+
+    const getReq = stubReq({
+      url: "/api/workbench/daily-reports/roster",
+      headers: { cookie: managerCookie },
+    });
+    const getRes = stubRes();
+    handleAssignmentHttp(getReq, getRes.res);
+    await flushAsync();
+    expect(getRes.captured().statusCode).toBe(200);
+    expect(JSON.parse(getRes.captured().body).orgs).toHaveLength(1);
+
+    const postReq = stubReq({
+      method: "POST",
+      url: "/api/workbench/daily-reports/roster",
+      headers: { cookie: managerCookie, "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "remove",
+        org: CONFIG_WITH_CUSTOM_VIEW.orgs[0]!.label,
+        userid: "placeholder",
+      }),
+    });
+    const postRes = stubRes();
+    handleAssignmentHttp(postReq, postRes.res);
+    await flushAsync();
+    expect(postRes.captured().statusCode).toBe(200);
+    expect(JSON.parse(postRes.captured().body).orgs[0].employees).toEqual([]);
+
+    const employeeCookie = await loginDailyReportsUser("shared-roster-employee", "employee");
+    const deniedReq = stubReq({
+      url: "/api/workbench/daily-reports/roster",
+      headers: { cookie: employeeCookie },
+    });
+    const deniedRes = stubRes();
+    handleAssignmentHttp(deniedReq, deniedRes.res);
+    await flushAsync();
+    expect(deniedRes.captured().statusCode).toBe(403);
+  });
+
   it("passes refresh=1 to data API", async () => {
     const cookie = await loginDailyReportsUser("viewer1", "employee");
     const req = stubReq({
@@ -598,7 +639,7 @@ describe("daily-reports-page render", () => {
     expect(html).toContain("/project-views/");
   });
 
-  it("shows roster controls only for admin-capable users", () => {
+  it("shows shared roster controls for managers and admins, but not employees", () => {
     process.env.DAILY_REPORTS_PAGE_ENABLED = "1";
     const adminHtml = renderDailyReportsPage({
       role: "admin",
@@ -609,6 +650,7 @@ describe("daily-reports-page render", () => {
     const mgrHtml = renderDailyReportsPage({
       role: "manager",
       activeNav: "mgr-daily-reports",
+      canManageRoster: true,
       canManageProjectGroups: true,
     });
     const empHtml = renderDailyReportsPage({
@@ -619,7 +661,7 @@ describe("daily-reports-page render", () => {
     });
     expect(adminHtml).toContain('id="drmToggle"');
     expect(adminHtml).toContain('id="dpgToggle"');
-    expect(mgrHtml).not.toContain('id="drmToggle"');
+    expect(mgrHtml).toContain('id="drmToggle"');
     expect(mgrHtml).toContain('id="dpgToggle"');
     expect(empHtml).not.toContain('id="drmToggle"');
     expect(empHtml).not.toContain('id="dpgToggle"');

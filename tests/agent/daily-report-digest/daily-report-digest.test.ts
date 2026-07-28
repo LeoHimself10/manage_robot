@@ -480,4 +480,25 @@ describe("daily-report-scheduler", () => {
     await scheduler.runScan(new Date("2026-06-09T01:30:00Z")); // 09:30, off-window
     expect(sent).toHaveLength(0);
   });
+
+  it("reloads configuration before each scan so roster edits do not require a restart", async () => {
+    const enabledConfig: DailyReportDigestConfig = {
+      ...parseDailyReportDigestConfig(VALID_CONFIG).config,
+      enabled: true,
+    };
+    const disabledConfig: DailyReportDigestConfig = { ...enabledConfig, enabled: false };
+    let currentConfig = enabledConfig;
+    const sent: number[] = [];
+    const { fetchImpl } = makeFakeFetch({ reportsByUserid: {}, onSend: () => sent.push(1) });
+    const scheduler = createDailyReportDigestScheduler({
+      loadConfig: () => currentConfig,
+      stateStore: { isSent: () => false, markSent: () => undefined },
+      fetchImpl,
+    });
+
+    currentConfig = disabledConfig;
+    await scheduler.runScan(new Date("2026-06-08T23:00:00Z")); // 07:00 CST Tue
+
+    expect(sent).toHaveLength(0);
+  });
 });

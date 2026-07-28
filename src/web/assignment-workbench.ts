@@ -2994,15 +2994,19 @@ function requireDailyReportsViewSession(
   return session;
 }
 
-/** 日报名单管理：仅 admin（WORKBENCH_ADMIN_USER_IDS）可增删 / 搜人。 */
-function requireDailyReportsAdminSession(
+/**
+ * 跨企业日报共享名单：主管与管理员均可增删、搜人。
+ * 这份名单同时决定工作台汇总与下一次群早报的统计范围。
+ */
+function requireDailyReportsRosterManageSession(
   req: IncomingMessage,
   res: ServerResponse,
 ): WorkbenchSession | undefined {
   const session = requireDailyReportsViewSession(req, res);
   if (!session) return undefined;
-  if (!resolveWorkbenchCapabilities(session.userId).canAccessAdmin) {
-    writeJson(res, 403, { ok: false, error: "admin required" });
+  const caps = resolveWorkbenchCapabilities(session.userId);
+  if (!caps.canManage && !caps.canAccessAdmin) {
+    writeJson(res, 403, { ok: false, error: "manager or admin required" });
     return undefined;
   }
   return session;
@@ -3034,7 +3038,7 @@ function requireProjectViewRosterSession(
   return session;
 }
 
-/** 搜人：admin 或某 custom 视图 viewer（按组织）。 */
+/** 搜人：主管 / 管理员可维护跨企业共享名单；custom 视图 viewer 保留原有按组织权限。 */
 function requireDailyReportsContactsSession(
   req: IncomingMessage,
   res: ServerResponse,
@@ -3043,7 +3047,7 @@ function requireDailyReportsContactsSession(
   const session = requireDailyReportsViewSession(req, res);
   if (!session) return undefined;
   const caps = resolveWorkbenchCapabilities(session.userId);
-  if (caps.canAccessAdmin) return session;
+  if (caps.canAccessAdmin || caps.canManage) return session;
   const { config, errors } = loadDailyReportDigestConfig();
   if (errors.length > 0) {
     writeJson(res, 503, { ok: false, error: `日报配置无效：${errors.join("；")}` });
@@ -3098,7 +3102,7 @@ function renderDailyReportsWorkbenchPage(params: {
     portfolioEnabled: params.portfolioEnabled,
     initialDate: params.initialDate,
     initialView: params.initialView ?? "project",
-    canManageRoster: caps.canAccessAdmin && hasLegacyDailyReports,
+    canManageRoster: (caps.canManage || caps.canAccessAdmin) && hasLegacyDailyReports,
     canManageProjectGroups: (caps.canManage || caps.canAccessAdmin) && hasLegacyDailyReports,
     canExecuteAsManager: caps.canExecuteAsManager,
   });
@@ -4077,7 +4081,7 @@ export function handleAssignmentHttp(
   }
 
   if (isGetOrHead && isDailyReportsRosterApiPath(url.pathname)) {
-    const session = requireDailyReportsAdminSession(req, res);
+    const session = requireDailyReportsRosterManageSession(req, res);
     if (!session) return true;
     try {
       writeJson(res, 200, { ok: true, ...getRosterView() });
@@ -4091,7 +4095,7 @@ export function handleAssignmentHttp(
   }
 
   if (req.method === "POST" && isDailyReportsRosterApiPath(url.pathname)) {
-    const session = requireDailyReportsAdminSession(req, res);
+    const session = requireDailyReportsRosterManageSession(req, res);
     if (!session) return true;
     void (async () => {
       try {

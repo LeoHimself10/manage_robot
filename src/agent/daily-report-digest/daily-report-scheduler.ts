@@ -47,25 +47,34 @@ function createFileStateStore(stateDir: string): DailyReportStateStore {
 
 export function createDailyReportDigestScheduler(deps?: {
   config?: DailyReportDigestConfig;
+  /**
+   * 仅供测试或需要动态配置来源的调用方注入。生产默认每次扫描均从配置文件重读，
+   * 让工作台名单变更在下一次群早报自动生效，无需重启机器人。
+   */
+  loadConfig?: () => DailyReportDigestConfig;
   stateStore?: DailyReportStateStore;
   fetchImpl?: typeof fetch;
 }) {
-  const config = deps?.config ?? loadDailyReportDigestConfig().config;
+  const staticConfig = deps?.config;
+  const loadConfig = () => staticConfig ?? deps?.loadConfig?.() ?? loadDailyReportDigestConfig().config;
+  const config = loadConfig();
   const stateStore = deps?.stateStore ?? createFileStateStore(config.stateDir);
   let timer: NodeJS.Timeout | undefined;
   let scanning = false;
 
   async function runScan(now: Date = new Date()): Promise<void> {
     if (scanning) return;
-    if (!config.enabled) return;
-    if (!isDailyReportSendWindow(now, config)) return;
+    // 名单由工作台直接写入配置文件；每次扫描前重读，避免群早报继续使用进程启动时的旧名单。
+    const currentConfig = loadConfig();
+    if (!currentConfig.enabled) return;
+    if (!isDailyReportSendWindow(now, currentConfig)) return;
 
-    const range = resolveReportRange(now, config.timezone);
+    const range = resolveReportRange(now, currentConfig.timezone);
     if (stateStore.isSent(range.labelYmd)) return;
 
     scanning = true;
     try {
-      const result = await runDailyReportDigest(config, {
+      const result = await runDailyReportDigest(currentConfig, {
         fetchImpl: deps?.fetchImpl,
         now,
       });
