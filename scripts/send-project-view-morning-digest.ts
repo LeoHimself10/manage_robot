@@ -84,7 +84,7 @@ async function main(): Promise<void> {
             viewLabel: ctx.view.label,
             date: range.labelYmd,
             toUserId,
-            rosterCount: ctx.rosterCount,
+            relatedPeopleCount: payload.rosterCount,
             submittedCount: payload.submittedCount,
             fromCache: ctx.fromCache,
             errorCount: ctx.orgDigest.errors.length,

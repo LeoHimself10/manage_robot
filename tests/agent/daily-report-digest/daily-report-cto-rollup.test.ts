@@ -245,6 +245,48 @@ describe("groupProjectViewDigestPlansByUser", () => {
     expect(grouped.get("u1")).toHaveLength(2);
     expect(grouped.get("u2")).toHaveLength(1);
   });
+
+  it("keeps semiconductor with Cao and gives Yao the two requested project cards", () => {
+    process.env.DAILY_REPORT_PROJECT_VIEWS_ENABLED = "1";
+    const cao = "01451725613871";
+    const yao = "641871342";
+    const xi = "044923400223814768";
+    const config = parseDailyReportDigestConfig({
+      timezone: "Asia/Shanghai",
+      orgs: [
+        {
+          label: "微光",
+          appKey: "k",
+          appSecret: "s",
+          employees: [],
+          projectViews: [
+            {
+              id: "semiconductor-vein",
+              label: "半导体",
+              viewers: [cao, yao],
+              filters: { keyword: "半导体" },
+              digest: { enabled: true, recipients: [cao, yao] },
+            },
+            {
+              id: "vein-closure-system",
+              label: "静脉腔闭合系统",
+              viewers: [cao, yao, xi],
+              filters: { costProjectContains: "静脉腔" },
+              digest: { enabled: true, recipients: [yao, xi] },
+            },
+          ],
+        },
+      ],
+    }).config;
+
+    const grouped = groupProjectViewDigestPlansByUser(config);
+    expect(grouped.get(cao)?.map((plan) => plan.view.id)).toEqual(["semiconductor-vein"]);
+    expect(grouped.get(yao)?.map((plan) => plan.view.id)).toEqual([
+      "semiconductor-vein",
+      "vein-closure-system",
+    ]);
+    expect(grouped.get(xi)?.map((plan) => plan.view.id)).toEqual(["vein-closure-system"]);
+  });
 });
 
 describe("sanitizeCtoRollupOverviewLine", () => {
