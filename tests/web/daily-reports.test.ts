@@ -23,6 +23,7 @@ import {
   mutateProjectViewRoster,
 } from "../../src/web/daily-reports-project-view-roster";
 import { loadDailyReportDigestConfig } from "../../src/agent/daily-report-digest/daily-report-config";
+import * as unifiedCollect from "../../src/agent/daily-report-digest/daily-report-unified-day-collect";
 import {
   __resetWorkbenchStoresForTest,
   handleAssignmentHttp,
@@ -297,7 +298,7 @@ describe("daily-reports-api", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("collects custom view from roster and writes cache", async () => {
+  it("returns a roster fast scan without persisting it as the formal snapshot", async () => {
     writeFileSync(configPath, JSON.stringify(CONFIG_WITH_CUSTOM_VIEW), "utf8");
     const rosterStore = createProjectViewRosterStore();
     try {
@@ -336,20 +337,27 @@ describe("daily-reports-api", () => {
     expect(payload.scanning).toBe(false);
     expect(payload.rosterCount).toBe(1);
     expect(payload.submittedCount).toBe(1);
+    expect(payload.partialScan).toBe(true);
     expect(payload.cacheScannedAt).toBeTruthy();
     expect(payload.customProjectView?.orgs[0]!.submitted[0]!.reports[0]!.contents).toHaveLength(3);
 
     const cacheStore = createProjectViewCacheStore();
     try {
       const hit = getProjectViewCache("semiconductor-vein", "2026-06-08", cacheStore);
-      expect(hit?.payload.submitted).toHaveLength(1);
+      expect(hit).toBeNull();
     } finally {
       cacheStore.close();
     }
   });
 
   it("bypasses cache when refresh=true", async () => {
-    writeFileSync(configPath, JSON.stringify(CONFIG_WITH_CUSTOM_VIEW), "utf8");
+    writeFileSync(configPath, JSON.stringify({
+      ...CONFIG_WITH_CUSTOM_VIEW,
+      orgs: [{
+        ...CONFIG_WITH_CUSTOM_VIEW.orgs[0],
+        employees: [{ userid: "u_roster", name: "花名册" }],
+      }],
+    }), "utf8");
     const rosterStore = createProjectViewRosterStore();
     const cacheStore = createProjectViewCacheStore();
     try {
@@ -403,6 +411,30 @@ describe("daily-reports-api", () => {
         ],
       }),
     );
+    const collectSpy = vi.spyOn(unifiedCollect, "collectUnifiedDayForOrg").mockResolvedValue({
+      poolCount: 1,
+      scanContactCount: 1,
+      byViewId: new Map([["semiconductor-vein", {
+        label: "微光",
+        submitted: [{
+          userid: "u_roster",
+          name: "花名册",
+          reports: [{
+            creatorUserId: "u_roster",
+            creatorName: "花名册",
+            templateName: "日报",
+            createTime: 1,
+            contents: [
+              { key: "工作模块①", value: "半导体激光" },
+              { key: "成本归属项目①", value: "静脉腔内闭合系统" },
+              { key: "事项-结果①", value: "fresh work" },
+            ],
+          }],
+        }],
+        missing: [], onLeave: [], errors: [],
+      }]]),
+      errors: [],
+    });
     const payload = await buildDailyReportsHttpPayload({
       date: "2026-06-08",
       view: "custom:semiconductor-vein",
@@ -413,7 +445,14 @@ describe("daily-reports-api", () => {
 
     expect(payload.ok).toBe(true);
     expect(payload.customProjectView?.orgs[0]!.submitted[0]!.name).toBe("花名册");
-    expect(fetchImpl).toHaveBeenCalled();
+    expect(payload.partialScan).toBe(false);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(collectSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ scanMode: "full" }),
+    );
+    collectSpy.mockRestore();
   });
 });
 

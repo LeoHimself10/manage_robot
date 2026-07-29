@@ -224,7 +224,10 @@ export async function loadOrCollectUnifiedDay(params: {
       );
     }
 
-    if (projectViewCacheStore) {
+    // Roster fast scans are intentionally incomplete. They can be returned to
+    // the caller as a temporary preview, but must never replace the complete
+    // day snapshot used by the morning digest and workbench.
+    if (projectViewCacheStore && scanMode === "full") {
       syncProjectViewCachesFromPartition(dateYmd, result, projectViewCacheStore);
     }
 
