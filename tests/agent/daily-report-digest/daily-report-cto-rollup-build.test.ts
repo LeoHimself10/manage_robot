@@ -111,6 +111,11 @@ describe("buildCtoRollupDigestForDay", () => {
     });
 
     expect(unifiedCollect.collectUnifiedDayForOrg).toHaveBeenCalledTimes(1);
+    expect(unifiedCollect.collectUnifiedDayForOrg).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ scanMode: "full" }),
+    );
     expect(result.contexts).toHaveLength(2);
     expect(result.quality.ok).toBe(true);
   });

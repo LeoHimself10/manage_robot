@@ -88,6 +88,10 @@ export async function buildCtoRollupDigestForDay(params: {
       const unified = await loadOrCollectUnifiedDay({
         org,
         range: params.range,
+        // A sent digest must always be built from a complete org scan. If an
+        // operator has cleared the partition cache, never fall back to the
+        // workbench's roster-only fast scan.
+        scanMode: "full",
         partitionStore,
         projectViewCacheStore: cacheStore,
         ownsPartitionStore: false,

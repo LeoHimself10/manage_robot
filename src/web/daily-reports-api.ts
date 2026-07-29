@@ -371,7 +371,9 @@ export async function buildDailyReportsHttpPayload(input?: {
         org,
         range,
         refresh,
-        scanMode: "fast",
+        // Refresh means recompute the formal daily snapshot shown alongside
+        // the morning card, not a roster-only preview.
+        scanMode: refresh ? "full" : "fast",
         partitionStore,
         projectViewCacheStore: cacheStore,
         rosterStore,
