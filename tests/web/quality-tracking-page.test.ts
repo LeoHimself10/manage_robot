@@ -65,7 +65,7 @@ describe("renderQualityTrackingPage", () => {
       canReport: true,
     });
     const taxonomyJson = html.match(
-      /<script type="application\/json" id="qualityTaxonomyData">([\s\S]*?)<\/script>/,
+      /<template id="qualityTaxonomyData">([\s\S]*?)<\/template>/,
     )?.[1];
     expect(taxonomyJson).toBeTruthy();
     const taxonomy = JSON.parse(taxonomyJson!) as {
