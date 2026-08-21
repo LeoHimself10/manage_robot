@@ -75,7 +75,7 @@ export function renderQualityTrackingPage(params: {
     </section>
   </section>
 </main>
-<script type="application/json" id="qualityTaxonomyData">${inlineJson(HISTORICAL_FEEDBACK_TAXONOMY_V0)}</script>`,
+  <template id="qualityTaxonomyData">${inlineJson(HISTORICAL_FEEDBACK_TAXONOMY_V0)}</template>`,
     scriptHtml: `<script>${buildQualityTrackingClientScript(params.reviewSourceKey)}</script>`,
   });
 }
@@ -84,7 +84,8 @@ function buildQualityTrackingClientScript(reviewSourceKey?: string): string {
   return String.raw`(function () {
   var root = document.getElementById('qualityProcessingCenter');
   if (!root) return;
-  var taxonomy = JSON.parse(document.getElementById('qualityTaxonomyData').textContent || '{}');
+  var taxonomyNode = document.getElementById('qualityTaxonomyData');
+  var taxonomy = JSON.parse((taxonomyNode.content ? taxonomyNode.content.textContent : taxonomyNode.textContent) || '{}');
   var canReport = root.getAttribute('data-can-report') === '1';
   var initialSourceKey = ${inlineJson(reviewSourceKey ?? "")};
   var state = { listType: canReport ? 'feedback' : 'event', page: 1, pageSize: 25, rows: [], pagination: null, selectedType: '', selectedKey: '', activeStage: 'review', sourceWorkspace: null, eventDetail: null, aiResults: Object.create(null), aiStatuses: Object.create(null), assessment: { sourceKey: '', version: 0, adoptionMode: 'MANUAL', aiResult: null, applying: false } };
