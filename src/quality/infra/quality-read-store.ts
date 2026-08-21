@@ -2,6 +2,10 @@ import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
 import type { QualityEventRecord } from "../domain/quality-types";
+import {
+  qualityAssessmentCategoryDisplayName,
+  type QualityAssessmentCategoryMode,
+} from "../reviews/quality-source-assessment-service";
 
 type DatabaseRow = Record<string, unknown>;
 
@@ -90,22 +94,45 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
     } : null;
   }
 
-  function listSourceRows(input: { q?: string; page?: number; pageSize?: number; reported?: boolean }) {
+  function listSourceRows(input: {
+    q?: string;
+    page?: number;
+    pageSize?: number;
+    reported?: boolean;
+    reviewStatus?: "PENDING" | "REVIEWED" | "REPORTED";
+    riskLevel?: "LOW" | "MEDIUM" | "HIGH";
+  }) {
     const query = String(input.q ?? "").trim().toLocaleLowerCase("zh-CN");
     const page = positiveInt(input.page, 1, 1_000_000);
     const pageSize = positiveInt(input.pageSize, 50, 200);
     const rawRows = db.prepare(`
       SELECT r.*, e.id AS reported_event_id, e.event_no AS reported_event_no,
-             e.status AS reported_event_status
+             e.status AS reported_event_status,
+             a.handling_recommendation AS assessment_handling,
+             a.primary_category_code AS assessment_primary_code,
+             a.secondary_category_code AS assessment_secondary_code,
+             a.category_mode AS assessment_category_mode,
+             a.custom_primary_category_name AS assessment_custom_primary,
+             a.custom_secondary_category_name AS assessment_custom_secondary,
+             a.risk_level AS assessment_risk,
+             a.adoption_mode AS assessment_adoption_mode,
+             a.version AS assessment_version,
+             a.updated_at AS assessment_updated_at
       FROM quality_source_rows r
       LEFT JOIN quality_event_source_links l ON l.source_key = r.source_key
       LEFT JOIN quality_events e ON e.id = l.event_id AND e.deleted_at IS NULL
+      LEFT JOIN quality_source_assessments a ON a.source_key = r.source_key
       WHERE r.state <> 'DELETED'
       ORDER BY r.row_number DESC, r.source_key
     `).all() as DatabaseRow[];
     const filtered = rawRows.filter((row) => {
       if (input.reported === true && row.reported_event_id == null) return false;
       if (input.reported === false && row.reported_event_id != null) return false;
+      if (input.reviewStatus === "PENDING"
+        && (row.assessment_version != null || row.reported_event_id != null)) return false;
+      if (input.reviewStatus === "REVIEWED" && row.assessment_version == null) return false;
+      if (input.reviewStatus === "REPORTED" && row.reported_event_id == null) return false;
+      if (input.riskLevel && String(row.assessment_risk ?? "") !== input.riskLevel) return false;
       if (!query) return true;
       const normalized = parseObject(row.normalized_json);
       return [
@@ -121,6 +148,22 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
     return {
       rows: filtered.slice(start, start + pageSize).map((row) => {
         const normalized = parseObject(row.normalized_json);
+        const categoryMode = String(
+          row.assessment_category_mode ?? "STANDARD",
+        ) as QualityAssessmentCategoryMode;
+        const assessment = row.assessment_version == null ? null : {
+          handlingRecommendation: String(row.assessment_handling),
+          categoryMode,
+          isCustomCategory: categoryMode !== "STANDARD",
+          primaryCategoryCode: String(row.assessment_primary_code ?? "").trim() || null,
+          secondaryCategoryCode: String(row.assessment_secondary_code ?? "").trim() || null,
+          customPrimaryCategoryName: nullableString(row.assessment_custom_primary),
+          customSecondaryCategoryName: nullableString(row.assessment_custom_secondary),
+          riskLevel: String(row.assessment_risk),
+          adoptionMode: String(row.assessment_adoption_mode),
+          version: Number(row.assessment_version),
+          updatedAt: String(row.assessment_updated_at),
+        };
         return {
           sourceKey: String(row.source_key),
           sheetName: String(row.sheet_name),
@@ -130,6 +173,10 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
           syncedAt: String(row.synced_at),
           ...normalized,
           rawSnapshot: parseObject(row.raw_snapshot_json),
+          assessment: assessment ? {
+            ...assessment,
+            categoryDisplayName: qualityAssessmentCategoryDisplayName(assessment),
+          } : null,
           reportedEvent: row.reported_event_id == null ? null : {
             eventId: String(row.reported_event_id),
             eventNo: String(row.reported_event_no),

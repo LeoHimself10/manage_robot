@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z, ZodError } from "zod";
+import { AiOriginalAssessmentV0RunError } from
+  "../quality/ai-original-assessment/ai-original-assessment-v0-runner";
 import { refreshQualityCandidates } from "../quality/candidates/quality-candidate-detector";
 import { createQualityAssignmentService } from "../quality/assignments/quality-assignment-service";
 import { createQualityClosureService } from "../quality/closure/quality-closure-service";
@@ -18,6 +20,14 @@ import { createQualityEvidenceService } from "../quality/evidence/quality-eviden
 import { createQualityReviewService } from "../quality/reviews/quality-review-service";
 import { createQualitySourceReviewService } from "../quality/reviews/quality-source-review-service";
 import { getQualityEvidencePackage } from "../quality/reviews/quality-event-projector";
+import {
+  QualitySourceAiAssessmentError,
+  runQualitySourceAiAssessment,
+} from "../quality/reviews/quality-source-ai-assessment-service";
+import {
+  createQualitySourceAssessmentService,
+  saveQualitySourceAssessmentSchema,
+} from "../quality/reviews/quality-source-assessment-service";
 import { createQualityReadStore } from "../quality/infra/quality-read-store";
 import { createQualityEventQuery } from "../quality/queries/quality-event-query";
 import { createQualityReviewQuery } from "../quality/queries/quality-review-query";
@@ -55,6 +65,7 @@ const QUALITY_STATIC_API_PATHS = new Set([
   "/api/workbench/quality/review-queue",
   "/api/workbench/quality/events",
   "/api/workbench/quality/events/drafts",
+  "/api/workbench/quality/assessments/ai",
   "/api/workbench/quality/opinions/events",
   "/api/workbench/quality/opinions/threads",
 ]);
@@ -79,7 +90,8 @@ export function isQualityApiPath(pathname: string): boolean {
     || /^\/api\/workbench\/quality\/events\/[^/]+(?:\/draft|\/submit|\/supplements|\/corrections|\/files)?$/.test(pathname)
     || /^\/api\/workbench\/quality\/opinions\/threads\/[^/]+\/messages$/.test(pathname)
     || /^\/api\/workbench\/quality\/notifications\/[^/]+\/retry$/.test(pathname)
-    || /^\/api\/workbench\/quality\/files\/[^/]+$/.test(pathname);
+    || /^\/api\/workbench\/quality\/files\/[^/]+$/.test(pathname)
+    || /^\/api\/workbench\/quality\/assessments\/[^/]+$/.test(pathname);
 }
 
 function writeJson(res: ServerResponse, statusCode: number, body: unknown): void {
@@ -142,6 +154,18 @@ function requestId(value: unknown): string {
 
 function errorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
   const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof QualitySourceAiAssessmentError) {
+    return {
+      status: 503,
+      body: { ok: false, error: "AI研判服务尚未配置，请人工处理" },
+    };
+  }
+  if (error instanceof AiOriginalAssessmentV0RunError) {
+    return {
+      status: 502,
+      body: { ok: false, error: "AI研判失败，请人工处理" },
+    };
+  }
   const sourceDuplicate = message.match(/^source already reported:(.+)$/);
   if (sourceDuplicate) {
     return {
@@ -530,7 +554,8 @@ async function handleQualityApi(input: {
     }
 
     if (url.pathname.startsWith("/api/workbench/quality/source")
-      || url.pathname.startsWith("/api/workbench/quality/candidates")) {
+      || url.pathname.startsWith("/api/workbench/quality/candidates")
+      || url.pathname.startsWith("/api/workbench/quality/assessments")) {
       if (!aftersales) {
         forbidden(res);
         return;
@@ -551,6 +576,10 @@ async function handleQualityApi(input: {
             page: parsePositiveInt(url.searchParams.get("page"), 1),
             pageSize: parsePositiveInt(url.searchParams.get("pageSize"), 50, 200),
             reported: reportedParam === "1" ? true : reportedParam === "0" ? false : undefined,
+            reviewStatus: z.enum(["PENDING", "REVIEWED", "REPORTED"])
+              .optional().parse(url.searchParams.get("reviewStatus") ?? undefined),
+            riskLevel: z.enum(["LOW", "MEDIUM", "HIGH"])
+              .optional().parse(url.searchParams.get("riskLevel") ?? undefined),
           }),
         });
       } finally {
@@ -562,6 +591,62 @@ async function handleQualityApi(input: {
     if (req.method === "POST" && url.pathname === "/api/workbench/quality/source/sync") {
       const result = await runManualSync();
       writeJson(res, 200, { ok: true, data: { result } });
+      return;
+    }
+
+    if (req.method === "POST"
+      && url.pathname === "/api/workbench/quality/assessments/ai") {
+      const body = z.object({
+        sourceKey: z.string().trim().min(1).max(300),
+      }).strict().parse(await readJsonBody(req));
+      const result = await runQualitySourceAiAssessment({
+        sourceKey: body.sourceKey,
+      });
+      writeJson(res, 200, { ok: true, data: result });
+      return;
+    }
+
+    const sourceAssessmentMatch = url.pathname.match(
+      /^\/api\/workbench\/quality\/assessments\/([^/]+)$/,
+    );
+    if (sourceAssessmentMatch && req.method === "GET") {
+      const sourceKey = decodeURIComponent(sourceAssessmentMatch[1]!);
+      const service = createQualitySourceAssessmentService();
+      try {
+        const workspace = service.getReviewWorkspace(sourceKey);
+        writeJson(res, 200, {
+          ok: true,
+          data: {
+            source: {
+              ...workspace.source.normalizedFeedback,
+              sourceVersion: workspace.source.sourceVersion,
+              sourceState: workspace.source.state,
+              sheetName: workspace.source.sheetName,
+            },
+            assessment: workspace.assessment,
+          },
+        });
+      } finally {
+        service.close();
+      }
+      return;
+    }
+    if (sourceAssessmentMatch && req.method === "PUT") {
+      const sourceKey = decodeURIComponent(sourceAssessmentMatch[1]!);
+      const assessment = saveQualitySourceAssessmentSchema.parse(
+        await readJsonBody(req),
+      );
+      const service = createQualitySourceAssessmentService();
+      try {
+        const saved = service.saveAssessment({
+          sourceKey,
+          actorUserId: session.userId,
+          assessment,
+        });
+        writeJson(res, 200, { ok: true, data: { assessment: saved } });
+      } finally {
+        service.close();
+      }
       return;
     }
 
@@ -603,7 +688,25 @@ async function handleQualityApi(input: {
     if (req.method === "GET" && url.pathname === "/api/workbench/quality/events") {
       const store = createQualityEventQuery();
       try {
-        const events = store.listEvents({ viewerUserId: session.userId });
+        const query = (url.searchParams.get("q") ?? "").trim().toLocaleLowerCase("zh-CN");
+        const status = url.searchParams.get("status")?.trim().toUpperCase();
+        const riskLevel = url.searchParams.get("riskLevel")?.trim().toUpperCase();
+        const events = store.listEvents({ viewerUserId: session.userId }).filter((event) => {
+          if (status && event.status !== status) return false;
+          if (riskLevel && (riskLevel === "HIGH"
+            ? !["HIGH", "CRITICAL"].includes(event.urgency ?? "")
+            : event.urgency !== riskLevel)) return false;
+          if (!query) return true;
+          return [
+            event.eventNo,
+            event.title,
+            event.problemStatus,
+            event.deviceModel,
+            event.deviceSerial,
+            event.catheterBatch,
+            event.initialCategory,
+          ].some((value) => String(value ?? "").toLocaleLowerCase("zh-CN").includes(query));
+        });
         const page = parsePositiveInt(url.searchParams.get("page"), 1);
         const pageSize = parsePositiveInt(url.searchParams.get("pageSize"), 50, 200);
         const start = (page - 1) * pageSize;
@@ -881,8 +984,12 @@ export function handleQualityHttp(input: {
   const caps = resolveQualityCapabilities(session.userId);
   const isHead = req.method === "HEAD";
 
-  if ((req.method === "GET" || isHead) && url.pathname === "/workbench/quality") {
-    if (!caps.canAccessTracking) {
+  if ((req.method === "GET" || isHead)
+    && (url.pathname === "/workbench/quality"
+      || url.pathname === "/workbench/quality/review")) {
+    if (!caps.canAccessTracking
+      || (url.pathname === "/workbench/quality/review"
+        && !caps.roles.includes("aftersales_manager"))) {
       forbidden(res);
       return true;
     }
@@ -892,6 +999,9 @@ export function handleQualityHttp(input: {
       userLabel: session.dingUser?.name,
       canReport: caps.roles.includes("aftersales_manager"),
       isSpecialist: caps.roles.includes("quality_specialist"),
+      reviewSourceKey: url.pathname === "/workbench/quality/review"
+        ? url.searchParams.get("sourceKey") ?? ""
+        : undefined,
     });
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",

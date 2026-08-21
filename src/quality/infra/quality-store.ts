@@ -126,6 +126,32 @@ CREATE TABLE IF NOT EXISTS quality_candidates (
 CREATE INDEX IF NOT EXISTS idx_quality_candidates_status_detected
 ON quality_candidates(status, detected_at DESC);
 
+CREATE TABLE IF NOT EXISTS quality_source_assessments (
+  source_key TEXT PRIMARY KEY REFERENCES quality_source_rows(source_key),
+  source_version INTEGER NOT NULL CHECK(source_version >= 1),
+  handling_recommendation TEXT NOT NULL CHECK(handling_recommendation IN (
+    'ORDINARY','NEEDS_INFO','QUALITY_ANOMALY'
+  )),
+  primary_category_code TEXT NOT NULL,
+  secondary_category_code TEXT NOT NULL,
+  category_mode TEXT NOT NULL DEFAULT 'STANDARD' CHECK(category_mode IN (
+    'STANDARD','CUSTOM_SECONDARY','CUSTOM_FULL'
+  )),
+  custom_primary_category_name TEXT,
+  custom_secondary_category_name TEXT,
+  risk_level TEXT NOT NULL CHECK(risk_level IN ('LOW','MEDIUM','HIGH')),
+  conclusion TEXT NOT NULL CHECK(length(conclusion) BETWEEN 1 AND 10000),
+  adoption_mode TEXT NOT NULL CHECK(adoption_mode IN ('MANUAL','DIRECT','MODIFIED')),
+  change_reason TEXT,
+  reviewed_by TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_source_assessments_updated
+ON quality_source_assessments(updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS quality_events (
   id TEXT PRIMARY KEY,
   event_no TEXT NOT NULL UNIQUE,
@@ -576,6 +602,19 @@ export function createQualityStore(
   }
   if (!qualityEvidenceColumns.has("request_id")) {
     db.exec("ALTER TABLE quality_evidence ADD COLUMN request_id TEXT");
+  }
+  const qualityAssessmentColumns = new Set(
+    (db.prepare("PRAGMA table_info(quality_source_assessments)").all() as Array<{ name?: string }>)
+      .map((row) => String(row.name ?? "")),
+  );
+  if (!qualityAssessmentColumns.has("category_mode")) {
+    db.exec("ALTER TABLE quality_source_assessments ADD COLUMN category_mode TEXT NOT NULL DEFAULT 'STANDARD' CHECK(category_mode IN ('STANDARD','CUSTOM_SECONDARY','CUSTOM_FULL'))");
+  }
+  if (!qualityAssessmentColumns.has("custom_primary_category_name")) {
+    db.exec("ALTER TABLE quality_source_assessments ADD COLUMN custom_primary_category_name TEXT");
+  }
+  if (!qualityAssessmentColumns.has("custom_secondary_category_name")) {
+    db.exec("ALTER TABLE quality_source_assessments ADD COLUMN custom_secondary_category_name TEXT");
   }
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_quality_evidence_request
     ON quality_evidence(request_id) WHERE request_id IS NOT NULL`);
