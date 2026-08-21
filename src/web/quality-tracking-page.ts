@@ -2,8 +2,6 @@ import type { WorkbenchShellRole } from "./workbench-shell";
 import { renderWorkbenchPage } from "./workbench-shell";
 import { QUALITY_TRACKING_STYLES } from "./quality-tracking-styles";
 
-const SOURCE_URL = "https://alidocs.dingtalk.com/i/nodes/lo1YvX0prG98k9woqvrYVPw7xzbmLdEZ";
-
 export function renderQualityTrackingPage(params: {
   role: WorkbenchShellRole;
   userId: string;
@@ -14,19 +12,12 @@ export function renderQualityTrackingPage(params: {
   const hasAftersales = params.canReport !== false;
   const hasSpecialist = params.isSpecialist === true;
   const defaultMode = hasAftersales ? "aftersales" : "specialist";
-  const sourceSection = hasAftersales ? `<section class="qt-card" data-quality-mode-only="aftersales" aria-labelledby="qualitySourceTitle">
-    <div class="qt-source-head">
-      <div><h3 id="qualitySourceTitle">需求管理记录表 · 客户端问题反馈记录表</h3><p class="qt-muted">每 2 小时自动同步，只读取第一个子表。</p></div>
-      <div class="qt-actions"><button class="btn btn-secondary" type="button" id="qualitySyncNow">立即同步</button><a class="btn btn-secondary" href="${SOURCE_URL}" target="_blank" rel="noopener noreferrer">打开钉钉原表</a></div>
-    </div>
-    <div class="qt-source-meta" id="qualitySyncStatus" role="status">正在读取最近同步状态…</div>
-    <div class="qt-toolbar"><form class="qt-search" id="qualitySourceSearch"><input class="qt-input" id="qualitySearchInput" type="search" placeholder="搜索反馈单号、型号、序列号、批次、描述或分类"><button class="btn btn-secondary" type="submit">搜索</button></form><span class="qt-page-label" id="qualitySourceCount"></span></div>
-  </section>` : "";
+  const sourceSection = "";
   const modeSwitch = hasAftersales && hasSpecialist ? `<div class="qt-mode-switch" role="group" aria-label="质量追踪工作模式">
     <button class="qt-tab is-on" type="button" data-quality-mode-switch="aftersales">售后主管</button>
     <button class="qt-tab" type="button" data-quality-mode-switch="specialist">质量专员</button>
   </div>` : "";
-  const firstTab = defaultMode === "aftersales" ? "candidates" : "events";
+  const firstTab = "events";
   return renderWorkbenchPage({
     role: params.role,
     activeNav: "quality-tracking",
@@ -40,14 +31,14 @@ export function renderQualityTrackingPage(params: {
     extraCss: QUALITY_TRACKING_STYLES,
     mainHtml: `<main class="qt-grid" id="qualityTrackingRoot" data-can-report="${hasAftersales ? "1" : "0"}" data-is-specialist="${hasSpecialist ? "1" : "0"}" data-quality-mode="${defaultMode}" data-first-tab="${firstTab}">
   <section class="qt-card qt-hero">
-    <div><span class="qt-pill">独立质量流程</span><h2>质量异常工作台</h2><p class="qt-muted">${defaultMode === "aftersales" ? "来源只读同步；候选仅作建议，不会自动创建质量事件。" : "查看全部已通报质量事件，推进分派、验收与闭环。"}</p></div>
-    <div class="qt-actions">${modeSwitch}${hasAftersales ? `<button class="btn btn-primary" type="button" id="qualityNewEvent" data-quality-mode-only="aftersales">新建质量异常</button>` : ""}</div>
+    <div><span class="qt-pill">独立质量流程</span><h2>质量异常工作台</h2><p class="qt-muted">${defaultMode === "aftersales" ? "集中查看我通报的质量事件；来源反馈请在独立研判工作台处理。" : "查看全部已通报质量事件，推进分派、验收与闭环。"}</p></div>
+    <div class="qt-actions">${modeSwitch}${hasAftersales ? `<a class="btn btn-secondary" href="/workbench/quality/review" target="_blank" rel="noopener noreferrer" data-quality-mode-only="aftersales">打开研判工作台</a><button class="btn btn-primary" type="button" id="qualityNewEvent" data-quality-mode-only="aftersales">新建质量异常</button>` : ""}</div>
   </section>
   ${sourceSection}
   <section class="qt-card">
     ${hasSpecialist ? `<div class="qt-state-groups" data-quality-mode-only="specialist" aria-label="质量事件状态分组"${defaultMode === "specialist" ? "" : " hidden"}><span>待分配</span><span>待承接</span><span>处理中</span><span>待原主责确认</span><span>待终验</span><span>已关闭</span></div>` : ""}
     <div class="qt-tabs" role="tablist" aria-label="质量事件视图">
-      ${hasAftersales ? `<span data-quality-mode-only="aftersales"><button class="qt-tab${defaultMode === "aftersales" ? " is-on" : ""}" type="button" data-quality-tab="candidates">异常候选</button><button class="qt-tab" type="button" data-quality-tab="source">全部反馈</button><button class="qt-tab" type="button" data-quality-tab="reported">已通报</button><button class="qt-tab" type="button" data-quality-tab="events">我通报的事件</button></span>` : ""}
+      ${hasAftersales ? `<span data-quality-mode-only="aftersales"><button class="qt-tab${defaultMode === "aftersales" ? " is-on" : ""}" type="button" data-quality-tab="events">我通报的事件</button></span>` : ""}
       ${hasSpecialist ? `<span data-quality-mode-only="specialist"${defaultMode === "specialist" ? "" : " hidden"}><button class="qt-tab${defaultMode === "specialist" ? " is-on" : ""}" type="button" data-quality-tab="events">全部质量事件</button></span>` : ""}
     </div>
     <div id="qualitySourceRows"><div class="qt-list" id="qualityMainList" aria-live="polite"><div class="qt-empty">正在加载…</div></div></div>
@@ -163,7 +154,7 @@ function buildQualityTrackingClientScript(): string {
       button.classList.toggle('is-on', button.getAttribute('data-quality-mode-switch') === mode);
     });
     page = 1;
-    activateTab(mode === 'aftersales' ? 'candidates' : 'events');
+    activateTab('events');
     void loadCurrent();
   }
   function candidateTriggers(item) {

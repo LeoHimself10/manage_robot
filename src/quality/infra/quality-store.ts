@@ -46,6 +46,66 @@ CREATE TABLE IF NOT EXISTS quality_source_rows (
 CREATE INDEX IF NOT EXISTS idx_quality_source_rows_state_seen
 ON quality_source_rows(state, last_seen_at DESC);
 
+CREATE TABLE IF NOT EXISTS quality_source_reviews (
+  source_key TEXT PRIMARY KEY REFERENCES quality_source_rows(source_key),
+  status TEXT NOT NULL CHECK(status IN ('ORDINARY','NEEDS_INFO','REPORTED')),
+  note TEXT,
+  decided_by TEXT NOT NULL,
+  decided_at TEXT NOT NULL,
+  source_content_hash TEXT NOT NULL,
+  event_id TEXT REFERENCES quality_events(id),
+  version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK((status = 'REPORTED' AND event_id IS NOT NULL) OR status <> 'REPORTED')
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_source_reviews_status_updated
+ON quality_source_reviews(status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS quality_source_review_audit (
+  id TEXT PRIMARY KEY,
+  source_key TEXT NOT NULL REFERENCES quality_source_rows(source_key),
+  actor_user_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  before_json TEXT,
+  after_json TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  UNIQUE(source_key, request_id)
+);
+
+CREATE TRIGGER IF NOT EXISTS quality_source_review_audit_no_update
+BEFORE UPDATE ON quality_source_review_audit
+BEGIN
+  SELECT RAISE(ABORT, 'quality source review audit is append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS quality_source_review_audit_no_delete
+BEFORE DELETE ON quality_source_review_audit
+BEGIN
+  SELECT RAISE(ABORT, 'quality source review audit is append-only');
+END;
+
+CREATE TABLE IF NOT EXISTS quality_source_writeback_outbox (
+  writeback_id TEXT PRIMARY KEY,
+  source_key TEXT NOT NULL REFERENCES quality_source_rows(source_key),
+  review_version INTEGER NOT NULL CHECK(review_version >= 0),
+  desired_value TEXT NOT NULL CHECK(desired_value IN ('未研判','已进入后续流程','普通反馈','待补资料')),
+  dedupe_key TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status IN ('PENDING','SENDING','RETRY','SENT','DEAD','SUPERSEDED')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+  next_attempt_at TEXT NOT NULL,
+  last_error TEXT,
+  sending_started_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  sent_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_source_writeback_pending
+ON quality_source_writeback_outbox(status, next_attempt_at, created_at);
+
 CREATE TABLE IF NOT EXISTS quality_candidates (
   id TEXT PRIMARY KEY,
   candidate_type TEXT NOT NULL CHECK(candidate_type IN ('ANOMALY','DATA_INCOMPLETE')),

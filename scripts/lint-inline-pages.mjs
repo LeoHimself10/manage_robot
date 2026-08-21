@@ -9,6 +9,8 @@ import { renderDailyReportsPage } from "../src/web/daily-reports-page.ts";
 import { renderAdminWorkbenchPage } from "../src/web/admin-workbench-pages.ts";
 import { renderEmployeeWorkbenchPage } from "../src/web/employee-workbench-pages.ts";
 import { renderTaskDetailPage } from "../src/web/assignment-workbench.ts";
+import { renderQualityTrackingPage } from "../src/web/quality-tracking-page.ts";
+import { renderQualityReviewPage } from "../src/web/quality-review-page.ts";
 
 const cases = [
   ["manager-tasks", renderManagerTasksPage({ userLabel: "测试" })],
@@ -21,6 +23,8 @@ const cases = [
   ["manager-tasks-portfolio", renderManagerTasksPage({ userLabel: "测试", projectPortfolioEnabled: true })],
   ["admin", renderAdminWorkbenchPage({ userLabel: "测试" })],
   ["employee-unified", renderEmployeeWorkbenchPage()],
+  ["quality-tracking", renderQualityTrackingPage({ role: "manager", userId: "test", canReport: true, isSpecialist: true })],
+  ["quality-review", renderQualityReviewPage({ role: "manager", userId: "test" })],
   [
     "manager-task-detail",
     renderTaskDetailPage({

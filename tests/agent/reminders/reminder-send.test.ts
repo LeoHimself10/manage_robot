@@ -98,6 +98,7 @@ describe("reminder-send", () => {
   }
 
   const mockNotifier: WorkbenchPublishNotifier = {
+    notifyQualityAction: async () => ({ enabled: true, success: [], failed: [] }),
     notifyPublishedTask: async () => ({ enabled: true, success: [], failed: [] }),
     notifyReassignedAssignee: async () => ({ enabled: true, success: [], failed: [] }),
     notifyTaskStopped: async () => ({ enabled: true, success: [], failed: [] }),

@@ -94,6 +94,7 @@ import {
 import { createRecentPublishStore } from "./agent/tools/publish-task";
 import { KNOWN_TOOL_NAMES } from "./agent/tools/registry";
 import { createQualitySourceRuntime } from "./quality/source/quality-source-runtime";
+import { getQualitySourceWritebackRuntime } from "./quality/source/quality-source-writeback-runtime";
 
 /** 钉钉 markdown 单条上限约 2 万字符，预留余量避免被拒收 */
 const MAX_MARKDOWN_CHARS = 18_000;
@@ -363,6 +364,7 @@ async function main(): Promise<void> {
 
   const qualitySourceRuntime = createQualitySourceRuntime({ log: logStructured });
   qualitySourceRuntime.start();
+  getQualitySourceWritebackRuntime().start();
 
   client.registerCallbackListener(TOPIC_ROBOT, (res: DWClientDownStream) => {
     void (async () => {

@@ -16,17 +16,22 @@ import { createQualityReportFileStore } from "../quality/files/quality-report-fi
 import { QUALITY_MAX_FILE_BYTES } from "../quality/files/quality-report-file-store";
 import { createQualityEvidenceService } from "../quality/evidence/quality-evidence-service";
 import { createQualityReviewService } from "../quality/reviews/quality-review-service";
+import { createQualitySourceReviewService } from "../quality/reviews/quality-source-review-service";
 import { getQualityEvidencePackage } from "../quality/reviews/quality-event-projector";
 import { createQualityReadStore } from "../quality/infra/quality-read-store";
 import { createQualityEventQuery } from "../quality/queries/quality-event-query";
+import { createQualityReviewQuery } from "../quality/queries/quality-review-query";
 import { createQualityNotificationOutbox } from "../quality/notifications/quality-notification-outbox";
 import { createQualityStore } from "../quality/infra/quality-store";
 import { createDingTalkQualitySource } from "../quality/source/dingtalk-quality-source";
 import { createQualitySourceSync } from "../quality/source/quality-source-sync";
+import { createQualitySourceWritebackOutbox } from "../quality/source/quality-source-writeback";
+import { triggerQualitySourceWriteback } from "../quality/source/quality-source-writeback-runtime";
 import { resolveQualityCapabilities } from "../security/quality-capabilities";
 import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
 import { readMultipartSingleFile } from "./multipart-single-file";
 import { renderQualityTrackingPage } from "./quality-tracking-page";
+import { renderQualityReviewPage } from "./quality-review-page";
 import { renderQualityOpinionsPage } from "./quality-opinions-page";
 import type { WorkbenchShellRole } from "./workbench-shell";
 
@@ -39,6 +44,7 @@ export interface QualityHttpSession {
 
 const QUALITY_PAGE_PATHS = new Set([
   "/workbench/quality",
+  "/workbench/quality/review",
   "/workbench/quality/opinions",
 ]);
 
@@ -46,6 +52,7 @@ const QUALITY_STATIC_API_PATHS = new Set([
   "/api/workbench/quality/source",
   "/api/workbench/quality/source/sync",
   "/api/workbench/quality/candidates",
+  "/api/workbench/quality/review-queue",
   "/api/workbench/quality/events",
   "/api/workbench/quality/events/drafts",
   "/api/workbench/quality/opinions/events",
@@ -68,6 +75,7 @@ export function isQualityApiPath(pathname: string): boolean {
     || /^\/api\/workbench\/quality\/evidence\/[^/]+$/.test(pathname)
     || /^\/api\/workbench\/quality\/events\/[^/]+\/(?:primary-review|evidence-package|assign-primary|due|return-node|close|reopen)$/.test(pathname)
     || /^\/api\/workbench\/quality\/candidates\/[^/]+\/dismiss$/.test(pathname)
+    || /^\/api\/workbench\/quality\/source\/[^/]+\/(?:review|writeback\/retry)$/.test(pathname)
     || /^\/api\/workbench\/quality\/events\/[^/]+(?:\/draft|\/submit|\/supplements|\/corrections|\/files)?$/.test(pathname)
     || /^\/api\/workbench\/quality\/opinions\/threads\/[^/]+\/messages$/.test(pathname)
     || /^\/api\/workbench\/quality\/notifications\/[^/]+\/retry$/.test(pathname)
@@ -227,6 +235,64 @@ async function handleQualityApi(input: {
     const caps = resolveQualityCapabilities(session.userId);
     const aftersales = caps.roles.includes("aftersales_manager");
     const specialist = caps.roles.includes("quality_specialist");
+
+    if (url.pathname === "/api/workbench/quality/review-queue") {
+      if (!aftersales) { forbidden(res); return; }
+      if (req.method !== "GET") { writeJson(res, 405, { ok: false, error: "请求方法不支持" }); return; }
+      const query = createQualityReviewQuery();
+      try {
+        const data = query.list({
+          scope: z.enum(["UNREVIEWED", "NEEDS_INFO", "COMPLETED"]).parse(url.searchParams.get("scope") ?? "UNREVIEWED"),
+          q: url.searchParams.get("q") ?? "",
+          risk: z.enum(["ALL", "HIGH_RISK", "REPEAT", "NONE"]).parse(url.searchParams.get("risk") ?? "ALL"),
+          deviceModel: url.searchParams.get("deviceModel") ?? "",
+          category: url.searchParams.get("category") ?? "",
+          page: parsePositiveInt(url.searchParams.get("page"), 1),
+          pageSize: parsePositiveInt(url.searchParams.get("pageSize"), 50, 200),
+        });
+        writeJson(res, 200, { ok: true, data });
+      } finally { query.close(); }
+      return;
+    }
+
+    const sourceReview = url.pathname.match(/^\/api\/workbench\/quality\/source\/([^/]+)\/review$/);
+    if (sourceReview) {
+      if (!aftersales) { forbidden(res); return; }
+      if (req.method !== "POST") { writeJson(res, 405, { ok: false, error: "请求方法不支持" }); return; }
+      const body = await readJsonBody(req);
+      const service = createQualitySourceReviewService();
+      try {
+        const review = service.reviewSource({
+          actorUserId: session.userId,
+          sourceKey: decodeURIComponent(sourceReview[1]!),
+          decision: z.enum(["ORDINARY", "NEEDS_INFO"]).parse(body.decision),
+          note: body.note == null ? undefined : z.string().max(2000).parse(body.note),
+          expectedVersion: z.number().int().min(0).parse(body.expectedVersion),
+          requestId: requestId(body.requestId),
+        });
+        triggerQualitySourceWriteback();
+        writeJson(res, 200, { ok: true, data: { review } });
+      } finally { service.close(); }
+      return;
+    }
+
+    const sourceWritebackRetry = url.pathname.match(/^\/api\/workbench\/quality\/source\/([^/]+)\/writeback\/retry$/);
+    if (sourceWritebackRetry) {
+      if (!aftersales) { forbidden(res); return; }
+      if (req.method !== "POST") { writeJson(res, 405, { ok: false, error: "请求方法不支持" }); return; }
+      const body = await readJsonBody(req);
+      requestId(body.requestId);
+      const sourceKey = decodeURIComponent(sourceWritebackRetry[1]!);
+      const outbox = createQualitySourceWritebackOutbox();
+      try {
+        const failed = [...outbox.list(sourceKey)].reverse().find((item) => item.status === "DEAD");
+        if (!failed) throw new Error("没有可重新入队的回写失败任务");
+        const writeback = outbox.retryDead(failed.writebackId);
+        triggerQualitySourceWriteback();
+        writeJson(res, 200, { ok: true, data: { writeback } });
+      } finally { outbox.close(); }
+      return;
+    }
 
     if (url.pathname.startsWith("/api/workbench/quality/opinions/")) {
       if (!caps.canAccessOpinions && !specialist) { forbidden(res); return; }
@@ -729,6 +795,7 @@ async function handleQualityApi(input: {
             expectedVersion: parsePositiveInt(body.expectedVersion, 0),
             requestId: requestId(body.requestId),
           });
+          triggerQualitySourceWriteback();
           writeJson(res, 200, { ok: true, data: { event } });
           return;
         }
@@ -825,6 +892,24 @@ export function handleQualityHttp(input: {
       userLabel: session.dingUser?.name,
       canReport: caps.roles.includes("aftersales_manager"),
       isSpecialist: caps.roles.includes("quality_specialist"),
+    });
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store, must-revalidate",
+    });
+    res.end(isHead ? "" : html);
+    return true;
+  }
+
+  if ((req.method === "GET" || isHead) && url.pathname === "/workbench/quality/review") {
+    if (!caps.roles.includes("aftersales_manager")) {
+      forbidden(res);
+      return true;
+    }
+    const html = renderQualityReviewPage({
+      role: session.role as WorkbenchShellRole,
+      userId: session.userId,
+      userLabel: session.dingUser?.name,
     });
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",

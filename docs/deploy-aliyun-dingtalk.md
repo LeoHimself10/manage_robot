@@ -26,7 +26,7 @@
 
 ### 1.1 质量追踪所需的钉钉表格授权
 
-启用质量追踪来源同步前，在同一个企业内部应用中开通“钉钉表格读取”相关只读权限，并发布应用版本。目标表还要把 `QUALITY_SOURCE_OPERATOR_UNION_ID` 对应的内部成员加入查看范围；应用权限与成员表格权限缺一不可。
+启用质量追踪来源同步与研判状态回写前，在同一个企业内部应用中开通钉钉表格读写权限，并发布应用版本。目标表还要把 `QUALITY_SOURCE_OPERATOR_UNION_ID` 对应的内部成员加入可编辑范围；应用权限与成员表格权限缺一不可。若暂不具备写权限，可设置 `QUALITY_SOURCE_WRITEBACK_ENABLED=0`，保留只读同步与本地研判。
 
 环境文件至少增加：
 
@@ -35,8 +35,9 @@ QUALITY_AFTERSALES_MANAGER_USER_IDS=售后主管userId，多个用逗号分隔
 QUALITY_SPECIALIST_USER_IDS=质量专员userId，多个用逗号分隔
 QUALITY_SPECIALIST_REPORTS_FILE=/app/data/quality-specialist-reports.json
 QUALITY_SOURCE_WORKBOOK_ID=需求管理记录表的表格标识
-QUALITY_SOURCE_OPERATOR_UNION_ID=有目标表查看权限的内部成员unionId
+QUALITY_SOURCE_OPERATOR_UNION_ID=有目标表编辑权限的内部成员unionId
 QUALITY_SOURCE_SYNC_ENABLED=1
+QUALITY_SOURCE_WRITEBACK_ENABLED=1
 QUALITY_FILE_DIR=/app/data/quality-files
 QUALITY_EVIDENCE_DIR=/app/data/quality-files/evidence
 ```
@@ -517,8 +518,9 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `QUALITY_SPECIALIST_USER_IDS` | 否 | 逗号分隔的质量专员 userId；按角色授权，不在代码中硬编码姓名。 |
 | `QUALITY_SPECIALIST_REPORTS_FILE` | 否 | 质量专员到其直属下级的 JSON 映射文件，格式为 `{ "specialistUserId": ["reportUserId"] }`；下级仅获得“质量意见”入口。建议放在实例独立数据卷。 |
 | `QUALITY_SOURCE_WORKBOOK_ID` | 是（启用来源同步时） | “需求管理记录表”的钉钉表格标识；仅读取第一个子表。 |
-| `QUALITY_SOURCE_OPERATOR_UNION_ID` | 是（启用来源同步时） | 对目标表有查看权限的内部成员 unionId，例如已获授权的杨贺新账号。 |
+| `QUALITY_SOURCE_OPERATOR_UNION_ID` | 是（启用来源同步时） | 对目标表有查看权限、启用状态回写时有编辑权限的内部成员 unionId。 |
 | `QUALITY_SOURCE_SYNC_ENABLED` | 否 | 默认启用；设为 `0` 时停止启动同步和每两小时同步。 |
+| `QUALITY_SOURCE_WRITEBACK_ENABLED` | 否 | 来源配置完整时默认启用；设为 `0` 时停止“质量研判状态”回写，本地研判不受影响。 |
 | `QUALITY_FILE_DIR` | 否 | 质量通报附件持久化目录，容器内建议 `/app/data/quality-files`。 |
 | `QUALITY_EVIDENCE_DIR` | 否 | 质量节点证据目录；缺省为 `QUALITY_FILE_DIR/evidence`。 |
 | `WORKBENCH_MANAGER_GROUPS_ENABLED` | 否 | `1` 开启 Admin 管理的主管组；组内共享正式任务/项目/看板和主管操作，组间隔离（建议 mingsibot 试点） |

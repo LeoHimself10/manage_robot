@@ -4,6 +4,7 @@ import { z } from "zod";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
 import { listQualitySpecialistUserIds } from "../../security/quality-capabilities";
 import { enqueueQualityActionNotifications } from "../notifications/quality-notification-policy";
+import { markLinkedSourcesReported } from "../reviews/quality-source-review-service";
 import type {
   QualityAuditActorRole,
   QualityAuditEvent,
@@ -641,6 +642,13 @@ export function createQualityEventService(deps?: {
         eventId: after.eventId, eventNo: after.eventNo, action: "EVENT_SUBMITTED", actionId: input.requestId,
         context: { qualitySpecialistUserIds: listQualitySpecialistUserIds() }, subject: "有新的质量异常待分配",
         summary: `${after.title}：${after.problemStatus}`, occurredAt,
+      });
+      markLinkedSourcesReported({
+        db,
+        eventId: after.eventId,
+        actorUserId: input.actor.userId,
+        requestId: input.requestId,
+        occurredAt,
       });
       return after;
     });
