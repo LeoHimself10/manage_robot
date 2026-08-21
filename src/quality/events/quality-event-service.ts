@@ -4,6 +4,10 @@ import { z } from "zod";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
 import { listQualitySpecialistUserIds } from "../../security/quality-capabilities";
 import { enqueueQualityActionNotifications } from "../notifications/quality-notification-policy";
+import {
+  qualityAssessmentCategoryDisplayName,
+  type QualityAssessmentCategoryMode,
+} from "../reviews/quality-source-assessment-service";
 import type {
   QualityAuditActorRole,
   QualityAuditEvent,
@@ -439,7 +443,27 @@ export function createQualityEventService(deps?: {
     const sources = sourceRows(input.sourceKeys);
     const first = parseObject(sources[0]!.normalized_json);
     const issue = String(first.issueDescription ?? "").trim();
-    const category = String(first.category ?? "").trim();
+    const savedAssessment = db.prepare(`
+      SELECT primary_category_code, secondary_category_code, category_mode,
+             custom_primary_category_name, custom_secondary_category_name
+      FROM quality_source_assessments
+      WHERE source_key = ?
+    `).get(String(sources[0]!.source_key)) as DatabaseRow | undefined;
+    const category = savedAssessment
+      ? qualityAssessmentCategoryDisplayName({
+          categoryMode: String(
+            savedAssessment.category_mode ?? "STANDARD",
+          ) as QualityAssessmentCategoryMode,
+          primaryCategoryCode: nullableString(savedAssessment.primary_category_code),
+          secondaryCategoryCode: nullableString(savedAssessment.secondary_category_code),
+          customPrimaryCategoryName: nullableString(
+            savedAssessment.custom_primary_category_name,
+          ),
+          customSecondaryCategoryName: nullableString(
+            savedAssessment.custom_secondary_category_name,
+          ),
+        })
+      : String(first.category ?? "").trim();
     const prefilled: QualityDraftFields = {
       title: `【${category || "待分类"}】${issue || "质量异常"}`.slice(0, 200),
       currentSituation: issue || "来源记录待售后主管补充问题现状",
