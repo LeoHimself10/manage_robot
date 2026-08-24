@@ -14,6 +14,7 @@ import {
 } from "../publish-helpers";
 import { isDraftStagedForPublish } from "../publish-staging";
 import { getEmployeeSearchHit } from "../employee-search-cache";
+import { restoreQualityTaskMappings, validateQualityTaskCoverage } from "../quality-task-coverage";
 
 export const PREPARE_PUBLISH_TASK_TOOL: ToolDefinition = {
   type: "function",
@@ -169,6 +170,19 @@ export function buildPreparePublishTaskHandler(
       };
     }
 
+    deps.currentSession.latestDraft = restoreQualityTaskMappings(
+      deps.currentSession.latestDraft as Record<string, unknown> | undefined,
+    );
+    const qualityCoverage = validateQualityTaskCoverage(deps.currentSession);
+    if (!qualityCoverage.ok) {
+      return {
+        ok: false,
+        reason: "quality_deliverables_uncovered",
+        missingDeliverableIds: qualityCoverage.missingDeliverableIds,
+        hint: `以下质量必须成果尚未被任何子任务覆盖：${qualityCoverage.missingDeliverableIds.join("、")}。请补充任务或在对应任务保留qualityDeliverableIds映射后再预检。`,
+      };
+    }
+
     const draftObj = deps.currentSession.latestDraft as Record<string, unknown>;
     const draftDescription = String(draftObj.description ?? draftObj.summary ?? "").trim();
     const argDescription = String(args.description ?? "").trim();
@@ -256,6 +270,7 @@ export function buildPreparePublishTaskHandler(
         requiresManagerConfirm: true,
         staged: true,
         hint: "当前草案与指派已与上次 prepare 一致，无需重复 prepare；请等待主管确认后调用 publish_task。",
+        qualityCoverage,
       };
     }
 
@@ -316,6 +331,7 @@ export function buildPreparePublishTaskHandler(
       preparedAt,
       requiresManagerConfirm: true,
       staged: true,
+      qualityCoverage,
     };
   };
 }

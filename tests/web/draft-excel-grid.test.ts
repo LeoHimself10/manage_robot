@@ -21,6 +21,7 @@ describe("draft-excel-grid", () => {
         timeNode: { dueAt: "2026-06-15", checkpoints: ["评审"] },
         actions: ["收集样本"],
         dependencyTaskIds: [],
+        qualityDeliverableIds: ["quality-deliverable-1"],
         feedbackFrequency: "每周",
         inputMaterials: ["记录"],
         collaborators: ["李四"],
@@ -63,6 +64,7 @@ describe("draft-excel-grid", () => {
     const t1 = (draft.tasks as Array<Record<string, unknown>>)[0];
     expect(t1.id).toBe("task_1");
     expect(t1.deliverables).toEqual(["报告"]);
+    expect(t1.qualityDeliverableIds).toEqual(["quality-deliverable-1"]);
     expect(t1.feedbackFrequency).toBeUndefined();
     expect(t1.inputMaterials).toBeUndefined();
     expect(t1.risksAndOpenQuestions).toBeUndefined();

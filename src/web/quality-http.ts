@@ -32,6 +32,14 @@ import { createQualityReadStore } from "../quality/infra/quality-read-store";
 import { createQualityEventQuery } from "../quality/queries/quality-event-query";
 import { createQualityReviewQuery } from "../quality/queries/quality-review-query";
 import { createQualityNotificationOutbox } from "../quality/notifications/quality-notification-outbox";
+import {
+  confirmQualityAnalysisSchema,
+  saveQualityAnalysisDraftSchema,
+} from "../quality/analysis/quality-analysis-contracts";
+import {
+  createQualityAnalysisService,
+  QualityAnalysisError,
+} from "../quality/analysis/quality-analysis-service";
 import { createQualityStore } from "../quality/infra/quality-store";
 import { createDingTalkQualitySource } from "../quality/source/dingtalk-quality-source";
 import { createQualitySourceSync } from "../quality/source/quality-source-sync";
@@ -88,6 +96,7 @@ export function isQualityApiPath(pathname: string): boolean {
     || /^\/api\/workbench\/quality\/candidates\/[^/]+\/dismiss$/.test(pathname)
     || /^\/api\/workbench\/quality\/source\/[^/]+\/(?:review|writeback\/retry)$/.test(pathname)
     || /^\/api\/workbench\/quality\/events\/[^/]+(?:\/draft|\/submit|\/supplements|\/corrections|\/files)?$/.test(pathname)
+    || /^\/api\/workbench\/quality\/events\/[^/]+\/analysis(?:\/(?:generate|draft|confirm))?$/.test(pathname)
     || /^\/api\/workbench\/quality\/opinions\/threads\/[^/]+\/messages$/.test(pathname)
     || /^\/api\/workbench\/quality\/notifications\/[^/]+\/retry$/.test(pathname)
     || /^\/api\/workbench\/quality\/files\/[^/]+$/.test(pathname)
@@ -159,6 +168,12 @@ function errorResponse(error: unknown): { status: number; body: Record<string, u
       status: 503,
       body: { ok: false, error: "AI研判服务尚未配置，请人工处理" },
     };
+  }
+  if (error instanceof QualityAnalysisError) {
+    const status = error.code === "FORBIDDEN" ? 403
+      : error.code === "MODEL_NOT_CONFIGURED" ? 503
+        : 502;
+    return { status, body: { ok: false, error: error.message, code: error.code } };
   }
   if (error instanceof AiOriginalAssessmentV0RunError) {
     return {
@@ -260,8 +275,46 @@ async function handleQualityApi(input: {
   try {
     createQualityStore().close();
     const caps = resolveQualityCapabilities(session.userId);
-    const aftersales = caps.roles.includes("aftersales_manager");
-    const specialist = caps.roles.includes("quality_specialist");
+    const aftersales = caps.canReportQuality;
+    const specialist = caps.canAnalyzeQuality;
+    const adminReadOnly = caps.baseRole === "admin" && !specialist;
+
+    const analysisMatch = url.pathname.match(
+      /^\/api\/workbench\/quality\/events\/([^/]+)\/analysis(?:\/(generate|draft|confirm))?$/,
+    );
+    if (analysisMatch) {
+      const eventId = decodeURIComponent(analysisMatch[1]!);
+      const action = analysisMatch[2] ?? "workspace";
+      const service = createQualityAnalysisService();
+      try {
+        if (req.method === "GET" && action === "workspace") {
+          writeJson(res, 200, { ok: true, data: service.workspace({ eventId, viewerUserId: session.userId }) });
+          return;
+        }
+        if (req.method === "POST" && action === "generate") {
+          const body = z.object({ requestId: z.string().uuid() }).strict().parse(await readJsonBody(req));
+          const attempt = await service.generate({ eventId, actorUserId: session.userId, requestId: body.requestId });
+          writeJson(res, 201, { ok: true, data: { attempt } });
+          return;
+        }
+        if (req.method === "PUT" && action === "draft") {
+          const draft = saveQualityAnalysisDraftSchema.parse(await readJsonBody(req));
+          const saved = service.saveDraft({ eventId, actorUserId: session.userId, draft });
+          writeJson(res, 200, { ok: true, data: { draft: saved } });
+          return;
+        }
+        if (req.method === "POST" && action === "confirm") {
+          const body = confirmQualityAnalysisSchema.parse(await readJsonBody(req));
+          const result = service.confirm({ eventId, actorUserId: session.userId, ...body });
+          writeJson(res, 201, { ok: true, data: result });
+          return;
+        }
+        writeJson(res, 405, { ok: false, error: "请求方法不支持" });
+        return;
+      } finally {
+        service.close();
+      }
+    }
 
     if (url.pathname === "/api/workbench/quality/review-queue") {
       if (!aftersales) { forbidden(res); return; }
@@ -559,7 +612,8 @@ async function handleQualityApi(input: {
     if (url.pathname.startsWith("/api/workbench/quality/source")
       || url.pathname.startsWith("/api/workbench/quality/candidates")
       || url.pathname.startsWith("/api/workbench/quality/assessments")) {
-      if (!aftersales) {
+      const readOnlyAdminRequest = adminReadOnly && req.method === "GET";
+      if (!aftersales && !readOnlyAdminRequest) {
         forbidden(res);
         return;
       }
@@ -932,6 +986,7 @@ async function handleQualityApi(input: {
             requestId: requestId(upload.fields.requestId),
             originalName: upload.file.filename,
             mimeType: upload.file.mimeType,
+            description: z.string().trim().max(2000).optional().parse(upload.fields.description),
             buffer: upload.file.buffer,
           });
           const detail = detailForActor(eventId, session);
@@ -1075,8 +1130,9 @@ export function handleQualityHttp(input: {
       role: session.role as WorkbenchShellRole,
       userId: session.userId,
       userLabel: session.dingUser?.name,
-      canReport: caps.roles.includes("aftersales_manager"),
-      isSpecialist: caps.roles.includes("quality_specialist"),
+      canReport: caps.canReportQuality,
+      isSpecialist: caps.canAnalyzeQuality,
+      isBusinessReadOnly: caps.isBusinessReadOnly,
       reviewSourceKey: url.pathname === "/workbench/quality/review"
         ? url.searchParams.get("sourceKey") ?? ""
         : undefined,
@@ -1090,7 +1146,7 @@ export function handleQualityHttp(input: {
   }
 
   if ((req.method === "GET" || isHead) && url.pathname === "/workbench/quality/review") {
-    if (!caps.roles.includes("aftersales_manager")) {
+    if (!caps.canReportQuality) {
       forbidden(res);
       return true;
     }
@@ -1115,7 +1171,7 @@ export function handleQualityHttp(input: {
     const html = renderQualityOpinionsPage({
       role: session.role as WorkbenchShellRole,
       userId: session.userId,
-      isSpecialist: caps.roles.includes("quality_specialist"),
+      isSpecialist: caps.canAnalyzeQuality,
     });
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",

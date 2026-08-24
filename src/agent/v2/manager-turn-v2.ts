@@ -128,6 +128,11 @@ export async function runManagerOrchestratorTurnV2(
       : input.workbenchRole === "manager"
         ? "manager"
         : route.resolvedRole;
+  const trustedActorUserId =
+    route.trustedActorUserId
+    ?? (input.workbenchRole === "manager" || input.workbenchRole === "admin"
+      ? String(input.senderStaffId ?? "").trim() || undefined
+      : undefined);
 
   let publishResult: Record<string, unknown> | undefined;
   const clientConfig = buildManagerQwenClientConfig(input.clientConfig);
@@ -147,11 +152,11 @@ export async function runManagerOrchestratorTurnV2(
       toolProfile,
       promptOpts: {
         managerFollowup: toolProfile === "manager" || toolProfile === "admin",
-        projectPortfolioEnabled: route.trustedActorUserId
-          ? isWorkbenchProjectPortfolioEnabled(route.trustedActorUserId)
+        projectPortfolioEnabled: trustedActorUserId
+          ? isWorkbenchProjectPortfolioEnabled(trustedActorUserId)
           : false,
       },
-      trustedActorUserId: route.trustedActorUserId,
+      trustedActorUserId,
       actorName: input.actorName,
       actorRole:
         resolvedRole === "admin"
@@ -188,7 +193,7 @@ export async function runManagerOrchestratorTurnV2(
     userMessage: input.userMessage,
     session,
     toolProfile,
-    trustedActorUserId: route.trustedActorUserId,
+    trustedActorUserId,
     assignCoverage: getAssignmentCoverage(
       preTurnDraft as Record<string, unknown> | undefined,
       preTurnAssignment as Record<string, unknown> | undefined,

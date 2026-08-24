@@ -1,6 +1,7 @@
 import { runOrchestrator, type OrchestratorConfig, type OrchestratorResult } from "../orchestrator";
 import type { PlanSession } from "../../infra/plan-session-store";
 import { prevalidateWorkbenchDraftRevision } from "./draft-revise-prevalidate";
+import { restoreQualityTaskMappings } from "../quality-task-coverage";
 
 export const WORKBENCH_DRAFT_REVISION_TAG = "[WORKBENCH_DRAFT_REVISION]";
 
@@ -73,7 +74,7 @@ export async function runWorkbenchDraftRevision(
     },
   });
 
-  const outDraft = orch.draft ?? pre.draft;
+  const outDraft = restoreQualityTaskMappings(orch.draft ?? pre.draft);
   const outTasks = (outDraft as { tasks?: unknown[] } | undefined)?.tasks;
   if (!outDraft || !Array.isArray(outTasks) || outTasks.length === 0) {
     return {

@@ -328,6 +328,7 @@ CREATE TABLE IF NOT EXISTS quality_report_files (
   storage_key TEXT NOT NULL UNIQUE,
   original_name TEXT NOT NULL,
   mime_type TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
   size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
   sha256 TEXT NOT NULL,
   status TEXT NOT NULL CHECK(status IN ('ACTIVE','ARCHIVED')),
@@ -360,6 +361,132 @@ BEFORE UPDATE ON quality_audit_events
 BEGIN
   SELECT RAISE(ABORT, 'quality audit events are append-only');
 END;
+
+CREATE TABLE IF NOT EXISTS quality_analysis_attempts (
+  attempt_id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES quality_events(id),
+  attempt_no INTEGER NOT NULL CHECK(attempt_no >= 1),
+  request_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('GENERATING','SUCCEEDED','FAILED')),
+  schema_version TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  model_config_id TEXT NOT NULL,
+  model_name TEXT,
+  input_version TEXT NOT NULL,
+  input_json TEXT NOT NULL,
+  output_json TEXT,
+  raw_content TEXT,
+  failure_code TEXT,
+  failure_reason TEXT,
+  validation_issues_json TEXT,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK(prompt_tokens >= 0),
+  completion_tokens INTEGER NOT NULL DEFAULT 0 CHECK(completion_tokens >= 0),
+  total_tokens INTEGER NOT NULL DEFAULT 0 CHECK(total_tokens >= 0),
+  duration_ms INTEGER NOT NULL DEFAULT 0 CHECK(duration_ms >= 0),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  completed_at TEXT,
+  UNIQUE(event_id, request_id),
+  UNIQUE(event_id, attempt_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_analysis_attempts_event
+ON quality_analysis_attempts(event_id, attempt_no DESC);
+
+CREATE TRIGGER IF NOT EXISTS quality_analysis_attempts_success_no_update
+BEFORE UPDATE ON quality_analysis_attempts WHEN OLD.status = 'SUCCEEDED'
+BEGIN
+  SELECT RAISE(ABORT, 'successful quality analysis attempts are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS quality_analysis_attempts_no_delete
+BEFORE DELETE ON quality_analysis_attempts
+BEGIN
+  SELECT RAISE(ABORT, 'quality analysis attempts are append-only');
+END;
+
+CREATE TABLE IF NOT EXISTS quality_analysis_drafts (
+  event_id TEXT PRIMARY KEY REFERENCES quality_events(id),
+  base_attempt_id TEXT REFERENCES quality_analysis_attempts(attempt_id),
+  content_json TEXT NOT NULL,
+  deliverables_json TEXT NOT NULL,
+  primary_department_id TEXT,
+  collaborator_department_ids_json TEXT NOT NULL DEFAULT '[]',
+  modification_reason TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS quality_analysis_versions (
+  analysis_id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES quality_events(id),
+  analysis_version INTEGER NOT NULL CHECK(analysis_version >= 1),
+  request_id TEXT NOT NULL UNIQUE,
+  base_attempt_id TEXT REFERENCES quality_analysis_attempts(attempt_id),
+  content_json TEXT NOT NULL,
+  deliverables_json TEXT NOT NULL,
+  diff_json TEXT NOT NULL,
+  modification_reason TEXT NOT NULL,
+  primary_department_id TEXT NOT NULL,
+  primary_department_name TEXT NOT NULL,
+  collaborator_departments_json TEXT NOT NULL,
+  primary_manager_user_id TEXT NOT NULL,
+  primary_manager_name TEXT NOT NULL,
+  primary_manager_account_status TEXT NOT NULL,
+  suggested_total_due_at TEXT NOT NULL,
+  schema_version TEXT NOT NULL,
+  prompt_version TEXT,
+  model_config_id TEXT,
+  input_version TEXT,
+  rule_version TEXT NOT NULL,
+  case_library_version TEXT NOT NULL,
+  knowledge_version TEXT NOT NULL,
+  generated_by TEXT,
+  edited_by TEXT NOT NULL,
+  confirmed_by TEXT NOT NULL,
+  confirmed_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(event_id, analysis_version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_analysis_versions_event
+ON quality_analysis_versions(event_id, analysis_version DESC);
+
+CREATE TRIGGER IF NOT EXISTS quality_analysis_versions_no_update
+BEFORE UPDATE ON quality_analysis_versions
+BEGIN
+  SELECT RAISE(ABORT, 'formal quality analysis versions are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS quality_analysis_versions_no_delete
+BEFORE DELETE ON quality_analysis_versions
+BEGIN
+  SELECT RAISE(ABORT, 'formal quality analysis versions are append-only');
+END;
+
+CREATE TABLE IF NOT EXISTS quality_analysis_handoffs (
+  handoff_id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES quality_events(id),
+  analysis_version INTEGER NOT NULL CHECK(analysis_version >= 1),
+  integration_key TEXT NOT NULL UNIQUE,
+  primary_department_id TEXT NOT NULL,
+  primary_department_name TEXT NOT NULL,
+  primary_manager_user_id TEXT NOT NULL,
+  task_package_json TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('PENDING_PLANNING','PUBLISHED')),
+  formal_task_id TEXT,
+  created_at TEXT NOT NULL,
+  published_at TEXT,
+  UNIQUE(event_id, analysis_version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_analysis_handoffs_manager
+ON quality_analysis_handoffs(primary_manager_user_id, status, created_at DESC);
 
 CREATE TRIGGER IF NOT EXISTS quality_audit_events_no_delete
 BEFORE DELETE ON quality_audit_events
@@ -785,6 +912,13 @@ export function createQualityStore(
   }
   if (!qualityReviewColumns.has("assessment_snapshot_json")) {
     db.exec("ALTER TABLE quality_source_reviews ADD COLUMN assessment_snapshot_json TEXT");
+  }
+  const qualityReportFileColumns = new Set(
+    (db.prepare("PRAGMA table_info(quality_report_files)").all() as Array<{ name?: string }>)
+      .map((row) => String(row.name ?? "")),
+  );
+  if (!qualityReportFileColumns.has("description")) {
+    db.exec("ALTER TABLE quality_report_files ADD COLUMN description TEXT NOT NULL DEFAULT ''");
   }
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_quality_evidence_request
     ON quality_evidence(request_id) WHERE request_id IS NOT NULL`);

@@ -132,6 +132,7 @@ export function excelRowsToDraft(input: {
     if (dueAt) timeNode.dueAt = dueAt;
 
     const task: Record<string, unknown> = {
+      ...(prevTask ?? {}),
       id: taskId,
       title,
       objective: String(row.objective ?? "").trim() || title,

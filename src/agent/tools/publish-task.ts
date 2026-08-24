@@ -5,6 +5,7 @@ import type { WorkbenchSubtaskRow } from "../../infra/workbench-formal-task-stor
 import { isStagingStale } from "../publish-helpers";
 import { resolvePublishProjectIdForSession } from "./resolve-publish-project-id";
 import { resolveWorkbenchManagerScope } from "../../security/workbench-manager-scope";
+import { restoreQualityTaskMappings, validateQualityTaskCoverage } from "../quality-task-coverage";
 
 type SubtaskRichFields = Pick<WorkbenchSubtaskRow, "dependsOn" | "checkpoints" | "risks" | "inputMaterials" | "actions" | "collaborators" | "inScope" | "outOfScope" | "dueAt" | "dueSetBy" | "dueExpectation">;
 
@@ -147,6 +148,19 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
     }
     const session = deps.currentSession;
     if (!session) throw new Error("session_not_found");
+
+    session.latestDraft = restoreQualityTaskMappings(
+      session.latestDraft as Record<string, unknown> | undefined,
+    );
+    const qualityCoverage = validateQualityTaskCoverage(session);
+    if (!qualityCoverage.ok) {
+      return {
+        ok: false,
+        reason: "quality_deliverables_uncovered",
+        missingDeliverableIds: qualityCoverage.missingDeliverableIds,
+        hint: `正式发布已阻止：以下质量必须成果没有任务覆盖：${qualityCoverage.missingDeliverableIds.join("、")}。`,
+      };
+    }
 
     if (isStagingStale(session)) {
       return {

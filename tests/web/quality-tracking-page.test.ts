@@ -55,6 +55,7 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain('data-quality-stage="final"');
     expect(html).toContain('var initialSourceKey = "feedback:REAL-001"');
     expect(html).toContain("window.addEventListener('popstate', restoreFromUrl)");
+    expect(html).toContain("fetch('/api/workbench/logout'");
     expect(html).toContain("/workbench/quality/review?sourceKey=");
   });
 
@@ -118,7 +119,8 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain("明确提交并创建质量事件");
     expect(html).toContain("查看质量事件");
     expect(html).toContain("PENDING_ANALYSIS: '待质量初析'");
-    expect(html).toContain("当前版本不生成或伪造质量初析内容");
+    expect(html).toContain("AI原稿独立留存，人工草稿可编辑");
+    expect(html).toContain("正式确认并交接任务规划");
   });
 
   it("emits syntactically valid inline browser scripts", () => {

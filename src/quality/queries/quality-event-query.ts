@@ -198,10 +198,11 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
           ORDER BY n.depth,n.created_at,n.node_id
         `).all(event.eventId)) as DatabaseRow[];
     const primary = allNodes.find((node) => Number(node.is_primary) === 1 || String(node.node_id) === event.primaryNodeId);
-    const isSpecialist = caps.roles.includes("quality_specialist");
+    const isSpecialist = caps.canAnalyzeQuality;
+    const isAdmin = caps.baseRole === "admin";
     const isAftersalesOwner = caps.roles.includes("aftersales_manager") && event.createdBy === input.viewerUserId;
     const isPrimary = String(primary?.assignee_user_id ?? "") === input.viewerUserId;
-    const full = isSpecialist || isAftersalesOwner || isPrimary;
+    const full = isAdmin || isSpecialist || isAftersalesOwner || isPrimary;
     const visible = visibleNodeIds(allNodes, event, input.viewerUserId, full);
     if (!full && visible.size === 0) return null;
     const orderedNodes = orderVisibleNodes(allNodes, visible);
@@ -267,7 +268,8 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
 
   function listEvents(input: { viewerUserId: string }): QualityEventRecord[] {
     const caps = resolveQualityCapabilities(input.viewerUserId);
-    const isSpecialist = caps.roles.includes("quality_specialist") ? 1 : 0;
+    const isSpecialist = caps.canAnalyzeQuality ? 1 : 0;
+    const isAdmin = caps.baseRole === "admin" ? 1 : 0;
     const isAftersales = caps.roles.includes("aftersales_manager") ? 1 : 0;
     const rows = db.prepare(`
       SELECT DISTINCT e.* FROM quality_events e
@@ -275,12 +277,12 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
         ON n.event_id=e.id AND n.assignee_user_id=? AND n.status <> 'CANCELLED'
       WHERE e.deleted_at IS NULL AND (
         (e.status='DRAFT' AND e.created_by=?) OR
-        (e.status<>'DRAFT' AND ?=1) OR
+        (e.status<>'DRAFT' AND (?=1 OR ?=1)) OR
         (e.status<>'DRAFT' AND ?=1 AND e.created_by=?) OR
         (e.status<>'DRAFT' AND n.node_id IS NOT NULL)
       )
       ORDER BY e.updated_at DESC,e.id
-    `).all(input.viewerUserId, input.viewerUserId, isSpecialist, isAftersales, input.viewerUserId) as DatabaseRow[];
+    `).all(input.viewerUserId, input.viewerUserId, isSpecialist, isAdmin, isAftersales, input.viewerUserId) as DatabaseRow[];
     return rows.map(eventFromRow);
   }
 

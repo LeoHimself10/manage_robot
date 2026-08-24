@@ -210,7 +210,16 @@ export async function runManagerOrchestratorTurn(
       ? "admin"
       : input.workbenchRole === "manager"
         ? "manager"
-        : route.resolvedRole;
+          : route.resolvedRole;
+  // The web workbench already authenticated this request as manager/admin.
+  // DingTalk event-role routing may intentionally be disabled (for example in
+  // the isolated quality-analysis dev service), so it must not erase the
+  // trusted actor carried by the authenticated workbench session.
+  const trustedActorUserId =
+    route.trustedActorUserId
+    ?? (input.workbenchRole === "manager" || input.workbenchRole === "admin"
+      ? String(input.senderStaffId ?? "").trim() || undefined
+      : undefined);
 
   let publishResult: Record<string, unknown> | undefined;
   const scopeRotatedSinceLastTurn = computeScopeRotatedSinceLastTurn(session);
@@ -222,10 +231,10 @@ export async function runManagerOrchestratorTurn(
     toolProfile,
     promptProfile,
     managerFollowup: toolProfile === "manager" || toolProfile === "admin",
-    projectPortfolioEnabled: route.trustedActorUserId
-      ? isWorkbenchProjectPortfolioEnabled(route.trustedActorUserId)
+    projectPortfolioEnabled: trustedActorUserId
+      ? isWorkbenchProjectPortfolioEnabled(trustedActorUserId)
       : false,
-    trustedActorUserId: route.trustedActorUserId,
+    trustedActorUserId,
     allowSearchWeb: isExplicitSearchRequest(input.userMessage),
     knownFactsStore,
     currentSessionPlanId: session.planId,

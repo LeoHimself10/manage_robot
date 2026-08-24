@@ -30,6 +30,7 @@ export interface QualityReportFileMetadata {
   eventId: string;
   originalName: string;
   mimeType: string;
+  description: string;
   sizeBytes: number;
   sha256: string;
   status: "ACTIVE" | "ARCHIVED";
@@ -51,6 +52,7 @@ function metadataFromRow(row: DatabaseRow): QualityReportFileMetadata {
     eventId: String(row.event_id),
     originalName: String(row.original_name),
     mimeType: String(row.mime_type),
+    description: String(row.description ?? ""),
     sizeBytes: Number(row.size_bytes),
     sha256: String(row.sha256),
     status: String(row.status) as QualityReportFileMetadata["status"],
@@ -89,6 +91,7 @@ export function createQualityReportFileStore(deps?: {
     requestId?: string;
     originalName: string;
     mimeType: string;
+    description?: string;
     buffer: Buffer;
   }): QualityReportFileMetadata {
     const event = authorizedEvent(input.eventId, input.actorUserId);
@@ -96,6 +99,8 @@ export function createQualityReportFileStore(deps?: {
     if (!QUALITY_ALLOWED_MIME_TYPES.has(input.mimeType)) throw new Error("file type not allowed");
     if (input.buffer.byteLength > maxBytes) throw new Error("file too large");
     const originalName = cleanQualityOriginalName(input.originalName);
+    const description = String(input.description ?? "").trim();
+    if (description.length > 2_000) throw new Error("附件说明不能超过2000字");
     const fileId = id();
     const storageKey = id();
     const occurredAt = now();
@@ -110,8 +115,8 @@ export function createQualityReportFileStore(deps?: {
       db.prepare(`
         INSERT INTO quality_report_files (
           id, event_id, draft_version, storage_key, original_name, mime_type,
-          size_bytes, sha256, status, uploaded_by, created_at, version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, 1)
+          description, size_bytes, sha256, status, uploaded_by, created_at, version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, 1)
       `).run(
         fileId,
         input.eventId,
@@ -119,6 +124,7 @@ export function createQualityReportFileStore(deps?: {
         storageKey,
         originalName,
         input.mimeType,
+        description,
         input.buffer.byteLength,
         sha256,
         input.actorUserId,
@@ -144,6 +150,7 @@ export function createQualityReportFileStore(deps?: {
           fileId,
           originalName,
           mimeType: input.mimeType,
+          description,
           sizeBytes: input.buffer.byteLength,
           sha256,
         }),
@@ -161,6 +168,7 @@ export function createQualityReportFileStore(deps?: {
       eventId: input.eventId,
       originalName,
       mimeType: input.mimeType,
+      description,
       sizeBytes: input.buffer.byteLength,
       sha256,
       status: "ACTIVE",
