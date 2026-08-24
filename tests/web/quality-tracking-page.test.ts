@@ -102,6 +102,25 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain("未创建质量事件，未改变来源状态");
   });
 
+  it("renders formal disposition and an explicit two-step anomaly report flow", () => {
+    const html = renderQualityTrackingPage({
+      role: "manager",
+      userId: "after",
+      canReport: true,
+    });
+
+    expect(html).toContain("正式处置");
+    expect(html).toContain("确认标记为普通反馈");
+    expect(html).toContain("确认进入待补资料");
+    expect(html).toContain("资料已更新");
+    expect(html).toContain('id="qualityReportDialog"');
+    expect(html).toContain("保存草稿");
+    expect(html).toContain("明确提交并创建质量事件");
+    expect(html).toContain("查看质量事件");
+    expect(html).toContain("PENDING_ANALYSIS: '待质量初析'");
+    expect(html).toContain("当前版本不生成或伪造质量初析内容");
+  });
+
   it("emits syntactically valid inline browser scripts", () => {
     const html = renderQualityTrackingPage({
       role: "manager",

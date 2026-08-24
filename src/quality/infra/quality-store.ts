@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS quality_source_reviews (
   decided_by TEXT NOT NULL,
   decided_at TEXT NOT NULL,
   source_content_hash TEXT NOT NULL,
+  assessment_version INTEGER,
+  assessment_snapshot_json TEXT,
   event_id TEXT REFERENCES quality_events(id),
   version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
   created_at TEXT NOT NULL,
@@ -126,6 +128,34 @@ CREATE TABLE IF NOT EXISTS quality_candidates (
 CREATE INDEX IF NOT EXISTS idx_quality_candidates_status_detected
 ON quality_candidates(status, detected_at DESC);
 
+CREATE TABLE IF NOT EXISTS quality_source_ai_assessments (
+  id TEXT PRIMARY KEY,
+  source_key TEXT NOT NULL REFERENCES quality_source_rows(source_key),
+  source_version INTEGER NOT NULL CHECK(source_version >= 1),
+  request_id TEXT NOT NULL,
+  source_snapshot_json TEXT NOT NULL,
+  output_json TEXT NOT NULL,
+  retrieved_cases_json TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(source_key, request_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_source_ai_assessments_source
+ON quality_source_ai_assessments(source_key, source_version, created_at DESC);
+
+CREATE TRIGGER IF NOT EXISTS quality_source_ai_assessments_no_update
+BEFORE UPDATE ON quality_source_ai_assessments
+BEGIN
+  SELECT RAISE(ABORT, 'quality source AI assessments are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS quality_source_ai_assessments_no_delete
+BEFORE DELETE ON quality_source_ai_assessments
+BEGIN
+  SELECT RAISE(ABORT, 'quality source AI assessments are append-only');
+END;
+
 CREATE TABLE IF NOT EXISTS quality_source_assessments (
   source_key TEXT PRIMARY KEY REFERENCES quality_source_rows(source_key),
   source_version INTEGER NOT NULL CHECK(source_version >= 1),
@@ -143,6 +173,7 @@ CREATE TABLE IF NOT EXISTS quality_source_assessments (
   conclusion TEXT NOT NULL CHECK(length(conclusion) BETWEEN 1 AND 10000),
   adoption_mode TEXT NOT NULL CHECK(adoption_mode IN ('MANUAL','DIRECT','MODIFIED')),
   change_reason TEXT,
+  ai_assessment_id TEXT REFERENCES quality_source_ai_assessments(id),
   reviewed_by TEXT NOT NULL,
   version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
   created_at TEXT NOT NULL,
@@ -152,11 +183,39 @@ CREATE TABLE IF NOT EXISTS quality_source_assessments (
 CREATE INDEX IF NOT EXISTS idx_quality_source_assessments_updated
 ON quality_source_assessments(updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS quality_source_assessment_audit (
+  id TEXT PRIMARY KEY,
+  source_key TEXT NOT NULL REFERENCES quality_source_rows(source_key),
+  assessment_version INTEGER NOT NULL CHECK(assessment_version >= 1),
+  actor_user_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  before_json TEXT,
+  after_json TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  UNIQUE(source_key, request_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_source_assessment_audit_source
+ON quality_source_assessment_audit(source_key, assessment_version, occurred_at);
+
+CREATE TRIGGER IF NOT EXISTS quality_source_assessment_audit_no_update
+BEFORE UPDATE ON quality_source_assessment_audit
+BEGIN
+  SELECT RAISE(ABORT, 'quality source assessment audit is append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS quality_source_assessment_audit_no_delete
+BEFORE DELETE ON quality_source_assessment_audit
+BEGIN
+  SELECT RAISE(ABORT, 'quality source assessment audit is append-only');
+END;
+
 CREATE TABLE IF NOT EXISTS quality_events (
   id TEXT PRIMARY KEY,
   event_no TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL CHECK(status IN (
-    'DRAFT','PENDING_ASSIGNMENT','PENDING_ACCEPTANCE','IN_PROGRESS',
+    'DRAFT','PENDING_ANALYSIS','PENDING_ASSIGNMENT','PENDING_ACCEPTANCE','IN_PROGRESS',
     'PENDING_PRIMARY_REVIEW','PENDING_QUALITY_REVIEW','CLOSED'
   )),
   title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 200),
@@ -201,6 +260,35 @@ CREATE TABLE IF NOT EXISTS quality_event_source_links (
 
 CREATE INDEX IF NOT EXISTS idx_quality_event_source_links_event
 ON quality_event_source_links(event_id, linked_at);
+
+CREATE TABLE IF NOT EXISTS quality_event_reporting_context (
+  event_id TEXT PRIMARY KEY REFERENCES quality_events(id),
+  source_key TEXT NOT NULL UNIQUE REFERENCES quality_source_rows(source_key),
+  assessment_version INTEGER NOT NULL CHECK(assessment_version >= 1),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS quality_event_reporting_snapshots (
+  event_id TEXT PRIMARY KEY REFERENCES quality_events(id),
+  source_snapshots_json TEXT NOT NULL,
+  ai_assessments_json TEXT NOT NULL,
+  manager_assessments_json TEXT NOT NULL,
+  frozen_by TEXT NOT NULL,
+  frozen_at TEXT NOT NULL
+);
+
+CREATE TRIGGER IF NOT EXISTS quality_event_reporting_snapshots_no_update
+BEFORE UPDATE ON quality_event_reporting_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'quality event reporting snapshots are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS quality_event_reporting_snapshots_no_delete
+BEFORE DELETE ON quality_event_reporting_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'quality event reporting snapshots are immutable');
+END;
 
 CREATE TABLE IF NOT EXISTS quality_event_relations (
   id TEXT PRIMARY KEY,
@@ -578,12 +666,80 @@ function withTransaction<T>(db: DatabaseSync, operation: () => T): T {
   }
 }
 
+function migrateQualityEventAnalysisStatus(db: DatabaseSync): void {
+  const table = db.prepare(`
+    SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'quality_events'
+  `).get() as { sql?: string } | undefined;
+  if (!table?.sql || table.sql.includes("PENDING_ANALYSIS")) return;
+  db.exec("PRAGMA legacy_alter_table = ON");
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec(`
+      ALTER TABLE quality_events RENAME TO quality_events_before_analysis_status;
+      CREATE TABLE quality_events (
+        id TEXT PRIMARY KEY,
+        event_no TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK(status IN (
+          'DRAFT','PENDING_ANALYSIS','PENDING_ASSIGNMENT','PENDING_ACCEPTANCE',
+          'IN_PROGRESS','PENDING_PRIMARY_REVIEW','PENDING_QUALITY_REVIEW','CLOSED'
+        )),
+        title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 200),
+        problem_status TEXT NOT NULL CHECK(length(problem_status) BETWEEN 1 AND 10000),
+        occurred_at TEXT,
+        feedback_at TEXT,
+        feedback_user_id TEXT,
+        feedback_name TEXT,
+        device_model TEXT,
+        device_serial TEXT,
+        catheter_batch TEXT,
+        clinician_aware TEXT,
+        impact TEXT,
+        initial_category TEXT,
+        urgency TEXT CHECK(urgency IS NULL OR urgency IN ('CRITICAL','HIGH','MEDIUM','LOW')),
+        supplement TEXT,
+        created_by TEXT NOT NULL,
+        submitted_by TEXT,
+        submitted_at TEXT,
+        original_primary_department_id TEXT,
+        overall_due_at TEXT,
+        primary_node_id TEXT,
+        version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+      INSERT INTO quality_events (
+        id,event_no,status,title,problem_status,occurred_at,feedback_at,
+        feedback_user_id,feedback_name,device_model,device_serial,catheter_batch,
+        clinician_aware,impact,initial_category,urgency,supplement,created_by,
+        submitted_by,submitted_at,original_primary_department_id,overall_due_at,
+        primary_node_id,version,created_at,updated_at,deleted_at
+      ) SELECT
+        id,event_no,status,title,problem_status,occurred_at,feedback_at,
+        feedback_user_id,feedback_name,device_model,device_serial,catheter_batch,
+        clinician_aware,impact,initial_category,urgency,supplement,created_by,
+        submitted_by,submitted_at,original_primary_department_id,overall_due_at,
+        primary_node_id,version,created_at,updated_at,deleted_at
+      FROM quality_events_before_analysis_status;
+      DROP TABLE quality_events_before_analysis_status;
+      CREATE INDEX IF NOT EXISTS idx_quality_events_status_updated
+      ON quality_events(status, updated_at DESC);
+    `);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  } finally {
+    db.exec("PRAGMA legacy_alter_table = OFF");
+  }
+}
+
 export function createQualityStore(
   dbPath = resolveWorkbenchSqlitePath(),
   deps?: { now?: () => string; id?: () => string },
 ): QualityStore {
   const db = new DatabaseSync(dbPath);
-  db.exec("PRAGMA foreign_keys = ON");
+  db.exec("PRAGMA foreign_keys = OFF");
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec(QUALITY_SCHEMA_SQL);
   const qualityEventColumns = new Set(
@@ -593,6 +749,7 @@ export function createQualityStore(
   if (!qualityEventColumns.has("primary_node_id")) {
     db.exec("ALTER TABLE quality_events ADD COLUMN primary_node_id TEXT");
   }
+  migrateQualityEventAnalysisStatus(db);
   const qualityEvidenceColumns = new Set(
     (db.prepare("PRAGMA table_info(quality_evidence)").all() as Array<{ name?: string }>)
       .map((row) => String(row.name ?? "")),
@@ -616,8 +773,22 @@ export function createQualityStore(
   if (!qualityAssessmentColumns.has("custom_secondary_category_name")) {
     db.exec("ALTER TABLE quality_source_assessments ADD COLUMN custom_secondary_category_name TEXT");
   }
+  if (!qualityAssessmentColumns.has("ai_assessment_id")) {
+    db.exec("ALTER TABLE quality_source_assessments ADD COLUMN ai_assessment_id TEXT REFERENCES quality_source_ai_assessments(id)");
+  }
+  const qualityReviewColumns = new Set(
+    (db.prepare("PRAGMA table_info(quality_source_reviews)").all() as Array<{ name?: string }>)
+      .map((row) => String(row.name ?? "")),
+  );
+  if (!qualityReviewColumns.has("assessment_version")) {
+    db.exec("ALTER TABLE quality_source_reviews ADD COLUMN assessment_version INTEGER");
+  }
+  if (!qualityReviewColumns.has("assessment_snapshot_json")) {
+    db.exec("ALTER TABLE quality_source_reviews ADD COLUMN assessment_snapshot_json TEXT");
+  }
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_quality_evidence_request
     ON quality_evidence(request_id) WHERE request_id IS NOT NULL`);
+  db.exec("PRAGMA foreign_keys = ON");
   const now = deps?.now ?? (() => new Date().toISOString());
   const id = deps?.id ?? randomUUID;
 

@@ -114,23 +114,40 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
              a.category_mode AS assessment_category_mode,
              a.custom_primary_category_name AS assessment_custom_primary,
              a.custom_secondary_category_name AS assessment_custom_secondary,
-             a.risk_level AS assessment_risk,
-             a.adoption_mode AS assessment_adoption_mode,
-             a.version AS assessment_version,
-             a.updated_at AS assessment_updated_at
+              a.risk_level AS assessment_risk,
+              a.adoption_mode AS assessment_adoption_mode,
+              a.source_version AS assessment_source_version,
+              a.ai_assessment_id AS assessment_ai_id,
+              a.version AS assessment_version,
+              a.updated_at AS assessment_updated_at,
+              v.status AS review_status,v.note AS review_note,
+              v.decided_by AS review_decided_by,v.decided_at AS review_decided_at,
+              v.source_content_hash AS review_source_content_hash,
+              v.assessment_version AS review_assessment_version,
+              v.event_id AS review_event_id,v.version AS review_version,
+              ai.id AS latest_ai_assessment_id
       FROM quality_source_rows r
       LEFT JOIN quality_event_source_links l ON l.source_key = r.source_key
       LEFT JOIN quality_events e ON e.id = l.event_id AND e.deleted_at IS NULL
       LEFT JOIN quality_source_assessments a ON a.source_key = r.source_key
+      LEFT JOIN quality_source_reviews v ON v.source_key = r.source_key
+      LEFT JOIN quality_source_ai_assessments ai ON ai.id = (
+        SELECT recent.id FROM quality_source_ai_assessments recent
+        WHERE recent.source_key = r.source_key
+          AND recent.source_version = r.source_version
+        ORDER BY recent.created_at DESC,recent.rowid DESC LIMIT 1
+      )
       WHERE r.state <> 'DELETED'
       ORDER BY r.row_number DESC, r.source_key
     `).all() as DatabaseRow[];
     const filtered = rawRows.filter((row) => {
       if (input.reported === true && row.reported_event_id == null) return false;
       if (input.reported === false && row.reported_event_id != null) return false;
+      const assessmentCurrent = row.assessment_version != null
+        && Number(row.assessment_source_version) === Number(row.source_version);
       if (input.reviewStatus === "PENDING"
-        && (row.assessment_version != null || row.reported_event_id != null)) return false;
-      if (input.reviewStatus === "REVIEWED" && row.assessment_version == null) return false;
+        && (assessmentCurrent || row.reported_event_id != null)) return false;
+      if (input.reviewStatus === "REVIEWED" && !assessmentCurrent) return false;
       if (input.reviewStatus === "REPORTED" && row.reported_event_id == null) return false;
       if (input.riskLevel && String(row.assessment_risk ?? "") !== input.riskLevel) return false;
       if (!query) return true;
@@ -175,8 +192,28 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
           rawSnapshot: parseObject(row.raw_snapshot_json),
           assessment: assessment ? {
             ...assessment,
+            sourceVersion: Number(row.assessment_source_version),
+            aiAssessmentId: nullableString(row.assessment_ai_id),
             categoryDisplayName: qualityAssessmentCategoryDisplayName(assessment),
           } : null,
+          aiAssessment: row.latest_ai_assessment_id == null ? null : {
+            assessmentId: String(row.latest_ai_assessment_id),
+          },
+          review: row.review_status == null ? null : {
+            status: String(row.review_status),
+            note: nullableString(row.review_note),
+            decidedBy: String(row.review_decided_by),
+            decidedAt: String(row.review_decided_at),
+            assessmentVersion: row.review_assessment_version == null
+              ? null
+              : Number(row.review_assessment_version),
+            eventId: nullableString(row.review_event_id),
+            version: Number(row.review_version),
+          },
+          sourceUpdatedSinceAssessment: assessment != null
+            && Number(row.assessment_source_version) !== Number(row.source_version),
+          sourceUpdatedSinceDecision: row.review_status != null
+            && String(row.review_source_content_hash) !== String(row.content_hash),
           reportedEvent: row.reported_event_id == null ? null : {
             eventId: String(row.reported_event_id),
             eventNo: String(row.reported_event_no),

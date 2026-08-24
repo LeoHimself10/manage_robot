@@ -14,6 +14,7 @@ export interface QualityEventDetailView {
   reviews: Array<Record<string, unknown>>;
   publicAudit: Array<Record<string, unknown>>;
   notifications: Array<Record<string, unknown>>;
+  reportingSnapshots: Record<string, unknown> | null;
   allowedActions: string[];
 }
 
@@ -176,6 +177,7 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
       if (event.createdBy !== input.viewerUserId) return null;
       return {
         event, sourceSnapshots: [], relatedEvents: [], assignmentTree: [], evidence: [], reviews: [], publicAudit: [], notifications: [],
+        reportingSnapshots: null,
         allowedActions: ["编辑草稿", "提交通报"],
       };
     }
@@ -240,6 +242,16 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
             return { id: String(item.id), eventType: String(item.event_type), recipientUserId: isSpecialist || own ? String(item.recipient_user_id) : "相关人员", status: String(item.status), attempts: Number(item.attempts), lastError: isSpecialist ? safeText(item.last_error) : null, canRetry: isSpecialist && String(item.status) === "DEAD", createdAt: String(item.created_at), updatedAt: String(item.updated_at) };
           })
       : [];
+    const reportingRow = db.prepare(`
+      SELECT * FROM quality_event_reporting_snapshots WHERE event_id = ?
+    `).get(event.eventId) as DatabaseRow | undefined;
+    const reportingSnapshots = reportingRow ? {
+      sourceSnapshots: JSON.parse(String(reportingRow.source_snapshots_json ?? "[]")) as unknown,
+      aiAssessments: JSON.parse(String(reportingRow.ai_assessments_json ?? "[]")) as unknown,
+      managerAssessments: JSON.parse(String(reportingRow.manager_assessments_json ?? "[]")) as unknown,
+      frozenBy: String(reportingRow.frozen_by),
+      frozenAt: String(reportingRow.frozen_at),
+    } : null;
     return {
       event, sourceSnapshots, relatedEvents,
       assignmentTree: orderedNodes.map((item) => ({
@@ -248,7 +260,7 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
         status: String(item.status), dueAt: String(item.due_at), requirement: String(item.requirement), version: Number(item.version),
         taskId: nullable(item.task_id), subtaskId: nullable(item.subtask_id), taskNo: nullable(item.task_no), acceptedAt: nullable(item.accepted_at), submittedAt: nullable(item.submitted_at),
       })),
-      evidence, reviews, publicAudit, notifications,
+      evidence, reviews, publicAudit, notifications, reportingSnapshots,
       allowedActions: allowedActions({ event, viewerUserId: input.viewerUserId, isSpecialist, isAftersalesOwner, visibleNodes: orderedNodes }),
     };
   }

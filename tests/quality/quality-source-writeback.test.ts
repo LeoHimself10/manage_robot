@@ -59,19 +59,22 @@ describe("quality source writeback outbox", () => {
     expect(sent).toEqual(["待补资料"]);
   });
 
-  it("retries a failed write without rolling back the local review", async () => {
+  it("records a DingTalk 403 for retry without rolling back the local review", async () => {
     const dbPath = setup();
     const review = createQualitySourceReviewService({ dbPath, now: () => "2026-07-14T00:00:00.000Z" });
     review.reviewSource({ actorUserId: "after", sourceKey: "feedback:FB-1", decision: "ORDINARY", expectedVersion: 0, requestId: "req-1" });
     review.close();
     let current = new Date("2026-07-14T00:00:00.000Z");
     const outbox = createQualitySourceWritebackOutbox({ dbPath, now: () => current });
-    const failed = await outbox.processNext(async () => { throw new Error("access_token=secret network down"); });
+    const failed = await outbox.processNext(async () => {
+      throw new Error("DingTalk HTTP 403 access_token=secret forbidden");
+    });
     current = new Date("2026-07-14T00:02:00.000Z");
     const sent = await outbox.processNext(async () => undefined);
     outbox.close();
 
     expect(failed).toMatchObject({ status: "RETRY", attemptCount: 1 });
+    expect(failed?.lastError).toContain("403");
     expect(failed?.lastError).not.toContain("secret");
     expect(sent?.status).toBe("SENT");
     const db = new DatabaseSync(dbPath);

@@ -91,7 +91,7 @@ export function isQualityApiPath(pathname: string): boolean {
     || /^\/api\/workbench\/quality\/opinions\/threads\/[^/]+\/messages$/.test(pathname)
     || /^\/api\/workbench\/quality\/notifications\/[^/]+\/retry$/.test(pathname)
     || /^\/api\/workbench\/quality\/files\/[^/]+$/.test(pathname)
-    || /^\/api\/workbench\/quality\/assessments\/[^/]+$/.test(pathname);
+    || /^\/api\/workbench\/quality\/assessments\/[^/]+(?:\/disposition)?$/.test(pathname);
 }
 
 function writeJson(res: ServerResponse, statusCode: number, body: unknown): void {
@@ -199,6 +199,9 @@ function errorResponse(error: unknown): { status: number; body: Record<string, u
     return { status: 415, body: { ok: false, error: "不支持该证据文件类型" } };
   }
   if (/当前不可|不能晚于|不可替换/.test(message)) {
+    return { status: 409, body: { ok: false, error: message } };
+  }
+  if (/来源资料已更新|最终研判已更新|已经通报|已进入质量流程|正式处置必须|才可创建通报/.test(message)) {
     return { status: 409, body: { ok: false, error: message } };
   }
   if (/不在待|当前节点/.test(message)) {
@@ -598,9 +601,12 @@ async function handleQualityApi(input: {
       && url.pathname === "/api/workbench/quality/assessments/ai") {
       const body = z.object({
         sourceKey: z.string().trim().min(1).max(300),
+        requestId: z.string().uuid().optional(),
       }).strict().parse(await readJsonBody(req));
       const result = await runQualitySourceAiAssessment({
         sourceKey: body.sourceKey,
+        requestId: body.requestId,
+        actorUserId: session.userId,
       });
       writeJson(res, 200, { ok: true, data: result });
       return;
@@ -612,8 +618,10 @@ async function handleQualityApi(input: {
     if (sourceAssessmentMatch && req.method === "GET") {
       const sourceKey = decodeURIComponent(sourceAssessmentMatch[1]!);
       const service = createQualitySourceAssessmentService();
+      const reviewService = createQualitySourceReviewService();
       try {
         const workspace = service.getReviewWorkspace(sourceKey);
+        const review = reviewService.get(sourceKey);
         writeJson(res, 200, {
           ok: true,
           data: {
@@ -624,10 +632,58 @@ async function handleQualityApi(input: {
               sheetName: workspace.source.sheetName,
             },
             assessment: workspace.assessment,
+            aiAssessment: workspace.aiAssessment,
+            reportEvent: workspace.reportEvent,
+            review,
+            sourceUpdatedSinceAssessment: workspace.assessment != null
+              && workspace.assessment.sourceVersion !== workspace.source.sourceVersion,
+            sourceUpdatedSinceDecision: review != null
+              && review.sourceContentHash !== workspace.source.normalizedFeedback.contentHash,
           },
         });
       } finally {
+        reviewService.close();
         service.close();
+      }
+      return;
+    }
+
+    const sourceDispositionMatch = url.pathname.match(
+      /^\/api\/workbench\/quality\/assessments\/([^/]+)\/disposition$/,
+    );
+    if (sourceDispositionMatch && req.method === "POST") {
+      const sourceKey = decodeURIComponent(sourceDispositionMatch[1]!);
+      const body = z.object({
+        expectedAssessmentVersion: z.number().int().positive(),
+        expectedReviewVersion: z.number().int().nonnegative(),
+        requestId: z.string().uuid(),
+        note: z.string().trim().max(2000).optional(),
+      }).strict().parse(await readJsonBody(req));
+      const assessmentService = createQualitySourceAssessmentService();
+      const reviewService = createQualitySourceReviewService();
+      try {
+        const assessment = assessmentService.getAssessment(sourceKey);
+        if (!assessment) throw new Error("主管最终研判不存在");
+        if (assessment.version !== body.expectedAssessmentVersion) {
+          throw new Error("version conflict");
+        }
+        if (assessment.handlingRecommendation === "QUALITY_ANOMALY") {
+          throw new Error("质量异常必须由主管明确提交通报后进入质量流程");
+        }
+        const review = reviewService.reviewSource({
+          actorUserId: session.userId,
+          sourceKey,
+          decision: assessment.handlingRecommendation,
+          note: body.note,
+          expectedVersion: body.expectedReviewVersion,
+          assessmentVersion: body.expectedAssessmentVersion,
+          requestId: body.requestId,
+        });
+        triggerQualitySourceWriteback();
+        writeJson(res, 200, { ok: true, data: { review } });
+      } finally {
+        reviewService.close();
+        assessmentService.close();
       }
       return;
     }
@@ -792,14 +848,24 @@ async function handleQualityApi(input: {
           ? sourceKeys(body.sourceKeys)
           : [];
         result = keys.length > 0
-          ? service.createDraftFromSources({
+          ? body.assessmentVersion == null
+            ? service.createDraftFromSources({
             actor: actorFor(session, "aftersales_manager"),
             requestId: requestId(body.requestId),
             sourceKeys: keys,
             overrides: body.draft == null
               ? undefined
               : qualityDraftFieldsSchema.partial().parse(body.draft),
-          })
+            })
+            : service.createDraftFromAssessment({
+              actor: actorFor(session, "aftersales_manager"),
+              requestId: requestId(body.requestId),
+              sourceKey: z.tuple([z.string().trim().min(1).max(300)]).parse(keys)[0],
+              expectedAssessmentVersion: z.number().int().positive().parse(body.assessmentVersion),
+              overrides: body.draft == null
+                ? undefined
+                : qualityDraftFieldsSchema.partial().parse(body.draft),
+            })
           : service.createManualDraft({
             actor: actorFor(session, "aftersales_manager"),
             requestId: requestId(body.requestId),
@@ -813,6 +879,15 @@ async function handleQualityApi(input: {
           });
         const sourceSnapshots = service.listSourceLinks(result.event.eventId);
         if (!result.created) {
+          if (body.assessmentVersion != null
+            && result.event.status === "DRAFT"
+            && result.event.createdBy === session.userId) {
+            writeJson(res, 200, {
+              ok: true,
+              data: { created: false, event: result.event, sourceSnapshots },
+            });
+            return;
+          }
           writeJson(res, 409, {
             ok: false,
             error: "该来源已经通报",
@@ -820,7 +895,10 @@ async function handleQualityApi(input: {
           });
           return;
         }
-        writeJson(res, 201, { ok: true, data: { event: result.event, sourceSnapshots } });
+        writeJson(res, 201, {
+          ok: true,
+          data: { created: true, event: result.event, sourceSnapshots },
+        });
       } finally {
         service.close();
       }

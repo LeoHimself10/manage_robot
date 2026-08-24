@@ -1,5 +1,6 @@
 export type QualityEventStatus =
   | "DRAFT"
+  | "PENDING_ANALYSIS"
   | "PENDING_ASSIGNMENT"
   | "PENDING_ACCEPTANCE"
   | "IN_PROGRESS"

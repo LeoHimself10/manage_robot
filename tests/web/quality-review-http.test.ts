@@ -86,6 +86,9 @@ describe("quality review HTTP", () => {
     expect(isQualityPagePath("/workbench/quality/review")).toBe(true);
     expect(isQualityApiPath("/api/workbench/quality/review-queue")).toBe(true);
     expect(isQualityApiPath("/api/workbench/quality/source/feedback%3AFB-HTTP/review")).toBe(true);
+    expect(isQualityApiPath(
+      "/api/workbench/quality/assessments/feedback%3AFB-HTTP/disposition",
+    )).toBe(true);
 
     const denied = await call("/api/workbench/quality/review-queue", "GET", "specialist-1");
     expect(denied.status).toBe(403);
@@ -109,5 +112,129 @@ describe("quality review HTTP", () => {
       { decision: "ORDINARY", expectedVersion: 0, requestId: "f6f32489-b4b9-48ac-9150-354cd36b2441" },
     );
     expect(conflict.status).toBe(409);
+  });
+
+  it("requires backend supervisor permission and reloads a formal ordinary disposition", async () => {
+    const saveBody = {
+      handlingRecommendation: "ORDINARY",
+      categoryMode: "STANDARD",
+      primaryCategoryCode: "CATHETER_PRODUCT",
+      secondaryCategoryCode: "CATHETER_BEND_SHAKE",
+      customPrimaryCategoryName: null,
+      customSecondaryCategoryName: null,
+      riskLevel: "LOW",
+      conclusion: "主管确认属于普通反馈。",
+      adoptionMode: "MANUAL",
+      changeReason: null,
+      expectedVersion: 0,
+      requestId: "11111111-1111-4111-8111-111111111111",
+    };
+    const saved = await call(
+      "/api/workbench/quality/assessments/feedback%3AFB-HTTP",
+      "PUT",
+      "after-1",
+      saveBody,
+    );
+    expect(saved.status).toBe(200);
+    const assessmentVersion = JSON.parse(saved.body).data.assessment.version as number;
+    const dispositionPath =
+      "/api/workbench/quality/assessments/feedback%3AFB-HTTP/disposition";
+    const denied = await call(dispositionPath, "POST", "specialist-1", {
+      expectedAssessmentVersion: assessmentVersion,
+      expectedReviewVersion: 0,
+      requestId: "22222222-2222-4222-8222-222222222222",
+    });
+    expect(denied.status).toBe(403);
+
+    const disposed = await call(dispositionPath, "POST", "after-1", {
+      expectedAssessmentVersion: assessmentVersion,
+      expectedReviewVersion: 0,
+      requestId: "33333333-3333-4333-8333-333333333333",
+      note: "普通反馈正式确认。",
+    });
+    expect(disposed.status).toBe(200);
+    expect(JSON.parse(disposed.body).data.review).toMatchObject({
+      status: "ORDINARY",
+      decidedBy: "after-1",
+      assessmentVersion,
+    });
+
+    const reloaded = await call(
+      "/api/workbench/quality/assessments/feedback%3AFB-HTTP",
+      "GET",
+      "after-1",
+    );
+    expect(JSON.parse(reloaded.body).data.review).toMatchObject({
+      status: "ORDINARY",
+      note: "普通反馈正式确认。",
+      assessmentVersion,
+    });
+  });
+
+  it("creates and idempotently submits one anomaly event in pending analysis", async () => {
+    const saved = await call(
+      "/api/workbench/quality/assessments/feedback%3AFB-HTTP",
+      "PUT",
+      "after-1",
+      {
+        handlingRecommendation: "QUALITY_ANOMALY",
+        categoryMode: "STANDARD",
+        primaryCategoryCode: "CATHETER_PRODUCT",
+        secondaryCategoryCode: "CATHETER_BEND_SHAKE",
+        customPrimaryCategoryName: null,
+        customSecondaryCategoryName: null,
+        riskLevel: "HIGH",
+        conclusion: "主管确认需要通报质量异常。",
+        adoptionMode: "MANUAL",
+        changeReason: null,
+        expectedVersion: 0,
+        requestId: "44444444-4444-4444-8444-444444444444",
+      },
+    );
+    const assessmentVersion = JSON.parse(saved.body).data.assessment.version as number;
+    const draft = await call(
+      "/api/workbench/quality/events/drafts",
+      "POST",
+      "after-1",
+      {
+        sourceKeys: ["feedback:FB-HTTP"],
+        assessmentVersion,
+        requestId: "55555555-5555-4555-8555-555555555555",
+      },
+    );
+    expect(draft.status).toBe(201);
+    const draftEvent = JSON.parse(draft.body).data.event as {
+      eventId: string;
+      version: number;
+      status: string;
+      deviceModel: string;
+    };
+    expect(draftEvent).toMatchObject({ status: "DRAFT", deviceModel: "Model-A" });
+
+    const submitPath = `/api/workbench/quality/events/${encodeURIComponent(draftEvent.eventId)}/submit`;
+    const submitBody = {
+      expectedVersion: draftEvent.version,
+      requestId: "66666666-6666-4666-8666-666666666666",
+    };
+    const submitted = await call(submitPath, "POST", "after-1", submitBody);
+    const retried = await call(submitPath, "POST", "after-1", submitBody);
+    expect(submitted.status).toBe(200);
+    expect(retried.status).toBe(200);
+    expect(JSON.parse(submitted.body).data.event).toMatchObject({
+      eventId: draftEvent.eventId,
+      status: "PENDING_ANALYSIS",
+    });
+    expect(JSON.parse(retried.body).data.event).toMatchObject({
+      eventId: draftEvent.eventId,
+      status: "PENDING_ANALYSIS",
+    });
+
+    const dbPath = join(tempDir, "workbench.sqlite");
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM quality_events").get()).toEqual({ count: 1 });
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count FROM quality_event_reporting_snapshots
+    `).get()).toEqual({ count: 1 });
+    db.close();
   });
 });

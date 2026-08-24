@@ -51,6 +51,8 @@
     "dev:task-intake": "tsx scripts/local-task-intake-dev.ts",
     "dev:task-intake:keep": "tsx scripts/local-task-intake-dev.ts --keep-data",
     "dev:microcatheter-repro": "tsx scripts/local-microcatheter-repro-dev.ts",
+    "dev:quality-disposition": "tsx scripts/local-quality-disposition-dev.ts",
+    "dev:quality-disposition:keep": "tsx scripts/local-quality-disposition-dev.ts --keep-data",
     "test:displayname-local": "tsx scripts/local-test-displayname-fix.ts",
     "quality:source-probe": "tsx scripts/probe-quality-source.ts",
     "quality:ai-original-assessment-v0": "tsx scripts/run-ai-original-assessment-v0.ts",

@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
 import {
   aiHandlingRecommendationSchema,
   aiRiskLevelSchema,
+  type AiOriginalAssessmentOutput,
   type AiHandlingRecommendation,
   type AiRiskLevel,
 } from "../ai-original-assessment/ai-original-assessment-contracts";
@@ -41,6 +43,7 @@ export const saveQualitySourceAssessmentSchema = z.object({
   adoptionMode: qualityAssessmentAdoptionModeSchema,
   changeReason: z.string().trim().max(2_000).nullable().optional(),
   expectedVersion: z.number().int().nonnegative(),
+  requestId: z.string().uuid().optional(),
 }).strict().superRefine((value, context) => {
   if (value.categoryMode === "STANDARD") {
     if (!value.primaryCategoryCode || !value.secondaryCategoryCode
@@ -123,10 +126,42 @@ export interface QualitySourceAssessmentRecord {
   conclusion: string;
   adoptionMode: QualityAssessmentAdoptionMode;
   changeReason: string | null;
+  aiAssessmentId: string | null;
   reviewedBy: string;
   version: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface QualitySourceAiAssessmentRecord {
+  assessmentId: string;
+  sourceKey: string;
+  sourceVersion: number;
+  requestId: string;
+  sourceSnapshot: NormalizedQualitySourceRow;
+  output: AiOriginalAssessmentOutput;
+  retrievedCases: Array<Record<string, unknown>>;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface QualitySourceLinkedEventRecord {
+  eventId: string;
+  eventNo: string;
+  status: string;
+  title: string;
+  currentSituation: string;
+  occurredAt: string | null;
+  reporter: string | null;
+  deviceModel: string | null;
+  serialNo: string | null;
+  catheterBatch: string | null;
+  clinicianAware: string | null;
+  impact: string | null;
+  category: string | null;
+  urgency: string | null;
+  notes: string | null;
+  version: number;
 }
 
 export function qualityCategoryPairExists(
@@ -216,6 +251,32 @@ function normalizedFeedbackFromRow(row: DatabaseRow): NormalizedQualitySourceRow
   };
 }
 
+function parseArray(value: unknown): Array<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(String(value ?? "[]")) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object" && !Array.isArray(item))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function aiAssessmentFromRow(row: DatabaseRow): QualitySourceAiAssessmentRecord {
+  return {
+    assessmentId: String(row.id),
+    sourceKey: String(row.source_key),
+    sourceVersion: Number(row.source_version),
+    requestId: String(row.request_id),
+    sourceSnapshot: parseObject(row.source_snapshot_json) as unknown as NormalizedQualitySourceRow,
+    output: parseObject(row.output_json) as unknown as AiOriginalAssessmentOutput,
+    retrievedCases: parseArray(row.retrieved_cases_json),
+    createdBy: String(row.created_by),
+    createdAt: String(row.created_at),
+  };
+}
+
 function assessmentFromRow(row: DatabaseRow): QualitySourceAssessmentRecord {
   const categoryMode = qualityAssessmentCategoryModeSchema.parse(
     row.category_mode ?? "STANDARD",
@@ -248,6 +309,7 @@ function assessmentFromRow(row: DatabaseRow): QualitySourceAssessmentRecord {
     conclusion: String(row.conclusion),
     adoptionMode: qualityAssessmentAdoptionModeSchema.parse(row.adoption_mode),
     changeReason: row.change_reason == null ? null : String(row.change_reason),
+    aiAssessmentId: row.ai_assessment_id == null ? null : String(row.ai_assessment_id),
     reviewedBy: String(row.reviewed_by),
     version: Number(row.version),
     createdAt: String(row.created_at),
@@ -258,6 +320,7 @@ function assessmentFromRow(row: DatabaseRow): QualitySourceAssessmentRecord {
 export function createQualitySourceAssessmentService(deps?: {
   dbPath?: string;
   now?: () => string;
+  id?: () => string;
 }) {
   const dbPath = deps?.dbPath ?? resolveWorkbenchSqlitePath();
   createQualityStore(dbPath).close();
@@ -265,6 +328,7 @@ export function createQualitySourceAssessmentService(deps?: {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 5000");
   const now = deps?.now ?? (() => new Date().toISOString());
+  const id = deps?.id ?? randomUUID;
 
   function getSourceSnapshot(
     sourceKey: string,
@@ -291,13 +355,107 @@ export function createQualitySourceAssessmentService(deps?: {
     return row ? assessmentFromRow(row) : null;
   }
 
+  function getAiAssessmentByRequest(
+    sourceKey: string,
+    requestId: string,
+  ): QualitySourceAiAssessmentRecord | null {
+    const row = db.prepare(`
+      SELECT * FROM quality_source_ai_assessments
+      WHERE source_key = ? AND request_id = ?
+    `).get(sourceKey, requestId) as DatabaseRow | undefined;
+    return row ? aiAssessmentFromRow(row) : null;
+  }
+
+  function getLatestAiAssessment(
+    sourceKey: string,
+    sourceVersion?: number,
+  ): QualitySourceAiAssessmentRecord | null {
+    const row = (sourceVersion == null
+      ? db.prepare(`
+          SELECT * FROM quality_source_ai_assessments
+          WHERE source_key = ? ORDER BY created_at DESC, rowid DESC LIMIT 1
+        `).get(sourceKey)
+      : db.prepare(`
+          SELECT * FROM quality_source_ai_assessments
+          WHERE source_key = ? AND source_version = ?
+          ORDER BY created_at DESC, rowid DESC LIMIT 1
+        `).get(sourceKey, sourceVersion)) as DatabaseRow | undefined;
+    return row ? aiAssessmentFromRow(row) : null;
+  }
+
+  function saveAiAssessment(input: {
+    sourceKey: string;
+    sourceVersion: number;
+    requestId: string;
+    sourceSnapshot: NormalizedQualitySourceRow;
+    output: AiOriginalAssessmentOutput;
+    retrievedCases: Array<Record<string, unknown>>;
+    actorUserId: string;
+  }): QualitySourceAiAssessmentRecord {
+    const repeated = getAiAssessmentByRequest(input.sourceKey, input.requestId);
+    if (repeated) return repeated;
+    const timestamp = now();
+    try {
+      db.prepare(`
+        INSERT INTO quality_source_ai_assessments (
+          id, source_key, source_version, request_id, source_snapshot_json,
+          output_json, retrieved_cases_json, created_by, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id(), input.sourceKey, input.sourceVersion, input.requestId,
+        JSON.stringify(input.sourceSnapshot), JSON.stringify(input.output),
+        JSON.stringify(input.retrievedCases), input.actorUserId, timestamp,
+      );
+    } catch (error) {
+      const current = getAiAssessmentByRequest(input.sourceKey, input.requestId);
+      if (current) return current;
+      throw error;
+    }
+    return getAiAssessmentByRequest(input.sourceKey, input.requestId)!;
+  }
+
+  function getLinkedEvent(sourceKey: string): QualitySourceLinkedEventRecord | null {
+    const row = db.prepare(`
+      SELECT e.* FROM quality_event_source_links l
+      JOIN quality_events e ON e.id = l.event_id
+      WHERE l.source_key = ? AND e.deleted_at IS NULL
+      ORDER BY l.linked_at DESC LIMIT 1
+    `).get(sourceKey) as DatabaseRow | undefined;
+    if (!row) return null;
+    return {
+      eventId: String(row.id),
+      eventNo: String(row.event_no),
+      status: String(row.status),
+      title: String(row.title),
+      currentSituation: String(row.problem_status),
+      occurredAt: row.occurred_at == null ? null : String(row.occurred_at),
+      reporter: row.feedback_name == null ? null : String(row.feedback_name),
+      deviceModel: row.device_model == null ? null : String(row.device_model),
+      serialNo: row.device_serial == null ? null : String(row.device_serial),
+      catheterBatch: row.catheter_batch == null ? null : String(row.catheter_batch),
+      clinicianAware: row.clinician_aware == null ? null : String(row.clinician_aware),
+      impact: row.impact == null ? null : String(row.impact),
+      category: row.initial_category == null ? null : String(row.initial_category),
+      urgency: row.urgency == null ? null : String(row.urgency),
+      notes: row.supplement == null ? null : String(row.supplement),
+      version: Number(row.version),
+    };
+  }
+
   function getReviewWorkspace(sourceKey: string): {
     source: QualitySourceSnapshotForAssessment;
     assessment: QualitySourceAssessmentRecord | null;
+    aiAssessment: QualitySourceAiAssessmentRecord | null;
+    reportEvent: QualitySourceLinkedEventRecord | null;
   } {
     const source = getSourceSnapshot(sourceKey);
     if (!source) throw new Error("quality source not found");
-    return { source, assessment: getAssessment(sourceKey) };
+    return {
+      source,
+      assessment: getAssessment(sourceKey),
+      aiAssessment: getLatestAiAssessment(sourceKey, source.sourceVersion),
+      reportEvent: getLinkedEvent(sourceKey),
+    };
   }
 
   function saveAssessment(input: {
@@ -306,11 +464,27 @@ export function createQualitySourceAssessmentService(deps?: {
     assessment: z.input<typeof saveQualitySourceAssessmentSchema>;
   }): QualitySourceAssessmentRecord {
     const assessment = saveQualitySourceAssessmentSchema.parse(input.assessment);
-    const source = getSourceSnapshot(input.sourceKey);
-    if (!source) throw new Error("quality source not found");
+    const auditRequestId = assessment.requestId ?? id();
     const timestamp = now();
     db.exec("BEGIN IMMEDIATE");
     try {
+      const repeated = db.prepare(`
+        SELECT 1 FROM quality_source_assessment_audit
+        WHERE source_key = ? AND request_id = ?
+      `).get(input.sourceKey, auditRequestId);
+      if (repeated) {
+        const current = getAssessment(input.sourceKey);
+        if (!current) throw new Error("quality assessment not found");
+        db.exec("COMMIT");
+        return current;
+      }
+      const source = getSourceSnapshot(input.sourceKey);
+      if (!source) throw new Error("quality source not found");
+      const reported = db.prepare(`
+        SELECT 1 FROM quality_source_reviews
+        WHERE source_key = ? AND status = 'REPORTED'
+      `).get(input.sourceKey);
+      if (reported) throw new Error("该来源已经通报，不能修改主管最终研判");
       const existing = db.prepare(
         "SELECT * FROM quality_source_assessments WHERE source_key = ?",
       ).get(input.sourceKey) as DatabaseRow | undefined;
@@ -320,6 +494,11 @@ export function createQualitySourceAssessmentService(deps?: {
       if (!existing && assessment.expectedVersion !== 0) {
         throw new Error("version conflict");
       }
+      const before = existing ? assessmentFromRow(existing) : null;
+      const aiAssessment = getLatestAiAssessment(input.sourceKey, source.sourceVersion);
+      if (assessment.adoptionMode !== "MANUAL" && !aiAssessment) {
+        throw new Error("采纳AI建议前必须先完成当前来源版本的AI原始研判");
+      }
       if (existing) {
         db.prepare(`
           UPDATE quality_source_assessments SET
@@ -328,7 +507,8 @@ export function createQualitySourceAssessmentService(deps?: {
             category_mode = ?, custom_primary_category_name = ?,
             custom_secondary_category_name = ?,
             risk_level = ?, conclusion = ?, adoption_mode = ?,
-            change_reason = ?, reviewed_by = ?, version = version + 1,
+            change_reason = ?, ai_assessment_id = ?, reviewed_by = ?,
+            version = version + 1,
             updated_at = ?
           WHERE source_key = ? AND version = ?
         `).run(
@@ -351,6 +531,7 @@ export function createQualitySourceAssessmentService(deps?: {
           assessment.conclusion,
           assessment.adoptionMode,
           assessment.changeReason?.trim() || null,
+          aiAssessment?.assessmentId ?? null,
           input.actorUserId,
           timestamp,
           input.sourceKey,
@@ -362,9 +543,9 @@ export function createQualitySourceAssessmentService(deps?: {
             source_key, source_version, handling_recommendation,
             primary_category_code, secondary_category_code, category_mode,
             custom_primary_category_name, custom_secondary_category_name, risk_level,
-            conclusion, adoption_mode, change_reason, reviewed_by,
+            conclusion, adoption_mode, change_reason, ai_assessment_id, reviewed_by,
             version, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
         `).run(
           input.sourceKey,
           source.sourceVersion,
@@ -386,6 +567,7 @@ export function createQualitySourceAssessmentService(deps?: {
           assessment.conclusion,
           assessment.adoptionMode,
           assessment.changeReason?.trim() || null,
+          aiAssessment?.assessmentId ?? null,
           input.actorUserId,
           timestamp,
           timestamp,
@@ -394,8 +576,20 @@ export function createQualitySourceAssessmentService(deps?: {
       const saved = db.prepare(
         "SELECT * FROM quality_source_assessments WHERE source_key = ?",
       ).get(input.sourceKey) as DatabaseRow;
+      const after = assessmentFromRow(saved);
+      db.prepare(`
+        INSERT INTO quality_source_assessment_audit (
+          id, source_key, assessment_version, actor_user_id, action,
+          before_json, after_json, request_id, occurred_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id(), input.sourceKey, after.version, input.actorUserId,
+        before ? "ASSESSMENT_REVISED" : "ASSESSMENT_SAVED",
+        before ? JSON.stringify(before) : null,
+        JSON.stringify(after), auditRequestId, timestamp,
+      );
       db.exec("COMMIT");
-      return assessmentFromRow(saved);
+      return after;
     } catch (error) {
       db.exec("ROLLBACK");
       throw error;
@@ -405,6 +599,10 @@ export function createQualitySourceAssessmentService(deps?: {
   return {
     getSourceSnapshot,
     getAssessment,
+    getAiAssessmentByRequest,
+    getLatestAiAssessment,
+    saveAiAssessment,
+    getLinkedEvent,
     getReviewWorkspace,
     saveAssessment,
     close: () => db.close(),
