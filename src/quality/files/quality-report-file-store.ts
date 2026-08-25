@@ -180,7 +180,7 @@ export function createQualityReportFileStore(deps?: {
   function readForAuthorizedUser(
     fileId: string,
     actorUserId: string,
-    actorRole?: "aftersales_manager" | "quality_specialist",
+    actorRole?: "admin" | "aftersales_manager" | "quality_specialist",
   ): Buffer {
     const row = db.prepare(`
       SELECT f.*, e.created_by, e.deleted_at, e.status AS event_status
@@ -188,8 +188,8 @@ export function createQualityReportFileStore(deps?: {
       JOIN quality_events e ON e.id = f.event_id
       WHERE f.id = ? AND f.status = 'ACTIVE'
         AND e.deleted_at IS NULL
-        AND (e.created_by = ? OR (? = 'quality_specialist' AND e.status <> 'DRAFT'))
-    `).get(fileId, actorUserId, actorRole ?? "") as DatabaseRow | undefined;
+        AND (e.created_by = ? OR ? = 'admin' OR (? = 'quality_specialist' AND e.status <> 'DRAFT'))
+    `).get(fileId, actorUserId, actorRole ?? "", actorRole ?? "") as DatabaseRow | undefined;
     if (!row) throw new Error("file not found");
     const buffer = readFileSync(join(rootDir, String(row.storage_key)));
     const digest = createHash("sha256").update(buffer).digest("hex");
@@ -200,14 +200,14 @@ export function createQualityReportFileStore(deps?: {
   function getMetadata(
     fileId: string,
     actorUserId: string,
-    actorRole?: "aftersales_manager" | "quality_specialist",
+    actorRole?: "admin" | "aftersales_manager" | "quality_specialist",
   ): QualityReportFileMetadata {
     const row = db.prepare(`
       SELECT f.*, e.status AS event_status FROM quality_report_files f
       JOIN quality_events e ON e.id = f.event_id
       WHERE f.id = ? AND e.deleted_at IS NULL
-        AND (e.created_by = ? OR (? = 'quality_specialist' AND e.status <> 'DRAFT'))
-    `).get(fileId, actorUserId, actorRole ?? "") as DatabaseRow | undefined;
+        AND (e.created_by = ? OR ? = 'admin' OR (? = 'quality_specialist' AND e.status <> 'DRAFT'))
+    `).get(fileId, actorUserId, actorRole ?? "", actorRole ?? "") as DatabaseRow | undefined;
     if (!row) throw new Error("file not found");
     return metadataFromRow(row);
   }

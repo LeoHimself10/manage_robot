@@ -135,4 +135,20 @@ describe("renderQualityTrackingPage", () => {
     expect(scripts.length).toBeGreaterThan(0);
     expect(() => scripts.forEach((script) => new Function(script!))).not.toThrow();
   });
+
+  it("renders an administrator quality perspective as explicitly read-only", () => {
+    const html = renderQualityTrackingPage({
+      role: "employee",
+      userId: "admin-1",
+      canReport: false,
+      isSpecialist: true,
+      isBusinessReadOnly: true,
+      adminPerspective: "quality_specialist",
+    });
+
+    expect(html).toContain("管理员只读查看");
+    expect(html).toContain('data-business-readonly="1"');
+    expect(html).toContain("质量专员");
+    expect(html).toContain("applyBusinessReadOnly");
+  });
 });

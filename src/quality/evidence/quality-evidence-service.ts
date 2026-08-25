@@ -269,7 +269,7 @@ export function createQualityEvidenceService(deps?: {
   function readEvidence(input: {
     evidenceId: string;
     actorUserId: string;
-    actorRole?: "aftersales_manager" | "quality_specialist";
+    actorRole?: "admin" | "aftersales_manager" | "quality_specialist";
   }) {
     const row = db.prepare(`
       SELECT q.*, e.created_by, e.deleted_at FROM quality_evidence q
@@ -277,7 +277,8 @@ export function createQualityEvidenceService(deps?: {
       WHERE q.evidence_id = ? AND e.deleted_at IS NULL
     `).get(input.evidenceId) as DatabaseRow | undefined;
     if (!row) throw new Error("证据不存在");
-    let visible = input.actorRole === "quality_specialist"
+    let visible = input.actorRole === "admin"
+      || input.actorRole === "quality_specialist"
       || (input.actorRole === "aftersales_manager" && String(row.created_by) === input.actorUserId);
     if (!visible) {
       visible = Boolean(db.prepare(`

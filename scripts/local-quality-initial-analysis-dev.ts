@@ -106,8 +106,8 @@ function seedDirectory(): void {
     isSenior: false,
   });
   try {
-    save(SUPERVISOR_ID, "售后主管（本地）", "dept-aftersales", "售后服务部", "主管");
-    save(QUALITY_EMPLOYEE_ID, "质量员工（本地）", "dept-quality", "质量部", "质量工程师");
+    save(SUPERVISOR_ID, "项目主管（本地）", "dept-aftersales", "售后服务部", "项目主管");
+    save(QUALITY_EMPLOYEE_ID, "质量专员（本地）", "dept-quality", "质量部", "质量专员");
     save(QUALITY_MANAGER_ID, "质量部主管（本地）", "dept-quality", "质量部", "主管");
     save(RD_MANAGER_ID, "研发部主管（本地）", "dept-rd", "研发部", "主管");
     save("rd-engineer-local", "研发工程师（本地）", "dept-rd", "研发部", "研发工程师");
@@ -160,10 +160,12 @@ function printBanner(): void {
   console.log(`健康检查: ${base}/health`);
   console.log(`登录页: ${base}/workbench`);
   console.log(`质量处理中心: ${base}/workbench/quality`);
-  console.log(`售后主管 userId: ${SUPERVISOR_ID}`);
-  console.log(`质量员工 userId: ${QUALITY_EMPLOYEE_ID}`);
+  console.log(`普通主管 userId: ${RD_MANAGER_ID}`);
+  console.log(`项目主管 userId: ${SUPERVISOR_ID}`);
+  console.log("普通员工 userId: rd-engineer-local");
+  console.log(`质量专员 userId: ${QUALITY_EMPLOYEE_ID}`);
   console.log(`质量部首责主管 userId: ${QUALITY_MANAGER_ID}`);
-  console.log(`管理员只读 userId: ${ADMIN_ID}`);
+  console.log(`管理员（五视角只读）userId: ${ADMIN_ID}`);
   console.log("预置反馈: QAI-V1-001");
   console.log(`项目默认Qwen配置: ${model ? `已加载（${model.clientConfig.model}）` : "未配置，仍可走人工初析"}`);
   console.log(`隔离数据目录: ${DATA_ROOT}`);

@@ -18,6 +18,8 @@ export interface QualityCapabilities {
   canAnalyzeQuality: boolean;
   isBusinessReadOnly: boolean;
   hasQualityManagement: boolean;
+  isProjectManager: boolean;
+  isQualitySpecialist: boolean;
   specialistUserIds: string[];
 }
 
@@ -69,7 +71,12 @@ export function listQualitySpecialistUserIds(): string[] {
   return [...new Set([
     ...envUserIds("QUALITY_MANAGEMENT_USER_IDS"),
     ...envUserIds("QUALITY_SPECIALIST_USER_IDS"),
-  ])].sort();
+  ])]
+    // A quality specialist is an employee overlay. Stale or mistaken manager /
+    // admin entries must neither gain the capability nor receive business
+    // notifications intended for quality specialists.
+    .filter((userId) => resolveWorkbenchRole(userId) === "employee")
+    .sort();
 }
 
 export function isQualitySpecialistForReport(
@@ -94,6 +101,8 @@ export function resolveQualityCapabilities(userId: string): QualityCapabilities 
       canAnalyzeQuality: false,
       isBusinessReadOnly: false,
       hasQualityManagement: false,
+      isProjectManager: false,
+      isQualitySpecialist: false,
       specialistUserIds: [],
     };
   }
@@ -105,8 +114,12 @@ export function resolveQualityCapabilities(userId: string): QualityCapabilities 
   // allowlist for this bounded business workflow. Keep it authoritative for
   // backwards-compatible deployments where the general workbench manager
   // directory is configured separately. Administrators remain read-only.
-  const canReportQuality = baseRole !== "admin" && aftersalesManagers.has(normalized);
-  const hasQualityManagement = qualitySpecialists.has(normalized);
+  // The two quality identities are constrained overlays, not independent roles:
+  // manager -> optional project manager; employee -> optional quality specialist.
+  // An allowlist entry never changes the user's base role and never grants an
+  // administrator business write access.
+  const canReportQuality = baseRole === "manager" && aftersalesManagers.has(normalized);
+  const hasQualityManagement = baseRole === "employee" && qualitySpecialists.has(normalized);
   const roles: QualityBusinessRole[] = [];
   if (canReportQuality) roles.push("aftersales_manager");
   // Legacy role name is retained only as a compatibility facade. The product
@@ -121,8 +134,10 @@ export function resolveQualityCapabilities(userId: string): QualityCapabilities 
     canAccessOpinions: roles.includes("quality_report"),
     canReportQuality,
     canAnalyzeQuality: hasQualityManagement,
-    isBusinessReadOnly: baseRole === "admin" && !hasQualityManagement,
+    isBusinessReadOnly: baseRole === "admin",
     hasQualityManagement,
+    isProjectManager: canReportQuality,
+    isQualitySpecialist: hasQualityManagement,
     specialistUserIds,
   };
 }

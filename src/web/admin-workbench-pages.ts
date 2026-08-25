@@ -1,5 +1,10 @@
-import { renderWorkbenchPage } from "./workbench-shell";
+import { renderWorkbenchPage, type WorkbenchNavId } from "./workbench-shell";
 import { isWorkbenchManagerGroupsEnabled } from "../security/workbench-manager-groups";
+import {
+  adminPerspectiveDisplayRole,
+  adminPerspectiveLabel,
+  type WorkbenchAdminPerspective,
+} from "../security/workbench-admin-perspective";
 
 export const ADMIN_PERMISSIONS_CSS = `
 .admin-perm-hub {
@@ -922,16 +927,29 @@ ${managerGroupListHtml}
 export function renderAdminWorkbenchPage(params: {
   userLabel?: string;
   sessionUserId?: string;
+  adminPerspective?: WorkbenchAdminPerspective;
+  activeNav?: WorkbenchNavId;
 }): string {
+  const perspective = params.adminPerspective ?? "operations";
+  const preview = perspective !== "operations";
+  const displayRole = adminPerspectiveDisplayRole(perspective);
+  const perspectiveLabel = adminPerspectiveLabel(perspective);
   return renderWorkbenchPage({
-    role: "admin",
-    activeNav: "adm-tasks",
-    title: "全公司正式任务",
-    pageTitle: "管理员工作台",
-    description: "跨部门检索 · 只读审计 · 权限维护请前往「权限中心」",
+    role: displayRole,
+    activeNav: params.activeNav ?? (displayRole === "manager" ? "mgr-tasks" : displayRole === "employee" ? "emp-new" : "adm-tasks"),
+    title: preview ? `${perspectiveLabel}视角` : "全公司正式任务",
+    pageTitle: preview ? `管理员只读 · ${perspectiveLabel}` : "管理员工作台",
+    description: preview
+      ? "管理员只读查看，不继承该业务身份的新增、修改、研判、初析、分配或验收权限"
+      : "跨部门检索 · 只读审计 · 权限维护请前往「权限中心」",
     userLabel: params.userLabel,
     sessionUserId: params.sessionUserId,
+    adminPerspective: perspective,
     mainHtml: `
+  ${preview ? `<section class="admin-perspective-notice" role="status">
+    <span class="admin-perspective-notice__mark" aria-hidden="true">览</span>
+    <div><strong>正在查看${perspectiveLabel}界面</strong><p>左侧菜单按该身份展示；下方数据仍来自管理员全局只读查询。所有业务写操作由服务端拒绝。</p></div>
+  </section>` : ""}
   <section class="kpis kpis--3" aria-live="polite" style="max-width:480px;margin-bottom:16px;">
     <div class="kpi"><div class="lbl">正式任务总数</div><div class="val" id="kpiTotal">—</div></div>
     <div class="kpi"><div class="lbl">进行中主任务</div><div class="val" id="kpiActive">—</div></div>
@@ -1016,7 +1034,7 @@ export function renderAdminWorkbenchPage(params: {
         return;
       }
       var rows = tasks.map(function (t) {
-        var detail = '<a class="btn btn-ghost btn-sm" href="/workbench/admin/task?taskNo=' + encodeURIComponent(t.taskNo || '') + '">详情</a>';
+        var detail = '<a class="btn btn-ghost btn-sm" href="/workbench/admin/task?taskNo=' + encodeURIComponent(t.taskNo || '') + '">只读详情</a>';
         var mgr = (t.managerDisplayName || '').trim();
         var mgrCell = mgr ? esc(mgr) : esc('—');
         return '<tr>'

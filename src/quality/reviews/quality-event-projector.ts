@@ -82,7 +82,8 @@ export function getQualityEvidencePackage(input: {
     `).all(primaryNodeId) as DatabaseRow[];
     const primary = allNodes.find((row) => String(row.node_id) === primaryNodeId);
     const caps = resolveQualityCapabilities(input.viewerUserId);
-    const full = Boolean(input.isQualitySpecialist)
+    const full = caps.baseRole === "admin"
+      || Boolean(input.isQualitySpecialist)
       || caps.roles.includes("quality_specialist")
       || (Boolean(input.isAftersalesManager) && String(event.created_by) === input.viewerUserId)
       || (caps.roles.includes("aftersales_manager") && String(event.created_by) === input.viewerUserId)

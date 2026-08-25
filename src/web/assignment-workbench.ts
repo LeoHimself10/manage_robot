@@ -106,6 +106,11 @@ import {
 import { isWorkbenchProjectPortfolioEnabled } from "../security/workbench-project-portfolio";
 import { resolveWorkbenchRole, type WorkbenchRole } from "../security/workbench-role-resolver";
 import {
+  adminPerspectiveDisplayRole,
+  adminPerspectiveRedirect,
+  parseWorkbenchAdminPerspective,
+} from "../security/workbench-admin-perspective";
+import {
   canAccessManagerOwnedObject,
   resolveWorkbenchManagerScope,
   type WorkbenchManagerScope,
@@ -278,6 +283,7 @@ const EMPLOYEE_WORKBENCH_PAGE_PATHS = new Set([
 const ADMIN_WORKBENCH_PAGE_PATHS = new Set([
   "/workbench/admin",
   "/workbench/admin/ops",
+  "/workbench/admin/perspective",
   "/workbench/admin/performance",
   "/workbench/admin/daily-reports",
   "/workbench/admin/permissions",
@@ -661,20 +667,10 @@ function createWorkbenchSession(params: {
     });
   }
   const primaryRole = resolveRoleForUser(params.userId);
-  const caps = resolveWorkbenchCapabilities(params.userId);
-  let role = params.role;
-  if (primaryRole === "manager") {
-    role = params.role === "employee" ? "employee" : "manager";
-  } else if (primaryRole === "admin" && caps.alsoManager) {
-    role =
-      params.role === "manager" || params.role === "employee" ? params.role : "admin";
-  } else {
-    role = primaryRole;
-  }
   return normalizeWorkbenchSession({
     sid: randomBytes(8).toString("hex"),
     userId: params.userId,
-    role,
+    role: primaryRole,
     primaryRole,
     loginSource: params.loginSource,
     dingUser: params.dingUser,
@@ -697,24 +693,6 @@ function sessionSatisfiesExpectedRole(
     return allowsEmployeeSession(session);
   }
   return false;
-}
-
-function ensureManagerEmployeeViewForDeepLink(
-  req: IncomingMessage,
-  res: ServerResponse,
-  session: WorkbenchSession,
-): WorkbenchSession {
-  const caps = resolveWorkbenchCapabilities(session.userId);
-  if (!caps.canExecuteAsManager || session.role === "employee") {
-    return session;
-  }
-  const switched: WorkbenchSession = {
-    ...normalizeWorkbenchSession(session),
-    primaryRole: "manager",
-    role: "employee",
-  };
-  syncSessionCookieIfChanged(req, res, session, switched);
-  return switched;
 }
 
 type WorkbenchView =
@@ -3616,24 +3594,18 @@ export function handleAssignmentHttp(
           return;
         }
         const autoRole = defaultLoginViewRole(userId);
-        if (roleInput === "admin" && !resolveWorkbenchCapabilities(userId).canAccessAdmin) {
+        if (
+          roleInput !== "auto"
+          && roleInput !== autoRole
+          && (roleInput === "admin" || roleInput === "manager" || roleInput === "employee")
+        ) {
           writeJson(res, 403, {
             ok: false,
-            error: "userId is not in admin whitelist",
+            error: "requested role does not match the user's configured identity",
           });
           return;
         }
-        if (roleInput === "manager" && autoRole === "employee") {
-          writeJson(res, 403, {
-            ok: false,
-            error: "userId is not in manager whitelist",
-          });
-          return;
-        }
-        const role: WorkbenchRole =
-          roleInput === "admin" || roleInput === "manager" || roleInput === "employee"
-            ? roleInput
-            : autoRole;
+        const role: WorkbenchRole = autoRole;
         const session = createWorkbenchSession({
           userId,
           role,
@@ -3833,12 +3805,15 @@ export function handleAssignmentHttp(
       role: session.role,
       primaryRole: session.primaryRole ?? caps.primaryRole,
       canExecuteAsManager: caps.canExecuteAsManager,
-      canSwitchView: caps.canExecuteAsManager || caps.canAccessAdmin,
-      canSwitchToAdmin: caps.canAccessAdmin && session.role !== "admin",
-      canSwitchToManager: caps.canManage && session.role !== "manager",
+      canSwitchView: caps.canAccessAdmin,
+      canSwitchToAdmin: false,
+      canSwitchToManager: false,
       alsoManager: caps.alsoManager,
       canAccessAdmin: caps.canAccessAdmin,
       canManage: caps.canManage,
+      availableAdminPerspectives: caps.canAccessAdmin
+        ? ["manager", "project_manager", "employee", "quality_specialist", "operations"]
+        : [],
       loginSource: session.loginSource,
       dingUser: session.dingUser ?? null,
       externalAccount: externalAccount ?? null,
@@ -3857,52 +3832,30 @@ export function handleAssignmentHttp(
           return;
         }
         const body = await readJsonBody(req);
-        const view = String(body.view ?? "").trim();
-        if (view !== "manager" && view !== "employee" && view !== "admin") {
-          writeJson(res, 400, { ok: false, error: "view must be manager, employee, or admin" });
+        const rawView = String(body.view ?? "").trim();
+        const view = parseWorkbenchAdminPerspective(rawView === "admin" ? "operations" : rawView);
+        if (!view) {
+          writeJson(res, 400, { ok: false, error: "invalid admin perspective" });
           return;
         }
         const caps = resolveWorkbenchCapabilities(session.userId);
-        if (view === "admin" && !caps.canAccessAdmin) {
-          writeJson(res, 403, { ok: false, error: "User is not an admin" });
-          return;
-        }
-        if (view === "manager" && !caps.canManage) {
-          writeJson(res, 403, { ok: false, error: "User is not a manager" });
+        if (!caps.canAccessAdmin) {
+          writeJson(res, 403, { ok: false, error: "Only administrators can switch perspective" });
           return;
         }
         if (isExternalPasswordSession(session)) {
           writeJson(res, 403, { ok: false, error: "External accounts cannot switch view" });
           return;
         }
-        if (view === "employee") {
-          const canEmployee =
-            caps.primaryRole === "employee" || caps.canExecuteAsManager;
-          if (!canEmployee) {
-            writeJson(res, 403, { ok: false, error: "Employee view not available" });
-            return;
-          }
-        }
-        const nextRole: WorkbenchRole =
-          view === "admin" ? "admin" : view === "manager" ? "manager" : "employee";
-        const refreshed = normalizeWorkbenchSession({
-          ...session,
-          primaryRole: caps.primaryRole,
-          role: nextRole,
-        });
-        const redirectTo =
-          view === "admin"
-            ? "/workbench/admin/ops"
-            : defaultPathForRole(refreshed.role, session.userId);
-        res.writeHead(200, {
-          "Content-Type": "application/json; charset=utf-8",
-          "Set-Cookie": buildSessionCookie(refreshed),
-        });
+        const redirectTo = adminPerspectiveRedirect(view);
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         res.end(
           JSON.stringify({
             ok: true,
-            role: refreshed.role,
-            primaryRole: refreshed.primaryRole,
+            role: adminPerspectiveDisplayRole(view),
+            primaryRole: "admin",
+            perspective: view,
+            readOnly: view !== "operations",
             redirectTo,
           }),
         );
@@ -7581,8 +7534,33 @@ export function handleAssignmentHttp(
               eventsPagePath: "/workbench/admin/task/events",
               sessionUserId: session.userId,
             })
-            : url.pathname === "/workbench/admin/ops"
+          : url.pathname === "/workbench/admin/ops"
               ? renderAdminOpsDashboardPage({ userLabel, sessionUserId: session.userId })
+              : url.pathname === "/workbench/admin/perspective"
+                ? (() => {
+                  const perspective = parseWorkbenchAdminPerspective(url.searchParams.get("view"));
+                  if (!perspective || perspective === "operations") {
+                    return renderAdminWorkbenchPage({ userLabel, sessionUserId: session.userId });
+                  }
+                  const displayRole = adminPerspectiveDisplayRole(perspective);
+                  const requestedSection = String(url.searchParams.get("section") ?? "").trim();
+                  const managerSections = new Set([
+                    "mgr-tasks", "mgr-dash", "mgr-perf", "mgr-daily-reports",
+                    "mgr-chat", "mgr-task-intake", "mgr-competency-eval",
+                  ]);
+                  const employeeSections = new Set([
+                    "emp-new", "emp-cur", "emp-hist", "emp-daily-reports", "emp-prof",
+                  ]);
+                  const activeNav = displayRole === "manager"
+                    ? (managerSections.has(requestedSection) ? requestedSection : "mgr-tasks")
+                    : (employeeSections.has(requestedSection) ? requestedSection : "emp-new");
+                  return renderAdminWorkbenchPage({
+                    userLabel,
+                    sessionUserId: session.userId,
+                    adminPerspective: perspective,
+                    activeNav: activeNav as Parameters<typeof renderAdminWorkbenchPage>[0]["activeNav"],
+                  });
+                })()
               : url.pathname === "/workbench/admin/permissions"
                 ? renderAdminPermissionsPage({ userLabel, sessionUserId: session.userId })
               : url.pathname === "/workbench/admin/performance"
@@ -7615,7 +7593,7 @@ export function handleAssignmentHttp(
     }
 
     if (EMPLOYEE_WORKBENCH_PAGE_PATHS.has(url.pathname)) {
-      let employeeSession = ensureManagerEmployeeViewForDeepLink(req, res, session);
+      const employeeSession = session;
       if (!allowsEmployeeSession(employeeSession)) {
         redirect(res, defaultPathForRole(employeeSession.role));
         return true;

@@ -2,11 +2,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AiOriginalAssessmentOutput } from
   "../../src/quality/ai-original-assessment/ai-original-assessment-contracts";
 import { createQualityEventService } from
   "../../src/quality/events/quality-event-service";
+import { createQualityAnalysisService } from
+  "../../src/quality/analysis/quality-analysis-service";
+import { createQualityEventQuery } from
+  "../../src/quality/queries/quality-event-query";
 import { createQualityReadStore } from "../../src/quality/infra/quality-read-store";
 import { createQualityStore } from "../../src/quality/infra/quality-store";
 import { createQualitySourceAssessmentService } from
@@ -17,6 +21,7 @@ import { createQualitySourceReviewService } from
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
 });
 
@@ -261,8 +266,10 @@ describe("主管最终研判后的正式处置", () => {
 });
 
 describe("质量异常通报与事件创建", () => {
-  it("预填并重载草稿，正式提交时只创建一个事件且冻结完整快照", () => {
+  it("正式提交只创建一个事件，并把主管最终研判、待办事件和通知推给质量专员", () => {
     const seeded = setup();
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "manager-1");
+    vi.stubEnv("QUALITY_MANAGEMENT_USER_IDS", "quality-specialist-1");
     const assessments = createQualitySourceAssessmentService({ dbPath: seeded.dbPath });
     const source = assessments.getSourceSnapshot(seeded.sourceKey)!;
     const originalAi = assessments.saveAiAssessment({
@@ -401,13 +408,58 @@ describe("质量异常通报与事件创建", () => {
       sourceKey: seeded.sourceKey,
       version: latestAssessment.version,
       handlingRecommendation: "QUALITY_ANOMALY",
+      categoryDisplayName: "导管本体／弯折、扭曲与旋转异常",
+      riskLevel: "HIGH",
+      conclusion: "主管确认该反馈属于质量异常，需要正式通报。",
       changeReason: "结合现场事实调整结论。",
+    });
+    expect(db.prepare(`
+      SELECT action,recipient_user_id,subject,status
+      FROM quality_notification_outbox WHERE event_id=?
+    `).get(savedDraft.eventId)).toEqual({
+      action: "EVENT_SUBMITTED",
+      recipient_user_id: "quality-specialist-1",
+      subject: "有新的质量异常待质量初析",
+      status: "PENDING",
     });
     expect(db.prepare(`
       SELECT COUNT(*) AS count FROM quality_audit_events
       WHERE event_id=? AND action IN ('REPORTING_SNAPSHOTS_FROZEN','REPORT_SUBMITTED')
     `).get(savedDraft.eventId)).toEqual({ count: 2 });
     db.close();
+
+    const query = createQualityEventQuery(seeded.dbPath);
+    expect(query.listEvents({ viewerUserId: "quality-specialist-1" })).toEqual([
+      expect.objectContaining({
+        eventId: savedDraft.eventId,
+        status: "PENDING_ANALYSIS",
+        initialCategory: "导管本体／弯折、扭曲与旋转异常",
+        urgency: "HIGH",
+      }),
+    ]);
+    expect(query.getEventDetail({
+      eventId: savedDraft.eventId,
+      viewerUserId: "quality-specialist-1",
+    })).toMatchObject({
+      reportingSnapshots: {
+        managerAssessments: [expect.objectContaining({
+          version: latestAssessment.version,
+          conclusion: "主管确认该反馈属于质量异常，需要正式通报。",
+        })],
+      },
+    });
+    query.close();
+
+    const analysis = createQualityAnalysisService({ dbPath: seeded.dbPath });
+    expect(analysis.workspace({
+      eventId: savedDraft.eventId,
+      viewerUserId: "quality-specialist-1",
+    })).toMatchObject({
+      event: { eventId: savedDraft.eventId, status: "PENDING_ANALYSIS" },
+      canEdit: true,
+      isBusinessReadOnly: false,
+    });
+    analysis.close();
   });
 
   it("安全迁移生产旧状态约束并保留既有事件", () => {

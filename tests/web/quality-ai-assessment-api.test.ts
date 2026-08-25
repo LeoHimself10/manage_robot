@@ -65,6 +65,7 @@ describe("单条AI研判HTTP权限与输入边界", () => {
   it("有权限用户可调用，无权限用户被拒绝，且请求只允许sourceKey", async () => {
     const seeded = await seedSource();
     vi.stubEnv("WORKBENCH_SQLITE_PATH", seeded.dbPath);
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "after-1");
     vi.stubEnv("QUALITY_AFTERSALES_MANAGER_USER_IDS", "after-1");
     vi.stubEnv("QUALITY_SPECIALIST_USER_IDS", "specialist-1");
     vi.stubEnv("QWEN_API_KEY", "offline-http-test-key");

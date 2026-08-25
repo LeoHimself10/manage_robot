@@ -46,6 +46,10 @@ import { createQualitySourceSync } from "../quality/source/quality-source-sync";
 import { createQualitySourceWritebackOutbox } from "../quality/source/quality-source-writeback";
 import { triggerQualitySourceWriteback } from "../quality/source/quality-source-writeback-runtime";
 import { resolveQualityCapabilities } from "../security/quality-capabilities";
+import {
+  isAdminQualityPerspective,
+  parseWorkbenchAdminPerspective,
+} from "../security/workbench-admin-perspective";
 import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
 import { readMultipartSingleFile } from "./multipart-single-file";
 import { renderQualityTrackingPage } from "./quality-tracking-page";
@@ -277,7 +281,15 @@ async function handleQualityApi(input: {
     const caps = resolveQualityCapabilities(session.userId);
     const aftersales = caps.canReportQuality;
     const specialist = caps.canAnalyzeQuality;
-    const adminReadOnly = caps.baseRole === "admin" && !specialist;
+    const adminReadOnly = caps.baseRole === "admin";
+
+    if (adminReadOnly && req.method !== "GET" && req.method !== "HEAD") {
+      writeJson(res, 403, {
+        ok: false,
+        error: "管理员业务视角仅供查看，不能执行质量业务写操作",
+      });
+      return;
+    }
 
     const analysisMatch = url.pathname.match(
       /^\/api\/workbench\/quality\/events\/([^/]+)\/analysis(?:\/(generate|draft|confirm))?$/,
@@ -317,7 +329,7 @@ async function handleQualityApi(input: {
     }
 
     if (url.pathname === "/api/workbench/quality/review-queue") {
-      if (!aftersales) { forbidden(res); return; }
+      if (!aftersales && !adminReadOnly) { forbidden(res); return; }
       if (req.method !== "GET") { writeJson(res, 405, { ok: false, error: "请求方法不支持" }); return; }
       const query = createQualityReviewQuery();
       try {
@@ -519,7 +531,13 @@ async function handleQualityApi(input: {
         const result = service.readEvidence({
           evidenceId: decodeURIComponent(evidenceDownload[1]!),
           actorUserId: session.userId,
-          actorRole: specialist ? "quality_specialist" : aftersales ? "aftersales_manager" : undefined,
+          actorRole: adminReadOnly
+            ? "admin"
+            : specialist
+              ? "quality_specialist"
+              : aftersales
+                ? "aftersales_manager"
+                : undefined,
         });
         res.writeHead(200, {
           "Content-Type": result.metadata.mimeType,
@@ -1066,7 +1084,11 @@ async function handleQualityApi(input: {
     const fileMatch = url.pathname.match(/^\/api\/workbench\/quality\/files\/([^/]+)$/);
     if (req.method === "GET" && fileMatch) {
       const fileId = decodeURIComponent(fileMatch[1]!);
-      const role = specialist ? "quality_specialist" : "aftersales_manager";
+      const role = adminReadOnly
+        ? "admin"
+        : specialist
+          ? "quality_specialist"
+          : "aftersales_manager";
       const store = createQualityReportFileStore();
       try {
         const metadata = store.getMetadata(fileId, session.userId, role);
@@ -1116,23 +1138,35 @@ export function handleQualityHttp(input: {
   }
   const caps = resolveQualityCapabilities(session.userId);
   const isHead = req.method === "HEAD";
+  const requestedAdminPerspective = caps.baseRole === "admin"
+    ? parseWorkbenchAdminPerspective(url.searchParams.get("perspective"))
+    : undefined;
 
   if ((req.method === "GET" || isHead)
     && (url.pathname === "/workbench/quality"
       || url.pathname === "/workbench/quality/review")) {
     if (!caps.canAccessTracking
-      || (url.pathname === "/workbench/quality/review"
+      || (caps.baseRole === "admin" && !isAdminQualityPerspective(requestedAdminPerspective))
+      || (caps.baseRole !== "admin"
+        && url.pathname === "/workbench/quality/review"
         && !caps.roles.includes("aftersales_manager"))) {
       forbidden(res);
       return true;
     }
+    const adminProjectView = requestedAdminPerspective === "project_manager";
+    const adminSpecialistView = requestedAdminPerspective === "quality_specialist";
     const html = renderQualityTrackingPage({
-      role: session.role as WorkbenchShellRole,
+      role: (adminProjectView
+        ? "manager"
+        : adminSpecialistView
+          ? "employee"
+          : session.role) as WorkbenchShellRole,
       userId: session.userId,
       userLabel: session.dingUser?.name,
-      canReport: caps.canReportQuality,
-      isSpecialist: caps.canAnalyzeQuality,
-      isBusinessReadOnly: caps.isBusinessReadOnly,
+      canReport: adminProjectView || caps.canReportQuality,
+      isSpecialist: adminSpecialistView || caps.canAnalyzeQuality,
+      isBusinessReadOnly: caps.baseRole === "admin" || caps.isBusinessReadOnly,
+      adminPerspective: requestedAdminPerspective,
       reviewSourceKey: url.pathname === "/workbench/quality/review"
         ? url.searchParams.get("sourceKey") ?? ""
         : undefined,

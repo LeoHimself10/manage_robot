@@ -159,7 +159,7 @@ beforeEach(() => {
   vi.stubEnv("PLAN_SESSION_EVENTS_PATH", join(dir, "events.jsonl"));
   vi.stubEnv("QUALITY_MANAGEMENT_USER_IDS", "quality-employee");
   vi.stubEnv("QUALITY_AFTERSALES_MANAGER_USER_IDS", "aftersales-1");
-  vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "quality-manager,rd-manager");
+  vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "aftersales-1,quality-manager,rd-manager");
   vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
   createQualityStore(dbPath).close();
   const people = createPeopleDirectoryStore(dbPath);

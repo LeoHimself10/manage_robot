@@ -70,6 +70,8 @@ describe("quality review HTTP", () => {
     tempDir = mkdtempSync(join(tmpdir(), "quality-review-http-"));
     const dbPath = join(tempDir, "workbench.sqlite");
     vi.stubEnv("WORKBENCH_SQLITE_PATH", dbPath);
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "after-1");
+    vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
     vi.stubEnv("QUALITY_AFTERSALES_MANAGER_USER_IDS", "after-1");
     vi.stubEnv("QUALITY_SPECIALIST_USER_IDS", "specialist-1");
     vi.stubEnv("QUALITY_SOURCE_WRITEBACK_ENABLED", "0");
@@ -92,6 +94,37 @@ describe("quality review HTTP", () => {
 
     const denied = await call("/api/workbench/quality/review-queue", "GET", "specialist-1");
     expect(denied.status).toBe(403);
+  });
+
+  it("lets admin inspect only the two quality perspectives and rejects every write", async () => {
+    const noPerspective = await call("/workbench/quality", "GET", "admin-1");
+    expect(noPerspective.status).toBe(403);
+
+    const managerPreview = await call(
+      "/workbench/quality?perspective=project_manager",
+      "GET",
+      "admin-1",
+    );
+    expect(managerPreview.status).toBe(200);
+    expect(managerPreview.body).toContain("管理员只读查看");
+    expect(managerPreview.body).toContain('data-business-readonly="1"');
+
+    const specialistPreview = await call(
+      "/workbench/quality?perspective=quality_specialist",
+      "GET",
+      "admin-1",
+    );
+    expect(specialistPreview.status).toBe(200);
+    expect(specialistPreview.body).toContain("质量专员");
+
+    const forbiddenWrite = await call(
+      "/api/workbench/quality/source/feedback%3AFB-HTTP/review",
+      "POST",
+      "admin-1",
+      {},
+    );
+    expect(forbiddenWrite.status).toBe(403);
+    expect(forbiddenWrite.body).toContain("仅供查看");
   });
 
   it("lists and reviews a source with optimistic locking", async () => {
