@@ -96,6 +96,9 @@ describe("quality simulation seed", () => {
     expect((db.prepare("SELECT COUNT(*) AS count FROM quality_analysis_handoffs WHERE event_id LIKE 'quality-simulation-20260825-%'").get() as { count: number }).count).toBe(5);
     expect((db.prepare("SELECT COUNT(*) AS count FROM quality_notification_outbox WHERE event_id LIKE 'quality-simulation-20260825-%'").get() as { count: number }).count).toBe(0);
     expect((db.prepare("SELECT COUNT(*) AS count FROM quality_task_links WHERE node_id LIKE 'sim-node-%'").get() as { count: number }).count).toBe(0);
+    const minimumNodeDueAt = (db.prepare("SELECT MIN(due_at) AS dueAt FROM quality_assignment_nodes WHERE event_id LIKE 'quality-simulation-20260825-%'")
+      .get() as { dueAt: string }).dueAt;
+    expect(Date.parse(minimumNodeDueAt)).toBeGreaterThan(Date.now());
     db.close();
 
     expect(seedQualitySimulation({ dbPath })).toMatchObject({ requested: 20, inserted: 0, skipped: 20 });

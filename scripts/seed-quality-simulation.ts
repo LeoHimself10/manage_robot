@@ -4,7 +4,8 @@
  * - Creates 20 clearly labelled fictional quality events across workflow states.
  * - Uses real configured quality employees and manager/department mappings.
  * - Creates planning side threads only for PENDING_ASSIGNMENT events.
- * - Never writes notification outbox rows or formal task/task-link rows.
+ * - Keeps every simulated due date in the future and never writes notification
+ *   outbox rows or formal task/task-link rows.
  * - `--remove` soft-deletes only records with this script's fixed prefix.
  */
 import { createHash, randomUUID } from "node:crypto";
@@ -494,7 +495,10 @@ function insertAssignmentProjection(input: {
     status,due_at,requirement,version,created_by,request_id,accepted_at,submitted_at,created_at,updated_at
   ) VALUES(?,?,NULL,0,?,'MANAGER',?,1,?,?,?,1,?,?,?, ?,?,?)`).run(
     nodeId, input.eventId, input.manager.managerUserId, input.manager.departmentName,
-    nodeStatus, isoOffset(input.index === 14 ? -2 : 10),
+    // The production reminder scanner is independent from this seeder. A past
+    // simulated deadline would therefore create and send a real overdue notice
+    // even though the seeder itself never touches the outbox.
+    nodeStatus, isoOffset(10 + (input.index % 5)),
     "模拟责任节点：完成原因分析、措施制定与验证证据归档。",
     input.specialistUserId, `sim-node-create-${suffix}`,
     nodeStatus === "PENDING_ACCEPTANCE" ? null : isoOffset(-3),
