@@ -297,7 +297,7 @@ V2 下 `assign-primary` 和 `due` 被服务端拒绝。人员、执行人和期�
 
 - `quality_assignment_nodes`：责任树、承接人、类型、部门、期限、要求、状态和版本。
 - `quality_task_links`：质量节点与正式 task/subtask 的确定性桥接。V2 允许多个节点共享同一 `task_id`，根节点 `subtask_id` 可空，执行节点的 `subtask_id` 仍唯一。
-- `quality_analysis_versions`：质量初析版本；`COMPLETED` 版本不可覆盖。
+- `quality_initial_analysis_versions`：质量初析版本；`COMPLETED` 版本不可覆盖。既有 `quality_analysis_versions` 继续保存 AI 分析快照，两者不得混用。
 - `quality_planning_sessions`：事件到专用侧会话、`plan_id`、来源哈希和发布桥接状态的幂等记录。
 - `quality_evidence`：节点证据和版本。
 - `quality_node_reviews`：逐级审核决定、理由和证据版本。

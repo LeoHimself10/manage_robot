@@ -185,4 +185,33 @@ describe("quality planning v2", () => {
     expect(sql).toMatch(/subtask_id\s+TEXT\s+UNIQUE/i);
     migrated.close();
   });
+
+  it("keeps the production AI analysis table separate from quality initial-analysis versions", () => {
+    const db = new DatabaseSync(dbPath);
+    db.exec(`
+      CREATE TABLE quality_analysis_versions (
+        analysis_id TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL,
+        analysis_version INTEGER NOT NULL,
+        content_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO quality_analysis_versions(
+        analysis_id,event_id,analysis_version,content_json,created_at
+      ) VALUES('legacy-ai-1','event-1',7,'{"kind":"ai_snapshot"}','2026-08-25T07:00:00.000Z');
+    `);
+    db.close();
+
+    createQualityStore(dbPath).close();
+    const migrated = new DatabaseSync(dbPath);
+    const legacyColumns = (migrated.prepare("PRAGMA table_info(quality_analysis_versions)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    expect(legacyColumns).toContain("analysis_version");
+    expect(legacyColumns).not.toContain("version");
+    expect(migrated.prepare("SELECT content_json FROM quality_analysis_versions WHERE analysis_id='legacy-ai-1'").get())
+      .toMatchObject({ content_json: '{"kind":"ai_snapshot"}' });
+    expect(migrated.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='quality_initial_analysis_versions'").get())
+      .toMatchObject({ name: "quality_initial_analysis_versions" });
+    migrated.close();
+  });
 });

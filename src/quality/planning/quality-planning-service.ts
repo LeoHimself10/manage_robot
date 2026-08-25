@@ -302,13 +302,13 @@ export function createQualityPlanningService(deps?: {
   function listAnalysisVersions(eventId: string): QualityAnalysisVersion[] {
     getEvent(eventId);
     return (db.prepare(`
-      SELECT * FROM quality_analysis_versions WHERE event_id=? ORDER BY version DESC
+      SELECT * FROM quality_initial_analysis_versions WHERE event_id=? ORDER BY version DESC
     `).all(eventId) as DatabaseRow[]).map(analysisFromRow);
   }
 
   function getLatestAnalysis(eventId: string): QualityAnalysisVersion | null {
     const row = db.prepare(`
-      SELECT * FROM quality_analysis_versions WHERE event_id=? ORDER BY version DESC LIMIT 1
+      SELECT * FROM quality_initial_analysis_versions WHERE event_id=? ORDER BY version DESC LIMIT 1
     `).get(eventId) as DatabaseRow | undefined;
     return row ? analysisFromRow(row) : null;
   }
@@ -337,7 +337,7 @@ export function createQualityPlanningService(deps?: {
     return withTransaction(db, () => {
       if (latest?.status === "DRAFT") {
         db.prepare(`
-          UPDATE quality_analysis_versions SET
+          UPDATE quality_initial_analysis_versions SET
             problem_direction=?,confirmed_category=?,source_summary=?,analysis_basis=?,
             initial_conclusion=?,information_gaps=?,suggested_department=?,
             processing_requirements=?,suggested_due_at=?,updated_at=?
@@ -348,13 +348,13 @@ export function createQualityPlanningService(deps?: {
           fields.suggestedDepartment, fields.processingRequirements, fields.suggestedDueAt,
           occurredAt, latest.analysisId,
         );
-        return analysisFromRow(db.prepare("SELECT * FROM quality_analysis_versions WHERE analysis_id=?")
+        return analysisFromRow(db.prepare("SELECT * FROM quality_initial_analysis_versions WHERE analysis_id=?")
           .get(latest.analysisId) as DatabaseRow);
       }
       const analysisId = id();
       const version = (latest?.version ?? 0) + 1;
       db.prepare(`
-        INSERT INTO quality_analysis_versions(
+        INSERT INTO quality_initial_analysis_versions(
           analysis_id,event_id,version,status,problem_direction,confirmed_category,
           source_summary,analysis_basis,initial_conclusion,information_gaps,
           suggested_department,processing_requirements,suggested_due_at,created_by,
@@ -366,7 +366,7 @@ export function createQualityPlanningService(deps?: {
         fields.suggestedDepartment, fields.processingRequirements, fields.suggestedDueAt,
         input.actorUserId, occurredAt, occurredAt,
       );
-      return analysisFromRow(db.prepare("SELECT * FROM quality_analysis_versions WHERE analysis_id=?")
+      return analysisFromRow(db.prepare("SELECT * FROM quality_initial_analysis_versions WHERE analysis_id=?")
         .get(analysisId) as DatabaseRow);
     });
   }
@@ -377,7 +377,7 @@ export function createQualityPlanningService(deps?: {
     actorUserId: string;
   }): QualityAnalysisVersion {
     getEvent(input.eventId);
-    const row = db.prepare("SELECT * FROM quality_analysis_versions WHERE analysis_id=? AND event_id=?")
+    const row = db.prepare("SELECT * FROM quality_initial_analysis_versions WHERE analysis_id=? AND event_id=?")
       .get(input.analysisId, input.eventId) as DatabaseRow | undefined;
     if (!row) throw new Error("quality analysis not found");
     const analysis = analysisFromRow(row);
@@ -385,10 +385,10 @@ export function createQualityPlanningService(deps?: {
     requireCompleteAnalysis(analysis);
     const occurredAt = now();
     db.prepare(`
-      UPDATE quality_analysis_versions SET status='COMPLETED',completed_by=?,completed_at=?,updated_at=?
+      UPDATE quality_initial_analysis_versions SET status='COMPLETED',completed_by=?,completed_at=?,updated_at=?
       WHERE analysis_id=? AND status='DRAFT'
     `).run(input.actorUserId, occurredAt, occurredAt, analysis.analysisId);
-    return analysisFromRow(db.prepare("SELECT * FROM quality_analysis_versions WHERE analysis_id=?")
+    return analysisFromRow(db.prepare("SELECT * FROM quality_initial_analysis_versions WHERE analysis_id=?")
       .get(analysis.analysisId) as DatabaseRow);
   }
 
@@ -419,7 +419,7 @@ export function createQualityPlanningService(deps?: {
     if (String(event.status) !== "PENDING_ASSIGNMENT") throw new Error("质量事件当前不可进入任务分配");
     if (Number(event.version) !== input.expectedEventVersion) throw new Error("version conflict");
     const completedRow = db.prepare(`
-      SELECT * FROM quality_analysis_versions
+      SELECT * FROM quality_initial_analysis_versions
       WHERE event_id=? AND status='COMPLETED' ORDER BY version DESC LIMIT 1
     `).get(input.eventId) as DatabaseRow | undefined;
     if (!completedRow) throw new Error("请先完成质量初析");

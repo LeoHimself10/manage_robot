@@ -294,7 +294,7 @@ CREATE TABLE IF NOT EXISTS quality_task_links (
 CREATE INDEX IF NOT EXISTS idx_quality_task_links_task
 ON quality_task_links(task_id);
 
-CREATE TABLE IF NOT EXISTS quality_analysis_versions (
+CREATE TABLE IF NOT EXISTS quality_initial_analysis_versions (
   analysis_id TEXT PRIMARY KEY,
   event_id TEXT NOT NULL REFERENCES quality_events(id),
   version INTEGER NOT NULL CHECK(version >= 1),
@@ -317,7 +317,7 @@ CREATE TABLE IF NOT EXISTS quality_analysis_versions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_quality_analysis_event_version
-ON quality_analysis_versions(event_id, version DESC);
+ON quality_initial_analysis_versions(event_id, version DESC);
 
 CREATE TABLE IF NOT EXISTS quality_planning_sessions (
   event_id TEXT PRIMARY KEY REFERENCES quality_events(id),

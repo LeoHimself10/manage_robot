@@ -526,7 +526,7 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `QUALITY_FILE_DIR` | 否 | 质量通报附件持久化目录，容器内建议 `/app/data/quality-files`。 |
 | `QUALITY_EVIDENCE_DIR` | 否 | 质量节点证据目录；缺省为 `QUALITY_FILE_DIR/evidence`。 |
 
-启用统一任务分配 V2 前先备份每个实例的数据卷。启动时会自动迁移 `quality_task_links`（移除 `task_id` 唯一约束并允许根节点 `subtask_id` 为空），同时创建 `quality_analysis_versions` 和 `quality_planning_sessions`。旧数据不重写；回滚只需把 `QUALITY_TASK_PLANNING_V2_ENABLED=0` 并按双容器规则重建容器。发布已成功但质量桥接失败的记录会标记 `REPAIR_REQUIRED`，下次启动自动补偿。
+启用统一任务分配 V2 前先备份每个实例的数据卷。启动时会自动迁移 `quality_task_links`（移除 `task_id` 唯一约束并允许根节点 `subtask_id` 为空），同时创建 `quality_initial_analysis_versions` 和 `quality_planning_sessions`。既有 `quality_analysis_versions` 是 AI 分析快照表，迁移不得复用或改写；其他旧数据同样不重写。回滚只需把 `QUALITY_TASK_PLANNING_V2_ENABLED=0` 并按双容器规则重建容器。发布已成功但质量桥接失败的记录会标记 `REPAIR_REQUIRED`，下次启动自动补偿。
 | `WORKBENCH_MANAGER_GROUPS_ENABLED` | 否 | `1` 开启 Admin 管理的主管组；组内共享正式任务/项目/看板和主管操作，组间隔离（建议 mingsibot 试点） |
 | `WORKBENCH_MANAGER_GROUPS_FILE` | 否 | 主管组 JSON 文件路径；容器内建议 `/app/data/workbench-manager-groups.json` |
 | `FOLLOWUP_REMINDER_ENABLED` | 否 | `1` 开启催办 scheduler（默认 `0`）；**单实例**假设，**切勿水平扩容** `dingtalk-bot` |
