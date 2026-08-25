@@ -8,6 +8,7 @@ import {
 import { WORKBENCH_TASKS_FILTER_UNIFIED_CSS } from "./workbench-project-overview-styles";
 import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippet";
 import { hasQualityAssignmentNodesForUser } from "../quality/infra/quality-read-store";
+import { MANAGER_CHAT_V2_CSS } from "./manager-chat-v2-styles";
 
 const MANAGER_QUALITY_CSS = String.raw`
 .mq-card{border-color:#c7d2fe;background:linear-gradient(180deg,#fff,#f8faff)}
@@ -890,14 +891,16 @@ export function renderManagerChatPage(params: {
     sessionUserId: params.sessionUserId,
     portfolioEnabled: portfolio,
     showAdminOpsLink: params.showAdminOpsLink,
-    bodyClass: "page-shell--chat",
+    bodyClass: "page-shell--chat manager-chat-v2-page",
     hideMainHead: true,
+    extraCss: MANAGER_CHAT_V2_CSS,
     mainHtml: `
-  <div class="chat-main" id="chatMain">
+  <div class="chat-main manager-chat-v2" id="chatMain">
     <div class="chat-overlay-backdrop" id="chatOverlayBackdrop" hidden aria-hidden="true"></div>
 
     <aside class="chat-sidebar" id="chatSidebar" aria-label="会话列表">
       <div class="chat-sidebar-head">
+        <div class="chat-sidebar-title"><strong>对话历史</strong><span>任务规划记录</span></div>
         <button type="button" class="btn btn-primary btn-sm" id="newThreadBtn" style="width:100%;">+ 新规划会话</button>
       </div>
       <ul class="chat-thread-list" id="threadList"><li class="muted" style="padding:8px;">加载中…</li></ul>
@@ -928,9 +931,30 @@ export function renderManagerChatPage(params: {
         <span id="draftContextText">暂无草案</span>
       </div>
 
+      <section class="planning-context-card" id="planningContextCard" hidden aria-label="当前任务背景">
+        <div class="planning-context-head">
+          <div class="planning-context-title">
+            <span class="planning-context-icon" id="planningContextIcon" aria-hidden="true">任</span>
+            <span><strong id="planningContextTitle">当前任务</strong><small id="planningContextKicker">任务规划上下文 · 只读</small></span>
+          </div>
+          <button type="button" class="planning-context-toggle" id="planningContextToggle" aria-label="收起任务背景" aria-expanded="true">⌄</button>
+        </div>
+        <div class="planning-context-body">
+          <div class="planning-context-copy"><span id="planningContextDescriptionLabel">任务背景</span><p id="planningContextDescription">—</p></div>
+          <div class="planning-context-meta"><span>当前草案</span><strong id="planningContextMeta">—</strong></div>
+        </div>
+      </section>
+
       <section class="chat-message-pane">
         <div class="chat-stream" id="chatStream" aria-live="polite">
           <ul class="msg-list" id="msgList"></ul>
+          <section class="planning-draft-board" id="planningDraftBoard" hidden aria-label="任务分配草案">
+            <header class="planning-draft-board-head">
+              <div><h3>任务分配草案</h3><p id="planningDraftBoardHint">确认任务内容、负责人和期限后再发放。</p></div>
+              <span class="planning-draft-state" id="planningDraftState">待补充</span>
+            </header>
+            <div id="planningTaskCards"></div>
+          </section>
         </div>
 
         <div class="draft-mobile-bar" id="draftMobileBar" hidden>
@@ -975,7 +999,7 @@ export function renderManagerChatPage(params: {
       <div class="draft-panel-body" id="draftPanelBody" hidden>
         <div class="draft-panel__head">
           <div class="draft-panel__title-row">
-            <h3 class="draft-panel__title">草案 <span class="draft-count-badge" id="draftStatCount">0</span></h3>
+            <h3 class="draft-panel__title">分配摘要 <span class="draft-count-badge" id="draftStatCount">0</span></h3>
           </div>
           <div class="draft-panel__meta">
             <div class="draft-assign-progress">
@@ -984,11 +1008,11 @@ export function renderManagerChatPage(params: {
             </div>
             <div class="draft-due-row" id="draftDueRow" hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-              最近截止 <strong id="draftStatDue">—</strong>
+              总期限 <strong id="draftStatDue">—</strong>
             </div>
             <button type="button" class="btn-draft-edit-table" id="editDraftBtnPanel" hidden title="编辑草案">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
-              <span class="draft-edit-label-long">编辑草案表格</span><span class="draft-edit-label-short">编辑草案</span>
+              <span class="draft-edit-label-long">编辑草案</span><span class="draft-edit-label-short">编辑</span>
             </button>
           </div>
         </div>
@@ -996,10 +1020,10 @@ export function renderManagerChatPage(params: {
         <div class="draft-panel__foot">
           <button type="button" class="btn-draft-publish" id="publishDraftBtnPanel" hidden>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>
-            发放任务
+            确认分配并发放
           </button>
           <button type="button" class="btn btn-ghost btn-sm draft-panel-collapse-btn" id="draftPanelCollapseBtn" aria-expanded="true">收起草案面板</button>
-          <p class="draft-foot-caption" id="draftFootCaption">将弹窗确认，预检与预览在对话区展示</p>
+          <p class="draft-foot-caption" id="draftFootCaption">发放前将再次执行后端预检与确认</p>
         </div>
       </div>
     </aside>
@@ -1037,6 +1061,26 @@ export function renderManagerChatPage(params: {
       <button type="button" class="btn btn-primary" id="publishConfirmOkBtn">确认发放</button>
     </div>
   </div>
+</div>
+
+<div class="wb-modal-overlay planning-person-modal" id="planningPersonModalOverlay" role="dialog" aria-modal="true" aria-labelledby="planningPersonModalTitle">
+  <div class="wb-modal" role="document">
+    <div class="wb-modal__head">
+      <h3 class="wb-modal__title" id="planningPersonModalTitle">选择负责人</h3>
+      <button type="button" class="wb-modal__close" id="planningPersonModalClose" aria-label="关闭">×</button>
+    </div>
+    <div class="wb-modal__body">
+      <p class="planning-person-task" id="planningPersonTask">—</p>
+      <label for="planningPersonSearch" class="muted" style="display:block;margin-bottom:6px;font-size:12px;font-weight:700;">搜索真实通讯录</label>
+      <input class="planning-person-search" id="planningPersonSearch" type="search" autocomplete="off" placeholder="输入姓名、部门或职位" />
+      <div class="planning-person-results" id="planningPersonResults"><div class="planning-person-empty">输入至少 1 个字开始搜索</div></div>
+      <div class="composer-status muted" id="planningPersonFeedback" hidden></div>
+    </div>
+    <div class="wb-modal__foot">
+      <button type="button" class="btn btn-secondary" id="planningPersonCancelBtn">取消</button>
+      <button type="button" class="btn btn-primary" id="planningPersonConfirmBtn" disabled>提交给助手</button>
+    </div>
+  </div>
 </div>`,
     scriptHtml: `<script src="/static/workbench-draft-grid.js"></script>
 <script>
@@ -1051,7 +1095,20 @@ export function renderManagerChatPage(params: {
   var loadSeq = 0;
   var pendingElapsedTimer = null;
   var publishFlowState = 'idle';
-  var cachedDraftSummary = { count: 0, unassigned: 0, nearestDue: '' };
+  var cachedDraftSummary = {
+    count: 0,
+    unassigned: 0,
+    nearestDue: '',
+    latestDue: '',
+    missingDue: 0,
+    missingDeliverables: 0,
+    missingCriteria: 0,
+    readyToPublish: false
+  };
+  var planningPersonTask = null;
+  var planningPersonChoice = null;
+  var planningPersonSearchTimer = null;
+  var planningPersonSearchSeq = 0;
   var PUBLISH_PREPARE_MSG = '请对当前草案做发放预检并展示预览';
   var PUBLISH_CONFIRM_MSG = '确认发放';
 
@@ -1218,19 +1275,23 @@ export function renderManagerChatPage(params: {
   function updatePublishBtnUi() {
     var btn = document.getElementById('publishDraftBtnPanel');
     if (!btn) return;
-    btn.disabled = sendInFlight || !activeHasDraft;
-    var label = (sendInFlight && publishFlowState === 'preparing') ? '预检中…' : '发放任务';
+    btn.disabled = sendInFlight || !activeHasDraft || !cachedDraftSummary.readyToPublish;
+    var label = (sendInFlight && publishFlowState === 'preparing') ? '预检中…' : '确认分配并发放';
     btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>' + label;
   }
   function openPublishPrepareModal() {
     if (!activeHasDraft || sendInFlight) return;
+    if (!cachedDraftSummary.readyToPublish) {
+      setComposerStatus('请先补全负责人、期限、交付物和完成标准', 'err');
+      return;
+    }
     var sumEl = document.getElementById('publishPrepareSummary');
     var warnEl = document.getElementById('publishPrepareWarn');
     var s = cachedDraftSummary;
-    var line = s.count + ' 条子任务 · ' + s.unassigned + ' 条未指派';
-    if (s.nearestDue) line += ' · 最近截止 ' + s.nearestDue;
+    var line = s.count + ' 条子任务 · ' + s.assigned + '/' + s.count + ' 已指派';
+    if (s.latestDue) line += ' · 总期限 ' + s.latestDue;
     if (sumEl) sumEl.textContent = line;
-    if (warnEl) warnEl.style.display = s.unassigned > 0 ? 'block' : 'none';
+    if (warnEl) warnEl.style.display = 'none';
     openPublishModal('publishPrepareModalOverlay');
   }
   function applyDraftPanelUi(hasDraft) {
@@ -1299,7 +1360,6 @@ export function renderManagerChatPage(params: {
   function computeDraftSummary(draftData) {
     var rows = draftData.rows || [];
     var tasks = (draftData.draft && draftData.draft.tasks) || [];
-    var count = rows.length || tasks.length;
     var assignments = (draftData.assignment && draftData.assignment.assignments) || [];
     var byTask = {};
     var nameByTask = {};
@@ -1313,40 +1373,168 @@ export function renderManagerChatPage(params: {
         if (name) nameByTask[tid] = name;
       }
     });
-    var unassigned = 0;
     var items = rows.length ? rows : tasks.map(function (t, i) {
-      return { taskId: t.id, title: t.title, dueAt: (t.timeNode && t.timeNode.dueAt) || t.dueAt || '' };
-    });
-    items.forEach(function (r, idx) {
-      var tid = String(r.taskId || r.id || ('task_' + (idx + 1))).trim();
-      if (!byTask[tid]) unassigned += 1;
+      return {
+        taskId: t.id,
+        title: t.title,
+        objective: t.objective || '',
+        deliverables: Array.isArray(t.deliverables) ? t.deliverables.join('；') : (t.deliverables || ''),
+        completionCriteria: Array.isArray(t.completionCriteria) ? t.completionCriteria.join('；') : (t.completionCriteria || ''),
+        dueAt: (t.timeNode && t.timeNode.dueAt) || t.dueAt || '',
+        actions: Array.isArray(t.actions) ? t.actions.join('；') : (t.actions || ''),
+        dependencyTaskIds: Array.isArray(t.dependencyTaskIds) ? t.dependencyTaskIds.join('；') : (t.dependencyTaskIds || '')
+      };
     });
     var dues = [];
-    items.forEach(function (r) {
-      var d = String(r.dueAt || '').trim();
-      if (d && d !== '待确认' && /^\\d{4}-\\d{2}-\\d{2}/.test(d)) dues.push(d.slice(0, 10));
-    });
-    dues.sort();
-    var preview = items.slice(0, 8).map(function (r, idx) {
+    var unassigned = 0;
+    var missingDue = 0;
+    var missingDeliverables = 0;
+    var missingCriteria = 0;
+    var cards = items.map(function (r, idx) {
       var tid = String(r.taskId || r.id || ('task_' + (idx + 1))).trim();
       var title = String(r.title || tid || '子任务').trim();
       var assigned = Boolean(byTask[tid]);
       var assigneeName = nameByTask[tid] || '';
       if (!assigneeName && assigned && r.assignee) assigneeName = parseAssigneeCell(r.assignee);
+      var dueAt = String(r.dueAt || '').trim();
+      var dueComplete = Boolean(dueAt && dueAt !== '待确认' && /^\\d{4}-\\d{2}-\\d{2}/.test(dueAt));
+      var deliverables = String(r.deliverables || '').trim();
+      var completionCriteria = String(r.completionCriteria || '').trim();
+      if (!assigned) unassigned += 1;
+      if (!dueComplete) missingDue += 1;
+      else dues.push(dueAt.slice(0, 10));
+      if (!deliverables) missingDeliverables += 1;
+      if (!completionCriteria) missingCriteria += 1;
       return {
+        taskId: tid,
         title: title,
+        objective: String(r.objective || '').trim() || title,
+        deliverables: deliverables,
+        completionCriteria: completionCriteria,
+        dueAt: dueAt,
+        dueComplete: dueComplete,
+        actions: String(r.actions || '').trim(),
+        dependencies: String(r.dependencyTaskIds || '').trim(),
         assigned: assigned,
         assigneeName: assigneeName,
         userId: byTask[tid] || ''
       };
     });
+    dues.sort();
+    var count = cards.length;
+    var assignedCount = Math.max(0, count - unassigned);
+    var readyToPublish = count > 0
+      && unassigned === 0
+      && missingDue === 0
+      && missingDeliverables === 0
+      && missingCriteria === 0;
+    var draftObj = (draftData.draft && typeof draftData.draft === 'object') ? draftData.draft : {};
+    var qualityHandoff = (draftObj.qualityHandoff && typeof draftObj.qualityHandoff === 'object') ? draftObj.qualityHandoff : {};
+    var rawSource = (draftData.sourceContext && typeof draftData.sourceContext === 'object')
+      ? draftData.sourceContext
+      : ((draftObj.sourceContext && typeof draftObj.sourceContext === 'object') ? draftObj.sourceContext : {});
+    var qualityEventId = String(rawSource.qualityEventId || qualityHandoff.qualityEventId || '').trim();
+    var sourceKind = String(rawSource.kind || (qualityEventId ? 'quality_event' : '')).trim();
     return {
       count: count,
       unassigned: unassigned,
-      assigned: count - unassigned,
+      assigned: assignedCount,
       nearestDue: dues[0] || '',
-      preview: preview
+      latestDue: dues.length ? dues[dues.length - 1] : '',
+      missingDue: missingDue,
+      missingDeliverables: missingDeliverables,
+      missingCriteria: missingCriteria,
+      readyToPublish: readyToPublish,
+      preview: cards.slice(0, 8),
+      cards: cards,
+      title: String((draftData.draft && draftData.draft.title) || draftData.title || '').trim(),
+      description: String((draftData.draft && (draftData.draft.description || draftData.draft.summary)) || draftData.description || '').trim(),
+      sourceContext: sourceKind ? { kind: sourceKind, qualityEventId: qualityEventId } : null
     };
+  }
+  function renderPlanningCheck(label, ok, detail) {
+    return '<div class="planning-check-item' + (ok ? ' is-ok' : '') + '" role="listitem">'
+      + '<span class="planning-check-icon" aria-hidden="true">' + (ok ? '✓' : '!') + '</span>'
+      + '<span class="planning-check-copy"><strong>' + escapeHtml(label) + '</strong><small>' + escapeHtml(detail) + '</small></span>'
+      + '</div>';
+  }
+  function renderPlanningTaskCard(task, idx) {
+    var assigned = Boolean(task.assigned);
+    var assigneeName = String(task.assigneeName || '').trim();
+    var assignee = assigned
+      ? '<span class="planning-task-assignee"><span class="planning-task-avatar">' + escapeHtml(assigneeInitial(assigneeName)) + '</span><strong>' + escapeHtml(assigneeName || task.userId) + '</strong></span>'
+      : '<span class="planning-task-assignee"><span class="planning-task-avatar is-pending">?</span><strong>待主管指定</strong></span>';
+    var details = [];
+    if (task.actions) details.push('执行动作：' + task.actions);
+    if (task.dependencies) details.push('前置依赖：' + task.dependencies);
+    var detailsHtml = details.length
+      ? '<details class="planning-task-details"><summary>查看执行动作与前置依赖</summary><p>' + escapeHtml(details.join('\\n')) + '</p></details>'
+      : '';
+    return '<article class="planning-task-card' + (assigned ? ' is-assigned' : '') + '" data-task-id="' + escapeHtml(task.taskId) + '">'
+      + '<span class="planning-task-index" aria-hidden="true">' + (idx + 1) + '</span>'
+      + '<div class="planning-task-main">'
+      + '<div class="planning-task-title-row"><div><h4 class="planning-task-title">' + escapeHtml(task.title) + '</h4><p class="planning-task-objective"><span>目标</span>' + escapeHtml(task.objective || task.title) + '</p></div>'
+      + '<button type="button" class="planning-assignee-button" data-planning-assign="1" data-task-id="' + escapeHtml(task.taskId) + '" data-task-title="' + escapeHtml(task.title) + '">' + (assigned ? '调整人员' : '选择人员') + '</button></div>'
+      + '<div class="planning-task-fields">'
+      + '<div class="planning-task-field' + (assigned ? '' : ' is-missing') + '"><span>负责人</span>' + assignee + '</div>'
+      + '<div class="planning-task-field' + (task.dueComplete ? '' : ' is-missing') + '"><span>截止时间</span><strong>' + escapeHtml(task.dueComplete ? task.dueAt.slice(0, 10) : '待确认') + '</strong></div>'
+      + '<div class="planning-task-field' + (task.deliverables ? '' : ' is-missing') + '"><span>交付物</span><p>' + escapeHtml(task.deliverables || '待补充') + '</p></div>'
+      + '<div class="planning-task-field' + (task.completionCriteria ? '' : ' is-missing') + '"><span>完成标准</span><p>' + escapeHtml(task.completionCriteria || '待补充') + '</p></div>'
+      + '</div>' + detailsHtml + '</div></article>';
+  }
+  function renderPlanningDraftBoard(summary, hasDraft) {
+    var board = document.getElementById('planningDraftBoard');
+    var cards = document.getElementById('planningTaskCards');
+    var state = document.getElementById('planningDraftState');
+    var hint = document.getElementById('planningDraftBoardHint');
+    if (!board || !cards) return;
+    board.hidden = !hasDraft;
+    if (!hasDraft) {
+      cards.innerHTML = '';
+      return;
+    }
+    cards.innerHTML = (summary.cards || []).map(renderPlanningTaskCard).join('');
+    if (state) {
+      state.textContent = summary.readyToPublish ? '可以发放' : '待补充';
+      state.classList.toggle('is-ready', Boolean(summary.readyToPublish));
+    }
+    if (hint) {
+      hint.textContent = summary.readyToPublish
+        ? '负责人、期限、交付物和完成标准均已完整。'
+        : '仍有未完成项，可通过对话或“选择人员”继续调整。';
+    }
+    bindPlanningTaskButtons();
+  }
+  function plainPlanningContextText(value) {
+    return String(value || '')
+      .replace(/^#{1,6}\\s*/gm, '')
+      .replace(/\\*\\*([^*]+)\\*\\*/g, '$1')
+      .replace(/\\n{3,}/g, '\\n\\n')
+      .trim();
+  }
+  function renderPlanningContext(summary, hasDraft) {
+    var card = document.getElementById('planningContextCard');
+    if (!card) return;
+    card.hidden = !hasDraft;
+    if (!hasDraft) return;
+    var title = document.getElementById('planningContextTitle');
+    var desc = document.getElementById('planningContextDescription');
+    var meta = document.getElementById('planningContextMeta');
+    var icon = document.getElementById('planningContextIcon');
+    var kicker = document.getElementById('planningContextKicker');
+    var descLabel = document.getElementById('planningContextDescriptionLabel');
+    var source = summary.sourceContext || {};
+    var isQuality = source.kind === 'quality_event';
+    var eventNo = String(source.qualityEventId || '').trim();
+    card.classList.toggle('is-quality', isQuality);
+    if (icon) icon.textContent = isQuality ? '质' : '任';
+    if (kicker) kicker.textContent = isQuality ? '质量事件交接 · 只读' : '任务规划上下文 · 只读';
+    if (descLabel) descLabel.textContent = isQuality ? '质量交接背景' : '任务背景';
+    if (title) title.textContent = isQuality
+      ? ((eventNo ? '质量事件 ' + eventNo + ' · ' : '') + (summary.title || '任务草案'))
+      : (summary.title || '当前任务草案');
+    if (desc) desc.textContent = plainPlanningContextText(summary.description) || '当前草案未填写任务背景，可继续在对话中补充。';
+    if (meta) meta.textContent = summary.count + ' 项任务 · ' + summary.assigned + '/' + summary.count + ' 已指派';
   }
   function paintDraftPanelSummary(summary, hasDraft) {
     var panel = document.getElementById('draftContextPanel');
@@ -1360,22 +1548,30 @@ export function renderManagerChatPage(params: {
     var assigned = summary.assigned != null ? summary.assigned : Math.max(0, summary.count - summary.unassigned);
     var pct = summary.count > 0 ? Math.round((assigned / summary.count) * 100) : 0;
     if (panel && hasDraft) {
-      panel.setAttribute('data-state', summary.unassigned > 0 ? 'warn' : 'ready');
+      panel.setAttribute('data-state', summary.readyToPublish ? 'ready' : 'warn');
       panel.style.setProperty('--draft-pct', pct + '%');
     }
     if (c) c.textContent = String(summary.count);
     if (fill) fill.style.width = pct + '%';
     if (label) label.innerHTML = '<em>' + assigned + '/' + summary.count + '</em> 已指派';
-    if (dueRow) dueRow.hidden = !summary.nearestDue;
-    if (d) d.textContent = summary.nearestDue || '—';
+    if (dueRow) dueRow.hidden = !summary.latestDue;
+    if (d) d.textContent = summary.latestDue || '—';
     if (list) {
-      list.innerHTML = (summary.preview || []).map(renderDraftTaskRow).join('');
+      list.innerHTML = [
+        renderPlanningCheck('负责人完整', summary.unassigned === 0, summary.unassigned === 0 ? summary.count + '/' + summary.count + ' 已指定' : '还缺 ' + summary.unassigned + ' 项'),
+        renderPlanningCheck('期限完整', summary.missingDue === 0, summary.missingDue === 0 ? '所有任务均有期限' : '还缺 ' + summary.missingDue + ' 项'),
+        renderPlanningCheck('交付物完整', summary.missingDeliverables === 0, summary.missingDeliverables === 0 ? '交付物可核对' : '还缺 ' + summary.missingDeliverables + ' 项'),
+        renderPlanningCheck('完成标准完整', summary.missingCriteria === 0, summary.missingCriteria === 0 ? '标准可验收' : '还缺 ' + summary.missingCriteria + ' 项')
+      ].join('');
     }
     if (cap) {
-      cap.textContent = summary.unassigned > 0
-        ? '仍有 ' + summary.unassigned + ' 条未指派，预检时会提示补全'
-        : '将弹窗确认，预检与预览在对话区展示';
+      cap.textContent = summary.readyToPublish
+        ? '发放前将再次执行后端预检与确认'
+        : '请先补全右侧未通过的检查项';
     }
+    renderPlanningContext(summary, hasDraft);
+    renderPlanningDraftBoard(summary, hasDraft);
+    updatePublishBtnUi();
   }
   function updateDraftContext(summary, hasDraft) {
     var bar = document.getElementById('draftContextBar');
@@ -1385,6 +1581,18 @@ export function renderManagerChatPage(params: {
     var chipMeta = document.getElementById('draftChipMeta');
     var paneTitle = document.getElementById('paneTitle');
     if (!hasDraft) {
+      cachedDraftSummary = {
+        count: 0,
+        unassigned: 0,
+        assigned: 0,
+        nearestDue: '',
+        latestDue: '',
+        missingDue: 0,
+        missingDeliverables: 0,
+        missingCriteria: 0,
+        readyToPublish: false,
+        preview: []
+      };
       if (bar) { bar.classList.add('is-muted'); bar.hidden = false; }
       if (text) text.textContent = '暂无草案';
       if (mobileBar) mobileBar.hidden = true;
@@ -1403,7 +1611,7 @@ export function renderManagerChatPage(params: {
     cachedDraftSummary = summary;
     var assigned = summary.assigned != null ? summary.assigned : Math.max(0, summary.count - summary.unassigned);
     var line = summary.count + ' 条子任务 · ' + summary.unassigned + ' 条未指派';
-    if (summary.nearestDue) line += ' · 最近截止 ' + summary.nearestDue;
+    if (summary.latestDue) line += ' · 总期限 ' + summary.latestDue;
     if (bar) { bar.classList.remove('is-muted'); bar.hidden = false; }
     if (text) text.textContent = line;
     if (mobileBar) mobileBar.hidden = false;
@@ -1413,7 +1621,7 @@ export function renderManagerChatPage(params: {
     }
     if (chipMeta) {
       var metaLine = assigned + '/' + summary.count + ' 已指派';
-      if (summary.nearestDue) metaLine += ' · 截止 ' + summary.nearestDue;
+      if (summary.latestDue) metaLine += ' · 总期限 ' + summary.latestDue;
       chipMeta.textContent = metaLine;
     }
     var mobileSub = document.getElementById('mobilePaneSub');
@@ -1521,6 +1729,112 @@ export function renderManagerChatPage(params: {
         : '<div class="msg-body">' + escapeHtml(m.content || '') + '</div>';
       return '<li class="' + rowClass + '"><div class="' + bubbleClass + '">' + metaLine + body + '</div></li>';
     }).join('');
+    collapseLegacyTaskTables();
+  }
+  function collapseLegacyTaskTables() {
+    document.querySelectorAll('.msg-body--assistant table').forEach(function (table) {
+      if (table.closest('.legacy-task-table-details')) return;
+      var details = document.createElement('details');
+      details.className = 'legacy-task-table-details';
+      var summary = document.createElement('summary');
+      summary.textContent = '查看助手原始任务表';
+      var parent = table.parentNode;
+      if (!parent) return;
+      parent.insertBefore(details, table);
+      details.appendChild(summary);
+      details.appendChild(table);
+      var previous = details.previousElementSibling;
+      if (previous && /^H[1-4]$/.test(previous.tagName) && /任务表/.test(previous.textContent || '')) {
+        previous.hidden = true;
+      }
+    });
+  }
+  function setPlanningPersonFeedback(message, kind) {
+    var el = document.getElementById('planningPersonFeedback');
+    if (!el) return;
+    el.hidden = !message;
+    el.textContent = message || '';
+    el.className = 'composer-status ' + (kind || 'muted');
+  }
+  function closePlanningPersonModal() {
+    closePublishModal('planningPersonModalOverlay');
+    planningPersonSearchSeq += 1;
+    planningPersonTask = null;
+    planningPersonChoice = null;
+    if (planningPersonSearchTimer) clearTimeout(planningPersonSearchTimer);
+    planningPersonSearchTimer = null;
+    var search = document.getElementById('planningPersonSearch');
+    var results = document.getElementById('planningPersonResults');
+    var confirm = document.getElementById('planningPersonConfirmBtn');
+    if (search) search.value = '';
+    if (results) results.innerHTML = '<div class="planning-person-empty">输入至少 1 个字开始搜索</div>';
+    if (confirm) confirm.disabled = true;
+    setPlanningPersonFeedback('', 'muted');
+  }
+  function openPlanningPersonModal(taskId, taskTitle) {
+    planningPersonTask = { taskId: taskId, title: taskTitle };
+    planningPersonChoice = null;
+    var task = document.getElementById('planningPersonTask');
+    var confirm = document.getElementById('planningPersonConfirmBtn');
+    if (task) task.textContent = '任务：' + taskTitle;
+    if (confirm) confirm.disabled = true;
+    openPublishModal('planningPersonModalOverlay');
+    var search = document.getElementById('planningPersonSearch');
+    if (search) setTimeout(function () { search.focus(); }, 30);
+  }
+  function bindPlanningTaskButtons() {
+    document.querySelectorAll('[data-planning-assign="1"]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var taskId = String(button.getAttribute('data-task-id') || '').trim();
+        var taskTitle = String(button.getAttribute('data-task-title') || '').trim();
+        if (!taskId || !taskTitle) return;
+        openPlanningPersonModal(taskId, taskTitle);
+      });
+    });
+  }
+  function renderPlanningPersonOptions(contacts) {
+    var results = document.getElementById('planningPersonResults');
+    if (!results) return;
+    var active = (contacts || []).filter(function (contact) { return contact && contact.active !== false; });
+    if (!active.length) {
+      results.innerHTML = '<div class="planning-person-empty">未找到匹配的在职成员</div>';
+      return;
+    }
+    results.innerHTML = active.map(function (contact) {
+      var name = String(contact.name || contact.userId || '').trim();
+      var department = String(contact.departmentSummary || contact.departmentName || '未分配部门').trim();
+      return '<button type="button" class="planning-person-option" data-user-id="' + escapeHtml(contact.userId) + '" data-name="' + escapeHtml(name) + '" data-department="' + escapeHtml(department) + '">'
+        + '<span class="planning-person-option-avatar">' + escapeHtml(assigneeInitial(name)) + '</span>'
+        + '<span><strong>' + escapeHtml(name) + '</strong><small>' + escapeHtml(department) + '</small></span><em>选择</em></button>';
+    }).join('');
+    results.querySelectorAll('.planning-person-option').forEach(function (option) {
+      option.addEventListener('click', function () {
+        results.querySelectorAll('.planning-person-option').forEach(function (x) { x.classList.remove('is-selected'); });
+        option.classList.add('is-selected');
+        planningPersonChoice = {
+          userId: String(option.getAttribute('data-user-id') || '').trim(),
+          name: String(option.getAttribute('data-name') || '').trim(),
+          department: String(option.getAttribute('data-department') || '').trim()
+        };
+        var confirm = document.getElementById('planningPersonConfirmBtn');
+        if (confirm) confirm.disabled = !planningPersonChoice.name;
+        setPlanningPersonFeedback('已选择 ' + planningPersonChoice.name + '，提交后由助手核对并更新草案。', 'ok');
+      });
+    });
+  }
+  async function searchPlanningPeople(keyword, seq) {
+    var results = document.getElementById('planningPersonResults');
+    if (results) results.innerHTML = '<div class="planning-person-empty">正在搜索真实通讯录…</div>';
+    try {
+      var res = await fetch('/api/workbench/manager/contacts?keyword=' + encodeURIComponent(keyword));
+      var data = await res.json().catch(function () { return {}; });
+      if (seq !== planningPersonSearchSeq) return;
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      renderPlanningPersonOptions(data.contacts || []);
+    } catch (error) {
+      if (seq !== planningPersonSearchSeq) return;
+      if (results) results.innerHTML = '<div class="planning-person-empty">通讯录加载失败，请稍后重试</div>';
+    }
   }
   function appendPendingBubble(startedAt) {
     var box = document.getElementById('msgList');
@@ -2001,6 +2315,63 @@ export function renderManagerChatPage(params: {
   }
   var editDraftPanelBtn = document.getElementById('editDraftBtnPanel');
   if (editDraftPanelBtn) editDraftPanelBtn.addEventListener('click', openDraftEditorModal);
+
+  var planningContextToggle = document.getElementById('planningContextToggle');
+  if (planningContextToggle) {
+    planningContextToggle.addEventListener('click', function () {
+      var contextCard = document.getElementById('planningContextCard');
+      if (!contextCard) return;
+      var collapsed = contextCard.classList.toggle('is-collapsed');
+      planningContextToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      planningContextToggle.setAttribute('aria-label', collapsed ? '展开任务背景' : '收起任务背景');
+    });
+  }
+  var planningPersonSearch = document.getElementById('planningPersonSearch');
+  if (planningPersonSearch) {
+    planningPersonSearch.addEventListener('input', function () {
+      planningPersonChoice = null;
+      var confirm = document.getElementById('planningPersonConfirmBtn');
+      if (confirm) confirm.disabled = true;
+      setPlanningPersonFeedback('', 'muted');
+      if (planningPersonSearchTimer) clearTimeout(planningPersonSearchTimer);
+      var keyword = String(planningPersonSearch.value || '').trim();
+      if (!keyword) {
+        planningPersonSearchSeq += 1;
+        var emptyResults = document.getElementById('planningPersonResults');
+        if (emptyResults) emptyResults.innerHTML = '<div class="planning-person-empty">输入至少 1 个字开始搜索</div>';
+        return;
+      }
+      planningPersonSearchTimer = setTimeout(function () {
+        planningPersonSearchSeq += 1;
+        void searchPlanningPeople(keyword, planningPersonSearchSeq);
+      }, 220);
+    });
+  }
+  var planningPersonConfirmBtn = document.getElementById('planningPersonConfirmBtn');
+  if (planningPersonConfirmBtn) {
+    planningPersonConfirmBtn.addEventListener('click', function () {
+      if (!planningPersonTask || !planningPersonChoice || sendInFlight) return;
+      var taskTitle = planningPersonTask.title;
+      var taskId = planningPersonTask.taskId;
+      var name = planningPersonChoice.name;
+      var department = planningPersonChoice.department && planningPersonChoice.department !== '未分配部门'
+        ? planningPersonChoice.department + '的'
+        : '';
+      var message = '请将草案子任务「' + taskTitle + '」（任务编号：' + taskId + '）指派给' + department + name + '。请先核对通讯录，再更新当前草案指派。';
+      closePlanningPersonModal();
+      void sendChatMessage({ message: message, fromComposer: false });
+    });
+  }
+  var planningPersonModalClose = document.getElementById('planningPersonModalClose');
+  if (planningPersonModalClose) planningPersonModalClose.addEventListener('click', closePlanningPersonModal);
+  var planningPersonCancelBtn = document.getElementById('planningPersonCancelBtn');
+  if (planningPersonCancelBtn) planningPersonCancelBtn.addEventListener('click', closePlanningPersonModal);
+  var planningPersonOverlay = document.getElementById('planningPersonModalOverlay');
+  if (planningPersonOverlay) {
+    planningPersonOverlay.addEventListener('click', function (ev) {
+      if (ev.target === planningPersonOverlay) closePlanningPersonModal();
+    });
+  }
 
   document.getElementById('logoutBtn').addEventListener('click', async function () {
     var res = await fetch('/api/workbench/logout', { method: 'POST' });

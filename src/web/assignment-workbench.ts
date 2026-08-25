@@ -7052,6 +7052,10 @@ export function handleAssignmentHttp(
     }
     const rawDraft = target.latestDraft as Record<string, unknown> | undefined;
     const draft = rawDraft ? normalizeDraftTasksForSession(rawDraft) : undefined;
+    const qualityHandoff = rawDraft?.qualityHandoff && typeof rawDraft.qualityHandoff === "object"
+      ? rawDraft.qualityHandoff as Record<string, unknown>
+      : undefined;
+    const qualityEventId = String(qualityHandoff?.qualityEventId ?? "").trim();
     const editable = Boolean(draft && Array.isArray(draft.tasks) && draft.tasks.length > 0);
     writeJson(res, 200, {
       ok: true,
@@ -7071,6 +7075,9 @@ export function handleAssignmentHttp(
       description: editable
         ? String(draft?.description ?? draft?.summary ?? "").trim()
         : "",
+      sourceContext: qualityEventId
+        ? { kind: "quality_event", qualityEventId }
+        : undefined,
     });
     return true;
   }

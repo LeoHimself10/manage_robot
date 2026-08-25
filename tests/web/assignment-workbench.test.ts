@@ -1462,6 +1462,7 @@ describe("assignment-workbench HTTP handler", () => {
         latestDraft: {
           title: "草案标题",
           description: "背景",
+          qualityHandoff: { qualityEventId: "QE-TEST-001" },
           tasks: [
             {
               id: "task_1",
@@ -1497,9 +1498,18 @@ describe("assignment-workbench HTTP handler", () => {
     handleAssignmentHttp(req, res);
     const c = captured();
     expect(c.statusCode).toBe(200);
-    const data = JSON.parse(c.body) as { ok: boolean; editable: boolean; rows: unknown[] };
+    const data = JSON.parse(c.body) as {
+      ok: boolean;
+      editable: boolean;
+      rows: unknown[];
+      sourceContext?: { kind?: string; qualityEventId?: string };
+    };
     expect(data.ok).toBe(true);
     expect(data.editable).toBe(true);
+    expect(data.sourceContext).toEqual({
+      kind: "quality_event",
+      qualityEventId: "QE-TEST-001",
+    });
     expect(data.rows).toHaveLength(1);
   });
 
