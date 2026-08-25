@@ -37,7 +37,7 @@ describe("renderQualityTrackingPage", () => {
     const mainHtml = html.slice(html.indexOf('<main class="qpc-page"'), html.indexOf("</main>"));
     expect(mainHtml).toContain('data-quality-list="event"');
     expect(mainHtml).not.toContain('data-quality-list="feedback"');
-    expect(html).toContain("if (type === 'feedback' && !canReport) return");
+    expect(html).toContain("if (type === 'feedback' && !canViewSources) return");
   });
 
   it("uses one inline five-stage workspace and restores review deep links", () => {
@@ -101,6 +101,9 @@ describe("renderQualityTrackingPage", () => {
     expect(html).not.toContain("质量研析尚未开放");
     expect(html).toContain("质量初析工作区");
     expect(html).toContain("下一步：确认推送主管");
+    expect(html).toContain("仅展示已配置唯一有效主管的真实部门");
+    expect(html).not.toContain("协同部门（可多选）");
+    expect(html).toContain("模型调用超时，本次未生成AI原稿");
     expect(html).toContain("未创建质量事件，未改变来源状态");
   });
 
@@ -152,6 +155,7 @@ describe("renderQualityTrackingPage", () => {
       role: "admin",
       userId: "admin-1",
       canReport: false,
+      canViewSources: true,
       isSpecialist: false,
       isBusinessReadOnly: true,
       planningMode: true,
@@ -166,6 +170,9 @@ describe("renderQualityTrackingPage", () => {
     });
 
     expect(html).toContain("管理员全局质量视图");
+    expect(html).toContain('data-can-view-sources="1"');
+    expect(html).toContain("if (state.listType === 'feedback') return 'PENDING'");
+    expect(html).toContain("function alignWorkspace()");
     expect(html).toContain('data-business-readonly="1"');
     expect(html).toContain("研发中心主管（曹一挥）");
     expect(html).toContain("确认后进入该主管完整工作台，权限与本人登录一致");

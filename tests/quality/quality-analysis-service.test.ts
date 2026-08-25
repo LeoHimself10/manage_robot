@@ -92,7 +92,6 @@ function output(input: QualityAnalysisInput): QualityAnalysisOutput {
       departmentName: "质量部",
       recommendationReason: "负责质量调查闭环和证据审查。",
     }],
-    collaboratingDepartmentNames: ["研发部"],
     handlingRequirements: ["完成根因调查并形成书面结论。"],
     deliverables: [{
       name: "质量调查报告",
@@ -164,7 +163,7 @@ beforeEach(() => {
   vi.stubEnv("PLAN_SESSION_EVENTS_PATH", join(dir, "events.jsonl"));
   vi.stubEnv("QUALITY_MANAGEMENT_USER_IDS", "quality-employee");
   vi.stubEnv("QUALITY_AFTERSALES_MANAGER_USER_IDS", "aftersales-1");
-  vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "aftersales-1,quality-manager,rd-manager");
+  vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "aftersales-1,quality-manager,rd-manager,finance-manager-a,finance-manager-b");
   vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
   createQualityStore(dbPath).close();
   const people = createPeopleDirectoryStore(dbPath);
@@ -173,9 +172,20 @@ beforeEach(() => {
       userId, name, departmentIds: [departmentId], departmentNames: [departmentName], active,
       isAdmin: false, isBoss: false, isSenior: false,
     });
-  contact("quality-manager", "质量部主管", "dept-quality", "质量部");
+  people.upsertContact({
+    userId: "quality-manager",
+    name: "质量部主管",
+    departmentIds: ["dept-quality", "dept-quality-alias"],
+    departmentNames: ["质量部", "质量部"],
+    active: true,
+    isAdmin: false,
+    isBoss: false,
+    isSenior: false,
+  });
   contact("quality-employee", "质量员工", "dept-quality", "质量部");
   contact("rd-manager", "研发部主管", "dept-rd", "研发部");
+  contact("finance-manager-a", "财务主管甲", "dept-finance-a", "财务部");
+  contact("finance-manager-b", "财务主管乙", "dept-finance-b", "财务部");
   contact("support-employee", "临床支持员工", "dept-support", "临床支持部");
   people.close();
 });
@@ -200,6 +210,14 @@ describe("AI quality initial analysis V1", () => {
       { departmentId: "dept-quality", departmentName: "质量部" },
       { departmentId: "dept-rd", departmentName: "研发部" },
     ]));
+    expect(prepared.departmentCandidates).not.toContainEqual(
+      expect.objectContaining({ departmentId: "dept-support" }),
+    );
+    expect(prepared.departmentCandidates.filter((item) => item.departmentName === "质量部"))
+      .toEqual([{ departmentId: "dept-quality", departmentName: "质量部" }]);
+    expect(prepared.departmentCandidates).not.toContainEqual(
+      expect.objectContaining({ departmentName: "财务部" }),
+    );
     expect(prepared.attachments[0]).toMatchObject({
       fileName: "现场照片.jpg",
       humanDescription: "照片显示导管中段弯折",
@@ -292,22 +310,20 @@ describe("AI quality initial analysis V1", () => {
     });
     const firstDraft = draftFromAttempt(attempt);
     firstDraft.primaryDepartmentId = "dept-support";
-    service.saveDraft({ eventId, actorUserId: "quality-employee", draft: firstDraft });
-    expect(() => service.confirm({
+    expect(() => service.saveDraft({
       eventId,
       actorUserId: "quality-employee",
-      expectedDraftVersion: 1,
-      expectedEventVersion: 1,
-      requestId: "33333333-3333-4333-8333-333333333333",
-      modificationReason: "确认初析。",
-    })).toThrow(/尚未配置主管/);
+      draft: firstDraft,
+    })).toThrow(/主责部门不存在/);
 
-    const corrected = { ...draftFromAttempt(attempt), expectedVersion: 1, requestId: "44444444-4444-4444-8444-444444444444" };
+    const corrected = { ...draftFromAttempt(attempt), expectedVersion: 0, requestId: "44444444-4444-4444-8444-444444444444" };
     service.saveDraft({ eventId, actorUserId: "quality-employee", draft: corrected });
+    expect(service.workspace({ eventId, viewerUserId: "quality-employee" })?.draft)
+      .toMatchObject({ collaboratorDepartmentIds: [] });
     const confirmed = service.confirm({
       eventId,
       actorUserId: "quality-employee",
-      expectedDraftVersion: 2,
+      expectedDraftVersion: 1,
       expectedEventVersion: 1,
       requestId: "55555555-5555-4555-8555-555555555555",
       modificationReason: "已复核AI建议并确认首责部门。",
@@ -322,6 +338,7 @@ describe("AI quality initial analysis V1", () => {
       status: "PENDING_PLANNING",
       primaryManagerUserId: "quality-manager",
     });
+    expect(confirmed.handoff.taskPackage).not.toHaveProperty("collaboratingDepartments");
     expect(String(confirmed.handoff.planningUrl)).toContain("/workbench/manager/chat?thread=side");
     expect(hasQualityPlanningHandoff("quality-manager", dbPath)).toBe(true);
     expect(hasQualityPlanningHandoff("rd-manager", dbPath)).toBe(false);
@@ -343,25 +360,26 @@ describe("AI quality initial analysis V1", () => {
     expect(String(staged?.latestDraft?.description)).toContain("# 质量事件任务草稿");
     expect(String(staged?.latestDraft?.description)).toContain("## 来源事实摘要");
     expect(String(staged?.latestDraft?.description)).toContain("## 主管下一步");
+    expect(String(staged?.latestDraft?.description)).not.toContain("建议协同部门");
     expect(staged?.conversationHistory[0]?.displayContent).toContain("已接收质量事件");
     const repeated = service.confirm({
       eventId,
       actorUserId: "quality-employee",
-      expectedDraftVersion: 2,
+      expectedDraftVersion: 1,
       expectedEventVersion: 1,
       requestId: "55555555-5555-4555-8555-555555555555",
       modificationReason: "已复核AI建议并确认首责部门。",
     });
     expect(repeated.version).toMatchObject({ analysisVersion: 1 });
 
-    const v2Draft = { ...draftFromAttempt(attempt), expectedVersion: 2, requestId: "66666666-6666-4666-8666-666666666666" };
+    const v2Draft = { ...draftFromAttempt(attempt), expectedVersion: 1, requestId: "66666666-6666-4666-8666-666666666666" };
     v2Draft.content = { ...v2Draft.content, preliminaryConclusion: "V2：补充调查后仍需完成实物检测。" };
     v2Draft.modificationReason = "补充调查进展，形成V2。";
     service.saveDraft({ eventId, actorUserId: "quality-employee", draft: v2Draft });
     const v2 = service.confirm({
       eventId,
       actorUserId: "quality-employee",
-      expectedDraftVersion: 3,
+      expectedDraftVersion: 2,
       expectedEventVersion: 2,
       requestId: "77777777-7777-4777-8777-777777777777",
       modificationReason: "补充调查进展，形成V2。",

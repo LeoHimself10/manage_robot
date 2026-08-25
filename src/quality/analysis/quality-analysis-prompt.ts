@@ -39,7 +39,6 @@ export function buildQualityAnalysisMessages(input: QualityAnalysisInput): Array
       investigationDirections: ["string"],
       informationGaps: ["string"],
       primaryDepartmentCandidates: [{ departmentName: "string", recommendationReason: "string" }],
-      collaboratingDepartmentNames: ["string"],
       handlingRequirements: ["string"],
       deliverables: [{ name: "string", description: "string", acceptanceCriteria: "string" }],
       suggestedTotalDueDays: "integer 1-180",

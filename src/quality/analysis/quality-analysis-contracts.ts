@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const QUALITY_ANALYSIS_INPUT_SCHEMA_VERSION = "quality-analysis-input-v1";
 export const QUALITY_ANALYSIS_OUTPUT_SCHEMA_VERSION = "quality-analysis-output-v1";
-export const QUALITY_ANALYSIS_PROMPT_VERSION = "quality-analysis-prompt-v1.0.1";
+export const QUALITY_ANALYSIS_PROMPT_VERSION = "quality-analysis-prompt-v1.0.2";
 export const QUALITY_ANALYSIS_MODEL_CONFIG_ID = "project-default-qwen-quality-analysis-v1";
 export const QUALITY_ANALYSIS_RULE_VERSION = "quality-analysis-rules-v1";
 export const QUALITY_ANALYSIS_KNOWLEDGE_VERSION = "quality-product-knowledge-v1";
@@ -84,7 +84,6 @@ export const qualityAnalysisOutputSchema = z.object({
     departmentName: text(200),
     recommendationReason: text(1_000),
   }).strict()).min(1).max(20),
-  collaboratingDepartmentNames: z.array(text(200)).max(30),
   handlingRequirements: z.array(text(1_000)).min(1).max(30),
   deliverables: z.array(z.object({
     name: text(200),

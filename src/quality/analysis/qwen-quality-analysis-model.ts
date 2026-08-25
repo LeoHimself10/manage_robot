@@ -51,11 +51,16 @@ export function loadQwenQualityAnalysisConfig(
 ): QwenQualityAnalysisConfig | undefined {
   const apiKey = envText(env, "QWEN_API_KEY") ?? envText(env, "DASHSCOPE_API_KEY");
   if (!apiKey) return undefined;
+  const qualityTimeoutMs = Math.max(envNumber(
+    env,
+    "QUALITY_ANALYSIS_QWEN_TIMEOUT_MS",
+    envNumber(env, "QWEN_TIMEOUT_MS", 120_000),
+  ), 120_000);
   const policy = normalizeModelPolicy({
     model: envText(env, "QWEN_MODEL"),
     temperature: 0,
     maxTokens: envNumber(env, "QWEN_MAX_TOKENS", 8_000),
-    timeoutMs: envNumber(env, "QWEN_TIMEOUT_MS", 120_000),
+    timeoutMs: qualityTimeoutMs,
     maxRetries: envNumber(env, "QWEN_MAX_RETRIES", 1),
     requestBudgetTokens: envNumber(env, "QWEN_REQUEST_BUDGET_TOKENS", 16_000),
   });

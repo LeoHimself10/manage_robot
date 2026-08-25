@@ -50,14 +50,6 @@ export function validateQualityAnalysisOutput(
       });
     }
   }
-  for (const [index, name] of output.collaboratingDepartmentNames.entries()) {
-    if (!allowedDepartments.has(key(name))) {
-      issues.push({
-        path: `collaboratingDepartmentNames.${index}`,
-        message: "协同部门不在真实部门候选列表中",
-      });
-    }
-  }
   const deliverableNames = new Set<string>();
   for (const [index, deliverable] of output.deliverables.entries()) {
     const normalized = key(deliverable.name);

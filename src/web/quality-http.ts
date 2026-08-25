@@ -1197,6 +1197,7 @@ export function handleQualityHttp(input: {
       userId: session.userId,
       userLabel: session.dingUser?.name,
       canReport: caps.canReportQuality,
+      canViewSources: caps.canReportQuality || caps.baseRole === "admin",
       isSpecialist: caps.canAnalyzeQuality,
       isBusinessReadOnly: caps.baseRole === "admin" || caps.isBusinessReadOnly,
       planningMode: planningManager || Boolean(selectedManager),

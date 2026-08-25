@@ -437,7 +437,6 @@ function insertFormalAnalysis(input: {
         departmentId: input.manager.departmentId,
         departmentName: input.manager.departmentName,
       },
-      collaboratingDepartments: [],
       handlingRequirements: content.handlingRequirements,
       requiredDeliverables: deliverables,
       suggestedTotalDueAt: dueAt,

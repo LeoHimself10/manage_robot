@@ -161,7 +161,6 @@ function analysisDiff(
   content: QualityAnalysisDraftContent,
   deliverables: QualityDeliverable[],
   primaryDepartmentId: string,
-  collaboratorDepartmentIds: string[],
 ): Record<string, unknown> {
   if (!attempt?.output) {
     return {
@@ -169,7 +168,6 @@ function analysisDiff(
       fields: Object.keys(content),
       deliverableIds: selectedDeliverables(deliverables).map((item) => item.deliverableId),
       primaryDepartmentId,
-      collaboratorDepartmentIds,
     };
   }
   const output = attempt.output;
@@ -201,7 +199,6 @@ function analysisDiff(
       selected: item.selected,
     })),
     primaryDepartmentId,
-    collaboratorDepartmentIds,
   };
 }
 
@@ -289,9 +286,9 @@ export function createQualityAnalysisService(deps?: {
     }
     const reporting = reportingContext(eventId);
     const directory = createQualityDepartmentDirectory(dbPath);
-    const departments = directory.listDepartments();
+    const departments = directory.listAssignableDepartments();
     directory.close();
-    if (departments.length === 0) throw new Error("系统中没有可用的真实部门候选");
+    if (departments.length === 0) throw new Error("系统中没有已配置唯一有效主管的主责部门");
     const attachments = (db.prepare(`SELECT original_name,mime_type,description,created_at
       FROM quality_report_files WHERE event_id=? AND status='ACTIVE' ORDER BY created_at,id`)
       .all(eventId) as DatabaseRow[]).map((row) => ({
@@ -518,19 +515,15 @@ export function createQualityAnalysisService(deps?: {
     }
     const deliverables = validateDeliverables(draft.deliverables);
     const directory = createQualityDepartmentDirectory(dbPath);
-    const departments = directory.listDepartments();
+    const departments = directory.listAssignableDepartments();
     directory.close();
     const departmentIds = new Set(departments.map((item) => item.departmentId));
     if (draft.primaryDepartmentId && !departmentIds.has(draft.primaryDepartmentId)) {
       throw new Error("主责部门不存在");
     }
-    const collaborators = normalizeList(draft.collaboratorDepartmentIds);
-    if (collaborators.some((departmentId) => !departmentIds.has(departmentId))) {
-      throw new Error("协同部门不存在");
-    }
-    if (draft.primaryDepartmentId && collaborators.includes(draft.primaryDepartmentId)) {
-      throw new Error("主责部门不能同时作为协同部门");
-    }
+    // Collaboration is decided later in the existing task planner. Quality
+    // analysis only recommends one primary department.
+    const collaborators: string[] = [];
     const occurredAt = now();
     const current = readDraft(input.eventId);
     if (Number(current?.version ?? 0) !== draft.expectedVersion) throw new Error("version conflict");
@@ -619,7 +612,6 @@ export function createQualityAnalysisService(deps?: {
     deliverables: QualityDeliverable[];
     primaryDepartmentId: string;
     primaryDepartmentName: string;
-    collaboratorDepartments: Array<{ departmentId: string; departmentName: string }>;
     managerUserId: string;
     managerName: string;
     confirmedBy: string;
@@ -647,7 +639,6 @@ export function createQualityAnalysisService(deps?: {
       preliminaryConclusion: input.content.preliminaryConclusion,
       informationGaps: input.content.informationGaps,
       primaryDepartment: { departmentId: input.primaryDepartmentId, departmentName: input.primaryDepartmentName },
-      collaboratingDepartments: input.collaboratorDepartments,
       handlingRequirements: input.content.handlingRequirements,
       requiredDeliverables: selectedDeliverables(input.deliverables),
       suggestedTotalDueAt: input.content.suggestedTotalDueAt,
@@ -689,16 +680,11 @@ export function createQualityAnalysisService(deps?: {
     const primaryDepartment = input.package.primaryDepartment as {
       departmentName?: unknown;
     } | undefined;
-    const collaborators = lines(
-      (input.package.collaboratingDepartments as Array<{ departmentName?: unknown }> | undefined)
-        ?.map((item) => item.departmentName),
-    );
     const description = [
       `# 质量事件任务草稿｜${input.eventNo}`,
       "",
       `**事件标题：** ${input.eventTitle}`,
       `**建议主责部门：** ${String(primaryDepartment?.departmentName ?? "待确认")}`,
-      `**建议协同部门：** ${collaborators.join("、") || "无"}`,
       `**建议总期限：** ${dueAt}`,
       "",
       "## 来源事实摘要",
@@ -798,17 +784,10 @@ export function createQualityAnalysisService(deps?: {
     if (!primaryDepartmentId) throw new Error("必须选择一个主责部门");
     const directory = createQualityDepartmentDirectory(dbPath);
     const manager = directory.resolveManager(primaryDepartmentId);
-    const departments = directory.listDepartments();
     directory.close();
     if (manager.status !== "READY" || !manager.department || !manager.managerUserId || !manager.managerName) {
       throw new Error(manager.message);
     }
-    const collaboratorIds = parseJson<string[]>(rawDraft.collaborator_department_ids_json, []);
-    const collaborators = collaboratorIds.map((departmentId) => {
-      const department = departments.find((item) => item.departmentId === departmentId);
-      if (!department) throw new Error("协同部门不存在");
-      return { departmentId, departmentName: department.departmentName };
-    });
     const baseAttempt = rawDraft.base_attempt_id == null
       ? null
       : getAttempt(String(rawDraft.base_attempt_id));
@@ -825,7 +804,6 @@ export function createQualityAnalysisService(deps?: {
       deliverables,
       primaryDepartmentId,
       primaryDepartmentName: manager.department.departmentName,
-      collaboratorDepartments: collaborators,
       managerUserId: manager.managerUserId,
       managerName: manager.managerName,
       confirmedBy: input.actorUserId,
@@ -840,7 +818,7 @@ export function createQualityAnalysisService(deps?: {
     });
     const analysisId = id();
     const handoffId = id();
-    const diff = analysisDiff(baseAttempt, content, deliverables, primaryDepartmentId, collaboratorIds);
+    const diff = analysisDiff(baseAttempt, content, deliverables, primaryDepartmentId);
     const frozenAiAssessment = baseAttempt?.input.frozenReportingContext.aiOriginalAssessments
       .map((item) => item.assessment)
       .find((item) => item && typeof item === "object" && !Array.isArray(item)) as
@@ -868,7 +846,7 @@ export function createQualityAnalysisService(deps?: {
         analysisId, input.eventId, analysisVersion, input.requestId,
         baseAttempt?.attemptId ?? null, JSON.stringify(content), JSON.stringify(deliverables),
         JSON.stringify(diff), input.modificationReason.trim(), primaryDepartmentId,
-        manager.department.departmentName, JSON.stringify(collaborators), manager.managerUserId,
+        manager.department.departmentName, JSON.stringify([]), manager.managerUserId,
         manager.managerName, "ACTIVE", content.suggestedTotalDueAt,
         QUALITY_ANALYSIS_OUTPUT_SCHEMA_VERSION, baseAttempt?.promptVersion ?? null,
         baseAttempt?.modelConfigId ?? null, baseAttempt?.inputVersion ?? null,
@@ -972,7 +950,7 @@ export function createQualityAnalysisService(deps?: {
       || (latestVersion && String(latestVersion.primary_manager_user_id) === input.viewerUserId);
     if (!canView) throw new Error("quality analysis forbidden");
     const directory = createQualityDepartmentDirectory(dbPath);
-    const departments = directory.listDepartments();
+    const departments = directory.listAssignableDepartments();
     const rawDraft = readDraft(input.eventId);
     const managerResolution = rawDraft?.primaryDepartmentId
       ? directory.resolveManager(String(rawDraft.primaryDepartmentId))

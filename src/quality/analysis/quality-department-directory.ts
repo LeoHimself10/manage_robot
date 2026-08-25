@@ -123,6 +123,45 @@ export function createQualityDepartmentDirectory(dbPath = resolveWorkbenchSqlite
     };
   }
 
+  /**
+   * Departments offered as a formal primary owner must already resolve to one
+   * active manager. DingTalk can contain duplicate department nodes with the
+   * same display name, so collapse those aliases when they point to the same
+   * manager and omit the name entirely when it still maps to multiple people.
+   */
+  function listAssignableDepartments(query = ""): QualityDepartment[] {
+    const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
+    const groups = new Map<string, Array<{
+      department: QualityDepartment;
+      managerUserId: string;
+    }>>();
+    for (const department of listDepartments()) {
+      const resolution = resolveManager(department.departmentId);
+      if (resolution.status !== "READY" || !resolution.department || !resolution.managerUserId) {
+        continue;
+      }
+      const nameKey = resolution.department.departmentName
+        .trim().toLocaleLowerCase("zh-CN").replace(/\s+/g, " ");
+      const group = groups.get(nameKey) ?? [];
+      group.push({ department: resolution.department, managerUserId: resolution.managerUserId });
+      groups.set(nameKey, group);
+    }
+    const result: QualityDepartment[] = [];
+    for (const group of groups.values()) {
+      if (new Set(group.map((item) => item.managerUserId)).size !== 1) continue;
+      const canonical = [...group]
+        .sort((left, right) => right.department.activeMemberCount - left.department.activeMemberCount
+          || left.department.departmentId.localeCompare(right.department.departmentId))[0];
+      if (!canonical) continue;
+      const department = canonical.department;
+      if (normalizedQuery && !`${department.departmentId} ${department.departmentName}`
+        .toLocaleLowerCase("zh-CN").includes(normalizedQuery)) continue;
+      result.push(department);
+    }
+    return result.sort((left, right) => left.departmentName.localeCompare(right.departmentName, "zh-CN")
+      || left.departmentId.localeCompare(right.departmentId));
+  }
+
   function listManagerPerspectives(): QualityManagerPerspective[] {
     const resolved = listDepartments()
       .map((department) => resolveManager(department.departmentId))
@@ -159,5 +198,11 @@ export function createQualityDepartmentDirectory(dbPath = resolveWorkbenchSqlite
       .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
   }
 
-  return { listDepartments, resolveManager, listManagerPerspectives, close: () => people.close() };
+  return {
+    listDepartments,
+    listAssignableDepartments,
+    resolveManager,
+    listManagerPerspectives,
+    close: () => people.close(),
+  };
 }
