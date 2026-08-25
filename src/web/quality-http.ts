@@ -55,12 +55,15 @@ import { renderQualityTrackingPage } from "./quality-tracking-page";
 import { renderQualityReviewPage } from "./quality-review-page";
 import { renderQualityOpinionsPage } from "./quality-opinions-page";
 import type { WorkbenchShellRole } from "./workbench-shell";
+import type { WorkbenchSession } from "./assignment-workbench-session-types";
+import { decorateWorkbenchHtmlForAdminImpersonation } from "./workbench-admin-impersonation";
 
 export interface QualityHttpSession {
   userId: string;
   role: "admin" | "manager" | "employee";
-  dingUser?: { name?: string };
-  loginSource?: string;
+  dingUser?: WorkbenchSession["dingUser"];
+  loginSource?: WorkbenchSession["loginSource"];
+  impersonation?: WorkbenchSession["impersonation"];
 }
 
 const QUALITY_PAGE_PATHS = new Set([
@@ -1207,7 +1210,7 @@ export function handleQualityHttp(input: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store, must-revalidate",
     });
-    res.end(isHead ? "" : html);
+    res.end(isHead ? "" : decorateWorkbenchHtmlForAdminImpersonation(html, session));
     return true;
   }
 
@@ -1225,7 +1228,7 @@ export function handleQualityHttp(input: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store, must-revalidate",
     });
-    res.end(isHead ? "" : html);
+    res.end(isHead ? "" : decorateWorkbenchHtmlForAdminImpersonation(html, session));
     return true;
   }
 
@@ -1243,7 +1246,7 @@ export function handleQualityHttp(input: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store, must-revalidate",
     });
-    res.end(isHead ? "" : html);
+    res.end(isHead ? "" : decorateWorkbenchHtmlForAdminImpersonation(html, session));
     return true;
   }
 

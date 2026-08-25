@@ -72,6 +72,12 @@ import { notifyEmployeeTodoOnAcceptAfterUpdate } from "../integrations/dingtalk/
 import { createEmployeeProfileRepo } from "../integrations/repos/employee-profile-repo";
 import { createDingTalkContactSyncService } from "../infra/dingtalk-contact-sync";
 import { createPeopleDirectoryStore } from "../infra/people-directory-store";
+import {
+  decorateWorkbenchHtmlForAdminImpersonation,
+  listWorkbenchImpersonationTargets,
+  resolveWorkbenchImpersonationTarget,
+  type WorkbenchImpersonationTargetKind,
+} from "./workbench-admin-impersonation";
 import { executeReassignWithSideEffects } from "../agent/workbench/reassign-with-side-effects";
 import { voidFireReassignAssigneeNotify } from "../agent/workbench/reassign-notify-side-effect";
 import {
@@ -105,11 +111,6 @@ import {
 } from "../security/workbench-capabilities";
 import { isWorkbenchProjectPortfolioEnabled } from "../security/workbench-project-portfolio";
 import { resolveWorkbenchRole, type WorkbenchRole } from "../security/workbench-role-resolver";
-import {
-  adminPerspectiveDisplayRole,
-  adminPerspectiveRedirect,
-  parseWorkbenchAdminPerspective,
-} from "../security/workbench-admin-perspective";
 import {
   canAccessManagerOwnedObject,
   resolveWorkbenchManagerScope,
@@ -390,6 +391,7 @@ const WORKBENCH_COOKIE_NAME = "wb_session";
 const WORKBENCH_SESSION_TTL_SECONDS = 12 * 60 * 60;
 const ACTION_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const seenActionKeys = new Map<string, { action: string; at: number }>();
+const impersonationMutationAuditedRequests = new WeakSet<IncomingMessage>();
 
 const assignmentWorkbenchDir = dirname(fileURLToPath(import.meta.url));
 
@@ -558,6 +560,16 @@ function getSessionFromRequest(req: IncomingMessage): WorkbenchSession | undefin
     if (parsed.role !== "admin" && parsed.role !== "manager" && parsed.role !== "employee") {
       return undefined;
     }
+    if (parsed.impersonation) {
+      const context = parsed.impersonation;
+      if (
+        !context.actorUserId?.trim()
+        || !context.targetUserId?.trim()
+        || context.targetUserId !== parsed.userId
+        || !["manager", "project_manager", "employee", "quality_specialist"].includes(context.targetKind)
+        || !context.startedAt
+      ) return undefined;
+    }
     return parsed;
   } catch {
     return undefined;
@@ -604,6 +616,35 @@ function resolveEffectiveSession(
 ): WorkbenchSession | undefined {
   const session = getSessionFromRequest(req);
   if (!session) return undefined;
+  if (session.impersonation) {
+    const actorCaps = resolveWorkbenchCapabilities(session.impersonation.actorUserId);
+    if (!actorCaps.canAccessAdmin) {
+      appendSetCookie(res, clearSessionCookie());
+      logStructured({
+        event: "workbench_admin_impersonation_revoked",
+        path: req.url ?? "",
+        actorUserId: session.impersonation.actorUserId,
+        targetUserId: session.userId,
+      });
+      return undefined;
+    }
+    if (
+      req.method !== "GET"
+      && req.method !== "HEAD"
+      && !impersonationMutationAuditedRequests.has(req)
+    ) {
+      impersonationMutationAuditedRequests.add(req);
+      logStructured({
+        event: "workbench_admin_impersonation_mutation_attempt",
+        path: req.url ?? "",
+        method: req.method ?? "",
+        actorUserId: session.impersonation.actorUserId,
+        targetUserId: session.userId,
+        targetKind: session.impersonation.targetKind,
+        startedAt: session.impersonation.startedAt,
+      });
+    }
+  }
   if (isWorkbenchTestEntrySession(session)) {
     return normalizeWorkbenchSession(session);
   }
@@ -2918,20 +2959,11 @@ function requireSession(
   res: ServerResponse,
   expectedRole?: WorkbenchRole,
 ): WorkbenchSession | undefined {
-  const session = getSessionFromRequest(req);
-  if (!session) {
+  const normalized = resolveEffectiveSession(req, res);
+  if (!normalized) {
     writeAuthError(res, 401, "Session required");
     return undefined;
   }
-  const normalized = isWorkbenchTestEntrySession(session)
-    ? normalizeWorkbenchSession(session)
-    : isExternalPasswordSession(session)
-      ? normalizeWorkbenchSession({
-        ...session,
-        role: "employee",
-        primaryRole: "employee",
-      })
-    : resolveEffectiveSession(req, res) ?? normalizeWorkbenchSession(session);
 
   if (expectedRole && isExternalPasswordSession(normalized) && expectedRole !== "employee") {
     logStructured({
@@ -3848,6 +3880,17 @@ export function handleAssignmentHttp(
       loginSource: session.loginSource,
       dingUser: session.dingUser ?? null,
       externalAccount: externalAccount ?? null,
+      impersonation: session.impersonation
+        ? {
+          active: true,
+          actorUserId: session.impersonation.actorUserId,
+          actorName: session.impersonation.actorName ?? null,
+          targetUserId: session.userId,
+          targetName: session.impersonation.targetName ?? session.dingUser?.name ?? null,
+          targetKind: session.impersonation.targetKind,
+          startedAt: session.impersonation.startedAt,
+        }
+        : null,
       exp: session.exp,
       projectPortfolioEnabled: isWorkbenchProjectPortfolioEnabled(session.userId),
     });
@@ -3918,6 +3961,145 @@ export function handleAssignmentHttp(
         });
       }
     })();
+    return true;
+  }
+
+  if (isGetOrHead && url.pathname === "/api/workbench/admin/impersonation-targets") {
+    const session = resolveEffectiveSession(req, res);
+    if (!session) {
+      writeAuthError(res, 401, "Session required");
+      return true;
+    }
+    const actorUserId = session.impersonation?.actorUserId ?? session.userId;
+    if (!resolveWorkbenchCapabilities(actorUserId).canAccessAdmin) {
+      writeJson(res, 403, { ok: false, error: "Administrator required" });
+      return true;
+    }
+    const rawKind = String(url.searchParams.get("kind") ?? "").trim();
+    const kind = ["manager", "project_manager", "employee", "quality_specialist"].includes(rawKind)
+      ? rawKind as WorkbenchImpersonationTargetKind
+      : undefined;
+    writeJson(res, 200, {
+      ok: true,
+      targets: listWorkbenchImpersonationTargets({
+        kind,
+        query: url.searchParams.get("query") ?? "",
+        limit: 50,
+      }),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/admin/impersonation") {
+    void (async () => {
+      try {
+        const session = resolveEffectiveSession(req, res);
+        if (!session) {
+          writeAuthError(res, 401, "Session required");
+          return;
+        }
+        if (isExternalPasswordSession(session)) {
+          writeJson(res, 403, { ok: false, error: "External accounts cannot impersonate" });
+          return;
+        }
+        const actorUserId = session.impersonation?.actorUserId ?? session.userId;
+        if (!resolveWorkbenchCapabilities(actorUserId).canAccessAdmin) {
+          writeJson(res, 403, { ok: false, error: "Administrator required" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const target = resolveWorkbenchImpersonationTarget(String(body.targetUserId ?? ""));
+        if (!target || target.userId === actorUserId) {
+          writeJson(res, 400, { ok: false, error: "Target user is unavailable" });
+          return;
+        }
+        const actorDingUser = session.impersonation?.actorDingUser ?? session.dingUser;
+        const actorName = session.impersonation?.actorName
+          ?? actorDingUser?.name
+          ?? withPeopleDirectoryStore((people) => people.getContact(actorUserId)?.name?.trim() ?? actorUserId);
+        const targetCaps = resolveWorkbenchCapabilities(target.userId);
+        const targetRole = targetCaps.primaryRole === "admin" && targetCaps.canManage
+          ? "manager"
+          : targetCaps.primaryRole;
+        const next = normalizeWorkbenchSession({
+          ...session,
+          userId: target.userId,
+          role: targetRole,
+          primaryRole: targetCaps.primaryRole,
+          dingUser: {
+            userId: target.userId,
+            name: target.name,
+            loginAt: new Date().toISOString(),
+          },
+          impersonation: {
+            actorUserId,
+            actorName,
+            actorDingUser,
+            targetUserId: target.userId,
+            targetName: target.name,
+            targetKind: target.kind,
+            startedAt: new Date().toISOString(),
+          },
+        });
+        const redirectTo = defaultPathForRole(next.role, next.userId);
+        logStructured({
+          event: "workbench_admin_impersonation_started",
+          actorUserId,
+          targetUserId: target.userId,
+          targetKind: target.kind,
+          redirectTo,
+        });
+        res.writeHead(200, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store, must-revalidate",
+          "Set-Cookie": buildSessionCookie(next),
+        });
+        res.end(JSON.stringify({ ok: true, target, redirectTo, data: { target, redirectTo } }));
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "invalid request body",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/admin/impersonation/exit") {
+    const session = resolveEffectiveSession(req, res);
+    if (!session) {
+      writeAuthError(res, 401, "Session required");
+      return true;
+    }
+    const context = session.impersonation;
+    if (!context || !resolveWorkbenchCapabilities(context.actorUserId).canAccessAdmin) {
+      writeJson(res, 409, { ok: false, error: "No active administrator delegation" });
+      return true;
+    }
+    const restored = normalizeWorkbenchSession({
+      ...session,
+      userId: context.actorUserId,
+      role: "admin" as const,
+      primaryRole: "admin" as const,
+      dingUser: context.actorDingUser ?? {
+        userId: context.actorUserId,
+        name: context.actorName,
+        loginAt: new Date().toISOString(),
+      },
+      impersonation: undefined,
+    });
+    logStructured({
+      event: "workbench_admin_impersonation_ended",
+      actorUserId: context.actorUserId,
+      targetUserId: session.userId,
+      startedAt: context.startedAt,
+    });
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store, must-revalidate",
+      "Set-Cookie": buildSessionCookie(restored),
+    });
+    res.end(JSON.stringify({ ok: true, redirectTo: "/workbench/admin/ops" }));
     return true;
   }
 
@@ -7550,7 +7732,7 @@ export function handleAssignmentHttp(
       emitWorkbenchPageView(session, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
-      else res.end(html);
+      else res.end(decorateWorkbenchHtmlForAdminImpersonation(html, session));
       return true;
     }
 
@@ -7561,6 +7743,14 @@ export function handleAssignmentHttp(
       }
       if (session.role !== "admin") {
         redirect(res, defaultPathForRole(session.role));
+        return true;
+      }
+      // The former role-shaped admin preview was read-only and therefore did
+      // not match a real person's login. Keep legacy links safe by returning
+      // to the admin surface where the concrete-person delegation picker is
+      // available.
+      if (url.pathname === "/workbench/admin/perspective") {
+        redirect(res, "/workbench/admin/ops");
         return true;
       }
       if (url.pathname === "/workbench/admin/daily-reports" && !isDailyReportsPageEnabled()) {
@@ -7588,32 +7778,7 @@ export function handleAssignmentHttp(
             })
           : url.pathname === "/workbench/admin/ops"
               ? renderAdminOpsDashboardPage({ userLabel, sessionUserId: session.userId })
-              : url.pathname === "/workbench/admin/perspective"
-                ? (() => {
-                  const perspective = parseWorkbenchAdminPerspective(url.searchParams.get("view"));
-                  if (!perspective || perspective === "operations") {
-                    return renderAdminWorkbenchPage({ userLabel, sessionUserId: session.userId });
-                  }
-                  const displayRole = adminPerspectiveDisplayRole(perspective);
-                  const requestedSection = String(url.searchParams.get("section") ?? "").trim();
-                  const managerSections = new Set([
-                    "mgr-tasks", "mgr-dash", "mgr-perf", "mgr-daily-reports",
-                    "mgr-chat", "mgr-task-intake", "mgr-competency-eval",
-                  ]);
-                  const employeeSections = new Set([
-                    "emp-new", "emp-cur", "emp-hist", "emp-daily-reports", "emp-prof",
-                  ]);
-                  const activeNav = displayRole === "manager"
-                    ? (managerSections.has(requestedSection) ? requestedSection : "mgr-tasks")
-                    : (employeeSections.has(requestedSection) ? requestedSection : "emp-new");
-                  return renderAdminWorkbenchPage({
-                    userLabel,
-                    sessionUserId: session.userId,
-                    adminPerspective: perspective,
-                    activeNav: activeNav as Parameters<typeof renderAdminWorkbenchPage>[0]["activeNav"],
-                  });
-                })()
-              : url.pathname === "/workbench/admin/permissions"
+          : url.pathname === "/workbench/admin/permissions"
                 ? renderAdminPermissionsPage({ userLabel, sessionUserId: session.userId })
               : url.pathname === "/workbench/admin/performance"
                 ? renderPerformanceDashboardPage({
@@ -7640,7 +7805,7 @@ export function handleAssignmentHttp(
       emitWorkbenchPageView(session, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
-      else res.end(html);
+      else res.end(decorateWorkbenchHtmlForAdminImpersonation(html, session));
       return true;
     }
 
@@ -7712,7 +7877,7 @@ export function handleAssignmentHttp(
       emitWorkbenchPageView(employeeSession, url.pathname);
       res.writeHead(200, WORKBENCH_HTML_NO_STORE);
       if (req.method === "HEAD") res.end();
-      else res.end(html);
+      else res.end(decorateWorkbenchHtmlForAdminImpersonation(html, employeeSession));
       return true;
     }
 

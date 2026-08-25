@@ -147,7 +147,7 @@ describe("renderQualityTrackingPage", () => {
     expect(() => scripts.forEach((script) => new Function(script!))).not.toThrow();
   });
 
-  it("renders an administrator manager selector as explicitly read-only", () => {
+  it("renders an administrator selector that enters the concrete manager workbench", () => {
     const html = renderQualityTrackingPage({
       role: "admin",
       userId: "admin-1",
@@ -165,10 +165,11 @@ describe("renderQualityTrackingPage", () => {
       }],
     });
 
-    expect(html).toContain("管理员只读查看");
+    expect(html).toContain("管理员全局质量视图");
     expect(html).toContain('data-business-readonly="1"');
     expect(html).toContain("研发中心主管（曹一挥）");
-    expect(html).toContain("仅改变数据范围，不授予业务操作权限");
+    expect(html).toContain("确认后进入该主管完整工作台，权限与本人登录一致");
+    expect(html).toContain("/api/workbench/admin/impersonation");
     expect(html).toContain("applyBusinessReadOnly");
   });
 });

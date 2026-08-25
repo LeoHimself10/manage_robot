@@ -1920,6 +1920,166 @@ describe("assignment-workbench HTTP handler", () => {
     expect(captured().body).toContain("emp-search");
   });
 
+  describe("administrator real-workbench delegation", () => {
+    beforeEach(() => {
+      vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
+      vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "manager-1,project-manager-1");
+      vi.stubEnv("WORKBENCH_PROJECT_PORTFOLIO_USER_IDS", "project-manager-1");
+      vi.stubEnv("QUALITY_MANAGEMENT_USER_IDS", "quality-employee-1");
+      seedContact("admin-1", "总经办", "Admin");
+      seedContact("manager-1", "研发中心", "Manager");
+      seedContact("project-manager-1", "项目管理部", "Project Manager");
+      seedContact("quality-employee-1", "质量部", "Quality Specialist");
+      seedContact("employee-1", "研发中心", "Engineer");
+    });
+
+    async function enterDelegation(
+      cookie: string,
+      targetUserId: string,
+    ): Promise<{ cookie: string; body: Record<string, unknown> }> {
+      const req = stubReq({
+        url: "/api/workbench/admin/impersonation",
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ targetUserId }),
+      });
+      const response = stubRes();
+      handleAssignmentHttp(req, response.res);
+      await flushAsync();
+      expect(response.captured().statusCode).toBe(200);
+      return {
+        cookie: String(response.captured().headers["Set-Cookie"] ?? ""),
+        body: JSON.parse(response.captured().body) as Record<string, unknown>,
+      };
+    }
+
+    it("classifies project managers and quality employees as concrete switch targets", async () => {
+      const cookie = await loginCookie("admin-1", "admin");
+      const projectReq = stubReq({
+        url: "/api/workbench/admin/impersonation-targets?kind=project_manager",
+        method: "GET",
+        headers: { cookie },
+      });
+      const projectRes = stubRes();
+      handleAssignmentHttp(projectReq, projectRes.res);
+      expect(projectRes.captured().statusCode).toBe(200);
+      const projects = JSON.parse(projectRes.captured().body) as {
+        targets?: Array<{ userId?: string }>;
+      };
+      expect(projects.targets?.map((item) => item.userId)).toEqual(["project-manager-1"]);
+
+      const qualityReq = stubReq({
+        url: "/api/workbench/admin/impersonation-targets?kind=quality_specialist",
+        method: "GET",
+        headers: { cookie },
+      });
+      const qualityRes = stubRes();
+      handleAssignmentHttp(qualityReq, qualityRes.res);
+      expect(qualityRes.captured().statusCode).toBe(200);
+      const qualityEmployees = JSON.parse(qualityRes.captured().body) as {
+        targets?: Array<{ userId?: string }>;
+      };
+      expect(qualityEmployees.targets?.map((item) => item.userId)).toEqual(["quality-employee-1"]);
+    });
+
+    it("enters the selected project manager's complete workbench and can restore admin", async () => {
+      const adminCookie = await loginCookie("admin-1", "admin");
+      const entered = await enterDelegation(adminCookie, "project-manager-1");
+      expect(entered.body).toMatchObject({
+        ok: true,
+        redirectTo: "/workbench/manager/projects",
+      });
+
+      const meReq = stubReq({
+        url: "/api/workbench/me",
+        method: "GET",
+        headers: { cookie: entered.cookie },
+      });
+      const meRes = stubRes();
+      handleAssignmentHttp(meReq, meRes.res);
+      const me = JSON.parse(meRes.captured().body) as {
+        userId?: string;
+        role?: string;
+        projectPortfolioEnabled?: boolean;
+        impersonation?: { actorUserId?: string; targetUserId?: string };
+      };
+      expect(me).toMatchObject({
+        userId: "project-manager-1",
+        role: "manager",
+        projectPortfolioEnabled: true,
+        impersonation: { actorUserId: "admin-1", targetUserId: "project-manager-1" },
+      });
+
+      const pageReq = stubReq({
+        url: "/workbench/manager/tasks",
+        method: "GET",
+        headers: { cookie: entered.cookie },
+      });
+      const pageRes = stubRes();
+      handleAssignmentHttp(pageReq, pageRes.res);
+      expect(pageRes.captured().statusCode).toBe(200);
+      expect(pageRes.captured().body).toContain("项目总览");
+      expect(pageRes.captured().body).toContain("管理员代办");
+      expect(pageRes.captured().body).toContain("退出代办");
+
+      const exitReq = stubReq({
+        url: "/api/workbench/admin/impersonation/exit",
+        method: "POST",
+        headers: { cookie: entered.cookie },
+      });
+      const exitRes = stubRes();
+      handleAssignmentHttp(exitReq, exitRes.res);
+      expect(exitRes.captured().statusCode).toBe(200);
+      const restoredCookie = String(exitRes.captured().headers["Set-Cookie"] ?? "");
+      const restoredMeReq = stubReq({
+        url: "/api/workbench/me",
+        method: "GET",
+        headers: { cookie: restoredCookie },
+      });
+      const restoredMeRes = stubRes();
+      handleAssignmentHttp(restoredMeReq, restoredMeRes.res);
+      expect(JSON.parse(restoredMeRes.captured().body)).toMatchObject({
+        userId: "admin-1",
+        role: "admin",
+        impersonation: null,
+      });
+    });
+
+    it("enters the selected quality employee's own employee and quality workbench", async () => {
+      const adminCookie = await loginCookie("admin-1", "admin");
+      const entered = await enterDelegation(adminCookie, "quality-employee-1");
+      expect(entered.body).toMatchObject({
+        ok: true,
+        redirectTo: "/workbench/employee?view=new",
+      });
+      const employeePageReq = stubReq({
+        url: "/workbench/employee?view=new",
+        method: "GET",
+        headers: { cookie: entered.cookie },
+      });
+      const employeePageRes = stubRes();
+      handleAssignmentHttp(employeePageReq, employeePageRes.res);
+      expect(employeePageRes.captured().statusCode).toBe(200);
+      expect(employeePageRes.captured().body).toContain("待承接");
+      expect(employeePageRes.captured().body).toContain("质量追踪");
+      expect(employeePageRes.captured().body).toContain("管理员代办");
+    });
+
+    it("rejects delegation requests from a non-admin session", async () => {
+      const cookie = await loginCookie("manager-1", "manager");
+      const req = stubReq({
+        url: "/api/workbench/admin/impersonation",
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ targetUserId: "employee-1" }),
+      });
+      const response = stubRes();
+      handleAssignmentHttp(req, response.res);
+      await flushAsync();
+      expect(response.captured().statusCode).toBe(403);
+    });
+  });
+
   it("admin manager group write APIs are disabled when manager groups are off", async () => {
     vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
     vi.stubEnv("WORKBENCH_MANAGER_GROUPS_ENABLED", "0");
