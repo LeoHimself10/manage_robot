@@ -1,6 +1,7 @@
 export const QUALITY_TRACKING_STYLES = String.raw`
 body { overflow-x: hidden; }
 .wb-main, .wb-main-body, .qt-grid, .qt-card { min-width: 0; max-width: 100%; }
+.wb-main-title { font-size: 24px; }
 .qt-grid { display: grid; gap: 16px; }
 .qt-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
 .qt-hero, .qt-source-head, .qt-toolbar, .qt-card-head, .qt-dialog-actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
@@ -21,8 +22,8 @@ body { overflow-x: hidden; }
 .qt-source-meta.is-failed { background: #fff7ed; color: #9a3412; }
 .qt-toolbar { margin: 16px 0 12px; align-items: center; }
 .qt-search { display: flex; gap: 8px; flex: 1; max-width: 620px; min-width: 0; }
-.qt-input, .qt-select, .qt-textarea { width: 100%; min-width: 0; border: 1px solid #cbd5e1; border-radius: 9px; padding: 9px 11px; font: inherit; color: #0f172a; background: #fff; }
-.qt-textarea { min-height: 96px; resize: vertical; }
+.qt-input, .qt-select, .qt-textarea { width: 100%; min-width: 0; min-height: 42px; border: 1px solid #cbd5e1; border-radius: 9px; padding: 9px 11px; font: inherit; font-size: 14px; color: #0f172a; background: #fff; }
+.qt-textarea { min-height: 110px; resize: vertical; line-height: 1.7; }
 .qt-tab { border: 1px solid #dbe3ee; border-radius: 999px; padding: 8px 13px; background: #fff; color: #334155; cursor: pointer; font: inherit; font-weight: 650; }
 .qt-tab.is-on { background: #0f172a; color: #fff; border-color: #0f172a; }
 .qt-list { display: grid; gap: 10px; margin-top: 14px; }
@@ -59,9 +60,11 @@ body { overflow-x: hidden; }
 .qt-event-group { display: grid; gap: 10px; padding-top: 4px; }
 .qt-group-title { padding-bottom: 7px; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
 .qt-detail { display: grid; gap: 14px; margin-top: 18px; padding-top: 18px; border-top: 1px solid #e2e8f0; }
+.qt-detail[hidden] { display: none; }
+.qt-grid > .qt-detail { margin-top: 0; padding-top: 18px; }
 .qt-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; position: sticky; top: -20px; z-index: 2; padding: 10px 0; background: #fff; }
 .qt-detail-section { min-width: 0; border: 1px solid #e2e8f0; border-radius: 12px; padding: 13px; }
-.qt-detail-section h3 { margin-bottom: 10px; }
+.qt-detail-section h3 { margin-bottom: 10px; font-size: 18px; }
 .qt-detail-text { white-space: pre-wrap; overflow-wrap: anywhere; color: #334155; font-size: 13px; line-height: 1.65; }
 .qt-tree, #qualityDetailSources, #qualityRelatedEvents, #qualityEvidenceReviews, #qualityNotifications, #qualityPublicAudit { display: grid; gap: 8px; }
 .qt-tree-node, .qt-mini-card, .qt-audit-row { min-width: 0; padding: 10px; border: 1px solid #e2e8f0; border-radius: 9px; background: #f8fafc; overflow-wrap: anywhere; }

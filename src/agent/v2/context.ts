@@ -26,6 +26,7 @@ export interface V2SessionContextInput {
   conversationHistory?: Array<{ role: string; content: string }>;
   knownFacts?: string[];
   session?: PlanSession;
+  sourceContext?: PlanSession["sourceContext"];
 }
 
 function safeJson(input: unknown): string {
@@ -124,6 +125,11 @@ export function buildV2ContextBlock(input: V2SessionContextInput): string {
   }
   if (input.planId) parts.push(`planId: ${input.planId}`);
   if (input.currentTimeIso) parts.push(`currentTime: ${input.currentTimeIso}`);
+  if (input.sourceContext?.kind === "quality_event") {
+    parts.push(
+      `qualitySourceContext (只读来源事实；不得改写、不得在此选择具体人员): ${safeJson(input.sourceContext)}`,
+    );
+  }
   if (input.latestDraft) {
     const taskIndexMap = buildTaskIndexMap(input.latestDraft);
     if (taskIndexMap.length > 0) {
@@ -200,5 +206,6 @@ export function buildV2SessionContextFromPlanSession(
     userMessage,
     conversationHistory: session.conversationHistory,
     knownFacts: session.knownFacts,
+    sourceContext: session.sourceContext,
   };
 }

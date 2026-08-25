@@ -33,6 +33,8 @@
 ```env
 QUALITY_AFTERSALES_MANAGER_USER_IDS=售后主管userId，多个用逗号分隔
 QUALITY_SPECIALIST_USER_IDS=质量专员userId，多个用逗号分隔
+QUALITY_MANAGEMENT_USER_IDS=具备质量管理能力的员工userId，多个用逗号分隔
+QUALITY_TASK_PLANNING_V2_ENABLED=1
 QUALITY_SPECIALIST_REPORTS_FILE=/app/data/quality-specialist-reports.json
 QUALITY_SOURCE_WORKBOOK_ID=需求管理记录表的表格标识
 QUALITY_SOURCE_OPERATOR_UNION_ID=有目标表查看权限的内部成员unionId
@@ -515,12 +517,16 @@ docker run --rm --env-file /etc/manage-robot.env manage-robot:dingtalk \
 | `WORKBENCH_MANAGER_IDS_FILE` | 否 | 主管名单 JSON 数组文件路径（格式同 `TASK_INITIATOR_IDS_FILE`）；存在且为数组时优先于 `WORKBENCH_MANAGER_USER_IDS` |
 | `QUALITY_AFTERSALES_MANAGER_USER_IDS` | 否 | 逗号分隔的售后主管 userId；配置后始终显示“质量追踪”入口。该角色不能分配主责、验收或关闭事件。 |
 | `QUALITY_SPECIALIST_USER_IDS` | 否 | 逗号分隔的质量专员 userId；按角色授权，不在代码中硬编码姓名。 |
+| `QUALITY_MANAGEMENT_USER_IDS` | 否 | 逗号分隔的质量管理能力用户；这是 employee 的附加能力，不创建第四种基础角色。迁移期旧 `QUALITY_SPECIALIST_USER_IDS` 自动兼容。 |
+| `QUALITY_TASK_PLANNING_V2_ENABLED` | 否 | 默认 `0`。设为 `1` 后质量初析通过专用侧会话复用原任务分配/发布链路；质量页只读投影正式任务，禁用 legacy 直接分配和质量意见入口。 |
 | `QUALITY_SPECIALIST_REPORTS_FILE` | 否 | 质量专员到其直属下级的 JSON 映射文件，格式为 `{ "specialistUserId": ["reportUserId"] }`；下级仅获得“质量意见”入口。建议放在实例独立数据卷。 |
 | `QUALITY_SOURCE_WORKBOOK_ID` | 是（启用来源同步时） | “需求管理记录表”的钉钉表格标识；仅读取第一个子表。 |
 | `QUALITY_SOURCE_OPERATOR_UNION_ID` | 是（启用来源同步时） | 对目标表有查看权限的内部成员 unionId，例如已获授权的杨贺新账号。 |
 | `QUALITY_SOURCE_SYNC_ENABLED` | 否 | 默认启用；设为 `0` 时停止启动同步和每两小时同步。 |
 | `QUALITY_FILE_DIR` | 否 | 质量通报附件持久化目录，容器内建议 `/app/data/quality-files`。 |
 | `QUALITY_EVIDENCE_DIR` | 否 | 质量节点证据目录；缺省为 `QUALITY_FILE_DIR/evidence`。 |
+
+启用统一任务分配 V2 前先备份每个实例的数据卷。启动时会自动迁移 `quality_task_links`（移除 `task_id` 唯一约束并允许根节点 `subtask_id` 为空），同时创建 `quality_analysis_versions` 和 `quality_planning_sessions`。旧数据不重写；回滚只需把 `QUALITY_TASK_PLANNING_V2_ENABLED=0` 并按双容器规则重建容器。发布已成功但质量桥接失败的记录会标记 `REPAIR_REQUIRED`，下次启动自动补偿。
 | `WORKBENCH_MANAGER_GROUPS_ENABLED` | 否 | `1` 开启 Admin 管理的主管组；组内共享正式任务/项目/看板和主管操作，组间隔离（建议 mingsibot 试点） |
 | `WORKBENCH_MANAGER_GROUPS_FILE` | 否 | 主管组 JSON 文件路径；容器内建议 `/app/data/workbench-manager-groups.json` |
 | `FOLLOWUP_REMINDER_ENABLED` | 否 | `1` 开启催办 scheduler（默认 `0`）；**单实例**假设，**切勿水平扩容** `dingtalk-bot` |

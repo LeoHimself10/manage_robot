@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 
 import {
   createSideThreadSession,
+  deleteSideThreadSession,
   findMainThreadSession,
   listManagerConversationSessions,
   loadAllPlanSessions,
@@ -67,6 +68,35 @@ describe("conversation-thread-resolver", () => {
       threadId: side.threadId,
     });
     expect(resolved?.planId).toBe(side.planId);
+  });
+
+  it("persists immutable quality source context on a dedicated side thread", () => {
+    const side = createSideThreadSession("mgr-quality", {
+      threadLabel: "QE-001 · 批次异常",
+      sourceContext: {
+        kind: "quality_event",
+        eventId: "event-1",
+        eventNo: "QE-001",
+        eventVersion: 2,
+        analysisVersionId: "analysis-1",
+        sourceHash: "hash-1",
+        bindingStatus: "DRAFT",
+        handoffSnapshot: {
+          title: "批次异常",
+          publicSummary: "来源事实",
+          analysisSummary: "质量初析",
+          processingRequirements: "完成批次排查",
+        },
+      },
+      latestDraft: { tasks: [{ id: "task_1", title: "批次排查" }] },
+    });
+    const resolved = resolveConversationThread("mgr-quality", {
+      threadKind: "side",
+      threadId: side.threadId,
+    });
+    expect(resolved?.sourceContext?.kind).toBe("quality_event");
+    expect(resolved?.sourceContext?.handoffSnapshot.processingRequirements).toBe("完成批次排查");
+    expect(() => deleteSideThreadSession("mgr-quality", side.threadId!)).toThrow("不能删除");
   });
 
   it("loadAllPlanSessions reads persisted files", () => {

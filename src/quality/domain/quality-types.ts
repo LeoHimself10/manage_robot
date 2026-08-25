@@ -46,7 +46,8 @@ export interface QualityAssignmentNode {
 export interface QualityTaskLink {
   nodeId: string;
   taskId: string;
-  subtaskId: string;
+  /** 根节点可只关联父任务；执行节点关联具体子任务。 */
+  subtaskId: string | null;
   integrationKey: string;
   createdAt: string;
 }
@@ -82,6 +83,7 @@ export interface QualityEvidenceRecord {
 export type QualityAuditActorRole =
   | "aftersales_manager"
   | "quality_specialist"
+  | "quality_management"
   | "quality_report"
   | "department_manager"
   | "executor"

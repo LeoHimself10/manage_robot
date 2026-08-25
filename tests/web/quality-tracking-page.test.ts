@@ -30,12 +30,34 @@ describe("renderQualityTrackingPage", () => {
     expect(mainHtml).not.toContain("异常候选");
   });
 
-  it("renders a candidate-detail entry point with facts and linked feedback", () => {
+  it("keeps the aftersales landing page focused on reporting and opens the review workbench in a new window", () => {
     const html = renderQualityTrackingPage({ role: "manager", userId: "after", canReport: true });
 
-    expect(html).toContain("查看详情并编辑通报");
-    expect(html).toContain('id="qualityCandidateDetailDialog"');
-    expect(html).toContain('id="qualityCandidateFacts"');
-    expect(html).toContain('id="qualityCandidateSources"');
+    const mainHtml = html.slice(html.indexOf('<main'), html.indexOf('</main>'));
+    expect(mainHtml).toContain('href="/workbench/quality/review"');
+    expect(mainHtml).toContain('target="_blank"');
+    expect(mainHtml).toContain("新建质量异常");
+    expect(mainHtml).toContain("我通报的事件");
+    expect(mainHtml).not.toContain("异常候选");
+    expect(mainHtml).not.toContain("全部反馈");
+    expect(mainHtml).not.toContain("已通报");
+  });
+
+  it("renders quality analysis and the original task allocation entry in v2", () => {
+    const html = renderQualityTrackingPage({
+      role: "manager",
+      userId: "manager-quality",
+      canReport: true,
+      hasQualityManagement: true,
+      canManage: true,
+      taskPlanningV2Enabled: true,
+    });
+
+    expect(html).toContain('data-planning-v2="1"');
+    expect(html).toContain("质量初析");
+    expect(html).toContain("建议责任部门");
+    expect(html).toContain("进入任务分配");
+    expect(html).toContain("原任务分配结果（只读）");
+    expect(html).not.toContain('data-quality-action="分配原主责"');
   });
 });

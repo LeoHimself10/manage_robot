@@ -43,6 +43,7 @@ import {
   verifyRetryCommit,
   RETRY_KIND_GATES,
 } from "./turn-contract";
+import { bindQualityPlanningPublishSafely } from "../../quality/planning/quality-planning-service";
 
 function isDraftTouchedByTools(
   preTurnDraft: unknown,
@@ -169,6 +170,10 @@ export async function runManagerOrchestratorTurnV2(
         session = { ...session, ...mutated };
       },
       onPublishTaskResult: (result) => {
+        if (session.sourceContext?.kind === "quality_event") {
+          const qualityBinding = bindQualityPlanningPublishSafely({ session, publishResult: result });
+          if (qualityBinding) result.qualityBinding = qualityBinding;
+        }
         publishResult = result;
       },
     };
@@ -298,6 +303,7 @@ export async function runManagerOrchestratorTurnV2(
   const pr = publishResult ?? graphResult.publishResult;
   if (
     readDingtalkPlanIdRotateEnabled()
+    && session.sourceContext?.kind !== "quality_event"
     && pr
     && String(pr.ok ?? "") === "true"
     && String(pr.alreadyPublished ?? "") !== "true"

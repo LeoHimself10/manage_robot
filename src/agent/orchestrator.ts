@@ -79,6 +79,8 @@ export interface OrchestratorConfig {
     memorySummary?: string;
     memoryFacts?: string[];
     currentTimeIso?: string;
+    /** 质量任务侧会话的只读来源快照；编排器不得改写或据此直接选人。 */
+    sourceContext?: PlanSession["sourceContext"];
     /**
      * 主管刚上传了花名册但本会话尚未消费时，本字段非空（来源标签 + 字符数）。
      * 不直接灌全文进 prompt，避免每轮重复送大段；模型应调 read_uploaded_roster_text 拿原文。
@@ -201,6 +203,11 @@ export async function runOrchestrator(
   }
   if (config.sessionContext?.currentTimeIso) {
     memoryParts.push(`currentTime: ${config.sessionContext.currentTimeIso}`);
+  }
+  if (config.sessionContext?.sourceContext?.kind === "quality_event") {
+    memoryParts.push(
+      `qualitySourceContext (只读来源事实；不得改写、不得在此选择具体人员): ${safeJson(config.sessionContext.sourceContext)}`,
+    );
   }
   const memoryFacts = (config.sessionContext?.memoryFacts ?? []).map((f) => String(f).trim()).filter(Boolean);
   if (memoryFacts.length > 0) {

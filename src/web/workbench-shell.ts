@@ -6,6 +6,8 @@ import { isMeetingImportEnabled } from "../agent/meeting-import/meeting-import-f
 import { isCompetencyEvalUser } from "../agent/competency-eval/competency-eval-access";
 import { isCompetencyEvalEnabled } from "../agent/competency-eval/competency-eval-flag";
 import { resolveQualityCapabilities } from "../security/quality-capabilities";
+import { resolveWorkbenchCapabilities } from "../security/workbench-capabilities";
+import { isQualityTaskPlanningV2Enabled } from "../quality/planning/quality-planning-service";
 
 function resolveCompetencyEvalNavEnabled(params: {
   sessionUserId?: string;
@@ -154,7 +156,7 @@ function buildQualityRail(params: {
         params.role,
       )
       : "",
-    caps.canAccessOpinions || caps.roles.includes("quality_specialist")
+    !isQualityTaskPlanningV2Enabled() && (caps.canAccessOpinions || caps.roles.includes("quality_specialist"))
       ? railLink(
         "/workbench/quality/opinions",
         "质量意见",
@@ -184,29 +186,54 @@ function roleMeta(role: WorkbenchShellRole): { mark: string; subtitle: string; m
 function roleSwitchHtml(
   role: WorkbenchShellRole,
   compact = false,
-  opts?: { showAdminOpsLink?: boolean; canExecuteAsManager?: boolean },
+  opts?: {
+    canAccessAdmin?: boolean;
+    canExecuteAsManager?: boolean;
+  },
 ): string {
   const sm = compact ? " btn-sm" : "";
-  if (role === "manager") {
-    const adminBtn = opts?.showAdminOpsLink
-      ? `<a class="btn wb-role-switch wb-role-switch--to-adm${sm}" href="/workbench/admin/ops" data-wb-view="admin" data-wb-redirect="/workbench/admin/ops"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">运营看板</span></a>`
+  if (opts?.canAccessAdmin && opts.canExecuteAsManager) {
+    const item = (
+      view: WorkbenchShellRole,
+      label: string,
+      href: string,
+    ): string => view === role
+      ? `<span class="wb-view-switch-item is-current" role="menuitem" aria-current="page"><span class="wb-view-switch-dot" aria-hidden="true"></span>${label}<span class="wb-view-switch-current">当前</span></span>`
+      : `<a class="wb-view-switch-item" role="menuitem" href="${href}" data-wb-view="${view}" data-wb-redirect="${href}"><span class="wb-view-switch-dot" aria-hidden="true"></span>${label}</a>`;
+    const managerItem = opts.canExecuteAsManager
+      ? item("manager", "主管视图", "/workbench/manager/tasks")
       : "";
-    return `${adminBtn}<a class="btn wb-role-switch wb-role-switch--to-emp${sm}" href="/workbench/employee?view=new" id="navMyTasks" data-wb-view="employee" data-wb-redirect="/workbench/employee?view=new"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">我负责的任务</span></a>`;
+    const employeeItem = opts.canExecuteAsManager
+      ? item("employee", "员工视图", "/workbench/employee?view=new")
+      : "";
+    return `<details class="wb-admin-view-switch">
+  <summary class="btn wb-role-switch wb-role-switch--to-adm${sm}" aria-label="切换工作台视图" aria-haspopup="menu"><span class="wb-role-switch-ico" aria-hidden="true">⇄</span><span class="wb-role-switch-txt">切换视图</span><span class="wb-view-switch-chevron" aria-hidden="true">▾</span></summary>
+  <div class="wb-view-switch-menu" role="menu" aria-label="选择工作台视图">
+    ${item("admin", "管理员视图", "/workbench/admin/ops")}
+    ${managerItem}
+    ${employeeItem}
+  </div>
+</details>`;
+  }
+  if (role === "manager") {
+    return `<a class="btn wb-role-switch wb-role-switch--to-emp${sm}" href="/workbench/employee?view=new" id="navMyTasks" data-wb-view="employee" data-wb-redirect="/workbench/employee?view=new"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">我负责的任务</span></a>`;
   }
   if (role === "employee") {
     if (!opts?.canExecuteAsManager) return "";
     return `<a class="btn wb-role-switch wb-role-switch--to-mgr${sm}" href="/workbench/manager/tasks" id="navManager" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`;
   }
-  return `<a class="btn wb-role-switch wb-role-switch--to-mgr${sm}" href="/workbench/manager/tasks" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`;
+  return opts?.canExecuteAsManager
+    ? `<a class="btn wb-role-switch wb-role-switch--to-mgr${sm}" href="/workbench/manager/tasks" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`
+    : "";
 }
 
 function defaultHeadActionsHtml(
   role: WorkbenchShellRole,
-  showAdminOpsLink = false,
+  canAccessAdmin = false,
   canExecuteAsManager = false,
 ): string {
   const logout = `<button type="button" class="btn btn-ghost btn-sm wb-appbar-logout" id="logoutBtn">退出</button>`;
-  return `${roleSwitchHtml(role, true, { showAdminOpsLink, canExecuteAsManager })}${logout}`;
+  return `${roleSwitchHtml(role, true, { canAccessAdmin, canExecuteAsManager })}${logout}`;
 }
 
 function buildAppBar(role: WorkbenchShellRole, headActionsHtml: string): string {
@@ -317,6 +344,15 @@ export function renderWorkbenchPage(params: {
   scriptHtml?: string;
 }): string {
   const competencyEvalEnabled = resolveCompetencyEvalNavEnabled(params);
+  const identityCaps = params.sessionUserId
+    ? resolveWorkbenchCapabilities(params.sessionUserId)
+    : undefined;
+  const canAccessAdmin = params.role === "admin"
+    || Boolean(params.showAdminOpsLink)
+    || Boolean(identityCaps?.canAccessAdmin);
+  const canExecuteAsManager = params.canExecuteAsManager !== undefined
+    ? Boolean(params.canExecuteAsManager)
+    : Boolean(identityCaps?.canExecuteAsManager);
   const baseRailNav =
     params.role === "manager"
       ? buildManagerRail(
@@ -348,8 +384,8 @@ export function renderWorkbenchPage(params: {
     params.headActionsHtml
     ?? defaultHeadActionsHtml(
       params.role,
-      Boolean(params.showAdminOpsLink),
-      Boolean(params.canExecuteAsManager),
+      canAccessAdmin,
+      canExecuteAsManager,
     );
   const toolbar = params.headToolbarHtml ? `<div class="wb-main-toolbar">${params.headToolbarHtml}</div>` : "";
 

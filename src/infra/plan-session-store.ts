@@ -65,6 +65,26 @@ export interface CandidatePool {
   updatedAt: string;
 }
 
+export interface QualityTaskSourceContext {
+  kind: "quality_event";
+  eventId: string;
+  eventNo: string;
+  eventVersion: number;
+  analysisVersionId: string;
+  sourceHash: string;
+  bindingStatus: "DRAFT" | "PUBLISHING" | "BOUND" | "REPAIR_REQUIRED";
+  handoffSnapshot: {
+    title: string;
+    publicSummary: string;
+    analysisSummary: string;
+    suggestedDepartment?: string;
+    processingRequirements: string;
+    suggestedDueAt?: string;
+  };
+}
+
+export type TaskSourceContext = QualityTaskSourceContext;
+
 export interface PlanSession {
   chatKeyHash: string;
   planId: string;
@@ -116,6 +136,8 @@ export interface PlanSession {
   }>;
   /** 大项目可选层：当前规划默认归属（portfolio 主管） */
   activeProjectId?: string;
+  /** 外部业务入口带入的只读任务来源；普通任务会话不写此字段。 */
+  sourceContext?: TaskSourceContext;
 }
 
 export function resolvePlanSessionDir(): string {

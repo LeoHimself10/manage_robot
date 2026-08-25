@@ -3044,5 +3044,10 @@ export function createWorkbenchFormalTaskStore() {
         ).changes;
       return changes === 1 ? { claimed: true } : { claimed: false, reason: "already_sent_today" };
     },
+
+    /** Primarily for bounded jobs and isolated tests; long-lived web stores stay open. */
+    close(): void {
+      db.close();
+    },
   };
 }

@@ -46,6 +46,66 @@ CREATE TABLE IF NOT EXISTS quality_source_rows (
 CREATE INDEX IF NOT EXISTS idx_quality_source_rows_state_seen
 ON quality_source_rows(state, last_seen_at DESC);
 
+CREATE TABLE IF NOT EXISTS quality_source_reviews (
+  source_key TEXT PRIMARY KEY REFERENCES quality_source_rows(source_key),
+  status TEXT NOT NULL CHECK(status IN ('ORDINARY','NEEDS_INFO','REPORTED')),
+  note TEXT,
+  decided_by TEXT NOT NULL,
+  decided_at TEXT NOT NULL,
+  source_content_hash TEXT NOT NULL,
+  event_id TEXT REFERENCES quality_events(id),
+  version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK((status = 'REPORTED' AND event_id IS NOT NULL) OR status <> 'REPORTED')
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_source_reviews_status_updated
+ON quality_source_reviews(status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS quality_source_review_audit (
+  id TEXT PRIMARY KEY,
+  source_key TEXT NOT NULL REFERENCES quality_source_rows(source_key),
+  actor_user_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  before_json TEXT,
+  after_json TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  UNIQUE(source_key, request_id)
+);
+
+CREATE TRIGGER IF NOT EXISTS quality_source_review_audit_no_update
+BEFORE UPDATE ON quality_source_review_audit
+BEGIN
+  SELECT RAISE(ABORT, 'quality source review audit is append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS quality_source_review_audit_no_delete
+BEFORE DELETE ON quality_source_review_audit
+BEGIN
+  SELECT RAISE(ABORT, 'quality source review audit is append-only');
+END;
+
+CREATE TABLE IF NOT EXISTS quality_source_writeback_outbox (
+  writeback_id TEXT PRIMARY KEY,
+  source_key TEXT NOT NULL REFERENCES quality_source_rows(source_key),
+  review_version INTEGER NOT NULL CHECK(review_version >= 0),
+  desired_value TEXT NOT NULL CHECK(desired_value IN ('未研判','已进入后续流程','普通反馈','待补资料')),
+  dedupe_key TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status IN ('PENDING','SENDING','RETRY','SENT','DEAD','SUPERSEDED')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+  next_attempt_at TEXT NOT NULL,
+  last_error TEXT,
+  sending_started_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  sent_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_source_writeback_pending
+ON quality_source_writeback_outbox(status, next_attempt_at, created_at);
+
 CREATE TABLE IF NOT EXISTS quality_candidates (
   id TEXT PRIMARY KEY,
   candidate_type TEXT NOT NULL CHECK(candidate_type IN ('ANOMALY','DATA_INCOMPLETE')),
@@ -225,11 +285,59 @@ ON quality_assignment_nodes(event_id) WHERE is_primary = 1;
 
 CREATE TABLE IF NOT EXISTS quality_task_links (
   node_id TEXT PRIMARY KEY REFERENCES quality_assignment_nodes(node_id),
-  task_id TEXT NOT NULL UNIQUE,
-  subtask_id TEXT NOT NULL UNIQUE,
+  task_id TEXT NOT NULL,
+  subtask_id TEXT UNIQUE,
   integration_key TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_quality_task_links_task
+ON quality_task_links(task_id);
+
+CREATE TABLE IF NOT EXISTS quality_analysis_versions (
+  analysis_id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES quality_events(id),
+  version INTEGER NOT NULL CHECK(version >= 1),
+  status TEXT NOT NULL CHECK(status IN ('DRAFT','COMPLETED')),
+  problem_direction TEXT NOT NULL,
+  confirmed_category TEXT NOT NULL,
+  source_summary TEXT NOT NULL,
+  analysis_basis TEXT NOT NULL,
+  initial_conclusion TEXT NOT NULL,
+  information_gaps TEXT NOT NULL,
+  suggested_department TEXT NOT NULL,
+  processing_requirements TEXT NOT NULL,
+  suggested_due_at TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  completed_by TEXT,
+  completed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(event_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_analysis_event_version
+ON quality_analysis_versions(event_id, version DESC);
+
+CREATE TABLE IF NOT EXISTS quality_planning_sessions (
+  event_id TEXT PRIMARY KEY REFERENCES quality_events(id),
+  event_version INTEGER NOT NULL,
+  analysis_version_id TEXT NOT NULL,
+  manager_user_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL UNIQUE,
+  plan_id TEXT NOT NULL UNIQUE,
+  source_hash TEXT NOT NULL,
+  handoff_snapshot_json TEXT NOT NULL,
+  binding_status TEXT NOT NULL CHECK(binding_status IN ('DRAFT','PUBLISHING','BOUND','REPAIR_REQUIRED')),
+  task_id TEXT,
+  request_id TEXT NOT NULL,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_planning_sessions_binding
+ON quality_planning_sessions(binding_status, updated_at);
 
 CREATE TABLE IF NOT EXISTS quality_evidence (
   evidence_id TEXT PRIMARY KEY,
@@ -441,10 +549,48 @@ function taskLinkFromRow(row: DatabaseRow): QualityTaskLink {
   return {
     nodeId: String(row.node_id),
     taskId: String(row.task_id),
-    subtaskId: String(row.subtask_id),
+    subtaskId: nullableString(row.subtask_id),
     integrationKey: String(row.integration_key),
     createdAt: String(row.created_at),
   };
+}
+
+function ensureQualityTaskLinksV2(db: DatabaseSync): void {
+  const table = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='quality_task_links'",
+  ).get() as { sql?: string } | undefined;
+  const sql = String(table?.sql ?? "");
+  const legacy = /task_id\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(sql)
+    || /subtask_id\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(sql);
+  if (!legacy) {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_quality_task_links_task ON quality_task_links(task_id)");
+    return;
+  }
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    db.exec(`
+      BEGIN IMMEDIATE;
+      ALTER TABLE quality_task_links RENAME TO quality_task_links_legacy_v1;
+      CREATE TABLE quality_task_links (
+        node_id TEXT PRIMARY KEY REFERENCES quality_assignment_nodes(node_id),
+        task_id TEXT NOT NULL,
+        subtask_id TEXT UNIQUE,
+        integration_key TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO quality_task_links(node_id,task_id,subtask_id,integration_key,created_at)
+      SELECT node_id,task_id,subtask_id,integration_key,created_at
+      FROM quality_task_links_legacy_v1;
+      DROP TABLE quality_task_links_legacy_v1;
+      CREATE INDEX idx_quality_task_links_task ON quality_task_links(task_id);
+      COMMIT;
+    `);
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch { /* transaction may already be closed */ }
+    throw error;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
 }
 
 function nodeReviewFromRow(row: DatabaseRow): QualityNodeReview {
@@ -500,6 +646,7 @@ export function createQualityStore(
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec(QUALITY_SCHEMA_SQL);
+  ensureQualityTaskLinksV2(db);
   const qualityEventColumns = new Set(
     (db.prepare("PRAGMA table_info(quality_events)").all() as Array<{ name?: string }>)
       .map((row) => String(row.name ?? "")),

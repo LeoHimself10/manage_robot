@@ -297,6 +297,29 @@ export function createDingTalkWorkbookClient(opts?: { fetchImpl?: typeof fetch }
     );
   }
 
+  async function writeSheetRangeValues(
+    appKey: string,
+    appSecret: string,
+    doc: DailyReportDocConfig,
+    workbookId: string,
+    sheetId: string,
+    rangeAddress: string,
+    values: string[][],
+  ): Promise<void> {
+    const range = rangeAddress.trim();
+    if (!range) throw new Error("rangeAddress is required");
+    if (values.length === 0 || values.some((row) => !Array.isArray(row))) {
+      throw new Error("values must contain at least one row");
+    }
+    await apiCall(
+      appKey,
+      appSecret,
+      "PUT",
+      `/v1.0/doc/workbooks/${encodeURIComponent(workbookId)}/sheets/${encodeURIComponent(sheetId)}/ranges/${encodeURIComponent(range)}?operatorId=${encodeURIComponent(doc.operatorUnionId)}`,
+      { values },
+    );
+  }
+
   async function writeSheetValues(
     appKey: string,
     appSecret: string,
@@ -401,6 +424,7 @@ export function createDingTalkWorkbookClient(opts?: { fetchImpl?: typeof fetch }
     getSheetProperties,
     readSheetValues,
     deleteSheet,
+    writeSheetRangeValues,
     writeSheetValues,
     formatSheetLayout,
   };

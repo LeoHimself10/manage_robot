@@ -36,6 +36,7 @@ import {
   isDingtalkRoleRoutingEnabled,
   resolveDingtalkAgentRouting,
 } from "./role-routing";
+import { bindQualityPlanningPublishSafely } from "../quality/planning/quality-planning-service";
 
 const DEFAULT_ORCH_ITERATIONS = 6;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -241,6 +242,10 @@ export async function runManagerOrchestratorTurn(
             ? "employee"
             : "manager",
     onPublishTaskResult: (result: Record<string, unknown>) => {
+      if (session.sourceContext?.kind === "quality_event") {
+        const qualityBinding = bindQualityPlanningPublishSafely({ session, publishResult: result });
+        if (qualityBinding) result.qualityBinding = qualityBinding;
+      }
       publishResult = result;
     },
     onSessionMutated: (mutated) => {
@@ -255,6 +260,7 @@ export async function runManagerOrchestratorTurn(
       memorySummary: input.memorySummary,
       memoryFacts: (input.memoryFacts ?? mutableKnownFacts).slice(0, 8),
       currentTimeIso: new Date().toISOString(),
+      sourceContext: session.sourceContext,
       pendingRoster: session.pendingRosterText
         ? {
             sourceLabel: session.pendingRosterSource ?? "uploaded:roster",
@@ -448,6 +454,7 @@ export async function runManagerOrchestratorTurn(
   const pr = publishResult;
   if (
     readDingtalkPlanIdRotateEnabled()
+    && session.sourceContext?.kind !== "quality_event"
     && pr
     && String(pr.ok ?? "") === "true"
     && String(pr.alreadyPublished ?? "") !== "true"

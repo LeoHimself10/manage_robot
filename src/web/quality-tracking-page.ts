@@ -2,31 +2,26 @@ import type { WorkbenchShellRole } from "./workbench-shell";
 import { renderWorkbenchPage } from "./workbench-shell";
 import { QUALITY_TRACKING_STYLES } from "./quality-tracking-styles";
 
-const SOURCE_URL = "https://alidocs.dingtalk.com/i/nodes/lo1YvX0prG98k9woqvrYVPw7xzbmLdEZ";
-
 export function renderQualityTrackingPage(params: {
   role: WorkbenchShellRole;
   userId: string;
   userLabel?: string;
   canReport?: boolean;
   isSpecialist?: boolean;
+  hasQualityManagement?: boolean;
+  canManage?: boolean;
+  taskPlanningV2Enabled?: boolean;
 }): string {
   const hasAftersales = params.canReport !== false;
-  const hasSpecialist = params.isSpecialist === true;
+  const hasSpecialist = params.isSpecialist === true || params.hasQualityManagement === true;
+  const planningV2 = params.taskPlanningV2Enabled === true;
   const defaultMode = hasAftersales ? "aftersales" : "specialist";
-  const sourceSection = hasAftersales ? `<section class="qt-card" data-quality-mode-only="aftersales" aria-labelledby="qualitySourceTitle">
-    <div class="qt-source-head">
-      <div><h3 id="qualitySourceTitle">需求管理记录表 · 客户端问题反馈记录表</h3><p class="qt-muted">每 2 小时自动同步，只读取第一个子表。</p></div>
-      <div class="qt-actions"><button class="btn btn-secondary" type="button" id="qualitySyncNow">立即同步</button><a class="btn btn-secondary" href="${SOURCE_URL}" target="_blank" rel="noopener noreferrer">打开钉钉原表</a></div>
-    </div>
-    <div class="qt-source-meta" id="qualitySyncStatus" role="status">正在读取最近同步状态…</div>
-    <div class="qt-toolbar"><form class="qt-search" id="qualitySourceSearch"><input class="qt-input" id="qualitySearchInput" type="search" placeholder="搜索反馈单号、型号、序列号、批次、描述或分类"><button class="btn btn-secondary" type="submit">搜索</button></form><span class="qt-page-label" id="qualitySourceCount"></span></div>
-  </section>` : "";
+  const sourceSection = "";
   const modeSwitch = hasAftersales && hasSpecialist ? `<div class="qt-mode-switch" role="group" aria-label="质量追踪工作模式">
     <button class="qt-tab is-on" type="button" data-quality-mode-switch="aftersales">售后主管</button>
-    <button class="qt-tab" type="button" data-quality-mode-switch="specialist">质量专员</button>
+    <button class="qt-tab" type="button" data-quality-mode-switch="specialist">${planningV2 ? "质量管理" : "质量专员"}</button>
   </div>` : "";
-  const firstTab = defaultMode === "aftersales" ? "candidates" : "events";
+  const firstTab = "events";
   return renderWorkbenchPage({
     role: params.role,
     activeNav: "quality-tracking",
@@ -38,20 +33,59 @@ export function renderQualityTrackingPage(params: {
     userLabel: params.userLabel,
     sessionUserId: params.userId,
     extraCss: QUALITY_TRACKING_STYLES,
-    mainHtml: `<main class="qt-grid" id="qualityTrackingRoot" data-can-report="${hasAftersales ? "1" : "0"}" data-is-specialist="${hasSpecialist ? "1" : "0"}" data-quality-mode="${defaultMode}" data-first-tab="${firstTab}">
+    mainHtml: `<main class="qt-grid" id="qualityTrackingRoot" data-can-report="${hasAftersales ? "1" : "0"}" data-is-specialist="${hasSpecialist ? "1" : "0"}" data-quality-management="${params.hasQualityManagement ? "1" : "0"}" data-can-manage="${params.canManage ? "1" : "0"}" data-planning-v2="${planningV2 ? "1" : "0"}" data-quality-mode="${defaultMode}" data-first-tab="${firstTab}">
   <section class="qt-card qt-hero">
-    <div><span class="qt-pill">独立质量流程</span><h2>质量异常工作台</h2><p class="qt-muted">${defaultMode === "aftersales" ? "来源只读同步；候选仅作建议，不会自动创建质量事件。" : "查看全部已通报质量事件，推进分派、验收与闭环。"}</p></div>
-    <div class="qt-actions">${modeSwitch}${hasAftersales ? `<button class="btn btn-primary" type="button" id="qualityNewEvent" data-quality-mode-only="aftersales">新建质量异常</button>` : ""}</div>
+    <div><span class="qt-pill">${planningV2 ? "统一任务协同" : "独立质量流程"}</span><h2>质量异常工作台</h2><p class="qt-muted">${planningV2 ? "质量页负责来源、研判与终验；人员分配和执行统一进入原任务系统。" : defaultMode === "aftersales" ? "集中查看我通报的质量事件；来源反馈请在独立研判工作台处理。" : "查看全部已通报质量事件，推进分派、验收与闭环。"}</p></div>
+    <div class="qt-actions">${modeSwitch}${hasAftersales ? `<a class="btn btn-secondary" href="/workbench/quality/review" target="_blank" rel="noopener noreferrer" data-quality-mode-only="aftersales">打开研判工作台</a><button class="btn btn-primary" type="button" id="qualityNewEvent" data-quality-mode-only="aftersales">新建质量异常</button>` : ""}</div>
   </section>
   ${sourceSection}
   <section class="qt-card">
     ${hasSpecialist ? `<div class="qt-state-groups" data-quality-mode-only="specialist" aria-label="质量事件状态分组"${defaultMode === "specialist" ? "" : " hidden"}><span>待分配</span><span>待承接</span><span>处理中</span><span>待原主责确认</span><span>待终验</span><span>已关闭</span></div>` : ""}
     <div class="qt-tabs" role="tablist" aria-label="质量事件视图">
-      ${hasAftersales ? `<span data-quality-mode-only="aftersales"><button class="qt-tab${defaultMode === "aftersales" ? " is-on" : ""}" type="button" data-quality-tab="candidates">异常候选</button><button class="qt-tab" type="button" data-quality-tab="source">全部反馈</button><button class="qt-tab" type="button" data-quality-tab="reported">已通报</button><button class="qt-tab" type="button" data-quality-tab="events">我通报的事件</button></span>` : ""}
+      ${hasAftersales ? `<span data-quality-mode-only="aftersales"><button class="qt-tab${defaultMode === "aftersales" ? " is-on" : ""}" type="button" data-quality-tab="events">我通报的事件</button></span>` : ""}
       ${hasSpecialist ? `<span data-quality-mode-only="specialist"${defaultMode === "specialist" ? "" : " hidden"}><button class="qt-tab${defaultMode === "specialist" ? " is-on" : ""}" type="button" data-quality-tab="events">全部质量事件</button></span>` : ""}
     </div>
     <div id="qualitySourceRows"><div class="qt-list" id="qualityMainList" aria-live="polite"><div class="qt-empty">正在加载…</div></div></div>
     <div class="qt-pagination" id="qualityPagination"></div>
+  </section>
+  <section class="qt-card qt-detail" id="qualityFullDetail" hidden>
+    <div class="qt-dialog-head"><div><h2 id="qualityInlineTitle">质量事件详情</h2><p class="qt-muted">来源事实、质量初析、原任务分配结果和证据链在此全宽展开。</p></div><button class="btn btn-secondary btn-sm" type="button" id="qualityInlineClose">收起详情</button></div>
+    <div class="qt-detail-actions" id="qualityDetailActions" aria-label="可执行操作">
+      ${planningV2 ? `<button class="btn btn-primary btn-sm" type="button" id="qualityOpenPlanning" data-quality-v2-action="planning">进入任务分配</button>` : `<button class="btn btn-primary btn-sm" type="button" data-quality-action="分配原主责">分配原主责</button>`}
+      ${planningV2 ? "" : `<button class="btn btn-secondary btn-sm" type="button" data-quality-action="调整总期限">调整总期限</button>`}
+      <button class="btn btn-secondary btn-sm" type="button" data-quality-action="指定节点退回">指定节点退回</button>
+      <button class="btn btn-primary btn-sm" type="button" data-quality-action="关闭质量事件">关闭质量事件</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-quality-action="重开质量事件">重开质量事件</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-quality-action="补充情况">补充情况</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-quality-action="更正信息">更正信息</button>
+    </div>
+    <div class="qt-form-feedback" id="qualityDetailFeedback" role="status"></div>
+    <section class="qt-detail-section"><h3>原始通报</h3><div id="qualityOriginalReport"></div></section>
+    <section class="qt-detail-section"><h3>来源快照</h3><div id="qualityDetailSources"></div></section>
+    <section class="qt-detail-section"><h3>相关事件</h3><div id="qualityRelatedEvents"></div></section>
+    ${planningV2 ? `<section class="qt-detail-section" id="qualityAnalysisSection">
+      <div class="qt-dialog-head"><div><h3>质量初析</h3><p class="qt-muted">仅给出建议责任部门；负责人、执行人和期限由原任务分配系统正式确认。</p></div><span class="qt-status" id="qualityAnalysisVersion">未填写</span></div>
+      <form id="qualityAnalysisForm" class="qt-form-grid">
+        <label class="qt-field">问题方向<input class="qt-input" name="problemDirection" maxlength="10000" required></label>
+        <label class="qt-field">人工确认分类<input class="qt-input" name="confirmedCategory" maxlength="10000" required></label>
+        <label class="qt-field is-wide">来源事实摘要<textarea class="qt-textarea" name="sourceSummary" maxlength="10000" required></textarea></label>
+        <label class="qt-field is-wide">分析依据<textarea class="qt-textarea" name="analysisBasis" maxlength="10000" required></textarea></label>
+        <label class="qt-field is-wide">初步结论<textarea class="qt-textarea" name="initialConclusion" maxlength="10000" required></textarea></label>
+        <label class="qt-field is-wide">信息缺口<textarea class="qt-textarea" name="informationGaps" maxlength="10000" required></textarea></label>
+        <label class="qt-field">建议责任部门<input class="qt-input" name="suggestedDepartment" maxlength="10000" required></label>
+        <label class="qt-field">建议总期限<input class="qt-input" name="suggestedDueAt" type="datetime-local" required></label>
+        <label class="qt-field is-wide">处理要求<textarea class="qt-textarea" name="processingRequirements" maxlength="10000" required></textarea></label>
+        <div class="qt-dialog-actions is-wide" id="qualityAnalysisActions">
+          <button class="btn btn-secondary" type="button" id="qualityAnalysisSave">保存初析草稿</button>
+          <button class="btn btn-primary" type="button" id="qualityAnalysisComplete">完成初析</button>
+        </div>
+        <div class="qt-form-feedback is-wide" id="qualityAnalysisFeedback"></div>
+      </form>
+    </section>` : ""}
+    <section class="qt-detail-section"><h3>${planningV2 ? "原任务分配结果（只读）" : "分配链路"}</h3>${planningV2 ? `<p class="qt-muted">正式任务库是负责人、执行人、期限和状态的唯一权威源；调整分配请返回原任务系统。</p>` : ""}<div class="qt-tree" id="qualityAssignmentTree"></div></section>
+    <section class="qt-detail-section"><h3>证据与验收</h3><div id="qualityEvidenceReviews"></div></section>
+    <section class="qt-detail-section"><h3>通知记录</h3><div id="qualityNotifications"></div></section>
+    <section class="qt-detail-section"><h3>公开审计</h3><div id="qualityPublicAudit"></div></section>
   </section>
 </main>
 <dialog class="qt-dialog" id="qualityEventDialog" aria-labelledby="qualityDialogTitle">
@@ -75,26 +109,8 @@ export function renderQualityTrackingPage(params: {
         <label class="qt-field is-wide">附件证据（单个文件不超过 20 MB）<input class="qt-input" id="qualityFileInput" type="file"></label>
       </div>
       <div class="qt-form-feedback" id="qualityFormFeedback" role="status"></div>
-      <div class="qt-dialog-actions"><button class="btn btn-secondary" type="button" id="qualitySaveDraft">保存草稿</button><button class="btn btn-primary" type="submit" id="qualitySubmitEvent">通报质量异常</button></div>
+      <div class="qt-dialog-actions"><button class="btn btn-secondary" type="button" id="qualitySaveDraft">保存草稿</button><button class="btn btn-primary" type="submit" id="qualitySubmitEvent">通报质量异常</button><button class="btn btn-primary" type="button" id="qualitySubmitCorrection" hidden>提交更正</button></div>
     </form>
-    <section class="qt-detail" id="qualityFullDetail" hidden>
-      <div class="qt-detail-actions" id="qualityDetailActions" aria-label="可执行操作">
-        <button class="btn btn-primary btn-sm" type="button" data-quality-action="分配原主责">分配原主责</button>
-        <button class="btn btn-secondary btn-sm" type="button" data-quality-action="调整总期限">调整总期限</button>
-        <button class="btn btn-secondary btn-sm" type="button" data-quality-action="指定节点退回">指定节点退回</button>
-        <button class="btn btn-primary btn-sm" type="button" data-quality-action="关闭质量事件">关闭质量事件</button>
-        <button class="btn btn-secondary btn-sm" type="button" data-quality-action="重开质量事件">重开质量事件</button>
-        <button class="btn btn-secondary btn-sm" type="button" data-quality-action="补充情况">补充情况</button>
-        <button class="btn btn-secondary btn-sm" type="button" data-quality-action="更正信息">更正信息</button>
-      </div>
-      <section class="qt-detail-section"><h3>原始通报</h3><div id="qualityOriginalReport"></div></section>
-      <section class="qt-detail-section"><h3>来源快照</h3><div id="qualityDetailSources"></div></section>
-      <section class="qt-detail-section"><h3>相关事件</h3><div id="qualityRelatedEvents"></div></section>
-      <section class="qt-detail-section"><h3>分配链路</h3><div class="qt-tree" id="qualityAssignmentTree"></div></section>
-      <section class="qt-detail-section"><h3>证据与验收</h3><div id="qualityEvidenceReviews"></div></section>
-      <section class="qt-detail-section"><h3>通知记录</h3><div id="qualityNotifications"></div></section>
-      <section class="qt-detail-section"><h3>公开审计</h3><div id="qualityPublicAudit"></div></section>
-    </section>
   </div>
 </dialog>
 <dialog class="qt-dialog qt-candidate-dialog" id="qualityCandidateDetailDialog" aria-labelledby="qualityCandidateDetailTitle">
@@ -115,12 +131,16 @@ function buildQualityTrackingClientScript(): string {
   if (!root) return;
   var canReport = root.getAttribute('data-can-report') === '1';
   var isSpecialist = root.getAttribute('data-is-specialist') === '1';
+  var hasQualityManagement = root.getAttribute('data-quality-management') === '1';
+  var canManage = root.getAttribute('data-can-manage') === '1';
+  var isPlanningV2 = root.getAttribute('data-planning-v2') === '1';
   var currentMode = root.getAttribute('data-quality-mode') || (canReport ? 'aftersales' : 'specialist');
   var currentTab = root.getAttribute('data-first-tab') || 'events';
   var page = 1;
   var pageSize = 50;
   var currentEvent = null;
   var currentDetail = null;
+  var currentAnalysisBundle = null;
   var correctionReason = '';
   var currentSnapshots = [];
   var list = document.getElementById('qualityMainList');
@@ -163,7 +183,7 @@ function buildQualityTrackingClientScript(): string {
       button.classList.toggle('is-on', button.getAttribute('data-quality-mode-switch') === mode);
     });
     page = 1;
-    activateTab(mode === 'aftersales' ? 'candidates' : 'events');
+    activateTab('events');
     void loadCurrent();
   }
   function candidateTriggers(item) {
@@ -265,14 +285,69 @@ function buildQualityTrackingClientScript(): string {
     wrap.hidden = !detail || !detail.event || detail.event.status === 'DRAFT';
     if (wrap.hidden) return;
     var event = detail.event;
-    mountText('qualityOriginalReport', event.problemStatus + '\n事件编号：' + event.eventNo + '\n原主责：' + ((detail.assignmentTree || []).find(function (item) { return item.isPrimary; }) || {}).assigneeUserId + '\n总期限：' + formatTime(event.overallDueAt));
+    var inlineTitle = document.getElementById('qualityInlineTitle');
+    if (inlineTitle) inlineTitle.textContent = event.eventNo + ' · ' + event.title;
+    var primaryNode = (detail.assignmentTree || []).find(function (item) { return item.isPrimary; });
+    mountText('qualityOriginalReport', event.problemStatus + '\n事件编号：' + event.eventNo + '\n原主责：' + (primaryNode ? primaryNode.assigneeUserId : '待原任务分配') + '\n总期限：' + formatTime(event.overallDueAt));
     var sources = document.getElementById('qualityDetailSources'); clear(sources); if (!(detail.sourceSnapshots || []).length) sources.appendChild(node('div', 'qt-muted', '手动创建，无来源快照。')); else (detail.sourceSnapshots || []).forEach(function (item) { var box = node('div', 'qt-mini-card'); box.appendChild(node('strong', '', item.sourceKey)); box.appendChild(node('div', 'qt-row-desc', JSON.stringify(item.snapshot || {}, null, 2))); sources.appendChild(box); });
     var related = document.getElementById('qualityRelatedEvents'); clear(related); if (!(detail.relatedEvents || []).length) related.appendChild(node('div', 'qt-muted', '暂无相关事件。')); else (detail.relatedEvents || []).forEach(function (item) { related.appendChild(node('div', 'qt-mini-card', (item.relatedEventNo || item.relatedSourceKey || '相关记录') + ' · ' + (item.relatedEventTitle || item.relationType || ''))); });
-    var tree = document.getElementById('qualityAssignmentTree'); clear(tree); if (!(detail.assignmentTree || []).length) tree.appendChild(node('div', 'qt-muted', '尚未分配原主责。')); else (detail.assignmentTree || []).forEach(function (item) { var box = node('article', 'qt-tree-node'); box.style.marginLeft = Math.min(Number(item.depth || 0) * 22, 88) + 'px'; box.appendChild(node('div', 'qt-row-title', (item.isPrimary ? '原主责 · ' : '') + item.assigneeUserId + ' · ' + (item.departmentName || '未填写部门'))); box.appendChild(node('div', 'qt-row-meta', '父节点：' + (item.parentNodeId || '无') + ' · 状态：' + (statusLabels[item.status] || item.status) + ' · 期限：' + formatTime(item.dueAt) + ' · 正式任务：' + (item.taskNo || item.taskId || '待生成'))); box.appendChild(node('div', 'qt-row-desc', '任务要求：' + item.requirement)); tree.appendChild(box); });
+    var tree = document.getElementById('qualityAssignmentTree'); clear(tree); if (!(detail.assignmentTree || []).length) tree.appendChild(node('div', 'qt-muted', isPlanningV2 ? '尚未进入原任务分配。' : '尚未分配原主责。')); else (detail.assignmentTree || []).forEach(function (item) { var box = node('article', 'qt-tree-node'); box.style.marginLeft = Math.min(Number(item.depth || 0) * 22, 88) + 'px'; box.appendChild(node('div', 'qt-row-title', (item.isPrimary ? '主管 · ' : '执行人 · ') + item.assigneeUserId + ' · ' + (item.departmentName || '未填写部门'))); box.appendChild(node('div', 'qt-row-meta', '状态：' + (statusLabels[item.status] || item.status) + ' · 期限：' + formatTime(item.dueAt) + ' · 正式任务：' + (item.taskNo || item.taskId || '待生成'))); box.appendChild(node('div', 'qt-row-desc', '任务要求：' + item.requirement)); tree.appendChild(box); });
     var packs = document.getElementById('qualityEvidenceReviews'); clear(packs); if (!(detail.evidence || []).length && !(detail.reviews || []).length) packs.appendChild(node('div', 'qt-muted', '暂无证据或验收记录。')); (detail.evidence || []).forEach(function (item) { var link = node('a', 'qt-file-link', '第 ' + item.evidenceVersion + ' 版 · ' + item.originalName + ' · ' + (item.summary || '无摘要')); link.href = '/api/workbench/quality/evidence/' + encodeURIComponent(item.evidenceId); packs.appendChild(link); }); (detail.reviews || []).forEach(function (item) { packs.appendChild(node('div', 'qt-mini-card', (item.decision === 'APPROVE' ? '通过' : '退回') + ' · ' + item.reviewerUserId + (item.reason ? ' · ' + item.reason : '') + ' · ' + formatTime(item.createdAt))); });
     var notifications = document.getElementById('qualityNotifications'); clear(notifications); if (!(detail.notifications || []).length) notifications.appendChild(node('div', 'qt-muted', '暂无通知记录。')); else (detail.notifications || []).forEach(function (item) { var statusName=({PENDING:'待发送',SENDING:'发送中',RETRY:'重试中',SENT:'已发送',DEAD:'人工处理'})[item.status]||item.status;var card=node('div','qt-mini-card');card.appendChild(node('div','',item.eventType+' · '+item.recipientUserId+' · '+statusName));card.appendChild(node('div','qt-row-meta','尝试 '+item.attempts+' 次 · 最后更新 '+formatTime(item.updatedAt)+(item.lastError?' · 安全错误摘要：'+item.lastError:'')));if(item.canRetry){var retry=node('button','btn btn-secondary btn-sm','重新入队');retry.type='button';retry.addEventListener('click',function(){retry.disabled=true;void api('/api/workbench/quality/notifications/'+encodeURIComponent(item.id)+'/retry',jsonOptions('POST',{requestId:uid()})).then(function(){return openEvent(currentEvent.eventId);}).catch(showActionError).finally(function(){retry.disabled=false;});});card.appendChild(retry);}notifications.appendChild(card); });
     var audit = document.getElementById('qualityPublicAudit'); clear(audit); (detail.publicAudit || []).forEach(function (item) { audit.appendChild(node('div', 'qt-audit-row', formatTime(item.occurredAt) + ' · ' + item.actorUserId + ' · ' + item.action + (item.reason ? ' · ' + item.reason : ''))); }); if (!(detail.publicAudit || []).length) audit.appendChild(node('div', 'qt-muted', '暂无公开审计记录。'));
     document.querySelectorAll('[data-quality-action]').forEach(function (button) { button.hidden = (detail.allowedActions || []).indexOf(button.getAttribute('data-quality-action')) < 0; });
+  }
+  function analysisFormElement(name) {
+    var analysisForm = document.getElementById('qualityAnalysisForm');
+    return analysisForm ? analysisForm.elements.namedItem(name) : null;
+  }
+  function setAnalysisField(name, value) {
+    var el = analysisFormElement(name);
+    if (!el) return;
+    if (name === 'suggestedDueAt' && value) {
+      var date = new Date(value);
+      if (!Number.isNaN(date.getTime())) {
+        var local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        el.value = local;
+        return;
+      }
+    }
+    el.value = value == null ? '' : String(value);
+  }
+  function analysisFieldsFromForm() {
+    var fields = {};
+    ['problemDirection','confirmedCategory','sourceSummary','analysisBasis','initialConclusion','informationGaps','suggestedDepartment','processingRequirements','suggestedDueAt'].forEach(function (name) {
+      var el = analysisFormElement(name);
+      fields[name] = el ? String(el.value || '').trim() : '';
+    });
+    if (fields.suggestedDueAt) fields.suggestedDueAt = new Date(fields.suggestedDueAt).toISOString();
+    return fields;
+  }
+  function renderAnalysis(bundle) {
+    if (!isPlanningV2) return;
+    currentAnalysisBundle = bundle || { versions: [], planning: null };
+    var latest = currentAnalysisBundle.versions && currentAnalysisBundle.versions[0];
+    var planning = currentAnalysisBundle.planning;
+    var names = ['problemDirection','confirmedCategory','sourceSummary','analysisBasis','initialConclusion','informationGaps','suggestedDepartment','processingRequirements','suggestedDueAt'];
+    names.forEach(function (name) { setAnalysisField(name, latest ? latest[name] : ''); });
+    var version = document.getElementById('qualityAnalysisVersion');
+    if (version) version.textContent = latest ? ('V' + latest.version + ' · ' + (latest.status === 'COMPLETED' ? '已完成' : '草稿')) : '未填写';
+    var editable = hasQualityManagement && currentEvent && currentEvent.status === 'PENDING_ASSIGNMENT' && !planning;
+    names.forEach(function (name) { var el = analysisFormElement(name); if (el) el.disabled = !editable; });
+    var save = document.getElementById('qualityAnalysisSave');
+    var complete = document.getElementById('qualityAnalysisComplete');
+    if (save) save.hidden = !editable;
+    if (complete) complete.hidden = !editable;
+    var feedbackEl = document.getElementById('qualityAnalysisFeedback');
+    if (feedbackEl) feedbackEl.textContent = planning ? '初析已作为只读快照移交到原任务分配系统。' : (!hasQualityManagement ? '当前账号可查看初析，但未授予质量管理能力。' : '');
+    var planningButton = document.getElementById('qualityOpenPlanning');
+    if (planningButton) {
+      planningButton.hidden = !canManage || !currentEvent || (!planning && currentEvent.status !== 'PENDING_ASSIGNMENT');
+      planningButton.disabled = !planning && (!latest || latest.status !== 'COMPLETED');
+      planningButton.textContent = planning
+        ? (planning.bindingStatus === 'BOUND' ? '查看 / 调整正式任务' : '继续任务分配')
+        : '进入任务分配';
+    }
   }
   function applyEvent(event, snapshots, detail) {
     currentEvent = event || null;
@@ -297,8 +372,10 @@ function buildQualityTrackingClientScript(): string {
     if (form) Array.prototype.forEach.call(form.elements, function (element) { if (element.name || element.id === 'qualityFileInput') element.disabled = !editable; });
     var saveButton = document.getElementById('qualitySaveDraft');
     var submitButton = document.getElementById('qualitySubmitEvent');
+    var correctionButton = document.getElementById('qualitySubmitCorrection');
     if (saveButton) saveButton.hidden = !editable;
     if (submitButton) submitButton.hidden = !editable;
+    if (correctionButton && !correctionReason) correctionButton.hidden = true;
     renderFullDetail(detail || null);
   }
   function openDialog() {
@@ -315,7 +392,17 @@ function buildQualityTrackingClientScript(): string {
   async function openEvent(eventId) {
     var data = await api('/api/workbench/quality/events/' + encodeURIComponent(eventId));
     applyEvent(data.event, data.sourceSnapshots, data);
-    openDialog();
+    if (isPlanningV2) {
+      var analysisBundle = await api('/api/workbench/quality/events/' + encodeURIComponent(eventId) + '/analysis');
+      renderAnalysis(analysisBundle);
+    }
+    if (data.event.status === 'DRAFT') {
+      openDialog();
+    } else {
+      if (dialog && dialog.open) dialog.close();
+      var detailSection = document.getElementById('qualityFullDetail');
+      if (detailSection) detailSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
   function renderSourceRow(item) {
     var row = node('article', 'qt-row');
@@ -391,7 +478,7 @@ function buildQualityTrackingClientScript(): string {
     renderPagination(data.pagination);
   }
   async function loadCurrent() { try { if (currentTab === 'candidates') await loadCandidates(); else if (currentTab === 'source') await loadSource(); else if (currentTab === 'reported') await loadSource(true); else await loadEvents(); } catch (error) { showActionError(error); } }
-  function showActionError(error) { var message = error && error.message ? error.message : String(error); if (feedback && dialog && dialog.open) feedback.textContent = message; else showEmpty(message, true); }
+  function showActionError(error) { var message = error && error.message ? error.message : String(error); var detailSection = document.getElementById('qualityFullDetail'); var detailFeedback = document.getElementById('qualityDetailFeedback'); if (detailSection && !detailSection.hidden && detailFeedback) detailFeedback.textContent = message; else if (feedback && dialog && dialog.open) feedback.textContent = message; else showEmpty(message, true); }
   async function saveDraft() {
     var draft = draftFromForm();
     var data;
@@ -416,6 +503,47 @@ function buildQualityTrackingClientScript(): string {
     while (current) { names.push(current.assigneeUserId + '（' + (current.departmentName || '未填写部门') + '）'); current = nodes.find(function (item) { return item.nodeId === current.parentNodeId; }); }
     return names;
   }
+  async function saveQualityAnalysis() {
+    if (!currentEvent || !hasQualityManagement) return null;
+    var feedbackEl = document.getElementById('qualityAnalysisFeedback');
+    if (feedbackEl) feedbackEl.textContent = '正在保存初析草稿…';
+    var data = await api(
+      '/api/workbench/quality/events/' + encodeURIComponent(currentEvent.eventId) + '/analysis',
+      jsonOptions('POST', { expectedEventVersion: currentEvent.version, fields: analysisFieldsFromForm() })
+    );
+    var bundle = await api('/api/workbench/quality/events/' + encodeURIComponent(currentEvent.eventId) + '/analysis');
+    renderAnalysis(bundle);
+    if (feedbackEl) feedbackEl.textContent = '初析草稿已保存。';
+    return data.analysis;
+  }
+  async function completeQualityAnalysis() {
+    var analysis = await saveQualityAnalysis();
+    if (!analysis || !currentEvent) return;
+    var feedbackEl = document.getElementById('qualityAnalysisFeedback');
+    if (feedbackEl) feedbackEl.textContent = '正在完成初析…';
+    await api(
+      '/api/workbench/quality/events/' + encodeURIComponent(currentEvent.eventId) + '/analysis/complete',
+      jsonOptions('POST', { analysisId: analysis.analysisId })
+    );
+    var bundle = await api('/api/workbench/quality/events/' + encodeURIComponent(currentEvent.eventId) + '/analysis');
+    renderAnalysis(bundle);
+    if (feedbackEl) feedbackEl.textContent = '初析已完成，可以进入原任务分配。';
+  }
+  async function openQualityPlanning() {
+    if (!currentEvent || !canManage) return;
+    var planning = currentAnalysisBundle && currentAnalysisBundle.planning;
+    if (planning) {
+      window.location.href = planning.bindingStatus === 'BOUND'
+        ? '/workbench/manager/tasks?planId=' + encodeURIComponent(planning.planId)
+        : '/workbench/manager/chat?thread=side&threadId=' + encodeURIComponent(planning.threadId);
+      return;
+    }
+    var data = await api(
+      '/api/workbench/quality/events/' + encodeURIComponent(currentEvent.eventId) + '/planning-session',
+      jsonOptions('POST', { expectedEventVersion: currentEvent.version, requestId: uid() })
+    );
+    window.location.href = data.chatUrl;
+  }
   async function runDetailAction(action) {
     if (!currentEvent || !currentDetail) return;
     var path = '/api/workbench/quality/events/' + encodeURIComponent(currentEvent.eventId);
@@ -426,25 +554,31 @@ function buildQualityTrackingClientScript(): string {
     else if (action === '关闭质量事件') { var conclusion = window.prompt('请输入终验结论'); if (!conclusion) return; if (!window.confirm('关闭后事件将进入只读状态，确认关闭吗？')) return; body.conclusion = conclusion; path += '/close'; }
     else if (action === '补充情况') { var content = window.prompt('请输入需要补充的质量事件现状'); if (!content) return; body.content = content; path += '/supplements'; }
     else if (action === '更正信息') {
-      if (!correctionReason) { correctionReason = window.prompt('请输入更正原因') || ''; if (!correctionReason) return; Array.prototype.forEach.call(form.elements, function (element) { if (element.name) element.disabled = false; }); feedback.textContent = '请在上方修改通报字段，然后再次点击“更正信息”提交。'; return; }
+      if (!correctionReason) { correctionReason = window.prompt('请输入更正原因') || ''; if (!correctionReason) return; Array.prototype.forEach.call(form.elements, function (element) { if (element.name) element.disabled = false; }); var correctionButton = document.getElementById('qualitySubmitCorrection'); if (correctionButton) correctionButton.hidden = false; feedback.textContent = '请修改通报字段后点击“提交更正”。'; openDialog(); return; }
       body.reason = correctionReason; body.patch = draftFromForm(); path += '/corrections'; correctionReason = '';
     } else return;
-    feedback.textContent = '正在处理…';
+    var actionFeedback = document.getElementById('qualityDetailFeedback') || feedback;
+    actionFeedback.textContent = '正在处理…';
     await api(path, jsonOptions('POST', body));
     await openEvent(currentEvent.eventId);
     await loadEvents();
-    feedback.textContent = '操作已完成。';
+    actionFeedback.textContent = '操作已完成。';
   }
   document.querySelectorAll('[data-quality-tab]').forEach(function (button) { button.addEventListener('click', function () { if (modeForElement(button) !== currentMode) return; page = 1; activateTab(button.getAttribute('data-quality-tab') || 'events'); void loadCurrent(); }); });
   document.querySelectorAll('[data-quality-mode-switch]').forEach(function (button) { button.addEventListener('click', function () { applyMode(button.getAttribute('data-quality-mode-switch')); }); });
   var newButton = document.getElementById('qualityNewEvent'); if (newButton) newButton.addEventListener('click', function () { if (form) form.reset(); applyEvent(null, []); openDialog(); });
   var closeButton = document.getElementById('qualityDialogClose'); if (closeButton) closeButton.addEventListener('click', function () { dialog.close(); });
+  var inlineClose = document.getElementById('qualityInlineClose'); if (inlineClose) inlineClose.addEventListener('click', function () { var detailSection = document.getElementById('qualityFullDetail'); if (detailSection) detailSection.hidden = true; currentDetail = null; currentEvent = null; });
   if (dialog) dialog.addEventListener('close', function () { if (dialogTrigger && typeof dialogTrigger.focus === 'function') dialogTrigger.focus(); dialogTrigger = null; });
   var candidateClose = document.getElementById('qualityCandidateDetailClose'); if (candidateClose) candidateClose.addEventListener('click', closeCandidateDialog);
   var candidateCancel = document.getElementById('qualityCandidateDetailCancel'); if (candidateCancel) candidateCancel.addEventListener('click', closeCandidateDialog);
   if (candidateDialog) candidateDialog.addEventListener('close', function () { if (candidateDialogTrigger && typeof candidateDialogTrigger.focus === 'function') candidateDialogTrigger.focus(); candidateDialogTrigger = null; });
   var candidateEdit = document.getElementById('qualityCandidateDetailEdit'); if (candidateEdit) candidateEdit.addEventListener('click', function () { if (!currentCandidate) return; candidateEdit.disabled = true; void createDraftFromSources(currentCandidate.sourceKeys).then(closeCandidateDialog).catch(showActionError).finally(function () { candidateEdit.disabled = false; }); });
   var saveButton = document.getElementById('qualitySaveDraft'); if (saveButton) saveButton.addEventListener('click', function () { feedback.textContent = '正在保存…'; void saveDraft().catch(showActionError); });
+  var analysisSave = document.getElementById('qualityAnalysisSave'); if (analysisSave) analysisSave.addEventListener('click', function () { void saveQualityAnalysis().catch(showActionError); });
+  var analysisComplete = document.getElementById('qualityAnalysisComplete'); if (analysisComplete) analysisComplete.addEventListener('click', function () { void completeQualityAnalysis().catch(showActionError); });
+  var openPlanning = document.getElementById('qualityOpenPlanning'); if (openPlanning) openPlanning.addEventListener('click', function () { void openQualityPlanning().catch(showActionError); });
+  var submitCorrection = document.getElementById('qualitySubmitCorrection'); if (submitCorrection) submitCorrection.addEventListener('click', function () { submitCorrection.disabled = true; void runDetailAction('更正信息').then(function () { submitCorrection.hidden = true; dialog.close(); }).catch(showActionError).finally(function () { submitCorrection.disabled = false; }); });
   document.querySelectorAll('[data-quality-action]').forEach(function (button) { button.addEventListener('click', function () { void runDetailAction(button.getAttribute('data-quality-action')).catch(showActionError); }); });
   if (form) form.addEventListener('submit', function (event) { event.preventDefault(); feedback.textContent = '正在通报…'; void saveDraft().then(function (saved) { return api('/api/workbench/quality/events/' + encodeURIComponent(saved.eventId) + '/submit', jsonOptions('POST', { expectedVersion: saved.version, requestId: uid() })); }).then(function () { dialog.close(); page = 1; activateTab('events'); return loadCurrent(); }).catch(showActionError); });
   var search = document.getElementById('qualitySourceSearch'); if (search) search.addEventListener('submit', function (event) { event.preventDefault(); page = 1; activateTab('source'); void loadSource(); });

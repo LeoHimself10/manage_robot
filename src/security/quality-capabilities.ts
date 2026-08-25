@@ -9,6 +9,11 @@ export interface QualityCapabilities {
   roles: QualityBusinessRole[];
   canAccessTracking: boolean;
   canAccessOpinions: boolean;
+  /**
+   * 质量管理是 employee 的附加能力，不是第四种基础角色。
+   * 迁移期继续把旧 QUALITY_SPECIALIST_USER_IDS 视为已授予该能力。
+   */
+  hasQualityManagement: boolean;
   specialistUserIds: string[];
 }
 
@@ -57,7 +62,14 @@ function specialistUserIdsForReport(reportUserId: string): string[] {
 }
 
 export function listQualitySpecialistUserIds(): string[] {
-  return [...envUserIds("QUALITY_SPECIALIST_USER_IDS")].sort();
+  return listQualityManagementUserIds();
+}
+
+export function listQualityManagementUserIds(): string[] {
+  return [...new Set([
+    ...envUserIds("QUALITY_MANAGEMENT_USER_IDS"),
+    ...envUserIds("QUALITY_SPECIALIST_USER_IDS"),
+  ])].sort();
 }
 
 export function isQualitySpecialistForReport(
@@ -76,12 +88,14 @@ export function resolveQualityCapabilities(userId: string): QualityCapabilities 
       roles: [],
       canAccessTracking: false,
       canAccessOpinions: false,
+      hasQualityManagement: false,
       specialistUserIds: [],
     };
   }
 
   const aftersalesManagers = envUserIds("QUALITY_AFTERSALES_MANAGER_USER_IDS");
   const qualitySpecialists = envUserIds("QUALITY_SPECIALIST_USER_IDS");
+  const qualityManagement = new Set(listQualityManagementUserIds());
   const specialistUserIds = specialistUserIdsForReport(normalized);
   const roles: QualityBusinessRole[] = [];
   if (aftersalesManagers.has(normalized)) roles.push("aftersales_manager");
@@ -91,8 +105,9 @@ export function resolveQualityCapabilities(userId: string): QualityCapabilities 
   return {
     roles,
     canAccessTracking:
-      roles.includes("aftersales_manager") || roles.includes("quality_specialist"),
+      roles.includes("aftersales_manager") || qualityManagement.has(normalized),
     canAccessOpinions: roles.includes("quality_report"),
+    hasQualityManagement: qualityManagement.has(normalized),
     specialistUserIds,
   };
 }

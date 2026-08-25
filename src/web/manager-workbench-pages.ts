@@ -41,11 +41,11 @@ function buildManagerQualityClientJs(): string {
     await load();
   }
   function card(node) {
-    var row=el('article','mq-row'); var head=el('div','mq-row-head'); var title=el('div'); title.append(el('h3','',node.eventNo+' · '+node.eventTitle),el('div','mq-meta','质量任务 · 节点期限：'+new Date(node.dueAt).toLocaleString('zh-CN',{hour12:false}))); head.append(title,el('span','mq-badge',statusText(node.status))); row.append(head,el('p','mq-summary',node.eventSummary),el('p','mq-meta','来源质量专员：'+(node.specialistUserId||'暂无')+' · 原主责：'+(node.primaryAssigneeUserId||'待首次承接确定')+' · 直接上级：'+(node.parentAssigneeUserId||node.specialistUserId||'暂无')),el('p','mq-meta','节点要求：'+node.requirement));
+    var row=el('article','mq-row'); var head=el('div','mq-row-head'); var title=el('div'); title.append(el('h3','',node.eventNo+' · '+node.eventTitle),el('div','mq-meta',(node.planningV2?'正式任务关联 · ':'质量任务 · ')+'节点期限：'+new Date(node.dueAt).toLocaleString('zh-CN',{hour12:false}))); head.append(title,el('span','mq-badge',statusText(node.status))); row.append(head,el('p','mq-summary',node.eventSummary),el('p','mq-meta',node.planningV2?'负责人、执行人、期限与状态以正式任务为准。':'来源质量专员：'+(node.specialistUserId||'暂无')+' · 原主责：'+(node.primaryAssigneeUserId||'待首次承接确定')+' · 直接上级：'+(node.parentAssigneeUserId||node.specialistUserId||'暂无')),el('p','mq-meta','节点要求：'+node.requirement));if(node.planningV2&&node.formalPlanId){var taskLink=el('a','btn btn-secondary btn-sm','打开正式任务');taskLink.href='/workbench/manager/tasks?planId='+encodeURIComponent(node.formalPlanId);row.appendChild(taskLink);}
     if(node.reviewChildren&&node.reviewChildren.length){var reviewList=el('section','mq-review-list');reviewList.appendChild(el('h4','','待我验收的下级证据'));node.reviewChildren.forEach(function(child){var item=el('div','mq-review-item');item.append(el('h4','',child.assigneeUserId+' · '+child.departmentName),el('p','mq-meta','要求：'+child.requirement));(child.evidence||[]).forEach(function(file){var a=el('a','mq-file-link','第 '+file.evidenceVersion+' 版 · '+file.originalName+' · '+file.summary);a.href='/api/workbench/quality/evidence/'+encodeURIComponent(file.evidenceId);item.appendChild(a);});var ra=el('div','mq-actions');var ok=el('button','btn btn-primary btn-sm','通过');ok.type='button';ok.addEventListener('click',function(){void post('/api/workbench/quality/nodes/'+encodeURIComponent(child.nodeId)+'/review',{decision:'APPROVE',expectedVersion:child.version,requestId:uuid()}).then(load).catch(showError);});var back=el('button','btn btn-secondary btn-sm','退回');back.type='button';back.addEventListener('click',function(){var reason=window.prompt('请填写退回原因');if(!reason)return;void post('/api/workbench/quality/nodes/'+encodeURIComponent(child.nodeId)+'/review',{decision:'RETURN',reason:reason,expectedVersion:child.version,requestId:uuid()}).then(load).catch(showError);});ra.append(ok,back);item.appendChild(ra);reviewList.appendChild(item);});row.appendChild(reviewList);}
     var actions=el('div','mq-actions');
-    if(node.status==='PENDING_ACCEPTANCE'){var accept=el('button','btn btn-primary btn-sm','承接');accept.type='button';accept.addEventListener('click',function(){void action(node,'accept').catch(showError);});var reject=el('button','btn btn-secondary btn-sm','驳回');reject.type='button';reject.addEventListener('click',function(){void action(node,'reject').catch(showError);});actions.append(accept,reject);}
-    if(node.status==='IN_PROGRESS'&&node.assigneeKind==='MANAGER'){var delegate=el('button','btn btn-secondary btn-sm','分配给下属或其他部门主管');delegate.type='button';delegate.addEventListener('click',function(){current=node;document.getElementById('mqDelegateForm').reset();document.getElementById('mqTargetUserId').value='';document.getElementById('mqContactOptions').replaceChildren();dialog.showModal();});var evidence=el('button','btn btn-primary btn-sm','证据与完成');evidence.type='button';evidence.addEventListener('click',function(){evidenceCurrent=node;document.getElementById('mqEvidenceForm').reset();document.getElementById('mqEvidenceFeedback').textContent='';evidenceDialog.showModal();});actions.append(delegate,evidence);}
+    if(!node.planningV2&&node.status==='PENDING_ACCEPTANCE'){var accept=el('button','btn btn-primary btn-sm','承接');accept.type='button';accept.addEventListener('click',function(){void action(node,'accept').catch(showError);});var reject=el('button','btn btn-secondary btn-sm','驳回');reject.type='button';reject.addEventListener('click',function(){void action(node,'reject').catch(showError);});actions.append(accept,reject);}
+    if(!node.planningV2&&node.status==='IN_PROGRESS'&&node.assigneeKind==='MANAGER'){var delegate=el('button','btn btn-secondary btn-sm','分配给下属或其他部门主管');delegate.type='button';delegate.addEventListener('click',function(){current=node;document.getElementById('mqDelegateForm').reset();document.getElementById('mqTargetUserId').value='';document.getElementById('mqContactOptions').replaceChildren();dialog.showModal();});var evidence=el('button','btn btn-primary btn-sm','证据与完成');evidence.type='button';evidence.addEventListener('click',function(){evidenceCurrent=node;document.getElementById('mqEvidenceForm').reset();document.getElementById('mqEvidenceFeedback').textContent='';evidenceDialog.showModal();});actions.append(delegate,evidence);}
     if(node.isPrimary&&node.eventStatus==='PENDING_PRIMARY_REVIEW'){var overall=el('button','btn btn-primary btn-sm','查看全链路证据并整体验收');overall.type='button';overall.addEventListener('click',function(){void openPackage(node).catch(showError);});actions.appendChild(overall);}
     if(actions.childNodes.length)row.append(actions);return row;
   }
@@ -928,6 +928,25 @@ export function renderManagerChatPage(params: {
         <span id="draftContextText">暂无草案</span>
       </div>
 
+      <details class="quality-source-context" id="qualitySourceContext" open hidden>
+        <summary>
+          <span><strong id="qualitySourceHeading">质量任务来源</strong><em>只读快照</em></span>
+          <span class="quality-source-context__status" id="qualitySourceStatus">待发布</span>
+        </summary>
+        <div class="quality-source-context__body">
+          <div class="quality-source-context__item quality-source-context__item--wide">
+            <span>来源事实</span><p id="qualitySourceFacts">—</p>
+          </div>
+          <div class="quality-source-context__item">
+            <span>质量初析</span><p id="qualitySourceAnalysis">—</p>
+          </div>
+          <div class="quality-source-context__item">
+            <span>处理要求</span><p id="qualitySourceRequirements">—</p>
+          </div>
+          <div class="quality-source-context__meta" id="qualitySourceMeta">—</div>
+        </div>
+      </details>
+
       <section class="chat-message-pane">
         <div class="chat-stream" id="chatStream" aria-live="polite">
           <ul class="msg-list" id="msgList"></ul>
@@ -1148,6 +1167,28 @@ export function renderManagerChatPage(params: {
         sub.classList.add('chat-pane-sub--hidden');
       }
     }
+  }
+  function renderQualitySourceContext(context) {
+    var panel = document.getElementById('qualitySourceContext');
+    if (!panel) return;
+    var isQuality = context && context.kind === 'quality_event';
+    panel.hidden = !isQuality;
+    if (!isQuality) return;
+    var snapshot = context.handoffSnapshot || {};
+    document.getElementById('qualitySourceHeading').textContent =
+      (context.eventNo ? context.eventNo + ' · ' : '') + (snapshot.title || '质量任务来源');
+    document.getElementById('qualitySourceFacts').textContent = snapshot.publicSummary || '—';
+    document.getElementById('qualitySourceAnalysis').textContent = snapshot.analysisSummary || '—';
+    document.getElementById('qualitySourceRequirements').textContent = snapshot.processingRequirements || '—';
+    var meta = [];
+    if (snapshot.suggestedDepartment) meta.push('建议责任部门：' + snapshot.suggestedDepartment);
+    if (snapshot.suggestedDueAt) meta.push('建议总期限：' + new Date(snapshot.suggestedDueAt).toLocaleString('zh-CN', {hour12:false}));
+    meta.push('来源版本：V' + String(context.eventVersion || 1));
+    document.getElementById('qualitySourceMeta').textContent = meta.join(' · ');
+    var statusText = ({DRAFT:'待发布',PUBLISHING:'关联中',BOUND:'已关联正式任务',REPAIR_REQUIRED:'关联待修复'})[context.bindingStatus] || '只读';
+    var statusEl = document.getElementById('qualitySourceStatus');
+    statusEl.textContent = statusText;
+    statusEl.setAttribute('data-status', String(context.bindingStatus || 'DRAFT'));
   }
   function syncSendBtnState() {
     var sendBtn = document.getElementById('sendBtn');
@@ -1744,6 +1785,7 @@ export function renderManagerChatPage(params: {
       if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
       var hasDraft = !!data.hasDraft;
       updatePaneHeader({ title: data.title, badge: data.badge, kind: data.kind, hasDraft: hasDraft });
+      renderQualitySourceContext(data.sourceContext);
       applyDraftPanelUi(hasDraft);
       renderMessageRows(data.messages || []);
       await loadDraftSummary(expectedSeq);

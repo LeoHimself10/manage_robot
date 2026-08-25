@@ -16,17 +16,29 @@ import { createQualityReportFileStore } from "../quality/files/quality-report-fi
 import { QUALITY_MAX_FILE_BYTES } from "../quality/files/quality-report-file-store";
 import { createQualityEvidenceService } from "../quality/evidence/quality-evidence-service";
 import { createQualityReviewService } from "../quality/reviews/quality-review-service";
+import { createQualitySourceReviewService } from "../quality/reviews/quality-source-review-service";
 import { getQualityEvidencePackage } from "../quality/reviews/quality-event-projector";
 import { createQualityReadStore } from "../quality/infra/quality-read-store";
 import { createQualityEventQuery } from "../quality/queries/quality-event-query";
+import { createQualityReviewQuery } from "../quality/queries/quality-review-query";
 import { createQualityNotificationOutbox } from "../quality/notifications/quality-notification-outbox";
 import { createQualityStore } from "../quality/infra/quality-store";
 import { createDingTalkQualitySource } from "../quality/source/dingtalk-quality-source";
 import { createQualitySourceSync } from "../quality/source/quality-source-sync";
+import { createQualitySourceWritebackOutbox } from "../quality/source/quality-source-writeback";
+import { triggerQualitySourceWriteback } from "../quality/source/quality-source-writeback-runtime";
 import { resolveQualityCapabilities } from "../security/quality-capabilities";
+import { resolveWorkbenchCapabilities } from "../security/workbench-capabilities";
 import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
+import { createPlanSessionStore } from "../infra/plan-session-store";
+import {
+  createQualityPlanningService,
+  isQualityTaskPlanningV2Enabled,
+} from "../quality/planning/quality-planning-service";
 import { readMultipartSingleFile } from "./multipart-single-file";
+import { createSideThreadSession } from "./conversation-thread-resolver";
 import { renderQualityTrackingPage } from "./quality-tracking-page";
+import { renderQualityReviewPage } from "./quality-review-page";
 import { renderQualityOpinionsPage } from "./quality-opinions-page";
 import type { WorkbenchShellRole } from "./workbench-shell";
 
@@ -39,6 +51,7 @@ export interface QualityHttpSession {
 
 const QUALITY_PAGE_PATHS = new Set([
   "/workbench/quality",
+  "/workbench/quality/review",
   "/workbench/quality/opinions",
 ]);
 
@@ -46,6 +59,7 @@ const QUALITY_STATIC_API_PATHS = new Set([
   "/api/workbench/quality/source",
   "/api/workbench/quality/source/sync",
   "/api/workbench/quality/candidates",
+  "/api/workbench/quality/review-queue",
   "/api/workbench/quality/events",
   "/api/workbench/quality/events/drafts",
   "/api/workbench/quality/opinions/events",
@@ -67,7 +81,9 @@ export function isQualityApiPath(pathname: string): boolean {
     || /^\/api\/workbench\/quality\/nodes\/[^/]+\/review$/.test(pathname)
     || /^\/api\/workbench\/quality\/evidence\/[^/]+$/.test(pathname)
     || /^\/api\/workbench\/quality\/events\/[^/]+\/(?:primary-review|evidence-package|assign-primary|due|return-node|close|reopen)$/.test(pathname)
+    || /^\/api\/workbench\/quality\/events\/[^/]+\/(?:analysis|analysis\/complete|planning-session)$/.test(pathname)
     || /^\/api\/workbench\/quality\/candidates\/[^/]+\/dismiss$/.test(pathname)
+    || /^\/api\/workbench\/quality\/source\/[^/]+\/(?:review|writeback\/retry)$/.test(pathname)
     || /^\/api\/workbench\/quality\/events\/[^/]+(?:\/draft|\/submit|\/supplements|\/corrections|\/files)?$/.test(pathname)
     || /^\/api\/workbench\/quality\/opinions\/threads\/[^/]+\/messages$/.test(pathname)
     || /^\/api\/workbench\/quality\/notifications\/[^/]+\/retry$/.test(pathname)
@@ -131,6 +147,18 @@ function sourceKeys(value: unknown): string[] {
 function requestId(value: unknown): string {
   return z.string().uuid().parse(value);
 }
+
+const qualityAnalysisFieldsSchema = z.object({
+  problemDirection: z.string().trim().max(10_000),
+  confirmedCategory: z.string().trim().max(10_000),
+  sourceSummary: z.string().trim().max(10_000),
+  analysisBasis: z.string().trim().max(10_000),
+  initialConclusion: z.string().trim().max(10_000),
+  informationGaps: z.string().trim().max(10_000),
+  suggestedDepartment: z.string().trim().max(10_000),
+  processingRequirements: z.string().trim().max(10_000),
+  suggestedDueAt: z.string().trim().max(100),
+});
 
 function errorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
   const message = error instanceof Error ? error.message : String(error);
@@ -226,9 +254,150 @@ async function handleQualityApi(input: {
     createQualityStore().close();
     const caps = resolveQualityCapabilities(session.userId);
     const aftersales = caps.roles.includes("aftersales_manager");
-    const specialist = caps.roles.includes("quality_specialist");
+    const specialist = caps.hasQualityManagement;
+
+    if (url.pathname === "/api/workbench/quality/review-queue") {
+      if (!aftersales) { forbidden(res); return; }
+      if (req.method !== "GET") { writeJson(res, 405, { ok: false, error: "请求方法不支持" }); return; }
+      const query = createQualityReviewQuery();
+      try {
+        const data = query.list({
+          scope: z.enum(["UNREVIEWED", "NEEDS_INFO", "COMPLETED"]).parse(url.searchParams.get("scope") ?? "UNREVIEWED"),
+          q: url.searchParams.get("q") ?? "",
+          risk: z.enum(["ALL", "HIGH_RISK", "REPEAT", "NONE"]).parse(url.searchParams.get("risk") ?? "ALL"),
+          deviceModel: url.searchParams.get("deviceModel") ?? "",
+          category: url.searchParams.get("category") ?? "",
+          page: parsePositiveInt(url.searchParams.get("page"), 1),
+          pageSize: parsePositiveInt(url.searchParams.get("pageSize"), 50, 200),
+        });
+        writeJson(res, 200, { ok: true, data });
+      } finally { query.close(); }
+      return;
+    }
+
+    const qualityAnalysisMatch = url.pathname.match(
+      /^\/api\/workbench\/quality\/events\/([^/]+)\/(analysis|analysis\/complete|planning-session)$/,
+    );
+    if (qualityAnalysisMatch) {
+      if (!isQualityTaskPlanningV2Enabled()) {
+        writeJson(res, 404, { ok: false, error: "质量任务统一分配尚未启用" });
+        return;
+      }
+      const eventId = decodeURIComponent(qualityAnalysisMatch[1]!);
+      const action = qualityAnalysisMatch[2]!;
+      const visible = detailForActor(eventId, session);
+      if (!visible) {
+        writeJson(res, 404, { ok: false, error: "记录不存在或无权访问" });
+        return;
+      }
+      const planning = createQualityPlanningService();
+      try {
+        if (req.method === "GET" && action === "analysis") {
+          writeJson(res, 200, {
+            ok: true,
+            data: {
+              versions: planning.listAnalysisVersions(eventId),
+              planning: planning.getPlanningRecord(eventId),
+            },
+          });
+          return;
+        }
+        const body = await readJsonBody(req);
+        if (req.method === "POST" && action === "analysis") {
+          if (!caps.hasQualityManagement) throw new Error("quality action forbidden");
+          const analysis = planning.saveAnalysisDraft({
+            eventId,
+            actorUserId: session.userId,
+            expectedEventVersion: z.number().int().positive().parse(body.expectedEventVersion),
+            fields: qualityAnalysisFieldsSchema.parse(body.fields),
+          });
+          writeJson(res, 200, { ok: true, data: { analysis } });
+          return;
+        }
+        if (req.method === "POST" && action === "analysis/complete") {
+          if (!caps.hasQualityManagement) throw new Error("quality action forbidden");
+          const analysis = planning.completeAnalysis({
+            eventId,
+            actorUserId: session.userId,
+            analysisId: z.string().trim().min(1).parse(body.analysisId),
+          });
+          writeJson(res, 200, { ok: true, data: { analysis } });
+          return;
+        }
+        if (req.method === "POST" && action === "planning-session") {
+          if (!resolveWorkbenchCapabilities(session.userId).canManage) {
+            throw new Error("只有主管可以进入任务分配");
+          }
+          const planSessionStore = createPlanSessionStore();
+          const result = planning.createOrResumePlanningSession({
+            eventId,
+            managerUserId: session.userId,
+            expectedEventVersion: z.number().int().positive().parse(body.expectedEventVersion),
+            requestId: requestId(body.requestId),
+            createThread: (options) => createSideThreadSession(session.userId, options),
+            saveThread: (planSession) => planSessionStore.save(planSession),
+          });
+          writeJson(res, result.created ? 201 : 200, {
+            ok: true,
+            data: {
+              planning: result.planning,
+              created: result.created,
+              chatUrl: `/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(result.planning.threadId)}`,
+            },
+          });
+          return;
+        }
+        writeJson(res, 405, { ok: false, error: "请求方法不支持" });
+      } finally {
+        planning.close();
+      }
+      return;
+    }
+
+    const sourceReview = url.pathname.match(/^\/api\/workbench\/quality\/source\/([^/]+)\/review$/);
+    if (sourceReview) {
+      if (!aftersales) { forbidden(res); return; }
+      if (req.method !== "POST") { writeJson(res, 405, { ok: false, error: "请求方法不支持" }); return; }
+      const body = await readJsonBody(req);
+      const service = createQualitySourceReviewService();
+      try {
+        const review = service.reviewSource({
+          actorUserId: session.userId,
+          sourceKey: decodeURIComponent(sourceReview[1]!),
+          decision: z.enum(["ORDINARY", "NEEDS_INFO"]).parse(body.decision),
+          note: body.note == null ? undefined : z.string().max(2000).parse(body.note),
+          expectedVersion: z.number().int().min(0).parse(body.expectedVersion),
+          requestId: requestId(body.requestId),
+        });
+        triggerQualitySourceWriteback();
+        writeJson(res, 200, { ok: true, data: { review } });
+      } finally { service.close(); }
+      return;
+    }
+
+    const sourceWritebackRetry = url.pathname.match(/^\/api\/workbench\/quality\/source\/([^/]+)\/writeback\/retry$/);
+    if (sourceWritebackRetry) {
+      if (!aftersales) { forbidden(res); return; }
+      if (req.method !== "POST") { writeJson(res, 405, { ok: false, error: "请求方法不支持" }); return; }
+      const body = await readJsonBody(req);
+      requestId(body.requestId);
+      const sourceKey = decodeURIComponent(sourceWritebackRetry[1]!);
+      const outbox = createQualitySourceWritebackOutbox();
+      try {
+        const failed = [...outbox.list(sourceKey)].reverse().find((item) => item.status === "DEAD");
+        if (!failed) throw new Error("没有可重新入队的回写失败任务");
+        const writeback = outbox.retryDead(failed.writebackId);
+        triggerQualitySourceWriteback();
+        writeJson(res, 200, { ok: true, data: { writeback } });
+      } finally { outbox.close(); }
+      return;
+    }
 
     if (url.pathname.startsWith("/api/workbench/quality/opinions/")) {
+      if (isQualityTaskPlanningV2Enabled()) {
+        writeJson(res, 404, { ok: false, error: "质量意见功能已下线" });
+        return;
+      }
       if (!caps.canAccessOpinions && !specialist) { forbidden(res); return; }
       const service = createQualityPrivateCommentService();
       try {
@@ -561,6 +730,9 @@ async function handleQualityApi(input: {
       const action = specialistAction[2]!;
       const body = await readJsonBody(req);
       if (action === "assign-primary" || action === "due") {
+        if (isQualityTaskPlanningV2Enabled()) {
+          throw new Error("统一任务分配已启用，负责人和期限只能在原任务系统调整");
+        }
         const service = createQualityAssignmentService();
         try {
           if (action === "assign-primary") {
@@ -729,6 +901,7 @@ async function handleQualityApi(input: {
             expectedVersion: parsePositiveInt(body.expectedVersion, 0),
             requestId: requestId(body.requestId),
           });
+          triggerQualitySourceWriteback();
           writeJson(res, 200, { ok: true, data: { event } });
           return;
         }
@@ -815,7 +988,8 @@ export function handleQualityHttp(input: {
   const isHead = req.method === "HEAD";
 
   if ((req.method === "GET" || isHead) && url.pathname === "/workbench/quality") {
-    if (!caps.canAccessTracking) {
+    const workbenchCaps = resolveWorkbenchCapabilities(session.userId);
+    if (!caps.canAccessTracking && workbenchCaps.primaryRole !== "admin") {
       forbidden(res);
       return true;
     }
@@ -825,6 +999,27 @@ export function handleQualityHttp(input: {
       userLabel: session.dingUser?.name,
       canReport: caps.roles.includes("aftersales_manager"),
       isSpecialist: caps.roles.includes("quality_specialist"),
+      hasQualityManagement: caps.hasQualityManagement,
+      canManage: workbenchCaps.canManage,
+      taskPlanningV2Enabled: isQualityTaskPlanningV2Enabled(),
+    });
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store, must-revalidate",
+    });
+    res.end(isHead ? "" : html);
+    return true;
+  }
+
+  if ((req.method === "GET" || isHead) && url.pathname === "/workbench/quality/review") {
+    if (!caps.roles.includes("aftersales_manager")) {
+      forbidden(res);
+      return true;
+    }
+    const html = renderQualityReviewPage({
+      role: session.role as WorkbenchShellRole,
+      userId: session.userId,
+      userLabel: session.dingUser?.name,
     });
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",
@@ -835,6 +1030,10 @@ export function handleQualityHttp(input: {
   }
 
   if ((req.method === "GET" || isHead) && url.pathname === "/workbench/quality/opinions") {
+    if (isQualityTaskPlanningV2Enabled()) {
+      writeJson(res, 404, { ok: false, error: "质量意见功能已下线" });
+      return true;
+    }
     if (!caps.canAccessOpinions && !caps.roles.includes("quality_specialist")) {
       forbidden(res);
       return true;

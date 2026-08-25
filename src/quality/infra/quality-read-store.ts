@@ -287,6 +287,9 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
   }
 
   function listManagerAssignmentNodes(userId: string) {
+    const hasPlanningTable = Boolean(db.prepare(`
+      SELECT 1 FROM sqlite_master WHERE type='table' AND name='quality_planning_sessions'
+    `).get());
     const rows = db.prepare(`
       SELECT n.*, e.event_no, e.title AS event_title, e.problem_status, e.status AS event_status,
              e.version AS event_version,
@@ -294,7 +297,9 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
              parent.assignee_user_id AS parent_assignee_user_id,
              primary_node.assignee_user_id AS primary_assignee_user_id,
              l.task_id, l.subtask_id,
-             root_task.manager_user_id AS specialist_user_id
+             root_task.manager_user_id AS specialist_user_id,
+             root_task.plan_id AS formal_plan_id,
+             ${hasPlanningTable ? "CASE WHEN EXISTS (SELECT 1 FROM quality_planning_sessions qp WHERE qp.event_id=n.event_id) THEN 1 ELSE 0 END" : "0"} AS planning_v2
       FROM quality_assignment_nodes n
       JOIN quality_events e ON e.id = n.event_id AND e.deleted_at IS NULL
       LEFT JOIN quality_assignment_nodes parent ON parent.node_id = n.parent_node_id
@@ -348,6 +353,8 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
         specialistUserId: nullableString(row.specialist_user_id),
         taskId: nullableString(row.task_id),
         subtaskId: nullableString(row.subtask_id),
+        formalPlanId: nullableString(row.formal_plan_id),
+        planningV2: Number(row.planning_v2) === 1,
         reviewChildren,
       };
     });

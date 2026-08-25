@@ -32,6 +32,18 @@ export function projectQualityEventState(
       const descendantsApproved = nodes
         .filter((item) => String(item.node_id) !== primaryNodeId)
         .every((item) => String(item.status) === "APPROVED");
+      const planningV2 = Boolean(db.prepare(`
+        SELECT 1 FROM sqlite_master WHERE type='table' AND name='quality_planning_sessions'
+      `).get()) && Boolean(db.prepare(
+        "SELECT 1 FROM quality_planning_sessions WHERE event_id=? AND binding_status='BOUND'",
+      ).get(eventId));
+      if (planningV2 && root && String(root.status) === "IN_PROGRESS" && descendantsApproved) {
+        db.prepare(`
+          UPDATE quality_assignment_nodes SET status='PENDING_PARENT_REVIEW',version=version+1,updated_at=?
+          WHERE node_id=? AND status='IN_PROGRESS'
+        `).run(new Date().toISOString(), primaryNodeId);
+        root.status = "PENDING_PARENT_REVIEW";
+      }
       if (root && String(root.status) === "PENDING_PARENT_REVIEW" && descendantsApproved
         && String(event.status) === "IN_PROGRESS") {
         const nextStatus = transitionQualityEvent("IN_PROGRESS", "ALL_BRANCHES_APPROVED");
@@ -83,7 +95,7 @@ export function getQualityEvidencePackage(input: {
     const primary = allNodes.find((row) => String(row.node_id) === primaryNodeId);
     const caps = resolveQualityCapabilities(input.viewerUserId);
     const full = Boolean(input.isQualitySpecialist)
-      || caps.roles.includes("quality_specialist")
+      || caps.hasQualityManagement
       || (Boolean(input.isAftersalesManager) && String(event.created_by) === input.viewerUserId)
       || (caps.roles.includes("aftersales_manager") && String(event.created_by) === input.viewerUserId)
       || String(primary?.assignee_user_id ?? "") === input.viewerUserId;

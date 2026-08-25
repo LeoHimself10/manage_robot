@@ -6842,6 +6842,7 @@ export function handleAssignmentHttp(
       badge: threadMeta.badge,
       messages,
       knownFacts: target.knownFacts ?? [],
+      sourceContext: target.sourceContext ?? null,
       hasDraft: planSessionHasDraft(target),
       updatedAt: target.updatedAt,
       ...(portfolioOn

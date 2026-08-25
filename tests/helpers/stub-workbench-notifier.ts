@@ -8,6 +8,7 @@ export function stubWorkbenchPublishNotifier(
   overrides: Partial<WorkbenchPublishNotifier> = {},
 ): WorkbenchPublishNotifier {
   return {
+    notifyQualityAction: vi.fn(emptyNotify),
     notifyPublishedTask: vi.fn(emptyNotify),
     notifyReassignedAssignee: vi.fn(emptyNotify),
     notifyTaskStopped: vi.fn(emptyNotify),

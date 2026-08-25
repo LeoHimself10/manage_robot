@@ -21,8 +21,8 @@ export function createQualityClosureService(deps?: { dbPath?: string; now?: () =
   const id = deps?.id ?? randomUUID;
 
   function requireSpecialist(userId: string): void {
-    if (!resolveQualityCapabilities(userId).roles.includes("quality_specialist")) {
-      throw new Error("仅质量专员可执行终验、关闭或重开");
+    if (!resolveQualityCapabilities(userId).hasQualityManagement) {
+      throw new Error("仅具备质量管理能力的员工可执行终验、关闭或重开");
     }
   }
   function getEvent(eventId: string): QualityEventRecord {
@@ -42,7 +42,7 @@ export function createQualityClosureService(deps?: { dbPath?: string; now?: () =
   function reopenFormal(nodeId: string, reason: string): void {
     const node = getNode(nodeId);
     const link = db.prepare("SELECT subtask_id FROM quality_task_links WHERE node_id = ?").get(nodeId) as DatabaseRow | undefined;
-    if (!link) return;
+    if (!link || link.subtask_id == null) return;
     formal.updateSubtaskStatus({ subtaskId: String(link.subtask_id), actorUserId: node.assigneeUserId, action: "progress", progressStatus: "IN_PROGRESS", note: reason });
   }
   function nodesForEvent(eventId: string) {

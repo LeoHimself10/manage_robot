@@ -111,6 +111,12 @@ export function createQualityAssignmentService(deps?: {
     }
   }
 
+  function getSubtaskLink(nodeId: string): QualityTaskLink & { subtaskId: string } {
+    const link = getTaskLink(nodeId);
+    if (!link.subtaskId) throw new Error("该质量根节点只关联父任务，请在原任务系统处理");
+    return link as QualityTaskLink & { subtaskId: string };
+  }
+
   function appendAudit(input: {
     eventId: string;
     actorUserId: string;
@@ -272,7 +278,7 @@ export function createQualityAssignmentService(deps?: {
     if (node.parentNodeId == null && event.primaryNodeId && event.primaryNodeId !== node.nodeId) {
       throw new Error("原主责承接人不可替换");
     }
-    const link = getTaskLink(node.nodeId);
+    const link = getSubtaskLink(node.nodeId);
     formalStore.updateSubtaskStatus({
       subtaskId: link.subtaskId,
       actorUserId: input.actorUserId,
@@ -297,6 +303,11 @@ export function createQualityAssignmentService(deps?: {
           WHERE id = ? AND version = ? AND (primary_node_id IS NULL OR primary_node_id = ?)
         `).run(node.nodeId, node.departmentName || null, occurredAt, event.eventId, event.version, node.nodeId);
         if (Number(updatedEvent.changes) !== 1) throw new Error("version conflict");
+      } else if (event.status === "PENDING_ACCEPTANCE") {
+        db.prepare(`
+          UPDATE quality_events SET status='IN_PROGRESS',version=version+1,updated_at=?
+          WHERE id=? AND status='PENDING_ACCEPTANCE'
+        `).run(occurredAt, event.eventId);
       }
       appendAudit({
         eventId: node.eventId,
@@ -321,7 +332,7 @@ export function createQualityAssignmentService(deps?: {
     if (node.status === "REJECTED") return resultForNode(node.nodeId);
     if (node.status !== "PENDING_ACCEPTANCE") throw new Error("质量节点当前不可驳回");
     if (node.version !== input.expectedVersion) throw new Error("version conflict");
-    const link = getTaskLink(node.nodeId);
+    const link = getSubtaskLink(node.nodeId);
     formalStore.updateSubtaskStatus({
       subtaskId: link.subtaskId,
       actorUserId: input.actorUserId,
@@ -478,7 +489,7 @@ export function createQualityAssignmentService(deps?: {
     if (child.version !== input.expectedVersion) throw new Error("version conflict");
     const dueAt = normalizeDueAt(input.dueAt);
     assertChildDueWithinParent(dueAt, parent.dueAt);
-    const link = getTaskLink(child.nodeId);
+    const link = getSubtaskLink(child.nodeId);
     formalStore.setSubtaskDueAt({
       subtaskId: link.subtaskId,
       actorUserId: input.actorUserId,
@@ -530,7 +541,7 @@ export function createQualityAssignmentService(deps?: {
     `).get(input.eventId) as DatabaseRow | undefined;
     if (!rootRow) throw new Error("原主责节点不存在");
     const root = getNode(String(rootRow.node_id));
-    const link = getTaskLink(root.nodeId);
+    const link = getSubtaskLink(root.nodeId);
     formalStore.setSubtaskDueAt({
       subtaskId: link.subtaskId,
       actorUserId: input.specialistUserId,

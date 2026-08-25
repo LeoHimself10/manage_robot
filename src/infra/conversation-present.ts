@@ -140,7 +140,7 @@ export function buildThreadListItem(session: PlanSession): ThreadListItem {
     pinned: false,
     title: inferSideThreadTitle(session),
     preview: previewRaw || SIDE_THREAD_PREVIEW_EMPTY,
-    badge: "侧会话",
+    badge: session.sourceContext?.kind === "quality_event" ? "质量任务" : "侧会话",
     planId: session.planId,
     updatedAt: session.updatedAt,
     turns,

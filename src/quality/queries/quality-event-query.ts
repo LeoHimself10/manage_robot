@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
 import { resolveQualityCapabilities } from "../../security/quality-capabilities";
+import { resolveWorkbenchCapabilities } from "../../security/workbench-capabilities";
 import type { QualityEventRecord } from "../domain/quality-types";
 
 type DatabaseRow = Record<string, unknown>;
@@ -172,19 +173,39 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
     if (!row) return null;
     const event = eventFromRow(row);
     const caps = resolveQualityCapabilities(input.viewerUserId);
+    const workbenchCaps = resolveWorkbenchCapabilities(input.viewerUserId);
+    const isAdmin = workbenchCaps.primaryRole === "admin";
     if (event.status === "DRAFT") {
-      if (event.createdBy !== input.viewerUserId) return null;
+      if (event.createdBy !== input.viewerUserId && !isAdmin) return null;
       return {
         event, sourceSnapshots: [], relatedEvents: [], assignmentTree: [], evidence: [], reviews: [], publicAudit: [], notifications: [],
-        allowedActions: ["编辑草稿", "提交通报"],
+        allowedActions: event.createdBy === input.viewerUserId ? ["编辑草稿", "提交通报"] : [],
       };
     }
-    const allNodes = (tableExists(db, "tasks")
+    const rawNodes = (tableExists(db, "tasks")
       ? db.prepare(`
-          SELECT n.*,l.task_id,l.subtask_id,t.task_no
+          SELECT n.*,l.task_id,l.subtask_id,l.integration_key,t.task_no,
+            CASE WHEN l.subtask_id IS NOT NULL
+              THEN COALESCE(s.assignee_user_id,n.assignee_user_id)
+              ELSE COALESCE(t.manager_user_id,n.assignee_user_id)
+            END AS effective_assignee_user_id,
+            CASE WHEN l.subtask_id IS NOT NULL THEN
+              CASE s.status
+                WHEN 'ASSIGNED' THEN 'PENDING_ACCEPTANCE'
+                WHEN 'CHANGES_REQUESTED' THEN 'PENDING_ACCEPTANCE'
+                WHEN 'DONE' THEN 'PENDING_PARENT_REVIEW'
+                WHEN 'REJECTED' THEN 'REJECTED'
+                WHEN 'STOPPED' THEN 'CANCELLED'
+                ELSE 'IN_PROGRESS'
+              END
+              ELSE n.status
+            END AS effective_status,
+            CASE WHEN l.subtask_id IS NOT NULL THEN COALESCE(s.due_at,n.due_at) ELSE n.due_at END AS effective_due_at,
+            s.title AS formal_subtask_title
           FROM quality_assignment_nodes n
           LEFT JOIN quality_task_links l ON l.node_id=n.node_id
           LEFT JOIN tasks t ON t.task_id=l.task_id
+          LEFT JOIN subtasks s ON s.subtask_id=l.subtask_id
           WHERE n.event_id=? AND n.status <> 'CANCELLED'
           ORDER BY n.depth,n.created_at,n.node_id
         `).all(event.eventId)
@@ -195,11 +216,18 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
           WHERE n.event_id=? AND n.status <> 'CANCELLED'
           ORDER BY n.depth,n.created_at,n.node_id
         `).all(event.eventId)) as DatabaseRow[];
+    const allNodes: DatabaseRow[] = rawNodes.map((node): DatabaseRow => ({
+      ...node,
+      assignee_user_id: node.effective_assignee_user_id ?? node.assignee_user_id,
+      status: node.effective_status ?? node.status,
+      due_at: node.effective_due_at ?? node.due_at,
+      requirement: node.formal_subtask_title ?? node.requirement,
+    }));
     const primary = allNodes.find((node) => Number(node.is_primary) === 1 || String(node.node_id) === event.primaryNodeId);
-    const isSpecialist = caps.roles.includes("quality_specialist");
+    const isSpecialist = caps.hasQualityManagement;
     const isAftersalesOwner = caps.roles.includes("aftersales_manager") && event.createdBy === input.viewerUserId;
     const isPrimary = String(primary?.assignee_user_id ?? "") === input.viewerUserId;
-    const full = isSpecialist || isAftersalesOwner || isPrimary;
+    const full = isAdmin || isSpecialist || isAftersalesOwner || isPrimary;
     const visible = visibleNodeIds(allNodes, event, input.viewerUserId, full);
     if (!full && visible.size === 0) return null;
     const orderedNodes = orderVisibleNodes(allNodes, visible);
@@ -246,7 +274,8 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
         nodeId: String(item.node_id), parentNodeId: nullable(item.parent_node_id), depth: Number(item.depth), assigneeUserId: String(item.assignee_user_id),
         assigneeKind: String(item.assignee_kind), departmentName: String(item.department_name), isPrimary: Number(item.is_primary) === 1,
         status: String(item.status), dueAt: String(item.due_at), requirement: String(item.requirement), version: Number(item.version),
-        taskId: nullable(item.task_id), subtaskId: nullable(item.subtask_id), taskNo: nullable(item.task_no), acceptedAt: nullable(item.accepted_at), submittedAt: nullable(item.submitted_at),
+        taskId: nullable(item.task_id), subtaskId: nullable(item.subtask_id), taskNo: nullable(item.task_no), integrationKey: nullable(item.integration_key),
+        formalStatus: nullable(item.effective_status), acceptedAt: nullable(item.accepted_at), submittedAt: nullable(item.submitted_at),
       })),
       evidence, reviews, publicAudit, notifications,
       allowedActions: allowedActions({ event, viewerUserId: input.viewerUserId, isSpecialist, isAftersalesOwner, visibleNodes: orderedNodes }),
@@ -255,7 +284,8 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
 
   function listEvents(input: { viewerUserId: string }): QualityEventRecord[] {
     const caps = resolveQualityCapabilities(input.viewerUserId);
-    const isSpecialist = caps.roles.includes("quality_specialist") ? 1 : 0;
+    const isAdmin = resolveWorkbenchCapabilities(input.viewerUserId).primaryRole === "admin" ? 1 : 0;
+    const isSpecialist = caps.hasQualityManagement ? 1 : 0;
     const isAftersales = caps.roles.includes("aftersales_manager") ? 1 : 0;
     const rows = db.prepare(`
       SELECT DISTINCT e.* FROM quality_events e
@@ -263,12 +293,13 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
         ON n.event_id=e.id AND n.assignee_user_id=? AND n.status <> 'CANCELLED'
       WHERE e.deleted_at IS NULL AND (
         (e.status='DRAFT' AND e.created_by=?) OR
+        (?=1) OR
         (e.status<>'DRAFT' AND ?=1) OR
         (e.status<>'DRAFT' AND ?=1 AND e.created_by=?) OR
         (e.status<>'DRAFT' AND n.node_id IS NOT NULL)
       )
       ORDER BY e.updated_at DESC,e.id
-    `).all(input.viewerUserId, input.viewerUserId, isSpecialist, isAftersales, input.viewerUserId) as DatabaseRow[];
+    `).all(input.viewerUserId, input.viewerUserId, isAdmin, isSpecialist, isAftersales, input.viewerUserId) as DatabaseRow[];
     return rows.map(eventFromRow);
   }
 

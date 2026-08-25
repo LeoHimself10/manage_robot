@@ -116,15 +116,30 @@ export function deleteSideThreadSession(userId: string, threadId: string): boole
   if (!tid || tid === "main") return false;
   const target = resolveConversationThread(userId, { threadKind: "side", threadId: tid });
   if (!target || !isSideThreadSession(target)) return false;
+  if (target.sourceContext?.kind === "quality_event") {
+    throw new Error("质量任务会话用于审计追溯，不能删除");
+  }
   planSessionStore.deleteByChatKeyHash(target.chatKeyHash);
   return true;
 }
 
-export function createSideThreadSession(userId: string): PlanSessionRow {
+export interface CreateSideThreadSessionOptions {
+  threadLabel?: string;
+  sourceContext?: PlanSession["sourceContext"];
+  latestDraft?: Record<string, unknown>;
+  latestAssignment?: Record<string, unknown>;
+  conversationHistory?: PlanSession["conversationHistory"];
+}
+
+export function createSideThreadSession(
+  userId: string,
+  options: CreateSideThreadSessionOptions = {},
+): PlanSessionRow {
   const threadId = randomUUID();
   const chatKey = sideThreadChatKey(userId, threadId);
   const now = new Date().toISOString();
-  const threadLabel = formatSideThreadDefaultTitle(new Date(now));
+  const threadLabel = String(options.threadLabel ?? "").trim().slice(0, 40)
+    || formatSideThreadDefaultTitle(new Date(now));
   const created: PlanSessionRow = {
     chatKeyHash: hashChatKey(chatKey),
     planId: randomUUID(),
@@ -135,7 +150,10 @@ export function createSideThreadSession(userId: string): PlanSessionRow {
     threadId,
     threadLabel,
     knownFacts: [],
-    conversationHistory: [],
+    conversationHistory: options.conversationHistory ?? [],
+    sourceContext: options.sourceContext,
+    latestDraft: options.latestDraft,
+    latestAssignment: options.latestAssignment,
   };
   planSessionStore.save(created);
   return created;
