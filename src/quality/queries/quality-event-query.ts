@@ -68,6 +68,39 @@ function tableExists(db: DatabaseSync, name: string): boolean {
   return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
 }
 
+export interface QualityEventListItem extends QualityEventRecord {
+  planningHandoff?: {
+    analysisVersion: number;
+    status: string;
+    primaryDepartmentName: string;
+    planningUrl: string;
+  };
+}
+
+/**
+ * Read-only capability probe used by the shared workbench shell. It never
+ * changes the manager's base role; it only exposes the additive quality entry
+ * after a formal analysis handoff has actually been addressed to that manager.
+ */
+export function hasQualityPlanningHandoff(
+  managerUserId: string,
+  dbPath = resolveWorkbenchSqlitePath(),
+): boolean {
+  const userId = String(managerUserId ?? "").trim();
+  if (!userId) return false;
+  let db: DatabaseSync | undefined;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+    if (!tableExists(db, "quality_analysis_handoffs")) return false;
+    return Boolean(db.prepare(`SELECT 1 AS ok FROM quality_analysis_handoffs
+      WHERE primary_manager_user_id=? LIMIT 1`).get(userId));
+  } catch {
+    return false;
+  } finally {
+    db?.close();
+  }
+}
+
 function safeText(value: unknown): string | null {
   if (value == null) return null;
   const text = String(value).slice(0, 10_000);
@@ -202,7 +235,11 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
     const isAdmin = caps.baseRole === "admin";
     const isAftersalesOwner = caps.roles.includes("aftersales_manager") && event.createdBy === input.viewerUserId;
     const isPrimary = String(primary?.assignee_user_id ?? "") === input.viewerUserId;
-    const full = isAdmin || isSpecialist || isAftersalesOwner || isPrimary;
+    const isPlanningManager = tableExists(db, "quality_analysis_handoffs")
+      && Boolean(db.prepare(`SELECT 1 AS ok FROM quality_analysis_handoffs
+        WHERE event_id=? AND primary_manager_user_id=? LIMIT 1`)
+        .get(event.eventId, input.viewerUserId));
+    const full = isAdmin || isSpecialist || isAftersalesOwner || isPrimary || isPlanningManager;
     const visible = visibleNodeIds(allNodes, event, input.viewerUserId, full);
     if (!full && visible.size === 0) return null;
     const orderedNodes = orderVisibleNodes(allNodes, visible);
@@ -266,24 +303,61 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
     };
   }
 
-  function listEvents(input: { viewerUserId: string }): QualityEventRecord[] {
+  function listEvents(input: { viewerUserId: string }): QualityEventListItem[] {
     const caps = resolveQualityCapabilities(input.viewerUserId);
     const isSpecialist = caps.canAnalyzeQuality ? 1 : 0;
     const isAdmin = caps.baseRole === "admin" ? 1 : 0;
     const isAftersales = caps.roles.includes("aftersales_manager") ? 1 : 0;
+    const hasHandoffs = tableExists(db, "quality_analysis_handoffs");
+    const handoffJoin = hasHandoffs
+      ? `LEFT JOIN quality_analysis_handoffs h
+          ON h.handoff_id=(
+            SELECT h2.handoff_id FROM quality_analysis_handoffs h2
+            WHERE h2.event_id=e.id AND h2.primary_manager_user_id=?
+            ORDER BY h2.analysis_version DESC LIMIT 1
+          )`
+      : `LEFT JOIN (SELECT NULL AS event_id,NULL AS handoff_id,NULL AS analysis_version,
+          NULL AS status,NULL AS primary_department_name,NULL AS thread_id) h ON 1=0`;
+    const handoffArg = hasHandoffs ? [input.viewerUserId] : [];
     const rows = db.prepare(`
-      SELECT DISTINCT e.* FROM quality_events e
+      SELECT DISTINCT e.*,h.handoff_id AS planning_handoff_id,
+        h.analysis_version AS planning_analysis_version,
+        h.status AS planning_handoff_status,
+        h.primary_department_name AS planning_department_name,
+        h.thread_id AS planning_thread_id
+      FROM quality_events e
       LEFT JOIN quality_assignment_nodes n
         ON n.event_id=e.id AND n.assignee_user_id=? AND n.status <> 'CANCELLED'
+      ${handoffJoin}
       WHERE e.deleted_at IS NULL AND (
         (e.status='DRAFT' AND e.created_by=?) OR
         (e.status<>'DRAFT' AND (?=1 OR ?=1)) OR
         (e.status<>'DRAFT' AND ?=1 AND e.created_by=?) OR
-        (e.status<>'DRAFT' AND n.node_id IS NOT NULL)
+        (e.status<>'DRAFT' AND n.node_id IS NOT NULL) OR
+        (e.status<>'DRAFT' AND h.event_id IS NOT NULL)
       )
       ORDER BY e.updated_at DESC,e.id
-    `).all(input.viewerUserId, input.viewerUserId, isSpecialist, isAdmin, isAftersales, input.viewerUserId) as DatabaseRow[];
-    return rows.map(eventFromRow);
+    `).all(
+      input.viewerUserId,
+      ...handoffArg,
+      input.viewerUserId,
+      isSpecialist,
+      isAdmin,
+      isAftersales,
+      input.viewerUserId,
+    ) as DatabaseRow[];
+    return rows.map((row) => {
+      const event = eventFromRow(row) as QualityEventListItem;
+      if (row.planning_handoff_id != null && row.planning_thread_id != null) {
+        event.planningHandoff = {
+          analysisVersion: Number(row.planning_analysis_version),
+          status: String(row.planning_handoff_status),
+          primaryDepartmentName: String(row.planning_department_name),
+          planningUrl: `/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(String(row.planning_thread_id))}&openDraftEditor=1`,
+        };
+      }
+      return event;
+    });
   }
 
   return { getEventDetail, listEvents, close: () => db.close() };

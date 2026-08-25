@@ -56,7 +56,7 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain('var initialSourceKey = "feedback:REAL-001"');
     expect(html).toContain("window.addEventListener('popstate', restoreFromUrl)");
     expect(html).toContain("fetch('/api/workbench/logout'");
-    expect(html).toContain("/workbench/quality/review?sourceKey=");
+    expect(html).toContain("url.pathname = '/workbench/quality/review'");
   });
 
   it("renders the formal 9/27 taxonomy plus explicit custom category fallbacks", () => {
@@ -86,7 +86,7 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain("自定义分类必填");
   });
 
-  it("keeps AI adoption separate from save and leaves later analysis disabled", () => {
+  it("keeps AI adoption separate from save and exposes the real analysis handoff", () => {
     const html = renderQualityTrackingPage({
       role: "manager",
       userId: "after",
@@ -98,8 +98,9 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain("applyAiSuggestion");
     expect(html).toContain("setAdoptionMode('MODIFIED')");
     expect(html).toContain("form.addEventListener('submit'");
-    expect(html).toContain("质量研析尚未开放");
-    expect(html).toContain('type="button" disabled title="质量研析功能尚未完成"');
+    expect(html).not.toContain("质量研析尚未开放");
+    expect(html).toContain("质量初析工作区");
+    expect(html).toContain("下一步：确认推送主管");
     expect(html).toContain("未创建质量事件，未改变来源状态");
   });
 
@@ -116,11 +117,21 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain("资料已更新");
     expect(html).toContain('id="qualityReportDialog"');
     expect(html).toContain("保存草稿");
-    expect(html).toContain("明确提交并创建质量事件");
+    expect(html).toContain('id="qualityReportSubmit">下一步');
+    expect(html).toContain("研判已完成");
+    expect(html).toContain("是否推送给质量专员进行初析");
+    expect(html).toContain('id="qualityReportConfirmFeedback"');
+    expect(html).toContain('id="qualityAnalysisConfirmFeedback"');
+    expect(html).toContain("state.reportConfirmRequestId = requestId");
+    expect(html).toContain("state.analysisConfirmRequestId = requestId");
+    expect(html).toContain("推送未完成，请在确认弹窗查看原因并重试");
+    expect(html).not.toContain("catch (error) { document.getElementById('qualityReportConfirmDialog').close()");
+    expect(html).not.toContain("catch (error) { dialog.close(); var current = document.getElementById('qaFeedback')");
     expect(html).toContain("查看质量事件");
     expect(html).toContain("PENDING_ANALYSIS: '待质量初析'");
     expect(html).toContain("AI原稿独立留存，人工草稿可编辑");
-    expect(html).toContain("正式确认并交接任务规划");
+    expect(html).toContain("是否推送给“");
+    expect(html).toContain("进入任务规划／分配");
   });
 
   it("emits syntactically valid inline browser scripts", () => {
@@ -136,19 +147,28 @@ describe("renderQualityTrackingPage", () => {
     expect(() => scripts.forEach((script) => new Function(script!))).not.toThrow();
   });
 
-  it("renders an administrator quality perspective as explicitly read-only", () => {
+  it("renders an administrator manager selector as explicitly read-only", () => {
     const html = renderQualityTrackingPage({
-      role: "employee",
+      role: "admin",
       userId: "admin-1",
       canReport: false,
-      isSpecialist: true,
+      isSpecialist: false,
       isBusinessReadOnly: true,
-      adminPerspective: "quality_specialist",
+      planningMode: true,
+      selectedManagerUserId: "manager-1",
+      managerPerspectives: [{
+        departmentId: "dept-1",
+        departmentName: "研发中心",
+        managerUserId: "manager-1",
+        managerName: "曹一挥",
+        label: "研发中心主管（曹一挥）",
+      }],
     });
 
     expect(html).toContain("管理员只读查看");
     expect(html).toContain('data-business-readonly="1"');
-    expect(html).toContain("质量专员");
+    expect(html).toContain("研发中心主管（曹一挥）");
+    expect(html).toContain("仅改变数据范围，不授予业务操作权限");
     expect(html).toContain("applyBusinessReadOnly");
   });
 });

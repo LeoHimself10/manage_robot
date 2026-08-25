@@ -669,6 +669,13 @@ export function createQualityAnalysisService(deps?: {
     const side = createSideThreadSession(input.managerUserId);
     const deliverables = input.package.requiredDeliverables as QualityDeliverable[];
     const dueAt = String(input.package.suggestedTotalDueAt);
+    const lines = (value: unknown): string[] => Array.isArray(value)
+      ? value.map((item) => String(item ?? "").trim()).filter(Boolean)
+      : String(value ?? "").trim() ? [String(value).trim()] : [];
+    const bullets = (value: unknown, empty = "无"): string => {
+      const items = lines(value);
+      return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : `- ${empty}`;
+    };
     const tasks = deliverables.map((deliverable, index) => ({
       id: `task_${index + 1}`,
       title: deliverable.name,
@@ -679,12 +686,51 @@ export function createQualityAnalysisService(deps?: {
       qualityDeliverableIds: [deliverable.deliverableId],
       qualityEventId: input.package.qualityEventId,
     }));
+    const primaryDepartment = input.package.primaryDepartment as {
+      departmentName?: unknown;
+    } | undefined;
+    const collaborators = lines(
+      (input.package.collaboratingDepartments as Array<{ departmentName?: unknown }> | undefined)
+        ?.map((item) => item.departmentName),
+    );
     const description = [
-      `质量事件 ${input.eventNo}：${input.eventTitle}`,
-      `问题方向：${String(input.package.problemDirection)}`,
-      `初步结论：${String(input.package.preliminaryConclusion)}`,
-      `处理要求：${(input.package.handlingRequirements as string[]).join("；")}`,
-      "请在正式发布前确认负责人、每项期限、协同部门，并确保所有必须成果均被任务覆盖。",
+      `# 质量事件任务草稿｜${input.eventNo}`,
+      "",
+      `**事件标题：** ${input.eventTitle}`,
+      `**建议主责部门：** ${String(primaryDepartment?.departmentName ?? "待确认")}`,
+      `**建议协同部门：** ${collaborators.join("、") || "无"}`,
+      `**建议总期限：** ${dueAt}`,
+      "",
+      "## 来源事实摘要",
+      bullets(input.package.publicFactSummary, "尚未提供"),
+      "",
+      "## 质量初析",
+      `- 问题方向：${String(input.package.problemDirection ?? "待确认")}`,
+      `- 人工确认分类：${String(input.package.confirmedCategory ?? "待确认")}`,
+      `- 初步结论：${String(input.package.preliminaryConclusion ?? "待确认")}`,
+      "",
+      "## 分析依据",
+      bullets(input.package.analysisBasis, "尚未提供"),
+      "",
+      "## 信息缺口",
+      bullets(input.package.informationGaps),
+      "",
+      "## 处理要求",
+      bullets(input.package.handlingRequirements, "尚未提供"),
+      "",
+      "## 主管下一步",
+      "请在原智能规划助手中核对并完善任务拆解、具体负责人、各项期限和协同关系；发布前必须覆盖下方全部必选成果。正式负责人和执行人仅以原任务系统发布结果为准。",
+    ].join("\n");
+    const displayContent = [
+      `## 已接收质量事件 ${input.eventNo}`,
+      "",
+      `质量专员已完成正式初析，并建议由 **${String(primaryDepartment?.departmentName ?? "待确认部门")}** 进入任务规划。`,
+      "",
+      `- 事件：${input.eventTitle}`,
+      `- 建议总期限：${dueAt}`,
+      `- 必须成果：${deliverables.map((item) => item.name).join("、")}`,
+      "",
+      "我已把来源事实、质量初析、处理要求和必须成果写入草稿。请打开草稿表格补充具体负责人和必要的分解项，确认覆盖完整后再按原流程发布。",
     ].join("\n");
     const staged = {
       ...side,
@@ -704,7 +750,8 @@ export function createQualityAnalysisService(deps?: {
       },
       conversationHistory: [{
         role: "assistant",
-        content: `已加载质量事件 ${input.eventNo} 的结构化任务包和初始任务草案。请逐项确认人员、期限与成果覆盖，预检后再两段确认发布。`,
+        content: displayContent,
+        displayContent,
         at: now(),
       }],
       knownFacts: [

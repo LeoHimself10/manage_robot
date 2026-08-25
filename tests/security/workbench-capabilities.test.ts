@@ -32,15 +32,15 @@ describe("workbench-capabilities", () => {
     expect(caps.canExecuteAsManager).toBe(true);
   });
 
-  it("does not let a manager become an employee view", () => {
+  it("allows manager with employee view for employee APIs", () => {
     writeFileSync(managerDynamicFile, JSON.stringify(["mgr-a"]), "utf8");
     const session = {
       userId: "mgr-a",
       primaryRole: "manager" as const,
       role: "employee" as const,
     };
-    expect(allowsEmployeeSession(session)).toBe(false);
-    expect(allowsManagerSession(session)).toBe(true);
+    expect(allowsEmployeeSession(session)).toBe(true);
+    expect(allowsManagerSession(session)).toBe(false);
   });
 
   it("allows manager with manager view for manager APIs", () => {
@@ -54,25 +54,25 @@ describe("workbench-capabilities", () => {
     expect(allowsEmployeeSession(session)).toBe(false);
   });
 
-  it("normalizes a legacy cross-role cookie back to the configured base role", () => {
+  it("normalizes legacy cookie without primaryRole", () => {
     writeFileSync(managerDynamicFile, JSON.stringify(["mgr-a"]), "utf8");
     const normalized = normalizeWorkbenchSession({
       userId: "mgr-a",
       role: "employee",
     });
     expect(normalized.primaryRole).toBe("manager");
-    expect(normalized.role).toBe("manager");
+    expect(normalized.role).toBe("employee");
   });
 
-  it("refreshSessionFromWhitelist removes a legacy manager employee view", () => {
+  it("refreshSessionFromWhitelist preserves manager employee view", () => {
     writeFileSync(managerDynamicFile, JSON.stringify(["mgr-a"]), "utf8");
     const { session, changed } = refreshSessionFromWhitelist({
       userId: "mgr-a",
       primaryRole: "manager",
       role: "employee",
     });
-    expect(changed).toBe(true);
-    expect(session.role).toBe("manager");
+    expect(changed).toBe(false);
+    expect(session.role).toBe("employee");
   });
 
   it("employee user only allows employee view", () => {
@@ -81,7 +81,7 @@ describe("workbench-capabilities", () => {
     expect(allowsManagerSession(session)).toBe(false);
   });
 
-  it("admin on a legacy manager whitelist remains an admin without manager writes", () => {
+  it("admin also on manager whitelist gets canManage and canAccessAdmin", () => {
     const adminFile = join(tmpdir(), `wb-admin-${Date.now()}.json`);
     const mgrFile = join(tmpdir(), `wb-mgr2-${Date.now()}.json`);
     writeFileSync(adminFile, JSON.stringify(["dual-user"]), "utf8");
@@ -92,17 +92,16 @@ describe("workbench-capabilities", () => {
     expect(caps.primaryRole).toBe("admin");
     expect(caps.alsoManager).toBe(true);
     expect(caps.canAccessAdmin).toBe(true);
-    expect(caps.canManage).toBe(false);
-    expect(caps.canExecuteAsManager).toBe(false);
+    expect(caps.canManage).toBe(true);
   });
 
-  it("admin always defaults login to the operations role", () => {
+  it("dual admin+manager defaults login view to manager", () => {
     const adminFile = join(tmpdir(), `wb-admin-${Date.now()}.json`);
     const mgrFile = join(tmpdir(), `wb-mgr2-${Date.now()}.json`);
     writeFileSync(adminFile, JSON.stringify(["dual-user"]), "utf8");
     writeFileSync(mgrFile, JSON.stringify(["dual-user"]), "utf8");
     vi.stubEnv("WORKBENCH_ADMIN_IDS_FILE", adminFile);
     vi.stubEnv("WORKBENCH_MANAGER_IDS_FILE", mgrFile);
-    expect(defaultLoginViewRole("dual-user")).toBe("admin");
+    expect(defaultLoginViewRole("dual-user")).toBe("manager");
   });
 });

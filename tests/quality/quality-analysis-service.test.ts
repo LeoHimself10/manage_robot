@@ -16,6 +16,11 @@ import {
 import type { QualityAnalysisModelAdapter } from
   "../../src/quality/analysis/qwen-quality-analysis-model";
 import { createQualityStore } from "../../src/quality/infra/quality-store";
+import {
+  createQualityEventQuery,
+  hasQualityPlanningHandoff,
+} from "../../src/quality/queries/quality-event-query";
+import { resolveConversationThread } from "../../src/web/conversation-thread-resolver";
 
 let dir = "";
 let dbPath = "";
@@ -318,6 +323,27 @@ describe("AI quality initial analysis V1", () => {
       primaryManagerUserId: "quality-manager",
     });
     expect(String(confirmed.handoff.planningUrl)).toContain("/workbench/manager/chat?thread=side");
+    expect(hasQualityPlanningHandoff("quality-manager", dbPath)).toBe(true);
+    expect(hasQualityPlanningHandoff("rd-manager", dbPath)).toBe(false);
+    const managerQuery = createQualityEventQuery(dbPath);
+    expect(managerQuery.listEvents({ viewerUserId: "quality-manager" }))
+      .toEqual([expect.objectContaining({ eventId, status: "PENDING_ASSIGNMENT" })]);
+    expect(managerQuery.getEventDetail({ eventId, viewerUserId: "quality-manager" }))
+      .toMatchObject({ event: { eventId }, allowedActions: [] });
+    expect(managerQuery.getEventDetail({ eventId, viewerUserId: "rd-manager" })).toBeNull();
+    managerQuery.close();
+    const staged = resolveConversationThread("quality-manager", {
+      threadKind: "side",
+      threadId: String(confirmed.handoff.threadId),
+    });
+    expect(staged?.latestDraft).toMatchObject({
+      title: expect.stringContaining(`QE-${eventId}`),
+      qualityHandoff: { qualityEventId: eventId },
+    });
+    expect(String(staged?.latestDraft?.description)).toContain("# 质量事件任务草稿");
+    expect(String(staged?.latestDraft?.description)).toContain("## 来源事实摘要");
+    expect(String(staged?.latestDraft?.description)).toContain("## 主管下一步");
+    expect(staged?.conversationHistory[0]?.displayContent).toContain("已接收质量事件");
     const repeated = service.confirm({
       eventId,
       actorUserId: "quality-employee",

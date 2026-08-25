@@ -96,26 +96,11 @@ describe("quality review HTTP", () => {
     expect(denied.status).toBe(403);
   });
 
-  it("lets admin inspect only the two quality perspectives and rejects every write", async () => {
+  it("lets admin inspect the quality center as read-only and rejects every write", async () => {
     const noPerspective = await call("/workbench/quality", "GET", "admin-1");
-    expect(noPerspective.status).toBe(403);
-
-    const managerPreview = await call(
-      "/workbench/quality?perspective=project_manager",
-      "GET",
-      "admin-1",
-    );
-    expect(managerPreview.status).toBe(200);
-    expect(managerPreview.body).toContain("管理员只读查看");
-    expect(managerPreview.body).toContain('data-business-readonly="1"');
-
-    const specialistPreview = await call(
-      "/workbench/quality?perspective=quality_specialist",
-      "GET",
-      "admin-1",
-    );
-    expect(specialistPreview.status).toBe(200);
-    expect(specialistPreview.body).toContain("质量专员");
+    expect(noPerspective.status).toBe(200);
+    expect(noPerspective.body).toContain("管理员只读查看");
+    expect(noPerspective.body).toContain('data-business-readonly="1"');
 
     const forbiddenWrite = await call(
       "/api/workbench/quality/source/feedback%3AFB-HTTP/review",

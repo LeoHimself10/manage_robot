@@ -165,7 +165,7 @@ function printBanner(): void {
   console.log("普通员工 userId: rd-engineer-local");
   console.log(`质量专员 userId: ${QUALITY_EMPLOYEE_ID}`);
   console.log(`质量部首责主管 userId: ${QUALITY_MANAGER_ID}`);
-  console.log(`管理员（五视角只读）userId: ${ADMIN_ID}`);
+  console.log(`管理员（质量中心可按部门主管切换只读视角）userId: ${ADMIN_ID}`);
   console.log("预置反馈: QAI-V1-001");
   console.log(`项目默认Qwen配置: ${model ? `已加载（${model.clientConfig.model}）` : "未配置，仍可走人工初析"}`);
   console.log(`隔离数据目录: ${DATA_ROOT}`);

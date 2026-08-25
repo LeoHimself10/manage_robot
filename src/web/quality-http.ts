@@ -40,16 +40,15 @@ import {
   createQualityAnalysisService,
   QualityAnalysisError,
 } from "../quality/analysis/quality-analysis-service";
+import { createQualityDepartmentDirectory } from
+  "../quality/analysis/quality-department-directory";
 import { createQualityStore } from "../quality/infra/quality-store";
 import { createDingTalkQualitySource } from "../quality/source/dingtalk-quality-source";
 import { createQualitySourceSync } from "../quality/source/quality-source-sync";
 import { createQualitySourceWritebackOutbox } from "../quality/source/quality-source-writeback";
 import { triggerQualitySourceWriteback } from "../quality/source/quality-source-writeback-runtime";
 import { resolveQualityCapabilities } from "../security/quality-capabilities";
-import {
-  isAdminQualityPerspective,
-  parseWorkbenchAdminPerspective,
-} from "../security/workbench-admin-perspective";
+import { hasQualityPlanningHandoff } from "../quality/queries/quality-event-query";
 import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
 import { readMultipartSingleFile } from "./multipart-single-file";
 import { renderQualityTrackingPage } from "./quality-tracking-page";
@@ -248,6 +247,29 @@ function detailForActor(eventId: string, session: QualityHttpSession) {
   }
 }
 
+function listQualityManagerPerspectives() {
+  const directory = createQualityDepartmentDirectory();
+  try {
+    return directory.listManagerPerspectives();
+  } finally {
+    directory.close();
+  }
+}
+
+function readViewerUserId(input: {
+  session: QualityHttpSession;
+  adminReadOnly: boolean;
+  url: URL;
+}): string {
+  if (!input.adminReadOnly) return input.session.userId;
+  const requested = String(input.url.searchParams.get("managerUserId") ?? "").trim();
+  if (!requested) return input.session.userId;
+  const allowed = listQualityManagerPerspectives()
+    .some((item) => item.managerUserId === requested);
+  if (!allowed) throw new Error("管理员选择的主管视角不存在或主管映射当前不可用");
+  return requested;
+}
+
 async function runManualSync(): Promise<unknown> {
   if (manualSyncPromise) return manualSyncPromise;
   manualSyncPromise = (async () => {
@@ -282,6 +304,9 @@ async function handleQualityApi(input: {
     const aftersales = caps.canReportQuality;
     const specialist = caps.canAnalyzeQuality;
     const adminReadOnly = caps.baseRole === "admin";
+    const planningManager = caps.baseRole === "manager"
+      && hasQualityPlanningHandoff(session.userId);
+    const viewerUserId = readViewerUserId({ session, adminReadOnly, url });
 
     if (adminReadOnly && req.method !== "GET" && req.method !== "HEAD") {
       writeJson(res, 403, {
@@ -300,7 +325,7 @@ async function handleQualityApi(input: {
       const service = createQualityAnalysisService();
       try {
         if (req.method === "GET" && action === "workspace") {
-          writeJson(res, 200, { ok: true, data: service.workspace({ eventId, viewerUserId: session.userId }) });
+          writeJson(res, 200, { ok: true, data: service.workspace({ eventId, viewerUserId }) });
           return;
         }
         if (req.method === "POST" && action === "generate") {
@@ -635,7 +660,7 @@ async function handleQualityApi(input: {
         forbidden(res);
         return;
       }
-    } else if (!caps.canAccessTracking) {
+    } else if (!caps.canAccessTracking && !planningManager) {
       forbidden(res);
       return;
     }
@@ -819,7 +844,7 @@ async function handleQualityApi(input: {
         const query = (url.searchParams.get("q") ?? "").trim().toLocaleLowerCase("zh-CN");
         const status = url.searchParams.get("status")?.trim().toUpperCase();
         const riskLevel = url.searchParams.get("riskLevel")?.trim().toUpperCase();
-        const events = store.listEvents({ viewerUserId: session.userId }).filter((event) => {
+        const events = store.listEvents({ viewerUserId }).filter((event) => {
           if (status && event.status !== status) return false;
           if (riskLevel && (riskLevel === "HIGH"
             ? !["HIGH", "CRITICAL"].includes(event.urgency ?? "")
@@ -983,7 +1008,10 @@ async function handleQualityApi(input: {
       const action = eventMatch[2] ?? "detail";
 
       if (req.method === "GET" && action === "detail") {
-        const detail = detailForActor(eventId, session);
+        const detailSession = viewerUserId === session.userId
+          ? session
+          : { ...session, userId: viewerUserId };
+        const detail = detailForActor(eventId, detailSession);
         if (!detail) {
           writeJson(res, 404, { ok: false, error: "记录不存在或无权访问" });
           return;
@@ -1138,35 +1166,39 @@ export function handleQualityHttp(input: {
   }
   const caps = resolveQualityCapabilities(session.userId);
   const isHead = req.method === "HEAD";
-  const requestedAdminPerspective = caps.baseRole === "admin"
-    ? parseWorkbenchAdminPerspective(url.searchParams.get("perspective"))
+  const planningManager = caps.baseRole === "manager"
+    && hasQualityPlanningHandoff(session.userId);
+  const managerPerspectives = caps.baseRole === "admin"
+    ? listQualityManagerPerspectives()
+    : [];
+  const requestedManagerUserId = caps.baseRole === "admin"
+    ? String(url.searchParams.get("managerUserId") ?? "").trim()
+    : "";
+  const selectedManager = requestedManagerUserId
+    ? managerPerspectives.find((item) => item.managerUserId === requestedManagerUserId)
     : undefined;
 
   if ((req.method === "GET" || isHead)
     && (url.pathname === "/workbench/quality"
       || url.pathname === "/workbench/quality/review")) {
-    if (!caps.canAccessTracking
-      || (caps.baseRole === "admin" && !isAdminQualityPerspective(requestedAdminPerspective))
+    if ((!caps.canAccessTracking && !planningManager)
+      || (requestedManagerUserId && !selectedManager)
       || (caps.baseRole !== "admin"
         && url.pathname === "/workbench/quality/review"
         && !caps.roles.includes("aftersales_manager"))) {
       forbidden(res);
       return true;
     }
-    const adminProjectView = requestedAdminPerspective === "project_manager";
-    const adminSpecialistView = requestedAdminPerspective === "quality_specialist";
     const html = renderQualityTrackingPage({
-      role: (adminProjectView
-        ? "manager"
-        : adminSpecialistView
-          ? "employee"
-          : session.role) as WorkbenchShellRole,
+      role: session.role as WorkbenchShellRole,
       userId: session.userId,
       userLabel: session.dingUser?.name,
-      canReport: adminProjectView || caps.canReportQuality,
-      isSpecialist: adminSpecialistView || caps.canAnalyzeQuality,
+      canReport: caps.canReportQuality,
+      isSpecialist: caps.canAnalyzeQuality,
       isBusinessReadOnly: caps.baseRole === "admin" || caps.isBusinessReadOnly,
-      adminPerspective: requestedAdminPerspective,
+      planningMode: planningManager || Boolean(selectedManager),
+      managerPerspectives,
+      selectedManagerUserId: selectedManager?.managerUserId,
       reviewSourceKey: url.pathname === "/workbench/quality/review"
         ? url.searchParams.get("sourceKey") ?? ""
         : undefined,

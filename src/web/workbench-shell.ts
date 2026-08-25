@@ -6,11 +6,8 @@ import { isMeetingImportEnabled } from "../agent/meeting-import/meeting-import-f
 import { isCompetencyEvalUser } from "../agent/competency-eval/competency-eval-access";
 import { isCompetencyEvalEnabled } from "../agent/competency-eval/competency-eval-flag";
 import { resolveQualityCapabilities } from "../security/quality-capabilities";
-import { resolveWorkbenchCapabilities } from "../security/workbench-capabilities";
-import {
-  adminPerspectiveLabel,
-  type WorkbenchAdminPerspective,
-} from "../security/workbench-admin-perspective";
+import type { WorkbenchAdminPerspective } from "../security/workbench-admin-perspective";
+import { hasQualityPlanningHandoff } from "../quality/queries/quality-event-query";
 
 function resolveCompetencyEvalNavEnabled(params: {
   sessionUserId?: string;
@@ -85,52 +82,47 @@ function railLink(
 function buildManagerRail(
   activeNav: WorkbenchNavId,
   portfolioEnabled: boolean,
+  showAdminOpsLink = false,
   competencyEvalEnabled = false,
-  adminPerspective?: WorkbenchAdminPerspective,
 ): string {
-  const href = (path: string, navId: WorkbenchNavId): string =>
-    adminPerspective && adminPerspective !== "operations"
-      ? `/workbench/admin/perspective?view=${encodeURIComponent(adminPerspective)}&section=${encodeURIComponent(navId)}`
-      : path;
   const portfolioLinks = portfolioEnabled
-    ? `${railLink(href("/workbench/manager/projects", "mgr-proj"), "项目总览", "mgr-proj", activeNav, "manager")}`
+    ? `${railLink("/workbench/manager/projects", "项目总览", "mgr-proj", activeNav, "manager")}`
+    : "";
+  const adminOpsLink = showAdminOpsLink
+    ? `<div class="wb-rail-grp">
+  <div class="wb-rail-grp-lbl">管理</div>
+  <a class="wb-rail-link${activeNav === "adm-ops" ? " is-on-adm" : ""}" href="/workbench/admin/ops" data-wb-nav="adm-ops" data-wb-view="admin" data-wb-redirect="/workbench/admin/ops">运营看板</a>
+</div>`
     : "";
   return `<div class="wb-rail-grp">
   <div class="wb-rail-grp-lbl">工作</div>
-  ${railLink(href("/workbench/manager/tasks", "mgr-tasks"), "历史任务", "mgr-tasks", activeNav, "manager")}
-  ${railLink(href("/workbench/manager/dashboard", "mgr-dash"), "周度看板", "mgr-dash", activeNav, "manager")}
-  ${railLink(href("/workbench/manager/performance", "mgr-perf"), "交付绩效", "mgr-perf", activeNav, "manager")}
-  ${isDailyReportsPageEnabled() ? railLink(href("/workbench/manager/daily-reports", "mgr-daily-reports"), "日报汇总", "mgr-daily-reports", activeNav, "manager") : ""}
-  ${competencyEvalEnabled ? railLink(href("/workbench/manager/competency-eval", "mgr-competency-eval"), "能力评估", "mgr-competency-eval", activeNav, "manager") : ""}
-  ${railLink(href("/workbench/manager/chat?thread=main", "mgr-chat"), "智能规划助手", "mgr-chat", activeNav, "manager")}
-  ${isTaskIntakeEnabled() ? railLink(href("/workbench/manager/task-intake", "mgr-task-intake"), "任务快录入库", "mgr-task-intake", activeNav, "manager") : ""}
+  ${railLink("/workbench/manager/tasks", "历史任务", "mgr-tasks", activeNav, "manager")}
+  ${railLink("/workbench/manager/dashboard", "周度看板", "mgr-dash", activeNav, "manager")}
+  ${railLink("/workbench/manager/performance", "交付绩效", "mgr-perf", activeNav, "manager")}
+  ${isDailyReportsPageEnabled() ? railLink("/workbench/manager/daily-reports", "日报汇总", "mgr-daily-reports", activeNav, "manager") : ""}
+  ${competencyEvalEnabled ? railLink("/workbench/manager/competency-eval", "能力评估", "mgr-competency-eval", activeNav, "manager") : ""}
+  ${railLink("/workbench/manager/chat?thread=main", "智能规划助手", "mgr-chat", activeNav, "manager")}
+  ${isTaskIntakeEnabled() ? railLink("/workbench/manager/task-intake", "任务快录入库", "mgr-task-intake", activeNav, "manager") : ""}
 </div>
 ${
   portfolioEnabled
     ? `<div class="wb-rail-grp">
   <div class="wb-rail-grp-lbl">项目管理主管</div>
   ${portfolioLinks}
-  ${isMeetingImportEnabled() ? railLink(href("/workbench/manager/meeting-import", "mgr-meeting-import"), "会议入库", "mgr-meeting-import", activeNav, "manager") : ""}
+  ${isMeetingImportEnabled() ? railLink("/workbench/manager/meeting-import", "会议入库", "mgr-meeting-import", activeNav, "manager") : ""}
 </div>`
     : ""
-}`;
+}${adminOpsLink}`;
 }
 
-function buildEmployeeRail(
-  activeNav: WorkbenchNavId,
-  adminPerspective?: WorkbenchAdminPerspective,
-): string {
-  const href = (path: string, navId: WorkbenchNavId): string =>
-    adminPerspective && adminPerspective !== "operations"
-      ? `/workbench/admin/perspective?view=${encodeURIComponent(adminPerspective)}&section=${encodeURIComponent(navId)}`
-      : path;
+function buildEmployeeRail(activeNav: WorkbenchNavId): string {
   return `<div class="wb-rail-grp">
   <div class="wb-rail-grp-lbl">我的</div>
-  ${railLink(href("/workbench/employee?view=new", "emp-new"), "待承接", "emp-new", activeNav, "employee", { id: "navNew" })}
-  ${railLink(href("/workbench/employee?view=current", "emp-cur"), "进行中", "emp-cur", activeNav, "employee", { id: "navCur" })}
-  ${railLink(href("/workbench/employee?view=history", "emp-hist"), "已完成", "emp-hist", activeNav, "employee", { id: "navHist" })}
-  ${isDailyReportsPageEnabled() ? railLink(href("/workbench/employee/daily-reports", "emp-daily-reports"), "日报汇总", "emp-daily-reports", activeNav, "employee") : ""}
-  ${railLink(href("/workbench/employee?view=profile", "emp-prof"), "能力画像", "emp-prof", activeNav, "employee", { id: "navProf" })}
+  ${railLink("/workbench/employee?view=new", "待承接", "emp-new", activeNav, "employee", { id: "navNew" })}
+  ${railLink("/workbench/employee?view=current", "进行中", "emp-cur", activeNav, "employee", { id: "navCur" })}
+  ${railLink("/workbench/employee?view=history", "已完成", "emp-hist", activeNav, "employee", { id: "navHist" })}
+  ${isDailyReportsPageEnabled() ? railLink("/workbench/employee/daily-reports", "日报汇总", "emp-daily-reports", activeNav, "employee") : ""}
+  ${railLink("/workbench/employee?view=profile", "能力画像", "emp-prof", activeNav, "employee", { id: "navProf" })}
 </div>`;
 }
 
@@ -151,35 +143,25 @@ function buildQualityRail(params: {
   role: WorkbenchShellRole;
   sessionUserId?: string;
   disabled?: boolean;
-  adminPerspective?: WorkbenchAdminPerspective;
 }): string {
   if (params.disabled) return "";
   const caps = resolveQualityCapabilities(String(params.sessionUserId ?? ""));
-  const adminQualityPerspective = params.adminPerspective === "project_manager"
-    || params.adminPerspective === "quality_specialist";
-  const canShowTracking = params.adminPerspective
-    ? adminQualityPerspective
-    : caps.canReportQuality || caps.canAnalyzeQuality;
-  if (!canShowTracking) return "";
-  const href = params.adminPerspective
-    ? `/workbench/quality?perspective=${encodeURIComponent(params.adminPerspective)}`
-    : "/workbench/quality";
+  const planningHandoff = !caps.canAccessTracking
+    && params.role === "manager"
+    && hasQualityPlanningHandoff(String(params.sessionUserId ?? ""));
+  const links = [
+    caps.canAccessTracking || planningHandoff
+      ? railLink("/workbench/quality", "质量追踪", "quality-tracking", params.activeNav, params.role)
+      : "",
+  ].filter(Boolean).join("");
+  if (!links) return "";
   return `<div class="wb-rail-grp">
   <div class="wb-rail-grp-lbl">质量</div>
-  ${railLink(href, "质量追踪", "quality-tracking", params.activeNav, params.role)}
+  ${links}
 </div>`;
 }
 
-function roleMeta(
-  role: WorkbenchShellRole,
-  perspective?: WorkbenchAdminPerspective,
-): { mark: string; subtitle: string; markClass: string } {
-  if (perspective === "project_manager") {
-    return { mark: "项", subtitle: "项目主管视角", markClass: "is-project" };
-  }
-  if (perspective === "quality_specialist") {
-    return { mark: "质", subtitle: "质量专员视角", markClass: "is-quality" };
-  }
+function roleMeta(role: WorkbenchShellRole): { mark: string; subtitle: string; markClass: string } {
   if (role === "employee") {
     return { mark: "员", subtitle: "员工工作台", markClass: "is-emp" };
   }
@@ -190,42 +172,35 @@ function roleMeta(
 }
 
 function roleSwitchHtml(
-  currentPerspective: WorkbenchAdminPerspective,
+  role: WorkbenchShellRole,
   compact = false,
+  opts?: { showAdminOpsLink?: boolean; canExecuteAsManager?: boolean },
 ): string {
   const sm = compact ? " btn-sm" : "";
-  const item = (perspective: WorkbenchAdminPerspective): string => {
-    const label = adminPerspectiveLabel(perspective);
-    if (perspective === currentPerspective) {
-      return `<span class="wb-view-switch-item is-current" role="menuitem" aria-current="page"><span class="wb-view-switch-dot" aria-hidden="true"></span><span>${label}</span><small>当前</small></span>`;
-    }
-    return `<a class="wb-view-switch-item" role="menuitem" href="#" data-wb-view="${perspective}"><span class="wb-view-switch-dot" aria-hidden="true"></span><span>${label}</span></a>`;
-  };
-  return `<details class="wb-admin-view-switch">
-  <summary class="btn wb-role-switch wb-role-switch--to-adm${sm}" aria-label="切换管理员查看视角" aria-haspopup="menu"><span class="wb-role-switch-ico" aria-hidden="true">⇄</span><span class="wb-role-switch-txt">${adminPerspectiveLabel(currentPerspective)}</span><span class="wb-view-switch-chevron" aria-hidden="true">▾</span></summary>
-  <div class="wb-view-switch-menu" role="menu" aria-label="管理员查看视角">
-    ${item("manager")}${item("project_manager")}${item("employee")}${item("quality_specialist")}${item("operations")}
-  </div>
-</details>`;
+  if (role === "manager") {
+    const adminBtn = opts?.showAdminOpsLink
+      ? `<a class="btn wb-role-switch wb-role-switch--to-adm${sm}" href="/workbench/admin/ops" data-wb-view="admin" data-wb-redirect="/workbench/admin/ops"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">运营看板</span></a>`
+      : "";
+    return `${adminBtn}<a class="btn wb-role-switch wb-role-switch--to-emp${sm}" href="/workbench/employee?view=new" id="navMyTasks" data-wb-view="employee" data-wb-redirect="/workbench/employee?view=new"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">我负责的任务</span></a>`;
+  }
+  if (role === "employee") {
+    if (!opts?.canExecuteAsManager) return "";
+    return `<a class="btn wb-role-switch wb-role-switch--to-mgr${sm}" href="/workbench/manager/tasks" id="navManager" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`;
+  }
+  return `<a class="btn wb-role-switch wb-role-switch--to-mgr${sm}" href="/workbench/manager/tasks" data-wb-view="manager" data-wb-redirect="/workbench/manager/tasks"><span class="wb-role-switch-ico" aria-hidden="true">↗</span><span class="wb-role-switch-txt">主管工作台</span></a>`;
 }
 
 function defaultHeadActionsHtml(
-  isAdminIdentity: boolean,
-  currentPerspective: WorkbenchAdminPerspective,
+  role: WorkbenchShellRole,
+  showAdminOpsLink = false,
+  canExecuteAsManager = false,
 ): string {
   const logout = `<button type="button" class="btn btn-ghost btn-sm wb-appbar-logout" id="logoutBtn">退出</button>`;
-  const readonly = isAdminIdentity && currentPerspective !== "operations"
-    ? `<span class="wb-admin-readonly-badge">只读</span>`
-    : "";
-  return `${readonly}${isAdminIdentity ? roleSwitchHtml(currentPerspective, true) : ""}${logout}`;
+  return `${roleSwitchHtml(role, true, { showAdminOpsLink, canExecuteAsManager })}${logout}`;
 }
 
-function buildAppBar(
-  role: WorkbenchShellRole,
-  headActionsHtml: string,
-  perspective?: WorkbenchAdminPerspective,
-): string {
-  const meta = roleMeta(role, perspective);
+function buildAppBar(role: WorkbenchShellRole, headActionsHtml: string): string {
+  const meta = roleMeta(role);
   return `<header class="wb-appbar" role="banner">
   ${railToggleBtn()}
   <div class="wb-appbar-brand">
@@ -333,29 +308,22 @@ export function renderWorkbenchPage(params: {
   scriptHtml?: string;
 }): string {
   const competencyEvalEnabled = resolveCompetencyEvalNavEnabled(params);
-  const identityCaps = params.sessionUserId
-    ? resolveWorkbenchCapabilities(params.sessionUserId)
-    : undefined;
-  const isAdminIdentity = Boolean(identityCaps?.canAccessAdmin);
-  const currentPerspective: WorkbenchAdminPerspective = params.adminPerspective
-    ?? (params.role === "manager" ? "manager" : params.role === "employee" ? "employee" : "operations");
   const baseRailNav =
     params.role === "manager"
       ? buildManagerRail(
         params.activeNav,
         Boolean(params.portfolioEnabled),
+        Boolean(params.showAdminOpsLink),
         competencyEvalEnabled,
-        isAdminIdentity ? currentPerspective : undefined,
       )
       : params.role === "employee"
-        ? buildEmployeeRail(params.activeNav, isAdminIdentity ? currentPerspective : undefined)
+        ? buildEmployeeRail(params.activeNav)
         : buildAdminRail(params.activeNav, competencyEvalEnabled);
   const railNav = `${baseRailNav}${buildQualityRail({
     activeNav: params.activeNav,
     role: params.role,
     sessionUserId: params.sessionUserId,
     disabled: params.qualityAccessDisabled,
-    adminPerspective: isAdminIdentity ? currentPerspective : undefined,
   })}`;
 
   const descBlock = params.description
@@ -369,10 +337,7 @@ export function renderWorkbenchPage(params: {
         : `<div class="wb-crumb">${escapeHtml(params.title)}</div>`;
   const headActions =
     params.headActionsHtml
-    ?? defaultHeadActionsHtml(
-      isAdminIdentity,
-      currentPerspective,
-    );
+    ?? defaultHeadActionsHtml(params.role, Boolean(params.showAdminOpsLink), Boolean(params.canExecuteAsManager));
   const toolbar = params.headToolbarHtml ? `<div class="wb-main-toolbar">${params.headToolbarHtml}</div>` : "";
 
   const pageHead = params.hideMainHead
@@ -386,11 +351,7 @@ export function renderWorkbenchPage(params: {
   </div>
 </header>`;
 
-  const bodyClass = [
-    "wb-has-rail",
-    isAdminIdentity && currentPerspective !== "operations" ? "wb-admin-readonly-preview" : "",
-    params.bodyClass ?? "",
-  ].filter(Boolean).join(" ");
+  const bodyClass = ["wb-has-rail", params.bodyClass ?? ""].filter(Boolean).join(" ");
   const mainClass = ["wb-main", params.mainClass ?? ""].filter(Boolean).join(" ");
   const mainBodyClass = ["wb-main-body", params.mainBodyClass ?? ""].filter(Boolean).join(" ");
 
@@ -407,7 +368,7 @@ export function renderWorkbenchPage(params: {
 </head>
 <body class="${bodyClass}">
 <div class="wb-app">
-  ${buildAppBar(params.role, headActions, isAdminIdentity ? currentPerspective : undefined)}
+  ${buildAppBar(params.role, headActions)}
   <aside class="wb-rail" id="wbRailNav" aria-label="工作台导航">
     <div class="wb-rail-head">
       <div class="wb-rail-grp-lbl wb-rail-head-lbl">导航</div>

@@ -41,12 +41,13 @@ describe("workbench role navigation", () => {
     expect(specialist).not.toContain("管理员查看视角");
   });
 
-  it("shows five perspective choices only for an administrator identity", () => {
+  it("keeps the administrator operations shell unchanged and adds only the quality entry", () => {
     vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
     const html = render("admin", "admin-1");
-    for (const label of ["普通主管", "项目主管", "普通员工", "质量专员", "运营看板"]) {
-      expect(html).toContain(label);
-    }
-    expect(html).toContain("管理员查看视角");
+    expect(html).toContain("任务总览");
+    expect(html).toContain("运营看板");
+    expect(html).toContain("权限中心");
+    expect(html).toContain("质量追踪");
+    expect(html).not.toContain("管理员查看视角");
   });
 });

@@ -17,6 +17,14 @@ export interface QualityDepartmentManagerResolution {
   message: string;
 }
 
+export interface QualityManagerPerspective {
+  departmentId: string;
+  departmentName: string;
+  managerUserId: string;
+  managerName: string;
+  label: string;
+}
+
 function departmentPairs(contact: {
   departmentIds: string[];
   departmentNames: string[];
@@ -115,5 +123,41 @@ export function createQualityDepartmentDirectory(dbPath = resolveWorkbenchSqlite
     };
   }
 
-  return { listDepartments, resolveManager, close: () => people.close() };
+  function listManagerPerspectives(): QualityManagerPerspective[] {
+    const resolved = listDepartments()
+      .map((department) => resolveManager(department.departmentId))
+      .filter((resolution): resolution is QualityDepartmentManagerResolution & {
+        department: QualityDepartment;
+        managerUserId: string;
+        managerName: string;
+      } => resolution.status === "READY"
+        && Boolean(resolution.department)
+        && Boolean(resolution.managerUserId)
+        && Boolean(resolution.managerName))
+      .map((resolution) => ({
+        departmentId: resolution.department.departmentId,
+        departmentName: resolution.department.departmentName,
+        managerUserId: resolution.managerUserId,
+        managerName: resolution.managerName,
+        label: `${resolution.department.departmentName}主管（${resolution.managerName}）`,
+      }));
+    const byManager = new Map<string, QualityManagerPerspective>();
+    for (const item of resolved) {
+      const existing = byManager.get(item.managerUserId);
+      if (!existing) {
+        byManager.set(item.managerUserId, item);
+        continue;
+      }
+      const names = [...new Set([
+        ...existing.departmentName.split("、"),
+        item.departmentName,
+      ])].sort((left, right) => left.localeCompare(right, "zh-CN"));
+      existing.departmentName = names.join("、");
+      existing.label = `${existing.departmentName}主管（${existing.managerName}）`;
+    }
+    return [...byManager.values()]
+      .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+  }
+
+  return { listDepartments, resolveManager, listManagerPerspectives, close: () => people.close() };
 }
