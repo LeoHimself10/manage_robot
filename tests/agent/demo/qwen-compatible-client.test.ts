@@ -77,6 +77,76 @@ describe("QwenCompatibleClient", () => {
     expect(result.payload.tasks).toHaveLength(1);
   });
 
+  it("generates one-shot JSON without a ReAct tools payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: "req_json_001",
+        model: "qwen-plus",
+        choices: [{ message: { content: '{"ok":true}' } }],
+        usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 10_000,
+      maxRetries: 0,
+      temperature: 0,
+      maxTokens: 3_500,
+      stream: false,
+      thinking: false,
+    });
+
+    const result = await client.generateJson({
+      traceId: "quality-json-1",
+      messages: [{ role: "user", content: "return json" }],
+      maxRetries: 0,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body).not.toHaveProperty("tools");
+    expect(body).not.toHaveProperty("stream");
+    expect(body.enable_thinking).toBe(false);
+    expect(body.max_tokens).toBe(3_500);
+    expect(result).toMatchObject({
+      payload: { ok: true },
+      toolCallsExecuted: 0,
+      trace: { traceId: "quality-json-1", requestId: "req_json_001" },
+      timing: { iterations: [{ toolCalls: 0 }] },
+    });
+  });
+
+  it("does not retry a one-shot JSON request after its timeout", async () => {
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        reject(error);
+      });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QwenCompatibleClient({
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: "test-key",
+      model: "qwen-plus",
+      timeoutMs: 20,
+      maxRetries: 1,
+      temperature: 0,
+      maxTokens: 512,
+    });
+
+    await expect(client.generateJson({
+      messages: [{ role: "user", content: "return json" }],
+      maxRetries: 1,
+    })).rejects.toThrow("Qwen 请求超时");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("propagates traceId into trace metadata", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

@@ -28,6 +28,26 @@ export interface QwenQualityAnalysisConfig {
   clientConfig: QwenCompatibleClientConfig;
 }
 
+export class QualityAnalysisModelCallError extends Error {
+  readonly code: "MODEL_TIMEOUT" | "MODEL_CALL_FAILED";
+  readonly model: string;
+  readonly durationMs: number;
+
+  constructor(input: {
+    code: "MODEL_TIMEOUT" | "MODEL_CALL_FAILED";
+    model: string;
+    durationMs: number;
+    cause: unknown;
+  }) {
+    const reason = input.cause instanceof Error ? input.cause.message : String(input.cause);
+    super(reason, { cause: input.cause });
+    this.name = "QualityAnalysisModelCallError";
+    this.code = input.code;
+    this.model = input.model;
+    this.durationMs = input.durationMs;
+  }
+}
+
 function envText(env: Record<string, string | undefined>, name: string): string | undefined {
   const value = env[name]?.trim();
   return value || undefined;
@@ -38,31 +58,27 @@ function envNumber(env: Record<string, string | undefined>, name: string, fallba
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-function envBool(env: Record<string, string | undefined>, name: string, fallback: boolean): boolean {
-  const raw = envText(env, name)?.toLowerCase();
-  if (!raw) return fallback;
-  if (["0", "false", "no"].includes(raw)) return false;
-  if (["1", "true", "yes"].includes(raw)) return true;
-  return fallback;
-}
-
 export function loadQwenQualityAnalysisConfig(
   env: Record<string, string | undefined> = process.env,
 ): QwenQualityAnalysisConfig | undefined {
   const apiKey = envText(env, "QWEN_API_KEY") ?? envText(env, "DASHSCOPE_API_KEY");
   if (!apiKey) return undefined;
-  const qualityTimeoutMs = Math.max(envNumber(
+  const qualityTimeoutMs = envNumber(
     env,
     "QUALITY_ANALYSIS_QWEN_TIMEOUT_MS",
-    envNumber(env, "QWEN_TIMEOUT_MS", 120_000),
-  ), 120_000);
+    envNumber(env, "QWEN_TIMEOUT_MS", 60_000),
+  );
+  const qualityMaxTokens = Math.min(
+    envNumber(env, "QUALITY_ANALYSIS_QWEN_MAX_TOKENS", 3_500),
+    4_000,
+  );
   const policy = normalizeModelPolicy({
     model: envText(env, "QWEN_MODEL"),
     temperature: 0,
-    maxTokens: envNumber(env, "QWEN_MAX_TOKENS", 8_000),
+    maxTokens: qualityMaxTokens,
     timeoutMs: qualityTimeoutMs,
-    maxRetries: envNumber(env, "QWEN_MAX_RETRIES", 1),
-    requestBudgetTokens: envNumber(env, "QWEN_REQUEST_BUDGET_TOKENS", 16_000),
+    maxRetries: 0,
+    requestBudgetTokens: Math.max(8_000, qualityMaxTokens * 2),
   });
   return {
     modelConfigId: QUALITY_ANALYSIS_MODEL_CONFIG_ID,
@@ -72,11 +88,11 @@ export function loadQwenQualityAnalysisConfig(
       apiKey,
       model: policy.model,
       timeoutMs: policy.timeoutMs,
-      maxRetries: policy.maxRetries,
+      maxRetries: 0,
       temperature: 0,
-      maxTokens: Math.min(policy.maxTokens, policy.requestBudgetTokens),
-      stream: envBool(env, "QWEN_STREAM", true),
-      thinking: envBool(env, "QWEN_THINKING", true),
+      maxTokens: policy.maxTokens,
+      stream: false,
+      thinking: false,
     },
   };
 }
@@ -105,16 +121,23 @@ export class QwenQualityAnalysisModel implements QualityAnalysisModelAdapter {
       throw new Error("质量初析模型配置编号不一致");
     }
     const messages = buildQualityAnalysisMessages(input);
-    const result = await this.client.callWithTools({
-      traceId: input.runMetadata.requestId,
-      messages,
-      tools: [],
-      toolHandlers: {},
-      maxIterations: 1,
-      maxToolCalls: 0,
-      maxTotalMs: this.config.clientConfig.timeoutMs,
-      maxTotalTokens: Math.max(16_000, this.config.clientConfig.maxTokens * 2),
-    });
+    const startedAt = Date.now();
+    let result: Awaited<ReturnType<QwenCompatibleClient["generateJson"]>>;
+    try {
+      result = await this.client.generateJson({
+        traceId: input.runMetadata.requestId,
+        messages,
+        maxRetries: 0,
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new QualityAnalysisModelCallError({
+        code: /请求超时|\btimeout\b/i.test(reason) ? "MODEL_TIMEOUT" : "MODEL_CALL_FAILED",
+        model: this.config.clientConfig.model,
+        durationMs: Date.now() - startedAt,
+        cause: error,
+      });
+    }
     if (result.toolCallsExecuted !== 0) throw new Error("质量初析禁止工具调用");
     return {
       payload: enrichModelPayload(input, result.payload),

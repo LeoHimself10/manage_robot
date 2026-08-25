@@ -3,7 +3,7 @@ import { z } from "zod";
 export const QUALITY_ANALYSIS_INPUT_SCHEMA_VERSION = "quality-analysis-input-v1";
 export const QUALITY_ANALYSIS_OUTPUT_SCHEMA_VERSION = "quality-analysis-output-v1";
 export const QUALITY_ANALYSIS_PROMPT_VERSION = "quality-analysis-prompt-v1.0.2";
-export const QUALITY_ANALYSIS_MODEL_CONFIG_ID = "project-default-qwen-quality-analysis-v1";
+export const QUALITY_ANALYSIS_MODEL_CONFIG_ID = "project-default-qwen-quality-analysis-v2";
 export const QUALITY_ANALYSIS_RULE_VERSION = "quality-analysis-rules-v1";
 export const QUALITY_ANALYSIS_KNOWLEDGE_VERSION = "quality-product-knowledge-v1";
 

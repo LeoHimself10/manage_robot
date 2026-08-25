@@ -30,6 +30,7 @@ import {
 import { createQualityDepartmentDirectory } from "./quality-department-directory";
 import {
   loadQwenQualityAnalysisConfig,
+  QualityAnalysisModelCallError,
   QwenQualityAnalysisModel,
   type QualityAnalysisModelAdapter,
 } from "./qwen-quality-analysis-model";
@@ -42,6 +43,7 @@ export class QualityAnalysisError extends Error {
     public readonly code:
       | "MODEL_NOT_CONFIGURED"
       | "MODEL_CALL_FAILED"
+      | "MODEL_TIMEOUT"
       | "MODEL_OUTPUT_INVALID"
       | "FORBIDDEN",
     message: string,
@@ -461,18 +463,26 @@ export function createQualityAnalysisService(deps?: {
       if (error instanceof QualityAnalysisError) throw error;
       const completedAt = now();
       const reason = safeFailure(error);
-      db.prepare(`UPDATE quality_analysis_attempts SET status='FAILED',failure_code='MODEL_CALL_FAILED',
+      const modelError = error instanceof QualityAnalysisModelCallError ? error : null;
+      const failureCode = modelError?.code ?? "MODEL_CALL_FAILED";
+      const durationMs = modelError?.durationMs ?? Date.now() - started;
+      db.prepare(`UPDATE quality_analysis_attempts SET status='FAILED',model_name=?,failure_code=?,
         failure_reason=?,duration_ms=?,completed_at=? WHERE attempt_id=? AND status='GENERATING'`)
-        .run(reason, Date.now() - started, completedAt, attemptId);
+        .run(modelError?.model ?? null, failureCode, reason, durationMs, completedAt, attemptId);
       appendAudit({
         eventId: input.eventId,
         actorUserId: input.actorUserId,
         action: "QUALITY_ANALYSIS_AI_FAILED",
-        after: { attemptId, code: "MODEL_CALL_FAILED", reason },
+        after: { attemptId, code: failureCode, model: modelError?.model ?? null, durationMs, reason },
         requestId: input.requestId,
         occurredAt: completedAt,
       });
-      throw new QualityAnalysisError("MODEL_CALL_FAILED", "AI质量初析调用失败，可重试或继续人工填写");
+      throw new QualityAnalysisError(
+        failureCode,
+        failureCode === "MODEL_TIMEOUT"
+          ? "AI质量初析未在时限内返回，可重试或继续人工填写"
+          : "AI质量初析调用失败，可重试或继续人工填写",
+      );
     }
   }
 

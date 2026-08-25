@@ -44,6 +44,13 @@ export interface GenerateStructuredPlanResult {
   rawContent: string;
 }
 
+export interface GenerateJsonRequest {
+  traceId?: string;
+  messages: Array<{ role: string; content?: string }>;
+  /** One-shot structured generation defaults to the client policy. */
+  maxRetries?: number;
+}
+
 export interface ToolDefinition {
   type: "function";
   function: {
@@ -240,6 +247,89 @@ export class QwenCompatibleClient {
     throw lastError instanceof Error
       ? lastError
       : new Error("Qwen request failed after retries");
+  }
+
+  /**
+   * One model request that returns a JSON object. This deliberately bypasses
+   * the ReAct/tool loop so form-generation workloads do not inherit agent
+   * iteration budgets or misleading "ReAct loop exceeded" failures.
+   * A request that consumed its full timeout is never retried.
+   */
+  async generateJson(request: GenerateJsonRequest): Promise<CallWithToolsResult> {
+    const startedAt = Date.now();
+    const maxRetries = Math.max(0, Math.min(
+      request.maxRetries ?? this.config.maxRetries,
+      this.config.maxRetries,
+    ));
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
+      const llmStartedAt = Date.now();
+      try {
+        const body: Record<string, unknown> = {
+          model: this.config.model,
+          temperature: this.config.temperature,
+          max_tokens: this.config.maxTokens,
+          messages: request.messages.map((message) => ({ ...message })),
+        };
+        if (this.config.stream) {
+          body.stream = true;
+          body.stream_options = { include_usage: true };
+        }
+        const post = await this.postChatCompletions(body, controller.signal, llmStartedAt);
+        const llmMs = Date.now() - llmStartedAt;
+        const parseStartedAt = Date.now();
+        const content = extractAssistantContent(post.response);
+        const payload = parseAssistantJsonPayload(content);
+        const parseMs = Date.now() - parseStartedAt;
+        const usage = toTokenUsage(post.response);
+        const totalMs = Date.now() - startedAt;
+        return {
+          payload,
+          rawContent: content,
+          trace: {
+            traceId: request.traceId,
+            requestId: post.response.id ?? `req_${Date.now()}`,
+            model: post.response.model ?? this.config.model,
+            tokenUsage: usage,
+            latencyMs: totalMs,
+          },
+          toolCallsExecuted: 0,
+          timing: {
+            totalMs,
+            llmMsTotal: llmMs,
+            toolsMsTotal: 0,
+            parseMsTotal: parseMs,
+            iterations: [{
+              iteration: 1,
+              llmMs,
+              parseMs,
+              toolsMs: 0,
+              toolCalls: 0,
+              totalMs: llmMs + parseMs,
+              tools: [],
+              afterHeadersMs: post.transportTiming?.afterHeadersMs,
+              firstBodyChunkMs: post.transportTiming?.firstBodyChunkMs,
+              firstSseDataLineMs: post.transportTiming?.firstSseDataLineMs,
+              firstAssistantTokenMs: post.transportTiming?.firstAssistantTokenMs,
+              promptTokens: usage.promptTokens,
+              completionTokens: usage.completionTokens,
+              totalTokens: usage.totalTokens,
+            }],
+          },
+        };
+      } catch (error) {
+        lastError = error;
+        if (isQwenTimeoutFailure(error) || attempt === maxRetries) break;
+        await sleepWithJitter(attempt);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Qwen JSON request failed after retries");
   }
 
   private buildChatCompletionPayload(
@@ -886,6 +976,11 @@ function isLikelyFetchAbort(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   if (error.name === "AbortError") return true;
   return /aborted/i.test(error.message);
+}
+
+function isQwenTimeoutFailure(error: unknown): boolean {
+  return error instanceof Error
+    && (/请求超时/u.test(error.message) || /\btimeout\b/i.test(error.message));
 }
 
 function truncateErrorBody(body: string): string {

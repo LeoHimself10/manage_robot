@@ -15,6 +15,8 @@ import {
 } from "../../src/quality/analysis/quality-analysis-service";
 import type { QualityAnalysisModelAdapter } from
   "../../src/quality/analysis/qwen-quality-analysis-model";
+import { QualityAnalysisModelCallError } from
+  "../../src/quality/analysis/qwen-quality-analysis-model";
 import { createQualityStore } from "../../src/quality/infra/quality-store";
 import {
   createQualityEventQuery,
@@ -297,6 +299,34 @@ describe("AI quality initial analysis V1", () => {
       },
     });
     expect(saved).toMatchObject({ version: 1, baseAttemptId: null });
+    service.close();
+  });
+
+  it("records a model timeout without disguising it as a ReAct failure", async () => {
+    const eventId = seedEvent();
+    const timeoutModel: QualityAnalysisModelAdapter = {
+      async generate() {
+        throw new QualityAnalysisModelCallError({
+          code: "MODEL_TIMEOUT",
+          model: "qwen-test",
+          durationMs: 60_000,
+          cause: new Error("Qwen 请求超时"),
+        });
+      },
+    };
+    const service = createQualityAnalysisService({ dbPath, model: timeoutModel });
+    await expect(service.generate({
+      eventId,
+      actorUserId: "quality-employee",
+      requestId: "11111111-1111-4111-8111-111111111111",
+    })).rejects.toMatchObject({ code: "MODEL_TIMEOUT" });
+    expect(service.listAttempts(eventId)[0]).toMatchObject({
+      status: "FAILED",
+      failureCode: "MODEL_TIMEOUT",
+      failureReason: "Qwen 请求超时",
+      modelName: "qwen-test",
+      durationMs: 60_000,
+    });
     service.close();
   });
 
