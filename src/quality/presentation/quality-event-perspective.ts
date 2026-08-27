@@ -126,9 +126,12 @@ function safePerspective(value: unknown): QualityPerspective | null {
 export function resolveQualityPerspectiveContext(input: QualityPerspectiveRequest): QualityPerspectiveContext {
   const workbench = resolveWorkbenchCapabilities(input.viewerUserId);
   const isAdmin = workbench.primaryRole === "admin";
-  const testActor = resolveQualityTestActor(input.testActorRef);
+  const sessionTestActor = getQualityTestActorByUserId(input.viewerUserId);
+  const testActor = resolveQualityTestActor(input.testActorRef) ?? sessionTestActor;
   if (testActor) {
-    if (!isAdmin) throw new Error("只有管理员可以进入质量测试视角");
+    if (!isAdmin && sessionTestActor?.userId !== testActor.userId) {
+      throw new Error("只有管理员可以切换其他质量测试视角");
+    }
     return {
       scope: "test",
       perspective: testActor.perspective,

@@ -45,7 +45,7 @@ function capturedHtmlResponse() {
   return { res, ended, read: () => ({ status, body }) };
 }
 
-async function call(path: string, method = "GET", body?: unknown, userId = "admin-1", role: "admin" | "manager" = "admin") {
+async function call(path: string, method = "GET", body?: unknown, userId = "admin-1", role: "admin" | "manager" | "employee" = "admin") {
   const target = new URL(`http://localhost${path}`);
   if (target.pathname.startsWith("/api/workbench/quality/events/")
     && (target.searchParams.has("testActor") || target.searchParams.has("perspective"))) {
@@ -62,7 +62,7 @@ async function call(path: string, method = "GET", body?: unknown, userId = "admi
   return capture.read();
 }
 
-async function callPage(path: string, userId = "admin-1", role: "admin" | "manager" = "admin") {
+async function callPage(path: string, userId = "admin-1", role: "admin" | "manager" | "employee" = "admin") {
   const capture = capturedHtmlResponse();
   handleQualityHttp({
     req: request("GET"),
@@ -181,6 +181,39 @@ describe("quality role-panel HTTP APIs", () => {
     expect(ordinaryPage.status).toBe(200);
     expect(ordinaryPage.body).not.toContain('aria-label="管理员隔离测试视角"');
     expect(ordinaryPage.body).not.toContain("测试员工1");
+  });
+
+  it("keeps a delegated test specialist in the isolated scope when the URL has no testActor parameter", async () => {
+    const delegatedPage = await callPage(
+      "/workbench/quality",
+      "QUALITY_TEST_SPECIALIST_001",
+      "employee",
+    );
+    expect(delegatedPage.status).toBe(200);
+    expect(delegatedPage.body).toContain('data-test-actor="quality-management"');
+    expect(delegatedPage.body).toContain('data-perspective="quality_management"');
+
+    const options = await call(
+      "/api/workbench/quality/events/test-event/supervisor-options",
+      "GET",
+      undefined,
+      "QUALITY_TEST_SPECIALIST_001",
+      "employee",
+    );
+    expect(options.status).toBe(200);
+    expect(options.payload.data.departments).toHaveLength(1);
+    expect(options.payload.data.departments[0].departmentName).toBe("测试主管");
+    expect(options.payload.data.departments[0].supervisors.map((item: any) => item.displayName))
+      .toEqual(["测试主管"]);
+
+    const realEvent = await call(
+      "/api/workbench/quality/events/real-event",
+      "GET",
+      undefined,
+      "QUALITY_TEST_SPECIALIST_001",
+      "employee",
+    );
+    expect(realEvent.status).toBe(404);
   });
 
   it("lets Ma Rongxin edit review fields and Tong Cheng complete initial analysis", async () => {

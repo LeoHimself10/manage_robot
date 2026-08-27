@@ -70,7 +70,10 @@ import {
   isQualityRolePanelsEnabled,
   isQualityTestActorsEnabled,
 } from "../quality/testing/quality-feature-flags";
-import { resolveQualityTestActor } from "../quality/testing/quality-test-actors";
+import {
+  getQualityTestActorByUserId,
+  resolveQualityTestActor,
+} from "../quality/testing/quality-test-actors";
 import { createQualityTestAnalysisService } from
   "../quality/testing/quality-test-analysis-service";
 import { createQualityTestAftersalesService } from
@@ -366,11 +369,18 @@ function projectedErrorResponse(response: { status: number; body: Record<string,
 }
 
 function perspectiveRequest(url: URL, session: QualityHttpSession): QualityPerspectiveRequest {
+  const sessionTestActor = getQualityTestActorByUserId(session.userId);
   return {
     viewerUserId: session.userId,
     perspective: url.searchParams.get("perspective") as QualityPerspectiveRequest["perspective"],
-    testActorRef: isQualityTestActorsEnabled() ? url.searchParams.get("testActor") : null,
+    testActorRef: isQualityTestActorsEnabled()
+      ? url.searchParams.get("testActor") || sessionTestActor?.actorRef || null
+      : null,
   };
+}
+
+function qualityTestAuditAdminUserId(session: QualityHttpSession): string {
+  return session.impersonation?.actorUserId ?? session.userId;
 }
 
 function projectedDetail(eventId: string, url: URL, session: QualityHttpSession) {
@@ -427,7 +437,8 @@ async function handleQualityApi(input: {
       && (url.searchParams.get("projection") === "1"
         || adminReadOnly
         || caps.roles.includes("aftersales_manager")
-        || caps.hasQualityManagement);
+        || caps.hasQualityManagement
+        || getQualityTestActorByUserId(session.userId) != null);
     const panelContext = projectionRequested
       ? resolveQualityPerspectiveContext(perspectiveRequest(url, session))
       : null;
@@ -1134,7 +1145,9 @@ async function handleQualityApi(input: {
         await service.assignSupervisor({
           eventId,
           specialistUserId: projected.context.actorUserId,
-          actualAdminUserId: projected.context.scope === "test" ? session.userId : undefined,
+          actualAdminUserId: projected.context.scope === "test"
+            ? qualityTestAuditAdminUserId(session)
+            : undefined,
           candidateRef: z.string().trim().min(1).max(200).parse(body.candidateRef),
           dueAt: z.string().trim().min(1).max(64).parse(body.dueAt),
           taskRequirement: z.string().trim().min(1).max(5000).parse(body.taskRequirement),
@@ -1216,7 +1229,7 @@ async function handleQualityApi(input: {
         try {
           const common = {
             eventId,
-            actualAdminUserId: session.userId,
+            actualAdminUserId: qualityTestAuditAdminUserId(session),
             expectedVersion: z.number().int().positive().parse(body.expectedVersion),
             requestId: requestId(body.requestId),
           };
@@ -1253,7 +1266,7 @@ async function handleQualityApi(input: {
           service.update({
             eventId,
             testAftersalesUserId: projected.context.actorUserId,
-            actualAdminUserId: session.userId,
+            actualAdminUserId: qualityTestAuditAdminUserId(session),
             expectedVersion: z.number().int().positive().parse(body.expectedVersion),
             requestId: requestId(body.requestId),
             problemStatus: z.string().trim().min(1).max(10000).parse(body.problemStatus),
@@ -1280,7 +1293,7 @@ async function handleQualityApi(input: {
           service.complete({
             eventId,
             testSpecialistUserId: projected.context.actorUserId,
-            actualAdminUserId: session.userId,
+            actualAdminUserId: qualityTestAuditAdminUserId(session),
             expectedVersion: z.number().int().positive().parse(body.expectedVersion),
             requestId: requestId(body.requestId),
             problemDirection: z.string().trim().min(1).max(5000).parse(body.problemDirection),
@@ -1322,7 +1335,7 @@ async function handleQualityApi(input: {
           const common = {
             nodeId: actorNode.actionRef,
             actorUserId: projected.context.actorUserId,
-            actualAdminUserId: session.userId,
+            actualAdminUserId: qualityTestAuditAdminUserId(session),
             expectedVersion: z.number().int().positive().parse(body.expectedVersion),
             requestId: requestId(body.requestId),
           };
@@ -1373,7 +1386,7 @@ async function handleQualityApi(input: {
             requirement: z.string().trim().min(1).max(5000).parse(body.requirement),
             expectedVersion: z.number().int().positive().parse(body.expectedVersion),
             requestId: requestId(body.requestId),
-            actualAdminUserId: session.userId,
+            actualAdminUserId: qualityTestAuditAdminUserId(session),
           });
         } finally {
           service.close();
@@ -1385,7 +1398,7 @@ async function handleQualityApi(input: {
           service.uploadEvidence({
             nodeId: actorNode.actionRef,
             actorUserId: projected.context.actorUserId,
-            actualAdminUserId: session.userId,
+            actualAdminUserId: qualityTestAuditAdminUserId(session),
             originalName: "测试证据说明.txt",
             mimeType: "text/plain",
             summary,
@@ -1401,7 +1414,7 @@ async function handleQualityApi(input: {
           service.submitCompletion({
             nodeId: actorNode.actionRef,
             actorUserId: projected.context.actorUserId,
-            actualAdminUserId: session.userId,
+            actualAdminUserId: qualityTestAuditAdminUserId(session),
             expectedVersion: z.number().int().positive().parse(body.expectedVersion),
             requestId: requestId(body.requestId),
           });
@@ -1420,7 +1433,7 @@ async function handleQualityApi(input: {
           service.reviewDirectChild({
             childNodeId: child.actionRef,
             actorUserId: projected.context.actorUserId,
-            actualAdminUserId: session.userId,
+            actualAdminUserId: qualityTestAuditAdminUserId(session),
             decision: z.enum(["APPROVE", "RETURN"]).parse(body.decision),
             reason: body.reason == null
               ? undefined
@@ -1438,7 +1451,7 @@ async function handleQualityApi(input: {
           service.primaryReview({
             eventId,
             primaryManagerUserId: projected.context.actorUserId,
-            actualAdminUserId: session.userId,
+            actualAdminUserId: qualityTestAuditAdminUserId(session),
             decision: "APPROVE",
             expectedVersion: z.number().int().positive().parse(body.expectedVersion),
             requestId: requestId(body.requestId),
@@ -1468,7 +1481,9 @@ async function handleQualityApi(input: {
         && !projected.context.readonly;
       if (!specialist && !testSpecialist) throw new Error("仅质量专员可执行该操作");
       const specialistUserId = testSpecialist ? projected!.context.actorUserId : session.userId;
-      const actualAdminUserId = testSpecialist ? session.userId : undefined;
+      const actualAdminUserId = testSpecialist
+        ? qualityTestAuditAdminUserId(session)
+        : undefined;
       const body = await readJsonBody(req);
       if (action === "assign-primary" || action === "due") {
         if (testSpecialist) throw new Error("测试视角请使用主管选择器");
@@ -1789,14 +1804,19 @@ export function handleQualityHttp(input: {
     : undefined;
   const rolePanelsEnabled = isQualityRolePanelsEnabled();
   const testActorsEnabled = isQualityTestActorsEnabled();
+  const sessionTestActor = testActorsEnabled
+    ? getQualityTestActorByUserId(session.userId)
+    : null;
   const requestedTestActorRaw = String(url.searchParams.get("testActor") ?? "").trim();
-  const requestedTestActor = caps.baseRole === "admin" && rolePanelsEnabled && testActorsEnabled
-    ? resolveQualityTestActor(requestedTestActorRaw)?.actorRef ?? "aftersales"
+  const requestedTestActor = rolePanelsEnabled && testActorsEnabled
+    ? caps.baseRole === "admin"
+      ? resolveQualityTestActor(requestedTestActorRaw)?.actorRef ?? "aftersales"
+      : sessionTestActor?.actorRef ?? ""
     : "";
   const requestedPerspective = caps.baseRole === "admin" && rolePanelsEnabled
     ? String(url.searchParams.get("perspective") ?? "").trim()
     : "";
-  const pagePerspective = caps.baseRole === "admin" && rolePanelsEnabled
+  const pagePerspective = rolePanelsEnabled && (caps.baseRole === "admin" || requestedTestActor)
     ? resolveQualityPerspectiveContext({
         viewerUserId: session.userId,
         perspective: requestedPerspective as QualityPerspectiveRequest["perspective"],
