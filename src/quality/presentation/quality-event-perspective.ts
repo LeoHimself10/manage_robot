@@ -121,17 +121,6 @@ export function resolveQualityPerspectiveContext(input: QualityPerspectiveReques
   const workbench = resolveWorkbenchCapabilities(input.viewerUserId);
   const isAdmin = workbench.primaryRole === "admin";
   const testActor = resolveQualityTestActor(input.testActorRef);
-  if (String(input.testActorRef ?? "") === "dashboard") {
-    if (!isAdmin) throw new Error("只有管理员可以进入质量测试视角");
-    return {
-      scope: "test",
-      perspective: "dashboard",
-      actorUserId: input.viewerUserId,
-      testActor: null,
-      isAdmin,
-      readonly: true,
-    };
-  }
   if (testActor) {
     if (!isAdmin) throw new Error("只有管理员可以进入质量测试视角");
     return {

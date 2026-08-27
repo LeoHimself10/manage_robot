@@ -67,6 +67,7 @@ import {
   isQualityRolePanelsEnabled,
   isQualityTestActorsEnabled,
 } from "../quality/testing/quality-feature-flags";
+import { resolveQualityTestActor } from "../quality/testing/quality-test-actors";
 import { qualityStatusLabel } from "../quality/presentation/quality-display-labels";
 
 export interface QualityHttpSession {
@@ -1575,8 +1576,9 @@ export function handleQualityHttp(input: {
     : undefined;
   const rolePanelsEnabled = isQualityRolePanelsEnabled();
   const testActorsEnabled = isQualityTestActorsEnabled();
+  const requestedTestActorRaw = String(url.searchParams.get("testActor") ?? "").trim();
   const requestedTestActor = caps.baseRole === "admin" && rolePanelsEnabled && testActorsEnabled
-    ? String(url.searchParams.get("testActor") ?? "").trim()
+    ? resolveQualityTestActor(requestedTestActorRaw)?.actorRef ?? "aftersales"
     : "";
   const requestedPerspective = caps.baseRole === "admin" && rolePanelsEnabled
     ? String(url.searchParams.get("perspective") ?? "").trim()
@@ -1635,7 +1637,10 @@ export function handleQualityHttp(input: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store, must-revalidate",
     });
-    res.end(isHead ? "" : decorateWorkbenchHtmlForAdminImpersonation(html, session));
+    const pageHtml = caps.baseRole === "admin" && rolePanelsEnabled && testActorsEnabled
+      ? html
+      : decorateWorkbenchHtmlForAdminImpersonation(html, session);
+    res.end(isHead ? "" : pageHtml);
     return true;
   }
 

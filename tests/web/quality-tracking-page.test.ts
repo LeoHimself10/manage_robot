@@ -216,8 +216,6 @@ describe("renderQualityTrackingPage", () => {
     for (const html of [ma, tong]) {
       expect(html).toContain("马荣鑫");
       expect(html).toContain("佟成");
-      expect(html).toContain("主管");
-      expect(html).toContain("看板");
       expect(html).toContain("测试");
       expect(html).toContain('id="qualityMetrics"');
       expect(html).toContain("处理中");
@@ -283,7 +281,7 @@ describe("renderQualityTrackingPage", () => {
     expect(html).not.toContain("质量事件查看视角");
   });
 
-  it("adds three isolated test employees without changing ordinary business users", () => {
+  it("shows exactly six isolated perspectives to admins and none to ordinary users", () => {
     const test = renderQualityTrackingPage({
       role: "admin",
       userId: "admin-1",
@@ -293,9 +291,25 @@ describe("renderQualityTrackingPage", () => {
       activeTestActor: "employee-1",
       projectedMode: true,
     });
-    expect(test).toContain("员工一（测试）");
-    expect(test).toContain("员工二（测试）");
-    expect(test).toContain("员工三（测试）");
+    const navigation = test.match(
+      /<nav class="qpc-perspective-tabs" aria-label="管理员隔离测试视角">([\s\S]*?)<\/nav>/,
+    )?.[1] ?? "";
+    const labels = [
+      "马荣鑫（测试）",
+      "佟成（测试）",
+      "测试员工1",
+      "测试员工2",
+      "测试员工3",
+      "测试主管",
+    ];
+    expect(labels.every((label) => navigation.includes(label))).toBe(true);
+    expect(labels.map((label) => navigation.indexOf(label)))
+      .toEqual([...labels.keys()].map((_, index) => navigation.indexOf(labels[index]!)).sort((a, b) => a - b));
+    expect(navigation.match(/<a /g)).toHaveLength(6);
+    expect(navigation).not.toContain("主管一（测试）");
+    expect(navigation).not.toContain("主管二（测试）");
+    expect(navigation).not.toContain("测试看板");
+    expect(navigation).not.toContain("?perspective=");
 
     const regular = renderQualityTrackingPage({
       role: "manager",
@@ -304,8 +318,8 @@ describe("renderQualityTrackingPage", () => {
       rolePanelsEnabled: true,
       testActorsEnabled: true,
     });
-    expect(regular).not.toContain("质量事件查看视角");
-    expect(regular).not.toContain("员工一（测试）");
+    expect(regular).not.toContain("管理员隔离测试视角");
+    expect(regular).not.toContain("测试员工1");
     expect(regular).toContain("待研判反馈");
   });
 });

@@ -59,7 +59,7 @@ describe("isolated quality test full flow", () => {
     const directory = createQualitySupervisorDirectory({ dbPath, contacts: [] });
     const managerCandidate = directory.listGroups({ eventId: "test-full-flow", isTest: true })
       .flatMap((group) => group.supervisors)
-      .find((candidate) => candidate.displayName === "主管一（测试）")!;
+      .find((candidate) => candidate.displayName === "测试主管")!;
     directory.close();
 
     let assignment = createQualityAssignmentService({ dbPath, now: () => NOW });

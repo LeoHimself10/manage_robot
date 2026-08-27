@@ -5,7 +5,6 @@ export interface QualityTestActor {
     | "aftersales"
     | "quality-management"
     | "manager-1"
-    | "manager-2"
     | "employee-1"
     | "employee-2"
     | "employee-3";
@@ -32,42 +31,46 @@ export const QUALITY_TEST_ACTORS: readonly QualityTestActor[] = Object.freeze([
   {
     actorRef: "manager-1",
     userId: "QUALITY_TEST_MANAGER_001",
-    displayName: "主管一（测试）",
+    displayName: "测试主管",
     perspective: "manager",
     departmentName: "研发中心",
   },
   {
-    actorRef: "manager-2",
-    userId: "QUALITY_TEST_MANAGER_002",
-    displayName: "主管二（测试）",
-    perspective: "manager",
-    departmentName: "质量部",
-  },
-  {
     actorRef: "employee-1",
     userId: "QUALITY_TEST_EMPLOYEE_001",
-    displayName: "员工一（测试）",
+    displayName: "测试员工1",
     perspective: "employee",
     departmentName: "研发中心",
   },
   {
     actorRef: "employee-2",
     userId: "QUALITY_TEST_EMPLOYEE_002",
-    displayName: "员工二（测试）",
+    displayName: "测试员工2",
     perspective: "employee",
     departmentName: "研发中心",
   },
   {
     actorRef: "employee-3",
     userId: "QUALITY_TEST_EMPLOYEE_003",
-    displayName: "员工三（测试）",
+    displayName: "测试员工3",
     perspective: "employee",
-    departmentName: "质量部",
+    departmentName: "研发中心",
   },
 ]);
 
 const BY_REF = new Map(QUALITY_TEST_ACTORS.map((actor) => [actor.actorRef, actor]));
-const BY_USER_ID = new Map(QUALITY_TEST_ACTORS.map((actor) => [actor.userId, actor]));
+// Keep the retired second-manager ID inside the safety boundary so historical
+// test outbox rows can never be mistaken for real DingTalk recipients.
+const LEGACY_TEST_ACTORS: readonly QualityTestActor[] = Object.freeze([{
+  actorRef: "manager-1",
+  userId: "QUALITY_TEST_MANAGER_002",
+  displayName: "测试主管",
+  perspective: "manager",
+  departmentName: "研发中心",
+}]);
+const BY_USER_ID = new Map(
+  [...QUALITY_TEST_ACTORS, ...LEGACY_TEST_ACTORS].map((actor) => [actor.userId, actor]),
+);
 
 export function resolveQualityTestActor(actorRef: string | null | undefined): QualityTestActor | null {
   return BY_REF.get(String(actorRef ?? "").trim() as QualityTestActor["actorRef"]) ?? null;

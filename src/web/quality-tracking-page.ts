@@ -57,26 +57,14 @@ export function renderQualityTrackingPage(params: {
     ?? (isSpecialist ? "quality_management" : planningMode ? "manager" : "aftersales");
   const activeTestActor = params.activeTestActor ?? "";
   const projectedMode = params.projectedMode === true;
-  const primaryPerspectiveTabs = rolePanelsEnabled && isAdmin
-    ? `<nav class="qpc-perspective-tabs" aria-label="质量事件查看视角">
-      <a class="${!activeTestActor && activePerspective === "aftersales" ? "is-active" : ""}" href="/workbench/quality?perspective=aftersales">马荣鑫</a>
-      <a class="${!activeTestActor && activePerspective === "quality_management" ? "is-active" : ""}" href="/workbench/quality?perspective=quality_management">佟成</a>
-      <a class="${!activeTestActor && activePerspective === "manager" ? "is-active" : ""}" href="/workbench/quality?perspective=manager">主管</a>
-      <a class="${!activeTestActor && activePerspective === "dashboard" ? "is-active" : ""}" href="/workbench/quality?perspective=dashboard">看板</a>
-      ${testActorsEnabled ? `<a class="is-test ${activeTestActor ? "is-active" : ""}" href="/workbench/quality?testActor=aftersales">测试</a>` : ""}
-    </nav>`
-    : "";
-  const testPerspectiveTabs = rolePanelsEnabled && isAdmin && testActorsEnabled && activeTestActor
-    ? `<nav class="qpc-test-perspective-tabs" aria-label="质量隔离测试视角">
-      <span>隔离测试</span>
+  const testPerspectiveTabs = rolePanelsEnabled && isAdmin && testActorsEnabled
+    ? `<nav class="qpc-perspective-tabs" aria-label="管理员隔离测试视角">
       <a class="${activeTestActor === "aftersales" ? "is-active" : ""}" href="/workbench/quality?testActor=aftersales">马荣鑫（测试）</a>
       <a class="${activeTestActor === "quality-management" ? "is-active" : ""}" href="/workbench/quality?testActor=quality-management">佟成（测试）</a>
-      <a class="${activeTestActor === "manager-1" ? "is-active" : ""}" href="/workbench/quality?testActor=manager-1">主管一（测试）</a>
-      <a class="${activeTestActor === "manager-2" ? "is-active" : ""}" href="/workbench/quality?testActor=manager-2">主管二（测试）</a>
-      <a class="${activeTestActor === "employee-1" ? "is-active" : ""}" href="/workbench/quality?testActor=employee-1">员工一（测试）</a>
-      <a class="${activeTestActor === "employee-2" ? "is-active" : ""}" href="/workbench/quality?testActor=employee-2">员工二（测试）</a>
-      <a class="${activeTestActor === "employee-3" ? "is-active" : ""}" href="/workbench/quality?testActor=employee-3">员工三（测试）</a>
-      <a class="${activeTestActor === "dashboard" ? "is-active" : ""}" href="/workbench/quality?testActor=dashboard">测试看板</a>
+      <a class="${activeTestActor === "employee-1" ? "is-active" : ""}" href="/workbench/quality?testActor=employee-1">测试员工1</a>
+      <a class="${activeTestActor === "employee-2" ? "is-active" : ""}" href="/workbench/quality?testActor=employee-2">测试员工2</a>
+      <a class="${activeTestActor === "employee-3" ? "is-active" : ""}" href="/workbench/quality?testActor=employee-3">测试员工3</a>
+      <a class="${activeTestActor === "manager-1" ? "is-active" : ""}" href="/workbench/quality?testActor=manager-1">测试主管</a>
     </nav>`
     : "";
   const selectedManager = params.managerPerspectives?.find(
@@ -97,7 +85,6 @@ export function renderQualityTrackingPage(params: {
     mainBodyClass: "wb-main-body--quality-center",
     extraCss: QUALITY_TRACKING_STYLES,
     mainHtml: `<main class="qpc-page" id="qualityProcessingCenter" data-can-report="${canReport ? "1" : "0"}" data-can-view-sources="${canViewSources ? "1" : "0"}" data-is-specialist="${isSpecialist ? "1" : "0"}" data-business-readonly="${isBusinessReadOnly ? "1" : "0"}" data-planning-mode="${planningMode ? "1" : "0"}" data-manager-user-id="${escapeHtml(params.selectedManagerUserId ?? "")}" data-role-panels="${projectedMode ? "1" : "0"}" data-perspective="${escapeHtml(activePerspective)}" data-test-actor="${escapeHtml(activeTestActor)}">
-  ${primaryPerspectiveTabs}
   ${testPerspectiveTabs}
   ${isBusinessReadOnly ? `<div class="qpc-readonly-banner" role="status"><div><strong>管理员全局质量视图</strong><span>当前用于全局核查；如需代办，请选择具体人员，系统将切换到与本人登录完全一致的工作台。</span></div>${managerPerspectiveSelect}</div>` : ""}
   <section class="qpc-hero" aria-labelledby="qualityCenterTitle">

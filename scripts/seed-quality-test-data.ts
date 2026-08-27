@@ -21,7 +21,7 @@ type NodeSeed = {
   parentKey?: string;
   assigneeUserId: string;
   assigneeKind: "MANAGER" | "EMPLOYEE";
-  departmentName: "研发中心" | "质量部";
+  departmentName: "研发中心";
   status: "PENDING_ACCEPTANCE" | "IN_PROGRESS" | "PENDING_PARENT_REVIEW" | "APPROVED";
   evidence?: boolean;
 };
@@ -36,23 +36,22 @@ type EventSeed = {
 };
 
 const managerOne = "QUALITY_TEST_MANAGER_001";
-const managerTwo = "QUALITY_TEST_MANAGER_002";
 const employeeOne = "QUALITY_TEST_EMPLOYEE_001";
 const employeeTwo = "QUALITY_TEST_EMPLOYEE_002";
 const employeeThree = "QUALITY_TEST_EMPLOYEE_003";
 const events: EventSeed[] = [
   { id: "quality-test-event-analysis", eventNo: "QT-DEMO-000", status: "PENDING_ANALYSIS", title: "测试：等待填写质量初析", purpose: "从质量初析开始完整演练，不连接任何真实人员。", analysis: false, nodes: [] },
   { id: "quality-test-event-assignment", eventNo: "QT-DEMO-001", status: "PENDING_ASSIGNMENT", title: "测试：影像显示偶发异常", purpose: "用于选择一名测试主管并从头推进完整闭环。", analysis: true, nodes: [] },
-  { id: "quality-test-event-manager-one", eventNo: "QT-DEMO-002", status: "PENDING_ACCEPTANCE", title: "测试：研发原因排查", purpose: "用于主管一接受或拒绝承接。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "PENDING_ACCEPTANCE" }] },
-  { id: "quality-test-event-manager-two", eventNo: "QT-DEMO-003", status: "PENDING_ACCEPTANCE", title: "测试：质量记录核验", purpose: "用于主管二接受或拒绝承接。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerTwo, assigneeKind: "MANAGER", departmentName: "质量部", status: "PENDING_ACCEPTANCE" }] },
-  { id: "quality-test-event-delegate", eventNo: "QT-DEMO-004", status: "IN_PROGRESS", title: "测试：等待主管分配员工", purpose: "主管一可选择研发中心测试员工继续分配。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "IN_PROGRESS" }] },
-  { id: "quality-test-event-employee-accept", eventNo: "QT-DEMO-005", status: "IN_PROGRESS", title: "测试：员工一待承接", purpose: "员工一可接受或拒绝测试任务。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "IN_PROGRESS" }, { key: "employee", parentKey: "root", assigneeUserId: employeeOne, assigneeKind: "EMPLOYEE", departmentName: "研发中心", status: "PENDING_ACCEPTANCE" }] },
-  { id: "quality-test-event-evidence", eventNo: "QT-DEMO-006", status: "IN_PROGRESS", title: "测试：员工二提交证据", purpose: "员工二可生成测试证据并提交完成。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "IN_PROGRESS" }, { key: "employee", parentKey: "root", assigneeUserId: employeeTwo, assigneeKind: "EMPLOYEE", departmentName: "研发中心", status: "IN_PROGRESS" }] },
-  { id: "quality-test-event-child-review", eventNo: "QT-DEMO-007", status: "IN_PROGRESS", title: "测试：主管验收员工证据", purpose: "主管一可通过或退回员工一的提交。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "IN_PROGRESS" }, { key: "employee", parentKey: "root", assigneeUserId: employeeOne, assigneeKind: "EMPLOYEE", departmentName: "研发中心", status: "PENDING_PARENT_REVIEW", evidence: true }] },
-  { id: "quality-test-event-primary-review", eventNo: "QT-DEMO-008", status: "PENDING_PRIMARY_REVIEW", title: "测试：原主责整体验收", purpose: "主管一可执行整体验收并送质量终验。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "PENDING_PARENT_REVIEW" }, { key: "employee", parentKey: "root", assigneeUserId: employeeTwo, assigneeKind: "EMPLOYEE", departmentName: "研发中心", status: "APPROVED", evidence: true }] },
+  { id: "quality-test-event-manager-one", eventNo: "QT-DEMO-002", status: "PENDING_ACCEPTANCE", title: "测试：研发原因排查", purpose: "用于测试主管接受或拒绝承接。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "PENDING_ACCEPTANCE" }] },
+  { id: "quality-test-event-manager-two", eventNo: "QT-DEMO-003", status: "PENDING_ACCEPTANCE", title: "测试：质量记录核验", purpose: "用于测试主管在另一事件中演练承接。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "PENDING_ACCEPTANCE" }] },
+  { id: "quality-test-event-delegate", eventNo: "QT-DEMO-004", status: "IN_PROGRESS", title: "测试：等待主管分配员工", purpose: "测试主管可选择三名直属测试员工继续分配。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "IN_PROGRESS" }] },
+  { id: "quality-test-event-employee-accept", eventNo: "QT-DEMO-005", status: "IN_PROGRESS", title: "测试：测试员工1待承接", purpose: "测试员工1可接受或拒绝测试任务。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "IN_PROGRESS" }, { key: "employee", parentKey: "root", assigneeUserId: employeeOne, assigneeKind: "EMPLOYEE", departmentName: "研发中心", status: "PENDING_ACCEPTANCE" }] },
+  { id: "quality-test-event-evidence", eventNo: "QT-DEMO-006", status: "IN_PROGRESS", title: "测试：测试员工2提交证据", purpose: "测试员工2可生成测试证据并提交完成。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "IN_PROGRESS" }, { key: "employee", parentKey: "root", assigneeUserId: employeeTwo, assigneeKind: "EMPLOYEE", departmentName: "研发中心", status: "IN_PROGRESS" }] },
+  { id: "quality-test-event-child-review", eventNo: "QT-DEMO-007", status: "IN_PROGRESS", title: "测试：主管验收员工证据", purpose: "测试主管可通过或退回测试员工1的提交。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "IN_PROGRESS" }, { key: "employee", parentKey: "root", assigneeUserId: employeeOne, assigneeKind: "EMPLOYEE", departmentName: "研发中心", status: "PENDING_PARENT_REVIEW", evidence: true }] },
+  { id: "quality-test-event-primary-review", eventNo: "QT-DEMO-008", status: "PENDING_PRIMARY_REVIEW", title: "测试：原主责整体验收", purpose: "测试主管可执行整体验收并送质量终验。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "PENDING_PARENT_REVIEW" }, { key: "employee", parentKey: "root", assigneeUserId: employeeTwo, assigneeKind: "EMPLOYEE", departmentName: "研发中心", status: "APPROVED", evidence: true }] },
   { id: "quality-test-event-quality-review", eventNo: "QT-DEMO-009", status: "PENDING_QUALITY_REVIEW", title: "测试：质量终验待关闭", purpose: "佟成（测试）可关闭或退回指定节点。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "APPROVED" }, { key: "employee", parentKey: "root", assigneeUserId: employeeOne, assigneeKind: "EMPLOYEE", departmentName: "研发中心", status: "APPROVED", evidence: true }] },
-  { id: "quality-test-event-closed", eventNo: "QT-DEMO-010", status: "CLOSED", title: "测试：已关闭事件重开", purpose: "佟成（测试）可选择节点重开，历史证据保留。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerTwo, assigneeKind: "MANAGER", departmentName: "质量部", status: "APPROVED" }, { key: "employee", parentKey: "root", assigneeUserId: employeeThree, assigneeKind: "EMPLOYEE", departmentName: "质量部", status: "APPROVED", evidence: true }] },
-  { id: "quality-test-event-employee-three", eventNo: "QT-DEMO-011", status: "IN_PROGRESS", title: "测试：员工三待承接", purpose: "员工三可在质量部测试分支完成承接、证据和提交。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerTwo, assigneeKind: "MANAGER", departmentName: "质量部", status: "IN_PROGRESS" }, { key: "employee", parentKey: "root", assigneeUserId: employeeThree, assigneeKind: "EMPLOYEE", departmentName: "质量部", status: "PENDING_ACCEPTANCE" }] },
+  { id: "quality-test-event-closed", eventNo: "QT-DEMO-010", status: "CLOSED", title: "测试：已关闭事件重开", purpose: "佟成（测试）可选择节点重开，历史证据保留。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "APPROVED" }, { key: "employee", parentKey: "root", assigneeUserId: employeeThree, assigneeKind: "EMPLOYEE", departmentName: "研发中心", status: "APPROVED", evidence: true }] },
+  { id: "quality-test-event-employee-three", eventNo: "QT-DEMO-011", status: "IN_PROGRESS", title: "测试：测试员工3待承接", purpose: "测试员工3可在测试主管分支下完成承接、证据和提交。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "IN_PROGRESS" }, { key: "employee", parentKey: "root", assigneeUserId: employeeThree, assigneeKind: "EMPLOYEE", departmentName: "研发中心", status: "PENDING_ACCEPTANCE" }] },
 ];
 
 function nodeId(eventId: string, key: string): string {
@@ -248,7 +247,7 @@ try {
         JSON.stringify(analysisDeliverables),
         root?.departmentName ?? "研发中心",
         root?.assigneeUserId ?? managerOne,
-        root?.assigneeUserId === managerTwo ? "主管二（测试）" : "主管一（测试）",
+        "测试主管",
         dueAt,
         occurredAt,
         occurredAt,

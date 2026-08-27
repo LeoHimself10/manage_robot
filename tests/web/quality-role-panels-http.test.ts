@@ -33,6 +33,18 @@ function capturedResponse() {
   return { res, ended, read: () => ({ status, body, payload: JSON.parse(body) as Record<string, any> }) };
 }
 
+function capturedHtmlResponse() {
+  let status = 200;
+  let body = "";
+  let resolve!: () => void;
+  const ended = new Promise<void>((done) => { resolve = done; });
+  const res = {
+    writeHead(code: number) { status = code; },
+    end(chunk?: string) { body = chunk ?? ""; resolve(); },
+  } as ServerResponse;
+  return { res, ended, read: () => ({ status, body }) };
+}
+
 async function call(path: string, method = "GET", body?: unknown, userId = "admin-1", role: "admin" | "manager" = "admin") {
   const target = new URL(`http://localhost${path}`);
   if (target.pathname.startsWith("/api/workbench/quality/events/")
@@ -44,6 +56,18 @@ async function call(path: string, method = "GET", body?: unknown, userId = "admi
     req: request(method, body),
     res: capture.res,
     url: target,
+    session: { userId, role },
+  });
+  await capture.ended;
+  return capture.read();
+}
+
+async function callPage(path: string, userId = "admin-1", role: "admin" | "manager" = "admin") {
+  const capture = capturedHtmlResponse();
+  handleQualityHttp({
+    req: request("GET"),
+    res: capture.res,
+    url: new URL(`http://localhost${path}`),
     session: { userId, role },
   });
   await capture.ended;
@@ -97,7 +121,7 @@ describe("quality role-panel HTTP APIs", () => {
       confirmed_at,created_at
     ) VALUES('analysis-test','test-event',1,'request-analysis-test',NULL,?,?,'{}',
       '测试初析','dept-rd','研发中心','[]','QUALITY_TEST_MANAGER_001',
-      '主管一（测试）','active','2026-09-30T08:00:00.000Z',
+      '测试主管','active','2026-09-30T08:00:00.000Z',
       'quality-analysis-output-v1',NULL,NULL,NULL,'rules-v1','cases-v1','knowledge-v1',
       NULL,'QUALITY_TEST_SPECIALIST_001','QUALITY_TEST_SPECIALIST_001',?,?)`).run(
       JSON.stringify({
@@ -119,6 +143,27 @@ describe("quality role-panel HTTP APIs", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("defaults administrators to the six test perspectives and hides the switch from ordinary users", async () => {
+    const adminPage = await callPage("/workbench/quality");
+    expect(adminPage.status).toBe(200);
+    expect(adminPage.body).toContain('data-test-actor="aftersales"');
+    expect(adminPage.body).toContain('aria-label="管理员隔离测试视角"');
+    expect(adminPage.body).toContain("马荣鑫（测试）");
+    expect(adminPage.body).toContain("佟成（测试）");
+    expect(adminPage.body).toContain("测试员工1");
+    expect(adminPage.body).toContain("测试员工2");
+    expect(adminPage.body).toContain("测试员工3");
+    expect(adminPage.body).toContain("测试主管");
+    expect(adminPage.body).not.toContain("主管二（测试）");
+    expect(adminPage.body).not.toContain("测试看板");
+    expect(adminPage.body).not.toContain("切换到成员工作台");
+
+    const ordinaryPage = await callPage("/workbench/quality", "aftersales-real", "manager");
+    expect(ordinaryPage.status).toBe(200);
+    expect(ordinaryPage.body).not.toContain('aria-label="管理员隔离测试视角"');
+    expect(ordinaryPage.body).not.toContain("测试员工1");
   });
 
   it("projects different fields and refuses every cross-scope detail read", async () => {
@@ -210,7 +255,7 @@ describe("quality role-panel HTTP APIs", () => {
     expect(options.status).toBe(200);
     expect(options.payload.data.departments).toHaveLength(7);
     expect(options.payload.data.departments.flatMap((item: any) => item.supervisors)
-      .map((item: any) => item.displayName)).toEqual(["主管一（测试）", "主管二（测试）"]);
+      .map((item: any) => item.displayName)).toEqual(["测试主管"]);
     expect(JSON.stringify(options.payload)).not.toContain("QUALITY_TEST_MANAGER_001");
 
     const multiple = await call(
@@ -250,7 +295,7 @@ describe("quality role-panel HTTP APIs", () => {
     );
     const candidate = options.payload.data.departments
       .flatMap((item: any) => item.supervisors)
-      .find((item: any) => item.displayName === "主管一（测试）");
+      .find((item: any) => item.displayName === "测试主管");
     const assigned = await call(
       "/api/workbench/quality/events/test-event/assign-supervisor?testActor=quality-management",
       "POST",
@@ -265,7 +310,7 @@ describe("quality role-panel HTTP APIs", () => {
     expect(assigned.status).toBe(201);
     expect(assigned.payload.data.viewModel.supervisorAssignment).toMatchObject({
       assigned: true,
-      supervisorName: "主管一（测试）",
+      supervisorName: "测试主管",
       departmentName: "研发中心",
     });
     const manager = await call("/api/workbench/quality/events/test-event?testActor=manager-1");
@@ -303,7 +348,7 @@ describe("quality role-panel HTTP APIs", () => {
     );
     const managerCandidate = options.payload.data.departments
       .flatMap((item: any) => item.supervisors)
-      .find((item: any) => item.displayName === "主管一（测试）");
+      .find((item: any) => item.displayName === "测试主管");
     await call(
       "/api/workbench/quality/events/test-event/assign-supervisor?testActor=quality-management",
       "POST",
@@ -333,7 +378,7 @@ describe("quality role-panel HTTP APIs", () => {
     );
     expect(employees.status).toBe(200);
     expect(employees.payload.data.employees.map((item: any) => item.displayName))
-      .toEqual(["员工一（测试）", "员工二（测试）"]);
+      .toEqual(["测试员工1", "测试员工2", "测试员工3"]);
     expect(JSON.stringify(employees.payload)).not.toContain("QUALITY_TEST_EMPLOYEE");
 
     const delegated = await call(
@@ -352,7 +397,7 @@ describe("quality role-panel HTTP APIs", () => {
 
     const employee = await call("/api/workbench/quality/events/test-event?testActor=employee-1");
     expect(employee.status).toBe(200);
-    expect(employee.payload.data.viewModel.actorLabel).toBe("员工一（测试）");
+    expect(employee.payload.data.viewModel.actorLabel).toBe("测试员工1");
     expect(employee.payload.data.viewModel.branch).toHaveLength(1);
     expect(employee.payload.data.viewModel.allowedActions).toEqual(["accept", "reject"]);
 

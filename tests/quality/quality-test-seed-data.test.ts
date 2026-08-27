@@ -74,10 +74,12 @@ describe("quality isolated demo data", () => {
       CLOSED: 1,
     });
     expect(listQualityTestEmployeeActors().map((actor) => actor.displayName)).toEqual([
-      "员工一（测试）",
-      "员工二（测试）",
-      "员工三（测试）",
+      "测试员工1",
+      "测试员工2",
+      "测试员工3",
     ]);
+    expect(new Set(listQualityTestEmployeeActors().map((actor) => actor.departmentName)))
+      .toEqual(new Set(["研发中心"]));
 
     const projector = createQualityEventPerspectiveProjector(dbPath);
     const ma = projector.getEventDetail({

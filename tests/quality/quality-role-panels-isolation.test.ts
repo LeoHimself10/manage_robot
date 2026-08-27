@@ -204,25 +204,24 @@ describe("quality supervisor directory", () => {
     directory.close();
   });
 
-  it("returns only the two isolated test managers for test events", () => {
+  it("returns one test supervisor with all three test employees underneath", () => {
     const directory = createQualitySupervisorDirectory({ contacts: [] });
     const groups = directory.listGroups({ eventId: "test-event", isTest: true });
     const supervisors = groups.flatMap((item) => item.supervisors);
-    expect(supervisors.map((item) => item.displayName)).toEqual([
-      "主管一（测试）",
-      "主管二（测试）",
-    ]);
+    expect(supervisors.map((item) => item.displayName)).toEqual(["测试主管"]);
     expect(supervisors.every((item) => item.candidateRef.startsWith("candidate:"))).toBe(true);
     expect(directory.assertDepartmentEmployee({
       eventIsTest: true,
       managerDepartmentName: "研发中心",
       employeeUserId: "QUALITY_TEST_EMPLOYEE_001",
-    }).name).toBe("员工一（测试）");
-    expect(() => directory.assertDepartmentEmployee({
+    }).name).toBe("测试员工1");
+    expect(directory.assertDepartmentEmployee({
       eventIsTest: true,
       managerDepartmentName: "研发中心",
       employeeUserId: "QUALITY_TEST_EMPLOYEE_003",
-    })).toThrow("同部门测试员工");
+    }).name).toBe("测试员工3");
+    expect(directory.listTestEmployees({ eventId: "test-event", departmentName: "研发中心" })
+      .map((item) => item.displayName)).toEqual(["测试员工1", "测试员工2", "测试员工3"]);
     directory.close();
   });
 });
@@ -262,15 +261,17 @@ describe("quality perspective projector", () => {
     });
     insertNode(dbPath, {
       eventId: "test-event",
-      nodeId: "manager-two-node",
-      assigneeUserId: "QUALITY_TEST_MANAGER_002",
-      departmentName: "质量部",
-    });
-    insertNode(dbPath, {
-      eventId: "test-event",
       nodeId: "manager-one-child",
       parentNodeId: "manager-one-node",
       assigneeUserId: "QUALITY_TEST_EMPLOYEE_001",
+      assigneeKind: "EMPLOYEE",
+      departmentName: "研发中心",
+    });
+    insertNode(dbPath, {
+      eventId: "test-event",
+      nodeId: "manager-one-child-three",
+      parentNodeId: "manager-one-node",
+      assigneeUserId: "QUALITY_TEST_EMPLOYEE_003",
       assigneeKind: "EMPLOYEE",
       departmentName: "研发中心",
     });
@@ -283,7 +284,7 @@ describe("quality perspective projector", () => {
 
     const projector = createQualityEventPerspectiveProjector(dbPath);
     const real = projector.listEvents({ viewerUserId: "admin-1", perspective: "dashboard" });
-    const test = projector.listEvents({ viewerUserId: "admin-1", testActorRef: "dashboard" });
+    const test = projector.listEvents({ viewerUserId: "admin-1", testActorRef: "aftersales" });
     expect(real.events.map((item) => item.eventNumber)).toEqual(["QE-REAL-001"]);
     expect(test.events.map((item) => item.eventNumber)).toEqual(["QT-TEST-001"]);
 
@@ -311,8 +312,7 @@ describe("quality perspective projector", () => {
     expect(JSON.parse(JSON.stringify(specialist.viewModel))).not.toHaveProperty("assessment");
     expect(JSON.parse(JSON.stringify(manager.viewModel))).not.toHaveProperty("assessment");
     expect((manager.viewModel.branch as Array<{ actionRef: string }>).map((item) => item.actionRef))
-      .toEqual(["manager-one-node", "manager-one-child"]);
-    expect(JSON.stringify(manager.viewModel)).not.toContain("manager-two-node");
+      .toEqual(["manager-one-node", "manager-one-child", "manager-one-child-three"]);
     expect(JSON.stringify(manager.viewModel)).not.toContain("RAW_INTERNAL_ACTION");
     expect(JSON.stringify(manager.viewModel)).toContain("业务记录已更新");
     expect((employee.viewModel.branch as Array<{ actionRef: string }>).map((item) => item.actionRef))
@@ -351,6 +351,21 @@ describe("quality notification hard boundary", () => {
       detailUrl: "/quality",
       dedupeKey: "valid-test",
     });
+    for (const [index, recipientUserId] of [
+      "QUALITY_TEST_EMPLOYEE_001",
+      "QUALITY_TEST_EMPLOYEE_002",
+      "QUALITY_TEST_EMPLOYEE_003",
+    ].entries()) {
+      outbox.enqueue({
+        eventId: "test-event",
+        action: "DELEGATED",
+        recipientUserId,
+        subject: "测试通知",
+        markdown: "模拟内容",
+        detailUrl: "/quality",
+        dedupeKey: `valid-test-employee-${index + 1}`,
+      });
+    }
     outbox.close();
     const db = new DatabaseSync(dbPath);
     db.prepare(`INSERT INTO quality_notification_outbox(
@@ -368,7 +383,7 @@ describe("quality notification hard boundary", () => {
     });
     const result = await scheduler.sendPending();
     scheduler.close();
-    expect(result).toEqual({ processed: 2, sent: 1, failed: 1 });
+    expect(result).toEqual({ processed: 5, sent: 4, failed: 1 });
     expect(notifyQualityAction).not.toHaveBeenCalled();
     const verify = new DatabaseSync(dbPath);
     const corrupt = verify.prepare("SELECT status,attempt_count,last_error FROM quality_notification_outbox WHERE notification_id='corrupt'")
