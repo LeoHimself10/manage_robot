@@ -9,22 +9,25 @@ export type QualityBridgeReconcileStatus = "OK" | "REPAIRED_LINK" | "RECREATED_T
 
 export function reconcileQualityTaskBridges(input?: { dbPath?: string }) {
   const dbPath = input?.dbPath ?? resolveWorkbenchSqlitePath();
-  createWorkbenchFormalTaskStore(); createQualityStore(dbPath).close();
+  createQualityStore(dbPath).close();
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout = 8000");
-  const formal = createWorkbenchFormalTaskStore();
-  const bridge = createQualityTaskBridge(formal);
   const nodes = db.prepare(`
     SELECT n.*,e.event_no,e.title AS event_title,e.problem_status,
            p.assignee_user_id AS parent_assignee_user_id,
            l.task_id AS linked_task_id,l.subtask_id AS linked_subtask_id,l.integration_key AS linked_integration_key
     FROM quality_assignment_nodes n
-    JOIN quality_events e ON e.id = n.event_id AND e.deleted_at IS NULL
+    JOIN quality_events e ON e.id = n.event_id AND e.deleted_at IS NULL AND e.is_test = 0
     LEFT JOIN quality_assignment_nodes p ON p.node_id = n.parent_node_id
     LEFT JOIN quality_task_links l ON l.node_id = n.node_id
     ORDER BY n.created_at,n.node_id
   `).all() as DatabaseRow[];
   const items: Array<{ nodeId: string; status: QualityBridgeReconcileStatus; detail: string }> = [];
+  if (nodes.length === 0) {
+    db.close();
+    return { items, summary: { total: 0, ok: 0, repaired: 0, conflicts: 0 } };
+  }
+  const bridge = createQualityTaskBridge(createWorkbenchFormalTaskStore());
   for (const row of nodes) {
     const nodeId = String(row.node_id);
     const integrationKey = `quality-node:${nodeId}`;

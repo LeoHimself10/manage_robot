@@ -19,6 +19,12 @@ import {
   assertChildDueWithinParent,
   assertNoAncestorAssignee,
 } from "./quality-assignment-policy";
+import { createQualitySupervisorDirectory } from "./quality-supervisor-directory";
+import {
+  appendQualityTestActionAudit,
+  assertQualityActorBoundary,
+  testQualitySpecialistUserIds,
+} from "../testing/quality-test-boundary";
 
 type DatabaseRow = Record<string, unknown>;
 
@@ -51,6 +57,7 @@ function transaction<T>(db: DatabaseSync, operation: () => T): T {
 export interface QualityNodeActionInput {
   nodeId: string;
   actorUserId: string;
+  actualAdminUserId?: string;
   expectedVersion: number;
   requestId: string;
 }
@@ -62,14 +69,20 @@ export function createQualityAssignmentService(deps?: {
   managerIds?: () => Set<string>;
 }) {
   const dbPath = deps?.dbPath ?? resolveWorkbenchSqlitePath();
-  createWorkbenchFormalTaskStore();
   createQualityStore(dbPath).close();
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 8000");
-  const formalStore = createWorkbenchFormalTaskStore();
-  const bridge = createQualityTaskBridge(formalStore);
+  let formalStore: ReturnType<typeof createWorkbenchFormalTaskStore> | null = null;
+  function getFormalStore() {
+    formalStore ??= createWorkbenchFormalTaskStore();
+    return formalStore;
+  }
+  function getBridge() {
+    return createQualityTaskBridge(getFormalStore());
+  }
   const people = createPeopleDirectoryStore(dbPath);
+  const supervisors = createQualitySupervisorDirectory({ dbPath });
   const now = deps?.now ?? (() => new Date().toISOString());
   const id = deps?.id ?? randomUUID;
   const managerIds = deps?.managerIds ?? listWorkbenchManagerIds;
@@ -111,6 +124,12 @@ export function createQualityAssignmentService(deps?: {
     }
   }
 
+  function getSubtaskLink(nodeId: string): QualityTaskLink & { subtaskId: string } {
+    const link = getTaskLink(nodeId);
+    if (!link.subtaskId) throw new Error("该质量根节点只关联父任务，请在原任务系统处理");
+    return link as QualityTaskLink & { subtaskId: string };
+  }
+
   function appendAudit(input: {
     eventId: string;
     actorUserId: string;
@@ -142,8 +161,8 @@ export function createQualityAssignmentService(deps?: {
   }
 
   function requireSpecialist(userId: string): void {
-    if (!resolveQualityCapabilities(userId).roles.includes("quality_specialist")) {
-      throw new Error("仅质量专员可执行该操作");
+    if (!resolveQualityCapabilities(userId).hasQualityManagement) {
+      throw new Error("仅具备质量管理能力的人员可执行该操作");
     }
   }
 
@@ -172,20 +191,48 @@ export function createQualityAssignmentService(deps?: {
 
   function resultForNode(nodeId: string) {
     const node = getNode(nodeId);
-    return { event: getEvent(node.eventId), node, taskLink: getTaskLink(nodeId) };
+    const event = getEvent(node.eventId);
+    return { event, node, taskLink: event.isTest ? null : getTaskLink(nodeId) };
   }
 
   async function assignPrimary(input: {
     eventId: string;
     specialistUserId: string;
     primaryManagerUserId: string;
+    departmentName?: string;
+    actualAdminUserId?: string;
     dueAt: string;
     taskRequirement: string;
     expectedVersion: number;
     requestId: string;
   }) {
-    requireSpecialist(input.specialistUserId);
-    requireManager(input.primaryManagerUserId);
+    const event = getEvent(input.eventId);
+    assertQualityActorBoundary({ event, actorUserId: input.specialistUserId });
+    const departmentName = String(input.departmentName ?? "").trim();
+    if (event.isTest) {
+      if (!testQualitySpecialistUserIds().includes(input.specialistUserId)) {
+        throw new Error("只有佟成（测试）可以选择测试主管");
+      }
+      if (!input.actualAdminUserId) throw new Error("测试操作缺少实际管理员审计信息");
+      if (!supervisors.resolveEligibleUser({
+        eventId: event.eventId,
+        isTest: true,
+        userId: input.primaryManagerUserId,
+        departmentName,
+      })) throw new Error("测试主管候选无效");
+    } else {
+      requireSpecialist(input.specialistUserId);
+      if (departmentName) {
+        if (!supervisors.resolveEligibleUser({
+          eventId: event.eventId,
+          isTest: false,
+          userId: input.primaryManagerUserId,
+          departmentName,
+        })) throw new Error("主管候选已失效，请重新选择");
+      } else {
+        requireManager(input.primaryManagerUserId);
+      }
+    }
     const reqId = requestId(input.requestId);
     const requirement = input.taskRequirement.trim();
     if (!requirement) throw new Error("质量任务要求必填");
@@ -197,11 +244,10 @@ export function createQualityAssignmentService(deps?: {
       }
       return resultForNode(repeated.nodeId);
     }
-    const event = getEvent(input.eventId);
     if (event.status !== "PENDING_ASSIGNMENT") throw new Error("质量事件当前不可分配");
     if (event.version !== input.expectedVersion) throw new Error("version conflict");
     const nodeId = deterministicNodeId(input.eventId, reqId);
-    const formal = bridge.createNodeTask({
+    const formal = event.isTest ? null : getBridge().createNodeTask({
       nodeId,
       eventNo: event.eventNo,
       eventTitle: event.title,
@@ -220,11 +266,12 @@ export function createQualityAssignmentService(deps?: {
           node_id, event_id, parent_node_id, depth, assignee_user_id, assignee_kind,
           department_name, is_primary, status, due_at, requirement, version,
           created_by, request_id, accepted_at, submitted_at, created_at, updated_at
-        ) VALUES (?, ?, NULL, 0, ?, 'MANAGER', '', 0, 'PENDING_ACCEPTANCE', ?, ?, 1, ?, ?, NULL, NULL, ?, ?)
+        ) VALUES (?, ?, NULL, 0, ?, 'MANAGER', ?, 0, 'PENDING_ACCEPTANCE', ?, ?, 1, ?, ?, NULL, NULL, ?, ?)
       `).run(
         nodeId,
         input.eventId,
         input.primaryManagerUserId,
+        departmentName,
         dueAt,
         requirement,
         input.specialistUserId,
@@ -232,10 +279,12 @@ export function createQualityAssignmentService(deps?: {
         occurredAt,
         occurredAt,
       );
-      db.prepare(`
-        INSERT INTO quality_task_links(node_id, task_id, subtask_id, integration_key, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(nodeId, formal.task.taskId, formal.subtask.subtaskId, formal.integrationKey, occurredAt);
+      if (formal) {
+        db.prepare(`
+          INSERT INTO quality_task_links(node_id, task_id, subtask_id, integration_key, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(nodeId, formal.task.taskId, formal.subtask.subtaskId, formal.integrationKey, occurredAt);
+      }
       const updated = db.prepare(`
         UPDATE quality_events SET status = 'PENDING_ACCEPTANCE', overall_due_at = ?,
           version = version + 1, updated_at = ?
@@ -252,6 +301,14 @@ export function createQualityAssignmentService(deps?: {
         requestId: reqId,
         occurredAt,
       });
+      if (event.isTest) appendQualityTestActionAudit(db, {
+        eventId: event.eventId,
+        testActorUserId: input.specialistUserId,
+        actualAdminUserId: input.actualAdminUserId!,
+        action: "PRIMARY_ASSIGNED",
+        requestId: reqId,
+        occurredAt,
+      });
       enqueueQualityActionNotifications(db, {
         eventId: event.eventId, eventNo: event.eventNo, action: "PRIMARY_ASSIGNED", actionId: reqId,
         context: { primaryManagerUserId: input.primaryManagerUserId }, subject: "有新的质量任务待承接",
@@ -261,24 +318,58 @@ export function createQualityAssignmentService(deps?: {
     return resultForNode(nodeId);
   }
 
+  async function assignSupervisor(input: {
+    eventId: string;
+    specialistUserId: string;
+    actualAdminUserId?: string;
+    candidateRef: string;
+    dueAt: string;
+    taskRequirement: string;
+    expectedVersion: number;
+    requestId: string;
+  }) {
+    const event = getEvent(input.eventId);
+    const candidate = supervisors.resolveCandidate({
+      eventId: event.eventId,
+      isTest: event.isTest,
+      candidateRef: input.candidateRef,
+    });
+    if (!candidate) throw new Error("主管候选已失效，请重新选择");
+    return assignPrimary({
+      eventId: input.eventId,
+      specialistUserId: input.specialistUserId,
+      actualAdminUserId: input.actualAdminUserId,
+      primaryManagerUserId: candidate.userId,
+      departmentName: candidate.departmentName,
+      dueAt: input.dueAt,
+      taskRequirement: input.taskRequirement,
+      expectedVersion: input.expectedVersion,
+      requestId: input.requestId,
+    });
+  }
+
   async function acceptNode(input: QualityNodeActionInput) {
     const reqId = requestId(input.requestId);
     const node = getNode(input.nodeId);
+    const event = getEvent(node.eventId);
+    assertQualityActorBoundary({ event, actorUserId: input.actorUserId });
+    if (event.isTest && !input.actualAdminUserId) throw new Error("测试操作缺少实际管理员审计信息");
     if (node.assigneeUserId !== input.actorUserId) throw new Error("只有节点承接人可以承接");
     if (node.status === "IN_PROGRESS") return resultForNode(node.nodeId);
     if (node.status !== "PENDING_ACCEPTANCE") throw new Error("质量节点当前不可承接");
     if (node.version !== input.expectedVersion) throw new Error("version conflict");
-    const event = getEvent(node.eventId);
     if (node.parentNodeId == null && event.primaryNodeId && event.primaryNodeId !== node.nodeId) {
       throw new Error("原主责承接人不可替换");
     }
-    const link = getTaskLink(node.nodeId);
-    formalStore.updateSubtaskStatus({
-      subtaskId: link.subtaskId,
-      actorUserId: input.actorUserId,
-      action: "accept",
-      note: "已承接质量任务",
-    });
+    if (!event.isTest) {
+      const link = getSubtaskLink(node.nodeId);
+      getFormalStore().updateSubtaskStatus({
+        subtaskId: link.subtaskId,
+        actorUserId: input.actorUserId,
+        action: "accept",
+        note: "已承接质量任务",
+      });
+    }
     const occurredAt = now();
     transaction(db, () => {
       const updatedNode = db.prepare(`
@@ -297,6 +388,11 @@ export function createQualityAssignmentService(deps?: {
           WHERE id = ? AND version = ? AND (primary_node_id IS NULL OR primary_node_id = ?)
         `).run(node.nodeId, node.departmentName || null, occurredAt, event.eventId, event.version, node.nodeId);
         if (Number(updatedEvent.changes) !== 1) throw new Error("version conflict");
+      } else if (event.status === "PENDING_ACCEPTANCE") {
+        db.prepare(`
+          UPDATE quality_events SET status='IN_PROGRESS',version=version+1,updated_at=?
+          WHERE id=? AND status='PENDING_ACCEPTANCE'
+        `).run(occurredAt, event.eventId);
       }
       appendAudit({
         eventId: node.eventId,
@@ -305,6 +401,14 @@ export function createQualityAssignmentService(deps?: {
         action: "QUALITY_NODE_ACCEPTED",
         before: node,
         after: { status: "IN_PROGRESS" },
+        requestId: reqId,
+        occurredAt,
+      });
+      if (event.isTest) appendQualityTestActionAudit(db, {
+        eventId: event.eventId,
+        testActorUserId: input.actorUserId,
+        actualAdminUserId: input.actualAdminUserId!,
+        action: "QUALITY_NODE_ACCEPTED",
         requestId: reqId,
         occurredAt,
       });
@@ -317,18 +421,22 @@ export function createQualityAssignmentService(deps?: {
     const reason = input.reason.trim();
     if (!reason) throw new Error("驳回原因必填");
     const node = getNode(input.nodeId);
+    const event = getEvent(node.eventId);
+    assertQualityActorBoundary({ event, actorUserId: input.actorUserId });
+    if (event.isTest && !input.actualAdminUserId) throw new Error("测试操作缺少实际管理员审计信息");
     if (node.assigneeUserId !== input.actorUserId) throw new Error("只有节点承接人可以驳回");
     if (node.status === "REJECTED") return resultForNode(node.nodeId);
     if (node.status !== "PENDING_ACCEPTANCE") throw new Error("质量节点当前不可驳回");
     if (node.version !== input.expectedVersion) throw new Error("version conflict");
-    const link = getTaskLink(node.nodeId);
-    formalStore.updateSubtaskStatus({
-      subtaskId: link.subtaskId,
-      actorUserId: input.actorUserId,
-      action: "reject",
-      note: reason,
-    });
-    const event = getEvent(node.eventId);
+    if (!event.isTest) {
+      const link = getSubtaskLink(node.nodeId);
+      getFormalStore().updateSubtaskStatus({
+        subtaskId: link.subtaskId,
+        actorUserId: input.actorUserId,
+        action: "reject",
+        note: reason,
+      });
+    }
     const occurredAt = now();
     transaction(db, () => {
       const updated = db.prepare(`
@@ -354,11 +462,19 @@ export function createQualityAssignmentService(deps?: {
         requestId: reqId,
         occurredAt,
       });
+      if (event.isTest) appendQualityTestActionAudit(db, {
+        eventId: event.eventId,
+        testActorUserId: input.actorUserId,
+        actualAdminUserId: input.actualAdminUserId!,
+        action: "QUALITY_NODE_REJECTED",
+        requestId: reqId,
+        occurredAt,
+      });
       const parentUserId = node.parentNodeId ? getNode(node.parentNodeId).assigneeUserId : null;
       const primaryUserId = event.primaryNodeId ? getNode(event.primaryNodeId).assigneeUserId : null;
       enqueueQualityActionNotifications(db, {
         eventId: event.eventId, eventNo: event.eventNo, action: "NODE_REJECTED", actionId: reqId,
-        context: { directParentUserId: parentUserId, primaryManagerUserId: primaryUserId, qualitySpecialistUserIds: listQualitySpecialistUserIds() },
+        context: { directParentUserId: parentUserId, primaryManagerUserId: primaryUserId, qualitySpecialistUserIds: event.isTest ? testQualitySpecialistUserIds() : listQualitySpecialistUserIds() },
         subject: "质量任务被驳回", summary: `${event.title}；驳回原因：${reason}`, occurredAt,
       });
     });
@@ -375,15 +491,28 @@ export function createQualityAssignmentService(deps?: {
     requirement: string;
     expectedVersion: number;
     requestId: string;
+    actualAdminUserId?: string;
   }) {
     const reqId = requestId(input.requestId);
     const parent = getNode(input.parentNodeId);
+    const event = getEvent(parent.eventId);
+    assertQualityActorBoundary({ event, actorUserId: input.actorUserId });
+    if (event.isTest && !input.actualAdminUserId) throw new Error("测试操作缺少实际管理员审计信息");
     if (parent.assigneeUserId !== input.actorUserId) throw new Error("只能操作自己承接的质量节点");
     if (parent.assigneeKind !== "MANAGER" || parent.status !== "IN_PROGRESS") {
       throw new Error("只有处理中的主管节点可以继续分配");
     }
     if (parent.version !== input.expectedVersion) throw new Error("version conflict");
-    validateDelegateTarget(input.assigneeUserId, input.assigneeKind);
+    if (input.assigneeKind !== "EMPLOYEE") throw new Error("质量主管只能继续分配给本部门员工");
+    supervisors.assertDepartmentEmployee({
+      eventIsTest: event.isTest,
+      managerDepartmentName: parent.departmentName,
+      employeeUserId: input.assigneeUserId,
+    });
+    if (!event.isTest) validateDelegateTarget(input.assigneeUserId, input.assigneeKind);
+    if (input.departmentName.trim() !== parent.departmentName.trim()) {
+      throw new Error("主管只能向自己部门的员工分配");
+    }
     const store = qualityStore();
     let ancestors: QualityAssignmentNode[];
     try { ancestors = store.listAncestors(parent.nodeId); } finally { store.close(); }
@@ -394,9 +523,8 @@ export function createQualityAssignmentService(deps?: {
     if (!requirement) throw new Error("子节点要求必填");
     const repeated = existingNodeForRequest(parent.eventId, reqId);
     if (repeated) return resultForNode(repeated.nodeId);
-    const event = getEvent(parent.eventId);
     const nodeId = deterministicNodeId(event.eventId, reqId);
-    const formal = bridge.createNodeTask({
+    const formal = event.isTest ? null : getBridge().createNodeTask({
       nodeId,
       eventNo: event.eventNo,
       eventTitle: event.title,
@@ -432,10 +560,12 @@ export function createQualityAssignmentService(deps?: {
         occurredAt,
         occurredAt,
       );
-      db.prepare(`
-        INSERT INTO quality_task_links(node_id, task_id, subtask_id, integration_key, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(nodeId, formal.task.taskId, formal.subtask.subtaskId, formal.integrationKey, occurredAt);
+      if (formal) {
+        db.prepare(`
+          INSERT INTO quality_task_links(node_id, task_id, subtask_id, integration_key, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(nodeId, formal.task.taskId, formal.subtask.subtaskId, formal.integrationKey, occurredAt);
+      }
       const parentUpdated = db.prepare(`
         UPDATE quality_assignment_nodes SET version = version + 1, updated_at = ?
         WHERE node_id = ? AND version = ? AND status = 'IN_PROGRESS'
@@ -448,6 +578,14 @@ export function createQualityAssignmentService(deps?: {
         action: "QUALITY_NODE_DELEGATED",
         before: parent,
         after: { nodeId, assigneeUserId: input.assigneeUserId, assigneeKind: input.assigneeKind, dueAt },
+        requestId: reqId,
+        occurredAt,
+      });
+      if (event.isTest) appendQualityTestActionAudit(db, {
+        eventId: event.eventId,
+        testActorUserId: input.actorUserId,
+        actualAdminUserId: input.actualAdminUserId!,
+        action: "QUALITY_NODE_DELEGATED",
         requestId: reqId,
         occurredAt,
       });
@@ -478,8 +616,8 @@ export function createQualityAssignmentService(deps?: {
     if (child.version !== input.expectedVersion) throw new Error("version conflict");
     const dueAt = normalizeDueAt(input.dueAt);
     assertChildDueWithinParent(dueAt, parent.dueAt);
-    const link = getTaskLink(child.nodeId);
-    formalStore.setSubtaskDueAt({
+    const link = getSubtaskLink(child.nodeId);
+    getFormalStore().setSubtaskDueAt({
       subtaskId: link.subtaskId,
       actorUserId: input.actorUserId,
       dueAt,
@@ -530,8 +668,8 @@ export function createQualityAssignmentService(deps?: {
     `).get(input.eventId) as DatabaseRow | undefined;
     if (!rootRow) throw new Error("原主责节点不存在");
     const root = getNode(String(rootRow.node_id));
-    const link = getTaskLink(root.nodeId);
-    formalStore.setSubtaskDueAt({
+    const link = getSubtaskLink(root.nodeId);
+    getFormalStore().setSubtaskDueAt({
       subtaskId: link.subtaskId,
       actorUserId: input.specialistUserId,
       dueAt,
@@ -593,6 +731,7 @@ export function createQualityAssignmentService(deps?: {
 
   return {
     assignPrimary,
+    assignSupervisor,
     acceptNode,
     rejectNode,
     delegateNode,
@@ -603,6 +742,7 @@ export function createQualityAssignmentService(deps?: {
     getEvent,
     getTaskLink,
     close() {
+      supervisors.close();
       people.close();
       db.close();
     },

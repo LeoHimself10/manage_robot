@@ -10,6 +10,16 @@ import { buildWorkbenchViewSwitchClientJs } from "./workbench-view-switch-snippe
 import { hasQualityAssignmentNodesForUser } from "../quality/infra/quality-read-store";
 import { MANAGER_CHAT_V2_CSS } from "./manager-chat-v2-styles";
 
+export const QUALITY_TASK_REPLAN_MESSAGE =
+  "请结合质量事件背景和质量初析，重新规划完整执行任务。必须覆盖已选的全部成果，但不要把一个成果简单等同于一个任务；补全执行步骤、交付物、验收标准、截止和前后依赖。只生成待确认草案，不要发放。";
+
+export function shouldOfferQualityTaskReplan(input: {
+  threadKind: "main" | "side";
+  sourceContextKind?: string | null;
+}): boolean {
+  return input.threadKind === "side" && input.sourceContextKind === "quality_event";
+}
+
 const MANAGER_QUALITY_CSS = String.raw`
 .mq-card{border-color:#c7d2fe;background:linear-gradient(180deg,#fff,#f8faff)}
 .mq-head,.mq-row-head,.mq-actions{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
@@ -942,6 +952,10 @@ export function renderManagerChatPage(params: {
         <div class="planning-context-body">
           <div class="planning-context-copy"><span id="planningContextDescriptionLabel">任务背景</span><p id="planningContextDescription">—</p></div>
           <div class="planning-context-meta"><span>当前草案</span><strong id="planningContextMeta">—</strong></div>
+          <div class="quality-planning-enhancer" id="qualityPlanningEnhancer" hidden>
+            <div><strong>需要更完整的执行规划？</strong><span>机器人会结合当前质量背景完善待确认草案，不会自动发放。</span></div>
+            <button class="btn btn-primary btn-sm" id="qualityPlanningEnhanceBtn" type="button">让机器人完善任务规划</button>
+          </div>
         </div>
       </section>
 
@@ -1095,6 +1109,9 @@ export function renderManagerChatPage(params: {
   var loadSeq = 0;
   var pendingElapsedTimer = null;
   var publishFlowState = 'idle';
+  var activeQualitySourceContext = null;
+  var qualityPlanningInFlight = false;
+  var QUALITY_TASK_REPLAN_MSG = ${JSON.stringify(QUALITY_TASK_REPLAN_MESSAGE)};
   var cachedDraftSummary = {
     count: 0,
     unassigned: 0,
@@ -1516,7 +1533,11 @@ export function renderManagerChatPage(params: {
     var card = document.getElementById('planningContextCard');
     if (!card) return;
     card.hidden = !hasDraft;
-    if (!hasDraft) return;
+    if (!hasDraft) {
+      activeQualitySourceContext = null;
+      updateQualityPlanningEnhancer();
+      return;
+    }
     var title = document.getElementById('planningContextTitle');
     var desc = document.getElementById('planningContextDescription');
     var meta = document.getElementById('planningContextMeta');
@@ -1525,6 +1546,8 @@ export function renderManagerChatPage(params: {
     var descLabel = document.getElementById('planningContextDescriptionLabel');
     var source = summary.sourceContext || {};
     var isQuality = source.kind === 'quality_event';
+    activeQualitySourceContext = isQuality ? source : null;
+    updateQualityPlanningEnhancer();
     var eventNo = String(source.qualityEventId || '').trim();
     card.classList.toggle('is-quality', isQuality);
     if (icon) icon.textContent = isQuality ? '质' : '任';
@@ -1535,6 +1558,17 @@ export function renderManagerChatPage(params: {
       : (summary.title || '当前任务草案');
     if (desc) desc.textContent = plainPlanningContextText(summary.description) || '当前草案未填写任务背景，可继续在对话中补充。';
     if (meta) meta.textContent = summary.count + ' 项任务 · ' + summary.assigned + '/' + summary.count + ' 已指派';
+  }
+  function updateQualityPlanningEnhancer() {
+    var action = document.getElementById('qualityPlanningEnhancer');
+    var button = document.getElementById('qualityPlanningEnhanceBtn');
+    if (!action || !button) return;
+    var canOffer = !!(activeQualitySourceContext
+      && activeQualitySourceContext.kind === 'quality_event'
+      && activeThreadKind === 'side');
+    action.hidden = !canOffer;
+    button.disabled = !canOffer || qualityPlanningInFlight || sendInFlight;
+    button.textContent = qualityPlanningInFlight ? '机器人规划中…' : '让机器人完善任务规划';
   }
   function paintDraftPanelSummary(summary, hasDraft) {
     var panel = document.getElementById('draftContextPanel');
@@ -2092,6 +2126,7 @@ export function renderManagerChatPage(params: {
       return { ok: false, reason: 'empty' };
     }
     sendInFlight = true;
+    updateQualityPlanningEnhancer();
     updatePublishBtnUi();
     if (fromComposer) {
       if (sendBtn) sendBtn.disabled = true;
@@ -2148,8 +2183,22 @@ export function renderManagerChatPage(params: {
     } finally {
       sendInFlight = false;
       syncSendBtnState();
+      updateQualityPlanningEnhancer();
       updatePublishBtnUi();
     }
+  }
+  var qualityPlanningEnhanceBtn = document.getElementById('qualityPlanningEnhanceBtn');
+  if (qualityPlanningEnhanceBtn) {
+    qualityPlanningEnhanceBtn.addEventListener('click', function () {
+      if (qualityPlanningInFlight || sendInFlight || activeThreadKind !== 'side'
+        || !activeQualitySourceContext || activeQualitySourceContext.kind !== 'quality_event') return;
+      qualityPlanningInFlight = true;
+      updateQualityPlanningEnhancer();
+      void sendChatMessage({ message: QUALITY_TASK_REPLAN_MSG, fromComposer: false }).finally(function () {
+        qualityPlanningInFlight = false;
+        updateQualityPlanningEnhancer();
+      });
+    });
   }
   var sendBtn = document.getElementById('sendBtn');
   if (sendBtn) {

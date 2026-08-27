@@ -79,6 +79,10 @@ export function listQualitySpecialistUserIds(): string[] {
     .sort();
 }
 
+export function listQualityAftersalesManagerUserIds(): string[] {
+  return [...envUserIds("QUALITY_AFTERSALES_MANAGER_USER_IDS")].sort();
+}
+
 export function isQualitySpecialistForReport(
   specialistUserId: string,
   reportUserId: string,

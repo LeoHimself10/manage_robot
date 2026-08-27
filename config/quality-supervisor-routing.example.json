@@ -1,0 +1,13 @@
+{
+  "departments": [
+    { "name": "研发中心", "departmentIds": [], "departmentNames": ["研发中心"] },
+    { "name": "医学事务部", "departmentIds": [], "departmentNames": ["医学事务部"] },
+    { "name": "质量部", "departmentIds": [], "departmentNames": ["质量部"] },
+    { "name": "交付中心", "departmentIds": [], "departmentNames": ["交付中心"] },
+    { "name": "广州市微光医疗器械技术有限公司", "departmentIds": [], "departmentNames": ["广州市微光医疗器械技术有限公司"] },
+    { "name": "微光创新（安徽）医疗科技有限公司", "departmentIds": [], "departmentNames": ["微光创新（安徽）医疗科技有限公司"] },
+    { "name": "湘潭市微影医疗器械有限公司", "departmentIds": [], "departmentNames": ["湘潭市微影医疗器械有限公司"] }
+  ],
+  "supplementalSupervisors": [],
+  "excludedUserIds": ["014517256544"]
+}

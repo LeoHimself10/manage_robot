@@ -8,22 +8,41 @@ import { computeQualityReturnImpact, transitionQualityEvent } from "../domain/qu
 import type { QualityAssignmentNode, QualityEventRecord } from "../domain/quality-types";
 import { createQualityStore } from "../infra/quality-store";
 import { enqueueQualityActionNotifications } from "../notifications/quality-notification-policy";
+import {
+  appendQualityTestActionAudit,
+  assertQualityActorBoundary,
+  testQualitySpecialistUserIds,
+} from "../testing/quality-test-boundary";
 
 type DatabaseRow = Record<string, unknown>;
 
 export function createQualityClosureService(deps?: { dbPath?: string; now?: () => string; id?: () => string }) {
   const dbPath = deps?.dbPath ?? resolveWorkbenchSqlitePath();
-  createWorkbenchFormalTaskStore(); createQualityStore(dbPath).close();
+  createQualityStore(dbPath).close();
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = ON"); db.exec("PRAGMA busy_timeout = 8000");
-  const formal = createWorkbenchFormalTaskStore();
   const now = deps?.now ?? (() => new Date().toISOString());
   const id = deps?.id ?? randomUUID;
 
   function requireSpecialist(userId: string): void {
-    if (!resolveQualityCapabilities(userId).roles.includes("quality_specialist")) {
-      throw new Error("仅质量专员可执行终验、关闭或重开");
+    if (!resolveQualityCapabilities(userId).hasQualityManagement) {
+      throw new Error("仅具备质量管理能力的员工可执行终验、关闭或重开");
     }
+  }
+  function requireSpecialistForEvent(
+    event: QualityEventRecord,
+    userId: string,
+    actualAdminUserId?: string,
+  ): void {
+    assertQualityActorBoundary({ event, actorUserId: userId });
+    if (!event.isTest) {
+      requireSpecialist(userId);
+      return;
+    }
+    if (!testQualitySpecialistUserIds().includes(userId)) {
+      throw new Error("只有佟成（测试）可以处理测试终验");
+    }
+    if (!actualAdminUserId) throw new Error("测试操作缺少实际管理员审计信息");
   }
   function getEvent(eventId: string): QualityEventRecord {
     const store = createQualityStore(dbPath);
@@ -42,8 +61,8 @@ export function createQualityClosureService(deps?: { dbPath?: string; now?: () =
   function reopenFormal(nodeId: string, reason: string): void {
     const node = getNode(nodeId);
     const link = db.prepare("SELECT subtask_id FROM quality_task_links WHERE node_id = ?").get(nodeId) as DatabaseRow | undefined;
-    if (!link) return;
-    formal.updateSubtaskStatus({ subtaskId: String(link.subtask_id), actorUserId: node.assigneeUserId, action: "progress", progressStatus: "IN_PROGRESS", note: reason });
+    if (!link || link.subtask_id == null) return;
+    createWorkbenchFormalTaskStore().updateSubtaskStatus({ subtaskId: String(link.subtask_id), actorUserId: node.assigneeUserId, action: "progress", progressStatus: "IN_PROGRESS", note: reason });
   }
   function nodesForEvent(eventId: string) {
     return (db.prepare(`SELECT node_id,parent_node_id,status,event_id FROM quality_assignment_nodes WHERE event_id = ? AND status <> 'CANCELLED'`).all(eventId) as DatabaseRow[])
@@ -58,6 +77,7 @@ export function createQualityClosureService(deps?: { dbPath?: string; now?: () =
     expectedVersion: number;
     requestId: string;
     action: "QUALITY_RETURN_NODE" | "QUALITY_REOPEN";
+    actualAdminUserId?: string;
   }) {
     const requestId = z.string().uuid().parse(input.requestId);
     const repeated = db.prepare("SELECT after_json FROM quality_audit_events WHERE request_id = ? AND action IN ('QUALITY_RETURNED_NODE','QUALITY_REOPENED') LIMIT 1")
@@ -91,6 +111,14 @@ export function createQualityClosureService(deps?: { dbPath?: string; now?: () =
       const auditAction = input.action === "QUALITY_REOPEN" ? "QUALITY_REOPENED" : "QUALITY_RETURNED_NODE";
       db.prepare(`INSERT INTO quality_audit_events(id,event_id,actor_user_id,actor_role,action,before_json,after_json,reason,request_id,occurred_at) VALUES (?,?,?,'quality_specialist',?,?,?,?,?,?)`)
         .run(id(), input.event.eventId, input.specialistUserId, auditAction, JSON.stringify({ status: input.event.status }), JSON.stringify({ status: nextStatus, returnedNodeId: target.nodeId, affectedNodeIds: impact.affectedNodeIds }), reason, requestId, occurredAt);
+      if (input.event.isTest) appendQualityTestActionAudit(db, {
+        eventId: input.event.eventId,
+        testActorUserId: input.specialistUserId,
+        actualAdminUserId: input.actualAdminUserId!,
+        action: auditAction,
+        requestId,
+        occurredAt,
+      });
       const primary = input.event.primaryNodeId ? getNode(input.event.primaryNodeId) : null;
       enqueueQualityActionNotifications(db, {
         eventId: input.event.eventId, eventNo: input.event.eventNo, action: "QUALITY_RETURNED", actionId: requestId,
@@ -104,18 +132,18 @@ export function createQualityClosureService(deps?: { dbPath?: string; now?: () =
     return { event: getEvent(input.event.eventId), affectedNodeIds: impact.affectedNodeIds };
   }
 
-  function returnSpecificNode(input: { eventId: string; nodeId: string; specialistUserId: string; reason: string; expectedVersion: number; requestId: string }) {
-    requireSpecialist(input.specialistUserId);
+  function returnSpecificNode(input: { eventId: string; nodeId: string; specialistUserId: string; actualAdminUserId?: string; reason: string; expectedVersion: number; requestId: string }) {
     const event = getEvent(input.eventId);
+    requireSpecialistForEvent(event, input.specialistUserId, input.actualAdminUserId);
     if (event.status !== "PENDING_QUALITY_REVIEW") throw new Error("质量事件当前不可指定节点退回");
     return returnNode({ ...input, event, action: "QUALITY_RETURN_NODE" });
   }
 
-  function closeEvent(input: { eventId: string; specialistUserId: string; conclusion: string; expectedVersion: number; requestId: string }): QualityEventRecord {
-    requireSpecialist(input.specialistUserId);
+  function closeEvent(input: { eventId: string; specialistUserId: string; actualAdminUserId?: string; conclusion: string; expectedVersion: number; requestId: string }): QualityEventRecord {
     const requestId = z.string().uuid().parse(input.requestId);
     if (db.prepare("SELECT 1 FROM quality_audit_events WHERE request_id = ? AND action = 'QUALITY_CLOSED'").get(requestId)) return getEvent(input.eventId);
     const event = getEvent(input.eventId);
+    requireSpecialistForEvent(event, input.specialistUserId, input.actualAdminUserId);
     if (event.status !== "PENDING_QUALITY_REVIEW") throw new Error("质量事件当前不可关闭");
     if (event.version !== input.expectedVersion) throw new Error("version conflict");
     const conclusion = input.conclusion.trim();
@@ -140,6 +168,14 @@ export function createQualityClosureService(deps?: { dbPath?: string; now?: () =
       if (Number(updated.changes) !== 1) throw new Error("version conflict");
       db.prepare(`INSERT INTO quality_audit_events(id,event_id,actor_user_id,actor_role,action,before_json,after_json,reason,request_id,occurred_at) VALUES (?,?,?,'quality_specialist','QUALITY_CLOSED',?,?,?,?,?)`)
         .run(id(), event.eventId, input.specialistUserId, JSON.stringify({ status: event.status }), JSON.stringify({ status: nextStatus, conclusion }), conclusion, requestId, occurredAt);
+      if (event.isTest) appendQualityTestActionAudit(db, {
+        eventId: event.eventId,
+        testActorUserId: input.specialistUserId,
+        actualAdminUserId: input.actualAdminUserId!,
+        action: "QUALITY_CLOSED",
+        requestId,
+        occurredAt,
+      });
       const primary = event.primaryNodeId ? getNode(event.primaryNodeId) : null;
       enqueueQualityActionNotifications(db, {
         eventId: event.eventId, eventNo: event.eventNo, action: "QUALITY_CLOSED", actionId: requestId,
@@ -151,9 +187,9 @@ export function createQualityClosureService(deps?: { dbPath?: string; now?: () =
     return getEvent(event.eventId);
   }
 
-  function reopenEvent(input: { eventId: string; nodeId: string; specialistUserId: string; reason: string; expectedVersion: number; requestId: string }) {
-    requireSpecialist(input.specialistUserId);
+  function reopenEvent(input: { eventId: string; nodeId: string; specialistUserId: string; actualAdminUserId?: string; reason: string; expectedVersion: number; requestId: string }) {
     const event = getEvent(input.eventId);
+    requireSpecialistForEvent(event, input.specialistUserId, input.actualAdminUserId);
     if (event.status !== "CLOSED") throw new Error("仅已关闭质量事件可重开");
     return returnNode({ ...input, event, action: "QUALITY_REOPEN" });
   }

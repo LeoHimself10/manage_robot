@@ -103,7 +103,13 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain("下一步：确认推送主管");
     expect(html).toContain("仅展示已配置唯一有效主管的真实部门");
     expect(html).not.toContain("协同部门（可多选）");
-    expect(html).toContain("模型调用超时，本次未生成AI原稿");
+    expect(html).toContain("生成超时，本次未形成AI原稿");
+    expect(html).not.toContain("项目默认Qwen模型");
+    expect(html).not.toContain("AI原始结构化输出");
+    expect(html).not.toContain("Token与耗时");
+    expect(html).not.toContain("value(item.actorUserId)");
+    expect(html).not.toContain("value(item.action)");
+    expect(html).not.toContain("value(review.decidedBy)");
     expect(html).toContain("未创建质量事件，未改变来源状态");
   });
 
@@ -178,5 +184,128 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain("确认后进入该主管完整工作台，权限与本人登录一致");
     expect(html).toContain("/api/workbench/admin/impersonation");
     expect(html).toContain("applyBusinessReadOnly");
+  });
+
+  it("keeps yesterday's rich classification cards and five-stage workspace in every added perspective", () => {
+    const ma = renderQualityTrackingPage({
+      role: "admin",
+      userId: "admin-1",
+      canReport: false,
+      canViewSources: true,
+      isBusinessReadOnly: true,
+      rolePanelsEnabled: true,
+      testActorsEnabled: true,
+      isAdmin: true,
+      activePerspective: "aftersales",
+      projectedMode: true,
+    });
+    const tong = renderQualityTrackingPage({
+      role: "admin",
+      userId: "admin-1",
+      canReport: false,
+      canViewSources: false,
+      isSpecialist: true,
+      isBusinessReadOnly: true,
+      rolePanelsEnabled: true,
+      testActorsEnabled: true,
+      isAdmin: true,
+      activePerspective: "quality_management",
+      projectedMode: true,
+    });
+
+    for (const html of [ma, tong]) {
+      expect(html).toContain("马荣鑫");
+      expect(html).toContain("佟成");
+      expect(html).toContain("主管");
+      expect(html).toContain("看板");
+      expect(html).toContain("测试");
+      expect(html).toContain('id="qualityMetrics"');
+      expect(html).toContain("处理中");
+      expect(html).toContain("待终验");
+      expect(html).toContain("已完成");
+      expect(html).toContain("已进入后续流程，尚未闭环");
+      expect(html).toContain("所有流程已走通并完成闭环");
+      expect(html).toContain('data-quality-stage="review"');
+      expect(html).toContain('data-quality-stage="analysis"');
+      expect(html).toContain('data-quality-stage="assignment"');
+      expect(html).toContain('data-quality-stage="chain"');
+      expect(html).toContain('data-quality-stage="final"');
+      expect(html).not.toContain("同一事件，不同职责所需的信息");
+    }
+    expect(ma).toContain("待研判反馈");
+    expect(ma).toContain("已人工研判");
+    expect(ma).toContain("AI 原始研判建议");
+    expect(ma).toContain("主管最终研判");
+    expect(tong).toContain("待质量初析");
+    expect(tong).toContain("待任务规划");
+    expect(tong).toContain("正式通报事件事实");
+  });
+
+  it("keeps Tong Cheng's real editable initial-analysis workspace inside the projected view", () => {
+    const html = renderQualityTrackingPage({
+      role: "employee",
+      userId: "quality-specialist",
+      canReport: false,
+      canViewSources: false,
+      isSpecialist: true,
+      isBusinessReadOnly: false,
+      rolePanelsEnabled: true,
+      activePerspective: "quality_management",
+      projectedMode: true,
+    });
+
+    expect(html).toContain("待质量初析");
+    expect(html).toContain("处理中");
+    expect(html).toContain("已完成");
+    expect(html).toContain("质量初析工作区");
+    expect(html).toContain("renderQualityAnalysisStage(editableAnalysis)");
+    expect(html).toContain("renderProjectedSupervisorPicker(view, assignment)");
+    expect(html).not.toContain("质量事件查看视角");
+  });
+
+  it("keeps Ma Rongxin's real source workflow and adds the event projection with AI and final review", () => {
+    const html = renderQualityTrackingPage({
+      role: "manager",
+      userId: "aftersales-manager",
+      canReport: true,
+      canViewSources: true,
+      isSpecialist: false,
+      isBusinessReadOnly: false,
+      rolePanelsEnabled: true,
+      activePerspective: "aftersales",
+      projectedMode: true,
+    });
+
+    expect(html).toContain('data-quality-list="feedback"');
+    expect(html).toContain("AI原始建议状态");
+    expect(html).toContain("AI 原始研判建议");
+    expect(html).toContain("主管最终研判");
+    expect(html).not.toContain("质量事件查看视角");
+  });
+
+  it("adds three isolated test employees without changing ordinary business users", () => {
+    const test = renderQualityTrackingPage({
+      role: "admin",
+      userId: "admin-1",
+      isAdmin: true,
+      rolePanelsEnabled: true,
+      testActorsEnabled: true,
+      activeTestActor: "employee-1",
+      projectedMode: true,
+    });
+    expect(test).toContain("员工一（测试）");
+    expect(test).toContain("员工二（测试）");
+    expect(test).toContain("员工三（测试）");
+
+    const regular = renderQualityTrackingPage({
+      role: "manager",
+      userId: "after",
+      canReport: true,
+      rolePanelsEnabled: true,
+      testActorsEnabled: true,
+    });
+    expect(regular).not.toContain("质量事件查看视角");
+    expect(regular).not.toContain("员工一（测试）");
+    expect(regular).toContain("待研判反馈");
   });
 });

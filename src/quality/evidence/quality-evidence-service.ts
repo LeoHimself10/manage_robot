@@ -23,6 +23,11 @@ import {
 import { createQualityStore } from "../infra/quality-store";
 import { projectQualityEventState } from "../reviews/quality-event-projector";
 import { enqueueQualityActionNotifications } from "../notifications/quality-notification-policy";
+import {
+  appendQualityTestActionAudit,
+  assertQualityActorBoundary,
+  readQualityEventBoundary,
+} from "../testing/quality-test-boundary";
 
 type DatabaseRow = Record<string, unknown>;
 
@@ -56,12 +61,10 @@ export function createQualityEvidenceService(deps?: {
   id?: () => string;
 }) {
   const dbPath = deps?.dbPath ?? resolveWorkbenchSqlitePath();
-  createWorkbenchFormalTaskStore();
   createQualityStore(dbPath).close();
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 8000");
-  const formal = createWorkbenchFormalTaskStore();
   const rootDir = deps?.rootDir
     ?? process.env.QUALITY_EVIDENCE_DIR?.trim()
     ?? join(process.env.QUALITY_FILE_DIR?.trim() || "data/quality-files", "evidence");
@@ -105,12 +108,16 @@ export function createQualityEvidenceService(deps?: {
     summary: string;
     buffer: Buffer;
     requestId: string;
+    actualAdminUserId?: string;
   }): QualityEvidenceRecord {
     const requestId = validRequestId(input.requestId);
     const repeated = db.prepare("SELECT * FROM quality_evidence WHERE request_id = ?")
       .get(requestId) as DatabaseRow | undefined;
     if (repeated) return evidenceFromRow(repeated);
     const target = node(input.nodeId);
+    const event = readQualityEventBoundary(db, target.eventId);
+    assertQualityActorBoundary({ event, actorUserId: input.actorUserId });
+    if (event.isTest && !input.actualAdminUserId) throw new Error("测试操作缺少实际管理员审计信息");
     if (target.assigneeUserId !== input.actorUserId) throw new Error("仅节点承接人可上传证据");
     if (target.status !== "IN_PROGRESS" && target.status !== "RETURNED") {
       throw new Error("当前节点不可上传证据");
@@ -135,8 +142,10 @@ export function createQualityEvidenceService(deps?: {
       closeSync(fileDescriptor);
     }
     renameSync(tempPath, finalPath);
-    const directoryDescriptor = openSync(rootDir, "r");
-    try { fsyncSync(directoryDescriptor); } finally { closeSync(directoryDescriptor); }
+    if (process.platform !== "win32") {
+      const directoryDescriptor = openSync(rootDir, "r");
+      try { fsyncSync(directoryDescriptor); } finally { closeSync(directoryDescriptor); }
+    }
     try {
       db.exec("BEGIN IMMEDIATE");
       db.prepare(`
@@ -173,6 +182,14 @@ export function createQualityEvidenceService(deps?: {
         requestId,
         occurredAt,
       );
+      if (event.isTest) appendQualityTestActionAudit(db, {
+        eventId: event.eventId,
+        testActorUserId: input.actorUserId,
+        actualAdminUserId: input.actualAdminUserId!,
+        action: "QUALITY_EVIDENCE_UPLOADED",
+        requestId,
+        occurredAt,
+      });
       db.exec("COMMIT");
     } catch (error) {
       try { db.exec("ROLLBACK"); } catch { /* no active transaction */ }
@@ -188,9 +205,13 @@ export function createQualityEvidenceService(deps?: {
     actorUserId: string;
     expectedVersion: number;
     requestId: string;
+    actualAdminUserId?: string;
   }) {
     const requestId = validRequestId(input.requestId);
     let target = node(input.nodeId);
+    const event = readQualityEventBoundary(db, target.eventId);
+    assertQualityActorBoundary({ event, actorUserId: input.actorUserId });
+    if (event.isTest && !input.actualAdminUserId) throw new Error("测试操作缺少实际管理员审计信息");
     if (target.assigneeUserId !== input.actorUserId) throw new Error("仅节点承接人可提交完成");
     if (target.status === "PENDING_PARENT_REVIEW") {
       return { node: target, evidence: listNodeEvidence(target.nodeId) };
@@ -241,6 +262,14 @@ export function createQualityEvidenceService(deps?: {
         requestId,
         occurredAt,
       );
+      if (event.isTest) appendQualityTestActionAudit(db, {
+        eventId: event.eventId,
+        testActorUserId: input.actorUserId,
+        actualAdminUserId: input.actualAdminUserId!,
+        action: "QUALITY_NODE_COMPLETION_SUBMITTED",
+        requestId,
+        occurredAt,
+      });
       enqueueQualityActionNotifications(db, {
         eventId: target.eventId, eventNo: String(eventRow.event_no), action: "NODE_EVIDENCE_SUBMITTED", actionId: requestId,
         context: { directParentUserId: parentRow ? String(parentRow.assignee_user_id) : null }, subject: "下级质量证据待验收",
@@ -251,16 +280,18 @@ export function createQualityEvidenceService(deps?: {
       db.exec("ROLLBACK");
       throw error;
     }
-    const link = db.prepare("SELECT subtask_id FROM quality_task_links WHERE node_id = ?")
-      .get(target.nodeId) as DatabaseRow | undefined;
-    if (!link) throw new Error("质量正式任务桥接不存在");
-    formal.updateSubtaskStatus({
-      subtaskId: String(link.subtask_id),
-      actorUserId: input.actorUserId,
-      action: "progress",
-      progressStatus: "DONE",
-      note: "质量证据已提交，等待直接上级验收",
-    });
+    if (!event.isTest) {
+      const link = db.prepare("SELECT subtask_id FROM quality_task_links WHERE node_id = ?")
+        .get(target.nodeId) as DatabaseRow | undefined;
+      if (!link) throw new Error("质量正式任务桥接不存在");
+      createWorkbenchFormalTaskStore().updateSubtaskStatus({
+        subtaskId: String(link.subtask_id),
+        actorUserId: input.actorUserId,
+        action: "progress",
+        progressStatus: "DONE",
+        note: "质量证据已提交，等待直接上级验收",
+      });
+    }
     projectQualityEventState(target.eventId, dbPath);
     target = node(target.nodeId);
     return { node: target, evidence: listNodeEvidence(target.nodeId) };

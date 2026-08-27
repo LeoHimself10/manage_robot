@@ -37,6 +37,7 @@ function eventFromRow(row: DatabaseRow): QualityEventRecord {
   return {
     eventId: String(row.id),
     eventNo: String(row.event_no),
+    isTest: Number(row.is_test ?? 0) === 1,
     status: String(row.status) as QualityEventRecord["status"],
     title: String(row.title),
     problemStatus: String(row.problem_status),
@@ -128,7 +129,8 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
               ai.id AS latest_ai_assessment_id
       FROM quality_source_rows r
       LEFT JOIN quality_event_source_links l ON l.source_key = r.source_key
-      LEFT JOIN quality_events e ON e.id = l.event_id AND e.deleted_at IS NULL
+      LEFT JOIN quality_events e ON e.id = l.event_id
+        AND e.deleted_at IS NULL AND COALESCE(e.is_test,0) = 0
       LEFT JOIN quality_source_assessments a ON a.source_key = r.source_key
       LEFT JOIN quality_source_reviews v ON v.source_key = r.source_key
       LEFT JOIN quality_source_ai_assessments ai ON ai.id = (
@@ -138,6 +140,14 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
         ORDER BY recent.created_at DESC,recent.rowid DESC LIMIT 1
       )
       WHERE r.state <> 'DELETED'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM quality_event_source_links test_link
+          JOIN quality_events test_event ON test_event.id=test_link.event_id
+          WHERE test_link.source_key=r.source_key
+            AND test_event.deleted_at IS NULL
+            AND COALESCE(test_event.is_test,0)=1
+        )
       ORDER BY r.row_number DESC, r.source_key
     `).all() as DatabaseRow[];
     const filtered = rawRows.filter((row) => {
@@ -304,12 +314,12 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
     const rows = (input.isQualitySpecialist
       ? db.prepare(`
           SELECT * FROM quality_events
-          WHERE deleted_at IS NULL AND status <> 'DRAFT'
+          WHERE deleted_at IS NULL AND COALESCE(is_test,0) = 0 AND status <> 'DRAFT'
           ORDER BY updated_at DESC, id
         `).all()
       : db.prepare(`
           SELECT * FROM quality_events
-          WHERE deleted_at IS NULL AND created_by = ?
+          WHERE deleted_at IS NULL AND COALESCE(is_test,0) = 0 AND created_by = ?
             AND (? = 1 OR status <> 'DRAFT')
           ORDER BY updated_at DESC, id
         `).all(input.actorUserId, input.includeDrafts === false ? 0 : 1)) as DatabaseRow[];
@@ -325,7 +335,7 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
     actorUserId: string;
     isQualitySpecialist: boolean;
   }) {
-    const row = db.prepare("SELECT * FROM quality_events WHERE id = ? AND deleted_at IS NULL")
+    const row = db.prepare("SELECT * FROM quality_events WHERE id = ? AND deleted_at IS NULL AND COALESCE(is_test,0) = 0")
       .get(input.eventId) as DatabaseRow | undefined;
     if (!row) return null;
     const event = eventFromRow(row);
@@ -380,7 +390,8 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
              l.task_id, l.subtask_id,
              root_task.manager_user_id AS specialist_user_id
       FROM quality_assignment_nodes n
-      JOIN quality_events e ON e.id = n.event_id AND e.deleted_at IS NULL
+       JOIN quality_events e ON e.id = n.event_id
+         AND e.deleted_at IS NULL AND COALESCE(e.is_test,0) = 0
       LEFT JOIN quality_assignment_nodes parent ON parent.node_id = n.parent_node_id
       LEFT JOIN quality_assignment_nodes primary_node ON primary_node.node_id = e.primary_node_id
       LEFT JOIN quality_task_links l ON l.node_id = n.node_id

@@ -134,6 +134,7 @@ function eventFromRow(row: DatabaseRow): QualityEventRecord {
   return {
     eventId: String(row.id),
     eventNo: String(row.event_no),
+    isTest: Number(row.is_test ?? 0) === 1,
     status: String(row.status) as QualityEventRecord["status"],
     title: String(row.title),
     problemStatus: String(row.problem_status),
