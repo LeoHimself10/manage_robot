@@ -1,8 +1,11 @@
 FROM manage-robot:dingtalk-0bc0a78
 
 RUN mkdir -p /app/src/testing
+RUN mkdir -p /app/src/quality/presentation
 
 COPY src/testing/admin-test-actors.ts /app/src/testing/admin-test-actors.ts
+COPY src/quality/presentation/quality-role-metrics.ts /app/src/quality/presentation/quality-role-metrics.ts
+COPY src/quality/presentation/quality-display-labels.ts /app/src/quality/presentation/quality-display-labels.ts
 COPY src/web/workbench-admin-impersonation.ts /app/src/web/workbench-admin-impersonation.ts
 COPY src/security/workbench-role-resolver.ts /app/src/security/workbench-role-resolver.ts
 COPY src/integrations/dingtalk/workbench-notify.ts /app/src/integrations/dingtalk/workbench-notify.ts

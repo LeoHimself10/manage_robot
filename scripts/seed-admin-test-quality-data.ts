@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { resolveWorkbenchSqlitePath } from "../src/infra/workbench-db-path";
+import { createWorkbenchFormalTaskStore } from
+  "../src/infra/workbench-formal-task-store";
+import { createQualityTaskBridge } from
+  "../src/quality/assignments/quality-task-bridge";
 import { createQualityStore } from "../src/quality/infra/quality-store";
 import { isAdminTestSystemEnabled } from "../src/testing/admin-test-actors";
 
@@ -111,8 +115,34 @@ function rootNodeStatus(status: PlannedStatus): string | null {
   return null;
 }
 
+function employeeUserId(index: number): string {
+  return `QUALITY_TEST_EMPLOYEE_00${(index % 3) + 1}`;
+}
+
+function employeeNodeStatus(status: PlannedStatus, index: number): string | null {
+  if (status === "IN_PROGRESS") {
+    return ["PENDING_ACCEPTANCE", "IN_PROGRESS", "RETURNED", "PENDING_PARENT_REVIEW"][index % 4]!;
+  }
+  if (["PENDING_PRIMARY_REVIEW", "PENDING_QUALITY_REVIEW", "CLOSED"].includes(status)) {
+    return "APPROVED";
+  }
+  return null;
+}
+
+let transactionOpen = true;
 db.exec("BEGIN IMMEDIATE");
 try {
+  // Real workbook synchronization must never own isolated test rows. Older
+  // deployments did mark them deleted, so repair only that presentation state
+  // on startup without rewriting reviews, event progress, or task progress.
+  db.prepare(`
+    UPDATE quality_source_rows
+    SET state='ACTIVE', last_seen_at=?, synced_at=?
+    WHERE sheet_id='QUALITY_TEST_ISOLATED'
+      AND source_key LIKE 'quality-test-source:QT-DEMO-%'
+      AND state='DELETED'
+  `).run(createdAt, createdAt);
+
   for (const [offset, status] of statusPlan.entries()) {
     const index = offset;
     const id = eventId(index);
@@ -234,46 +264,53 @@ try {
         createdAt,
       );
 
-      if (["PENDING_PRIMARY_REVIEW", "PENDING_QUALITY_REVIEW", "CLOSED"].includes(status)) {
+      const childStatus = employeeNodeStatus(status, index);
+      if (childStatus) {
         const child = nodeId(index, "employee");
+        const childAssigneeUserId = employeeUserId(index);
         db.prepare(`
           INSERT INTO quality_assignment_nodes(
             node_id,event_id,parent_node_id,depth,assignee_user_id,assignee_kind,
             department_name,is_primary,status,due_at,requirement,version,created_by,
             request_id,accepted_at,submitted_at,created_at,updated_at
-          ) VALUES(?,?,?,1,'QUALITY_TEST_EMPLOYEE_001','EMPLOYEE','研发中心（测试）',
-            0,'APPROVED',?,'测试员工1完成验证并提交证据',1,
+          ) VALUES(?,?,?,1,?,'EMPLOYEE','研发中心（测试）',
+            0,?,?,'测试员工完成验证并提交证据',1,
             'QUALITY_TEST_MANAGER_001',?,?,?,?,?)
           ON CONFLICT(node_id) DO NOTHING
         `).run(
           child,
           id,
           root,
+          childAssigneeUserId,
+          childStatus,
           dueAt,
           requestId(index, 31000000),
-          createdAt,
-          createdAt,
+          childStatus === "PENDING_ACCEPTANCE" ? null : createdAt,
+          ["PENDING_PARENT_REVIEW", "APPROVED"].includes(childStatus) ? createdAt : null,
           createdAt,
           createdAt,
         );
-        const evidenceText = `${no} 隔离测试证据`;
-        db.prepare(`
-          INSERT INTO quality_evidence(
-            evidence_id,event_id,node_id,evidence_version,storage_key,original_name,
-            mime_type,summary,size_bytes,sha256,uploaded_by,request_id,created_at
-          ) VALUES(?,?,?,1,?,'隔离测试证据.txt','text/plain','模拟验证已完成',
-            ?,?,'QUALITY_TEST_EMPLOYEE_001',?,?)
-          ON CONFLICT(evidence_id) DO NOTHING
-        `).run(
-          `evidence:${id}:employee`,
-          id,
-          child,
-          `seed:${id}:employee`,
-          Buffer.byteLength(evidenceText),
-          createHash("sha256").update(evidenceText).digest("hex"),
-          requestId(index, 32000000),
-          createdAt,
-        );
+        if (["PENDING_PARENT_REVIEW", "APPROVED"].includes(childStatus)) {
+          const evidenceText = `${no} 隔离测试证据`;
+          db.prepare(`
+            INSERT INTO quality_evidence(
+              evidence_id,event_id,node_id,evidence_version,storage_key,original_name,
+              mime_type,summary,size_bytes,sha256,uploaded_by,request_id,created_at
+            ) VALUES(?,?,?,1,?,'隔离测试证据.txt','text/plain','模拟验证已完成',
+              ?,?,?,?,?)
+            ON CONFLICT(evidence_id) DO NOTHING
+          `).run(
+            `evidence:${id}:employee`,
+            id,
+            child,
+            `seed:${id}:employee`,
+            Buffer.byteLength(evidenceText),
+            createHash("sha256").update(evidenceText).digest("hex"),
+            childAssigneeUserId,
+            requestId(index, 32000000),
+            createdAt,
+          );
+        }
       }
     }
 
@@ -287,8 +324,71 @@ try {
     `).run(`audit:${id}`, id, requestId(index, 33000000), createdAt);
   }
   db.exec("COMMIT");
+  transactionOpen = false;
+
+  const bridge = createQualityTaskBridge(createWorkbenchFormalTaskStore());
+  const employeeNodes = db.prepare(`
+    SELECT n.node_id,n.status AS node_status,n.assignee_user_id,n.due_at,
+           n.requirement,n.request_id,e.event_no,e.title,e.problem_status,
+           p.assignee_user_id AS parent_assignee_user_id
+    FROM quality_assignment_nodes n
+    JOIN quality_events e ON e.id=n.event_id AND e.is_test=1
+    JOIN quality_assignment_nodes p ON p.node_id=n.parent_node_id
+    WHERE n.assignee_kind='EMPLOYEE'
+    ORDER BY n.node_id
+  `).all() as Array<Record<string, unknown>>;
+  for (const node of employeeNodes) {
+    const formal = bridge.createNodeTask({
+      nodeId: String(node.node_id),
+      eventNo: String(node.event_no),
+      eventTitle: String(node.title),
+      eventSummary: String(node.problem_status),
+      requirement: String(node.requirement),
+      initiatorUserId: "QUALITY_TEST_SPECIALIST_001",
+      managerUserId: "QUALITY_TEST_MANAGER_001",
+      assigneeUserId: String(node.assignee_user_id),
+      dueAt: String(node.due_at),
+      requestId: String(node.request_id),
+      parentAssigneeUserId: String(node.parent_assignee_user_id),
+    });
+    db.prepare(`
+      INSERT INTO quality_task_links(node_id,task_id,subtask_id,integration_key,created_at)
+      VALUES(?,?,?,?,?)
+      ON CONFLICT(node_id) DO NOTHING
+    `).run(
+      node.node_id,
+      formal.task.taskId,
+      formal.subtask.subtaskId,
+      formal.integrationKey,
+      createdAt,
+    );
+    if (!formal.alreadyCreated) {
+      const nodeStatus = String(node.node_status);
+      const formalStatus = nodeStatus === "PENDING_ACCEPTANCE"
+        ? "ASSIGNED"
+        : ["PENDING_PARENT_REVIEW", "APPROVED"].includes(nodeStatus)
+          ? "DONE"
+          : "IN_PROGRESS";
+      db.prepare(`
+        UPDATE subtasks
+        SET status=?,progress_note=?,updated_at=?,completed_at=?
+        WHERE subtask_id=?
+      `).run(
+        formalStatus,
+        formalStatus === "DONE" ? "隔离测试：已提交主管验收" : "隔离测试任务",
+        createdAt,
+        formalStatus === "DONE" ? createdAt : null,
+        formal.subtask.subtaskId,
+      );
+      db.prepare("UPDATE tasks SET status=?,updated_at=? WHERE task_id=?").run(
+        formalStatus,
+        createdAt,
+        formal.task.taskId,
+      );
+    }
+  }
 } catch (error) {
-  db.exec("ROLLBACK");
+  if (transactionOpen) db.exec("ROLLBACK");
   throw error;
 } finally {
   const rows = db.prepare(`

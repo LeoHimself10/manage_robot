@@ -173,6 +173,10 @@ describe("主管最终研判后的正式处置", () => {
       SELECT action FROM quality_source_review_audit WHERE source_key = ?
     `).get(seeded.sourceKey)).toEqual({ action: "FINAL_DISPOSITION_CONFIRMED" });
     db.close();
+    const readStore = createQualityReadStore(seeded.dbPath);
+    expect(readStore.listSourceRows({ reviewStatus: "ACTION_REQUIRED" }).pagination.total).toBe(0);
+    expect(readStore.listSourceRows({ reviewStatus: "COMPLETED" }).pagination.total).toBe(1);
+    readStore.close();
   });
 
   it("待补资料在来源更新后提示重新研判，并保留前后两次判断历史", () => {
@@ -253,6 +257,10 @@ describe("主管最终研判后的正式处置", () => {
       assessmentVersion: 2,
       version: 2,
     });
+    const finalReadStore = createQualityReadStore(seeded.dbPath);
+    expect(finalReadStore.listSourceRows({ reviewStatus: "ACTION_REQUIRED" }).pagination.total).toBe(1);
+    expect(finalReadStore.listSourceRows({ reviewStatus: "COMPLETED" }).pagination.total).toBe(0);
+    finalReadStore.close();
     const history = new DatabaseSync(seeded.dbPath, { readOnly: true });
     expect(history.prepare(`
       SELECT COUNT(*) AS count FROM quality_source_assessment_audit WHERE source_key=?

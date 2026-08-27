@@ -31,6 +31,10 @@ describe("administrator isolated quality seed", () => {
     );
 
     expect(run()).toContain("isolated quality events ready: 30");
+    const damaged = new DatabaseSync(dbPath);
+    damaged.prepare(`UPDATE quality_source_rows SET state='DELETED'
+      WHERE sheet_id='QUALITY_TEST_ISOLATED'`).run();
+    damaged.close();
     expect(run()).toContain("isolated quality events ready: 30");
 
     const db = new DatabaseSync(dbPath, { readOnly: true });
@@ -52,6 +56,28 @@ describe("administrator isolated quality seed", () => {
       FROM quality_notification_outbox
       WHERE event_id LIKE 'quality-test-event-extra-%'
     `).get() as { count: number };
+    const sourceStates = db.prepare(`
+      SELECT state,COUNT(*) AS count
+      FROM quality_source_rows
+      WHERE sheet_id='QUALITY_TEST_ISOLATED'
+      GROUP BY state
+    `).all() as Array<{ state: string; count: number }>;
+    const formalStatuses = db.prepare(`
+      SELECT s.status,COUNT(*) AS count
+      FROM quality_task_links l
+      JOIN subtasks s ON s.subtask_id=l.subtask_id
+      WHERE l.node_id LIKE 'quality-test-extra-node-%-employee'
+      GROUP BY s.status
+      ORDER BY s.status
+    `).all() as Array<{ status: string; count: number }>;
+    const employeeAssignments = db.prepare(`
+      SELECT n.assignee_user_id,COUNT(*) AS count
+      FROM quality_assignment_nodes n
+      JOIN quality_task_links l ON l.node_id=n.node_id
+      WHERE n.node_id LIKE 'quality-test-extra-node-%-employee'
+      GROUP BY n.assignee_user_id
+      ORDER BY n.assignee_user_id
+    `).all() as Array<{ assignee_user_id: string; count: number }>;
     db.close();
 
     expect(eventNos).toHaveLength(30);
@@ -67,6 +93,67 @@ describe("administrator isolated quality seed", () => {
       PENDING_PRIMARY_REVIEW: 3,
       PENDING_QUALITY_REVIEW: 3,
     });
+    expect(Object.fromEntries(formalStatuses.map((row) => [row.status, row.count]))).toEqual({
+      ASSIGNED: 2,
+      DONE: 12,
+      IN_PROGRESS: 3,
+    });
+    expect(employeeAssignments.map((row) => row.assignee_user_id)).toEqual([
+      "QUALITY_TEST_EMPLOYEE_001",
+      "QUALITY_TEST_EMPLOYEE_002",
+      "QUALITY_TEST_EMPLOYEE_003",
+    ]);
     expect(notifications.count).toBe(0);
+    expect(sourceStates).toEqual([{ state: "ACTIVE", count: 30 }]);
   }, 20_000);
+
+  it("extends the legacy twelve-event dataset to thirty without replacing existing IDs", () => {
+    const root = mkdtempSync(join(tmpdir(), "admin-test-quality-legacy-seed-"));
+    roots.push(root);
+    const dbPath = join(root, "workbench.sqlite");
+    const env = {
+      ...process.env,
+      WORKBENCH_SQLITE_PATH: dbPath,
+      QUALITY_TEST_ACTORS_ENABLED: "1",
+      WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED: "1",
+    };
+    execFileSync(
+      process.execPath,
+      ["--import", "tsx", "scripts/seed-quality-test-data.ts", "--confirm"],
+      { cwd: process.cwd(), env, encoding: "utf8" },
+    );
+    const runAdminSeed = () => execFileSync(
+      process.execPath,
+      ["--import", "tsx", "scripts/seed-admin-test-quality-data.ts"],
+      { cwd: process.cwd(), env, encoding: "utf8" },
+    );
+
+    expect(runAdminSeed()).toContain("isolated quality events ready: 30");
+    expect(runAdminSeed()).toContain("isolated quality events ready: 30");
+
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const counts = db.prepare(`
+      SELECT COUNT(*) AS total,COUNT(DISTINCT event_no) AS distinct_event_nos
+      FROM quality_events WHERE is_test=1
+    `).get() as { total: number; distinct_event_nos: number };
+    const first = db.prepare(`
+      SELECT id FROM quality_events WHERE event_no='QT-DEMO-000'
+    `).get() as { id: string };
+    const employees = db.prepare(`
+      SELECT DISTINCT n.assignee_user_id
+      FROM quality_assignment_nodes n
+      JOIN quality_task_links l ON l.node_id=n.node_id
+      WHERE n.assignee_kind='EMPLOYEE'
+      ORDER BY n.assignee_user_id
+    `).all() as Array<{ assignee_user_id: string }>;
+    db.close();
+
+    expect(counts).toEqual({ total: 30, distinct_event_nos: 30 });
+    expect(first.id).toBe("quality-test-event-analysis");
+    expect(employees.map((row) => row.assignee_user_id)).toEqual([
+      "QUALITY_TEST_EMPLOYEE_001",
+      "QUALITY_TEST_EMPLOYEE_002",
+      "QUALITY_TEST_EMPLOYEE_003",
+    ]);
+  }, 30_000);
 });

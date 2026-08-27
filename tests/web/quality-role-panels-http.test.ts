@@ -169,8 +169,10 @@ describe("quality role-panel HTTP APIs", () => {
     expect(adminPage.body).not.toContain("主管二（测试）");
     expect(adminPage.body).not.toContain("测试看板");
     expect(adminPage.body).not.toContain("切换到成员工作台");
-    expect(adminPage.body).toContain("待我处理");
-    expect(adminPage.body).toContain("当前角色可以直接操作");
+    expect(adminPage.body).toContain('data-metric-role="overview"');
+    expect(adminPage.body).toContain("待质量初析");
+    expect(adminPage.body).toContain("待任务分配");
+    expect(adminPage.body).toContain("待质量终验");
     expect(adminPage.body).not.toContain('data-quality-list="feedback"');
 
     const ordinaryPage = await callPage("/workbench/quality", "aftersales-real", "manager");
@@ -195,7 +197,7 @@ describe("quality role-panel HTTP APIs", () => {
       },
       event: {
         attentionBucket: "TODO",
-        attentionLabel: "待我处理",
+        attentionLabel: "待质量初析",
         statusLabel: "待质量初析",
       },
     });
@@ -255,7 +257,7 @@ describe("quality role-panel HTTP APIs", () => {
     expect(analyzed.payload.data.viewModel).toMatchObject({
       perspective: "quality_management",
       allowedActions: ["assign-supervisor"],
-      event: { statusLabel: "待主管选择", attentionBucket: "TODO", version: 4 },
+      event: { statusLabel: "待任务分配", attentionBucket: "TODO", version: 4 },
     });
 
     const db = new DatabaseSync(dbPath);
@@ -440,7 +442,7 @@ describe("quality role-panel HTTP APIs", () => {
       },
     );
     expect(rejected.status).toBe(200);
-    expect(rejected.payload.data.viewModel.event.statusLabel).toBe("待主管选择");
+    expect(rejected.payload.data.viewModel.event.statusLabel).toBe("待任务分配");
     expect(JSON.stringify(rejected.payload)).not.toContain("PENDING_ASSIGNMENT");
 
     const db = new DatabaseSync(dbPath);

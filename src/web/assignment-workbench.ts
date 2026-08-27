@@ -72,7 +72,7 @@ import { notifyEmployeeTodoOnAcceptAfterUpdate } from "../integrations/dingtalk/
 import { createEmployeeProfileRepo } from "../integrations/repos/employee-profile-repo";
 import { createDingTalkContactSyncService } from "../infra/dingtalk-contact-sync";
 import { createPeopleDirectoryStore } from "../infra/people-directory-store";
-import { isAdminTestActorUserId } from "../testing/admin-test-actors";
+import { getAdminTestActor } from "../testing/admin-test-actors";
 import {
   decorateWorkbenchHtmlForAdminImpersonation,
   listWorkbenchImpersonationTargets,
@@ -1021,8 +1021,8 @@ function taskStatusLabel(status: string): string {
   const s = String(status ?? "");
   if (s === "ASSIGNED") return "待处理";
   if (s === "CHANGES_REQUESTED") return "待修改";
-  if (s === "ACCEPTED") return "进行中";
-  if (s === "IN_PROGRESS") return "进行中";
+  if (s === "ACCEPTED") return "执行中";
+  if (s === "IN_PROGRESS") return "执行中";
   if (s === "BLOCKED") return "阻塞中";
   if (s === "DONE") return "已完成";
   if (s === "STOPPED") return "已停止";
@@ -1030,7 +1030,7 @@ function taskStatusLabel(status: string): string {
   return "—";
 }
 
-/** Test-only export for status label mapping (legacy ACCEPTED → 进行中). */
+/** Test-only export for status label mapping (legacy ACCEPTED → 执行中). */
 export const __taskStatusLabelForTest = taskStatusLabel;
 
 type FormalTaskDetail = NonNullable<ReturnType<ReturnType<typeof createWorkbenchFormalTaskStore>["getTaskDetail"]>>;
@@ -1347,7 +1347,7 @@ export function renderTaskDetailPage(params: {
         : "历史任务";
   const infoBar =
     params.roleLabel === "employee"
-      ? '<div class="wb-info-bar wb-info-bar--emp" role="note">接受、拒绝、进度等操作请在「待承接 / 进行中」列表完成；本页仅供查看完整背景与团队分工。</div>'
+      ? '<div class="wb-info-bar wb-info-bar--emp" role="note">接受、拒绝、进度等操作请在「待承接 / 执行中」列表完成；本页仅供查看完整背景与团队分工。</div>'
       : params.roleLabel === "admin"
         ? '<div class="wb-info-bar wb-info-bar--adm" role="note">管理员视图：可改派与停止任务，不含规划助手入口。</div>'
         : "";
@@ -1864,7 +1864,7 @@ export function renderTaskDetailPage(params: {
             });
             var data = await res.json().catch(function () { return {}; });
             if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-            if (fb3) { fb3.textContent = data.alreadyStopped ? '任务已无进行中的子任务' : '任务已停止'; fb3.className = 'feedback ok'; }
+            if (fb3) { fb3.textContent = data.alreadyStopped ? '任务已无执行中的子任务' : '任务已停止'; fb3.className = 'feedback ok'; }
             await load();
           } catch (eStop) {
             if (fb3) { fb3.textContent = String(eStop && eStop.message ? eStop.message : eStop); fb3.className = 'feedback err'; }
@@ -2433,7 +2433,7 @@ export function renderTaskDetailPage(params: {
           + '<div class="emp-sub-filter" role="tablist" aria-label="我的子任务筛选">'
           + '<button type="button" data-emp-bucket="all" aria-pressed="true">全部 <span class="mgr-sub-filter-count">'+empCount('all')+'</span></button>'
           + empChip('assigned', '待承接', empCount('assigned'))
-          + empChip('in_progress', '进行中', empCount('in_progress'))
+          + empChip('in_progress', '执行中', empCount('in_progress'))
           + empChip('blocked', '阻塞', empCount('blocked'))
           + empChip('waiting', '已拒绝 · 等主管', empCount('waiting'))
           + empChip('done', '已完成', empCount('done'))
@@ -2536,7 +2536,7 @@ export function renderTaskDetailPage(params: {
         '<div class="mgr-sub-filter" role="tablist" aria-label="子任务筛选">' +
         chipHtml('needs_manager', '待您处理', countByFilter('needs_manager'), countByFilter('needs_manager') > 0) +
         chipHtml('waiting_employee', '待员工承接', countByFilter('waiting_employee'), false) +
-        chipHtml('in_progress', '进行中', countByFilter('in_progress'), false) +
+        chipHtml('in_progress', '执行中', countByFilter('in_progress'), false) +
         chipHtml('done', '已完成', countByFilter('done'), false) +
         chipHtml('stopped', '已停止', countByFilter('stopped'), false) +
         chipHtml('all', '全部', subs.length, false) +
@@ -2657,8 +2657,8 @@ export function renderTaskDetailPage(params: {
         }
         var declinePanelHeading =
           declineKind === 'rejected'
-            ? '驳回拒绝承接 · 子任务将回到「进行中」'
-            : '驳回调整申请 · 子任务将回到「进行中」';
+            ? '驳回拒绝承接 · 子任务将回到「执行中」'
+            : '驳回调整申请 · 子任务将回到「执行中」';
         var declinePanel =
           declineKind
             ? '<div class="mgr-inline-panel mgr-inline-panel--danger" hidden data-mgr-panel="decline">' +
@@ -2867,7 +2867,7 @@ export function renderTaskDetailPage(params: {
           prim.textContent = '前往待承接';
           prim.href = listHref;
         } else if (String(mineSub.status||'') !== 'DONE' && String(mineSub.status||'') !== 'REJECTED') {
-          prim.textContent = '前往进行中';
+          prim.textContent = '前往执行中';
           prim.href = listHref;
         } else {
           prim.style.display = 'none';
@@ -4042,7 +4042,8 @@ export function handleAssignmentHttp(
             startedAt: new Date().toISOString(),
           },
         });
-        const redirectTo = isAdminTestActorUserId(next.userId)
+        const testActor = getAdminTestActor(next.userId);
+        const redirectTo = testActor && testActor.impersonationKind !== "employee"
           ? "/workbench/quality"
           : defaultPathForRole(next.role, next.userId);
         logStructured({

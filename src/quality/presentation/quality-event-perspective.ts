@@ -210,32 +210,38 @@ export function createQualityEventPerspectiveProjector(
 
   function attentionFor(row: DatabaseRow, context: QualityPerspectiveContext) {
     const status = String(row.status);
-    if (status === "CLOSED") return { bucket: "DONE" as const, label: "已完成" };
+    if (status === "CLOSED") return { bucket: "DONE" as const, label: "已关闭" };
     const allNodes = nodes(String(row.id));
     if (context.perspective === "aftersales") {
-      return status === "PENDING_ANALYSIS"
-        ? { bucket: "TODO" as const, label: "待我处理" }
-        : { bucket: "PROGRESS" as const, label: "处理中" };
+      return {
+        bucket: status === "PENDING_ANALYSIS" ? "TODO" as const : "PROGRESS" as const,
+        label: qualityStatusLabel(status),
+      };
     }
     if (context.perspective === "quality_management") {
-      return ["PENDING_ANALYSIS", "PENDING_ASSIGNMENT", "PENDING_QUALITY_REVIEW"].includes(status)
-        ? { bucket: "TODO" as const, label: "待我处理" }
-        : { bucket: "PROGRESS" as const, label: "处理中" };
+      return {
+        bucket: ["PENDING_ANALYSIS", "PENDING_ASSIGNMENT", "PENDING_QUALITY_REVIEW"].includes(status)
+          ? "TODO" as const
+          : "PROGRESS" as const,
+        label: qualityStatusLabel(status),
+      };
     }
     const ownNodes = allNodes.filter((node) => String(node.assignee_user_id) === context.actorUserId);
-    const ownAction = ownNodes.some((node) => [
-      "PENDING_ACCEPTANCE", "IN_PROGRESS", "RETURNED",
-    ].includes(String(node.status)));
+    const pendingAcceptance = ownNodes.some((node) => String(node.status) === "PENDING_ACCEPTANCE");
+    const ownAction = ownNodes.some((node) => ["IN_PROGRESS", "RETURNED"].includes(String(node.status)));
     const ownNodeIds = new Set(ownNodes.map((node) => String(node.node_id)));
+    const hasChildren = allNodes.some((node) => ownNodeIds.has(String(node.parent_node_id)));
     const childReview = context.perspective === "manager" && allNodes.some((node) =>
       ownNodeIds.has(String(node.parent_node_id)) && String(node.status) === "PENDING_PARENT_REVIEW",
     );
     const primaryReview = context.perspective === "manager"
       && status === "PENDING_PRIMARY_REVIEW"
       && ownNodes.some((node) => node.parent_node_id == null);
-    return ownAction || childReview || primaryReview
-      ? { bucket: "TODO" as const, label: "待我处理" }
-      : { bucket: "PROGRESS" as const, label: "处理中" };
+    if (pendingAcceptance) return { bucket: "TODO" as const, label: "待主管承接" };
+    if (childReview || primaryReview) return { bucket: "TODO" as const, label: "待主管验收" };
+    if (ownAction && !hasChildren) return { bucket: "TODO" as const, label: "待分派员工" };
+    if (ownAction || hasChildren) return { bucket: "PROGRESS" as const, label: "员工执行中" };
+    return { bucket: "PROGRESS" as const, label: qualityStatusLabel(status) };
   }
 
   function summary(row: DatabaseRow, context: QualityPerspectiveContext): QualityEventSummaryViewModel {
@@ -420,7 +426,7 @@ export function createQualityEventPerspectiveProjector(
     const versions = allowed.map((row) => ({
       actionRef: String(row.analysis_id),
       versionLabel: `V${Number(row.analysis_version)}`,
-      statusLabel: "已完成",
+      statusLabel: "已完成初析",
       problemDirection: nullable(parseObject(row.content_json).problemDirection) ?? "信息暂不可用",
       confirmedCategory: nullable(parseObject(row.content_json).confirmedCategoryReference) ?? "信息暂不可用",
       sourceSummary: (Array.isArray(parseObject(row.content_json).sourceFactSummary)

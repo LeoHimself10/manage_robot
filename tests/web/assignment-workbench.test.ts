@@ -357,7 +357,7 @@ describe("assignment-workbench HTTP handler", () => {
       enforceActionGuards: false,
     });
     expect(html).toContain("前往待承接");
-    expect(html).toContain("前往进行中");
+    expect(html).toContain("前往执行中");
     expect(html).not.toContain("返回列表 · 接受任务");
   });
 
@@ -1196,8 +1196,8 @@ describe("assignment-workbench HTTP handler", () => {
     }
   });
 
-  it("labels legacy ACCEPTED status as 进行中 for API consumers", () => {
-    expect(__taskStatusLabelForTest("ACCEPTED")).toBe("进行中");
+  it("labels legacy ACCEPTED status as 执行中 for API consumers", () => {
+    expect(__taskStatusLabelForTest("ACCEPTED")).toBe("执行中");
   });
 
   it("GET tasks/detail surfaces EMPLOYEE_NOTIFY_FAILED with summary and detail", async () => {
@@ -1408,7 +1408,7 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.statusCode).toBe(200);
     expect(c.body).toContain('class="task-desc"');
     expect(c.body).toContain("待承接");
-    expect(c.body).toContain("进行中");
+    expect(c.body).toContain("执行中");
   });
 
   it("GET /workbench/manager/chat defaults to main thread", async () => {
@@ -2027,7 +2027,9 @@ describe("assignment-workbench HTTP handler", () => {
         const entered = await enterDelegation(adminCookie, target.userId);
         expect(entered.body).toMatchObject({
           ok: true,
-          redirectTo: "/workbench/quality",
+          redirectTo: target.userId.startsWith("QUALITY_TEST_EMPLOYEE_")
+            ? "/workbench/employee?view=new"
+            : "/workbench/quality",
         });
         const meReq = stubReq({
           url: "/api/workbench/me",

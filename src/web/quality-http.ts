@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { DatabaseSync } from "node:sqlite";
 import { z, ZodError } from "zod";
 import { AiOriginalAssessmentV0RunError } from
   "../quality/ai-original-assessment/ai-original-assessment-v0-runner";
@@ -54,6 +55,7 @@ import { createQualitySourceSync } from "../quality/source/quality-source-sync";
 import { createQualitySourceWritebackOutbox } from "../quality/source/quality-source-writeback";
 import { triggerQualitySourceWriteback } from "../quality/source/quality-source-writeback-runtime";
 import { resolveQualityCapabilities } from "../security/quality-capabilities";
+import { resolveWorkbenchSqlitePath } from "../infra/workbench-db-path";
 import { hasQualityPlanningHandoff } from "../quality/queries/quality-event-query";
 import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
 import { readMultipartSingleFile } from "./multipart-single-file";
@@ -63,6 +65,7 @@ import { renderQualityOpinionsPage } from "./quality-opinions-page";
 import type { WorkbenchShellRole } from "./workbench-shell";
 import type { WorkbenchSession } from "./assignment-workbench-session-types";
 import { decorateWorkbenchHtmlForAdminImpersonation } from "./workbench-admin-impersonation";
+import { getAdminTestActor } from "../testing/admin-test-actors";
 import {
   isQualityRolePanelsEnabled,
   isQualityTestActorsEnabled,
@@ -176,6 +179,41 @@ async function readJsonBody(req: IncomingMessage, maxBytes = 256 * 1024): Promis
 function parsePositiveInt(value: unknown, fallback: number, max = Number.MAX_SAFE_INTEGER): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, max) : fallback;
+}
+
+type QualityManagerMetricStage = "ACCEPT" | "DELEGATE" | "EXECUTION" | "REVIEW" | "CLOSED";
+
+function qualityManagerMetricStage(input: {
+  db: DatabaseSync;
+  eventId: string;
+  eventStatus: string;
+  managerUserId: string;
+}): QualityManagerMetricStage | null {
+  const own = input.db.prepare(`
+    SELECT node_id,parent_node_id,status
+    FROM quality_assignment_nodes
+    WHERE event_id=? AND assignee_user_id=? AND status NOT IN ('REJECTED','CANCELLED')
+    ORDER BY CASE WHEN parent_node_id IS NULL THEN 0 ELSE 1 END,depth,created_at,node_id
+    LIMIT 1
+  `).get(input.eventId, input.managerUserId) as Record<string, unknown> | undefined;
+  if (!own) return null;
+  if (input.eventStatus === "CLOSED") return "CLOSED";
+  if (String(own.status) === "PENDING_ACCEPTANCE") return "ACCEPT";
+  const childCounts = input.db.prepare(`
+    SELECT COUNT(*) AS total,
+      SUM(CASE WHEN status='PENDING_PARENT_REVIEW' THEN 1 ELSE 0 END) AS pending_review
+    FROM quality_assignment_nodes
+    WHERE parent_node_id=? AND status NOT IN ('REJECTED','CANCELLED')
+  `).get(String(own.node_id)) as Record<string, unknown>;
+  if (Number(childCounts.pending_review ?? 0) > 0
+    || (input.eventStatus === "PENDING_PRIMARY_REVIEW" && own.parent_node_id == null)) {
+    return "REVIEW";
+  }
+  if (Number(childCounts.total ?? 0) === 0
+    && ["IN_PROGRESS", "RETURNED"].includes(String(own.status))) {
+    return "DELEGATE";
+  }
+  return "EXECUTION";
 }
 
 function sourceKeys(value: unknown): string[] {
@@ -370,7 +408,8 @@ async function handleQualityApi(input: {
     const specialist = caps.canAnalyzeQuality;
     const adminReadOnly = caps.baseRole === "admin";
     const planningManager = caps.baseRole === "manager"
-      && hasQualityPlanningHandoff(session.userId);
+      && (hasQualityPlanningHandoff(session.userId)
+        || getAdminTestActor(session.userId)?.impersonationKind === "manager");
     const viewerUserId = readViewerUserId({ session, adminReadOnly, url });
     const projectionRequested = isQualityRolePanelsEnabled()
       && (url.searchParams.get("projection") === "1"
@@ -753,7 +792,13 @@ async function handleQualityApi(input: {
             page: parsePositiveInt(url.searchParams.get("page"), 1),
             pageSize: parsePositiveInt(url.searchParams.get("pageSize"), 50, 200),
             reported: reportedParam === "1" ? true : reportedParam === "0" ? false : undefined,
-            reviewStatus: z.enum(["PENDING", "REVIEWED", "REPORTED"])
+            reviewStatus: z.enum([
+              "PENDING",
+              "REVIEWED",
+              "REPORTED",
+              "ACTION_REQUIRED",
+              "COMPLETED",
+            ])
               .optional().parse(url.searchParams.get("reviewStatus") ?? undefined),
             riskLevel: z.enum(["LOW", "MEDIUM", "HIGH"])
               .optional().parse(url.searchParams.get("riskLevel") ?? undefined),
@@ -971,23 +1016,46 @@ async function handleQualityApi(input: {
       try {
         const query = (url.searchParams.get("q") ?? "").trim().toLocaleLowerCase("zh-CN");
         const status = url.searchParams.get("status")?.trim().toUpperCase();
+        const statuses = new Set(
+          String(url.searchParams.get("statuses") ?? "")
+            .split(",")
+            .map((item) => item.trim().toUpperCase())
+            .filter(Boolean),
+        );
+        const managerStage = String(url.searchParams.get("managerStage") ?? "")
+          .trim().toUpperCase() as QualityManagerMetricStage | "";
         const riskLevel = url.searchParams.get("riskLevel")?.trim().toUpperCase();
-        const events = store.listEvents({ viewerUserId }).filter((event) => {
-          if (status && event.status !== status) return false;
-          if (riskLevel && (riskLevel === "HIGH"
-            ? !["HIGH", "CRITICAL"].includes(event.urgency ?? "")
-            : event.urgency !== riskLevel)) return false;
-          if (!query) return true;
-          return [
-            event.eventNo,
-            event.title,
-            event.problemStatus,
-            event.deviceModel,
-            event.deviceSerial,
-            event.catheterBatch,
-            event.initialCategory,
-          ].some((value) => String(value ?? "").toLocaleLowerCase("zh-CN").includes(query));
-        });
+        const stageDb = managerStage
+          ? new DatabaseSync(resolveWorkbenchSqlitePath(), { readOnly: true })
+          : null;
+        let events;
+        try {
+          events = store.listEvents({ viewerUserId }).filter((event) => {
+            if (status && event.status !== status) return false;
+            if (statuses.size > 0 && !statuses.has(event.status)) return false;
+            if (managerStage && stageDb && qualityManagerMetricStage({
+              db: stageDb,
+              eventId: event.eventId,
+              eventStatus: event.status,
+              managerUserId: viewerUserId,
+            }) !== managerStage) return false;
+            if (riskLevel && (riskLevel === "HIGH"
+              ? !["HIGH", "CRITICAL"].includes(event.urgency ?? "")
+              : event.urgency !== riskLevel)) return false;
+            if (!query) return true;
+            return [
+              event.eventNo,
+              event.title,
+              event.problemStatus,
+              event.deviceModel,
+              event.deviceSerial,
+              event.catheterBatch,
+              event.initialCategory,
+            ].some((value) => String(value ?? "").toLocaleLowerCase("zh-CN").includes(query));
+          });
+        } finally {
+          stageDb?.close();
+        }
         const page = parsePositiveInt(url.searchParams.get("page"), 1);
         const pageSize = parsePositiveInt(url.searchParams.get("pageSize"), 50, 200);
         const start = (page - 1) * pageSize;
@@ -1671,7 +1739,8 @@ export function handleQualityHttp(input: {
   const caps = resolveQualityCapabilities(session.userId);
   const isHead = req.method === "HEAD";
   const planningManager = caps.baseRole === "manager"
-    && hasQualityPlanningHandoff(session.userId);
+    && (hasQualityPlanningHandoff(session.userId)
+      || getAdminTestActor(session.userId)?.impersonationKind === "manager");
   const managerPerspectives = caps.baseRole === "admin"
     ? listQualityManagerPerspectives()
     : [];

@@ -137,7 +137,7 @@ describe("renderQualityTrackingPage", () => {
     expect(html).not.toContain("catch (error) { document.getElementById('qualityReportConfirmDialog').close()");
     expect(html).not.toContain("catch (error) { dialog.close(); var current = document.getElementById('qaFeedback')");
     expect(html).toContain("查看质量事件");
-    expect(html).toContain("PENDING_ANALYSIS: '待质量初析'");
+    expect(html).toContain('"PENDING_ANALYSIS":"待质量初析"');
     expect(html).toContain("AI原稿独立留存，人工草稿可编辑");
     expect(html).toContain("是否推送给“");
     expect(html).toContain("进入任务规划／分配");
@@ -177,7 +177,7 @@ describe("renderQualityTrackingPage", () => {
 
     expect(html).toContain("管理员全局质量视图");
     expect(html).toContain('data-can-view-sources="1"');
-    expect(html).toContain("if (state.listType === 'feedback') return 'PENDING'");
+    expect(html).toContain("if (state.listType === 'feedback') return 'ACTION_REQUIRED'");
     expect(html).toContain("function alignWorkspace()");
     expect(html).toContain('data-business-readonly="1"');
     expect(html).toContain("研发中心主管（曹一挥）");
@@ -186,13 +186,13 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain("applyBusinessReadOnly");
   });
 
-  it("keeps yesterday's rich classification cards and five-stage workspace in every added perspective", () => {
+  it("keeps yesterday's five-stage workspace and adds clear role-specific metric groups", () => {
     const ma = renderQualityTrackingPage({
-      role: "admin",
-      userId: "admin-1",
-      canReport: false,
+      role: "manager",
+      userId: "aftersales-manager",
+      canReport: true,
       canViewSources: true,
-      isBusinessReadOnly: true,
+      isBusinessReadOnly: false,
       rolePanelsEnabled: true,
       testActorsEnabled: true,
       isAdmin: true,
@@ -200,12 +200,12 @@ describe("renderQualityTrackingPage", () => {
       projectedMode: true,
     });
     const tong = renderQualityTrackingPage({
-      role: "admin",
-      userId: "admin-1",
+      role: "employee",
+      userId: "quality-specialist",
       canReport: false,
       canViewSources: false,
       isSpecialist: true,
-      isBusinessReadOnly: true,
+      isBusinessReadOnly: false,
       rolePanelsEnabled: true,
       testActorsEnabled: true,
       isAdmin: true,
@@ -218,11 +218,7 @@ describe("renderQualityTrackingPage", () => {
       expect(html).toContain("佟成");
       expect(html).toContain("测试");
       expect(html).toContain('id="qualityMetrics"');
-      expect(html).toContain("处理中");
-      expect(html).toContain("待终验");
-      expect(html).toContain("已完成");
-      expect(html).toContain("已进入后续流程，尚未闭环");
-      expect(html).toContain("所有流程已走通并完成闭环");
+      expect(html).toContain("已关闭");
       expect(html).toContain('data-quality-stage="review"');
       expect(html).toContain('data-quality-stage="analysis"');
       expect(html).toContain('data-quality-stage="assignment"');
@@ -230,13 +226,41 @@ describe("renderQualityTrackingPage", () => {
       expect(html).toContain('data-quality-stage="final"');
       expect(html).not.toContain("同一事件，不同职责所需的信息");
     }
-    expect(ma).toContain("待研判反馈");
-    expect(ma).toContain("已人工研判");
+    expect(ma).toContain("反馈研判");
+    expect(ma).toContain("已完成研判");
+    expect(ma).toContain("仅包含普通反馈和已通报");
+    expect(ma).toContain("row.reportedEvent.status !== 'DRAFT'");
+    expect(ma).toContain("data.reportEvent.status !== 'DRAFT'");
+    expect(ma).toContain("通报后跟踪");
     expect(ma).toContain("AI 原始研判建议");
     expect(ma).toContain("主管最终研判");
     expect(tong).toContain("待质量初析");
-    expect(tong).toContain("待任务规划");
+    expect(tong).toContain("任务推进中");
+    expect(tong).toContain("待质量终验");
     expect(tong).toContain("正式通报事件事实");
+  });
+
+  it("shows the five action-oriented buckets for the isolated test supervisor", () => {
+    const previous = process.env.WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED;
+    process.env.WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED = "1";
+    try {
+      const html = renderQualityTrackingPage({
+        role: "manager",
+        userId: "QUALITY_TEST_MANAGER_001",
+        canReport: false,
+        canViewSources: false,
+        isBusinessReadOnly: false,
+      });
+      expect(html).toContain('data-metric-role="supervisor"');
+      expect(html).toContain("待我承接");
+      expect(html).toContain("待分派员工");
+      expect(html).toContain("员工执行中");
+      expect(html).toContain("待我验收");
+      expect(html).toContain("已关闭");
+    } finally {
+      if (previous == null) delete process.env.WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED;
+      else process.env.WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED = previous;
+    }
   });
 
   it("keeps Tong Cheng's real editable initial-analysis workspace inside the projected view", () => {
@@ -253,8 +277,9 @@ describe("renderQualityTrackingPage", () => {
     });
 
     expect(html).toContain("待质量初析");
-    expect(html).toContain("处理中");
-    expect(html).toContain("已完成");
+    expect(html).toContain("任务推进中");
+    expect(html).toContain("待质量终验");
+    expect(html).toContain("已关闭");
     expect(html).toContain("质量初析工作区");
     expect(html).toContain("renderQualityAnalysisStage(editableAnalysis)");
     expect(html).toContain("renderProjectedSupervisorPicker(view, assignment)");
@@ -310,12 +335,6 @@ describe("renderQualityTrackingPage", () => {
     expect(navigation).not.toContain("主管二（测试）");
     expect(navigation).not.toContain("测试看板");
     expect(navigation).not.toContain("?perspective=");
-    expect(test).toContain("待我处理");
-    expect(test).toContain("当前角色可以直接操作");
-    expect(test).toContain("已提交，正在等待后续角色");
-    expect(test).toContain('data-metric-bucket="TODO"');
-    expect(test).toContain('data-metric-bucket="PROGRESS"');
-    expect(test).toContain('data-metric-bucket="DONE"');
     expect(test).not.toContain('data-quality-list="feedback"');
     expect(test).toContain("function projectedDefaultStage(view)");
     expect(test).toContain("马荣鑫（测试）· 研判修订");
@@ -337,6 +356,6 @@ describe("renderQualityTrackingPage", () => {
     });
     expect(regular).not.toContain("管理员隔离测试视角");
     expect(regular).not.toContain("测试员工1");
-    expect(regular).toContain("待研判反馈");
+    expect(regular).toContain("反馈研判");
   });
 });

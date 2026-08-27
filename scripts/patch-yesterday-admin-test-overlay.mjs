@@ -11,6 +11,23 @@ function replaceOnce(source, before, after, label) {
   return `${source.slice(0, first)}${after}${source.slice(first + before.length)}`;
 }
 
+function replaceAllChecked(source, before, after, label) {
+  const count = source.split(before).length - 1;
+  if (count < 1) throw new Error(`[admin-test-overlay] expected at least one ${label} anchor`);
+  return source.split(before).join(after);
+}
+
+function replaceRangeOnce(source, start, end, replacement, label) {
+  const startIndex = source.indexOf(start);
+  const secondStart = source.indexOf(start, startIndex + start.length);
+  if (startIndex < 0 || secondStart >= 0) {
+    throw new Error(`[admin-test-overlay] expected exactly one ${label} start anchor`);
+  }
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  if (endIndex < 0) throw new Error(`[admin-test-overlay] missing ${label} end anchor`);
+  return `${source.slice(0, startIndex)}${replacement}${source.slice(endIndex + end.length)}`;
+}
+
 function patchFile(path, transform) {
   const before = readFileSync(path, "utf8");
   const after = transform(before);
@@ -23,17 +40,166 @@ patchFile(`${appRoot}/src/web/assignment-workbench.ts`, (source) => {
     source,
     'import { createPeopleDirectoryStore } from "../infra/people-directory-store";\n',
     'import { createPeopleDirectoryStore } from "../infra/people-directory-store";\n'
-      + 'import { isAdminTestActorUserId } from "../testing/admin-test-actors";\n',
+      + 'import { getAdminTestActor } from "../testing/admin-test-actors";\n',
     "assignment import",
   );
   next = replaceOnce(
     next,
     "        const redirectTo = defaultPathForRole(next.role, next.userId);",
-    "        const redirectTo = isAdminTestActorUserId(next.userId)\n"
+    "        const testActor = getAdminTestActor(next.userId);\n"
+      + "        const redirectTo = testActor && testActor.impersonationKind !== \"employee\"\n"
       + '          ? "/workbench/quality"\n'
       + "          : defaultPathForRole(next.role, next.userId);",
     "assignment redirect",
   );
+  next = replaceAllChecked(next, "进行中", "执行中", "assignment in-progress copy");
+  return next;
+});
+
+patchFile(`${appRoot}/src/quality/source/quality-source-sync.ts`, (source) => replaceOnce(
+  source,
+  '          "SELECT source_key FROM quality_source_rows WHERE state <> \'DELETED\'",',
+  '          "SELECT source_key FROM quality_source_rows WHERE state <> \'DELETED\' AND sheet_id <> \'QUALITY_TEST_ISOLATED\'",',
+  "quality source-sync isolated-row ownership",
+));
+
+patchFile(`${appRoot}/src/web/quality-tracking-page.ts`, (source) => {
+  let next = replaceOnce(
+    source,
+    'import { HISTORICAL_FEEDBACK_TAXONOMY_V0 } from\n  "../quality/ai-original-assessment/historical-feedback-taxonomy-v0";\n',
+    'import { HISTORICAL_FEEDBACK_TAXONOMY_V0 } from\n  "../quality/ai-original-assessment/historical-feedback-taxonomy-v0";\n'
+      + 'import { renderQualityRoleMetricGroups, resolveQualityMetricRole } from\n'
+      + '  "../quality/presentation/quality-role-metrics";\n'
+      + 'import { getAdminTestActor } from "../testing/admin-test-actors";\n',
+    "quality metric imports",
+  );
+  next = replaceOnce(
+    next,
+    "  const planningMode = params.planningMode === true;\n  const selectedManager",
+    "  const planningMode = params.planningMode === true;\n"
+      + "  const adminTestActor = getAdminTestActor(params.userId);\n"
+      + "  const metricRole = adminTestActor?.impersonationKind === \"manager\"\n"
+      + "    ? \"supervisor\"\n"
+      + "    : resolveQualityMetricRole({ canReport, isSpecialist, planningMode, isBusinessReadOnly });\n"
+      + "  const selectedManager",
+    "quality metric role",
+  );
+  next = replaceOnce(
+    next,
+    'data-manager-user-id="${escapeHtml(params.selectedManagerUserId ?? "")}">',
+    'data-manager-user-id="${escapeHtml(params.selectedManagerUserId ?? "")}" data-metric-role="${metricRole}">',
+    "quality metric role data",
+  );
+  next = replaceRangeOnce(
+    next,
+    '    <div class="qpc-metrics" id="qualityMetrics">\n',
+    '    </div>\n    <section class="qpc-panel" aria-labelledby="qualityListTitle">',
+    '    <div class="qpc-metrics" id="qualityMetrics">${renderQualityRoleMetricGroups(metricRole)}</div>\n'
+      + '    <section class="qpc-panel" aria-labelledby="qualityListTitle">',
+    "quality metric markup",
+  );
+  next = replaceOnce(
+    next,
+    "  var managerUserId = root.getAttribute('data-manager-user-id') || '';\n",
+    "  var managerUserId = root.getAttribute('data-manager-user-id') || '';\n"
+      + "  var metricRole = root.getAttribute('data-metric-role') || 'overview';\n",
+    "quality metric client role",
+  );
+  next = replaceOnce(
+    next,
+    "  var state = { listType: canViewSources ? 'feedback' : 'event', page: 1, pageSize: 25, rows: [],",
+    "  var state = { listType: canViewSources ? 'feedback' : 'event', metricSourceStatus: '', metricStatuses: '', metricManagerStage: '', page: 1, pageSize: 25, rows: [],",
+    "quality metric filter state",
+  );
+  next = replaceOnce(
+    next,
+    "  var statusLabels = { DRAFT: '通报草稿', PENDING_ANALYSIS: '待质量初析', PENDING_ASSIGNMENT: planningMode ? '待我分配' : '待分配', PENDING_ACCEPTANCE: '待承接', IN_PROGRESS: '处理中', PENDING_PRIMARY_REVIEW: '待原主责确认', PENDING_QUALITY_REVIEW: '待终验', CLOSED: '已关闭' };",
+    `  var statusLabels = ${JSON.stringify({
+      DRAFT: "通报草稿",
+      PENDING_ANALYSIS: "待质量初析",
+      PENDING_ASSIGNMENT: "待任务分配",
+      PENDING_ACCEPTANCE: "待主管承接",
+      IN_PROGRESS: "执行中",
+      PENDING_PRIMARY_REVIEW: "待主管验收",
+      PENDING_QUALITY_REVIEW: "待质量终验",
+      CLOSED: "已关闭",
+    })};`,
+    "quality unified status labels",
+  );
+  next = replaceOnce(
+    next,
+    "  function setStatusOptions() { var select = document.getElementById('qualityStatusFilter'), previous = select.value; clear(select); var options = state.listType === 'feedback' ? [['', '全部状态'], ['PENDING', '待研判'], ['REVIEWED', '已保存研判'], ['REPORTED', '已通报']] : [['', '全部状态'], ['DRAFT', '通报草稿'], ['PENDING_ANALYSIS', '待质量初析'], ['PENDING_ASSIGNMENT', '待分配'], ['PENDING_ACCEPTANCE', '待承接'], ['IN_PROGRESS', '处理中'], ['PENDING_PRIMARY_REVIEW', '待原主责确认'], ['PENDING_QUALITY_REVIEW', '待终验'], ['CLOSED', '已关闭']]; options.forEach(function (item) { select.appendChild(new Option(item[1], item[0])); }); if (options.some(function (item) { return item[0] === previous; })) select.value = previous; }",
+    "  function setStatusOptions() { var select = document.getElementById('qualityStatusFilter'), previous = select.value; clear(select); var options = state.listType === 'feedback' ? [['', '全部状态'], ['ACTION_REQUIRED', '待研判'], ['COMPLETED', '已完成研判'], ['REPORTED', '已通报']] : [['', '全部状态'], ['DRAFT', '通报草稿'], ['PENDING_ANALYSIS', '待质量初析'], ['PENDING_ASSIGNMENT', '待任务分配'], ['PENDING_ACCEPTANCE', '待主管承接'], ['IN_PROGRESS', '执行中'], ['PENDING_PRIMARY_REVIEW', '待主管验收'], ['PENDING_QUALITY_REVIEW', '待质量终验'], ['CLOSED', '已关闭']]; options.forEach(function (item) { select.appendChild(new Option(item[1], item[0])); }); if (options.some(function (item) { return item[0] === previous; })) select.value = previous; }",
+    "quality unified status options",
+  );
+  next = replaceOnce(
+    next,
+    "  function defaultListStatus() { if (state.listType === 'feedback') return 'PENDING'; if (isSpecialist) return 'PENDING_ANALYSIS'; if (planningMode) return 'PENDING_ASSIGNMENT'; return ''; }",
+    "  function defaultListStatus() { if (state.listType === 'feedback') return 'ACTION_REQUIRED'; if (isSpecialist) return 'PENDING_ANALYSIS'; return ''; }",
+    "quality default status",
+  );
+  next = replaceOnce(
+    next,
+    "    var path; if (state.listType === 'feedback') { if (status) params.set('reviewStatus', status); path = '/api/workbench/quality/source?' + params.toString(); } else { if (status) params.set('status', status); path = '/api/workbench/quality/events?' + params.toString(); }",
+    "    var path; if (state.listType === 'feedback') { if (state.metricSourceStatus) params.set('reviewStatus', state.metricSourceStatus); else if (status) params.set('reviewStatus', status); path = '/api/workbench/quality/source?' + params.toString(); } else { if (state.metricStatuses) params.set('statuses', state.metricStatuses); else if (status) params.set('status', status); if (state.metricManagerStage) params.set('managerStage', state.metricManagerStage); path = '/api/workbench/quality/events?' + params.toString(); }",
+    "quality grouped list filters",
+  );
+  next = replaceAllChecked(next, "if (row.reportedEvent) return statusLabels[row.reportedEvent.status] || '已通报';", "if (row.reportedEvent && row.reportedEvent.status !== 'DRAFT') return '已通报';", "quality reported source label");
+  next = replaceOnce(
+    next,
+    "if (data.reportEvent) return statusLabels[data.reportEvent.status] || '已通报';",
+    "if (data.reportEvent && data.reportEvent.status !== 'DRAFT') return '已通报';",
+    "quality reported source workspace label",
+  );
+  next = replaceOnce(
+    next,
+    "item.reportedEvent ? 'blue' : item.review && !item.sourceUpdatedSinceDecision ? 'green' : 'orange'",
+    "item.reportedEvent && item.reportedEvent.status !== 'DRAFT' ? 'blue' : item.review && !item.sourceUpdatedSinceDecision ? 'green' : 'orange'",
+    "quality draft source status tone",
+  );
+  next = replaceOnce(
+    next,
+    "  async function loadMetrics() { var eventBase = '/api/workbench/quality/events?page=1&pageSize=1'; var first = isSpecialist ? count(eventBase + '&status=PENDING_ANALYSIS') : planningMode ? count(eventBase + '&status=PENDING_ASSIGNMENT') : canReport ? count('/api/workbench/quality/source?page=1&pageSize=1&reviewStatus=PENDING') : Promise.resolve('—'); var second = isSpecialist ? count(eventBase + '&status=PENDING_ASSIGNMENT') : planningMode ? count(eventBase) : canReport ? count('/api/workbench/quality/source?page=1&pageSize=1&reviewStatus=REVIEWED') : Promise.resolve('—'); var values = await Promise.all([first, second, count(eventBase), count(eventBase + '&status=IN_PROGRESS'), count(eventBase + '&status=PENDING_QUALITY_REVIEW'), count(eventBase + '&status=CLOSED')]); ['qualityMetricPending','qualityMetricReviewed','qualityMetricEvents','qualityMetricProgress','qualityMetricFinal','qualityMetricClosed'].forEach(function (id, index) { document.getElementById(id).textContent = String(values[index]); }); }",
+    "  async function loadMetrics() { var buttons = Array.from(document.querySelectorAll('[data-metric-count-path]')); var values = await Promise.all(buttons.map(function (button) { return count(button.getAttribute('data-metric-count-path')); })); buttons.forEach(function (button, index) { var valueNode = button.querySelector('[data-metric-value]'); if (valueNode) valueNode.textContent = String(values[index]); }); }",
+    "quality generic metric counts",
+  );
+  next = replaceOnce(
+    next,
+    "state.listType = view; state.page = 1; activateListTab(); closeWorkspace(false); setUrl('', '', false); document.getElementById('qualityStatusFilter').value = button.getAttribute('data-metric-status') || '';",
+    "state.listType = view; state.page = 1; state.metricSourceStatus = button.getAttribute('data-metric-source-status') || ''; state.metricStatuses = button.getAttribute('data-metric-statuses') || ''; state.metricManagerStage = button.getAttribute('data-metric-manager-stage') || ''; document.querySelectorAll('[data-metric-view]').forEach(function (item) { item.classList.toggle('is-active', item === button); }); activateListTab(); closeWorkspace(false); setUrl('', '', false); document.getElementById('qualityStatusFilter').value = '';",
+    "quality metric click filters",
+  );
+  next = replaceOnce(
+    next,
+    "document.getElementById('qualityListFilters').addEventListener('submit', function (event) { event.preventDefault(); state.page = 1; void loadList(); });",
+    "document.getElementById('qualityListFilters').addEventListener('submit', function (event) { event.preventDefault(); state.page = 1; state.metricSourceStatus = ''; state.metricStatuses = ''; state.metricManagerStage = ''; document.querySelectorAll('[data-metric-view]').forEach(function (item) { item.classList.remove('is-active'); }); void loadList(); });",
+    "quality manual filters clear metrics",
+  );
+  next = replaceOnce(
+    next,
+    "function switchList(type, updateUrl) { if (type === 'feedback' && !canViewSources) return; state.listType = type; state.page = 1; document.getElementById('qualityRiskFilter').value = '';",
+    "function switchList(type, updateUrl) { if (type === 'feedback' && !canViewSources) return; state.listType = type; state.page = 1; state.metricSourceStatus = ''; state.metricStatuses = ''; state.metricManagerStage = ''; document.querySelectorAll('[data-metric-view]').forEach(function (item) { item.classList.remove('is-active'); }); document.getElementById('qualityRiskFilter').value = '';",
+    "quality list tab clears metric filters",
+  );
+  return next;
+});
+
+patchFile(`${appRoot}/src/web/quality-tracking-styles.ts`, (source) => {
+  let next = replaceOnce(
+    source,
+    ".qpc-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }\n",
+    ".qpc-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }\n"
+      + ".qpc-metric-group { min-width: 0; padding: 12px; border: 1px solid var(--qpc-line); border-radius: 11px; background: #f7f9fb; }\n"
+      + ".qpc-metric-group > header { display: flex; align-items: baseline; gap: 9px; margin-bottom: 9px; }\n"
+      + ".qpc-metric-group > header strong { color: var(--qpc-ink); font-size: 14px; }\n"
+      + ".qpc-metric-group > header span { color: var(--qpc-muted); font-size: 12px; }\n"
+      + ".qpc-metric-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; }\n"
+      + ".qpc-metric-group:only-child { grid-column: 1 / -1; }\n"
+      + ".qpc-metric-group:only-child .qpc-metric-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }\n",
+    "quality metric group styles",
+  );
+  next = replaceOnce(next, "  .qpc-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }", "  .qpc-metrics { grid-template-columns: 1fr; }\n  .qpc-metric-grid, .qpc-metric-group:only-child .qpc-metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }", "quality metric tablet styles");
+  next = replaceOnce(next, "  .qpc-metrics, .qpc-fact-grid, .qpc-ai-grid { grid-template-columns: 1fr; }", "  .qpc-metrics, .qpc-metric-grid, .qpc-metric-group:only-child .qpc-metric-grid, .qpc-fact-grid, .qpc-ai-grid { grid-template-columns: 1fr; }", "quality metric mobile styles");
   return next;
 });
 
@@ -139,6 +305,12 @@ patchFile(`${appRoot}/src/quality/infra/quality-read-store.ts`, (source) => {
   );
   next = replaceOnce(
     next,
+    '    reviewStatus?: "PENDING" | "REVIEWED" | "REPORTED";\n',
+    '    reviewStatus?: "PENDING" | "REVIEWED" | "REPORTED" | "ACTION_REQUIRED" | "COMPLETED";\n',
+    "quality source review-status type",
+  );
+  next = replaceOnce(
+    next,
     "    const filtered = rawRows.filter((row) => {\n      if (input.reported === true",
     "    const filtered = rawRows.filter((row) => {\n"
       + "      if (input.viewerUserId && !isAdminTestDataVisibleToViewer(\n"
@@ -147,6 +319,32 @@ patchFile(`${appRoot}/src/quality/infra/quality-read-store.ts`, (source) => {
       + "      )) return false;\n"
       + "      if (input.reported === true",
     "quality source list scope",
+  );
+  next = replaceOnce(
+    next,
+    "      const assessmentCurrent = row.assessment_version != null\n"
+      + "        && Number(row.assessment_source_version) === Number(row.source_version);\n"
+      + "      if (input.reviewStatus === \"PENDING\"\n"
+      + "        && (assessmentCurrent || row.reported_event_id != null)) return false;\n"
+      + "      if (input.reviewStatus === \"REVIEWED\" && !assessmentCurrent) return false;\n"
+      + "      if (input.reviewStatus === \"REPORTED\" && row.reported_event_id == null) return false;",
+    "      const assessmentCurrent = row.assessment_version != null\n"
+      + "        && Number(row.assessment_source_version) === Number(row.source_version);\n"
+      + "      const reviewCurrent = row.review_status != null\n"
+      + "        && String(row.review_source_content_hash ?? \"\") === String(row.content_hash ?? \"\");\n"
+      + "      const linkedToSubmittedEvent = row.reported_event_id != null\n"
+      + "        && String(row.reported_event_status ?? \"\") !== \"DRAFT\";\n"
+      + "      if (input.reviewStatus === \"PENDING\"\n"
+      + "        && (assessmentCurrent || row.reported_event_id != null)) return false;\n"
+      + "      if (input.reviewStatus === \"REVIEWED\" && !assessmentCurrent) return false;\n"
+      + "      if (input.reviewStatus === \"REPORTED\" && !linkedToSubmittedEvent) return false;\n"
+      + "      if (input.reviewStatus === \"ACTION_REQUIRED\"\n"
+      + "        && (linkedToSubmittedEvent\n"
+      + "          || (reviewCurrent && String(row.review_status) === \"ORDINARY\"))) return false;\n"
+      + "      if (input.reviewStatus === \"COMPLETED\"\n"
+      + "        && !(linkedToSubmittedEvent\n"
+      + "          || (reviewCurrent && String(row.review_status) === \"ORDINARY\"))) return false;",
+    "quality source action/completed filters",
   );
   return next;
 });
@@ -218,6 +416,7 @@ patchFile(`${appRoot}/src/web/quality-http.ts`, (source) => {
       + "  isAdminTestDataVisibleToViewer,\n"
       + "  isAdminTestSourceKey,\n"
       + "  isAdminTestSystemEnabled,\n"
+      + "  getAdminTestActor,\n"
       + '} from "../testing/admin-test-actors";\n',
     "quality http test boundary imports",
   );
@@ -225,6 +424,17 @@ patchFile(`${appRoot}/src/web/quality-http.ts`, (source) => {
     next,
     "}\n\nasync function readJsonBody(req: IncomingMessage",
     "}\n\n"
+      + "type QualityManagerMetricStage = \"ACCEPT\" | \"DELEGATE\" | \"EXECUTION\" | \"REVIEW\" | \"CLOSED\";\n\n"
+      + "function qualityManagerMetricStage(input: { db: DatabaseSync; eventId: string; eventStatus: string; managerUserId: string }): QualityManagerMetricStage | null {\n"
+      + "  const own = input.db.prepare(`SELECT node_id,parent_node_id,status FROM quality_assignment_nodes WHERE event_id=? AND assignee_user_id=? AND status NOT IN ('REJECTED','CANCELLED') ORDER BY CASE WHEN parent_node_id IS NULL THEN 0 ELSE 1 END,depth,created_at,node_id LIMIT 1`).get(input.eventId,input.managerUserId) as Record<string,unknown> | undefined;\n"
+      + "  if (!own) return null;\n"
+      + "  if (input.eventStatus === \"CLOSED\") return \"CLOSED\";\n"
+      + "  if (String(own.status) === \"PENDING_ACCEPTANCE\") return \"ACCEPT\";\n"
+      + "  const children = input.db.prepare(`SELECT COUNT(*) AS total,SUM(CASE WHEN status='PENDING_PARENT_REVIEW' THEN 1 ELSE 0 END) AS pending_review FROM quality_assignment_nodes WHERE parent_node_id=? AND status NOT IN ('REJECTED','CANCELLED')`).get(String(own.node_id)) as Record<string,unknown>;\n"
+      + "  if (Number(children.pending_review ?? 0) > 0 || (input.eventStatus === \"PENDING_PRIMARY_REVIEW\" && own.parent_node_id == null)) return \"REVIEW\";\n"
+      + "  if (Number(children.total ?? 0) === 0 && [\"IN_PROGRESS\",\"RETURNED\"].includes(String(own.status))) return \"DELEGATE\";\n"
+      + "  return \"EXECUTION\";\n"
+      + "}\n\n"
       + "function qualityResourceIsTest(kind: string, resourceId: string): boolean | undefined {\n"
       + "  const db = new DatabaseSync(resolveWorkbenchSqlitePath(), { readOnly: true });\n"
       + "  try {\n"
@@ -286,6 +496,14 @@ patchFile(`${appRoot}/src/web/quality-http.ts`, (source) => {
       + "    const aftersales",
     "quality http scope entry",
   );
+  next = replaceAllChecked(
+    next,
+    "const planningManager = caps.baseRole === \"manager\"\n      && hasQualityPlanningHandoff(session.userId);",
+    "const planningManager = caps.baseRole === \"manager\"\n"
+      + "      && (hasQualityPlanningHandoff(session.userId)\n"
+      + "        || getAdminTestActor(session.userId)?.impersonationKind === \"manager\");",
+    "quality test supervisor planning mode",
+  );
   next = replaceOnce(
     next,
     "        const data = query.list({\n          scope:",
@@ -304,10 +522,59 @@ patchFile(`${appRoot}/src/web/quality-http.ts`, (source) => {
   );
   next = replaceOnce(
     next,
+    '            reviewStatus: z.enum(["PENDING", "REVIEWED", "REPORTED"])\n',
+    '            reviewStatus: z.enum(["PENDING", "REVIEWED", "REPORTED", "ACTION_REQUIRED", "COMPLETED"])\n',
+    "quality source review-status api",
+  );
+  next = replaceOnce(
+    next,
     "      if (!listWorkbenchManagerIds().has(session.userId)) {",
     "      if (!listWorkbenchManagerIds().has(session.userId)\n"
       + "        && !isAdminTestActorUserId(session.userId)) {",
     "quality test manager access",
+  );
+  next = replaceOnce(
+    next,
+    "        const status = url.searchParams.get(\"status\")?.trim().toUpperCase();\n"
+      + "        const riskLevel = url.searchParams.get(\"riskLevel\")?.trim().toUpperCase();\n"
+      + "        const events = store.listEvents({ viewerUserId }).filter((event) => {\n"
+      + "          if (status && event.status !== status) return false;\n"
+      + "          if (riskLevel && (riskLevel === \"HIGH\"\n"
+      + "            ? ![\"HIGH\", \"CRITICAL\"].includes(event.urgency ?? \"\")\n"
+      + "            : event.urgency !== riskLevel)) return false;\n"
+      + "          if (!query) return true;\n"
+      + "          return [\n"
+      + "            event.eventNo,\n"
+      + "            event.title,\n"
+      + "            event.problemStatus,\n"
+      + "            event.deviceModel,\n"
+      + "            event.deviceSerial,\n"
+      + "            event.catheterBatch,\n"
+      + "            event.initialCategory,\n"
+      + "          ].some((value) => String(value ?? \"\").toLocaleLowerCase(\"zh-CN\").includes(query));\n"
+      + "        });",
+    "        const status = url.searchParams.get(\"status\")?.trim().toUpperCase();\n"
+      + "        const statuses = new Set(String(url.searchParams.get(\"statuses\") ?? \"\").split(\",\").map((item) => item.trim().toUpperCase()).filter(Boolean));\n"
+      + "        const managerStage = String(url.searchParams.get(\"managerStage\") ?? \"\").trim().toUpperCase() as QualityManagerMetricStage | \"\";\n"
+      + "        const riskLevel = url.searchParams.get(\"riskLevel\")?.trim().toUpperCase();\n"
+      + "        const stageDb = managerStage ? new DatabaseSync(resolveWorkbenchSqlitePath(), { readOnly: true }) : null;\n"
+      + "        let events;\n"
+      + "        try {\n"
+      + "          events = store.listEvents({ viewerUserId }).filter((event) => {\n"
+      + "            if (status && event.status !== status) return false;\n"
+      + "            if (statuses.size > 0 && !statuses.has(event.status)) return false;\n"
+      + "            if (managerStage && stageDb && qualityManagerMetricStage({ db: stageDb, eventId: event.eventId, eventStatus: event.status, managerUserId: viewerUserId }) !== managerStage) return false;\n"
+      + "            if (riskLevel && (riskLevel === \"HIGH\"\n"
+      + "              ? ![\"HIGH\", \"CRITICAL\"].includes(event.urgency ?? \"\")\n"
+      + "              : event.urgency !== riskLevel)) return false;\n"
+      + "            if (!query) return true;\n"
+      + "            return [event.eventNo,event.title,event.problemStatus,event.deviceModel,event.deviceSerial,event.catheterBatch,event.initialCategory]\n"
+      + "              .some((value) => String(value ?? \"\").toLocaleLowerCase(\"zh-CN\").includes(query));\n"
+      + "          });\n"
+      + "        } finally {\n"
+      + "          stageDb?.close();\n"
+      + "        }",
+    "quality event grouped filters",
   );
   next = replaceOnce(
     next,

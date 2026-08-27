@@ -50,8 +50,14 @@ body { overflow-x: hidden; }
 .qpc-heading { display: flex; align-items: flex-end; gap: 18px; margin-bottom: 13px; }
 .qpc-heading h2 { margin: 0; font-size: 19px; }
 .qpc-heading > .btn { margin-left: auto; }
-.qpc-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
-.qpc-metrics.is-test { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.qpc-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.qpc-metric-group { min-width: 0; padding: 12px; border: 1px solid var(--qpc-line); border-radius: 11px; background: #f7f9fb; }
+.qpc-metric-group > header { display: flex; align-items: baseline; gap: 9px; margin-bottom: 9px; }
+.qpc-metric-group > header strong { color: var(--qpc-ink); font-size: 14px; }
+.qpc-metric-group > header span { color: var(--qpc-muted); font-size: 12px; }
+.qpc-metric-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; }
+.qpc-metric-group:only-child { grid-column: 1 / -1; }
+.qpc-metric-group:only-child .qpc-metric-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .qpc-metric { position: relative; min-width: 0; min-height: 107px; padding: 13px; border: 1px solid var(--qpc-line); border-top: 3px solid var(--tone); border-radius: 10px; background: var(--qpc-paper); text-align: left; appearance: none; cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
 .qpc-metric:hover, .qpc-metric:focus-visible { transform: translateY(-2px); border-color: var(--tone); box-shadow: 0 9px 20px rgba(20,38,60,.1); outline: none; }
 .qpc-metric.is-active { border-color: var(--tone); background: #f7fafc; box-shadow: 0 0 0 2px rgba(40,99,159,.12); }
@@ -242,7 +248,8 @@ body { overflow-x: hidden; }
 .qa-version-list { margin-top: 12px; }
 .qa-planning-link { display: inline-flex; align-items: center; min-height: 42px; margin-top: 10px; text-decoration: none; }
 @media (max-width: 1320px) {
-  .qpc-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .qpc-metrics { grid-template-columns: 1fr; }
+  .qpc-metric-grid, .qpc-metric-group:only-child .qpc-metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .qpc-stages { overflow: auto; grid-template-columns: repeat(5, minmax(178px, 1fr)); }
   .qpc-fact-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .qpc-record-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -267,7 +274,7 @@ body { overflow-x: hidden; }
   .qpc-perspective small { grid-column: 1; }
 }
 @media (max-width: 620px) {
-  .qpc-metrics, .qpc-fact-grid, .qpc-ai-grid { grid-template-columns: 1fr; }
+  .qpc-metrics, .qpc-metric-grid, .qpc-metric-group:only-child .qpc-metric-grid, .qpc-fact-grid, .qpc-ai-grid { grid-template-columns: 1fr; }
   .qpc-toolbar > * { width: 100%; }
   .qpc-toolbar input { min-width: 0; }
   .qpc-work-badges { flex-wrap: wrap; }

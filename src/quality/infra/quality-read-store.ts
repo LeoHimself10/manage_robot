@@ -100,7 +100,7 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
     page?: number;
     pageSize?: number;
     reported?: boolean;
-    reviewStatus?: "PENDING" | "REVIEWED" | "REPORTED";
+    reviewStatus?: "PENDING" | "REVIEWED" | "REPORTED" | "ACTION_REQUIRED" | "COMPLETED";
     riskLevel?: "LOW" | "MEDIUM" | "HIGH";
   }) {
     const query = String(input.q ?? "").trim().toLocaleLowerCase("zh-CN");
@@ -155,10 +155,20 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
       if (input.reported === false && row.reported_event_id != null) return false;
       const assessmentCurrent = row.assessment_version != null
         && Number(row.assessment_source_version) === Number(row.source_version);
+      const reviewCurrent = row.review_status != null
+        && String(row.review_source_content_hash ?? "") === String(row.content_hash ?? "");
+      const linkedToSubmittedEvent = row.reported_event_id != null
+        && String(row.reported_event_status ?? "") !== "DRAFT";
       if (input.reviewStatus === "PENDING"
         && (assessmentCurrent || row.reported_event_id != null)) return false;
       if (input.reviewStatus === "REVIEWED" && !assessmentCurrent) return false;
-      if (input.reviewStatus === "REPORTED" && row.reported_event_id == null) return false;
+      if (input.reviewStatus === "REPORTED" && !linkedToSubmittedEvent) return false;
+      if (input.reviewStatus === "ACTION_REQUIRED"
+        && (linkedToSubmittedEvent
+          || (reviewCurrent && String(row.review_status) === "ORDINARY"))) return false;
+      if (input.reviewStatus === "COMPLETED"
+        && !(linkedToSubmittedEvent
+          || (reviewCurrent && String(row.review_status) === "ORDINARY"))) return false;
       if (input.riskLevel && String(row.assessment_risk ?? "") !== input.riskLevel) return false;
       if (!query) return true;
       const normalized = parseObject(row.normalized_json);
