@@ -23,7 +23,15 @@ RUN node /tmp/patch-yesterday-admin-test-overlay.mjs \
 # yesterday-source patch above. Copying the reviewed final sources keeps a later
 # overlay build identical to the source and tests in this worktree.
 COPY src/security/quality-capabilities.ts /app/src/security/quality-capabilities.ts
+COPY src/quality/infra/quality-store.ts /app/src/quality/infra/quality-store.ts
 COPY src/quality/assignments/quality-supervisor-directory.ts /app/src/quality/assignments/quality-supervisor-directory.ts
+COPY src/quality/assignments/quality-assignment-service.ts /app/src/quality/assignments/quality-assignment-service.ts
+COPY src/quality/evidence/quality-evidence-service.ts /app/src/quality/evidence/quality-evidence-service.ts
+COPY src/quality/reviews/quality-review-service.ts /app/src/quality/reviews/quality-review-service.ts
+COPY src/quality/closure/quality-closure-service.ts /app/src/quality/closure/quality-closure-service.ts
+COPY src/quality/notifications/quality-notification-policy.ts /app/src/quality/notifications/quality-notification-policy.ts
+COPY src/quality/notifications/quality-notification-outbox.ts /app/src/quality/notifications/quality-notification-outbox.ts
+COPY src/quality/notifications/quality-notification-scheduler.ts /app/src/quality/notifications/quality-notification-scheduler.ts
 COPY src/quality/presentation/quality-event-perspective.ts /app/src/quality/presentation/quality-event-perspective.ts
 COPY src/quality/testing/quality-feature-flags.ts /app/src/quality/testing/quality-feature-flags.ts
 COPY src/quality/testing/quality-test-actors.ts /app/src/quality/testing/quality-test-actors.ts

@@ -1119,7 +1119,10 @@ async function handleQualityApi(input: {
           data: {
             departments: directory.listGroups({
               eventId,
-              isTest: event.isTest,
+              // The projected context is already server-authorized and remains
+              // reliable on yesterday's store adapter, which did not expose
+              // the newly migrated is_test column on its domain object.
+              isTest: projected.context.scope === "test",
               query: url.searchParams.get("q") ?? "",
             }),
           },
