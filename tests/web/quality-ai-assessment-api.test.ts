@@ -73,10 +73,12 @@ describe("单条AI研判HTTP权限与输入边界", () => {
     const realFetch = globalThis.fetch.bind(globalThis);
     const modelFetch = vi.fn(async (_url: string | URL | Request) => {
       const output = {
-        handlingRecommendation: "QUALITY_ANOMALY",
-        primaryCategoryCode: "CATHETER_PRODUCT",
-        secondaryCategoryCode: "CATHETER_BEND_SHAKE",
-        riskLevel: "HIGH",
+        // Mirrors the production failure we observed: Qwen copied the
+        // secondary category into the handling field.
+        handlingRecommendation: "OTHER_GENERAL",
+        primaryCategoryCode: "OTHER_UNCLEAR",
+        secondaryCategoryCode: "OTHER_GENERAL",
+        riskLevel: "LOW",
         reasoningBasis: [{ statement: "导管弯折导致操作暂停。", citationIds: ["feedback-1"] }],
         similarCases: [],
         missingInformation: [],
@@ -126,11 +128,15 @@ describe("单条AI研判HTTP权限与输入边界", () => {
     });
     const payload = await allowed.json() as {
       ok: boolean;
-      data: { output: { primaryCategoryCode: string }; retrievedCases: Array<{ caseId: string }> };
+      data: {
+        output: { handlingRecommendation: string; primaryCategoryCode: string };
+        retrievedCases: Array<{ caseId: string }>;
+      };
     };
     expect(allowed.status).toBe(200);
     expect(payload.ok).toBe(true);
-    expect(payload.data.output.primaryCategoryCode).toBe("CATHETER_PRODUCT");
+    expect(payload.data.output.primaryCategoryCode).toBe("OTHER_UNCLEAR");
+    expect(payload.data.output.handlingRecommendation).toBe("ORDINARY");
     expect(payload.data.retrievedCases.length).toBeLessThanOrEqual(3);
     expect(payload.data.retrievedCases.every((item) => !item.caseId.startsWith("CASE-TEST-"))).toBe(true);
     expect(modelFetch).toHaveBeenCalledTimes(2);

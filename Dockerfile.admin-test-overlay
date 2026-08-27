@@ -24,5 +24,8 @@ RUN node /tmp/patch-yesterday-admin-test-overlay.mjs \
 # overlay build identical to the source and tests in this worktree.
 COPY src/quality/assignments/quality-supervisor-directory.ts /app/src/quality/assignments/quality-supervisor-directory.ts
 COPY src/quality/testing/quality-test-analysis-service.ts /app/src/quality/testing/quality-test-analysis-service.ts
+COPY src/quality/ai-original-assessment/qwen-ai-original-assessment-model.ts /app/src/quality/ai-original-assessment/qwen-ai-original-assessment-model.ts
+COPY src/quality/ai-original-assessment/ai-original-assessment-v0-prompt.ts /app/src/quality/ai-original-assessment/ai-original-assessment-v0-prompt.ts
+COPY src/quality/ai-original-assessment/ai-original-assessment-v0-context.ts /app/src/quality/ai-original-assessment/ai-original-assessment-v0-context.ts
 COPY src/web/quality-http.ts /app/src/web/quality-http.ts
 COPY src/web/quality-tracking-page.ts /app/src/web/quality-tracking-page.ts

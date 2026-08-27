@@ -22,6 +22,7 @@ import type { HistoricalFeedbackCaseRetriever } from
 import {
   loadQwenAiOriginalAssessmentConfigFromEnv,
   QwenAiOriginalAssessmentModel,
+  enrichAiOriginalAssessmentModelPayload,
   type AiOriginalAssessmentModelAdapter,
   type AiOriginalAssessmentModelRequest,
   type AiOriginalAssessmentModelResponse,
@@ -98,6 +99,8 @@ describe("AI原始研判V0本地输入准备", () => {
     expect(serialized).toContain("术中或生产中");
     expect(serialized).toContain("建议HIGH");
     expect(serialized).toContain("建议MEDIUM");
+    expect(serialized).toContain("handlingRecommendation是处理方式，不是分类编码");
+    expect(serialized).toContain("严禁填写OTHER_GENERAL");
     expect(serialized).toContain("建议LOW");
     expect(serialized).toContain("impact和confirmation是可选字段");
     expect(serialized).toContain("OTHER_UNCLEAR/INSUFFICIENT_INFO");
@@ -127,6 +130,33 @@ describe("AI原始研判V0本地输入准备", () => {
     expect(serialized).not.toContain("additionalProperties");
     expect(messages.reduce((total, message) => total + message.content.length, 0))
       .toBeLessThan(14_000);
+  });
+
+  it("只纠正OTHER_UNCLEAR下可唯一确定的处理方式枚举", () => {
+    const { input } = prepareAiOriginalAssessmentV0();
+    const base = buildValidAiSimulatedOutput(input);
+    const ordinary = enrichAiOriginalAssessmentModelPayload(input, {
+      ...base,
+      handlingRecommendation: "OTHER_GENERAL",
+      primaryCategoryCode: "OTHER_UNCLEAR",
+      secondaryCategoryCode: "OTHER_GENERAL",
+    }) as Record<string, unknown>;
+    const needsInfo = enrichAiOriginalAssessmentModelPayload(input, {
+      ...base,
+      handlingRecommendation: "INSUFFICIENT_INFO",
+      primaryCategoryCode: "OTHER_UNCLEAR",
+      secondaryCategoryCode: "INSUFFICIENT_INFO",
+    }) as Record<string, unknown>;
+    const stillInvalid = enrichAiOriginalAssessmentModelPayload(input, {
+      ...base,
+      handlingRecommendation: "OTHER_GENERAL",
+      primaryCategoryCode: "CATHETER_PRODUCT",
+      secondaryCategoryCode: "CATHETER_BEND_SHAKE",
+    }) as Record<string, unknown>;
+
+    expect(ordinary.handlingRecommendation).toBe("ORDINARY");
+    expect(needsInfo.handlingRecommendation).toBe("NEEDS_INFO");
+    expect(stillInvalid.handlingRecommendation).toBe("OTHER_GENERAL");
   });
 
   it("正式准备路径在标准化后检索，并把实际案例传给模型输入", async () => {

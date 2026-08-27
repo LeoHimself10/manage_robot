@@ -40,6 +40,35 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const HANDLING_RECOMMENDATIONS = new Set([
+  "ORDINARY",
+  "NEEDS_INFO",
+  "QUALITY_ANOMALY",
+]);
+
+/**
+ * Qwen occasionally copies the OTHER_UNCLEAR secondary category into the
+ * handling field even though the semantic choice is unambiguous. Correct only
+ * those two exact, policy-defined pairs. Every other invalid value still fails
+ * the normal output validator; this is not a general schema-coercion escape.
+ */
+function normalizeUnambiguousHandlingRecommendation(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const handling = String(payload.handlingRecommendation ?? "").trim();
+  if (HANDLING_RECOMMENDATIONS.has(handling)) return payload;
+  const primary = String(payload.primaryCategoryCode ?? "").trim();
+  const secondary = String(payload.secondaryCategoryCode ?? "").trim();
+  if (primary !== "OTHER_UNCLEAR" || handling !== secondary) return payload;
+  if (secondary === "OTHER_GENERAL") {
+    return { ...payload, handlingRecommendation: "ORDINARY" };
+  }
+  if (secondary === "INSUFFICIENT_INFO") {
+    return { ...payload, handlingRecommendation: "NEEDS_INFO" };
+  }
+  return payload;
+}
+
 /**
  * 这些字段由服务端输入唯一决定，不再让模型消耗token重复抄写。
  * 业务字段仍由模型生成，随后继续通过原有完整Schema与业务校验。
@@ -49,12 +78,13 @@ export function enrichAiOriginalAssessmentModelPayload(
   payload: unknown,
 ): unknown {
   if (!isRecord(payload)) return payload;
+  const normalizedPayload = normalizeUnambiguousHandlingRecommendation(payload);
   const {
     schemaVersion: _ignoredSchemaVersion,
     requestId: _ignoredRequestId,
     provenance: _ignoredProvenance,
     ...businessPayload
-  } = payload;
+  } = normalizedPayload;
   return {
     schemaVersion: AI_ORIGINAL_ASSESSMENT_OUTPUT_SCHEMA_VERSION,
     requestId: input.runMetadata.requestId,

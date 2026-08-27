@@ -6,7 +6,7 @@ import {
 } from "./historical-feedback-taxonomy-v0";
 
 export const AI_ORIGINAL_ASSESSMENT_V0_PROMPT_VERSION =
-  "quality-ai-original-assessment-prompt-v0.10-compact-model-input" as const;
+  "quality-ai-original-assessment-prompt-v0.11-handling-enum" as const;
 export const AI_ORIGINAL_ASSESSMENT_V0_CATEGORY_DICTIONARY_VERSION =
   HISTORICAL_FEEDBACK_TAXONOMY_VERSION;
 export const AI_ORIGINAL_ASSESSMENT_V0_CASE_LIBRARY_VERSION =

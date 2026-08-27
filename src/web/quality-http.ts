@@ -239,9 +239,21 @@ function errorResponse(error: unknown): { status: number; body: Record<string, u
     return { status, body: { ok: false, error: error.message, code: error.code } };
   }
   if (error instanceof AiOriginalAssessmentV0RunError) {
+    console.error(JSON.stringify({
+      event: "quality_ai_assessment_failed",
+      code: error.code,
+      error: error.message.slice(0, 500),
+      validationIssues: error.validationIssues.slice(0, 10),
+    }));
     return {
       status: 502,
-      body: { ok: false, error: "AI研判失败，请人工处理" },
+      body: {
+        ok: false,
+        error: error.code === "MODEL_OUTPUT_INVALID"
+          ? "AI返回内容未通过校验，请重新点击一次；仍失败可先人工研判"
+          : "AI模型调用失败，请稍后重试或先人工研判",
+        code: error.code,
+      },
     };
   }
   const sourceDuplicate = message.match(/^source already reported:(.+)$/);
