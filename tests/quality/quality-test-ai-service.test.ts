@@ -211,6 +211,11 @@ describe("quality test AI service", () => {
   });
 
   it("runs both real model adapters only on click and keeps all output isolated", async () => {
+    const sourceDb = new DatabaseSync(dbPath);
+    sourceDb.prepare(`UPDATE quality_source_rows
+      SET source_version=2,state='UPDATED',version=2 WHERE source_key=?`)
+      .run("quality-test-source:QT-AI-001");
+    sourceDb.close();
     const service = createQualityTestAiService({
       dbPath,
       now: () => NOW,
@@ -271,6 +276,10 @@ describe("quality test AI service", () => {
       .get() as { status: string; version: number })).toEqual({ status: "PENDING_ANALYSIS", version: 2 });
     expect(JSON.stringify(initial.input.frozenReportingContext.aiOriginalAssessments))
       .toContain(original.aiAssessmentId);
+    expect(initial.input.frozenReportingContext.sourceSnapshots[0]).toMatchObject({
+      sourceVersion: 2,
+      sourceState: "UPDATED",
+    });
     expect(Number((db.prepare("SELECT COUNT(*) AS count FROM quality_event_reporting_snapshots")
       .get() as { count: number }).count)).toBe(0);
     db.close();

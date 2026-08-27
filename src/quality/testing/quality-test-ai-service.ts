@@ -99,15 +99,17 @@ export function createQualityTestAiService(deps?: {
   function testReportingContext(eventId: string): QualityAnalysisInput["frozenReportingContext"] {
     const links = db.prepare(`
       SELECT link.source_key,link.source_version,link.source_state_at_link,
-             link.source_snapshot_json,source.normalized_json,source.raw_snapshot_json
+             link.source_snapshot_json,source.normalized_json,source.raw_snapshot_json,
+             source.source_version AS current_source_version,
+             source.state AS current_source_state
       FROM quality_event_source_links link
       LEFT JOIN quality_source_rows source ON source.source_key=link.source_key
       WHERE link.event_id=? ORDER BY link.linked_at,link.id
     `).all(eventId) as DatabaseRow[];
     const sourceSnapshots = links.map((link) => ({
       sourceKey: String(link.source_key),
-      sourceVersion: Number(link.source_version),
-      sourceState: String(link.source_state_at_link),
+      sourceVersion: Number(link.current_source_version ?? link.source_version),
+      sourceState: String(link.current_source_state ?? link.source_state_at_link),
       rawSnapshot: parseObject(link.raw_snapshot_json ?? link.source_snapshot_json),
       normalizedSnapshot: parseObject(link.normalized_json ?? link.source_snapshot_json),
     }));
