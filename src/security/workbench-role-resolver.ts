@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { listWorkbenchManagerIds } from "./workbench-manager-whitelist";
+import { getAdminTestActor } from "../testing/admin-test-actors";
 
 export type WorkbenchRole = "admin" | "manager" | "employee";
 
@@ -37,6 +38,7 @@ export function isWorkbenchAdmin(userId: string): boolean {
 export function isAlsoWorkbenchManager(userId: string): boolean {
   const normalized = String(userId ?? "").trim();
   if (!normalized) return false;
+  if (getAdminTestActor(normalized)?.workbenchRole === "manager") return true;
   return listWorkbenchManagerIds().has(normalized);
 }
 
@@ -53,6 +55,8 @@ export function resolveWorkbenchRole(userId: string): WorkbenchRole {
   const normalized = String(userId ?? "").trim();
   if (!normalized) return "employee";
   if (isWorkbenchAdmin(normalized)) return "admin";
+  const testActor = getAdminTestActor(normalized);
+  if (testActor) return testActor.workbenchRole;
   if (listWorkbenchManagerIds().has(normalized)) return "manager";
   return "employee";
 }

@@ -1,4 +1,5 @@
 import { isExternalContact } from "../../infra/external-contact";
+import { isAdminTestActorUserId } from "../../testing/admin-test-actors";
 import { normalizePublicPageUrl, wrapUrlForDingtalkClient } from "../../view/workbench-chat-link";
 
 interface AccessTokenResp {
@@ -223,6 +224,25 @@ function envFlag(name: string, defaultValue: boolean): boolean {
 
 function isNotifyEnabled(): boolean {
   return envFlag("WORKBENCH_DINGTALK_NOTIFY_ENABLED", false);
+}
+
+function containsAdminTestActor(value: unknown): boolean {
+  if (typeof value === "string") return isAdminTestActorUserId(value);
+  if (Array.isArray(value)) return value.some((item) => containsAdminTestActor(item));
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>)
+      .some((item) => containsAdminTestActor(item));
+  }
+  return false;
+}
+
+function isolatedAdminTestNotifyResult(): WorkbenchNotifyResult {
+  return {
+    enabled: false,
+    skippedReason: "isolated administrator test system: DingTalk delivery suppressed",
+    success: [],
+    failed: [],
+  };
 }
 
 /** 员工 → 主管反向通知；默认开启，可单独关闭灰度。 */
@@ -658,6 +678,7 @@ export function createWorkbenchPublishNotifier(
 ): WorkbenchPublishNotifier {
   return {
     async notifyQualityAction(input: WorkbenchQualityActionNotifyInput): Promise<WorkbenchNotifyResult> {
+      if (containsAdminTestActor(input)) return isolatedAdminTestNotifyResult();
       const userId = String(input.recipientUserId ?? "").trim();
       if (!userId) return { enabled: false, skippedReason: "recipientUserId missing", success: [], failed: [] };
       if (isExternalContact(userId)) return { enabled: true, success: [], failed: [], skippedExternal: [{ userId }] };
@@ -687,6 +708,7 @@ export function createWorkbenchPublishNotifier(
     async notifyPublishedTask(
       input: WorkbenchPublishTaskNotifyInput,
     ): Promise<WorkbenchNotifyResult> {
+      if (containsAdminTestActor(input)) return isolatedAdminTestNotifyResult();
       if (!isNotifyEnabled()) {
         return {
           enabled: false,
@@ -799,6 +821,7 @@ export function createWorkbenchPublishNotifier(
     async notifyReassignedAssignee(
       input: WorkbenchReassignNotifyInput,
     ): Promise<WorkbenchNotifyResult> {
+      if (containsAdminTestActor(input)) return isolatedAdminTestNotifyResult();
       if (!isNotifyEnabled()) {
         return {
           enabled: false,
@@ -910,6 +933,7 @@ export function createWorkbenchPublishNotifier(
     async notifyTaskStopped(
       input: WorkbenchTaskStoppedNotifyInput,
     ): Promise<WorkbenchNotifyResult> {
+      if (containsAdminTestActor(input)) return isolatedAdminTestNotifyResult();
       if (!isNotifyEnabled()) {
         return {
           enabled: false,
@@ -1009,6 +1033,7 @@ export function createWorkbenchPublishNotifier(
     async notifyManagerOfEmployeeAction(
       input: WorkbenchManagerEmployeeActionNotifyInput,
     ): Promise<WorkbenchNotifyResult> {
+      if (containsAdminTestActor(input)) return isolatedAdminTestNotifyResult();
       if (!isNotifyEnabled()) {
         return {
           enabled: false,
@@ -1110,6 +1135,7 @@ export function createWorkbenchPublishNotifier(
     async notifyManagerSubtaskOverdue(
       input: WorkbenchManagerSubtaskOverdueNotifyInput,
     ): Promise<WorkbenchNotifyResult> {
+      if (containsAdminTestActor(input)) return isolatedAdminTestNotifyResult();
       if (!isNotifyEnabled()) {
         return {
           enabled: false,
@@ -1193,6 +1219,7 @@ export function createWorkbenchPublishNotifier(
     async notifyEmployeeOfManagerAction(
       input: WorkbenchEmployeeManagerActionNotifyInput,
     ): Promise<WorkbenchNotifyResult> {
+      if (containsAdminTestActor(input)) return isolatedAdminTestNotifyResult();
       if (!isNotifyEnabled()) {
         return {
           enabled: false,
@@ -1284,6 +1311,7 @@ export function createWorkbenchPublishNotifier(
     async notifySubtaskReminder(
       input: WorkbenchSubtaskReminderNotifyInput,
     ): Promise<WorkbenchNotifyResult> {
+      if (containsAdminTestActor(input)) return isolatedAdminTestNotifyResult();
       if (!isNotifyEnabled()) {
         return {
           enabled: false,
@@ -1417,6 +1445,7 @@ export function createWorkbenchPublishNotifier(
     async notifyProgressDigest(
       input: WorkbenchProgressDigestNotifyInput,
     ): Promise<WorkbenchNotifyResult> {
+      if (containsAdminTestActor(input)) return isolatedAdminTestNotifyResult();
       if (!isNotifyEnabled()) {
         return {
           enabled: false,
@@ -1501,6 +1530,12 @@ export function createWorkbenchPublishNotifier(
       todoId?: string;
       failedReason?: string;
     }> {
+      if (containsAdminTestActor(input)) {
+        return {
+          enabled: false,
+          skippedReason: "isolated administrator test system: DingTalk delivery suppressed",
+        };
+      }
       if (!isNotifyEnabled()) {
         return { enabled: false, skippedReason: "WORKBENCH_DINGTALK_NOTIFY_ENABLED is off" };
       }

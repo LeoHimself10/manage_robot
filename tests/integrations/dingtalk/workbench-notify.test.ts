@@ -98,6 +98,48 @@ describe("createWorkbenchPublishNotifier", () => {
     expect(result.skippedReason).toContain("WORKBENCH_DINGTALK_NOTIFY_ENABLED");
   });
 
+  it("never calls DingTalk for isolated administrator test identities", async () => {
+    process.env.WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED = "1";
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("network must not be called");
+    }) as unknown as typeof fetch;
+    const notifier = createWorkbenchPublishNotifier(fetchImpl);
+
+    const published = await notifier.notifyPublishedTask({
+      ...baseInput,
+      managerUserId: "QUALITY_TEST_MANAGER_001",
+      assignees: [{
+        userId: "QUALITY_TEST_EMPLOYEE_001",
+        unionId: "must-not-be-used",
+        subtaskTitles: ["隔离测试任务"],
+      }],
+    });
+    const managerAction = await notifier.notifyManagerOfEmployeeAction({
+      managerUserId: "QUALITY_TEST_MANAGER_001",
+      employeeUserId: "QUALITY_TEST_EMPLOYEE_001",
+      employeeDisplayName: "测试员工1",
+      taskNo: "QT-TEST-001",
+      taskTitle: "隔离测试任务",
+      subtaskId: "sub-1",
+      subtaskTitle: "执行测试",
+      kind: "done",
+    });
+    const todo = await notifier.notifyEmployeeTodoOnAccept({
+      taskNo: "QT-TEST-001",
+      taskTitle: "隔离测试任务",
+      subtaskId: "sub-1",
+      subtaskTitle: "执行测试",
+      assigneeUserId: "QUALITY_TEST_EMPLOYEE_001",
+      unionId: "must-not-be-used",
+    });
+
+    expect(published).toMatchObject({ enabled: false, success: [], failed: [] });
+    expect(managerAction).toMatchObject({ enabled: false, success: [], failed: [] });
+    expect(todo.enabled).toBe(false);
+    expect(published.skippedReason).toContain("isolated administrator test system");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("sends card + robot 1:1 message (no todo) when all channels succeed", async () => {
     const { fetch: fetchImpl, calls } = buildFetchMock([
       () => jsonRes({ accessToken: "tok-1" }),

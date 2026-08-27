@@ -72,6 +72,7 @@ import { notifyEmployeeTodoOnAcceptAfterUpdate } from "../integrations/dingtalk/
 import { createEmployeeProfileRepo } from "../integrations/repos/employee-profile-repo";
 import { createDingTalkContactSyncService } from "../infra/dingtalk-contact-sync";
 import { createPeopleDirectoryStore } from "../infra/people-directory-store";
+import { isAdminTestActorUserId } from "../testing/admin-test-actors";
 import {
   decorateWorkbenchHtmlForAdminImpersonation,
   listWorkbenchImpersonationTargets,
@@ -4041,7 +4042,9 @@ export function handleAssignmentHttp(
             startedAt: new Date().toISOString(),
           },
         });
-        const redirectTo = defaultPathForRole(next.role, next.userId);
+        const redirectTo = isAdminTestActorUserId(next.userId)
+          ? "/workbench/quality"
+          : defaultPathForRole(next.role, next.userId);
         logStructured({
           event: "workbench_admin_impersonation_started",
           actorUserId,

@@ -3,6 +3,7 @@ import {
   resolveWorkbenchRole,
   type WorkbenchRole,
 } from "./workbench-role-resolver";
+import { getAdminTestActor } from "../testing/admin-test-actors";
 
 export type QualityBusinessRole =
   | "aftersales_manager"
@@ -57,6 +58,9 @@ function readSpecialistReports(): Record<string, string[]> {
 function specialistUserIdsForReport(reportUserId: string): string[] {
   const normalized = reportUserId.trim();
   if (!normalized) return [];
+  if (getAdminTestActor(normalized)?.userId === "QUALITY_TEST_AFTERSALES_001") {
+    return ["QUALITY_TEST_SPECIALIST_001"];
+  }
   const configuredSpecialists = envUserIds("QUALITY_SPECIALIST_USER_IDS");
   const reports = readSpecialistReports();
   return Object.entries(reports)
@@ -71,6 +75,9 @@ export function listQualitySpecialistUserIds(): string[] {
   return [...new Set([
     ...envUserIds("QUALITY_MANAGEMENT_USER_IDS"),
     ...envUserIds("QUALITY_SPECIALIST_USER_IDS"),
+    ...(getAdminTestActor("QUALITY_TEST_SPECIALIST_001")
+      ? ["QUALITY_TEST_SPECIALIST_001"]
+      : []),
   ])]
     // A quality specialist is an employee overlay. Stale or mistaken manager /
     // admin entries must neither gain the capability nor receive business
@@ -108,6 +115,29 @@ export function resolveQualityCapabilities(userId: string): QualityCapabilities 
       isProjectManager: false,
       isQualitySpecialist: false,
       specialistUserIds: [],
+    };
+  }
+
+  const testActor = getAdminTestActor(normalized);
+  if (testActor) {
+    const isAftersales = testActor.userId === "QUALITY_TEST_AFTERSALES_001";
+    const isQualitySpecialist = testActor.userId === "QUALITY_TEST_SPECIALIST_001";
+    return {
+      baseRole,
+      roles: isAftersales
+        ? ["aftersales_manager"]
+        : isQualitySpecialist
+          ? ["quality_specialist"]
+          : [],
+      canAccessTracking: true,
+      canAccessOpinions: false,
+      canReportQuality: isAftersales,
+      canAnalyzeQuality: isQualitySpecialist,
+      isBusinessReadOnly: false,
+      hasQualityManagement: isQualitySpecialist,
+      isProjectManager: isAftersales,
+      isQualitySpecialist,
+      specialistUserIds: isAftersales ? ["QUALITY_TEST_SPECIALIST_001"] : [],
     };
   }
 

@@ -1992,6 +1992,60 @@ describe("assignment-workbench HTTP handler", () => {
       expect(qualityEmployees.targets?.map((item) => item.userId)).toEqual(["quality-employee-1"]);
     });
 
+    it("shows only the six isolated test identities to admins and enters their real sessions", async () => {
+      vi.stubEnv("WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED", "1");
+      const adminCookie = await loginCookie("admin-1", "admin");
+      const targetsReq = stubReq({
+        url: "/api/workbench/admin/impersonation-targets?kind=project_manager",
+        method: "GET",
+        headers: { cookie: adminCookie },
+      });
+      const targetsRes = stubRes();
+      handleAssignmentHttp(targetsReq, targetsRes.res);
+      expect(targetsRes.captured().statusCode).toBe(200);
+      const payload = JSON.parse(targetsRes.captured().body) as {
+        targets?: Array<{ userId: string; name: string }>;
+      };
+      expect(payload.targets?.map((item) => item.name)).toEqual([
+        "马荣鑫（测试）",
+        "佟成（测试）",
+        "测试员工1",
+        "测试员工2",
+        "测试员工3",
+        "测试主管",
+      ]);
+      expect(payload.targets?.map((item) => item.userId)).toEqual([
+        "QUALITY_TEST_AFTERSALES_001",
+        "QUALITY_TEST_SPECIALIST_001",
+        "QUALITY_TEST_EMPLOYEE_001",
+        "QUALITY_TEST_EMPLOYEE_002",
+        "QUALITY_TEST_EMPLOYEE_003",
+        "QUALITY_TEST_MANAGER_001",
+      ]);
+
+      for (const target of payload.targets ?? []) {
+        const entered = await enterDelegation(adminCookie, target.userId);
+        expect(entered.body).toMatchObject({
+          ok: true,
+          redirectTo: "/workbench/quality",
+        });
+        const meReq = stubReq({
+          url: "/api/workbench/me",
+          method: "GET",
+          headers: { cookie: entered.cookie },
+        });
+        const meRes = stubRes();
+        handleAssignmentHttp(meReq, meRes.res);
+        expect(JSON.parse(meRes.captured().body)).toMatchObject({
+          userId: target.userId,
+          impersonation: {
+            actorUserId: "admin-1",
+            targetUserId: target.userId,
+          },
+        });
+      }
+    });
+
     it("enters the selected project manager's complete workbench and can restore admin", async () => {
       const adminCookie = await loginCookie("admin-1", "admin");
       const entered = await enterDelegation(adminCookie, "project-manager-1");

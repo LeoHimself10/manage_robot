@@ -1,0 +1,15 @@
+FROM manage-robot:dingtalk-0bc0a78
+
+RUN mkdir -p /app/src/testing
+
+COPY src/testing/admin-test-actors.ts /app/src/testing/admin-test-actors.ts
+COPY src/web/workbench-admin-impersonation.ts /app/src/web/workbench-admin-impersonation.ts
+COPY src/security/workbench-role-resolver.ts /app/src/security/workbench-role-resolver.ts
+COPY src/integrations/dingtalk/workbench-notify.ts /app/src/integrations/dingtalk/workbench-notify.ts
+COPY scripts/seed-admin-test-actors.ts /app/scripts/seed-admin-test-actors.ts
+COPY scripts/docker-entrypoint-dingtalk.sh /app/scripts/docker-entrypoint-dingtalk.sh
+COPY scripts/patch-yesterday-admin-test-overlay.mjs /tmp/patch-yesterday-admin-test-overlay.mjs
+
+RUN node /tmp/patch-yesterday-admin-test-overlay.mjs \
+  && rm /tmp/patch-yesterday-admin-test-overlay.mjs \
+  && chmod +x /app/scripts/docker-entrypoint-dingtalk.sh
