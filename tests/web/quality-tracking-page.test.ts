@@ -343,8 +343,12 @@ describe("renderQualityTrackingPage", () => {
     expect(test).toContain("生成AI质量初析");
     expect(test).toContain("正在结合来源事实、AI原始研判和人工研判生成初析草案");
     expect(test).toContain("完成初析，进入主管选择");
-    expect(test).toContain("隔离测试只提供“测试主管”");
-    expect(test).toContain("details.open = view.scope === 'test'");
+    expect(test).toContain("本测试流程的唯一主责是“测试主管”");
+    expect(test).toContain("发送给测试主管承接");
+    expect(test).toContain("承接并进入任务规划");
+    expect(test).toContain("退回给佟成（测试）");
+    expect(test).toContain("window.location.assign(result.planningUrl)");
+    expect(test).not.toContain("window.prompt('请填写拒绝原因')");
     expect(test).toContain("当前可操作");
 
     const regular = renderQualityTrackingPage({

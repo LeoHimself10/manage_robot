@@ -218,6 +218,16 @@ export function createQualitySupervisorDirectory(deps?: {
     const query = String(input.query ?? "").trim().toLocaleLowerCase("zh-CN");
     const available = candidates(input.eventId, input.isTest)
       .filter((item) => !query || item.displayName.toLocaleLowerCase("zh-CN").includes(query));
+    if (input.isTest) {
+      return [{
+        departmentName: "测试主管",
+        supervisors: available.map(({ candidateRef: ref, displayName, departmentName }) => ({
+          candidateRef: ref,
+          displayName,
+          departmentName,
+        })),
+      }];
+    }
     return QUALITY_SUPERVISOR_DEPARTMENTS.map((departmentName) => ({
       departmentName,
       supervisors: available

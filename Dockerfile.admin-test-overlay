@@ -18,3 +18,11 @@ RUN node /tmp/patch-yesterday-admin-test-overlay.mjs \
   && rm /tmp/patch-yesterday-admin-test-overlay.mjs \
   && sed -i 's/\r$//' /app/scripts/docker-entrypoint-dingtalk.sh \
   && chmod +x /app/scripts/docker-entrypoint-dingtalk.sh
+
+# These files contain the final isolated quality-role flow after the deterministic
+# yesterday-source patch above. Copying the reviewed final sources keeps a later
+# overlay build identical to the source and tests in this worktree.
+COPY src/quality/assignments/quality-supervisor-directory.ts /app/src/quality/assignments/quality-supervisor-directory.ts
+COPY src/quality/testing/quality-test-analysis-service.ts /app/src/quality/testing/quality-test-analysis-service.ts
+COPY src/web/quality-http.ts /app/src/web/quality-http.ts
+COPY src/web/quality-tracking-page.ts /app/src/web/quality-tracking-page.ts

@@ -207,6 +207,7 @@ describe("quality supervisor directory", () => {
   it("returns one test supervisor with all three test employees underneath", () => {
     const directory = createQualitySupervisorDirectory({ contacts: [] });
     const groups = directory.listGroups({ eventId: "test-event", isTest: true });
+    expect(groups.map((item) => item.departmentName)).toEqual(["测试主管"]);
     const supervisors = groups.flatMap((item) => item.supervisors);
     expect(supervisors.map((item) => item.displayName)).toEqual(["测试主管"]);
     expect(supervisors.every((item) => item.candidateRef.startsWith("candidate:"))).toBe(true);
@@ -311,14 +312,14 @@ describe("quality perspective projector", () => {
     expect(aftersales.viewModel).toHaveProperty("assessment");
     expect(aftersales.viewModel).toMatchObject({
       allowedActions: ["update-aftersales"],
-      event: { attentionBucket: "PROGRESS", attentionLabel: "处理中" },
+      event: { attentionBucket: "PROGRESS", attentionLabel: "待主管承接" },
     });
     expect(JSON.parse(JSON.stringify(specialist.viewModel))).not.toHaveProperty("assessment");
     expect(JSON.parse(JSON.stringify(manager.viewModel))).not.toHaveProperty("assessment");
     expect((manager.viewModel.branch as Array<{ actionRef: string }>).map((item) => item.actionRef))
       .toEqual(["manager-one-node", "manager-one-child", "manager-one-child-three"]);
     expect(manager.viewModel).toMatchObject({
-      event: { attentionBucket: "TODO", attentionLabel: "待我处理" },
+      event: { attentionBucket: "TODO", attentionLabel: "待主管承接" },
     });
     expect(JSON.stringify(manager.viewModel)).not.toContain("RAW_INTERNAL_ACTION");
     expect(JSON.stringify(manager.viewModel)).toContain("业务记录已更新");

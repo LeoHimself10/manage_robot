@@ -3,6 +3,11 @@ import { DatabaseSync } from "node:sqlite";
 
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
 import {
+  conversationPlanSessionStore,
+  createSideThreadSession,
+  deleteSideThreadSession,
+} from "../../web/conversation-thread-resolver";
+import {
   QUALITY_ANALYSIS_KNOWLEDGE_VERSION,
   QUALITY_ANALYSIS_OUTPUT_SCHEMA_VERSION,
   QUALITY_ANALYSIS_RULE_VERSION,
@@ -15,6 +20,14 @@ import {
 } from "./quality-test-boundary";
 
 type DatabaseRow = Record<string, unknown>;
+
+export interface QualityTestPlanningHandoff {
+  handoffId: string;
+  threadId: string;
+  planId: string;
+  planningUrl: string;
+  created: boolean;
+}
 
 export interface CompleteQualityTestAnalysisInput {
   eventId: string;
@@ -46,6 +59,14 @@ function requiredText(value: string, label: string): string {
   const normalized = String(value ?? "").trim();
   if (!normalized) throw new Error(`${label}不能为空`);
   return normalized;
+}
+
+function parseJson<T>(value: unknown, fallback: T): T {
+  try {
+    return JSON.parse(String(value ?? "")) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 export function createQualityTestAnalysisService(deps?: {
@@ -205,5 +226,219 @@ export function createQualityTestAnalysisService(deps?: {
     };
   }
 
-  return { complete, close: () => db.close() };
+  function preparePlanningHandoff(input: {
+    eventId: string;
+    testManagerUserId: string;
+  }): QualityTestPlanningHandoff {
+    if (input.testManagerUserId !== "QUALITY_TEST_MANAGER_001") {
+      throw new Error("只有测试主管可以承接测试质量任务");
+    }
+    const boundary = readQualityEventBoundary(db, input.eventId);
+    assertQualityActorBoundary({ event: boundary, actorUserId: input.testManagerUserId });
+    if (!boundary.isTest) throw new Error("真实质量事件不能使用测试规划会话");
+
+    const event = db.prepare("SELECT * FROM quality_events WHERE id=? AND deleted_at IS NULL")
+      .get(input.eventId) as DatabaseRow | undefined;
+    if (!event) throw new Error("质量事件不存在");
+    const managerNode = db.prepare(`
+      SELECT * FROM quality_assignment_nodes
+      WHERE event_id=? AND parent_node_id IS NULL AND assignee_user_id=?
+        AND status IN ('PENDING_ACCEPTANCE','IN_PROGRESS')
+      ORDER BY created_at DESC LIMIT 1
+    `).get(input.eventId, input.testManagerUserId) as DatabaseRow | undefined;
+    if (!managerNode) throw new Error("测试主管承接记录不存在");
+    const analysis = db.prepare(`
+      SELECT * FROM quality_analysis_versions
+      WHERE event_id=? ORDER BY analysis_version DESC LIMIT 1
+    `).get(input.eventId) as DatabaseRow | undefined;
+    if (!analysis) throw new Error("质量初析尚未完成");
+
+    const analysisVersion = Number(analysis.analysis_version);
+    const existing = db.prepare(`
+      SELECT * FROM quality_analysis_handoffs WHERE event_id=? AND analysis_version=?
+    `).get(input.eventId, analysisVersion) as DatabaseRow | undefined;
+    if (existing) {
+      const threadId = String(existing.thread_id);
+      return {
+        handoffId: String(existing.handoff_id),
+        threadId,
+        planId: String(existing.plan_id),
+        planningUrl: `/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(threadId)}`,
+        created: false,
+      };
+    }
+
+    const content = parseJson<Record<string, unknown>>(analysis.content_json, {});
+    const rawDeliverables = parseJson<Array<Record<string, unknown>>>(analysis.deliverables_json, []);
+    const dueAt = String(managerNode.due_at ?? analysis.suggested_total_due_at ?? event.overall_due_at ?? "");
+    const handlingRequirements = [
+      ...(Array.isArray(content.handlingRequirements)
+        ? content.handlingRequirements.map((item) => String(item ?? "").trim())
+        : []),
+      String(managerNode.requirement ?? "").trim(),
+    ].filter((item, index, all) => item && all.indexOf(item) === index);
+    const deliverables = rawDeliverables
+      .filter((item) => item.selected !== false)
+      .map((item, index) => ({
+        deliverableId: String(item.deliverableId ?? `quality-test-deliverable:${input.eventId}:${analysisVersion}:${index + 1}`),
+        name: String(item.name ?? `必须成果 ${index + 1}`).trim() || `必须成果 ${index + 1}`,
+        description: String(item.description ?? managerNode.requirement ?? "按质量初析完成并提交成果").trim(),
+        acceptanceCriteria: String(item.acceptanceCriteria ?? "满足质量初析与主管验收要求").trim(),
+      }));
+    if (!deliverables.length) {
+      deliverables.push({
+        deliverableId: `quality-test-deliverable:${input.eventId}:${analysisVersion}:1`,
+        name: "质量事件处理与验证记录",
+        description: String(managerNode.requirement ?? "完成质量事件处理并形成验证记录"),
+        acceptanceCriteria: "包含处理过程、结论、证据和验证结果",
+      });
+    }
+
+    const eventNo = String(event.event_no);
+    const eventTitle = String(event.title);
+    const taskPackage = {
+      schemaVersion: "quality-task-package-v1",
+      qualityEventId: input.eventId,
+      eventNo,
+      eventTitle,
+      publicFactSummary: content.sourceFactSummary ?? [],
+      confirmedCategory: content.confirmedCategoryReference ?? event.initial_category ?? "待确认",
+      formalQualityAnalysis: content,
+      problemDirection: content.problemDirection ?? "待确认",
+      analysisBasis: content.analysisBasis ?? [],
+      preliminaryConclusion: content.preliminaryConclusion ?? "待确认",
+      informationGaps: content.informationGaps ?? [],
+      primaryDepartment: {
+        departmentId: "QUALITY_TEST_DEPT_RND",
+        departmentName: "研发中心（测试）",
+      },
+      handlingRequirements,
+      requiredDeliverables: deliverables,
+      suggestedTotalDueAt: dueAt,
+      attachments: [],
+      analysisVersion,
+      firstResponsibleManager: { userId: input.testManagerUserId, name: "测试主管" },
+      testIsolation: true,
+    };
+    const side = createSideThreadSession(input.testManagerUserId);
+    const threadId = String(side.threadId ?? "").trim();
+    if (!threadId) throw new Error("测试任务规划会话创建失败");
+    const integrationKey = `quality-analysis:${input.eventId}:v${analysisVersion}`;
+    const bullets = (value: unknown, empty = "无"): string => {
+      const values = Array.isArray(value) ? value : [value];
+      const items = values.map((item) => String(item ?? "").trim()).filter(Boolean);
+      return items.length ? items.map((item) => `- ${item}`).join("\n") : `- ${empty}`;
+    };
+    const description = [
+      `# 质量事件任务草稿｜${eventNo}`,
+      "",
+      `**事件标题：** ${eventTitle}`,
+      "**接收主管：** 测试主管",
+      `**建议总期限：** ${dueAt}`,
+      "",
+      "## 来源事实摘要",
+      bullets(taskPackage.publicFactSummary, "尚未提供"),
+      "",
+      "## 质量初析",
+      `- 问题方向：${String(taskPackage.problemDirection)}`,
+      `- 人工确认分类：${String(taskPackage.confirmedCategory)}`,
+      `- 初步结论：${String(taskPackage.preliminaryConclusion)}`,
+      "",
+      "## 分析依据",
+      bullets(taskPackage.analysisBasis, "尚未提供"),
+      "",
+      "## 处理要求",
+      bullets(handlingRequirements, "尚未提供"),
+      "",
+      "## 主管下一步",
+      "请在原智能规划助手中完善任务步骤、负责人、交付物、验收标准、截止和前后依赖；确认前不会自动发放。",
+    ].join("\n");
+    const staged = {
+      ...side,
+      threadLabel: `质量事件 ${eventNo}`.slice(0, 40),
+      latestDraft: {
+        title: `${eventNo} ${eventTitle}`.slice(0, 200),
+        description,
+        summary: description,
+        tasks: deliverables.map((deliverable, index) => ({
+          id: `task_${index + 1}`,
+          title: deliverable.name,
+          objective: deliverable.description,
+          deliverables: [deliverable.name],
+          completionCriteria: [deliverable.acceptanceCriteria],
+          timeNode: { dueAt },
+          qualityDeliverableIds: [deliverable.deliverableId],
+          qualityEventId: input.eventId,
+        })),
+        qualityTaskPackage: taskPackage,
+        qualityHandoff: {
+          integrationKey,
+          qualityEventId: input.eventId,
+          analysisVersion,
+          requiredDeliverableIds: deliverables.map((item) => item.deliverableId),
+        },
+      },
+      conversationHistory: [{
+        role: "assistant",
+        content: `已接收质量事件 ${eventNo}。质量背景、初析、处理要求、必须成果和期限已写入待确认草案；当前尚未发放任务。`,
+        displayContent: [
+          `## 已接收质量事件 ${eventNo}`,
+          "",
+          `- 事件：${eventTitle}`,
+          "- 接收主管：测试主管",
+          `- 建议总期限：${dueAt}`,
+          `- 必须成果：${deliverables.map((item) => item.name).join("、")}`,
+          "",
+          "质量背景、质量初析和处理要求已写入待确认草案。你可以直接编辑草案，或点击“让机器人完善任务规划”；系统不会自动发放。",
+        ].join("\n"),
+        at: now(),
+      }],
+      knownFacts: [
+        `qualityEventId:${input.eventId}`,
+        `qualityAnalysisVersion:${analysisVersion}`,
+        `qualityIntegrationKey:${integrationKey}`,
+      ],
+    };
+    conversationPlanSessionStore.save(staged);
+
+    const handoffId = id();
+    try {
+      db.prepare(`INSERT INTO quality_analysis_handoffs(
+        handoff_id,event_id,analysis_version,integration_key,primary_department_id,
+        primary_department_name,primary_manager_user_id,task_package_json,plan_id,
+        thread_id,status,created_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,'PENDING_PLANNING',?)`).run(
+        handoffId,
+        input.eventId,
+        analysisVersion,
+        integrationKey,
+        "QUALITY_TEST_DEPT_RND",
+        "研发中心（测试）",
+        input.testManagerUserId,
+        JSON.stringify(taskPackage),
+        side.planId,
+        threadId,
+        now(),
+      );
+    } catch (error) {
+      deleteSideThreadSession(input.testManagerUserId, threadId);
+      throw error;
+    }
+    return {
+      handoffId,
+      threadId,
+      planId: side.planId,
+      planningUrl: `/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(threadId)}`,
+      created: true,
+    };
+  }
+
+  function discardPlanningHandoff(input: QualityTestPlanningHandoff & { testManagerUserId: string }): void {
+    if (!input.created) return;
+    db.prepare("DELETE FROM quality_analysis_handoffs WHERE handoff_id=? AND status='PENDING_PLANNING'")
+      .run(input.handoffId);
+    deleteSideThreadSession(input.testManagerUserId, input.threadId);
+  }
+
+  return { complete, preparePlanningHandoff, discardPlanningHandoff, close: () => db.close() };
 }

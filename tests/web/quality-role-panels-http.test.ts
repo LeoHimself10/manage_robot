@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -88,6 +88,8 @@ describe("quality role-panel HTTP APIs", () => {
     vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "aftersales-real");
     vi.stubEnv("QUALITY_EVENT_ROLE_PANELS_ENABLED", "1");
     vi.stubEnv("QUALITY_TEST_ACTORS_ENABLED", "1");
+    vi.stubEnv("WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED", "1");
+    vi.stubEnv("PLAN_SESSION_DIR", join(tempDir, "sessions"));
     const store = createQualityStore(dbPath, { now: () => NOW });
     store.createDraft({
       eventId: "real-event",
@@ -364,15 +366,22 @@ describe("quality role-panel HTTP APIs", () => {
     expect(JSON.stringify(specialist.payload)).not.toContain("PENDING_ASSIGNMENT");
   });
 
-  it("returns seven safe department groups and rejects array/made-up supervisor input", async () => {
+  it("returns only the fixed test supervisor while keeping the real seven-department directory unchanged", async () => {
     const options = await call(
       "/api/workbench/quality/events/test-event/supervisor-options?testActor=quality-management",
     );
     expect(options.status).toBe(200);
-    expect(options.payload.data.departments).toHaveLength(7);
+    expect(options.payload.data.departments).toHaveLength(1);
+    expect(options.payload.data.departments[0].departmentName).toBe("测试主管");
     expect(options.payload.data.departments.flatMap((item: any) => item.supervisors)
       .map((item: any) => item.displayName)).toEqual(["测试主管"]);
     expect(JSON.stringify(options.payload)).not.toContain("QUALITY_TEST_MANAGER_001");
+
+    const realOptions = await call(
+      "/api/workbench/quality/events/real-event/supervisor-options?perspective=quality_management",
+    );
+    expect(realOptions.status).toBe(200);
+    expect(realOptions.payload.data.departments).toHaveLength(7);
 
     const multiple = await call(
       "/api/workbench/quality/events/test-event/assign-supervisor?testActor=quality-management",
@@ -442,6 +451,7 @@ describe("quality role-panel HTTP APIs", () => {
       },
     );
     expect(rejected.status).toBe(200);
+    expect(rejected.payload.data).not.toHaveProperty("planningUrl");
     expect(rejected.payload.data.viewModel.event.statusLabel).toBe("待任务分配");
     expect(JSON.stringify(rejected.payload)).not.toContain("PENDING_ASSIGNMENT");
 
@@ -451,11 +461,17 @@ describe("quality role-panel HTTP APIs", () => {
     const testAudits = Number((db.prepare("SELECT COUNT(*) AS count FROM quality_test_action_audit WHERE event_id='test-event' AND actual_admin_user_id='admin-1'")
       .get() as { count: number }).count);
     const links = Number((db.prepare("SELECT COUNT(*) AS count FROM quality_task_links").get() as { count: number }).count);
+    const returnedTo = (db.prepare(`
+      SELECT recipient_user_id FROM quality_notification_outbox
+      WHERE event_id='test-event' AND recipient_user_id='QUALITY_TEST_SPECIALIST_001'
+      ORDER BY created_at DESC LIMIT 1
+    `).get() as { recipient_user_id?: string } | undefined)?.recipient_user_id;
     db.close();
     expect(event.status).toBe("PENDING_ASSIGNMENT");
     expect(rejectedNode.status).toBe("REJECTED");
     expect(testAudits).toBe(2);
     expect(links).toBe(0);
+    expect(returnedTo).toBe("QUALITY_TEST_SPECIALIST_001");
   });
 
   it("offers only same-department test employees and delegates without creating formal tasks", async () => {
@@ -488,6 +504,25 @@ describe("quality role-panel HTTP APIs", () => {
       },
     );
     expect(accepted.status).toBe(200);
+    expect(accepted.payload.data.planningUrl).toMatch(
+      /^\/workbench\/manager\/chat\?thread=side&threadId=.+$/,
+    );
+
+    const planningFiles = readdirSync(join(tempDir, "sessions"));
+    expect(planningFiles).toHaveLength(1);
+    const planningSession = JSON.parse(readFileSync(join(tempDir, "sessions", planningFiles[0]!), "utf8")) as {
+      senderStaffId?: string;
+      threadKind?: string;
+      latestDraft?: { qualityHandoff?: { qualityEventId?: string }; tasks?: unknown[] };
+      conversationHistory?: Array<{ role?: string; content?: string }>;
+    };
+    expect(planningSession).toMatchObject({
+      senderStaffId: "QUALITY_TEST_MANAGER_001",
+      threadKind: "side",
+      latestDraft: { qualityHandoff: { qualityEventId: "test-event" } },
+    });
+    expect(planningSession.latestDraft?.tasks).toHaveLength(1);
+    expect(planningSession.conversationHistory?.map((item) => item.role)).toEqual(["assistant"]);
 
     const employees = await call(
       "/api/workbench/quality/events/test-event/test-employee-options?testActor=manager-1",
@@ -518,6 +553,12 @@ describe("quality role-panel HTTP APIs", () => {
     expect(employee.payload.data.viewModel.allowedActions).toEqual(["accept", "reject"]);
 
     const db = new DatabaseSync(dbPath);
+    const handoffs = Number((db.prepare("SELECT COUNT(*) AS count FROM quality_analysis_handoffs WHERE event_id='test-event'")
+      .get() as { count: number }).count);
+    const formalTasksTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'").get();
+    const formalTasks = formalTasksTable
+      ? Number((db.prepare("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count)
+      : 0;
     const links = Number((db.prepare("SELECT COUNT(*) AS count FROM quality_task_links").get() as { count: number }).count);
     const taskTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'").get();
     const tasks = taskTable
@@ -528,6 +569,7 @@ describe("quality role-panel HTTP APIs", () => {
       WHERE event_id='test-event' AND (channel<>'TEST' OR recipient_user_id NOT LIKE 'QUALITY_TEST_%')
     `).get() as { count: number }).count);
     db.close();
+    expect({ handoffs, formalTasks }).toEqual({ handoffs: 1, formalTasks: 0 });
     expect({ links, tasks, unsafe }).toEqual({ links: 0, tasks: 0, unsafe: 0 });
   });
 });

@@ -1296,6 +1296,7 @@ async function handleQualityApi(input: {
         throw new Error("quality action forbidden");
       }
       const branch = viewModel.branch ?? [];
+      let planningUrl: string | undefined;
       const actorNode = branch.find((node) =>
         projected.context.perspective === "manager"
           ? node.assigneeTypeLabel === "主管"
@@ -1304,6 +1305,7 @@ async function handleQualityApi(input: {
       if (!actorNode) throw new Error("记录不存在或无权访问");
       if (action === "accept" || action === "reject") {
         const service = createQualityAssignmentService();
+        const planning = action === "accept" ? createQualityTestAnalysisService() : null;
         try {
           const common = {
             nodeId: actorNode.actionRef,
@@ -1312,13 +1314,30 @@ async function handleQualityApi(input: {
             expectedVersion: z.number().int().positive().parse(body.expectedVersion),
             requestId: requestId(body.requestId),
           };
-          if (action === "accept") await service.acceptNode(common);
-          else await service.rejectNode({
-            ...common,
-            reason: z.string().trim().min(1).max(1000).parse(body.reason),
-          });
+          if (action === "accept") {
+            const handoff = planning!.preparePlanningHandoff({
+              eventId,
+              testManagerUserId: projected.context.actorUserId,
+            });
+            try {
+              await service.acceptNode(common);
+              planningUrl = handoff.planningUrl;
+            } catch (error) {
+              planning!.discardPlanningHandoff({
+                ...handoff,
+                testManagerUserId: projected.context.actorUserId,
+              });
+              throw error;
+            }
+          } else {
+            await service.rejectNode({
+              ...common,
+              reason: z.string().trim().min(1).max(1000).parse(body.reason),
+            });
+          }
         } finally {
           service.close();
+          planning?.close();
         }
       } else if (action === "delegate") {
         if (projected.context.perspective !== "manager") throw new Error("quality action forbidden");
@@ -1417,7 +1436,13 @@ async function handleQualityApi(input: {
         }
       }
       const updated = projectedDetail(eventId, url, session);
-      writeJson(res, 200, { ok: true, data: { viewModel: updated?.viewModel } });
+      writeJson(res, 200, {
+        ok: true,
+        data: {
+          viewModel: updated?.viewModel,
+          ...(planningUrl ? { planningUrl } : {}),
+        },
+      });
       return;
     }
 
