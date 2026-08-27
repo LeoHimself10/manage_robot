@@ -173,6 +173,7 @@ describe("quality supervisor directory", () => {
     const directory = createQualitySupervisorDirectory({
       contacts: [
         contact({ userId: "leader-1", name: "确认主管", rawJson: { dept_order_list: [{ dept_id: "dept-rd", leader: true }] } }),
+        contact({ userId: "leader-top-level", name: "顶层标记主管", rawJson: { leader: true } }),
         contact({ userId: "title-only", name: "职位经理", position: "研发总监" }),
         contact({ userId: "014517256544", name: "姓名已变化", rawJson: { leader_in_dept: "[\"dept-rd\"]" } }),
         contact({ userId: "inactive", name: "停用主管", active: false, rawJson: { leader_in_dept: ["dept-rd"] } }),
@@ -185,7 +186,7 @@ describe("quality supervisor directory", () => {
     const groups = directory.listGroups({ eventId: "event-1", isTest: false });
     const research = groups.find((item) => item.departmentName === "研发中心")!;
     expect(groups.map((item) => item.departmentName)).toEqual(QUALITY_SUPERVISOR_DEPARTMENTS);
-    expect(research.supervisors.map((item) => item.displayName)).toEqual(["确认主管"]);
+    expect(research.supervisors.map((item) => item.displayName)).toEqual(["顶层标记主管", "确认主管"]);
     expect(JSON.stringify(groups)).not.toContain("leader-1");
     expect(() => directory.assertDepartmentEmployee({
       eventIsTest: false,

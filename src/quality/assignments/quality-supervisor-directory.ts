@@ -128,6 +128,10 @@ function truthy(value: unknown): boolean {
 
 function contactLeadsDepartment(contact: DingTalkContactRow, route: DepartmentRoute): boolean {
   const raw = contact.rawJson ?? {};
+  // The current DingTalk contact snapshot exposes the confirmed supervisor
+  // marker as a top-level `leader` flag. Department-scoped variants are kept
+  // below for payloads that provide the more precise mapping.
+  if (truthy(raw.leader)) return true;
   const matchingDepartmentIds = new Set(route.departmentIds);
   contact.departmentNames.forEach((name, index) => {
     if (route.departmentNames.includes(name) && contact.departmentIds[index]) {
