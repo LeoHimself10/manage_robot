@@ -27,6 +27,10 @@ describe("quality role panels page", () => {
     expect(main).not.toContain("用户编号");
     expect(main).not.toContain("原始 JSON");
     expect(main).not.toContain("PENDING_ASSIGNMENT");
+    expect(html).toContain(".qt-dialog-actions[hidden] { display: none; }");
+    expect(html).toContain("actions.hidden=view.readonly||view.perspective!=='manager'");
+    expect(html.indexOf("actions.hidden=view.readonly||view.perspective!=='manager'"))
+      .toBeLessThan(html.indexOf("if(!view.branch.length)"));
   });
 
   it("does not expose admin/test switches to a real business user", () => {

@@ -61,6 +61,7 @@ body { overflow-x: hidden; }
 .qt-group-title { padding-bottom: 7px; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
 .qt-detail { display: grid; gap: 14px; margin-top: 18px; padding-top: 18px; border-top: 1px solid #e2e8f0; }
 .qt-detail[hidden] { display: none; }
+.qt-dialog-actions[hidden] { display: none; }
 .qt-grid > .qt-detail { margin-top: 0; padding-top: 18px; }
 .qt-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; position: sticky; top: -20px; z-index: 2; padding: 10px 0; background: #fff; }
 .qt-detail-section { min-width: 0; border: 1px solid #e2e8f0; border-radius: 12px; padding: 13px; }
