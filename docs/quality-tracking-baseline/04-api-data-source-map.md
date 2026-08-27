@@ -358,6 +358,7 @@ V2 下 `assign-primary` 和 `due` 被服务端拒绝。人员、执行人和期�
 - `src/web/quality-http.ts`：页面/API路由、请求校验和权限入口。
 - `src/web/quality-review-page.ts`：反馈研判 HTML 和交互。
 - `src/web/quality-tracking-page.ts`：质量主工作台 HTML 和交互。
+- `src/web/manager-workbench-pages.ts`：质量专用侧会话只在人工点击时复用 `POST /api/workbench/conversation/send` 请求机器人完善待确认草案；不新增发布 API。
 - `src/web/quality-opinions-page.ts`：私密意见 HTML 和交互。
 
 ## 11. 测试入口
@@ -370,6 +371,7 @@ V2 下 `assign-primary` 和 `due` 被服务端拒绝。人员、执行人和期�
 - `tests/web/quality-review-page.test.ts`：研判页面结构和关键交互文本。
 - `tests/web/quality-review-http.test.ts`：研判页面/API权限和HTTP行为。
 - `tests/web/quality-tracking-page.test.ts`：质量主页面结构。
+- `tests/web/quality-planning-chat-enhance.test.ts`：质量侧会话入口范围、复用既有发送、忙碌防重和不自动发放文案。
 - 其他 `tests/web/quality-*.test.ts`：质量 HTTP 与页面集成。
 
 建议验证顺序：目标测试 → 全部质量测试 → `npm run typecheck` → `npm run lint:inline-pages`。Vitest 环境默认禁止真实网络来源同步。

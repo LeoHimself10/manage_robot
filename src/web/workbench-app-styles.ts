@@ -1054,10 +1054,28 @@ body.chat-overlay-lock { overflow: hidden; }
 .quality-source-context__item > span { display: block; margin-bottom: 4px; color: #475569; font-size: 12px; font-weight: 700; }
 .quality-source-context__item p { margin: 0; max-height: 6.6em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; }
 .quality-source-context__meta { grid-column: 1 / -1; color: #64748b; font-size: 12px; line-height: 1.6; }
+.quality-source-context__planning {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid #93c5fd;
+  border-radius: 10px;
+  background: #eff6ff;
+}
+.quality-source-context__planning[hidden] { display: none; }
+.quality-source-context__planning div { min-width: 0; }
+.quality-source-context__planning strong { display: block; color: #1e3a8a; font-size: 14px; }
+.quality-source-context__planning span { display: block; margin-top: 3px; color: #475569; font-size: 12px; line-height: 1.55; }
+.quality-source-context__planning .btn { min-height: 40px; flex: 0 0 auto; }
 @media (max-width: 860px) {
   .quality-source-context { margin: 8px 10px 0; }
   .quality-source-context__body { grid-template-columns: 1fr; }
   .quality-source-context__item--wide,.quality-source-context__meta { grid-column: 1; }
+  .quality-source-context__planning { grid-column: 1; align-items: stretch; flex-direction: column; }
+  .quality-source-context__planning .btn { width: 100%; }
 }
 .wb-confirm-bar {
   margin-top: 12px;
