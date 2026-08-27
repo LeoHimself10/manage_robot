@@ -12,4 +12,5 @@ COPY scripts/patch-yesterday-admin-test-overlay.mjs /tmp/patch-yesterday-admin-t
 
 RUN node /tmp/patch-yesterday-admin-test-overlay.mjs \
   && rm /tmp/patch-yesterday-admin-test-overlay.mjs \
+  && sed -i 's/\r$//' /app/scripts/docker-entrypoint-dingtalk.sh \
   && chmod +x /app/scripts/docker-entrypoint-dingtalk.sh
