@@ -8,7 +8,6 @@ COPY src/quality/presentation/quality-role-metrics.ts /app/src/quality/presentat
 COPY src/quality/presentation/quality-display-labels.ts /app/src/quality/presentation/quality-display-labels.ts
 COPY src/web/workbench-admin-impersonation.ts /app/src/web/workbench-admin-impersonation.ts
 COPY src/security/workbench-role-resolver.ts /app/src/security/workbench-role-resolver.ts
-COPY src/security/quality-capabilities.ts /app/src/security/quality-capabilities.ts
 COPY src/integrations/dingtalk/workbench-notify.ts /app/src/integrations/dingtalk/workbench-notify.ts
 COPY scripts/seed-admin-test-actors.ts /app/scripts/seed-admin-test-actors.ts
 COPY scripts/seed-admin-test-quality-data.ts /app/scripts/seed-admin-test-quality-data.ts
@@ -23,6 +22,7 @@ RUN node /tmp/patch-yesterday-admin-test-overlay.mjs \
 # These files contain the final isolated quality-role flow after the deterministic
 # yesterday-source patch above. Copying the reviewed final sources keeps a later
 # overlay build identical to the source and tests in this worktree.
+COPY src/security/quality-capabilities.ts /app/src/security/quality-capabilities.ts
 COPY src/quality/assignments/quality-supervisor-directory.ts /app/src/quality/assignments/quality-supervisor-directory.ts
 COPY src/quality/presentation/quality-event-perspective.ts /app/src/quality/presentation/quality-event-perspective.ts
 COPY src/quality/testing/quality-feature-flags.ts /app/src/quality/testing/quality-feature-flags.ts
