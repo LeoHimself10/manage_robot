@@ -309,10 +309,17 @@ describe("quality perspective projector", () => {
       eventId: "test-event",
     })!;
     expect(aftersales.viewModel).toHaveProperty("assessment");
+    expect(aftersales.viewModel).toMatchObject({
+      allowedActions: ["update-aftersales"],
+      event: { attentionBucket: "PROGRESS", attentionLabel: "处理中" },
+    });
     expect(JSON.parse(JSON.stringify(specialist.viewModel))).not.toHaveProperty("assessment");
     expect(JSON.parse(JSON.stringify(manager.viewModel))).not.toHaveProperty("assessment");
     expect((manager.viewModel.branch as Array<{ actionRef: string }>).map((item) => item.actionRef))
       .toEqual(["manager-one-node", "manager-one-child", "manager-one-child-three"]);
+    expect(manager.viewModel).toMatchObject({
+      event: { attentionBucket: "TODO", attentionLabel: "待我处理" },
+    });
     expect(JSON.stringify(manager.viewModel)).not.toContain("RAW_INTERNAL_ACTION");
     expect(JSON.stringify(manager.viewModel)).toContain("业务记录已更新");
     expect((employee.viewModel.branch as Array<{ actionRef: string }>).map((item) => item.actionRef))

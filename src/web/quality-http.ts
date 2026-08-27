@@ -68,6 +68,10 @@ import {
   isQualityTestActorsEnabled,
 } from "../quality/testing/quality-feature-flags";
 import { resolveQualityTestActor } from "../quality/testing/quality-test-actors";
+import { createQualityTestAnalysisService } from
+  "../quality/testing/quality-test-analysis-service";
+import { createQualityTestAftersalesService } from
+  "../quality/testing/quality-test-aftersales-service";
 import { qualityStatusLabel } from "../quality/presentation/quality-display-labels";
 
 export interface QualityHttpSession {
@@ -917,9 +921,11 @@ async function handleQualityApi(input: {
           const query = (url.searchParams.get("q") ?? "").trim().toLocaleLowerCase("zh-CN");
           const requestedStatus = url.searchParams.get("status")?.trim().toUpperCase();
           const requestedStatusLabel = requestedStatus ? qualityStatusLabel(requestedStatus) : "";
+          const requestedBucket = url.searchParams.get("bucket")?.trim().toUpperCase();
           const requestedRisk = url.searchParams.get("riskLevel")?.trim().toUpperCase();
           const events = projected.events.filter((event) => {
             if (requestedStatusLabel && event.statusLabel !== requestedStatusLabel) return false;
+            if (requestedBucket && event.attentionBucket !== requestedBucket) return false;
             if (requestedRisk) {
               const expected = requestedRisk === "HIGH" ? "高"
                 : requestedRisk === "MEDIUM" ? "中"
@@ -1099,12 +1105,13 @@ async function handleQualityApi(input: {
     if (req.method === "POST" && testAction && projectionRequested) {
       const eventId = decodeURIComponent(testAction[1]!);
       const projected = projectedDetail(eventId, url, session);
-      if (!projected || projected.context.scope !== "test" || projected.context.readonly
-        || !["manager", "employee"].includes(projected.context.perspective)) {
+      if (!projected || projected.context.scope !== "test" || projected.context.readonly) {
         throw new Error("quality action forbidden");
       }
       const body = await readJsonBody(req);
       const action = z.enum([
+        "update-aftersales",
+        "complete-analysis",
         "accept", "reject", "delegate", "add-evidence", "submit-completion",
         "review-child", "primary-review",
       ]).parse(body.action);
@@ -1120,6 +1127,69 @@ async function handleQualityApi(input: {
       const allowed = new Set(viewModel.allowedActions ?? []);
       const requiredPermission = action === "add-evidence" ? "upload-evidence" : action;
       if (!allowed.has(requiredPermission)) throw new Error("quality action forbidden");
+      if (action === "update-aftersales") {
+        if (projected.context.perspective !== "aftersales") {
+          throw new Error("quality action forbidden");
+        }
+        const service = createQualityTestAftersalesService();
+        try {
+          service.update({
+            eventId,
+            testAftersalesUserId: projected.context.actorUserId,
+            actualAdminUserId: session.userId,
+            expectedVersion: z.number().int().positive().parse(body.expectedVersion),
+            requestId: requestId(body.requestId),
+            problemStatus: z.string().trim().min(1).max(10000).parse(body.problemStatus),
+            initialCategory: z.string().trim().min(1).max(200).parse(body.initialCategory),
+            urgency: z.enum(["LOW", "MEDIUM", "HIGH"]).parse(body.urgency),
+            supplement: body.supplement == null
+              ? ""
+              : z.string().trim().max(10000).parse(body.supplement),
+            reason: z.string().trim().min(1).max(1000).parse(body.reason),
+          });
+        } finally {
+          service.close();
+        }
+        const updated = projectedDetail(eventId, url, session);
+        writeJson(res, 200, { ok: true, data: { viewModel: updated?.viewModel } });
+        return;
+      }
+      if (action === "complete-analysis") {
+        if (projected.context.perspective !== "quality_management") {
+          throw new Error("quality action forbidden");
+        }
+        const service = createQualityTestAnalysisService();
+        try {
+          service.complete({
+            eventId,
+            testSpecialistUserId: projected.context.actorUserId,
+            actualAdminUserId: session.userId,
+            expectedVersion: z.number().int().positive().parse(body.expectedVersion),
+            requestId: requestId(body.requestId),
+            problemDirection: z.string().trim().min(1).max(5000).parse(body.problemDirection),
+            confirmedCategory: z.string().trim().min(1).max(1000).parse(body.confirmedCategory),
+            sourceFactSummary: z.string().trim().min(1).max(10000).parse(body.sourceFactSummary),
+            analysisBasis: z.string().trim().min(1).max(10000).parse(body.analysisBasis),
+            preliminaryConclusion: z.string().trim().min(1).max(10000).parse(body.preliminaryConclusion),
+            informationGaps: body.informationGaps == null
+              ? undefined
+              : z.string().trim().max(5000).parse(body.informationGaps),
+            handlingRequirements: z.string().trim().min(1).max(10000).parse(body.handlingRequirements),
+            suggestedDueAt: z.string().trim().min(1).max(64).parse(body.suggestedDueAt),
+            deliverableName: z.string().trim().min(1).max(500).parse(body.deliverableName),
+            deliverableDescription: z.string().trim().min(1).max(5000).parse(body.deliverableDescription),
+            acceptanceCriteria: z.string().trim().min(1).max(5000).parse(body.acceptanceCriteria),
+          });
+        } finally {
+          service.close();
+        }
+        const updated = projectedDetail(eventId, url, session);
+        writeJson(res, 200, { ok: true, data: { viewModel: updated?.viewModel } });
+        return;
+      }
+      if (!["manager", "employee"].includes(projected.context.perspective)) {
+        throw new Error("quality action forbidden");
+      }
       const branch = viewModel.branch ?? [];
       const actorNode = branch.find((node) =>
         projected.context.perspective === "manager"

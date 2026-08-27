@@ -44,6 +44,8 @@ export interface QualityEventSummaryViewModel {
   eventNumber: string;
   title: string;
   statusLabel: string;
+  attentionBucket: "TODO" | "PROGRESS" | "DONE";
+  attentionLabel: string;
   urgencyLabel: string;
   currentOwnerName: string;
   currentDepartmentName: string;
@@ -202,13 +204,46 @@ export function createQualityEventPerspectiveProjector(
     return roots.at(-1) ?? null;
   }
 
-  function summary(row: DatabaseRow): QualityEventSummaryViewModel {
+  function attentionFor(row: DatabaseRow, context: QualityPerspectiveContext) {
+    const status = String(row.status);
+    if (status === "CLOSED") return { bucket: "DONE" as const, label: "已完成" };
+    const allNodes = nodes(String(row.id));
+    if (context.perspective === "aftersales") {
+      return status === "PENDING_ANALYSIS"
+        ? { bucket: "TODO" as const, label: "待我处理" }
+        : { bucket: "PROGRESS" as const, label: "处理中" };
+    }
+    if (context.perspective === "quality_management") {
+      return ["PENDING_ANALYSIS", "PENDING_ASSIGNMENT", "PENDING_QUALITY_REVIEW"].includes(status)
+        ? { bucket: "TODO" as const, label: "待我处理" }
+        : { bucket: "PROGRESS" as const, label: "处理中" };
+    }
+    const ownNodes = allNodes.filter((node) => String(node.assignee_user_id) === context.actorUserId);
+    const ownAction = ownNodes.some((node) => [
+      "PENDING_ACCEPTANCE", "IN_PROGRESS", "RETURNED",
+    ].includes(String(node.status)));
+    const ownNodeIds = new Set(ownNodes.map((node) => String(node.node_id)));
+    const childReview = context.perspective === "manager" && allNodes.some((node) =>
+      ownNodeIds.has(String(node.parent_node_id)) && String(node.status) === "PENDING_PARENT_REVIEW",
+    );
+    const primaryReview = context.perspective === "manager"
+      && status === "PENDING_PRIMARY_REVIEW"
+      && ownNodes.some((node) => node.parent_node_id == null);
+    return ownAction || childReview || primaryReview
+      ? { bucket: "TODO" as const, label: "待我处理" }
+      : { bucket: "PROGRESS" as const, label: "处理中" };
+  }
+
+  function summary(row: DatabaseRow, context: QualityPerspectiveContext): QualityEventSummaryViewModel {
     const root = activeRoot(nodes(String(row.id)));
+    const attention = attentionFor(row, context);
     return {
       actionRef: String(row.id),
       eventNumber: String(row.event_no),
       title: String(row.title),
       statusLabel: qualityStatusLabel(row.status),
+      attentionBucket: attention.bucket,
+      attentionLabel: attention.label,
       urgencyLabel: qualityUrgencyLabel(row.urgency),
       currentOwnerName: displayName(root?.assignee_user_id),
       currentDepartmentName: nullable(root?.department_name) ?? "暂未指定",
@@ -235,7 +270,7 @@ export function createQualityEventPerspectiveProjector(
       ORDER BY updated_at DESC,id
     `).all(context.scope === "test" ? 1 : 0) as DatabaseRow[];
     const visible = rows.filter((row) => canSeeEvent(row, context));
-    const events = visible.map(summary);
+    const events = visible.map((row) => summary(row, context));
     const stages = visible.map((row) => stageKey(row.status));
     const stats = {
       total: events.length,
@@ -405,6 +440,42 @@ export function createQualityEventPerspectiveProjector(
     return { latest: versions[0] ?? null, versions };
   }
 
+  function testInitialAnalysisDraft(eventId: string, event: DatabaseRow) {
+    const ai = originalAssessment(eventId);
+    const finalReview = finalAssessment(eventId)[0];
+    const sourceSummary = [
+      nullable(event.problem_status),
+      ...factRows(eventId).slice(0, 4).map((item) => `${item.label}：${item.value}`),
+    ].filter(Boolean);
+    const baseTime = Date.parse(String(event.updated_at ?? ""));
+    const fallbackDueAt = new Date(
+      (Number.isFinite(baseTime) ? baseTime : Date.now()) + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const category = finalReview?.category ?? nullable(event.initial_category) ?? ai.suggestedCategory;
+    return {
+      aiSummary: ai.summary,
+      evidenceStrength: ai.evidenceStrength,
+      problemDirection: `${category}问题原因核验`,
+      confirmedCategory: category,
+      sourceFactSummary: sourceSummary.join("\n"),
+      analysisBasis: (ai.reasons.length ? ai.reasons : [
+        "依据来源事实、AI原始研判和主管最终研判进行质量初析。",
+      ]).join("\n"),
+      preliminaryConclusion: "建议由研发中心完成原因排查、措施制定与验证。",
+      informationGaps: ai.missingInformation.join("\n"),
+      handlingRequirements: [
+        "完成原因核查并形成明确结论",
+        "制定处理措施并上传验证证据",
+        "按责任链逐级完成验收",
+      ].join("\n"),
+      suggestedDepartment: "研发中心",
+      suggestedDueAt: nullable(event.overall_due_at) ?? fallbackDueAt,
+      deliverableName: "原因排查与验证记录",
+      deliverableDescription: "形成可复核的原因排查、处理措施和验证记录。",
+      acceptanceCriteria: "包含事实依据、原因结论、处理措施、验证结果和必要证据。",
+    };
+  }
+
   function visibleNodes(allNodes: DatabaseRow[], context: QualityPerspectiveContext): DatabaseRow[] {
     if (context.perspective !== "manager" && context.perspective !== "employee") return allNodes;
     if (context.perspective === "employee") {
@@ -466,6 +537,9 @@ export function createQualityEventPerspectiveProjector(
     const readonly = context.readonly || context.perspective === "dashboard";
     const allowedActions: string[] = [];
     if (!readonly && context.perspective === "quality_management") {
+      if (context.scope === "test" && String(row.status) === "PENDING_ANALYSIS") {
+        allowedActions.push("complete-analysis");
+      }
       if (String(row.status) === "PENDING_ASSIGNMENT") allowedActions.push("assign-supervisor");
       if (String(row.status) === "PENDING_QUALITY_REVIEW") allowedActions.push("return-node", "close");
       if (String(row.status) === "CLOSED") allowedActions.push("reopen");
@@ -491,7 +565,8 @@ export function createQualityEventPerspectiveProjector(
       if (ownActive) allowedActions.push("upload-evidence", "submit-completion");
     }
     if (!readonly && context.perspective === "aftersales" && String(row.status) !== "CLOSED") {
-      allowedActions.push("supplement", "correct");
+      if (context.scope === "test") allowedActions.push("update-aftersales");
+      else allowedActions.push("supplement", "correct");
     }
     const viewModel: Record<string, unknown> = {
       scope: context.scope,
@@ -503,7 +578,7 @@ export function createQualityEventPerspectiveProjector(
             : context.perspective === "manager" ? "主管视角"
               : context.perspective === "employee" ? "员工视角" : "管理看板"),
       event: {
-        ...summary(row),
+        ...summary(row, context),
         currentSituation: String(row.problem_status),
         occurredAt: nullable(row.occurred_at),
         feedbackAt: nullable(row.feedback_at),
@@ -512,6 +587,7 @@ export function createQualityEventPerspectiveProjector(
         deviceSerial: nullable(row.device_serial),
         catheterBatch: nullable(row.catheter_batch),
         initialCategory: nullable(row.initial_category),
+        urgencyCode: nullable(row.urgency) ?? "MEDIUM",
         impact: nullable(row.impact),
         supplement: nullable(row.supplement),
         overallDueAt: nullable(row.overall_due_at),
@@ -519,6 +595,11 @@ export function createQualityEventPerspectiveProjector(
       },
       sourceFacts: factRows(input.eventId),
       initialAnalysis: context.perspective === "aftersales" ? undefined : initialAnalysis(input.eventId, context.perspective),
+      testAnalysisDraft: context.scope === "test"
+        && context.perspective === "quality_management"
+        && String(row.status) === "PENDING_ANALYSIS"
+        ? testInitialAnalysisDraft(input.eventId, row)
+        : undefined,
       supervisorAssignment: {
         assigned: root != null,
         supervisorName: displayName(root?.assignee_user_id),

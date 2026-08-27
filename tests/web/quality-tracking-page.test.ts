@@ -310,6 +310,19 @@ describe("renderQualityTrackingPage", () => {
     expect(navigation).not.toContain("主管二（测试）");
     expect(navigation).not.toContain("测试看板");
     expect(navigation).not.toContain("?perspective=");
+    expect(test).toContain("待我处理");
+    expect(test).toContain("当前角色可以直接操作");
+    expect(test).toContain("已提交，正在等待后续角色");
+    expect(test).toContain('data-metric-bucket="TODO"');
+    expect(test).toContain('data-metric-bucket="PROGRESS"');
+    expect(test).toContain('data-metric-bucket="DONE"');
+    expect(test).not.toContain('data-quality-list="feedback"');
+    expect(test).toContain("function projectedDefaultStage(view)");
+    expect(test).toContain("马荣鑫（测试）· 研判修订");
+    expect(test).toContain("完成初析，进入主管选择");
+    expect(test).toContain("隔离测试只提供“测试主管”");
+    expect(test).toContain("details.open = view.scope === 'test'");
+    expect(test).toContain("当前可操作");
 
     const regular = renderQualityTrackingPage({
       role: "manager",

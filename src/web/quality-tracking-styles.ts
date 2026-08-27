@@ -19,9 +19,9 @@ body { overflow-x: hidden; }
 .qpc-perspective-tabs a.is-active{border-color:#9fc1e3;background:#eaf3fb;color:#174f82;box-shadow:0 1px 2px rgba(26,74,117,.08)}
 .qpc-business-list{margin:8px 0 16px;padding-left:22px;color:#31485f}
 .qpc-business-list li{margin:5px 0}
-.qpc-supervisor-picker,.qpc-test-actions,.qpc-closure-actions{margin-top:16px;padding:16px;border:1px solid var(--qpc-line);border-radius:12px;background:#f8fafc}
+.qpc-supervisor-picker,.qpc-test-actions,.qpc-closure-actions,.qpc-test-analysis-form{margin-top:16px;padding:16px;border:1px solid var(--qpc-line);border-radius:12px;background:#f8fafc}
 .qpc-picker-search{display:flex;gap:8px;margin:10px 0}
-.qpc-picker-search input,.qpc-supervisor-picker input,.qpc-supervisor-picker textarea,.qpc-test-actions input,.qpc-test-actions select,.qpc-test-actions textarea,.qpc-closure-actions select,.qpc-closure-actions textarea{width:100%;min-height:42px;padding:9px 11px;border:1px solid #cbd6e1;border-radius:8px;background:#fff;font:inherit;color:var(--qpc-ink)}
+.qpc-picker-search input,.qpc-supervisor-picker input,.qpc-supervisor-picker textarea,.qpc-test-actions input,.qpc-test-actions select,.qpc-test-actions textarea,.qpc-closure-actions select,.qpc-closure-actions textarea,.qpc-test-analysis-form input,.qpc-test-analysis-form select,.qpc-test-analysis-form textarea{width:100%;min-height:42px;padding:9px 11px;border:1px solid #cbd6e1;border-radius:8px;background:#fff;font:inherit;color:var(--qpc-ink)}
 .qpc-supervisor-group{margin:8px 0;border:1px solid #dbe4ec;border-radius:9px;background:#fff;overflow:hidden}
 .qpc-supervisor-group summary{cursor:pointer;padding:11px 13px;font-weight:700;color:#29445f}
 .qpc-supervisor-options{display:grid;gap:7px;padding:0 12px 12px}
@@ -51,8 +51,10 @@ body { overflow-x: hidden; }
 .qpc-heading h2 { margin: 0; font-size: 19px; }
 .qpc-heading > .btn { margin-left: auto; }
 .qpc-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.qpc-metrics.is-test { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .qpc-metric { position: relative; min-width: 0; min-height: 107px; padding: 13px; border: 1px solid var(--qpc-line); border-top: 3px solid var(--tone); border-radius: 10px; background: var(--qpc-paper); text-align: left; appearance: none; cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
 .qpc-metric:hover, .qpc-metric:focus-visible { transform: translateY(-2px); border-color: var(--tone); box-shadow: 0 9px 20px rgba(20,38,60,.1); outline: none; }
+.qpc-metric.is-active { border-color: var(--tone); background: #f7fafc; box-shadow: 0 0 0 2px rgba(40,99,159,.12); }
 .qpc-metric span, .qpc-metric small { display: block; color: var(--qpc-muted); font-size: 12px; overflow-wrap: anywhere; }
 .qpc-metric strong { display: block; margin: 2px 0 3px; color: var(--qpc-ink); font-size: 25px; line-height: 1.2; }
 .qpc-panel { overflow: hidden; border: 1px solid var(--qpc-line); border-radius: 12px; background: var(--qpc-paper); box-shadow: 0 10px 28px rgba(20,38,60,.07); }

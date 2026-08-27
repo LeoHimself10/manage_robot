@@ -107,10 +107,20 @@ describe("quality role-panel HTTP APIs", () => {
       title: "隔离测试事件",
       problemStatus: "隔离测试业务事实",
     });
+    store.createDraft({
+      eventId: "test-analysis-event",
+      eventNo: "QT-ANALYSIS-HTTP",
+      actorUserId: "QUALITY_TEST_AFTERSALES_001",
+      actorRole: "aftersales_manager",
+      requestId: "29999999-9999-4999-8999-999999999999",
+      title: "等待测试质量初析",
+      problemStatus: "允许马荣鑫修订并由佟成完成质量初析",
+    });
     store.close();
     const db = new DatabaseSync(dbPath);
     db.prepare("UPDATE quality_events SET status='PENDING_ASSIGNMENT',version=2 WHERE id='real-event'").run();
     db.prepare("UPDATE quality_events SET is_test=1,status='PENDING_ASSIGNMENT',version=2 WHERE id='test-event'").run();
+    db.prepare("UPDATE quality_events SET is_test=1,status='PENDING_ANALYSIS',version=2,initial_category='测试分类',urgency='MEDIUM',overall_due_at='2026-09-30T08:00:00.000Z' WHERE id='test-analysis-event'").run();
     db.prepare(`INSERT INTO quality_analysis_versions(
       analysis_id,event_id,analysis_version,request_id,base_attempt_id,content_json,
       deliverables_json,diff_json,modification_reason,primary_department_id,
@@ -159,11 +169,107 @@ describe("quality role-panel HTTP APIs", () => {
     expect(adminPage.body).not.toContain("主管二（测试）");
     expect(adminPage.body).not.toContain("测试看板");
     expect(adminPage.body).not.toContain("切换到成员工作台");
+    expect(adminPage.body).toContain("待我处理");
+    expect(adminPage.body).toContain("当前角色可以直接操作");
+    expect(adminPage.body).not.toContain('data-quality-list="feedback"');
 
     const ordinaryPage = await callPage("/workbench/quality", "aftersales-real", "manager");
     expect(ordinaryPage.status).toBe(200);
     expect(ordinaryPage.body).not.toContain('aria-label="管理员隔离测试视角"');
     expect(ordinaryPage.body).not.toContain("测试员工1");
+  });
+
+  it("lets Ma Rongxin edit review fields and Tong Cheng complete initial analysis", async () => {
+    const aftersales = await call(
+      "/api/workbench/quality/events/test-analysis-event?testActor=aftersales",
+    );
+    expect(aftersales.status).toBe(200);
+    expect(aftersales.payload.data.viewModel).toMatchObject({
+      perspective: "aftersales",
+      allowedActions: ["update-aftersales"],
+      event: {
+        attentionBucket: "TODO",
+        attentionLabel: "待我处理",
+        statusLabel: "待质量初析",
+      },
+    });
+    const reviewed = await call(
+      "/api/workbench/quality/events/test-analysis-event/test-action?testActor=aftersales",
+      "POST",
+      {
+        action: "update-aftersales",
+        expectedVersion: 2,
+        requestId: "31111111-1111-4111-8111-111111111111",
+        problemStatus: "人工修订后的测试事实",
+        initialCategory: "影像与光学／无图像或影像中断",
+        urgency: "HIGH",
+        supplement: "测试补充说明",
+        reason: "核对人工研判输入",
+      },
+    );
+    expect(reviewed.status).toBe(200);
+    expect(reviewed.payload.data.viewModel.event).toMatchObject({
+      currentSituation: "人工修订后的测试事实",
+      urgencyCode: "HIGH",
+      version: 3,
+    });
+
+    const specialist = await call(
+      "/api/workbench/quality/events/test-analysis-event?testActor=quality-management",
+    );
+    expect(specialist.status).toBe(200);
+    expect(specialist.payload.data.viewModel.allowedActions).toContain("complete-analysis");
+    expect(specialist.payload.data.viewModel.testAnalysisDraft).toMatchObject({
+      suggestedDepartment: "研发中心",
+      deliverableName: "原因排查与验证记录",
+    });
+    const analyzed = await call(
+      "/api/workbench/quality/events/test-analysis-event/test-action?testActor=quality-management",
+      "POST",
+      {
+        action: "complete-analysis",
+        expectedVersion: 3,
+        requestId: "32222222-2222-4222-8222-222222222222",
+        problemDirection: "影像异常原因核验",
+        confirmedCategory: "影像与光学／无图像或影像中断",
+        sourceFactSummary: "测试来源事实已确认",
+        analysisBasis: "AI原始建议\n主管最终研判",
+        preliminaryConclusion: "建议研发中心完成原因排查",
+        informationGaps: "复现记录待补充",
+        handlingRequirements: "完成原因核查\n上传验证证据",
+        suggestedDueAt: "2026-09-30T08:00:00.000Z",
+        deliverableName: "原因排查与验证记录",
+        deliverableDescription: "形成完整测试记录",
+        acceptanceCriteria: "包含原因、措施和验证结果",
+      },
+    );
+    expect(analyzed.status).toBe(200);
+    expect(analyzed.payload.data.viewModel).toMatchObject({
+      perspective: "quality_management",
+      allowedActions: ["assign-supervisor"],
+      event: { statusLabel: "待主管选择", attentionBucket: "TODO", version: 4 },
+    });
+
+    const db = new DatabaseSync(dbPath);
+    const auditCount = Number((db.prepare(`
+      SELECT COUNT(*) AS count FROM quality_test_action_audit
+      WHERE event_id='test-analysis-event' AND actual_admin_user_id='admin-1'
+    `).get() as { count: number }).count);
+    const analyses = Number((db.prepare(`
+      SELECT COUNT(*) AS count FROM quality_analysis_versions
+      WHERE event_id='test-analysis-event'
+    `).get() as { count: number }).count);
+    const handoffs = Number((db.prepare(`
+      SELECT COUNT(*) AS count FROM quality_analysis_handoffs
+      WHERE event_id='test-analysis-event'
+    `).get() as { count: number }).count);
+    const unsafe = Number((db.prepare(`
+      SELECT COUNT(*) AS count FROM quality_notification_outbox
+      WHERE event_id='test-analysis-event' AND channel<>'TEST'
+    `).get() as { count: number }).count);
+    db.close();
+    expect({ auditCount, analyses, handoffs, unsafe })
+      .toEqual({ auditCount: 2, analyses: 1, handoffs: 0, unsafe: 0 });
   });
 
   it("projects different fields and refuses every cross-scope detail read", async () => {
