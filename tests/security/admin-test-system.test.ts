@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ADMIN_TEST_ACTORS,
+  isAdminTestDataVisibleToViewer,
   listAdminTestActors,
 } from "../../src/testing/admin-test-actors";
 import {
@@ -46,6 +47,14 @@ describe("isolated administrator test system", () => {
     expect(listWorkbenchImpersonationTargets({ query: "员工2" })).toMatchObject([
       { userId: "QUALITY_TEST_EMPLOYEE_002", name: "测试员工2" },
     ]);
+  });
+
+  it("keeps real and test records in mutually exclusive data scopes", () => {
+    vi.stubEnv("WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED", "1");
+    expect(isAdminTestDataVisibleToViewer("QUALITY_TEST_MANAGER_001", true)).toBe(true);
+    expect(isAdminTestDataVisibleToViewer("QUALITY_TEST_MANAGER_001", false)).toBe(false);
+    expect(isAdminTestDataVisibleToViewer("real-manager", true)).toBe(false);
+    expect(isAdminTestDataVisibleToViewer("real-manager", false)).toBe(true);
   });
 
   it("assigns real workbench and quality capabilities to every test identity", () => {

@@ -1,5 +1,8 @@
 import { isExternalContact } from "../../infra/external-contact";
-import { isAdminTestActorUserId } from "../../testing/admin-test-actors";
+import {
+  containsAdminTestDataMarker,
+  isAdminTestActorUserId,
+} from "../../testing/admin-test-actors";
 import { normalizePublicPageUrl, wrapUrlForDingtalkClient } from "../../view/workbench-chat-link";
 
 interface AccessTokenResp {
@@ -227,7 +230,9 @@ function isNotifyEnabled(): boolean {
 }
 
 function containsAdminTestActor(value: unknown): boolean {
-  if (typeof value === "string") return isAdminTestActorUserId(value);
+  if (typeof value === "string") {
+    return isAdminTestActorUserId(value) || containsAdminTestDataMarker(value);
+  }
   if (Array.isArray(value)) return value.some((item) => containsAdminTestActor(item));
   if (value && typeof value === "object") {
     return Object.values(value as Record<string, unknown>)

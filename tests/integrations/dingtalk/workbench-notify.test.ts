@@ -132,9 +132,16 @@ describe("createWorkbenchPublishNotifier", () => {
       assigneeUserId: "QUALITY_TEST_EMPLOYEE_001",
       unionId: "must-not-be-used",
     });
+    const qualityToRealRecipient = await notifier.notifyQualityAction({
+      recipientUserId: "real-user-must-not-be-notified",
+      subject: "QT-DEMO-001 隔离测试状态变化",
+      markdown: "隔离测试事件",
+      detailUrl: "https://example.com/workbench/quality?eventId=quality-test-event-assignment",
+    });
 
     expect(published).toMatchObject({ enabled: false, success: [], failed: [] });
     expect(managerAction).toMatchObject({ enabled: false, success: [], failed: [] });
+    expect(qualityToRealRecipient).toMatchObject({ enabled: false, success: [], failed: [] });
     expect(todo.enabled).toBe(false);
     expect(published.skippedReason).toContain("isolated administrator test system");
     expect(fetchImpl).not.toHaveBeenCalled();

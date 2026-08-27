@@ -215,7 +215,9 @@ export function decorateWorkbenchHtmlForAdminImpersonation(
   let decorated = html.replace("</head>", `${IMPERSONATION_CSS}</head>`);
   if (impersonation) {
     const target = escapeHtml(impersonation.targetName || session.dingUser?.name || session.userId);
-    const kind = escapeHtml(KIND_LABELS[impersonation.targetKind]);
+    const kind = escapeHtml(
+      getAdminTestActor(session.userId)?.kindLabel ?? KIND_LABELS[impersonation.targetKind],
+    );
     const chip = `<div class="wb-impersonation-chip" role="status"><span>管理员代办</span><strong>${target} · ${kind}</strong><button type="button" class="btn btn-ghost btn-sm" id="wbImpersonationExit">退出代办</button></div>`;
     decorated = decorated.replace('<div class="wb-appbar-actions">', `<div class="wb-appbar-actions">${chip}`);
     return decorated.replace("</body>", `${exitClientJs()}</body>`);

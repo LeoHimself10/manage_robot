@@ -118,6 +118,31 @@ export function isAdminTestActorUserId(userId: string | null | undefined): boole
   return String(userId ?? "").trim().startsWith("QUALITY_TEST_");
 }
 
+export function isAdminTestDataVisibleToViewer(
+  viewerUserId: string | null | undefined,
+  isTestRecord: boolean,
+): boolean {
+  if (!isAdminTestSystemEnabled()) return true;
+  return isAdminTestActorUserId(viewerUserId) === isTestRecord;
+}
+
+export function isAdminTestSourceKey(value: string | null | undefined): boolean {
+  return String(value ?? "").trim().startsWith("quality-test-source:");
+}
+
+export function isAdminTestEventId(value: string | null | undefined): boolean {
+  return String(value ?? "").trim().startsWith("quality-test-event-");
+}
+
+export function containsAdminTestDataMarker(value: string | null | undefined): boolean {
+  if (!isAdminTestSystemEnabled()) return false;
+  const text = String(value ?? "");
+  return text.includes("QUALITY_TEST_")
+    || text.includes("QUALITY_TEST_ISOLATED")
+    || text.includes("quality-test-")
+    || text.includes("QT-DEMO-");
+}
+
 export function listAdminTestActors(query?: string): AdminTestActor[] {
   if (!isAdminTestSystemEnabled()) return [];
   const normalized = String(query ?? "").trim().toLocaleLowerCase("zh-CN");
