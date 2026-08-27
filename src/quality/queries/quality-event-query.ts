@@ -34,6 +34,7 @@ function parseObject(value: unknown): Record<string, unknown> {
 function eventFromRow(row: DatabaseRow): QualityEventRecord {
   return {
     eventId: String(row.id), eventNo: String(row.event_no), status: String(row.status) as QualityEventRecord["status"],
+    isTest: Number(row.is_test ?? 0) === 1,
     title: String(row.title), problemStatus: String(row.problem_status), occurredAt: nullable(row.occurred_at),
     feedbackAt: nullable(row.feedback_at), feedbackUserId: nullable(row.feedback_user_id), feedbackName: nullable(row.feedback_name),
     deviceModel: nullable(row.device_model), deviceSerial: nullable(row.device_serial), catheterBatch: nullable(row.catheter_batch),
@@ -116,7 +117,7 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
   db.exec("PRAGMA busy_timeout = 5000");
 
   function loadEvent(eventId: string): DatabaseRow | undefined {
-    return db.prepare("SELECT * FROM quality_events WHERE id=? AND deleted_at IS NULL").get(eventId) as DatabaseRow | undefined;
+    return db.prepare("SELECT * FROM quality_events WHERE id=? AND is_test=0 AND deleted_at IS NULL").get(eventId) as DatabaseRow | undefined;
   }
 
   function visibleNodeIds(allNodes: DatabaseRow[], event: QualityEventRecord, viewerUserId: string, full: boolean): Set<string> {
@@ -291,7 +292,7 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
       SELECT DISTINCT e.* FROM quality_events e
       LEFT JOIN quality_assignment_nodes n
         ON n.event_id=e.id AND n.assignee_user_id=? AND n.status <> 'CANCELLED'
-      WHERE e.deleted_at IS NULL AND (
+      WHERE e.deleted_at IS NULL AND e.is_test=0 AND (
         (e.status='DRAFT' AND e.created_by=?) OR
         (?=1) OR
         (e.status<>'DRAFT' AND ?=1) OR

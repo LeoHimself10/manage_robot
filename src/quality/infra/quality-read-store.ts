@@ -33,6 +33,7 @@ function eventFromRow(row: DatabaseRow): QualityEventRecord {
   return {
     eventId: String(row.id),
     eventNo: String(row.event_no),
+    isTest: Number(row.is_test ?? 0) === 1,
     status: String(row.status) as QualityEventRecord["status"],
     title: String(row.title),
     problemStatus: String(row.problem_status),
@@ -99,7 +100,7 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
              e.status AS reported_event_status
       FROM quality_source_rows r
       LEFT JOIN quality_event_source_links l ON l.source_key = r.source_key
-      LEFT JOIN quality_events e ON e.id = l.event_id AND e.deleted_at IS NULL
+      LEFT JOIN quality_events e ON e.id = l.event_id AND e.is_test = 0 AND e.deleted_at IS NULL
       WHERE r.state <> 'DELETED'
       ORDER BY r.row_number DESC, r.source_key
     `).all() as DatabaseRow[];
@@ -220,12 +221,12 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
     const rows = (input.isQualitySpecialist
       ? db.prepare(`
           SELECT * FROM quality_events
-          WHERE deleted_at IS NULL AND status <> 'DRAFT'
+          WHERE deleted_at IS NULL AND is_test = 0 AND status <> 'DRAFT'
           ORDER BY updated_at DESC, id
         `).all()
       : db.prepare(`
           SELECT * FROM quality_events
-          WHERE deleted_at IS NULL AND created_by = ?
+          WHERE deleted_at IS NULL AND is_test = 0 AND created_by = ?
             AND (? = 1 OR status <> 'DRAFT')
           ORDER BY updated_at DESC, id
         `).all(input.actorUserId, input.includeDrafts === false ? 0 : 1)) as DatabaseRow[];
@@ -241,7 +242,7 @@ export function createQualityReadStore(dbPath = resolveWorkbenchSqlitePath()) {
     actorUserId: string;
     isQualitySpecialist: boolean;
   }) {
-    const row = db.prepare("SELECT * FROM quality_events WHERE id = ? AND deleted_at IS NULL")
+    const row = db.prepare("SELECT * FROM quality_events WHERE id = ? AND is_test = 0 AND deleted_at IS NULL")
       .get(input.eventId) as DatabaseRow | undefined;
     if (!row) return null;
     const event = eventFromRow(row);

@@ -53,6 +53,7 @@
     "dev:microcatheter-repro": "tsx scripts/local-microcatheter-repro-dev.ts",
     "test:displayname-local": "tsx scripts/local-test-displayname-fix.ts",
     "quality:source-probe": "tsx scripts/probe-quality-source.ts",
+    "quality:seed-test-data": "tsx scripts/seed-quality-test-data.ts --confirm",
     "test:assignment-scope": "vitest run tests/agent/assignment/resolve-turn-assignment.test.ts tests/agent/assignment/assignment-scope-conversation.test.ts tests/agent/assignment/assignment-gate-invariants.test.ts tests/agent/manager-orchestrator-turn.test.ts tests/agent/workbench/conversation-turn-display.test.ts tests/agent/tools/start-new-task.test.ts tests/agent/tools/switch-back-task.test.ts tests/view/draft-outbound.test.ts tests/agent/scope-message-truncate.test.ts",
     "build:workbench-login": "esbuild src/web/workbench-dd-login-entry.ts --bundle --platform=browser --format=iife --legal-comments=none --outfile=dist/workbench-dd-login.js",
     "build:workbench-draft-grid": "esbuild src/web/workbench-draft-grid-entry.ts --bundle --platform=browser --format=iife --global-name=WorkbenchDraftGrid --legal-comments=none --outfile=dist/workbench-draft-grid.js",

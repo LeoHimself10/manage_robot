@@ -1,6 +1,6 @@
 ---
 status: baseline
-last_verified_at: 2026-08-19
+last_verified_at: 2026-08-27
 verified_against: working-tree
 scope: workflow-and-roles-without-future-smart-assignment
 maintainer: EDY
@@ -20,6 +20,8 @@ maintainer: EDY
 - **质量意见**：配置下级和质量专员之间的事件级私密会话，不属于正式验收意见。
 
 ## 2. 角色与权限
+
+> 2026-08-27 补充：`quality_management` 仍是 employee 的附加能力；本文中的“质量专员”是兼容称呼。多视角开关启用后，管理员仅能只读预览真实身份，不能代提交业务动作。
 
 ### 售后主管 `aftersales_manager`
 
@@ -46,6 +48,18 @@ maintainer: EDY
 - 协同主管只看自己的分支；只有主管节点可继续向下分配。
 - 执行人只看自己的节点，负责进度、证据和完成提交。
 - 当前承接和执行复用原任务工作台；本基线不设计新的智能派分方式。
+
+### 隔离测试身份
+
+- `QUALITY_TEST_AFTERSALES_001`、`QUALITY_TEST_SPECIALIST_001`、`QUALITY_TEST_MANAGER_001`、`QUALITY_TEST_MANAGER_002` 是质量模块内部身份，不属于钉钉通讯录或通用权限体系。
+- 仅 admin 可在测试入口使用；每次测试写操作同时保存测试操作者与实际管理员。
+- 测试身份只能处理测试事件，真实身份只能处理真实事件；测试通知仅记录 `TEST` 通道结果。
+
+### 质量专用主管选择
+
+- 质量管理人员在事件待分配阶段按部门展开并单选一名主管。
+- 主管候选由质量专用目录按组织架构主管标记实时核验，不按职位文字猜测。
+- 主管接受后进入处理中；首次拒绝回到质量管理人员待重新选择；向下分配只允许本部门员工。
 
 ## 3. 当前端到端流程
 

@@ -9,7 +9,7 @@ export type QualityBridgeReconcileStatus = "OK" | "REPAIRED_LINK" | "RECREATED_T
 
 export function reconcileQualityTaskBridges(input?: { dbPath?: string }) {
   const dbPath = input?.dbPath ?? resolveWorkbenchSqlitePath();
-  createWorkbenchFormalTaskStore(); createQualityStore(dbPath).close();
+  createWorkbenchFormalTaskStore().close(); createQualityStore(dbPath).close();
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout = 8000");
   const formal = createWorkbenchFormalTaskStore();
@@ -19,7 +19,7 @@ export function reconcileQualityTaskBridges(input?: { dbPath?: string }) {
            p.assignee_user_id AS parent_assignee_user_id,
            l.task_id AS linked_task_id,l.subtask_id AS linked_subtask_id,l.integration_key AS linked_integration_key
     FROM quality_assignment_nodes n
-    JOIN quality_events e ON e.id = n.event_id AND e.deleted_at IS NULL
+    JOIN quality_events e ON e.id = n.event_id AND e.deleted_at IS NULL AND e.is_test = 0
     LEFT JOIN quality_assignment_nodes p ON p.node_id = n.parent_node_id
     LEFT JOIN quality_task_links l ON l.node_id = n.node_id
     ORDER BY n.created_at,n.node_id
@@ -80,6 +80,7 @@ export function reconcileQualityTaskBridges(input?: { dbPath?: string }) {
       items.push({ nodeId, status: "CONFLICT", detail: error instanceof Error ? error.message : String(error) });
     }
   }
+  formal.close();
   db.close();
   return {
     items,

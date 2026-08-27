@@ -250,7 +250,7 @@ export function refreshQualityCandidates(input?: {
     }));
     const history = (db.prepare(`
       SELECT id, status, title, problem_status
-      FROM quality_events WHERE status <> 'DRAFT'
+      FROM quality_events WHERE status <> 'DRAFT' AND is_test = 0
     `).all() as DatabaseRow[]).map((row) => ({
       eventId: String(row.id),
       status: String(row.status),

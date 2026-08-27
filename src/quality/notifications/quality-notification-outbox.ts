@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
 import { createQualityStore } from "../infra/quality-store";
+import {
+  assertQualityNotificationBoundary,
+  readQualityEventBoundary,
+} from "../testing/quality-test-boundary";
 
 type DatabaseRow = Record<string, unknown>;
 
@@ -48,10 +52,16 @@ function safeError(error: unknown): string {
 }
 
 export function enqueueQualityNotification(db: DatabaseSync, input: QualityNotificationInput, occurredAt: string, notificationId: string = randomUUID()): QualityNotificationRecord {
+  const boundary = readQualityEventBoundary(db, input.eventId);
+  assertQualityNotificationBoundary({
+    event: boundary,
+    recipientUserIds: [input.recipientUserId],
+  });
+  const channel = boundary.isTest ? "TEST" : (input.channel ?? "DINGTALK");
   db.prepare(`
     INSERT INTO quality_notification_outbox(notification_id,event_id,action,recipient_user_id,channel,subject,markdown,detail_url,dedupe_key,status,attempt_count,next_attempt_at,created_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,'PENDING',0,?,?,?) ON CONFLICT(dedupe_key) DO NOTHING
-  `).run(notificationId, input.eventId, input.action, input.recipientUserId, input.channel ?? "DINGTALK", input.subject, input.markdown, input.detailUrl, input.dedupeKey, occurredAt, occurredAt, occurredAt);
+  `).run(notificationId, input.eventId, input.action, input.recipientUserId, channel, input.subject, input.markdown, input.detailUrl, input.dedupeKey, occurredAt, occurredAt, occurredAt);
   const row = db.prepare("SELECT * FROM quality_notification_outbox WHERE dedupe_key=?").get(input.dedupeKey) as DatabaseRow;
   return rowToRecord(row);
 }
@@ -99,6 +109,19 @@ export function createQualityNotificationOutbox(deps?: { dbPath?: string; now?: 
     return get(notificationId)!;
   }
 
+  function markSecurityBlocked(notificationId: string): QualityNotificationRecord {
+    const occurredAt = now().toISOString();
+    db.prepare(`
+      UPDATE quality_notification_outbox
+      SET status='DEAD',next_attempt_at=?,last_error='测试通知已被安全阻断',
+          sending_started_at=NULL,updated_at=?
+      WHERE notification_id=? AND status='SENDING'
+    `).run(occurredAt, occurredAt, notificationId);
+    const record = get(notificationId);
+    if (!record) throw new Error("质量通知不存在");
+    return record;
+  }
+
   async function processNext(sender: (notification: QualityNotificationRecord) => Promise<void>): Promise<QualityNotificationRecord | null> {
     const notification = claimNext(); if (!notification) return null;
     try { await sender(notification); return markSent(notification.notificationId); }
@@ -112,6 +135,9 @@ export function createQualityNotificationOutbox(deps?: { dbPath?: string; now?: 
       if (repeated) { const record = get(notificationId); if (!record) throw new Error("质量通知不存在"); return record; }
     }
     const before = get(notificationId); if (!before) throw new Error("质量通知不存在");
+    if (readQualityEventBoundary(db, before.eventId).isTest) {
+      throw new Error("测试通知不能人工重新发送");
+    }
     db.exec("BEGIN IMMEDIATE");
     try {
       const result = db.prepare(`UPDATE quality_notification_outbox SET status='RETRY',next_attempt_at=?,sending_started_at=NULL,updated_at=? WHERE notification_id=? AND status='DEAD'`)
@@ -129,5 +155,5 @@ export function createQualityNotificationOutbox(deps?: { dbPath?: string; now?: 
     return rows.map(rowToRecord);
   }
 
-  return { enqueue, claimNext, markSent, markFailed, processNext, retryDead, get, list, close: () => db.close() };
+  return { enqueue, claimNext, markSent, markFailed, markSecurityBlocked, processNext, retryDead, get, list, close: () => db.close() };
 }

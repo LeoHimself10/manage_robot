@@ -65,6 +65,10 @@ export function listQualitySpecialistUserIds(): string[] {
   return listQualityManagementUserIds();
 }
 
+export function listQualityAftersalesManagerUserIds(): string[] {
+  return [...envUserIds("QUALITY_AFTERSALES_MANAGER_USER_IDS")].sort();
+}
+
 export function listQualityManagementUserIds(): string[] {
   return [...new Set([
     ...envUserIds("QUALITY_MANAGEMENT_USER_IDS"),

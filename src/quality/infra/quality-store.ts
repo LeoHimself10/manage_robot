@@ -129,6 +129,7 @@ ON quality_candidates(status, detected_at DESC);
 CREATE TABLE IF NOT EXISTS quality_events (
   id TEXT PRIMARY KEY,
   event_no TEXT NOT NULL UNIQUE,
+  is_test INTEGER NOT NULL DEFAULT 0 CHECK(is_test IN (0,1)),
   status TEXT NOT NULL CHECK(status IN (
     'DRAFT','PENDING_ASSIGNMENT','PENDING_ACCEPTANCE','IN_PROGRESS',
     'PENDING_PRIMARY_REVIEW','PENDING_QUALITY_REVIEW','CLOSED'
@@ -161,6 +162,20 @@ CREATE TABLE IF NOT EXISTS quality_events (
 
 CREATE INDEX IF NOT EXISTS idx_quality_events_status_updated
 ON quality_events(status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS quality_test_action_audit (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES quality_events(id),
+  test_actor_user_id TEXT NOT NULL,
+  actual_admin_user_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  UNIQUE(event_id, request_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_test_action_audit_event
+ON quality_test_action_audit(event_id, occurred_at);
 
 CREATE TABLE IF NOT EXISTS quality_event_source_links (
   id TEXT PRIMARY KEY,
@@ -494,6 +509,7 @@ function eventFromRow(row: DatabaseRow): QualityEventRecord {
   return {
     eventId: String(row.id),
     eventNo: String(row.event_no),
+    isTest: Number(row.is_test ?? 0) === 1,
     status: String(row.status) as QualityEventRecord["status"],
     title: String(row.title),
     problemStatus: String(row.problem_status),
@@ -654,6 +670,11 @@ export function createQualityStore(
   if (!qualityEventColumns.has("primary_node_id")) {
     db.exec("ALTER TABLE quality_events ADD COLUMN primary_node_id TEXT");
   }
+  if (!qualityEventColumns.has("is_test")) {
+    db.exec("ALTER TABLE quality_events ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0 CHECK(is_test IN (0,1))");
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_quality_events_scope_status_updated
+    ON quality_events(is_test, status, updated_at DESC)`);
   const qualityEvidenceColumns = new Set(
     (db.prepare("PRAGMA table_info(quality_evidence)").all() as Array<{ name?: string }>)
       .map((row) => String(row.name ?? "")),
@@ -714,11 +735,13 @@ export function createQualityStore(
     return withTransaction(db, () => {
       db.prepare(`
         INSERT INTO quality_events (
-          id, event_no, status, title, problem_status, occurred_at, feedback_at,
+          id, event_no, is_test, status, title, problem_status, occurred_at, feedback_at,
           feedback_user_id, feedback_name, device_model, device_serial, catheter_batch,
           clinician_aware, impact, initial_category, urgency, supplement, created_by,
           version, created_at, updated_at
-        ) VALUES (?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        ) VALUES (
+          ?, ?, 0, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?
+        )
       `).run(
         input.eventId,
         input.eventNo,

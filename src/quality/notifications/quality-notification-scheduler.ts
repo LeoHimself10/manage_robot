@@ -6,6 +6,10 @@ import { listQualitySpecialistUserIds } from "../../security/quality-capabilitie
 import { createQualityStore } from "../infra/quality-store";
 import { createQualityNotificationOutbox } from "./quality-notification-outbox";
 import { enqueueQualityActionNotifications, recipientsFor } from "./quality-notification-policy";
+import {
+  assertQualityNotificationBoundary,
+  readQualityEventBoundary,
+} from "../testing/quality-test-boundary";
 
 type DatabaseRow = Record<string, unknown>;
 
@@ -31,7 +35,7 @@ export function createQualityNotificationScheduler(deps?: {
       LEFT JOIN quality_assignment_nodes primary_node ON primary_node.node_id=e.primary_node_id
       LEFT JOIN quality_assignment_nodes parent ON parent.node_id=n.parent_node_id
       WHERE n.due_at<? AND n.status IN ('PENDING_ACCEPTANCE','IN_PROGRESS','RETURNED','PENDING_PARENT_REVIEW')
-        AND e.status <> 'CLOSED'
+        AND e.status <> 'CLOSED' AND e.is_test=0
       ORDER BY n.due_at,n.node_id
     `).all(nowIso) as DatabaseRow[];
     let queued = 0;
@@ -57,17 +61,42 @@ export function createQualityNotificationScheduler(deps?: {
   async function sendPending(): Promise<{ processed: number; sent: number; failed: number }> {
     let processed = 0; let sent = 0; let failed = 0;
     for (; processed < batchSize; processed += 1) {
-      const result = await outbox.processNext(async (notification) => {
+      const notification = outbox.claimNext();
+      if (!notification) break;
+      const boundary = readQualityEventBoundary(db, notification.eventId);
+      try {
+        assertQualityNotificationBoundary({
+          event: boundary,
+          recipientUserIds: [notification.recipientUserId],
+        });
+        if (boundary.isTest) {
+          if (notification.channel !== "TEST") throw new Error("测试通知通道配置错误");
+          outbox.markSent(notification.notificationId);
+          sent += 1;
+          continue;
+        }
+        if (notification.channel === "TEST") throw new Error("真实通知通道配置错误");
         const notify = notifier.notifyQualityAction;
         if (!notify) throw new Error("质量通知通道未配置");
         const outcome = await notify.call(notifier, { recipientUserId: notification.recipientUserId, subject: notification.subject, markdown: notification.markdown, detailUrl: notification.detailUrl });
-        if (outcome.skippedExternal?.some((item) => item.userId === notification.recipientUserId)) return;
+        if (outcome.skippedExternal?.some((item) => item.userId === notification.recipientUserId)) {
+          outbox.markSent(notification.notificationId);
+          sent += 1;
+          continue;
+        }
         if (!outcome.enabled || !outcome.success.some((item) => item.userId === notification.recipientUserId)) {
           throw new Error(outcome.failed.map((item) => item.reason).join("；") || outcome.skippedReason || "质量通知未成功发送");
         }
-      });
-      if (!result) break;
-      if (result.status === "SENT") sent += 1; else failed += 1;
+        outbox.markSent(notification.notificationId);
+        sent += 1;
+      } catch (error) {
+        if (boundary.isTest || notification.channel === "TEST") {
+          outbox.markSecurityBlocked(notification.notificationId);
+        } else {
+          outbox.markFailed(notification.notificationId, error);
+        }
+        failed += 1;
+      }
     }
     return { processed, sent, failed };
   }

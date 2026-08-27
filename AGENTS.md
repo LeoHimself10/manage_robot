@@ -161,6 +161,14 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 - 权限：质量专员看全部已通报事件公开全链；售后主管只看自己通报事件；原主责看整树；协同主管看自己的分支；执行人只看自己的节点。查询与下载均在服务端校验。
 - 测试：`tests/security/quality-capabilities.test.ts`、`tests/quality/`、`tests/web/quality-*.test.ts`；Vitest 默认禁止真实网络同步。
 
+### 质量事件多视角与测试隔离（2026-08-27，功能开关默认关闭）
+
+- `QUALITY_EVENT_ROLE_PANELS_ENABLED=1`：`/workbench/quality` 改用服务端 presentation/projector 字段白名单；admin 可只读预览马荣鑫/佟成/主管/看板，非 admin 忽略客户端视角参数。
+- `QUALITY_TEST_ACTORS_ENABLED=1`：仅 admin 可使用四个固定质量测试身份；测试身份不写入通讯录、通用主管名单或正式任务。测试事件以 `quality_events.is_test=1` 隔离，旧行迁移默认 `0`。
+- 主管选择器固定七个部门，读取通讯录明确主管标记或 `QUALITY_SUPERVISOR_ROUTING_FILE` 质量专用补充名单；禁止按职位关键词推断，朱锐稳定 `userId=014517256544` 默认排除；提交只接受单个 `candidateRef` 并实时复验。
+- 测试质量通知强制 `TEST` 通道；outbox 入队前和 scheduler 发送前双重校验，绝不调用真实钉钉 notifier。测试质量节点不建立 `quality_task_links`，桥接补偿也排除测试事件。
+- 受控种子：`npm run quality:seed-test-data`（还需显式启用测试身份），只创建三个固定测试事件和两个测试主管节点，不创建正式任务或真实通知。
+
 ### 质量追踪统一系统目标基线（2026-08-19，已确认需求）
 
 本节是后续质量追踪产品与 HTML 设计的目标约束；与上方 legacy 角色、意见页或重复分配入口冲突时，以本节作为改造方向。未完成迁移前，不能把目标行为描述成当前生产行为。

@@ -1,0 +1,161 @@
+import type { WorkbenchShellRole } from "./workbench-shell";
+import { renderWorkbenchPage } from "./workbench-shell";
+import { QUALITY_TRACKING_STYLES } from "./quality-tracking-styles";
+
+export function renderQualityRolePanelsPage(params: {
+  role: WorkbenchShellRole;
+  userId: string;
+  userLabel?: string;
+  canReport?: boolean;
+  hasQualityManagement?: boolean;
+  testActorsEnabled?: boolean;
+  isAdmin?: boolean;
+}): string {
+  const isAdmin = params.isAdmin === true;
+  const canReport = params.canReport === true;
+  const hasQualityManagement = params.hasQualityManagement === true;
+  const defaultPerspective = isAdmin || canReport ? "aftersales" : "quality_management";
+  const adminSwitch = isAdmin ? `<nav class="qt-perspective-nav" aria-label="质量事件查看视角">
+    <button class="qt-perspective is-on" type="button" data-perspective="aftersales">马荣鑫</button>
+    <button class="qt-perspective" type="button" data-perspective="quality_management">佟成</button>
+    <button class="qt-perspective" type="button" data-perspective="manager" id="qualityManagerPerspective" disabled>主管</button>
+    <button class="qt-perspective" type="button" data-perspective="dashboard">看板</button>
+    ${params.testActorsEnabled ? `<button class="qt-perspective is-test" type="button" data-perspective="test">测试</button>` : ""}
+  </nav>` : "";
+  const testSwitch = isAdmin && params.testActorsEnabled ? `<nav class="qt-test-nav" id="qualityTestNav" aria-label="质量测试视角" hidden>
+    <span class="qt-test-label">隔离测试</span>
+    <button type="button" data-test-actor="aftersales">马荣鑫（测试）</button>
+    <button type="button" data-test-actor="quality-management">佟成（测试）</button>
+    <button type="button" data-test-actor="manager-1">主管一（测试）</button>
+    <button type="button" data-test-actor="manager-2">主管二（测试）</button>
+    <button type="button" data-test-actor="dashboard">测试看板</button>
+  </nav>` : "";
+  return renderWorkbenchPage({
+    role: params.role,
+    activeNav: "quality-tracking",
+    title: "质量事件协作台",
+    pageTitle: "质量事件协作台",
+    description: "按业务身份查看质量事件；正式处理与隔离测试使用不同的数据范围。",
+    userLabel: params.userLabel,
+    sessionUserId: params.userId,
+    extraCss: QUALITY_TRACKING_STYLES,
+    mainHtml: `<main class="qt-grid qt-role-panels" id="qualityRolePanelsRoot"
+      data-admin="${isAdmin ? "1" : "0"}"
+      data-can-report="${canReport ? "1" : "0"}"
+      data-quality-management="${hasQualityManagement ? "1" : "0"}"
+      data-default-perspective="${defaultPerspective}">
+  <section class="qt-card qt-role-hero">
+    <div class="qt-role-heading"><span class="qt-pill">质量事件 · 权限化视图</span><h2>同一事件，不同职责所需的信息</h2><p class="qt-muted">页面仅显示当前业务视角必需的事实、操作和责任分支。</p></div>
+    ${adminSwitch}
+  </section>
+  ${testSwitch}
+  <section class="qt-metric-grid" aria-label="事件概览">
+    <article><span>当前范围</span><strong id="qualityScopeLabel">正在加载</strong></article>
+    <article><span>事件总数</span><strong id="qualityMetricTotal">—</strong></article>
+    <article><span>待处理</span><strong id="qualityMetricAction">—</strong></article>
+    <article><span>处理中 / 已关闭</span><strong id="qualityMetricProgress">—</strong></article>
+  </section>
+  <section class="qt-card">
+    <div class="qt-card-head"><div><h3 id="qualityListTitle">质量事件</h3><p class="qt-muted" id="qualityListHint">正在读取当前视角可见范围。</p></div>${canReport && !isAdmin ? `<a class="btn btn-secondary" href="/workbench/quality/review" target="_blank" rel="noopener noreferrer">打开研判工作台</a>` : ""}</div>
+    <div class="qt-list" id="qualityPanelList" aria-live="polite"><div class="qt-empty">正在加载质量事件…</div></div>
+    <div class="qt-pagination" id="qualityPanelPagination"></div>
+  </section>
+  <section class="qt-card qt-detail qt-role-detail" id="qualityPanelDetail" hidden>
+    <div class="qt-dialog-head"><div><span class="qt-context-badge" id="qualityActorLabel">当前视角</span><h2 id="qualityPanelTitle">质量事件详情</h2><p class="qt-muted" id="qualityPanelSubtitle"></p></div><button class="btn btn-secondary btn-sm" type="button" id="qualityPanelClose">收起详情</button></div>
+    <div class="qt-safety-banner" id="qualityReadonlyBanner" hidden>当前为管理员只读预览，不能代替真实人员提交业务动作。</div>
+    <div class="qt-form-feedback" id="qualityPanelFeedback" role="status"></div>
+    <section class="qt-detail-section"><h3>事件事实</h3><div class="qt-fact-grid" id="qualityEventFacts"></div></section>
+    <section class="qt-detail-section"><h3>来源事实</h3><div class="qt-fact-grid" id="qualitySourceFacts"></div></section>
+    <section class="qt-detail-section" id="qualityAssessmentSection" hidden><h3>通报前质量研判</h3><div class="qt-assessment-grid" id="qualityAssessment"></div></section>
+    <section class="qt-detail-section" id="qualityAftersalesActions" hidden><div class="qt-dialog-head"><div><h3>事件补充与更正</h3><p class="qt-muted">新增事实使用补充；需要修正标题或正式问题描述时填写原因后更正。</p></div></div><div class="qt-form-grid"><label class="qt-field">事件标题<input class="qt-input" id="qualityCorrectionTitle" maxlength="200"></label><label class="qt-field is-wide">正式问题描述<textarea class="qt-textarea" id="qualityCorrectionSituation" maxlength="10000"></textarea></label><label class="qt-field is-wide">补充内容 / 更正原因<textarea class="qt-textarea" id="qualityAftersalesNote" maxlength="10000"></textarea></label><div class="qt-dialog-actions is-wide"><button class="btn btn-secondary" type="button" data-aftersales-action="supplement">添加事实补充</button><button class="btn btn-primary" type="button" data-aftersales-action="correct">提交事件更正</button></div></div></section>
+    <section class="qt-detail-section" id="qualityAnalysisPanel" hidden>
+      <div class="qt-dialog-head"><div><h3>质量初析</h3><p class="qt-muted">初析给出建议部门和处理要求；具体主管由下方单选确认。</p></div><span class="qt-status" id="qualityAnalysisVersion">未填写</span></div>
+      <form class="qt-form-grid" id="qualityPanelAnalysisForm">
+        <label class="qt-field">问题方向<input class="qt-input" name="problemDirection" maxlength="10000" required></label>
+        <label class="qt-field">人工确认分类<input class="qt-input" name="confirmedCategory" maxlength="10000" required></label>
+        <label class="qt-field is-wide">来源事实摘要<textarea class="qt-textarea" name="sourceSummary" maxlength="10000" required></textarea></label>
+        <label class="qt-field is-wide">分析依据<textarea class="qt-textarea" name="analysisBasis" maxlength="10000" required></textarea></label>
+        <label class="qt-field is-wide">初步结论<textarea class="qt-textarea" name="initialConclusion" maxlength="10000" required></textarea></label>
+        <label class="qt-field is-wide">信息缺口<textarea class="qt-textarea" name="informationGaps" maxlength="10000" required></textarea></label>
+        <label class="qt-field">建议责任部门<input class="qt-input" name="suggestedDepartment" maxlength="10000" required></label>
+        <label class="qt-field">建议总期限<input class="qt-input" name="suggestedDueAt" type="datetime-local" required></label>
+        <label class="qt-field is-wide">处理要求<textarea class="qt-textarea" name="processingRequirements" maxlength="10000" required></textarea></label>
+        <div class="qt-dialog-actions is-wide" id="qualityPanelAnalysisActions"><button class="btn btn-secondary" type="button" id="qualityPanelAnalysisSave">保存初析草稿</button><button class="btn btn-primary" type="button" id="qualityPanelAnalysisComplete">完成初析</button></div>
+      </form>
+    </section>
+    <section class="qt-detail-section" id="qualitySupervisorPanel" hidden>
+      <div class="qt-dialog-head"><div><h3>选择责任主管</h3><p class="qt-muted">先展开部门，再单选一名主管。提交时服务端会重新核验资格。</p></div><span class="qt-status" id="qualitySupervisorCurrent">等待选择</span></div>
+      <div class="qt-supervisor-search"><label class="qt-field">搜索主管姓名<input class="qt-input" type="search" id="qualitySupervisorSearch" placeholder="输入姓名后筛选"></label><button class="btn btn-secondary" type="button" id="qualitySupervisorSearchButton">搜索</button></div>
+      <div class="qt-supervisor-groups" id="qualitySupervisorGroups" aria-live="polite"><div class="qt-empty">正在加载可选主管…</div></div>
+      <div class="qt-supervisor-confirm" id="qualitySupervisorConfirm">尚未选择主管</div>
+      <div class="qt-form-grid qt-supervisor-fields">
+        <label class="qt-field">任务总期限<input class="qt-input" type="datetime-local" id="qualitySupervisorDue"></label>
+        <label class="qt-field is-wide">处理要求<textarea class="qt-textarea" id="qualitySupervisorRequirement" maxlength="5000"></textarea></label>
+      </div>
+      <button class="btn btn-primary" type="button" id="qualitySupervisorSubmit">确认选择一名主管</button>
+    </section>
+    <section class="qt-detail-section"><h3>责任分支与进度</h3><div class="qt-tree" id="qualityPanelBranch"></div><div class="qt-dialog-actions" id="qualityManagerActions" hidden><button class="btn btn-primary" type="button" data-manager-action="accept">接受承接</button><button class="btn btn-secondary" type="button" data-manager-action="reject">拒绝并退回佟成</button></div></section>
+    <section class="qt-detail-section"><h3>证据与验收</h3><div class="qt-evidence-grid" id="qualityPanelEvidence"></div></section>
+    <section class="qt-detail-section" id="qualityClosurePanel" hidden><div class="qt-dialog-head"><div><h3>质量终验</h3><p class="qt-muted">质量人员可退回指定责任节点、填写结论关闭，或选择节点重开。</p></div></div><div class="qt-form-grid"><label class="qt-field">责任节点<select class="qt-input" id="qualityClosureNode"></select></label><label class="qt-field is-wide">处理说明<textarea class="qt-textarea" id="qualityClosureReason" maxlength="10000" placeholder="退回/重开请填写原因；关闭请填写终验结论"></textarea></label><div class="qt-dialog-actions is-wide" id="qualityClosureActions"></div></div></section>
+    <section class="qt-detail-section"><h3>业务记录</h3><div class="qt-timeline" id="qualityPanelAudit"></div></section>
+    <section class="qt-detail-section"><h3>通知结果</h3><div class="qt-timeline" id="qualityPanelNotifications"></div></section>
+  </section>
+</main>`,
+    scriptHtml: `<script>${buildQualityRolePanelsClientScript()}</script>`,
+  });
+}
+
+function buildQualityRolePanelsClientScript(): string {
+  return String.raw`(function(){
+  var root=document.getElementById('qualityRolePanelsRoot');if(!root)return;
+  var isAdmin=root.getAttribute('data-admin')==='1';
+  var perspective=root.getAttribute('data-default-perspective')||'aftersales';
+  var testActor='';var page=1;var pageSize=50;var current=null;var selectedCandidate=null;var supervisorData=[];var supervisorReadonly=false;
+  var list=document.getElementById('qualityPanelList');var detail=document.getElementById('qualityPanelDetail');var feedback=document.getElementById('qualityPanelFeedback');
+  function el(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined&&text!==null)n.textContent=String(text);return n;}
+  function clear(node){if(node)node.replaceChildren();}
+  function uid(){return crypto.randomUUID();}
+  function query(){var q=new URLSearchParams();if(testActor){q.set('testActor',testActor);}else{q.set('perspective',perspective);}return q.toString();}
+  function safeMessage(payload,status){var raw=payload&&payload.error;var message=raw&&typeof raw==='object'?raw.message:(typeof raw==='string'?raw:'');var ref=raw&&typeof raw==='object'?raw.requestRef:'';return (message||('操作未完成，请稍后重试（'+status+'）'))+(ref?' · 问题编号 '+ref:'');}
+  async function api(path,options){var response=await fetch(path,options||{});var payload=await response.json().catch(function(){return{};});if(!response.ok||!payload.ok)throw new Error(safeMessage(payload,response.status));return payload.data||{};}
+  function json(method,body){return{method:method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};}
+  function showError(error){feedback.textContent=error instanceof Error?error.message:'操作未完成，请稍后重试';}
+  function formatTime(value){if(!value)return'暂无';var d=new Date(value);return Number.isNaN(d.getTime())?'时间待确认':d.toLocaleString('zh-CN',{hour12:false});}
+  function detailPath(ref){return'/api/workbench/quality/events/'+encodeURIComponent(ref)+'?'+query();}
+  function setPerspective(next){if(next==='test'){var nav=document.getElementById('qualityTestNav');if(nav)nav.hidden=false;testActor='aftersales';perspective='aftersales';}else{testActor='';perspective=next;var testNav=document.getElementById('qualityTestNav');if(testNav)testNav.hidden=true;}page=1;current=null;if(detail)detail.hidden=true;syncNav();void loadList();}
+  function setTestActor(ref){testActor=ref;perspective=ref==='dashboard'?'dashboard':ref==='quality-management'?'quality_management':ref.indexOf('manager-')===0?'manager':'aftersales';page=1;current=null;if(detail)detail.hidden=true;syncNav();void loadList();}
+  function syncNav(){document.querySelectorAll('[data-perspective]').forEach(function(button){var key=button.getAttribute('data-perspective');button.classList.toggle('is-on',testActor?key==='test':key===perspective);});document.querySelectorAll('[data-test-actor]').forEach(function(button){button.classList.toggle('is-on',button.getAttribute('data-test-actor')===testActor);});}
+  function eventRow(item){var button=el('button','qt-event-row');button.type='button';var head=el('div','qt-event-row-head');head.appendChild(el('strong','',item.eventNumber+' · '+item.title));var status=el('span','qt-status',item.statusLabel);head.appendChild(status);button.appendChild(head);button.appendChild(el('p','qt-row-desc','当前处理：'+item.currentOwnerName+' · '+item.currentDepartmentName));button.appendChild(el('div','qt-row-meta','紧急程度：'+item.urgencyLabel+' · 更新：'+formatTime(item.updatedAt)+(item.testBadge?' · '+item.testBadge:'')));button.addEventListener('click',function(){void openEvent(item.actionRef);});return button;}
+  async function loadList(){clear(list);list.appendChild(el('div','qt-empty','正在加载质量事件…'));feedback.textContent='';try{var data=await api('/api/workbench/quality/events?page='+page+'&pageSize='+pageSize+'&'+query());clear(list);document.getElementById('qualityScopeLabel').textContent=data.scope==='test'?'隔离测试':'正式业务';document.getElementById('qualityMetricTotal').textContent=String(data.stats.total);document.getElementById('qualityMetricAction').textContent=String(data.stats.awaitingAction);document.getElementById('qualityMetricProgress').textContent=data.stats.inProgress+' / '+data.stats.closed;document.getElementById('qualityListTitle').textContent=data.perspective==='dashboard'?(data.scope==='test'?'测试看板':'质量事件看板'):'质量事件';document.getElementById('qualityListHint').textContent=data.readonly?'当前为只读预览。':'只显示您有权处理或查看的事件。';if(!data.events.length){list.appendChild(el('div','qt-empty',data.scope==='test'?'当前没有测试事件。':'当前视角暂无质量事件。'));return;}data.events.forEach(function(item){list.appendChild(eventRow(item));});}catch(error){clear(list);list.appendChild(el('div','qt-empty qt-error','质量事件加载失败，请稍后重试。'));showError(error);}}
+  function fact(mount,label,value){if(value===null||value===undefined||value==='')return;var box=el('div','qt-fact');box.appendChild(el('span','',label));box.appendChild(el('strong','',value));mount.appendChild(box);}
+  function renderEventFacts(view){var mount=document.getElementById('qualityEventFacts');clear(mount);var event=view.event;fact(mount,'事件编号',event.eventNumber);fact(mount,'当前状态',event.statusLabel);fact(mount,'紧急程度',event.urgencyLabel);fact(mount,'事件标题',event.title);fact(mount,'正式问题描述',event.currentSituation);fact(mount,'发生时间',event.occurredAt);fact(mount,'反馈人',event.feedbackName);fact(mount,'设备型号',event.deviceModel);fact(mount,'问题分类',event.initialCategory);fact(mount,'总体期限',event.overallDueAt);}
+  function renderSourceFacts(view){var mount=document.getElementById('qualitySourceFacts');clear(mount);if(!view.sourceFacts.length){mount.appendChild(el('div','qt-empty','当前事件没有可展示的来源字段。'));return;}view.sourceFacts.forEach(function(item){fact(mount,item.label,item.value);});}
+  function renderAssessment(view){var section=document.getElementById('qualityAssessmentSection');var mount=document.getElementById('qualityAssessment');clear(mount);if(!view.assessment){section.hidden=true;return;}section.hidden=false;var original=view.assessment.originalSuggestion;var left=el('article','qt-assessment-card');left.appendChild(el('span','qt-eyebrow','AI 原始建议'));left.appendChild(el('h4','',original.summary));fact(left,'建议处理',original.recommendedDecision);fact(left,'风险提示',original.suggestedRisk);fact(left,'证据情况',original.evidenceStrength);if(original.reasons.length)left.appendChild(el('p','qt-row-desc','判断依据：'+original.reasons.join('；')));mount.appendChild(left);var right=el('article','qt-assessment-card');right.appendChild(el('span','qt-eyebrow','主管最终研判'));if(!view.assessment.finalReviews.length)right.appendChild(el('p','qt-muted','暂未形成正式研判记录。'));view.assessment.finalReviews.forEach(function(review){right.appendChild(el('h4','',review.conclusion));right.appendChild(el('p','qt-row-desc',review.note));right.appendChild(el('div','qt-row-meta',review.reviewerName+' · '+formatTime(review.decidedAt)));});mount.appendChild(right);}
+  function analysisFields(){var form=document.getElementById('qualityPanelAnalysisForm');var data={};['problemDirection','confirmedCategory','sourceSummary','analysisBasis','initialConclusion','informationGaps','suggestedDepartment','processingRequirements','suggestedDueAt'].forEach(function(name){data[name]=String(form.elements.namedItem(name).value||'').trim();});var due=data.suggestedDueAt;if(due&&!/[zZ]|[+-]\d\d:\d\d$/.test(due)){data.suggestedDueAt=new Date(due).toISOString();}return data;}
+  function setAnalysis(view){var panel=document.getElementById('qualityAnalysisPanel');var bundle=view.initialAnalysis;if(!bundle){panel.hidden=true;return;}panel.hidden=false;var latest=bundle.latest;document.getElementById('qualityAnalysisVersion').textContent=latest?latest.versionLabel+' · '+latest.statusLabel:'未填写';var form=document.getElementById('qualityPanelAnalysisForm');['problemDirection','confirmedCategory','sourceSummary','analysisBasis','initialConclusion','informationGaps','suggestedDepartment','processingRequirements','suggestedDueAt'].forEach(function(name){var input=form.elements.namedItem(name);var value=latest?latest[name]:'';if(name==='suggestedDueAt'&&value)value=String(value).slice(0,16);input.value=value||'';input.disabled=view.readonly||view.perspective==='manager'||(latest&&latest.statusLabel==='已完成');});document.getElementById('qualityPanelAnalysisActions').hidden=view.readonly||view.perspective!=='quality_management'||Boolean(latest&&latest.statusLabel==='已完成');}
+  function renderBranch(view){var mount=document.getElementById('qualityPanelBranch');clear(mount);if(!view.branch.length){mount.appendChild(el('div','qt-empty','尚未形成责任分支。'));return;}view.branch.forEach(function(item){var card=el('article','qt-tree-node');card.style.marginLeft=Math.min(48,(item.parentActionRef?20:0))+'px';var top=el('div','qt-event-row-head');top.appendChild(el('strong','',item.assigneeName+' · '+item.assigneeTypeLabel));top.appendChild(el('span','qt-status',item.statusLabel));card.appendChild(top);card.appendChild(el('div','qt-row-meta',item.departmentName+' · 期限 '+formatTime(item.dueAt)));card.appendChild(el('p','qt-row-desc',item.requirement));mount.appendChild(card);});var actions=document.getElementById('qualityManagerActions');actions.hidden=view.readonly||view.perspective!=='manager'||view.allowedActions.indexOf('accept')<0&&view.allowedActions.indexOf('reject')<0;}
+  function renderEvidence(view){var mount=document.getElementById('qualityPanelEvidence');clear(mount);if(!view.evidence.length&&!view.reviews.length){mount.appendChild(el('div','qt-empty','当前分支尚无证据或验收记录。'));return;}view.evidence.forEach(function(item){var card=el('article','qt-mini-card');card.appendChild(el('strong','',item.fileName));card.appendChild(el('p','qt-row-desc',item.summary||'未填写摘要'));card.appendChild(el('div','qt-row-meta',item.uploaderName+' · '+formatTime(item.createdAt)));mount.appendChild(card);});view.reviews.forEach(function(item){var card=el('article','qt-mini-card');card.appendChild(el('strong','',item.conclusion+' · '+item.reviewerName));card.appendChild(el('p','qt-row-desc',item.reason));card.appendChild(el('div','qt-row-meta',formatTime(item.createdAt)));mount.appendChild(card);});}
+  function renderTimeline(mountId,items,kind){var mount=document.getElementById(mountId);clear(mount);if(!items.length){mount.appendChild(el('div','qt-empty',kind==='notice'?'暂无通知记录。':'暂无业务记录。'));return;}items.forEach(function(item){var row=el('article','qt-timeline-row');if(kind==='notice'){row.appendChild(el('strong','',item.resultLabel+' · '+item.recipientName));row.appendChild(el('p','qt-row-desc',item.subject));}else{row.appendChild(el('strong','',item.actionLabel+' · '+item.actorName));if(item.reason)row.appendChild(el('p','qt-row-desc',item.reason));}row.appendChild(el('time','qt-row-meta',formatTime(item.createdAt||item.occurredAt)));mount.appendChild(row);});}
+  async function openEvent(ref){feedback.textContent='正在加载详情…';try{var data=await api(detailPath(ref));current=data.viewModel;detail.hidden=false;document.getElementById('qualityActorLabel').textContent=current.actorLabel;document.getElementById('qualityPanelTitle').textContent=current.event.eventNumber+' · '+current.event.title;document.getElementById('qualityPanelSubtitle').textContent=current.event.statusLabel+' · 更新于 '+formatTime(current.event.updatedAt);document.getElementById('qualityReadonlyBanner').hidden=!current.readonly;renderEventFacts(current);renderSourceFacts(current);renderAssessment(current);renderAftersalesActions(current);setAnalysis(current);renderBranch(current);renderEvidence(current);renderQualityClosure(current);renderTimeline('qualityPanelAudit',current.audit,'audit');renderTimeline('qualityPanelNotifications',current.notifications,'notice');renderSupervisorPanel(current);feedback.textContent='';if(isAdmin&&!testActor){var managerButton=document.getElementById('qualityManagerPerspective');if(managerButton)managerButton.disabled=!current.supervisorAssignment.assigned;}detail.scrollIntoView({behavior:'smooth',block:'start'});}catch(error){showError(error);}}
+  function renderSupervisorPanel(view){var panel=document.getElementById('qualitySupervisorPanel');panel.hidden=view.perspective!=='quality_management';if(panel.hidden)return;document.getElementById('qualitySupervisorCurrent').textContent=view.supervisorAssignment.assigned?view.supervisorAssignment.departmentName+' · '+view.supervisorAssignment.supervisorName:'等待选择';var latest=view.initialAnalysis&&view.initialAnalysis.latest;document.getElementById('qualitySupervisorDue').value=latest&&latest.suggestedDueAt?String(latest.suggestedDueAt).slice(0,16):'';document.getElementById('qualitySupervisorRequirement').value=latest?latest.processingRequirements:'';var canAssign=!view.readonly&&view.allowedActions.indexOf('assign-supervisor')>=0;supervisorReadonly=!canAssign;document.getElementById('qualitySupervisorSubmit').hidden=!canAssign;document.getElementById('qualitySupervisorDue').disabled=!canAssign;document.getElementById('qualitySupervisorRequirement').disabled=!canAssign;document.getElementById('qualitySupervisorSearch').disabled=!canAssign;document.getElementById('qualitySupervisorSearchButton').disabled=!canAssign;void loadSupervisors('');}
+  async function loadSupervisors(keyword){var mount=document.getElementById('qualitySupervisorGroups');clear(mount);mount.appendChild(el('div','qt-empty','正在加载可选主管…'));selectedCandidate=null;document.getElementById('qualitySupervisorConfirm').textContent='尚未选择主管';try{var data=await api('/api/workbench/quality/events/'+encodeURIComponent(current.event.actionRef)+'/supervisor-options?q='+encodeURIComponent(keyword)+'&'+query());supervisorData=data.departments;renderSupervisorGroups();}catch(error){clear(mount);mount.appendChild(el('div','qt-empty qt-error','主管名单暂时无法加载。'));showError(error);}}
+  function renderSupervisorGroups(){var mount=document.getElementById('qualitySupervisorGroups');clear(mount);supervisorData.forEach(function(group){var wrap=el('section','qt-supervisor-group');var button=el('button','qt-supervisor-department',group.departmentName);button.type='button';button.setAttribute('aria-expanded','false');var options=el('div','qt-supervisor-options');options.hidden=true;if(!group.supervisors.length)options.appendChild(el('div','qt-muted','当前部门暂无可选主管'));group.supervisors.forEach(function(person){var option=el('button','qt-supervisor-option',person.displayName);option.type='button';option.disabled=supervisorReadonly;if(!supervisorReadonly)option.addEventListener('click',function(){document.querySelectorAll('.qt-supervisor-option').forEach(function(item){item.classList.remove('is-selected');});option.classList.add('is-selected');selectedCandidate=person;document.getElementById('qualitySupervisorConfirm').textContent=person.departmentName+' · '+person.displayName;});options.appendChild(option);});button.addEventListener('click',function(){document.querySelectorAll('.qt-supervisor-options').forEach(function(item){if(item!==options)item.hidden=true;});document.querySelectorAll('.qt-supervisor-department').forEach(function(item){if(item!==button)item.setAttribute('aria-expanded','false');});options.hidden=!options.hidden;button.setAttribute('aria-expanded',String(!options.hidden));});wrap.appendChild(button);wrap.appendChild(options);mount.appendChild(wrap);});}
+  async function saveAnalysis(complete){if(!current)return;feedback.textContent=complete?'正在完成初析…':'正在保存初析…';var latest=current.initialAnalysis&&current.initialAnalysis.latest;if(complete){if(!latest)throw new Error('请先保存初析草稿');await api('/api/workbench/quality/events/'+encodeURIComponent(current.event.actionRef)+'/analysis/complete?'+query(),json('POST',{analysisId:latest.actionRef,requestId:uid()}));}else{await api('/api/workbench/quality/events/'+encodeURIComponent(current.event.actionRef)+'/analysis?'+query(),json('POST',{expectedEventVersion:current.event.version,fields:analysisFields(),requestId:uid()}));}await openEvent(current.event.actionRef);}
+  async function assignSupervisor(){if(!current||!selectedCandidate)throw new Error('请先选择一名主管');var due=document.getElementById('qualitySupervisorDue').value;var requirement=document.getElementById('qualitySupervisorRequirement').value.trim();if(!due||!requirement)throw new Error('请填写任务总期限和处理要求');feedback.textContent='正在确认主管…';await api('/api/workbench/quality/events/'+encodeURIComponent(current.event.actionRef)+'/assign-supervisor?'+query(),json('POST',{candidateRef:selectedCandidate.candidateRef,dueAt:new Date(due).toISOString(),taskRequirement:requirement,expectedVersion:current.event.version,requestId:uid()}));await openEvent(current.event.actionRef);await loadList();}
+  async function managerAction(action){if(!current)return;var target=current.branch.find(function(item){return item.statusLabel==='待主管承接';});if(!target)throw new Error('当前没有待承接的主管任务');var reason='';if(action==='reject'){reason=window.prompt('请填写拒绝原因')||'';if(!reason)return;}feedback.textContent='正在处理…';await api('/api/workbench/quality/events/'+encodeURIComponent(current.event.actionRef)+'/manager-action?'+query(),json('POST',{action:action,actionRef:target.actionRef,expectedVersion:target.version,reason:reason,requestId:uid()}));await openEvent(current.event.actionRef);await loadList();}
+  function renderAftersalesActions(view){var panel=document.getElementById('qualityAftersalesActions');panel.hidden=view.readonly||view.perspective!=='aftersales'||view.allowedActions.indexOf('supplement')<0;if(panel.hidden)return;document.getElementById('qualityCorrectionTitle').value=view.event.title||'';document.getElementById('qualityCorrectionSituation').value=view.event.currentSituation||'';document.getElementById('qualityAftersalesNote').value='';}
+  async function aftersalesAction(action){if(!current)return;var note=document.getElementById('qualityAftersalesNote').value.trim();if(!note)throw new Error(action==='correct'?'请填写更正原因':'请填写补充内容');var path='/api/workbench/quality/events/'+encodeURIComponent(current.event.actionRef)+'/'+(action==='correct'?'corrections':'supplements')+'?'+query();var body={expectedVersion:current.event.version,requestId:uid()};if(action==='correct'){body.reason=note;body.patch={title:document.getElementById('qualityCorrectionTitle').value.trim(),currentSituation:document.getElementById('qualityCorrectionSituation').value.trim()};}else body.content=note;feedback.textContent='正在提交…';await api(path,json('POST',body));await openEvent(current.event.actionRef);await loadList();}
+  function renderQualityClosure(view){var panel=document.getElementById('qualityClosurePanel');var actions=document.getElementById('qualityClosureActions');var select=document.getElementById('qualityClosureNode');clear(actions);clear(select);var allowed=view.perspective==='quality_management'&&!view.readonly?view.allowedActions:[];panel.hidden=!allowed.some(function(item){return item==='return-node'||item==='close'||item==='reopen';});if(panel.hidden)return;view.branch.forEach(function(node){var option=el('option','',node.assigneeName+' · '+node.departmentName+' · '+node.statusLabel);option.value=node.actionRef;select.appendChild(option);});allowed.forEach(function(action){if(action!=='return-node'&&action!=='close'&&action!=='reopen')return;var labels={'return-node':'退回所选节点','close':'确认终验并关闭','reopen':'从所选节点重开'};var button=el('button',action==='close'?'btn btn-primary':'btn btn-secondary',labels[action]);button.type='button';button.addEventListener('click',function(){void qualityClosureAction(action).catch(showError);});actions.appendChild(button);});}
+  async function qualityClosureAction(action){if(!current)return;var node=document.getElementById('qualityClosureNode').value;var note=document.getElementById('qualityClosureReason').value.trim();if(!note)throw new Error(action==='close'?'请填写终验结论':'请填写处理原因');if(action!=='close'&&!node)throw new Error('请选择责任节点');feedback.textContent='正在提交质量终验操作…';var body={expectedVersion:current.event.version,requestId:uid()};if(action==='close')body.conclusion=note;else{body.nodeId=node;body.reason=note;}await api('/api/workbench/quality/events/'+encodeURIComponent(current.event.actionRef)+'/'+action+'?'+query(),json('POST',body));await openEvent(current.event.actionRef);await loadList();}
+  document.querySelectorAll('[data-perspective]').forEach(function(button){button.addEventListener('click',function(){if(button.disabled)return;setPerspective(button.getAttribute('data-perspective'));});});
+  document.querySelectorAll('[data-test-actor]').forEach(function(button){button.addEventListener('click',function(){setTestActor(button.getAttribute('data-test-actor'));});});
+  document.getElementById('qualityPanelClose').addEventListener('click',function(){detail.hidden=true;current=null;});
+  document.getElementById('qualityPanelAnalysisSave').addEventListener('click',function(){void saveAnalysis(false).catch(showError);});
+  document.getElementById('qualityPanelAnalysisComplete').addEventListener('click',function(){void saveAnalysis(true).catch(showError);});
+  document.getElementById('qualitySupervisorSearchButton').addEventListener('click',function(){void loadSupervisors(document.getElementById('qualitySupervisorSearch').value.trim());});
+  document.getElementById('qualitySupervisorSubmit').addEventListener('click',function(){void assignSupervisor().catch(showError);});
+  document.querySelectorAll('[data-manager-action]').forEach(function(button){button.addEventListener('click',function(){void managerAction(button.getAttribute('data-manager-action')).catch(showError);});});
+  document.querySelectorAll('[data-aftersales-action]').forEach(function(button){button.addEventListener('click',function(){void aftersalesAction(button.getAttribute('data-aftersales-action')).catch(showError);});});
+  syncNav();void loadList();
+})();`;
+}

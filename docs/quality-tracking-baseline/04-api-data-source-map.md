@@ -1,6 +1,6 @@
 ---
 status: baseline
-last_verified_at: 2026-08-25
+last_verified_at: 2026-08-27
 verified_against: working-tree
 scope: current-api-data-and-source-map
 maintainer: EDY
@@ -132,6 +132,16 @@ maintainer: EDY
 用途：返回事件、来源快照、关系、责任节点、证据、审核、通知、审计和 `allowedActions`。敏感通知错误按角色脱敏。
 
 实现：`src/quality/queries/quality-event-query.ts`。
+
+当 `QUALITY_EVENT_ROLE_PANELS_ENABLED=1` 时，该路径返回 `viewModel`：售后主管、质量管理、主管、看板四类字段白名单由 `quality-event-perspective.ts` 服务端生成。管理员真实视角为只读；`testActor` 仅在 `QUALITY_TEST_ACTORS_ENABLED=1` 且当前会话为 admin 时生效。
+
+### 多视角主管选择 API
+
+- `GET /api/workbench/quality/events/{eventId}/supervisor-options`：返回固定七部门及可选主管姓名、部门和不展示的 `candidateRef`；测试事件仅返回两个测试主管。
+- `POST /api/workbench/quality/events/{eventId}/assign-supervisor`：只接受单个 `candidateRef`，服务端再次验证事件范围、人员有效性、主管标记、部门和版本。
+- `POST /api/workbench/quality/events/{eventId}/manager-action`：仅管理员测试视角使用，测试主管可承接或带原因拒绝；真实主管仍从原任务工作台处理。
+
+上述接口的失败响应使用安全中文、错误分类和问题编号，不返回 SQL、堆栈或后台异常正文。
 
 ### `PATCH /api/workbench/quality/events/{eventId}/draft`
 
@@ -274,6 +284,12 @@ V2 下 `assign-primary` 和 `due` 被服务端拒绝。人员、执行人和期�
 实现：`src/quality/comments/quality-private-comment-service.ts`。
 
 ## 9. SQLite 数据地图
+
+### 测试范围与审计
+
+- `quality_events.is_test`：`0` 为正式业务，旧行迁移默认 `0`；`1` 为受控测试种子事件。
+- `quality_test_action_audit`：只记录测试 actor、实际 admin、动作、请求键和时间，不替代公开业务审计。
+- `quality_notification_outbox.channel='TEST'`：测试事件模拟通知；enqueue 和 scheduler 两处均验证收件人边界，永不调用钉钉 notifier。
 
 ### 来源层
 

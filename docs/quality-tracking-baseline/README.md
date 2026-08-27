@@ -1,6 +1,6 @@
 ---
 status: baseline
-last_verified_at: 2026-08-25
+last_verified_at: 2026-08-27
 verified_against: working-tree
 scope: current-quality-tracking-without-ai-and-smart-assignment
 maintainer: EDY
@@ -74,6 +74,9 @@ maintainer: EDY
 - 研判页面真实调用现有 HTTP API 和 SQLite，不是静态 HTML。
 - 当前没有真实 AI 研判服务。
 - 质量 review 页面相关 lint、typecheck 和 Vitest 曾通过；后续修改仍须重新验证。
+- `QUALITY_EVENT_ROLE_PANELS_ENABLED=1` 时，`/workbench/quality` 使用服务端多视角投影；管理员可只读预览马荣鑫、佟成、主管和看板视角。
+- `QUALITY_TEST_ACTORS_ENABLED=1` 时，仅管理员可进入四个固定虚拟身份及测试看板；`quality_events.is_test`、质量动作审计和通知双门禁保证测试/真实数据隔离。
+- 质量专用主管选择器按七个确认部门读取通讯录主管标记与补充配置；测试主管不会写入通讯录、通用主管白名单或正式任务桥接。
 
 ## 核心不变量
 

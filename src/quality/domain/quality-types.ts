@@ -92,6 +92,7 @@ export type QualityAuditActorRole =
 export interface QualityEventRecord {
   eventId: string;
   eventNo: string;
+  isTest: boolean;
   status: QualityEventStatus;
   title: string;
   problemStatus: string;

@@ -123,6 +123,7 @@ function eventFromRow(row: DatabaseRow): QualityEventRecord {
   return {
     eventId: String(row.id),
     eventNo: String(row.event_no),
+    isTest: Number(row.is_test ?? 0) === 1,
     status: String(row.status) as QualityEventRecord["status"],
     title: String(row.title),
     problemStatus: String(row.problem_status),
@@ -373,11 +374,13 @@ export function createQualityEventService(deps?: {
       return transaction(db, () => {
         db.prepare(`
         INSERT INTO quality_events (
-          id, event_no, status, title, problem_status, occurred_at, feedback_at,
+          id, event_no, is_test, status, title, problem_status, occurred_at, feedback_at,
           feedback_user_id, feedback_name, device_model, device_serial, catheter_batch,
           clinician_aware, impact, initial_category, urgency, supplement, created_by,
           version, created_at, updated_at
-        ) VALUES (?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        ) VALUES (
+          ?, ?, 0, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?
+        )
         `).run(
           newEventId,
           eventNo(),

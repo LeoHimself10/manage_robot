@@ -1,6 +1,7 @@
 import type { WorkbenchShellRole } from "./workbench-shell";
 import { renderWorkbenchPage } from "./workbench-shell";
 import { QUALITY_TRACKING_STYLES } from "./quality-tracking-styles";
+import { renderQualityRolePanelsPage } from "./quality-role-panels-page";
 
 export function renderQualityTrackingPage(params: {
   role: WorkbenchShellRole;
@@ -11,7 +12,11 @@ export function renderQualityTrackingPage(params: {
   hasQualityManagement?: boolean;
   canManage?: boolean;
   taskPlanningV2Enabled?: boolean;
+  rolePanelsEnabled?: boolean;
+  testActorsEnabled?: boolean;
+  isAdmin?: boolean;
 }): string {
+  if (params.rolePanelsEnabled) return renderQualityRolePanelsPage(params);
   const hasAftersales = params.canReport !== false;
   const hasSpecialist = params.isSpecialist === true || params.hasQualityManagement === true;
   const planningV2 = params.taskPlanningV2Enabled === true;

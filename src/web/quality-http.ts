@@ -1,7 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import { z, ZodError } from "zod";
 import { refreshQualityCandidates } from "../quality/candidates/quality-candidate-detector";
 import { createQualityAssignmentService } from "../quality/assignments/quality-assignment-service";
+import { createQualitySupervisorDirectory } from "../quality/assignments/quality-supervisor-directory";
 import { createQualityClosureService } from "../quality/closure/quality-closure-service";
 import { createQualityPrivateCommentService } from "../quality/comments/quality-private-comment-service";
 import {
@@ -20,6 +23,11 @@ import { createQualitySourceReviewService } from "../quality/reviews/quality-sou
 import { getQualityEvidencePackage } from "../quality/reviews/quality-event-projector";
 import { createQualityReadStore } from "../quality/infra/quality-read-store";
 import { createQualityEventQuery } from "../quality/queries/quality-event-query";
+import {
+  createQualityEventPerspectiveProjector,
+  resolveQualityPerspectiveContext,
+  type QualityPerspectiveRequest,
+} from "../quality/presentation/quality-event-perspective";
 import { createQualityReviewQuery } from "../quality/queries/quality-review-query";
 import { createQualityNotificationOutbox } from "../quality/notifications/quality-notification-outbox";
 import { createQualityStore } from "../quality/infra/quality-store";
@@ -41,6 +49,12 @@ import { renderQualityTrackingPage } from "./quality-tracking-page";
 import { renderQualityReviewPage } from "./quality-review-page";
 import { renderQualityOpinionsPage } from "./quality-opinions-page";
 import type { WorkbenchShellRole } from "./workbench-shell";
+import {
+  isQualityRolePanelsEnabled,
+  isQualityTestActorsEnabled,
+} from "../quality/testing/quality-feature-flags";
+import { appendQualityTestActionAudit } from "../quality/testing/quality-test-boundary";
+import { resolveWorkbenchSqlitePath } from "../infra/workbench-db-path";
 
 export interface QualityHttpSession {
   userId: string;
@@ -81,6 +95,7 @@ export function isQualityApiPath(pathname: string): boolean {
     || /^\/api\/workbench\/quality\/nodes\/[^/]+\/review$/.test(pathname)
     || /^\/api\/workbench\/quality\/evidence\/[^/]+$/.test(pathname)
     || /^\/api\/workbench\/quality\/events\/[^/]+\/(?:primary-review|evidence-package|assign-primary|due|return-node|close|reopen)$/.test(pathname)
+    || /^\/api\/workbench\/quality\/events\/[^/]+\/(?:supervisor-options|assign-supervisor|manager-action)$/.test(pathname)
     || /^\/api\/workbench\/quality\/events\/[^/]+\/(?:analysis|analysis\/complete|planning-session)$/.test(pathname)
     || /^\/api\/workbench\/quality\/candidates\/[^/]+\/dismiss$/.test(pathname)
     || /^\/api\/workbench\/quality\/source\/[^/]+\/(?:review|writeback\/retry)$/.test(pathname)
@@ -98,8 +113,20 @@ function writeJson(res: ServerResponse, statusCode: number, body: unknown): void
   res.end(JSON.stringify(body));
 }
 
+function userError(message: string, errorCategory: string): Record<string, unknown> {
+  if (!isQualityRolePanelsEnabled()) return { ok: false, error: message };
+  return {
+    ok: false,
+    error: {
+      message,
+      errorCategory,
+      requestRef: `Q-${randomUUID().slice(0, 8).toUpperCase()}`,
+    },
+  };
+}
+
 function forbidden(res: ServerResponse): void {
-  writeJson(res, 403, { ok: false, error: "无质量业务访问权限" });
+  writeJson(res, 403, userError("无质量业务访问权限", "permission"));
 }
 
 function hasRole(session: QualityHttpSession, role: "aftersales_manager" | "quality_specialist"): boolean {
@@ -167,50 +194,72 @@ function errorResponse(error: unknown): { status: number; body: Record<string, u
     return {
       status: 409,
       body: {
-        ok: false,
-        error: "该来源已经通报",
-        data: { existingEventId: sourceDuplicate[1] },
+        ...userError("该来源已经通报", "conflict"),
+        data: { actionRef: sourceDuplicate[1] },
       },
     };
   }
   if (message.includes("version conflict")) {
-    return { status: 409, body: { ok: false, error: "版本冲突，请刷新后重试" } };
+    return { status: 409, body: userError("版本冲突，请刷新后重试", "conflict") };
   }
   if (/not found/.test(message)) {
-    return { status: 404, body: { ok: false, error: "记录不存在或无权访问" } };
+    return { status: 404, body: userError("记录不存在或无权访问", "not_found") };
   }
   if (message.includes("forbidden")) {
-    return { status: 403, body: { ok: false, error: "无质量业务操作权限" } };
+    return { status: 403, body: userError("无质量业务操作权限", "permission") };
   }
   if (/仅人工处理状态/.test(message)) {
-    return { status: 409, body: { ok: false, error: message } };
+    return { status: 409, body: userError(message, "conflict") };
   }
   if (/只有|只能|仅|无权|不属于/.test(message)) {
-    return { status: 403, body: { ok: false, error: message } };
+    return { status: 403, body: userError(message, "permission") };
   }
   if (/超过 20 MB|file too large|exceeded/.test(message)) {
-    return { status: 413, body: { ok: false, error: "证据文件不能超过 20 MB" } };
+    return { status: 413, body: userError("证据文件不能超过 20 MB", "validation") };
   }
   if (/文件类型不允许|file type not allowed/.test(message)) {
-    return { status: 415, body: { ok: false, error: "不支持该证据文件类型" } };
+    return { status: 415, body: userError("不支持该证据文件类型", "validation") };
   }
-  if (/当前不可|不能晚于|不可替换/.test(message)) {
-    return { status: 409, body: { ok: false, error: message } };
+  if (/当前不可|不能晚于|不可替换|候选已失效/.test(message)) {
+    return { status: 409, body: userError(message, "conflict") };
   }
   if (/不在待|当前节点/.test(message)) {
-    return { status: 409, body: { ok: false, error: message } };
+    return { status: 409, body: userError(message, "conflict") };
   }
   if (/必填|必须选择/.test(message)) {
-    return { status: 400, body: { ok: false, error: message } };
+    return { status: 400, body: userError(message, "validation") };
   }
   if (error instanceof ZodError || error instanceof SyntaxError || /required|invalid|must|empty|too large|reason/.test(message)) {
-    return { status: 400, body: { ok: false, error: "请求内容不符合要求" } };
+    return { status: 400, body: userError("请求内容不符合要求", "validation") };
   }
   console.error(JSON.stringify({
     event: "quality_http_failed",
     error: message.slice(0, 500),
   }));
-  return { status: 500, body: { ok: false, error: "质量业务暂时无法处理，请稍后重试" } };
+  return { status: 500, body: userError("质量业务暂时无法处理，请稍后重试", "temporary") };
+}
+
+function perspectiveRequest(url: URL, session: QualityHttpSession): QualityPerspectiveRequest {
+  return {
+    viewerUserId: session.userId,
+    perspective: url.searchParams.get("perspective") as QualityPerspectiveRequest["perspective"],
+    testActorRef: isQualityTestActorsEnabled() ? url.searchParams.get("testActor") : null,
+  };
+}
+
+function recordTestHttpAction(input: {
+  eventId: string;
+  testActorUserId: string;
+  actualAdminUserId: string;
+  action: string;
+  requestId: string;
+}): void {
+  const db = new DatabaseSync(resolveWorkbenchSqlitePath());
+  try {
+    appendQualityTestActionAudit(db, { ...input, occurredAt: new Date().toISOString() });
+  } finally {
+    db.close();
+  }
 }
 
 function detailForActor(eventId: string, session: QualityHttpSession) {
@@ -219,6 +268,18 @@ function detailForActor(eventId: string, session: QualityHttpSession) {
     return store.getEventDetail({ eventId, viewerUserId: session.userId });
   } finally {
     store.close();
+  }
+}
+
+function projectedDetail(eventId: string, url: URL, session: QualityHttpSession) {
+  const projector = createQualityEventPerspectiveProjector();
+  try {
+    return projector.getEventDetail({
+      ...perspectiveRequest(url, session),
+      eventId,
+    });
+  } finally {
+    projector.close();
   }
 }
 
@@ -253,6 +314,8 @@ async function handleQualityApi(input: {
   try {
     createQualityStore().close();
     const caps = resolveQualityCapabilities(session.userId);
+    const workbenchCaps = resolveWorkbenchCapabilities(session.userId);
+    const isAdmin = workbenchCaps.primaryRole === "admin";
     const aftersales = caps.roles.includes("aftersales_manager");
     const specialist = caps.hasQualityManagement;
 
@@ -285,7 +348,10 @@ async function handleQualityApi(input: {
       }
       const eventId = decodeURIComponent(qualityAnalysisMatch[1]!);
       const action = qualityAnalysisMatch[2]!;
-      const visible = detailForActor(eventId, session);
+      const projected = isQualityRolePanelsEnabled()
+        ? projectedDetail(eventId, url, session)
+        : null;
+      const visible = isQualityRolePanelsEnabled() ? projected : detailForActor(eventId, session);
       if (!visible) {
         writeJson(res, 404, { ok: false, error: "记录不存在或无权访问" });
         return;
@@ -293,6 +359,14 @@ async function handleQualityApi(input: {
       const planning = createQualityPlanningService();
       try {
         if (req.method === "GET" && action === "analysis") {
+          if (isQualityRolePanelsEnabled()) {
+            const viewModel = projected!.viewModel as Record<string, unknown>;
+            writeJson(res, 200, {
+              ok: true,
+              data: { initialAnalysis: viewModel.initialAnalysis ?? { latest: null, versions: [] } },
+            });
+            return;
+          }
           writeJson(res, 200, {
             ok: true,
             data: {
@@ -304,27 +378,64 @@ async function handleQualityApi(input: {
         }
         const body = await readJsonBody(req);
         if (req.method === "POST" && action === "analysis") {
-          if (!caps.hasQualityManagement) throw new Error("quality action forbidden");
+          const context = isQualityRolePanelsEnabled()
+            ? projected!.context
+            : null;
+          if (context) {
+            if (context.perspective !== "quality_management" || context.readonly) {
+              throw new Error("quality action forbidden");
+            }
+          } else if (!caps.hasQualityManagement) throw new Error("quality action forbidden");
+          const actorUserId = context?.actorUserId ?? session.userId;
+          const testAuditRequestId = context?.scope === "test" ? requestId(body.requestId) : null;
           const analysis = planning.saveAnalysisDraft({
             eventId,
-            actorUserId: session.userId,
+            actorUserId,
             expectedEventVersion: z.number().int().positive().parse(body.expectedEventVersion),
             fields: qualityAnalysisFieldsSchema.parse(body.fields),
           });
-          writeJson(res, 200, { ok: true, data: { analysis } });
+          if (context?.scope === "test") recordTestHttpAction({
+            eventId,
+            testActorUserId: actorUserId,
+            actualAdminUserId: session.userId,
+            action: "INITIAL_ANALYSIS_SAVED",
+            requestId: testAuditRequestId!,
+          });
+          writeJson(res, 200, isQualityRolePanelsEnabled()
+            ? { ok: true, data: { updated: true } }
+            : { ok: true, data: { analysis } });
           return;
         }
         if (req.method === "POST" && action === "analysis/complete") {
-          if (!caps.hasQualityManagement) throw new Error("quality action forbidden");
+          const context = isQualityRolePanelsEnabled() ? projected!.context : null;
+          if (context) {
+            if (context.perspective !== "quality_management" || context.readonly) {
+              throw new Error("quality action forbidden");
+            }
+          } else if (!caps.hasQualityManagement) throw new Error("quality action forbidden");
+          const actorUserId = context?.actorUserId ?? session.userId;
+          const testAuditRequestId = context?.scope === "test" ? requestId(body.requestId) : null;
           const analysis = planning.completeAnalysis({
             eventId,
-            actorUserId: session.userId,
+            actorUserId,
             analysisId: z.string().trim().min(1).parse(body.analysisId),
           });
-          writeJson(res, 200, { ok: true, data: { analysis } });
+          if (context?.scope === "test") recordTestHttpAction({
+            eventId,
+            testActorUserId: actorUserId,
+            actualAdminUserId: session.userId,
+            action: "INITIAL_ANALYSIS_COMPLETED",
+            requestId: testAuditRequestId!,
+          });
+          writeJson(res, 200, isQualityRolePanelsEnabled()
+            ? { ok: true, data: { updated: true } }
+            : { ok: true, data: { analysis } });
           return;
         }
         if (req.method === "POST" && action === "planning-session") {
+          if (projected?.context.scope === "test") {
+            throw new Error("测试事件不会进入真实任务分配系统");
+          }
           if (!resolveWorkbenchCapabilities(session.userId).canManage) {
             throw new Error("只有主管可以进入任务分配");
           }
@@ -638,7 +749,7 @@ async function handleQualityApi(input: {
         forbidden(res);
         return;
       }
-    } else if (!caps.canAccessTracking) {
+    } else if (!caps.canAccessTracking && !isAdmin) {
       forbidden(res);
       return;
     }
@@ -704,6 +815,34 @@ async function handleQualityApi(input: {
     }
 
     if (req.method === "GET" && url.pathname === "/api/workbench/quality/events") {
+      if (isQualityRolePanelsEnabled()) {
+        const projector = createQualityEventPerspectiveProjector();
+        try {
+          const projected = projector.listEvents(perspectiveRequest(url, session));
+          const page = parsePositiveInt(url.searchParams.get("page"), 1);
+          const pageSize = parsePositiveInt(url.searchParams.get("pageSize"), 50, 200);
+          const start = (page - 1) * pageSize;
+          writeJson(res, 200, {
+            ok: true,
+            data: {
+              scope: projected.context.scope,
+              perspective: projected.context.perspective,
+              readonly: projected.context.readonly,
+              events: projected.events.slice(start, start + pageSize),
+              stats: projected.stats,
+              pagination: {
+                page,
+                pageSize,
+                total: projected.events.length,
+                pageCount: Math.ceil(projected.events.length / pageSize),
+              },
+            },
+          });
+        } finally {
+          projector.close();
+        }
+        return;
+      }
       const store = createQualityEventQuery();
       try {
         const events = store.listEvents({ viewerUserId: session.userId });
@@ -723,13 +862,122 @@ async function handleQualityApi(input: {
       return;
     }
 
+    const supervisorOptions = url.pathname.match(
+      /^\/api\/workbench\/quality\/events\/([^/]+)\/supervisor-options$/,
+    );
+    if (req.method === "GET" && supervisorOptions && isQualityRolePanelsEnabled()) {
+      const eventId = decodeURIComponent(supervisorOptions[1]!);
+      const projected = projectedDetail(eventId, url, session);
+      if (!projected || projected.context.perspective !== "quality_management") {
+        throw new Error("quality action forbidden");
+      }
+      const qualityStore = createQualityStore();
+      let event;
+      try {
+        event = qualityStore.getEvent(eventId);
+      } finally {
+        qualityStore.close();
+      }
+      if (!event) throw new Error("quality event not found");
+      const directory = createQualitySupervisorDirectory();
+      try {
+        writeJson(res, 200, {
+          ok: true,
+          data: {
+            departments: directory.listGroups({
+              eventId,
+              isTest: event.isTest,
+              query: url.searchParams.get("q") ?? "",
+            }),
+          },
+        });
+      } finally {
+        directory.close();
+      }
+      return;
+    }
+
+    const assignSupervisor = url.pathname.match(
+      /^\/api\/workbench\/quality\/events\/([^/]+)\/assign-supervisor$/,
+    );
+    if (req.method === "POST" && assignSupervisor && isQualityRolePanelsEnabled()) {
+      const eventId = decodeURIComponent(assignSupervisor[1]!);
+      const projected = projectedDetail(eventId, url, session);
+      if (!projected || projected.context.perspective !== "quality_management" || projected.context.readonly) {
+        throw new Error("quality action forbidden");
+      }
+      const body = await readJsonBody(req);
+      const service = createQualityAssignmentService();
+      try {
+        await service.assignSupervisor({
+          eventId,
+          specialistUserId: projected.context.actorUserId,
+          actualAdminUserId: projected.context.scope === "test" ? session.userId : undefined,
+          candidateRef: z.string().trim().min(1).max(200).parse(body.candidateRef),
+          dueAt: z.string().trim().min(1).max(64).parse(body.dueAt),
+          taskRequirement: z.string().trim().min(1).max(5000).parse(body.taskRequirement),
+          expectedVersion: z.number().int().positive().parse(body.expectedVersion),
+          requestId: requestId(body.requestId),
+        });
+      } finally {
+        service.close();
+      }
+      const updated = projectedDetail(eventId, url, session);
+      writeJson(res, 201, { ok: true, data: { viewModel: updated?.viewModel } });
+      return;
+    }
+
+    const managerAction = url.pathname.match(
+      /^\/api\/workbench\/quality\/events\/([^/]+)\/manager-action$/,
+    );
+    if (req.method === "POST" && managerAction && isQualityRolePanelsEnabled()) {
+      const eventId = decodeURIComponent(managerAction[1]!);
+      const projected = projectedDetail(eventId, url, session);
+      if (!projected || projected.context.scope !== "test"
+        || projected.context.perspective !== "manager" || projected.context.readonly) {
+        throw new Error("quality action forbidden");
+      }
+      const body = await readJsonBody(req);
+      const action = z.enum(["accept", "reject"]).parse(body.action);
+      const actionRef = z.string().trim().min(1).max(300).parse(body.actionRef);
+      const branch = (projected.viewModel as { branch?: Array<{ actionRef?: string }> }).branch ?? [];
+      if (!branch.some((node) => node.actionRef === actionRef)) throw new Error("记录不存在或无权访问");
+      const service = createQualityAssignmentService();
+      try {
+        const common = {
+          nodeId: actionRef,
+          actorUserId: projected.context.actorUserId,
+          actualAdminUserId: session.userId,
+          expectedVersion: z.number().int().positive().parse(body.expectedVersion),
+          requestId: requestId(body.requestId),
+        };
+        if (action === "accept") await service.acceptNode(common);
+        else await service.rejectNode({
+          ...common,
+          reason: z.string().trim().min(1).max(1000).parse(body.reason),
+        });
+      } finally {
+        service.close();
+      }
+      const updated = projectedDetail(eventId, url, session);
+      writeJson(res, 200, { ok: true, data: { viewModel: updated?.viewModel } });
+      return;
+    }
+
     const specialistAction = url.pathname.match(/^\/api\/workbench\/quality\/events\/([^/]+)\/(assign-primary|due|return-node|close|reopen)$/);
     if (req.method === "POST" && specialistAction) {
-      if (!specialist) throw new Error("仅质量专员可执行该操作");
       const eventId = decodeURIComponent(specialistAction[1]!);
       const action = specialistAction[2]!;
+      const projected = isQualityRolePanelsEnabled() ? projectedDetail(eventId, url, session) : null;
+      const testSpecialist = projected?.context.scope === "test"
+        && projected.context.perspective === "quality_management"
+        && !projected.context.readonly;
+      if (!specialist && !testSpecialist) throw new Error("仅质量专员可执行该操作");
+      const specialistUserId = testSpecialist ? projected!.context.actorUserId : session.userId;
+      const actualAdminUserId = testSpecialist ? session.userId : undefined;
       const body = await readJsonBody(req);
       if (action === "assign-primary" || action === "due") {
+        if (testSpecialist) throw new Error("测试视角请使用主管选择器");
         if (isQualityTaskPlanningV2Enabled()) {
           throw new Error("统一任务分配已启用，负责人和期限只能在原任务系统调整");
         }
@@ -738,7 +986,7 @@ async function handleQualityApi(input: {
           if (action === "assign-primary") {
             const result = await service.assignPrimary({
               eventId,
-              specialistUserId: session.userId,
+              specialistUserId,
               primaryManagerUserId: z.string().trim().min(1).max(200).parse(body.primaryManagerUserId),
               dueAt: z.string().trim().min(1).max(64).parse(body.dueAt),
               taskRequirement: z.string().trim().min(1).max(5000).parse(body.taskRequirement),
@@ -749,7 +997,7 @@ async function handleQualityApi(input: {
           } else {
             const event = await service.changeEventDueAt({
               eventId,
-              specialistUserId: session.userId,
+              specialistUserId,
               dueAt: z.string().trim().min(1).max(64).parse(body.dueAt),
               reason: z.string().trim().min(1).max(1000).parse(body.reason),
               expectedVersion: parsePositiveInt(body.expectedVersion, 0),
@@ -764,24 +1012,31 @@ async function handleQualityApi(input: {
       try {
         if (action === "return-node") {
           const result = service.returnSpecificNode({
-            eventId, nodeId: z.string().trim().min(1).max(300).parse(body.nodeId), specialistUserId: session.userId,
+            eventId, nodeId: z.string().trim().min(1).max(300).parse(body.nodeId), specialistUserId,
+            actualAdminUserId,
             reason: z.string().trim().min(1).max(2000).parse(body.reason), expectedVersion: parsePositiveInt(body.expectedVersion, 0), requestId: requestId(body.requestId),
           });
-          writeJson(res, 200, { ok: true, data: result });
+          if (!isQualityRolePanelsEnabled()) writeJson(res, 200, { ok: true, data: result });
         } else if (action === "close") {
           const event = service.closeEvent({
-            eventId, specialistUserId: session.userId, conclusion: z.string().trim().min(1).max(10000).parse(body.conclusion),
+            eventId, specialistUserId, actualAdminUserId,
+            conclusion: z.string().trim().min(1).max(10000).parse(body.conclusion),
             expectedVersion: parsePositiveInt(body.expectedVersion, 0), requestId: requestId(body.requestId),
           });
-          writeJson(res, 200, { ok: true, data: { event } });
+          if (!isQualityRolePanelsEnabled()) writeJson(res, 200, { ok: true, data: { event } });
         } else {
           const result = service.reopenEvent({
-            eventId, nodeId: z.string().trim().min(1).max(300).parse(body.nodeId), specialistUserId: session.userId,
+            eventId, nodeId: z.string().trim().min(1).max(300).parse(body.nodeId), specialistUserId,
+            actualAdminUserId,
             reason: z.string().trim().min(1).max(2000).parse(body.reason), expectedVersion: parsePositiveInt(body.expectedVersion, 0), requestId: requestId(body.requestId),
           });
-          writeJson(res, 200, { ok: true, data: result });
+          if (!isQualityRolePanelsEnabled()) writeJson(res, 200, { ok: true, data: result });
         }
       } finally { service.close(); }
+      if (isQualityRolePanelsEnabled()) {
+        const updated = projectedDetail(eventId, url, session);
+        writeJson(res, 200, { ok: true, data: { viewModel: updated?.viewModel } });
+      }
       return;
     }
 
@@ -836,6 +1091,15 @@ async function handleQualityApi(input: {
       const action = eventMatch[2] ?? "detail";
 
       if (req.method === "GET" && action === "detail") {
+        if (isQualityRolePanelsEnabled()) {
+          const projected = projectedDetail(eventId, url, session);
+          if (!projected) {
+            writeJson(res, 404, userError("记录不存在或无权访问", "not_found"));
+            return;
+          }
+          writeJson(res, 200, { ok: true, data: { viewModel: projected.viewModel } });
+          return;
+        }
         const detail = detailForActor(eventId, session);
         if (!detail) {
           writeJson(res, 404, { ok: false, error: "记录不存在或无权访问" });
@@ -868,9 +1132,15 @@ async function handleQualityApi(input: {
       }
 
       const body = await readJsonBody(req);
+      const panelProjected = isQualityRolePanelsEnabled() ? projectedDetail(eventId, url, session) : null;
+      const testAftersales = panelProjected?.context.scope === "test"
+        && panelProjected.context.perspective === "aftersales"
+        && !panelProjected.context.readonly;
       const service = createQualityEventService();
       try {
-        const aftersalesActor = () => actorFor(session, "aftersales_manager");
+        const aftersalesActor = (): QualityEventActor => testAftersales
+          ? { userId: panelProjected!.context.actorUserId, role: "aftersales_manager" }
+          : actorFor(session, "aftersales_manager");
         if (req.method === "PATCH" && action === "draft") {
           const event = service.updateDraft({
             actor: aftersalesActor(),
@@ -906,26 +1176,48 @@ async function handleQualityApi(input: {
           return;
         }
         if (req.method === "POST" && action === "supplements") {
+          const auditRequestId = requestId(body.requestId);
           const result = service.addSupplement({
-            actor: actorFor(session),
+            actor: isQualityRolePanelsEnabled() ? aftersalesActor() : actorFor(session),
             eventId,
             expectedVersion: parsePositiveInt(body.expectedVersion, 0),
-            requestId: requestId(body.requestId),
+            requestId: auditRequestId,
             content: z.string().trim().min(1).max(10000).parse(body.content),
           });
-          writeJson(res, 201, { ok: true, data: result });
+          if (testAftersales) recordTestHttpAction({
+            eventId,
+            testActorUserId: panelProjected!.context.actorUserId,
+            actualAdminUserId: session.userId,
+            action: "EVENT_SUPPLEMENTED",
+            requestId: auditRequestId,
+          });
+          if (isQualityRolePanelsEnabled()) {
+            const updated = projectedDetail(eventId, url, session);
+            writeJson(res, 201, { ok: true, data: { viewModel: updated?.viewModel } });
+          } else writeJson(res, 201, { ok: true, data: result });
           return;
         }
         if (req.method === "POST" && action === "corrections") {
+          const auditRequestId = requestId(body.requestId);
           const event = service.correctSubmittedReport({
             actor: aftersalesActor(),
             eventId,
             expectedVersion: parsePositiveInt(body.expectedVersion, 0),
-            requestId: requestId(body.requestId),
+            requestId: auditRequestId,
             reason: z.string().trim().min(1).max(1000).parse(body.reason),
             patch: qualityDraftPatchSchema.parse(body.patch),
           });
-          writeJson(res, 200, { ok: true, data: { event } });
+          if (testAftersales) recordTestHttpAction({
+            eventId,
+            testActorUserId: panelProjected!.context.actorUserId,
+            actualAdminUserId: session.userId,
+            action: "EVENT_CORRECTED",
+            requestId: auditRequestId,
+          });
+          if (isQualityRolePanelsEnabled()) {
+            const updated = projectedDetail(eventId, url, session);
+            writeJson(res, 200, { ok: true, data: { viewModel: updated?.viewModel } });
+          } else writeJson(res, 200, { ok: true, data: { event } });
           return;
         }
       } finally {
@@ -1002,6 +1294,9 @@ export function handleQualityHttp(input: {
       hasQualityManagement: caps.hasQualityManagement,
       canManage: workbenchCaps.canManage,
       taskPlanningV2Enabled: isQualityTaskPlanningV2Enabled(),
+      rolePanelsEnabled: isQualityRolePanelsEnabled(),
+      testActorsEnabled: isQualityTestActorsEnabled(),
+      isAdmin: workbenchCaps.primaryRole === "admin",
     });
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",
