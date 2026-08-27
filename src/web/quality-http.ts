@@ -72,6 +72,8 @@ import { createQualityTestAnalysisService } from
   "../quality/testing/quality-test-analysis-service";
 import { createQualityTestAftersalesService } from
   "../quality/testing/quality-test-aftersales-service";
+import { createQualityTestAiService } from
+  "../quality/testing/quality-test-ai-service";
 import { qualityStatusLabel } from "../quality/presentation/quality-display-labels";
 
 export interface QualityHttpSession {
@@ -1110,6 +1112,8 @@ async function handleQualityApi(input: {
       }
       const body = await readJsonBody(req);
       const action = z.enum([
+        "generate-original-ai",
+        "generate-analysis-ai",
         "update-aftersales",
         "complete-analysis",
         "accept", "reject", "delegate", "add-evidence", "submit-completion",
@@ -1127,6 +1131,39 @@ async function handleQualityApi(input: {
       const allowed = new Set(viewModel.allowedActions ?? []);
       const requiredPermission = action === "add-evidence" ? "upload-evidence" : action;
       if (!allowed.has(requiredPermission)) throw new Error("quality action forbidden");
+      if (action === "generate-original-ai" || action === "generate-analysis-ai") {
+        const service = createQualityTestAiService();
+        try {
+          const common = {
+            eventId,
+            actualAdminUserId: session.userId,
+            expectedVersion: z.number().int().positive().parse(body.expectedVersion),
+            requestId: requestId(body.requestId),
+          };
+          if (action === "generate-original-ai") {
+            if (projected.context.perspective !== "aftersales") {
+              throw new Error("quality action forbidden");
+            }
+            await service.generateOriginal({
+              ...common,
+              testAftersalesUserId: projected.context.actorUserId,
+            });
+          } else {
+            if (projected.context.perspective !== "quality_management") {
+              throw new Error("quality action forbidden");
+            }
+            await service.generateInitialAnalysis({
+              ...common,
+              testSpecialistUserId: projected.context.actorUserId,
+            });
+          }
+        } finally {
+          service.close();
+        }
+        const updated = projectedDetail(eventId, url, session);
+        writeJson(res, 200, { ok: true, data: { viewModel: updated?.viewModel } });
+        return;
+      }
       if (action === "update-aftersales") {
         if (projected.context.perspective !== "aftersales") {
           throw new Error("quality action forbidden");

@@ -210,6 +210,11 @@ export function createQualityAnalysisService(deps?: {
   id?: () => string;
   env?: Record<string, string | undefined>;
   model?: QualityAnalysisModelAdapter;
+  testMode?: {
+    actorUserId: string;
+    departmentCandidates: Array<{ departmentId: string; departmentName: string }>;
+    reportingContext?: QualityAnalysisInput["frozenReportingContext"];
+  };
 }) {
   const dbPath = deps?.dbPath ?? resolveWorkbenchSqlitePath();
   createQualityStore(dbPath).close();
@@ -219,8 +224,15 @@ export function createQualityAnalysisService(deps?: {
   const now = deps?.now ?? (() => new Date().toISOString());
   const id = deps?.id ?? randomUUID;
 
-  function requireQualityManagement(actorUserId: string): void {
-    if (!resolveQualityCapabilities(actorUserId).canAnalyzeQuality) {
+  function testModeAllowed(eventId: string, actorUserId: string): boolean {
+    if (!deps?.testMode || deps.testMode.actorUserId !== actorUserId) return false;
+    const event = getEvent(eventId);
+    return Number(event.is_test ?? 0) === 1;
+  }
+
+  function requireQualityManagement(eventId: string, actorUserId: string): void {
+    if (!resolveQualityCapabilities(actorUserId).canAnalyzeQuality
+      && !testModeAllowed(eventId, actorUserId)) {
       throw new QualityAnalysisError("FORBIDDEN", "需要显式quality_management能力才能处理质量初析");
     }
   }
@@ -286,10 +298,16 @@ export function createQualityAnalysisService(deps?: {
     if (!["PENDING_ANALYSIS", "PENDING_ASSIGNMENT"].includes(String(event.status))) {
       throw new Error("当前事件不在可初析状态");
     }
-    const reporting = reportingContext(eventId);
-    const directory = createQualityDepartmentDirectory(dbPath);
-    const departments = directory.listAssignableDepartments();
-    directory.close();
+    const testMode = testModeAllowed(eventId, actorUserId);
+    const reporting = testMode && deps?.testMode?.reportingContext
+      ? deps.testMode.reportingContext
+      : reportingContext(eventId);
+    const departments = testMode
+      ? deps!.testMode!.departmentCandidates
+      : (() => {
+          const directory = createQualityDepartmentDirectory(dbPath);
+          try { return directory.listAssignableDepartments(); } finally { directory.close(); }
+        })();
     if (departments.length === 0) throw new Error("系统中没有已配置唯一有效主管的主责部门");
     const attachments = (db.prepare(`SELECT original_name,mime_type,description,created_at
       FROM quality_report_files WHERE event_id=? AND status='ACTIVE' ORDER BY created_at,id`)
@@ -363,7 +381,7 @@ export function createQualityAnalysisService(deps?: {
     actorUserId: string;
     requestId: string;
   }): Promise<QualityAnalysisAttemptView> {
-    requireQualityManagement(input.actorUserId);
+    requireQualityManagement(input.eventId, input.actorUserId);
     const repeated = db.prepare(`SELECT * FROM quality_analysis_attempts
       WHERE event_id=? AND request_id=?`).get(input.eventId, input.requestId) as DatabaseRow | undefined;
     if (repeated) return attemptFromRow(repeated);
@@ -511,7 +529,7 @@ export function createQualityAnalysisService(deps?: {
     actorUserId: string;
     draft: SaveQualityAnalysisDraftInput;
   }): Record<string, unknown> {
-    requireQualityManagement(input.actorUserId);
+    requireQualityManagement(input.eventId, input.actorUserId);
     const draft = saveQualityAnalysisDraftSchema.parse(input.draft);
     const event = getEvent(input.eventId);
     if (!["PENDING_ANALYSIS", "PENDING_ASSIGNMENT"].includes(String(event.status))) {
@@ -768,7 +786,7 @@ export function createQualityAnalysisService(deps?: {
     requestId: string;
     modificationReason: string;
   }): { version: Record<string, unknown>; handoff: Record<string, unknown> } {
-    requireQualityManagement(input.actorUserId);
+    requireQualityManagement(input.eventId, input.actorUserId);
     const repeated = db.prepare(`SELECT * FROM quality_analysis_versions WHERE request_id=?`)
       .get(input.requestId) as DatabaseRow | undefined;
     if (repeated) {

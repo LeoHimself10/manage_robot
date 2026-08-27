@@ -319,6 +319,10 @@ describe("renderQualityTrackingPage", () => {
     expect(test).not.toContain('data-quality-list="feedback"');
     expect(test).toContain("function projectedDefaultStage(view)");
     expect(test).toContain("马荣鑫（测试）· 研判修订");
+    expect(test).toContain("运行AI原始研判");
+    expect(test).toContain("刷新页面不会重复调用");
+    expect(test).toContain("生成AI质量初析");
+    expect(test).toContain("正在结合来源事实、AI原始研判和人工研判生成初析草案");
     expect(test).toContain("完成初析，进入主管选择");
     expect(test).toContain("隔离测试只提供“测试主管”");
     expect(test).toContain("details.open = view.scope === 'test'");

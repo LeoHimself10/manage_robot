@@ -75,6 +75,9 @@ function nullable(value: unknown): string | null {
 }
 
 function parseObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
   try {
     const parsed = JSON.parse(String(value ?? "{}")) as unknown;
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
@@ -86,6 +89,7 @@ function parseObject(value: unknown): Record<string, unknown> {
 }
 
 function parseArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
   try {
     const parsed = JSON.parse(String(value ?? "[]")) as unknown;
     return Array.isArray(parsed) ? parsed : [];
@@ -321,7 +325,7 @@ export function createQualityEventPerspectiveProjector(
   function originalAssessment(eventId: string) {
     const row = tableExists(db, "quality_source_ai_assessments")
       ? db.prepare(`
-          SELECT ai.output_json
+          SELECT ai.output_json,ai.created_at,ai.created_by
           FROM quality_source_ai_assessments ai
           JOIN quality_event_source_links link ON link.source_key=ai.source_key
           WHERE link.event_id=?
@@ -330,6 +334,8 @@ export function createQualityEventPerspectiveProjector(
         `).get(eventId) as DatabaseRow | undefined
       : undefined;
     const ai = row ? parseObject(row.output_json) : null;
+    const provenance = ai ? parseObject(ai.provenance) : {};
+    const modelConfigId = nullable(provenance.modelConfigId);
     const reasoning = Array.isArray(ai?.reasoningBasis)
       ? ai!.reasoningBasis as Array<Record<string, unknown>>
       : [];
@@ -364,6 +370,12 @@ export function createQualityEventPerspectiveProjector(
         const reason = nullable(item.reason);
         return [field, reason].filter(Boolean).join("：");
       }).filter(Boolean).slice(0, 20),
+      generationSource: modelConfigId === "quality-test-fixture" ? "FIXTURE" : ai ? "MODEL" : "NONE",
+      generationLabel: modelConfigId === "quality-test-fixture"
+        ? "预置测试建议（尚未调用AI）"
+        : ai ? "AI模型生成" : "尚未生成",
+      generatedAt: row?.created_at == null ? null : String(row.created_at),
+      modelConfigId,
     };
   }
 
@@ -443,36 +455,71 @@ export function createQualityEventPerspectiveProjector(
   function testInitialAnalysisDraft(eventId: string, event: DatabaseRow) {
     const ai = originalAssessment(eventId);
     const finalReview = finalAssessment(eventId)[0];
+    const attemptRow = tableExists(db, "quality_analysis_attempts")
+      ? db.prepare(`
+          SELECT * FROM quality_analysis_attempts
+          WHERE event_id=? AND status='SUCCEEDED' AND output_json IS NOT NULL
+          ORDER BY attempt_no DESC LIMIT 1
+        `).get(eventId) as DatabaseRow | undefined
+      : undefined;
+    const generated = attemptRow ? parseObject(attemptRow.output_json) : null;
+    const generatedBasis = Array.isArray(generated?.analysisBasis)
+      ? generated!.analysisBasis as Array<Record<string, unknown>>
+      : [];
+    const generatedDeliverables = Array.isArray(generated?.deliverables)
+      ? generated!.deliverables as Array<Record<string, unknown>>
+      : [];
+    const generatedDepartments = Array.isArray(generated?.primaryDepartmentCandidates)
+      ? generated!.primaryDepartmentCandidates as Array<Record<string, unknown>>
+      : [];
+    const generatedDueDays = Number(generated?.suggestedTotalDueDays);
     const sourceSummary = [
       nullable(event.problem_status),
       ...factRows(eventId).slice(0, 4).map((item) => `${item.label}：${item.value}`),
     ].filter(Boolean);
     const baseTime = Date.parse(String(event.updated_at ?? ""));
     const fallbackDueAt = new Date(
-      (Number.isFinite(baseTime) ? baseTime : Date.now()) + 30 * 24 * 60 * 60 * 1000,
+      (Number.isFinite(baseTime) ? baseTime : Date.now())
+        + (Number.isFinite(generatedDueDays) && generatedDueDays > 0 ? generatedDueDays : 30)
+          * 24 * 60 * 60 * 1000,
     ).toISOString();
     const category = finalReview?.category ?? nullable(event.initial_category) ?? ai.suggestedCategory;
+    const firstDeliverable = generatedDeliverables[0];
     return {
-      aiSummary: ai.summary,
-      evidenceStrength: ai.evidenceStrength,
-      problemDirection: `${category}问题原因核验`,
-      confirmedCategory: category,
-      sourceFactSummary: sourceSummary.join("\n"),
-      analysisBasis: (ai.reasons.length ? ai.reasons : [
+      aiSummary: generated
+        ? "AI质量初析已生成并预填；请由佟成（测试）核对后再确认。"
+        : "当前显示预置测试草案，尚未调用AI质量初析模型。",
+      evidenceStrength: generated ? "AI模型已生成" : "预置测试草案",
+      generationSource: generated ? "MODEL" : "FIXTURE",
+      generationLabel: generated ? "AI模型生成" : "预置测试草案（尚未调用AI）",
+      generatedAt: attemptRow?.completed_at == null ? null : String(attemptRow.completed_at),
+      modelName: attemptRow?.model_name == null ? null : String(attemptRow.model_name),
+      problemDirection: nullable(generated?.problemDirection) ?? `${category}问题原因核验`,
+      confirmedCategory: nullable(generated?.confirmedCategoryReference) ?? category,
+      sourceFactSummary: (Array.isArray(generated?.sourceFactSummary)
+        ? generated!.sourceFactSummary as unknown[] : sourceSummary).map(String).join("\n"),
+      analysisBasis: (generatedBasis.length
+        ? generatedBasis.map((item) => nullable(item.statement)).filter(Boolean)
+        : ai.reasons.length ? ai.reasons : [
         "依据来源事实、AI原始研判和主管最终研判进行质量初析。",
       ]).join("\n"),
-      preliminaryConclusion: "建议由研发中心完成原因排查、措施制定与验证。",
-      informationGaps: ai.missingInformation.join("\n"),
-      handlingRequirements: [
+      preliminaryConclusion: nullable(generated?.preliminaryConclusion)
+        ?? "建议由研发中心完成原因排查、措施制定与验证。",
+      informationGaps: (Array.isArray(generated?.informationGaps)
+        ? generated!.informationGaps as unknown[] : ai.missingInformation).map(String).join("\n"),
+      handlingRequirements: (Array.isArray(generated?.handlingRequirements)
+        ? generated!.handlingRequirements as unknown[] : [
         "完成原因核查并形成明确结论",
         "制定处理措施并上传验证证据",
         "按责任链逐级完成验收",
-      ].join("\n"),
-      suggestedDepartment: "研发中心",
+      ]).map(String).join("\n"),
+      suggestedDepartment: nullable(generatedDepartments[0]?.departmentName) ?? "研发中心",
       suggestedDueAt: nullable(event.overall_due_at) ?? fallbackDueAt,
-      deliverableName: "原因排查与验证记录",
-      deliverableDescription: "形成可复核的原因排查、处理措施和验证记录。",
-      acceptanceCriteria: "包含事实依据、原因结论、处理措施、验证结果和必要证据。",
+      deliverableName: nullable(firstDeliverable?.name) ?? "原因排查与验证记录",
+      deliverableDescription: nullable(firstDeliverable?.description)
+        ?? "形成可复核的原因排查、处理措施和验证记录。",
+      acceptanceCriteria: nullable(firstDeliverable?.acceptanceCriteria)
+        ?? "包含事实依据、原因结论、处理措施、验证结果和必要证据。",
     };
   }
 
@@ -538,7 +585,7 @@ export function createQualityEventPerspectiveProjector(
     const allowedActions: string[] = [];
     if (!readonly && context.perspective === "quality_management") {
       if (context.scope === "test" && String(row.status) === "PENDING_ANALYSIS") {
-        allowedActions.push("complete-analysis");
+        allowedActions.push("generate-analysis-ai", "complete-analysis");
       }
       if (String(row.status) === "PENDING_ASSIGNMENT") allowedActions.push("assign-supervisor");
       if (String(row.status) === "PENDING_QUALITY_REVIEW") allowedActions.push("return-node", "close");
@@ -565,7 +612,10 @@ export function createQualityEventPerspectiveProjector(
       if (ownActive) allowedActions.push("upload-evidence", "submit-completion");
     }
     if (!readonly && context.perspective === "aftersales" && String(row.status) !== "CLOSED") {
-      if (context.scope === "test") allowedActions.push("update-aftersales");
+      if (context.scope === "test") {
+        if (String(row.status) === "PENDING_ANALYSIS") allowedActions.push("generate-original-ai");
+        allowedActions.push("update-aftersales");
+      }
       else allowedActions.push("supplement", "correct");
     }
     const viewModel: Record<string, unknown> = {

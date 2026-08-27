@@ -40,7 +40,7 @@ const employeeOne = "QUALITY_TEST_EMPLOYEE_001";
 const employeeTwo = "QUALITY_TEST_EMPLOYEE_002";
 const employeeThree = "QUALITY_TEST_EMPLOYEE_003";
 const events: EventSeed[] = [
-  { id: "quality-test-event-analysis", eventNo: "QT-DEMO-000", status: "PENDING_ANALYSIS", title: "测试：等待填写质量初析", purpose: "从质量初析开始完整演练，不连接任何真实人员。", analysis: false, nodes: [] },
+  { id: "quality-test-event-analysis", eventNo: "QT-DEMO-000", status: "PENDING_ANALYSIS", title: "测试：影像间歇性中断待质量初析", purpose: "术中影像间歇性中断，更换连接线后短暂恢复；需核查软件日志、连接稳定性和设备状态。", analysis: false, nodes: [] },
   { id: "quality-test-event-assignment", eventNo: "QT-DEMO-001", status: "PENDING_ASSIGNMENT", title: "测试：影像显示偶发异常", purpose: "用于选择一名测试主管并从头推进完整闭环。", analysis: true, nodes: [] },
   { id: "quality-test-event-manager-one", eventNo: "QT-DEMO-002", status: "PENDING_ACCEPTANCE", title: "测试：研发原因排查", purpose: "用于测试主管接受或拒绝承接。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "PENDING_ACCEPTANCE" }] },
   { id: "quality-test-event-manager-two", eventNo: "QT-DEMO-003", status: "PENDING_ACCEPTANCE", title: "测试：质量记录核验", purpose: "用于测试主管在另一事件中演练承接。", analysis: true, nodes: [{ key: "root", assigneeUserId: managerOne, assigneeKind: "MANAGER", departmentName: "研发中心", status: "PENDING_ACCEPTANCE" }] },

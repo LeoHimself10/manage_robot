@@ -186,7 +186,13 @@ describe("quality role-panel HTTP APIs", () => {
     expect(aftersales.status).toBe(200);
     expect(aftersales.payload.data.viewModel).toMatchObject({
       perspective: "aftersales",
-      allowedActions: ["update-aftersales"],
+      allowedActions: ["generate-original-ai", "update-aftersales"],
+      assessment: {
+        originalSuggestion: {
+          generationSource: "NONE",
+          generationLabel: "尚未生成",
+        },
+      },
       event: {
         attentionBucket: "TODO",
         attentionLabel: "待我处理",
@@ -218,8 +224,10 @@ describe("quality role-panel HTTP APIs", () => {
       "/api/workbench/quality/events/test-analysis-event?testActor=quality-management",
     );
     expect(specialist.status).toBe(200);
+    expect(specialist.payload.data.viewModel.allowedActions).toContain("generate-analysis-ai");
     expect(specialist.payload.data.viewModel.allowedActions).toContain("complete-analysis");
     expect(specialist.payload.data.viewModel.testAnalysisDraft).toMatchObject({
+      generationSource: "FIXTURE",
       suggestedDepartment: "研发中心",
       deliverableName: "原因排查与验证记录",
     });
