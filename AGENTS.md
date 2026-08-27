@@ -164,10 +164,11 @@ ReAct 主链路**最终 JSON 直出 `draft`**，不依赖 `save_draft`（registr
 ### 质量事件多视角与测试隔离（2026-08-27，功能开关默认关闭）
 
 - `QUALITY_EVENT_ROLE_PANELS_ENABLED=1`：`/workbench/quality` 改用服务端 presentation/projector 字段白名单；admin 可只读预览马荣鑫/佟成/主管/看板，非 admin 忽略客户端视角参数。
-- `QUALITY_TEST_ACTORS_ENABLED=1`：仅 admin 可使用四个固定质量测试身份；测试身份不写入通讯录、通用主管名单或正式任务。测试事件以 `quality_events.is_test=1` 隔离，旧行迁移默认 `0`。
+- `QUALITY_TEST_ACTORS_ENABLED=1`：仅 admin 可使用四个质量流程测试身份和三个测试员工（研发中心 2 人、质量部 1 人）；测试身份不写入通讯录、通用主管名单或正式任务。测试事件以 `quality_events.is_test=1` 隔离，旧行迁移默认 `0`。
 - 主管选择器固定七个部门，读取通讯录明确主管标记或 `QUALITY_SUPERVISOR_ROUTING_FILE` 质量专用补充名单；禁止按职位关键词推断，朱锐稳定 `userId=014517256544` 默认排除；提交只接受单个 `candidateRef` 并实时复验。
 - 测试质量通知强制 `TEST` 通道；outbox 入队前和 scheduler 发送前双重校验，绝不调用真实钉钉 notifier。测试质量节点不建立 `quality_task_links`，桥接补偿也排除测试事件。
-- 受控种子：`npm run quality:seed-test-data`（还需显式启用测试身份），只创建三个固定测试事件和两个测试主管节点，不创建正式任务或真实通知。
+- 受控种子：`npm run quality:seed-test-data`（还需显式启用测试身份），幂等准备 12 条分阶段测试事件，覆盖初析、主管选择/承接、同部门员工分配、员工证据、逐级验收、终验关闭和重开；不创建正式任务或真实通知。
+- 页面继续沿用原“质量追踪 / 质量异常工作台”布局与视觉，仅在原头部增加紧凑视角切换；测试身份下的承接、分配、证据和验收按钮只调用测试专用动作接口。
 
 ### 质量追踪统一系统目标基线（2026-08-19，已确认需求）
 

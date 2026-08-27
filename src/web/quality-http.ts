@@ -95,7 +95,7 @@ export function isQualityApiPath(pathname: string): boolean {
     || /^\/api\/workbench\/quality\/nodes\/[^/]+\/review$/.test(pathname)
     || /^\/api\/workbench\/quality\/evidence\/[^/]+$/.test(pathname)
     || /^\/api\/workbench\/quality\/events\/[^/]+\/(?:primary-review|evidence-package|assign-primary|due|return-node|close|reopen)$/.test(pathname)
-    || /^\/api\/workbench\/quality\/events\/[^/]+\/(?:supervisor-options|assign-supervisor|manager-action)$/.test(pathname)
+    || /^\/api\/workbench\/quality\/events\/[^/]+\/(?:supervisor-options|assign-supervisor|manager-action|test-employee-options|test-action)$/.test(pathname)
     || /^\/api\/workbench\/quality\/events\/[^/]+\/(?:analysis|analysis\/complete|planning-session)$/.test(pathname)
     || /^\/api\/workbench\/quality\/candidates\/[^/]+\/dismiss$/.test(pathname)
     || /^\/api\/workbench\/quality\/source\/[^/]+\/(?:review|writeback\/retry)$/.test(pathname)
@@ -958,6 +958,169 @@ async function handleQualityApi(input: {
         });
       } finally {
         service.close();
+      }
+      const updated = projectedDetail(eventId, url, session);
+      writeJson(res, 200, { ok: true, data: { viewModel: updated?.viewModel } });
+      return;
+    }
+
+    const testEmployeeOptions = url.pathname.match(
+      /^\/api\/workbench\/quality\/events\/([^/]+)\/test-employee-options$/,
+    );
+    if (req.method === "GET" && testEmployeeOptions && isQualityRolePanelsEnabled()) {
+      const eventId = decodeURIComponent(testEmployeeOptions[1]!);
+      const projected = projectedDetail(eventId, url, session);
+      if (!projected || projected.context.scope !== "test"
+        || projected.context.perspective !== "manager" || projected.context.readonly) {
+        throw new Error("quality action forbidden");
+      }
+      const branch = (projected.viewModel as {
+        branch?: Array<{ departmentName?: string; assigneeTypeLabel?: string }>;
+      }).branch ?? [];
+      const managerNode = branch.find((node) => node.assigneeTypeLabel === "主管");
+      if (!managerNode?.departmentName) throw new Error("当前主管责任分支不可分配");
+      const directory = createQualitySupervisorDirectory();
+      try {
+        writeJson(res, 200, {
+          ok: true,
+          data: { employees: directory.listTestEmployees({ eventId, departmentName: managerNode.departmentName }) },
+        });
+      } finally {
+        directory.close();
+      }
+      return;
+    }
+
+    const testAction = url.pathname.match(
+      /^\/api\/workbench\/quality\/events\/([^/]+)\/test-action$/,
+    );
+    if (req.method === "POST" && testAction && isQualityRolePanelsEnabled()) {
+      const eventId = decodeURIComponent(testAction[1]!);
+      const projected = projectedDetail(eventId, url, session);
+      if (!projected || projected.context.scope !== "test" || projected.context.readonly
+        || !["manager", "employee"].includes(projected.context.perspective)) {
+        throw new Error("quality action forbidden");
+      }
+      const body = await readJsonBody(req);
+      const action = z.enum([
+        "accept", "reject", "delegate", "add-evidence", "submit-completion",
+        "review-child", "primary-review",
+      ]).parse(body.action);
+      const viewModel = projected.viewModel as {
+        allowedActions?: string[];
+        branch?: Array<{
+          actionRef: string;
+          assigneeTypeLabel: string;
+          departmentName: string;
+          version: number;
+        }>;
+      };
+      const allowed = new Set(viewModel.allowedActions ?? []);
+      const requiredPermission = action === "add-evidence" ? "upload-evidence" : action;
+      if (!allowed.has(requiredPermission)) throw new Error("quality action forbidden");
+      const branch = viewModel.branch ?? [];
+      const actorNode = branch.find((node) =>
+        (projected.context.perspective === "manager" ? node.assigneeTypeLabel === "主管" : node.assigneeTypeLabel === "员工"),
+      );
+      if (!actorNode) throw new Error("记录不存在或无权访问");
+      if (action === "accept" || action === "reject") {
+        const service = createQualityAssignmentService();
+        try {
+          const common = {
+            nodeId: actorNode.actionRef,
+            actorUserId: projected.context.actorUserId,
+            actualAdminUserId: session.userId,
+            expectedVersion: z.number().int().positive().parse(body.expectedVersion),
+            requestId: requestId(body.requestId),
+          };
+          if (action === "accept") await service.acceptNode(common);
+          else await service.rejectNode({
+            ...common,
+            reason: z.string().trim().min(1).max(1000).parse(body.reason),
+          });
+        } finally { service.close(); }
+      } else if (action === "delegate") {
+        if (projected.context.perspective !== "manager") throw new Error("quality action forbidden");
+        const candidateRef = z.string().trim().min(1).max(200).parse(body.candidateRef);
+        const directory = createQualitySupervisorDirectory();
+        const employee = directory.resolveTestEmployee({
+          eventId,
+          departmentName: actorNode.departmentName,
+          candidateRef,
+        });
+        directory.close();
+        if (!employee) throw new Error("测试员工候选无效");
+        const service = createQualityAssignmentService();
+        try {
+          await service.delegateNode({
+            parentNodeId: actorNode.actionRef,
+            actorUserId: projected.context.actorUserId,
+            assigneeUserId: employee.userId,
+            assigneeKind: "EMPLOYEE",
+            departmentName: employee.departmentName,
+            dueAt: z.string().trim().min(1).max(64).parse(body.dueAt),
+            requirement: z.string().trim().min(1).max(5000).parse(body.requirement),
+            expectedVersion: z.number().int().positive().parse(body.expectedVersion),
+            requestId: requestId(body.requestId),
+            actualAdminUserId: session.userId,
+          });
+        } finally { service.close(); }
+      } else if (action === "add-evidence") {
+        const summary = z.string().trim().min(1).max(2000).parse(body.summary);
+        const service = createQualityEvidenceService();
+        try {
+          service.uploadEvidence({
+            nodeId: actorNode.actionRef,
+            actorUserId: projected.context.actorUserId,
+            actualAdminUserId: session.userId,
+            originalName: "测试证据说明.txt",
+            mimeType: "text/plain",
+            summary,
+            buffer: Buffer.from(`${summary}\n`, "utf8"),
+            requestId: requestId(body.requestId),
+          });
+        } finally { service.close(); }
+      } else if (action === "submit-completion") {
+        const service = createQualityEvidenceService();
+        try {
+          service.submitCompletion({
+            nodeId: actorNode.actionRef,
+            actorUserId: projected.context.actorUserId,
+            actualAdminUserId: session.userId,
+            expectedVersion: z.number().int().positive().parse(body.expectedVersion),
+            requestId: requestId(body.requestId),
+          });
+        } finally { service.close(); }
+      } else if (action === "review-child") {
+        if (projected.context.perspective !== "manager") throw new Error("quality action forbidden");
+        const childActionRef = z.string().trim().min(1).max(300).parse(body.childActionRef);
+        const child = branch.find((node) => node.actionRef === childActionRef && node.assigneeTypeLabel === "员工");
+        if (!child) throw new Error("记录不存在或无权访问");
+        const service = createQualityReviewService();
+        try {
+          service.reviewDirectChild({
+            childNodeId: child.actionRef,
+            actorUserId: projected.context.actorUserId,
+            actualAdminUserId: session.userId,
+            decision: z.enum(["APPROVE", "RETURN"]).parse(body.decision),
+            reason: body.reason == null ? undefined : z.string().trim().max(2000).parse(body.reason),
+            expectedVersion: z.number().int().positive().parse(body.expectedVersion),
+            requestId: requestId(body.requestId),
+          });
+        } finally { service.close(); }
+      } else {
+        if (projected.context.perspective !== "manager") throw new Error("quality action forbidden");
+        const service = createQualityReviewService();
+        try {
+          service.primaryReview({
+            eventId,
+            primaryManagerUserId: projected.context.actorUserId,
+            actualAdminUserId: session.userId,
+            decision: "APPROVE",
+            expectedVersion: z.number().int().positive().parse(body.expectedVersion),
+            requestId: requestId(body.requestId),
+          });
+        } finally { service.close(); }
       }
       const updated = projectedDetail(eventId, url, session);
       writeJson(res, 200, { ok: true, data: { viewModel: updated?.viewModel } });

@@ -9,12 +9,17 @@ import { projectQualityEventState } from "./quality-event-projector";
 import { transitionQualityEvent } from "../domain/quality-state-machine";
 import { listQualitySpecialistUserIds } from "../../security/quality-capabilities";
 import { enqueueQualityActionNotifications } from "../notifications/quality-notification-policy";
+import {
+  appendQualityTestActionAudit,
+  assertQualityActorBoundary,
+  testQualitySpecialistUserIds,
+} from "../testing/quality-test-boundary";
 
 type DatabaseRow = Record<string, unknown>;
 
 export function createQualityReviewService(deps?: { dbPath?: string; now?: () => string; id?: () => string }) {
   const dbPath = deps?.dbPath ?? resolveWorkbenchSqlitePath();
-  createWorkbenchFormalTaskStore();
+  createWorkbenchFormalTaskStore().close();
   createQualityStore(dbPath).close();
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = ON");
@@ -64,12 +69,16 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
     reason?: string;
     expectedVersion: number;
     requestId: string;
+    actualAdminUserId?: string;
   }): QualityAssignmentNode {
     const requestId = z.string().uuid().parse(input.requestId);
     const repeated = db.prepare("SELECT node_id FROM quality_node_reviews WHERE request_id = ?")
       .get(requestId) as DatabaseRow | undefined;
     if (repeated) return getNode(String(repeated.node_id));
     const child = getNode(input.childNodeId);
+    const event = getEvent(child.eventId);
+    assertQualityActorBoundary({ event, actorUserId: input.actorUserId });
+    if (event.isTest && !input.actualAdminUserId) throw new Error("测试操作缺少实际管理员审计信息");
     if (!child.parentNodeId) throw new Error("根节点不属于直接上级验收");
     const parent = getNode(child.parentNodeId);
     if (parent.assigneeUserId !== input.actorUserId) throw new Error("仅直接上级承接人可验收该节点");
@@ -78,7 +87,6 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
     const reason = String(input.reason ?? "").trim();
     if (input.decision === "RETURN" && !reason) throw new Error("退回原因必填");
     const occurredAt = now();
-    const event = getEvent(child.eventId);
     db.exec("BEGIN IMMEDIATE");
     try {
       const nextStatus = input.decision === "APPROVE" ? "APPROVED" : "RETURNED";
@@ -95,6 +103,14 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
         INSERT INTO quality_audit_events(id,event_id,actor_user_id,actor_role,action,before_json,after_json,reason,request_id,occurred_at)
         VALUES (?,?,?,'department_manager','QUALITY_DIRECT_CHILD_REVIEWED',?,?,?,?,?)
       `).run(id(), child.eventId, input.actorUserId, JSON.stringify({ nodeId: child.nodeId, status: child.status }), JSON.stringify({ status: nextStatus, decision: input.decision }), reason || null, requestId, occurredAt);
+      if (event.isTest) appendQualityTestActionAudit(db, {
+        eventId: event.eventId,
+        testActorUserId: input.actorUserId,
+        actualAdminUserId: input.actualAdminUserId!,
+        action: "QUALITY_DIRECT_CHILD_REVIEWED",
+        requestId,
+        occurredAt,
+      });
       if (input.decision === "RETURN") enqueueQualityActionNotifications(db, {
         eventId: event.eventId, eventNo: event.eventNo, action: "NODE_RETURNED", actionId: requestId,
         context: { returnedAssigneeUserId: child.assigneeUserId }, subject: "质量节点证据被退回",
@@ -118,6 +134,7 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
     reason?: string;
     expectedVersion: number;
     requestId: string;
+    actualAdminUserId?: string;
   }): QualityEventRecord {
     const requestId = z.string().uuid().parse(input.requestId);
     if (db.prepare("SELECT 1 FROM quality_audit_events WHERE request_id = ? LIMIT 1").get(requestId)
@@ -125,6 +142,8 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
       return getEvent(input.eventId);
     }
     const event = getEvent(input.eventId);
+    assertQualityActorBoundary({ event, actorUserId: input.primaryManagerUserId });
+    if (event.isTest && !input.actualAdminUserId) throw new Error("测试操作缺少实际管理员审计信息");
     if (!event.primaryNodeId) throw new Error("原主责节点不存在");
     const primary = getNode(event.primaryNodeId);
     if (primary.assigneeUserId !== input.primaryManagerUserId) throw new Error("仅原主责可执行整体验收");
@@ -143,9 +162,17 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
           .run(occurredAt, primary.nodeId);
         db.prepare(`INSERT INTO quality_audit_events(id,event_id,actor_user_id,actor_role,action,before_json,after_json,reason,request_id,occurred_at) VALUES (?,?,?,'department_manager','QUALITY_PRIMARY_APPROVED',?,?,NULL,?,?)`)
           .run(id(), event.eventId, input.primaryManagerUserId, JSON.stringify({ status: event.status }), JSON.stringify({ status: nextStatus }), requestId, occurredAt);
+        if (event.isTest) appendQualityTestActionAudit(db, {
+          eventId: event.eventId,
+          testActorUserId: input.primaryManagerUserId,
+          actualAdminUserId: input.actualAdminUserId!,
+          action: "QUALITY_PRIMARY_APPROVED",
+          requestId,
+          occurredAt,
+        });
         enqueueQualityActionNotifications(db, {
           eventId: event.eventId, eventNo: event.eventNo, action: "PRIMARY_APPROVED", actionId: requestId,
-          context: { qualitySpecialistUserIds: listQualitySpecialistUserIds() }, subject: "质量事件待终验",
+          context: { qualitySpecialistUserIds: event.isTest ? testQualitySpecialistUserIds() : listQualitySpecialistUserIds() }, subject: "质量事件待终验",
           summary: `${event.title}；原主责已完成全链路验收`, occurredAt,
         });
         db.exec("COMMIT");
@@ -180,6 +207,14 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
       if (Number(updated.changes) !== 1) throw new Error("version conflict");
       db.prepare(`INSERT INTO quality_audit_events(id,event_id,actor_user_id,actor_role,action,before_json,after_json,reason,request_id,occurred_at) VALUES (?,?,?,'department_manager','QUALITY_PRIMARY_RETURNED_BRANCH',?,?,?,?,?)`)
         .run(id(), event.eventId, input.primaryManagerUserId, JSON.stringify({ status: event.status }), JSON.stringify({ status: nextStatus, returnedNodeId }), reason, requestId, occurredAt);
+      if (event.isTest) appendQualityTestActionAudit(db, {
+        eventId: event.eventId,
+        testActorUserId: input.primaryManagerUserId,
+        actualAdminUserId: input.actualAdminUserId!,
+        action: "QUALITY_PRIMARY_RETURNED_BRANCH",
+        requestId,
+        occurredAt,
+      });
       enqueueQualityActionNotifications(db, {
         eventId: event.eventId, eventNo: event.eventNo, action: "QUALITY_RETURNED", actionId: requestId,
         context: { aftersalesManagerUserId: event.createdBy, primaryManagerUserId: primary.assigneeUserId, returnedAssigneeUserId: target.assigneeUserId },
@@ -194,5 +229,14 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
     return getEvent(event.eventId);
   }
 
-  return { reviewDirectChild, primaryReview, getNode, getEvent, close: () => db.close() };
+  return {
+    reviewDirectChild,
+    primaryReview,
+    getNode,
+    getEvent,
+    close: () => {
+      formal.close();
+      db.close();
+    },
+  };
 }

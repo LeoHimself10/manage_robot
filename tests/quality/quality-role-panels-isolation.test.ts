@@ -210,6 +210,16 @@ describe("quality supervisor directory", () => {
       "主管二（测试）",
     ]);
     expect(supervisors.every((item) => item.candidateRef.startsWith("candidate:"))).toBe(true);
+    expect(directory.assertDepartmentEmployee({
+      eventIsTest: true,
+      managerDepartmentName: "研发中心",
+      employeeUserId: "QUALITY_TEST_EMPLOYEE_001",
+    }).name).toBe("员工一（测试）");
+    expect(() => directory.assertDepartmentEmployee({
+      eventIsTest: true,
+      managerDepartmentName: "研发中心",
+      employeeUserId: "QUALITY_TEST_EMPLOYEE_003",
+    })).toThrow("同部门测试员工");
     directory.close();
   });
 });
@@ -225,6 +235,10 @@ describe("quality perspective projector", () => {
     expect(() => assertQualityActorBoundary({
       event: { eventId: "real-event", isTest: false },
       actorUserId: "QUALITY_TEST_SPECIALIST_001",
+    })).toThrow("测试身份不能处理真实事件");
+    expect(() => assertQualityActorBoundary({
+      event: { eventId: "real-event", isTest: false },
+      actorUserId: "QUALITY_TEST_EMPLOYEE_001",
     })).toThrow("测试身份不能处理真实事件");
   });
 
@@ -253,7 +267,7 @@ describe("quality perspective projector", () => {
       eventId: "test-event",
       nodeId: "manager-one-child",
       parentNodeId: "manager-one-node",
-      assigneeUserId: "test-employee-placeholder",
+      assigneeUserId: "QUALITY_TEST_EMPLOYEE_001",
       assigneeKind: "EMPLOYEE",
       departmentName: "研发中心",
     });
@@ -285,6 +299,11 @@ describe("quality perspective projector", () => {
       testActorRef: "manager-1",
       eventId: "test-event",
     })!;
+    const employee = projector.getEventDetail({
+      viewerUserId: "admin-1",
+      testActorRef: "employee-1",
+      eventId: "test-event",
+    })!;
     expect(aftersales.viewModel).toHaveProperty("assessment");
     expect(JSON.parse(JSON.stringify(specialist.viewModel))).not.toHaveProperty("assessment");
     expect(JSON.parse(JSON.stringify(manager.viewModel))).not.toHaveProperty("assessment");
@@ -293,6 +312,9 @@ describe("quality perspective projector", () => {
     expect(JSON.stringify(manager.viewModel)).not.toContain("manager-two-node");
     expect(JSON.stringify(manager.viewModel)).not.toContain("RAW_INTERNAL_ACTION");
     expect(JSON.stringify(manager.viewModel)).toContain("业务记录已更新");
+    expect((employee.viewModel.branch as Array<{ actionRef: string }>).map((item) => item.actionRef))
+      .toEqual(["manager-one-child"]);
+    expect(JSON.stringify(employee.viewModel)).not.toContain("manager-one-node");
     projector.close();
   });
 });

@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createPeopleDirectoryStore, type DingTalkContactRow } from "../../infra/people-directory-store";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
-import { listQualityTestManagerActors } from "../testing/quality-test-actors";
+import {
+  listQualityTestEmployeeActors,
+  listQualityTestManagerActors,
+} from "../testing/quality-test-actors";
 
 export const QUALITY_SUPERVISOR_DEPARTMENTS = Object.freeze([
   "研发中心",
@@ -249,7 +252,25 @@ export function createQualitySupervisorDirectory(deps?: {
     managerDepartmentName: string;
     employeeUserId: string;
   }): DingTalkContactRow {
-    if (input.eventIsTest) throw new Error("测试流程未配置测试员工，不能向真实员工分配");
+    if (input.eventIsTest) {
+      const employee = listQualityTestEmployeeActors().find((actor) =>
+        actor.userId === input.employeeUserId
+        && actor.departmentName === input.managerDepartmentName,
+      );
+      if (!employee) throw new Error("测试主管只能向同部门测试员工分配");
+      return {
+        userId: employee.userId,
+        name: employee.displayName,
+        departmentIds: [],
+        departmentNames: [employee.departmentName!],
+        active: true,
+        isAdmin: false,
+        isBoss: false,
+        isSenior: false,
+        rawJson: { qualityTestIdentity: true },
+        lastSyncedAt: "1970-01-01T00:00:00.000Z",
+      };
+    }
     const route = config.departments.find((item) => item.name === input.managerDepartmentName);
     if (!route) throw new Error("主管所属部门不在质量任务范围内");
     const contact = contacts.find((item) => item.userId === input.employeeUserId);
@@ -261,11 +282,39 @@ export function createQualitySupervisorDirectory(deps?: {
     return contact;
   }
 
+  function listTestEmployees(input: { eventId: string; departmentName: string }): QualitySupervisorOption[] {
+    return listQualityTestEmployeeActors()
+      .filter((actor) => actor.departmentName === input.departmentName)
+      .map((actor) => ({
+        candidateRef: candidateRef(input.eventId, actor.userId, actor.departmentName!),
+        displayName: actor.displayName,
+        departmentName: actor.departmentName!,
+      }));
+  }
+
+  function resolveTestEmployee(input: {
+    eventId: string;
+    departmentName: string;
+    candidateRef: string;
+  }): { userId: string; displayName: string; departmentName: string } | null {
+    return listQualityTestEmployeeActors()
+      .filter((actor) => actor.departmentName === input.departmentName)
+      .map((actor) => ({
+        userId: actor.userId,
+        displayName: actor.displayName,
+        departmentName: actor.departmentName!,
+        candidateRef: candidateRef(input.eventId, actor.userId, actor.departmentName!),
+      }))
+      .find((actor) => actor.candidateRef === input.candidateRef) ?? null;
+  }
+
   return {
     listGroups,
     resolveCandidate,
     resolveEligibleUser,
     assertDepartmentEmployee,
+    listTestEmployees,
+    resolveTestEmployee,
     close: () => people?.close(),
   };
 }

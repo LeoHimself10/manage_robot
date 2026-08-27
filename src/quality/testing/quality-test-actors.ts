@@ -1,7 +1,14 @@
-export type QualityPerspective = "aftersales" | "quality_management" | "manager" | "dashboard";
+export type QualityPerspective = "aftersales" | "quality_management" | "manager" | "employee" | "dashboard";
 
 export interface QualityTestActor {
-  actorRef: "aftersales" | "quality-management" | "manager-1" | "manager-2";
+  actorRef:
+    | "aftersales"
+    | "quality-management"
+    | "manager-1"
+    | "manager-2"
+    | "employee-1"
+    | "employee-2"
+    | "employee-3";
   userId: string;
   displayName: string;
   perspective: Exclude<QualityPerspective, "dashboard">;
@@ -37,6 +44,27 @@ export const QUALITY_TEST_ACTORS: readonly QualityTestActor[] = Object.freeze([
     perspective: "manager",
     departmentName: "质量部",
   },
+  {
+    actorRef: "employee-1",
+    userId: "QUALITY_TEST_EMPLOYEE_001",
+    displayName: "员工一（测试）",
+    perspective: "employee",
+    departmentName: "研发中心",
+  },
+  {
+    actorRef: "employee-2",
+    userId: "QUALITY_TEST_EMPLOYEE_002",
+    displayName: "员工二（测试）",
+    perspective: "employee",
+    departmentName: "研发中心",
+  },
+  {
+    actorRef: "employee-3",
+    userId: "QUALITY_TEST_EMPLOYEE_003",
+    displayName: "员工三（测试）",
+    perspective: "employee",
+    departmentName: "质量部",
+  },
 ]);
 
 const BY_REF = new Map(QUALITY_TEST_ACTORS.map((actor) => [actor.actorRef, actor]));
@@ -56,4 +84,8 @@ export function isQualityTestActorUserId(userId: string | null | undefined): boo
 
 export function listQualityTestManagerActors(): QualityTestActor[] {
   return QUALITY_TEST_ACTORS.filter((actor) => actor.perspective === "manager");
+}
+
+export function listQualityTestEmployeeActors(): QualityTestActor[] {
+  return QUALITY_TEST_ACTORS.filter((actor) => actor.perspective === "employee");
 }

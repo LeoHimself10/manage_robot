@@ -250,4 +250,74 @@ describe("quality role-panel HTTP APIs", () => {
     expect(testAudits).toBe(2);
     expect(links).toBe(0);
   });
+
+  it("offers only same-department test employees and delegates without creating formal tasks", async () => {
+    const options = await call(
+      "/api/workbench/quality/events/test-event/supervisor-options?testActor=quality-management",
+    );
+    const managerCandidate = options.payload.data.departments
+      .flatMap((item: any) => item.supervisors)
+      .find((item: any) => item.displayName === "主管一（测试）");
+    await call(
+      "/api/workbench/quality/events/test-event/assign-supervisor?testActor=quality-management",
+      "POST",
+      {
+        candidateRef: managerCandidate.candidateRef,
+        dueAt: "2026-09-30T08:00:00.000Z",
+        taskRequirement: "完成原因排查",
+        expectedVersion: 2,
+        requestId: "81111111-1111-4111-8111-111111111111",
+      },
+    );
+    const manager = await call("/api/workbench/quality/events/test-event?testActor=manager-1");
+    const managerNode = manager.payload.data.viewModel.branch[0];
+    const accepted = await call(
+      "/api/workbench/quality/events/test-event/test-action?testActor=manager-1",
+      "POST",
+      {
+        action: "accept",
+        expectedVersion: managerNode.version,
+        requestId: "82222222-2222-4222-8222-222222222222",
+      },
+    );
+    expect(accepted.status).toBe(200);
+
+    const employees = await call(
+      "/api/workbench/quality/events/test-event/test-employee-options?testActor=manager-1",
+    );
+    expect(employees.status).toBe(200);
+    expect(employees.payload.data.employees.map((item: any) => item.displayName))
+      .toEqual(["员工一（测试）", "员工二（测试）"]);
+    expect(JSON.stringify(employees.payload)).not.toContain("QUALITY_TEST_EMPLOYEE");
+
+    const delegated = await call(
+      "/api/workbench/quality/events/test-event/test-action?testActor=manager-1",
+      "POST",
+      {
+        action: "delegate",
+        candidateRef: employees.payload.data.employees[0].candidateRef,
+        dueAt: "2026-09-30T08:00:00.000Z",
+        requirement: "上传测试证据并提交完成",
+        expectedVersion: accepted.payload.data.viewModel.branch[0].version,
+        requestId: "83333333-3333-4333-8333-333333333333",
+      },
+    );
+    expect(delegated.status).toBe(200);
+
+    const employee = await call("/api/workbench/quality/events/test-event?testActor=employee-1");
+    expect(employee.status).toBe(200);
+    expect(employee.payload.data.viewModel.actorLabel).toBe("员工一（测试）");
+    expect(employee.payload.data.viewModel.branch).toHaveLength(1);
+    expect(employee.payload.data.viewModel.allowedActions).toEqual(["accept", "reject"]);
+
+    const db = new DatabaseSync(dbPath);
+    const links = Number((db.prepare("SELECT COUNT(*) AS count FROM quality_task_links").get() as { count: number }).count);
+    const tasks = Number((db.prepare("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count);
+    const unsafe = Number((db.prepare(`
+      SELECT COUNT(*) AS count FROM quality_notification_outbox
+      WHERE event_id='test-event' AND (channel<>'TEST' OR recipient_user_id NOT LIKE 'QUALITY_TEST_%')
+    `).get() as { count: number }).count);
+    db.close();
+    expect({ links, tasks, unsafe }).toEqual({ links: 0, tasks: 0, unsafe: 0 });
+  });
 });

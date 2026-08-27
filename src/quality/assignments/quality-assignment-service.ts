@@ -486,11 +486,13 @@ export function createQualityAssignmentService(deps?: {
     requirement: string;
     expectedVersion: number;
     requestId: string;
+    actualAdminUserId?: string;
   }) {
     const reqId = requestId(input.requestId);
     const parent = getNode(input.parentNodeId);
     const event = getEvent(parent.eventId);
     assertQualityActorBoundary({ event, actorUserId: input.actorUserId });
+    if (event.isTest && !input.actualAdminUserId) throw new Error("测试操作缺少实际管理员审计信息");
     if (parent.assigneeUserId !== input.actorUserId) throw new Error("只能操作自己承接的质量节点");
     if (parent.assigneeKind !== "MANAGER" || parent.status !== "IN_PROGRESS") {
       throw new Error("只有处理中的主管节点可以继续分配");
@@ -502,7 +504,7 @@ export function createQualityAssignmentService(deps?: {
       managerDepartmentName: parent.departmentName,
       employeeUserId: input.assigneeUserId,
     });
-    validateDelegateTarget(input.assigneeUserId, input.assigneeKind);
+    if (!event.isTest) validateDelegateTarget(input.assigneeUserId, input.assigneeKind);
     if (input.departmentName.trim() !== parent.departmentName.trim()) {
       throw new Error("主管只能向自己部门的员工分配");
     }
@@ -517,7 +519,7 @@ export function createQualityAssignmentService(deps?: {
     const repeated = existingNodeForRequest(parent.eventId, reqId);
     if (repeated) return resultForNode(repeated.nodeId);
     const nodeId = deterministicNodeId(event.eventId, reqId);
-    const formal = bridge.createNodeTask({
+    const formal = event.isTest ? null : bridge.createNodeTask({
       nodeId,
       eventNo: event.eventNo,
       eventTitle: event.title,
@@ -553,10 +555,12 @@ export function createQualityAssignmentService(deps?: {
         occurredAt,
         occurredAt,
       );
-      db.prepare(`
-        INSERT INTO quality_task_links(node_id, task_id, subtask_id, integration_key, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(nodeId, formal.task.taskId, formal.subtask.subtaskId, formal.integrationKey, occurredAt);
+      if (formal) {
+        db.prepare(`
+          INSERT INTO quality_task_links(node_id, task_id, subtask_id, integration_key, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(nodeId, formal.task.taskId, formal.subtask.subtaskId, formal.integrationKey, occurredAt);
+      }
       const parentUpdated = db.prepare(`
         UPDATE quality_assignment_nodes SET version = version + 1, updated_at = ?
         WHERE node_id = ? AND version = ? AND status = 'IN_PROGRESS'
@@ -569,6 +573,14 @@ export function createQualityAssignmentService(deps?: {
         action: "QUALITY_NODE_DELEGATED",
         before: parent,
         after: { nodeId, assigneeUserId: input.assigneeUserId, assigneeKind: input.assigneeKind, dueAt },
+        requestId: reqId,
+        occurredAt,
+      });
+      if (event.isTest) appendQualityTestActionAudit(db, {
+        eventId: event.eventId,
+        testActorUserId: input.actorUserId,
+        actualAdminUserId: input.actualAdminUserId!,
+        action: "QUALITY_NODE_DELEGATED",
         requestId: reqId,
         occurredAt,
       });

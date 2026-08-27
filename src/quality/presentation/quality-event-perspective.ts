@@ -342,7 +342,7 @@ export function createQualityEventPerspectiveProjector(
       SELECT * FROM quality_initial_analysis_versions
       WHERE event_id=? ORDER BY version DESC
     `).all(eventId) as DatabaseRow[];
-    const allowed = perspective === "manager"
+    const allowed = perspective === "manager" || perspective === "employee"
       ? rows.filter((row) => String(row.status) === "COMPLETED").slice(0, 1)
       : rows;
     const versions = allowed.map((row) => ({
@@ -364,7 +364,10 @@ export function createQualityEventPerspectiveProjector(
   }
 
   function visibleNodes(allNodes: DatabaseRow[], context: QualityPerspectiveContext): DatabaseRow[] {
-    if (context.perspective !== "manager") return allNodes;
+    if (context.perspective !== "manager" && context.perspective !== "employee") return allNodes;
+    if (context.perspective === "employee") {
+      return allNodes.filter((node) => String(node.assignee_user_id) === context.actorUserId);
+    }
     const children = new Map<string, DatabaseRow[]>();
     for (const node of allNodes) {
       const parent = nullable(node.parent_node_id);
@@ -394,7 +397,7 @@ export function createQualityEventPerspectiveProjector(
       if (root) context = { ...context, actorUserId: String(root.assignee_user_id) };
     }
     const branch = visibleNodes(allNodes, context);
-    if (context.perspective === "manager" && branch.length === 0) return null;
+    if ((context.perspective === "manager" || context.perspective === "employee") && branch.length === 0) return null;
     const nodeRefs = new Set(branch.map((node) => String(node.node_id)));
     const evidenceRows = tableExists(db, "quality_evidence")
       ? db.prepare("SELECT * FROM quality_evidence WHERE event_id=? ORDER BY created_at,evidence_id").all(input.eventId) as DatabaseRow[]
@@ -409,7 +412,7 @@ export function createQualityEventPerspectiveProjector(
       ? db.prepare("SELECT * FROM quality_notification_outbox WHERE event_id=? ORDER BY created_at,notification_id").all(input.eventId) as DatabaseRow[]
       : [];
     const managerAuditVisible = (audit: DatabaseRow) => {
-      if (context.perspective !== "manager") return true;
+      if (context.perspective !== "manager" && context.perspective !== "employee") return true;
       for (const raw of [audit.before_json, audit.after_json]) {
         const value = parseObject(raw);
         if (value.nodeId != null && nodeRefs.has(String(value.nodeId))) return true;
@@ -429,6 +432,21 @@ export function createQualityEventPerspectiveProjector(
       const ownPending = branch.find((node) => String(node.assignee_user_id) === context.actorUserId
         && String(node.status) === "PENDING_ACCEPTANCE");
       if (ownPending) allowedActions.push("accept", "reject");
+      const ownActive = branch.find((node) => String(node.assignee_user_id) === context.actorUserId
+        && ["IN_PROGRESS", "RETURNED"].includes(String(node.status)));
+      if (ownActive) allowedActions.push("delegate", "upload-evidence", "submit-completion");
+      if (branch.some((node) => String(node.parent_node_id) === ownActive?.node_id
+        && String(node.status) === "PENDING_PARENT_REVIEW")) allowedActions.push("review-child");
+      if (String(row.status) === "PENDING_PRIMARY_REVIEW"
+        && root && String(root.assignee_user_id) === context.actorUserId) allowedActions.push("primary-review");
+    }
+    if (!readonly && context.perspective === "employee") {
+      const ownPending = branch.find((node) => String(node.assignee_user_id) === context.actorUserId
+        && String(node.status) === "PENDING_ACCEPTANCE");
+      if (ownPending) allowedActions.push("accept", "reject");
+      const ownActive = branch.find((node) => String(node.assignee_user_id) === context.actorUserId
+        && ["IN_PROGRESS", "RETURNED"].includes(String(node.status)));
+      if (ownActive) allowedActions.push("upload-evidence", "submit-completion");
     }
     if (!readonly && context.perspective === "aftersales" && String(row.status) !== "CLOSED") {
       allowedActions.push("supplement", "correct");
@@ -440,7 +458,8 @@ export function createQualityEventPerspectiveProjector(
       actorLabel: context.testActor?.displayName
         ?? (context.perspective === "aftersales" ? "马荣鑫视角"
           : context.perspective === "quality_management" ? "佟成视角"
-            : context.perspective === "manager" ? "主管视角" : "管理看板"),
+            : context.perspective === "manager" ? "主管视角"
+              : context.perspective === "employee" ? "员工视角" : "管理看板"),
       event: {
         ...summary(row),
         currentSituation: String(row.problem_status),
@@ -466,7 +485,9 @@ export function createQualityEventPerspectiveProjector(
       },
       branch: branch.map((node) => ({
         actionRef: String(node.node_id),
-        parentActionRef: nullable(node.parent_node_id),
+        parentActionRef: nullable(node.parent_node_id) && nodeRefs.has(String(node.parent_node_id))
+          ? String(node.parent_node_id)
+          : null,
         assigneeName: displayName(node.assignee_user_id),
         assigneeTypeLabel: String(node.assignee_kind) === "MANAGER" ? "主管" : "员工",
         departmentName: nullable(node.department_name) ?? "部门待确认",
@@ -475,14 +496,14 @@ export function createQualityEventPerspectiveProjector(
         requirement: String(node.requirement),
         version: Number(node.version),
       })),
-      evidence: evidenceRows.filter((item) => context.perspective !== "manager" || nodeRefs.has(String(item.node_id))).map((item) => ({
+      evidence: evidenceRows.filter((item) => !["manager", "employee"].includes(context.perspective) || nodeRefs.has(String(item.node_id))).map((item) => ({
         actionRef: String(item.evidence_id),
         fileName: String(item.original_name),
         summary: String(item.summary ?? ""),
         uploaderName: displayName(item.uploaded_by),
         createdAt: String(item.created_at),
       })),
-      reviews: reviewRows.filter((item) => context.perspective !== "manager" || nodeRefs.has(String(item.node_id))).map((item) => ({
+      reviews: reviewRows.filter((item) => !["manager", "employee"].includes(context.perspective) || nodeRefs.has(String(item.node_id))).map((item) => ({
         reviewerName: displayName(item.reviewer_user_id),
         conclusion: String(item.decision) === "APPROVE" ? "通过" : "退回",
         reason: nullable(item.reason) ?? "无补充说明",
@@ -495,7 +516,7 @@ export function createQualityEventPerspectiveProjector(
         occurredAt: String(item.occurred_at),
       })),
       notifications: notificationRows
-        .filter((item) => context.perspective !== "manager" || String(item.recipient_user_id) === context.actorUserId)
+        .filter((item) => !["manager", "employee"].includes(context.perspective) || String(item.recipient_user_id) === context.actorUserId)
         .map((item) => ({
           recipientName: displayName(item.recipient_user_id),
           resultLabel: qualityNotificationLabel(item.status, item.channel),
