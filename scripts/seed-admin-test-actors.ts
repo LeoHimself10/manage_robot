@@ -77,23 +77,6 @@ try {
               '员工一','测试员工1'),'员工二','测试员工2'),'员工三','测试员工3')
         WHERE is_test=1;
       `);
-      if (tableExists("quality_analysis_versions")) {
-        db.exec(`
-          UPDATE quality_analysis_versions
-          SET primary_manager_user_id='QUALITY_TEST_MANAGER_001',
-              primary_manager_name='测试主管'
-          WHERE event_id IN (SELECT id FROM quality_events WHERE is_test=1)
-            AND primary_manager_user_id='QUALITY_TEST_MANAGER_002';
-        `);
-      }
-      if (tableExists("quality_analysis_handoffs")) {
-        db.exec(`
-          UPDATE quality_analysis_handoffs
-          SET primary_manager_user_id='QUALITY_TEST_MANAGER_001'
-          WHERE event_id IN (SELECT id FROM quality_events WHERE is_test=1)
-            AND primary_manager_user_id='QUALITY_TEST_MANAGER_002';
-        `);
-      }
       if (tableExists("quality_notification_outbox")) {
         db.exec(`
           UPDATE quality_notification_outbox

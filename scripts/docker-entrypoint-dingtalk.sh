@@ -20,6 +20,7 @@ fi
 if [ "${WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED}" = "1" ]; then
   echo "[entrypoint] preparing isolated administrator test identities"
   npx tsx scripts/seed-admin-test-actors.ts
+  npx tsx scripts/seed-admin-test-quality-data.ts
 fi
 
 exec npx tsx src/dingtalk-bot.ts
