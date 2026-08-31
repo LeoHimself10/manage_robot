@@ -283,14 +283,17 @@ export function createQualityEvidenceService(deps?: {
     if (!event.isTest) {
       const link = db.prepare("SELECT subtask_id FROM quality_task_links WHERE node_id = ?")
         .get(target.nodeId) as DatabaseRow | undefined;
-      if (!link) throw new Error("质量正式任务桥接不存在");
-      createWorkbenchFormalTaskStore().updateSubtaskStatus({
-        subtaskId: String(link.subtask_id),
-        actorUserId: input.actorUserId,
-        action: "progress",
-        progressStatus: "DONE",
-        note: "质量证据已提交，等待直接上级验收",
-      });
+      if (link) {
+        createWorkbenchFormalTaskStore().updateSubtaskStatus({
+          subtaskId: String(link.subtask_id),
+          actorUserId: input.actorUserId,
+          action: "progress",
+          progressStatus: "DONE",
+          note: "质量证据已提交，等待直接上级验收",
+        });
+      } else if (target.parentNodeId) {
+        throw new Error("质量正式任务桥接不存在");
+      }
     }
     projectQualityEventState(target.eventId, dbPath);
     target = node(target.nodeId);

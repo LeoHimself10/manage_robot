@@ -22,7 +22,7 @@ describe("quality role metric copy", () => {
   it("keeps needs-info work out of completed aftersales reviews", () => {
     const html = renderQualityRoleMetricGroups("aftersales");
     expect(html).toContain("反馈研判");
-    expect(html).toContain("待研判");
+    expect(html).toContain("待我研判");
     expect(html).toContain("未研判或正在等待补充资料");
     expect(html).toContain("已完成研判");
     expect(html).toContain("仅包含普通反馈和已通报");
@@ -34,7 +34,7 @@ describe("quality role metric copy", () => {
 
   it("renders explicit quality-management and supervisor actions", () => {
     const quality = renderQualityRoleMetricGroups("quality_management");
-    expect(quality).toContain("待质量初析");
+    expect(quality).toContain("待我初析");
     expect(quality).toContain("任务推进中");
     expect(quality).toContain("待质量终验");
     expect(quality).not.toContain("待终验");
@@ -52,10 +52,23 @@ describe("quality role metric copy", () => {
     }
   });
 
+  it("renders employee quality cards as links back to the original task workflow", () => {
+    const employee = renderQualityRoleMetricGroups("employee");
+    expect(employee).toContain("我的质量任务");
+    expect(employee).toContain("只读同步原员工任务系统，不改变承接与反馈流程");
+    for (const label of ["待我承接", "执行中", "待主管处理", "已完成"]) {
+      expect(employee).toContain(label);
+    }
+    for (const stage of ["ASSIGNED", "ACTIVE", "WAITING_MANAGER", "DONE"]) {
+      expect(employee).toContain(`data-metric-employee-stage="${stage}"`);
+    }
+  });
+
   it("chooses the metric group from actual capabilities, not a display name", () => {
     expect(resolveQualityMetricRole({ canReport: true, isSpecialist: false, planningMode: false, isBusinessReadOnly: false })).toBe("aftersales");
     expect(resolveQualityMetricRole({ canReport: false, isSpecialist: true, planningMode: false, isBusinessReadOnly: false })).toBe("quality_management");
     expect(resolveQualityMetricRole({ canReport: false, isSpecialist: false, planningMode: true, isBusinessReadOnly: false })).toBe("supervisor");
+    expect(resolveQualityMetricRole({ canReport: false, isSpecialist: false, planningMode: false, isBusinessReadOnly: false, isEmployee: true })).toBe("employee");
     expect(resolveQualityMetricRole({ canReport: true, isSpecialist: true, planningMode: true, isBusinessReadOnly: true })).toBe("overview");
   });
 });

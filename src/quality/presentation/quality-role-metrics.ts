@@ -1,7 +1,9 @@
 export type QualityMetricRole =
   | "aftersales"
+  | "aftersales_event"
   | "quality_management"
   | "supervisor"
+  | "employee"
   | "overview";
 
 export const QUALITY_EVENT_STATUS_LABELS = Object.freeze({
@@ -20,8 +22,10 @@ export function resolveQualityMetricRole(input: {
   isSpecialist: boolean;
   planningMode: boolean;
   isBusinessReadOnly: boolean;
+  isEmployee?: boolean;
 }): QualityMetricRole {
   if (input.isBusinessReadOnly) return "overview";
+  if (input.isEmployee) return "employee";
   if (input.isSpecialist) return "quality_management";
   if (input.planningMode) return "supervisor";
   if (input.canReport) return "aftersales";
@@ -37,11 +41,13 @@ function metric(input: {
   sourceStatus?: string;
   eventStatuses?: string;
   managerStage?: string;
+  employeeStage?: string;
 }): string {
   const filters = [
     input.sourceStatus ? `data-metric-source-status="${input.sourceStatus}"` : "",
     input.eventStatuses ? `data-metric-statuses="${input.eventStatuses}"` : "",
     input.managerStage ? `data-metric-manager-stage="${input.managerStage}"` : "",
+    input.employeeStage ? `data-metric-employee-stage="${input.employeeStage}"` : "",
   ].filter(Boolean).join(" ");
   return `<button class="qpc-metric" type="button" data-metric-view="${input.view}" ${filters} data-metric-count-path="${input.countPath.replaceAll("&", "&amp;")}" style="--tone:${input.tone}"><span>${input.title}</span><strong data-metric-value>—</strong><small>${input.description}</small></button>`;
 }
@@ -56,7 +62,7 @@ export function renderQualityRoleMetricGroups(role: QualityMetricRole): string {
   if (role === "aftersales") {
     return [
       group("反馈研判", "判断反馈是否需要进入质量流程", [
-        metric({ title: "待研判", description: "未研判或正在等待补充资料", tone: "#28639f", view: "feedback", sourceStatus: "ACTION_REQUIRED", countPath: `${sourceBase}&reviewStatus=ACTION_REQUIRED` }),
+        metric({ title: "待我研判", description: "未研判或正在等待补充资料", tone: "#28639f", view: "feedback", sourceStatus: "ACTION_REQUIRED", countPath: `${sourceBase}&reviewStatus=ACTION_REQUIRED` }),
         metric({ title: "已完成研判", description: "仅包含普通反馈和已通报", tone: "#177057", view: "feedback", sourceStatus: "COMPLETED", countPath: `${sourceBase}&reviewStatus=COMPLETED` }),
       ]),
       group("通报后跟踪", "查看已通报质量事件的后续处理结果", [
@@ -65,9 +71,16 @@ export function renderQualityRoleMetricGroups(role: QualityMetricRole): string {
       ]),
     ].join("");
   }
+  if (role === "aftersales_event") {
+    return group("我的质量研判", "只显示当前需要马荣鑫处理的隔离事件", [
+      metric({ title: "待我研判", description: "等待完成人工研判或研判修订", tone: "#28639f", view: "event", eventStatuses: "PENDING_ANALYSIS", countPath: `${eventBase}&status=PENDING_ANALYSIS` }),
+      metric({ title: "后续处理中", description: "已完成研判，质量流程尚未关闭", tone: "#b96718", view: "event", eventStatuses: "PENDING_ASSIGNMENT,PENDING_ACCEPTANCE,IN_PROGRESS,PENDING_PRIMARY_REVIEW,PENDING_QUALITY_REVIEW", countPath: `${eventBase}&statuses=PENDING_ASSIGNMENT,PENDING_ACCEPTANCE,IN_PROGRESS,PENDING_PRIMARY_REVIEW,PENDING_QUALITY_REVIEW` }),
+      metric({ title: "已关闭", description: "质量流程已经完成并关闭", tone: "#64748b", view: "event", eventStatuses: "CLOSED", countPath: `${eventBase}&status=CLOSED` }),
+    ]);
+  }
   if (role === "quality_management") {
     return group("质量事件处理", "只显示质量管理需要关注的阶段", [
-      metric({ title: "待质量初析", description: "等待填写并确认质量初析", tone: "#28639f", view: "event", eventStatuses: "PENDING_ANALYSIS", countPath: `${eventBase}&status=PENDING_ANALYSIS` }),
+      metric({ title: "待我初析", description: "等待填写并确认质量初析", tone: "#28639f", view: "event", eventStatuses: "PENDING_ANALYSIS", countPath: `${eventBase}&status=PENDING_ANALYSIS` }),
       metric({ title: "任务推进中", description: "任务正在分配、承接、执行或主管验收", tone: "#b96718", view: "event", eventStatuses: "PENDING_ASSIGNMENT,PENDING_ACCEPTANCE,IN_PROGRESS,PENDING_PRIMARY_REVIEW", countPath: `${eventBase}&statuses=PENDING_ASSIGNMENT,PENDING_ACCEPTANCE,IN_PROGRESS,PENDING_PRIMARY_REVIEW` }),
       metric({ title: "待质量终验", description: "等待质量管理人员完成终验", tone: "#9d6b1e", view: "event", eventStatuses: "PENDING_QUALITY_REVIEW", countPath: `${eventBase}&status=PENDING_QUALITY_REVIEW` }),
       metric({ title: "已关闭", description: "质量流程已经完成并关闭", tone: "#64748b", view: "event", eventStatuses: "CLOSED", countPath: `${eventBase}&status=CLOSED` }),
@@ -80,6 +93,14 @@ export function renderQualityRoleMetricGroups(role: QualityMetricRole): string {
       metric({ title: "员工执行中", description: "已分派员工，正在执行任务", tone: "#b96718", view: "event", managerStage: "EXECUTION", countPath: `${eventBase}&managerStage=EXECUTION` }),
       metric({ title: "待我验收", description: "员工已提交，等待当前主管验收", tone: "#9d6b1e", view: "event", managerStage: "REVIEW", countPath: `${eventBase}&managerStage=REVIEW` }),
       metric({ title: "已关闭", description: "质量流程已经完成并关闭", tone: "#64748b", view: "event", managerStage: "CLOSED", countPath: `${eventBase}&managerStage=CLOSED` }),
+    ]);
+  }
+  if (role === "employee") {
+    return group("我的质量任务", "只读同步原员工任务系统，不改变承接与反馈流程", [
+      metric({ title: "待我承接", description: "正式子任务已发放，等待我在员工工作台承接", tone: "#28639f", view: "event", employeeStage: "ASSIGNED", countPath: `${eventBase}&employeeStage=ASSIGNED` }),
+      metric({ title: "执行中", description: "我已承接，继续在原员工工作台反馈进度", tone: "#b96718", view: "event", employeeStage: "ACTIVE", countPath: `${eventBase}&employeeStage=ACTIVE` }),
+      metric({ title: "待主管处理", description: "我已拒绝或申请调整，等待主管处理", tone: "#9d6b1e", view: "event", employeeStage: "WAITING_MANAGER", countPath: `${eventBase}&employeeStage=WAITING_MANAGER` }),
+      metric({ title: "已完成", description: "我负责的质量子任务已经完成或停止", tone: "#64748b", view: "event", employeeStage: "DONE", countPath: `${eventBase}&employeeStage=DONE` }),
     ]);
   }
   return group("质量事件", "按统一质量状态查看当前可见事件", [

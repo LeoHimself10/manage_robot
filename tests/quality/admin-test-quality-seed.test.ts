@@ -32,8 +32,14 @@ describe("administrator isolated quality seed", () => {
 
     expect(run()).toContain("isolated quality events ready: 30");
     const damaged = new DatabaseSync(dbPath);
+    damaged.exec("DROP TRIGGER IF EXISTS quality_analysis_versions_no_delete");
+    damaged.exec("DROP TRIGGER IF EXISTS quality_analysis_versions_no_update");
     damaged.prepare(`UPDATE quality_source_rows SET state='DELETED'
       WHERE sheet_id='QUALITY_TEST_ISOLATED'`).run();
+    damaged.prepare(`DELETE FROM quality_analysis_versions
+      WHERE event_id=(SELECT id FROM quality_events WHERE event_no='QT-DEMO-002')`).run();
+    damaged.prepare(`UPDATE quality_analysis_versions SET deliverables_json='[]'
+      WHERE event_id=(SELECT id FROM quality_events WHERE event_no='QT-DEMO-003')`).run();
     damaged.close();
     expect(run()).toContain("isolated quality events ready: 30");
 
@@ -78,6 +84,22 @@ describe("administrator isolated quality seed", () => {
       GROUP BY n.assignee_user_id
       ORDER BY n.assignee_user_id
     `).all() as Array<{ assignee_user_id: string; count: number }>;
+    const requiredAnalyses = db.prepare(`
+      SELECT e.event_no,e.status,
+        (SELECT a.content_json FROM quality_analysis_versions a
+          WHERE a.event_id=e.id ORDER BY a.analysis_version DESC LIMIT 1) AS content_json,
+        (SELECT a.deliverables_json FROM quality_analysis_versions a
+          WHERE a.event_id=e.id ORDER BY a.analysis_version DESC LIMIT 1) AS deliverables_json
+      FROM quality_events e
+      WHERE e.is_test=1
+        AND e.status NOT IN ('DRAFT','PENDING_ANALYSIS')
+      ORDER BY e.event_no
+    `).all() as Array<{
+      event_no: string;
+      status: string;
+      content_json: string | null;
+      deliverables_json: string | null;
+    }>;
     db.close();
 
     expect(eventNos).toHaveLength(30);
@@ -103,6 +125,23 @@ describe("administrator isolated quality seed", () => {
       "QUALITY_TEST_EMPLOYEE_002",
       "QUALITY_TEST_EMPLOYEE_003",
     ]);
+    expect(requiredAnalyses).toHaveLength(25);
+    for (const analysis of requiredAnalyses) {
+      expect(analysis.content_json, `${analysis.event_no} 缺少质量初析`).toBeTruthy();
+      const deliverables = JSON.parse(analysis.deliverables_json ?? "[]") as Array<{
+        name?: string;
+        selected?: boolean;
+      }>;
+      expect(
+        deliverables.some((item) => item.name?.trim() && item.selected !== false),
+        `${analysis.event_no} 缺少必须成果`,
+      ).toBe(true);
+    }
+    const acceptanceAnalysis = requiredAnalyses.find((row) => row.event_no === "QT-DEMO-002");
+    expect(JSON.parse(acceptanceAnalysis?.content_json ?? "{}").preliminaryConclusion)
+      .toContain("QT-DEMO-002 已完成质量初析");
+    expect(JSON.parse(acceptanceAnalysis?.deliverables_json ?? "[]")[0]?.name)
+      .toBe("原因排查与验证记录");
     expect(notifications.count).toBe(0);
     expect(sourceStates).toEqual([{ state: "ACTIVE", count: 30 }]);
   }, 20_000);

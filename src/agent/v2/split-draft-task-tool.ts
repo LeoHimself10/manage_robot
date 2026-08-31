@@ -199,6 +199,19 @@ export function buildSplitDraftTaskHandler(deps: SplitDraftTaskToolDeps): ToolHa
       }
       const newId = String(addResult.subtaskId ?? "").trim();
       if (newId) {
+        const detailResult = updateHandler({
+          subtaskId: newId,
+          patch: buildPatchFromSplitRow(row, defaultDueAt),
+        }) as Record<string, unknown>;
+        if (detailResult.ok !== true) {
+          return {
+            ...detailResult,
+            stage: "hydrate_split_row",
+            partialSplit: true,
+            createdIds,
+            createdTaskId: newId,
+          };
+        }
         createdIds.push(newId);
         insertAfter = newId;
       }

@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { buildPublishTaskHandler, createRecentPublishStore } from "../../../src/agent/tools/publish-task";
 import type { PlanSession } from "../../../src/infra/plan-session-store";
@@ -215,6 +218,50 @@ describe("publish_task handler", () => {
       }),
     );
     expect(onPublishResult).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+  });
+
+  it("does not block a published formal task when its optional quality link cannot be reconciled", async () => {
+    vi.stubEnv("WORKBENCH_SQLITE_PATH", join(tmpdir(), `missing-quality-${randomUUID()}.sqlite`));
+    const session = baseSession();
+    session.latestDraft = {
+      ...session.latestDraft!,
+      qualityHandoff: {
+        qualityEventId: "missing-quality-event",
+        integrationKey: "quality-node:missing",
+        requiredDeliverableIds: ["deliverable-1"],
+      },
+      tasks: [{
+        id: "task-1",
+        title: "子任务1",
+        qualityDeliverableIds: ["deliverable-1"],
+      }],
+    } as typeof session.latestDraft;
+    const appendTaskEvent = vi.fn();
+    const handler = buildPublishTaskHandler({
+      trustedActorUserId: "manager-1",
+      currentSessionPlanId: "plan-1",
+      currentSession: session,
+      initiatorDepartment: "质量部",
+      publishFromSession: () => ({
+        task: { taskId: "task:plan-1", taskNo: "W20260828001", title: "测试任务" },
+        subtasks: [{ assigneeUserId: "emp-1", title: "子任务1", sourceTaskKey: "task-1" }],
+        alreadyPublished: false,
+      }),
+      appendTaskEvent,
+      getContact: () => ({ active: true }),
+      notifier: stubWorkbenchPublishNotifier(),
+      recentPublished: createRecentPublishStore(),
+    });
+
+    await expect(handler({ planId: "plan-1" })).resolves.toMatchObject({
+      ok: true,
+      task: { taskId: "task:plan-1" },
+    });
+    expect(appendTaskEvent).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: "task:plan-1",
+      eventType: "QUALITY_LINK_REPAIR_REQUIRED",
+    }));
+    vi.unstubAllEnvs();
   });
 
   it("returns ok:false unknown_assignees (instead of throwing) when contact lookup fails", async () => {

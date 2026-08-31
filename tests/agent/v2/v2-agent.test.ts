@@ -50,6 +50,66 @@ describe("v2 replace_draft", () => {
     expect(tasks).toHaveLength(2);
     expect((tasks[0] as { title: string }).title).toBe("围堵");
   });
+
+  it("preserves immutable quality handoff context and restores exact outcome mappings", () => {
+    const session: PlanSession = {
+      chatKeyHash: "quality-h",
+      planId: "quality-p1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      conversationHistory: [],
+      knownFacts: [],
+      latestDraft: {
+        title: "质量事件草案",
+        description: "不可变质量背景",
+        qualityTaskPackage: {
+          requiredDeliverables: [{
+            deliverableId: "deliverable-a",
+            name: "原因排查与验证记录",
+            selected: true,
+          }],
+        },
+        qualityHandoff: {
+          qualityEventId: "quality-event-a",
+          requiredDeliverableIds: ["deliverable-a"],
+        },
+        tasks: [{
+          id: "task_1",
+          title: "原因排查与验证记录",
+          objective: "形成完整记录",
+          deliverables: ["原因排查与验证记录"],
+          completionCriteria: ["可复核"],
+          qualityDeliverableIds: ["deliverable-a"],
+        }],
+      },
+    };
+    const handler = buildReplaceDraftHandler({ currentSession: session });
+
+    const result = handler({
+      title: "质量事件拆解方案",
+      description: "重新拆成执行链路",
+      tasks: [{
+        id: "task_1",
+        title: "复现与根因定位",
+        objective: "完成复现和原因确认",
+        deliverables: ["原因排查与验证记录"],
+        completionCriteria: ["记录可复核"],
+        timeNode: { dueAt: "2026-09-10" },
+      }],
+    }) as { ok: boolean };
+
+    expect(result.ok).toBe(true);
+    const draft = session.latestDraft as Record<string, unknown>;
+    expect(draft.qualityHandoff).toEqual({
+      qualityEventId: "quality-event-a",
+      requiredDeliverableIds: ["deliverable-a"],
+    });
+    expect(draft.qualityTaskPackage).toMatchObject({
+      requiredDeliverables: [{ deliverableId: "deliverable-a" }],
+    });
+    expect((draft.tasks as Array<Record<string, unknown>>)[0].qualityDeliverableIds)
+      .toEqual(["deliverable-a"]);
+  });
 });
 
 describe("v2 prompt", () => {

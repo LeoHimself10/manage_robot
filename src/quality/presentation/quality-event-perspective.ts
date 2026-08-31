@@ -21,6 +21,11 @@ import {
   qualityStatusLabel,
   qualityUrgencyLabel,
 } from "./quality-display-labels";
+import {
+  listQualityFormalSubtasksFromDb,
+  qualityEmployeeTaskStage,
+  qualityFormalTaskStatusLabel,
+} from "../analysis/quality-formal-task-projection";
 
 type DatabaseRow = Record<string, unknown>;
 
@@ -211,6 +216,13 @@ export function createQualityEventPerspectiveProjector(
     return roots.at(-1) ?? null;
   }
 
+  function employeeFormalSubtasks(eventId: string, actorUserId: string) {
+    return listQualityFormalSubtasksFromDb(db, {
+      eventId,
+      assigneeUserId: actorUserId,
+    });
+  }
+
   function attentionFor(row: DatabaseRow, context: QualityPerspectiveContext) {
     const status = String(row.status);
     if (status === "CLOSED") return { bucket: "DONE" as const, label: "已关闭" };
@@ -228,6 +240,17 @@ export function createQualityEventPerspectiveProjector(
           : "PROGRESS" as const,
         label: qualityStatusLabel(status),
       };
+    }
+    if (context.perspective === "employee") {
+      const formal = employeeFormalSubtasks(String(row.id), context.actorUserId);
+      const stages = new Set(formal.map((item) => qualityEmployeeTaskStage(
+        item.status,
+        item.openDeclineKind,
+      )));
+      if (stages.has("ASSIGNED")) return { bucket: "TODO" as const, label: "待我承接" };
+      if (stages.has("ACTIVE")) return { bucket: "PROGRESS" as const, label: "执行中" };
+      if (stages.has("WAITING_MANAGER")) return { bucket: "TODO" as const, label: "待主管处理" };
+      if (formal.length > 0) return { bucket: "DONE" as const, label: "已完成" };
     }
     const ownNodes = allNodes.filter((node) => String(node.assignee_user_id) === context.actorUserId);
     const pendingAcceptance = ownNodes.some((node) => String(node.status) === "PENDING_ACCEPTANCE");
@@ -250,6 +273,9 @@ export function createQualityEventPerspectiveProjector(
   function summary(row: DatabaseRow, context: QualityPerspectiveContext): QualityEventSummaryViewModel {
     const root = activeRoot(nodes(String(row.id)));
     const attention = attentionFor(row, context);
+    const formalEmployeeTasks = context.perspective === "employee"
+      ? employeeFormalSubtasks(String(row.id), context.actorUserId)
+      : [];
     return {
       actionRef: String(row.id),
       eventNumber: String(row.event_no),
@@ -258,8 +284,12 @@ export function createQualityEventPerspectiveProjector(
       attentionBucket: attention.bucket,
       attentionLabel: attention.label,
       urgencyLabel: qualityUrgencyLabel(row.urgency),
-      currentOwnerName: displayName(root?.assignee_user_id),
-      currentDepartmentName: nullable(root?.department_name) ?? "暂未指定",
+      currentOwnerName: formalEmployeeTasks.length > 0
+        ? displayName(context.actorUserId)
+        : displayName(root?.assignee_user_id),
+      currentDepartmentName: formalEmployeeTasks.length > 0
+        ? "原员工任务系统"
+        : nullable(root?.department_name) ?? "暂未指定",
       updatedAt: String(row.updated_at),
       testBadge: Number(row.is_test ?? 0) === 1 ? "测试事件" : null,
     };
@@ -272,6 +302,8 @@ export function createQualityEventPerspectiveProjector(
     if (context.perspective === "dashboard") return context.isAdmin;
     if (context.perspective === "aftersales") return String(row.created_by) === context.actorUserId;
     if (context.perspective === "quality_management") return String(row.status) !== "DRAFT";
+    if (context.perspective === "employee"
+      && employeeFormalSubtasks(String(row.id), context.actorUserId).length > 0) return true;
     return nodes(String(row.id)).some((node) => String(node.assignee_user_id) === context.actorUserId);
   }
 
@@ -566,7 +598,11 @@ export function createQualityEventPerspectiveProjector(
       if (root) context = { ...context, actorUserId: String(root.assignee_user_id) };
     }
     const branch = visibleNodes(allNodes, context);
-    if ((context.perspective === "manager" || context.perspective === "employee") && branch.length === 0) return null;
+    const formalEmployeeTasks = context.perspective === "employee"
+      ? employeeFormalSubtasks(input.eventId, context.actorUserId)
+      : [];
+    if ((context.perspective === "manager" || context.perspective === "employee")
+      && branch.length === 0 && formalEmployeeTasks.length === 0) return null;
     const nodeRefs = new Set(branch.map((node) => String(node.node_id)));
     const evidenceRows = tableExists(db, "quality_evidence")
       ? db.prepare("SELECT * FROM quality_evidence WHERE event_id=? ORDER BY created_at,evidence_id").all(input.eventId) as DatabaseRow[]
@@ -665,19 +701,37 @@ export function createQualityEventPerspectiveProjector(
         departmentName: nullable(root?.department_name) ?? "暂未指定",
         statusLabel: root ? qualityStatusLabel(root.status) : "等待选择主管",
       },
-      branch: branch.map((node) => ({
-        actionRef: String(node.node_id),
-        parentActionRef: nullable(node.parent_node_id) && nodeRefs.has(String(node.parent_node_id))
-          ? String(node.parent_node_id)
-          : null,
-        assigneeName: displayName(node.assignee_user_id),
-        assigneeTypeLabel: String(node.assignee_kind) === "MANAGER" ? "主管" : "员工",
-        departmentName: nullable(node.department_name) ?? "部门待确认",
-        statusLabel: qualityStatusLabel(node.status),
-        dueAt: String(node.due_at),
-        requirement: String(node.requirement),
-        version: Number(node.version),
-      })),
+      branch: branch.length > 0
+        ? branch.map((node) => ({
+            actionRef: String(node.node_id),
+            parentActionRef: nullable(node.parent_node_id) && nodeRefs.has(String(node.parent_node_id))
+              ? String(node.parent_node_id)
+              : null,
+            assigneeName: displayName(node.assignee_user_id),
+            assigneeTypeLabel: String(node.assignee_kind) === "MANAGER" ? "主管" : "员工",
+            departmentName: nullable(node.department_name) ?? "部门待确认",
+            statusLabel: qualityStatusLabel(node.status),
+            dueAt: String(node.due_at),
+            requirement: String(node.requirement),
+            version: Number(node.version),
+          }))
+        : formalEmployeeTasks.map((item) => ({
+            actionRef: item.subtaskId,
+            parentActionRef: null,
+            assigneeName: displayName(item.assigneeUserId),
+            assigneeTypeLabel: "员工",
+            departmentName: "原员工任务系统",
+            statusLabel: qualityFormalTaskStatusLabel(item.status, item.openDeclineKind),
+            dueAt: item.dueAt,
+            requirement: item.objective || item.subtaskTitle,
+            version: 0,
+            taskNo: item.taskNo,
+            taskId: item.taskId,
+            subtaskId: item.subtaskId,
+            taskUrl: `/workbench/employee/task?taskNo=${encodeURIComponent(item.taskNo)}`,
+            formalProjection: true,
+          })),
+      formalTaskProjection: formalEmployeeTasks.length > 0 && branch.length === 0,
       evidence: evidenceRows.filter((item) => !["manager", "employee"].includes(context.perspective) || nodeRefs.has(String(item.node_id))).map((item) => ({
         actionRef: String(item.evidence_id),
         fileName: String(item.original_name),

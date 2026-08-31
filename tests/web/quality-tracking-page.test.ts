@@ -186,6 +186,29 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain("applyBusinessReadOnly");
   });
 
+  it("keeps employee quality work read-only and sends execution back to the original employee task page", () => {
+    const html = renderQualityTrackingPage({
+      role: "employee",
+      userId: "QUALITY_TEST_EMPLOYEE_001",
+      canReport: false,
+      canViewSources: false,
+      isBusinessReadOnly: false,
+      rolePanelsEnabled: true,
+      testActorsEnabled: true,
+      isAdmin: true,
+      activePerspective: "employee",
+      projectedMode: true,
+    });
+
+    expect(html).toContain('data-metric-role="employee"');
+    expect(html).toContain("我的质量任务");
+    expect(html).toContain('data-metric-employee-stage="ASSIGNED"');
+    expect(html).toContain("以下状态直接来自原员工任务系统");
+    expect(html).toContain("去原员工任务处理");
+    expect(html).toContain("if (view.formalTaskProjection) return 'assignment'");
+    expect(html).toContain("params.set('employeeStage', employeeStage)");
+  });
+
   it("keeps yesterday's five-stage workspace and adds clear role-specific metric groups", () => {
     const ma = renderQualityTrackingPage({
       role: "manager",
@@ -227,6 +250,7 @@ describe("renderQualityTrackingPage", () => {
       expect(html).not.toContain("同一事件，不同职责所需的信息");
     }
     expect(ma).toContain("反馈研判");
+    expect(ma).toContain("待我研判");
     expect(ma).toContain("已完成研判");
     expect(ma).toContain("仅包含普通反馈和已通报");
     expect(ma).toContain("row.reportedEvent.status !== 'DRAFT'");
@@ -234,10 +258,37 @@ describe("renderQualityTrackingPage", () => {
     expect(ma).toContain("通报后跟踪");
     expect(ma).toContain("AI 原始研判建议");
     expect(ma).toContain("主管最终研判");
-    expect(tong).toContain("待质量初析");
+    expect(tong).toContain("待我初析");
     expect(tong).toContain("任务推进中");
     expect(tong).toContain("待质量终验");
     expect(tong).toContain("正式通报事件事实");
+    expect(tong).toContain("if (view.perspective === 'quality_management') return 'analysis'");
+    expect(tong).toContain("switchStage('assignment')");
+    expect(tong).toContain("function changeListPage(nextPage)");
+    expect(tong).toContain("function scrollToQualityList()");
+    expect(tong).toContain("title.scrollIntoView({ behavior: 'smooth', block: 'start' })");
+    expect(tong).toContain("await loadList(); scrollToQualityList();");
+    expect(tong).toContain("qpc-event-summary-grid");
+    expect(tong).not.toContain("'事件概览'");
+    expect(tong).toContain("'质量研判'");
+    expect(tong).toContain("var eventGrid = facts([['事件编号', event.eventNumber], ['事件标题', event.title], ['当前状态', event.statusLabel], ['风险等级', event.urgencyLabel], ['分类', event.initialCategory], ['更新时间', dateText(event.updatedAt)]])");
+    expect(tong).toContain("if (!isAftersalesPerspective)");
+    expect(tong).not.toContain("renderProjectedOriginalAiAction(view, ai)");
+    expect(tong).toContain("AI回填与人工确认");
+    expect(tong).toContain("panel.id = 'projectedHumanAssessmentForm'");
+    expect(tong).toContain("aiButton.id = 'projectedRunAiAssessment'");
+    expect(tong).toContain("'btn qpc-ai-trigger'");
+    expect(tong).toContain("AI建议已直接填入表单");
+    expect(tong).toContain("applySuggestion(currentSuggestion, 'DIRECT')");
+    expect(tong).toContain("setAdoptionMode('MODIFIED')");
+    expect(tong).toContain("await selectEvent(view.event.actionRef, true, true)");
+    expect(tong).toContain("if (!preserveScroll) alignWorkspace()");
+    expect(tong).toContain("window.scrollTo({ top: savedScrollTop, behavior: 'auto' })");
+    expect(tong).toContain("if (view.assessment && !isAftersalesPerspective)");
+    expect(tong).toContain("直接采纳");
+    expect(tong).toContain("修改后采纳");
+    expect(tong).toContain("qpc-ai-card");
+    expect(tong).toContain("原始快照 · 不可修改");
   });
 
   it("shows the five action-oriented buckets for the isolated test supervisor", () => {
@@ -276,7 +327,7 @@ describe("renderQualityTrackingPage", () => {
       projectedMode: true,
     });
 
-    expect(html).toContain("待质量初析");
+    expect(html).toContain("待我初析");
     expect(html).toContain("任务推进中");
     expect(html).toContain("待质量终验");
     expect(html).toContain("已关闭");
@@ -337,9 +388,10 @@ describe("renderQualityTrackingPage", () => {
     expect(navigation).not.toContain("?perspective=");
     expect(test).not.toContain('data-quality-list="feedback"');
     expect(test).toContain("function projectedDefaultStage(view)");
-    expect(test).toContain("马荣鑫（测试）· 研判修订");
-    expect(test).toContain("运行AI原始研判");
-    expect(test).toContain("刷新页面不会重复调用");
+    expect(test).toContain("panel.id = 'projectedHumanAssessmentForm'");
+    expect(test).toContain("aiButton.id = 'projectedRunAiAssessment'");
+    expect(test).toContain("点击AI研判后，建议会直接填入下方表单");
+    expect(test).toContain("AI研判完成，建议已回填");
     expect(test).toContain("生成AI质量初析");
     expect(test).toContain("正在结合来源事实、AI原始研判和人工研判生成初析草案");
     expect(test).toContain("完成初析，进入主管选择");
@@ -348,6 +400,10 @@ describe("renderQualityTrackingPage", () => {
     expect(test).toContain("承接并进入任务规划");
     expect(test).toContain("退回给佟成（测试）");
     expect(test).toContain("window.location.assign(result.planningUrl)");
+    expect(test).toContain("进入原智能规划助手完成分派");
+    expect(test).toContain("void run('open-planning')");
+    expect(test).toContain("if (!isDelegating && (allowed.indexOf('upload-evidence')");
+    expect(test).not.toContain("分配给本部门测试员工");
     expect(test).not.toContain("window.prompt('请填写拒绝原因')");
     expect(test).toContain("当前可操作");
 

@@ -533,13 +533,17 @@ export function renderEmployeeWorkbenchPage(params?: {
     var tn = String(t.taskNo || '').trim();
     var fromView = getView();
     var detailLink = tn ? ('<p class="meta"><a class="task-detail-readonly-link" href="/workbench/employee/task?taskNo='+encodeURIComponent(tn)+'&fromView='+encodeURIComponent(fromView)+'">完整背景与分工</a></p>') : '';
-    var q = t.qualityContext || null;
+    var legacyQualityContext = t.qualityContext || null;
+    var q = legacyQualityContext || t.qualityPlanningContext || null;
     var qualityContext = q ? ('<div class="emp-quality-context"><div class="emp-quality-context__head"><span class="emp-quality-context__badge">质量任务</span><strong>'+esc(q.eventNo||'')+' · '+esc(q.eventTitle||'')+'</strong></div>'
       + '<p>'+esc(q.eventSummary||'')+'</p>'
-      + '<p>原主责：'+esc(q.primaryAssigneeUserId||'待确定')+' · 直接上级：'+esc(q.parentAssigneeUserId||'暂无')+' · 完成时需上传证据</p></div>') : '';
+      + (legacyQualityContext
+        ? '<p>原主责：'+esc(q.primaryAssigneeUserId||'待确定')+' · 直接上级：'+esc(q.parentAssigneeUserId||'暂无')+' · 完成时需上传证据</p>'
+        : '<p>状态直接同步原任务系统；仍按本页原有方式承接、反馈和完成。</p>')
+      + '</div>') : '';
     var coreLines = subtaskCardCoreLines(t, [t]);
     var actions = actionsHtml || '';
-    return '<article class="'+cardCls+'" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'" data-quality-node-id="'+esc(q&&q.nodeId?q.nodeId:'')+'" data-quality-node-version="'+esc(q&&q.nodeVersion?q.nodeVersion:'')+'" data-search-key="'+esc(((t.title||'')+' '+(t.taskNo||'')+' '+(t.taskDescription||'')).toLowerCase())+'">'
+    return '<article class="'+cardCls+'" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'" data-quality-node-id="'+esc(legacyQualityContext&&legacyQualityContext.nodeId?legacyQualityContext.nodeId:'')+'" data-quality-node-version="'+esc(legacyQualityContext&&legacyQualityContext.nodeVersion?legacyQualityContext.nodeVersion:'')+'" data-search-key="'+esc(((t.title||'')+' '+(t.taskNo||'')+' '+(t.taskDescription||'')).toLowerCase())+'">'
       + '<div class="head"><div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+st+'</div>'
       + '<p class="title">'+esc(t.title||t.taskNo||'子任务')+'</p>'
       + '<p class="meta">业务编号 <code>'+esc(t.taskNo||'—')+'</code>'+mgrLine+'</p>'

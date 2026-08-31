@@ -171,16 +171,130 @@ describe("quality role-panel HTTP APIs", () => {
     expect(adminPage.body).not.toContain("主管二（测试）");
     expect(adminPage.body).not.toContain("测试看板");
     expect(adminPage.body).not.toContain("切换到成员工作台");
-    expect(adminPage.body).toContain('data-metric-role="overview"');
-    expect(adminPage.body).toContain("待质量初析");
-    expect(adminPage.body).toContain("待任务分配");
-    expect(adminPage.body).toContain("待质量终验");
+    expect(adminPage.body).toContain('data-metric-role="aftersales_event"');
+    expect(adminPage.body).toContain("待我研判");
+    expect(adminPage.body).toContain("后续处理中");
     expect(adminPage.body).not.toContain('data-quality-list="feedback"');
 
     const ordinaryPage = await callPage("/workbench/quality", "aftersales-real", "manager");
     expect(ordinaryPage.status).toBe(200);
     expect(ordinaryPage.body).not.toContain('aria-label="管理员隔离测试视角"');
     expect(ordinaryPage.body).not.toContain("测试员工1");
+  });
+
+  it("filters projected role lists with the same statuses used by metric cards", async () => {
+    const pendingReview = await call(
+      "/api/workbench/quality/events?projection=1&testActor=aftersales&statuses=PENDING_ANALYSIS&page=1&pageSize=25",
+    );
+    expect(pendingReview.status).toBe(200);
+    expect(pendingReview.payload.data.events.map((item: any) => item.actionRef))
+      .toEqual(["test-analysis-event"]);
+    expect(pendingReview.payload.data.pagination.total).toBe(1);
+
+    const following = await call(
+      "/api/workbench/quality/events?projection=1&testActor=aftersales&statuses=PENDING_ASSIGNMENT&page=1&pageSize=25",
+    );
+    expect(following.status).toBe(200);
+    expect(following.payload.data.events.map((item: any) => item.actionRef))
+      .toEqual(["test-event"]);
+    expect(following.payload.data.pagination.total).toBe(1);
+  });
+
+  it("filters projected supervisor lists with the manager stage used by metric cards", async () => {
+    const db = new DatabaseSync(dbPath);
+    db.prepare(`
+      INSERT INTO quality_assignment_nodes(
+        node_id,event_id,parent_node_id,depth,assignee_user_id,assignee_kind,
+        department_name,is_primary,status,due_at,requirement,version,
+        created_by,request_id,created_at,updated_at
+      ) VALUES('manager-accept-node','test-event',NULL,0,'QUALITY_TEST_MANAGER_001','MANAGER',
+        '研发中心（测试）',1,'PENDING_ACCEPTANCE','2026-09-30T08:00:00.000Z','完成测试核验',1,
+        'QUALITY_TEST_SPECIALIST_001','request-manager-accept-node',?,?)
+    `).run(NOW, NOW);
+    db.close();
+
+    const waitingAcceptance = await call(
+      "/api/workbench/quality/events?projection=1&testActor=manager-1&managerStage=ACCEPT&page=1&pageSize=25",
+    );
+    expect(waitingAcceptance.status).toBe(200);
+    expect(waitingAcceptance.payload.data.events.map((item: any) => item.actionRef))
+      .toEqual(["test-event"]);
+    expect(waitingAcceptance.payload.data.pagination.total).toBe(1);
+
+    const executing = await call(
+      "/api/workbench/quality/events?projection=1&testActor=manager-1&managerStage=EXECUTION&page=1&pageSize=25",
+    );
+    expect(executing.status).toBe(200);
+    expect(executing.payload.data.events).toEqual([]);
+    expect(executing.payload.data.pagination.total).toBe(0);
+  });
+
+  it("projects a published quality task into the employee view without adding a second action flow", async () => {
+    const db = new DatabaseSync(dbPath);
+    db.exec(`
+      CREATE TABLE tasks(
+        task_id TEXT PRIMARY KEY,task_no TEXT NOT NULL,plan_id TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,manager_user_id TEXT NOT NULL,status TEXT NOT NULL,
+        published_at TEXT NOT NULL
+      );
+      CREATE TABLE subtasks(
+        subtask_id TEXT PRIMARY KEY,task_id TEXT NOT NULL,title TEXT NOT NULL,
+        objective TEXT,assignee_user_id TEXT NOT NULL,status TEXT NOT NULL,due_at TEXT,
+        created_at TEXT NOT NULL
+      );
+    `);
+    db.prepare(`INSERT INTO quality_analysis_handoffs(
+      handoff_id,event_id,analysis_version,integration_key,primary_department_id,
+      primary_department_name,primary_manager_user_id,task_package_json,plan_id,
+      thread_id,status,formal_task_id,created_at,published_at
+    ) VALUES('employee-handoff','test-event',1,'quality-node:test-event','dept-rd',
+      '研发中心（测试）','QUALITY_TEST_MANAGER_001','{}','employee-plan','employee-thread',
+      'PUBLISHED','task:employee-plan',?,?)`).run(NOW, NOW);
+    db.prepare(`INSERT INTO tasks(task_id,task_no,plan_id,title,manager_user_id,status,published_at)
+      VALUES('task:employee-plan','TASK-EMPLOYEE-001','employee-plan','原任务系统质量任务',
+      'QUALITY_TEST_MANAGER_001','ASSIGNED',?)`).run(NOW);
+    db.prepare(`INSERT INTO subtasks(
+      subtask_id,task_id,title,objective,assignee_user_id,status,due_at,created_at
+    ) VALUES('employee-subtask','task:employee-plan','完成质量问题核验','提交原因与验证结果',
+      'QUALITY_TEST_EMPLOYEE_001','ASSIGNED','2026-09-30T08:00:00.000Z',?)`).run(NOW);
+    db.close();
+
+    const page = await callPage("/workbench/quality?view=events&testActor=employee-1");
+    expect(page.status).toBe(200);
+    expect(page.body).toContain('data-metric-role="employee"');
+    expect(page.body).toContain("我的质量任务");
+
+    const waiting = await call(
+      "/api/workbench/quality/events?projection=1&testActor=employee-1&employeeStage=ASSIGNED&page=1&pageSize=25",
+    );
+    expect(waiting.status).toBe(200);
+    expect(waiting.payload.data.events).toEqual([
+      expect.objectContaining({ actionRef: "test-event", attentionLabel: "待我承接" }),
+    ]);
+
+    const detail = await call("/api/workbench/quality/events/test-event?testActor=employee-1");
+    expect(detail.status).toBe(200);
+    expect(detail.payload.data.viewModel).toMatchObject({
+      perspective: "employee",
+      allowedActions: [],
+      formalTaskProjection: true,
+      branch: [expect.objectContaining({
+        actionRef: "employee-subtask",
+        statusLabel: "待承接",
+        taskUrl: "/workbench/employee/task?taskNo=TASK-EMPLOYEE-001",
+      })],
+    });
+
+    const update = new DatabaseSync(dbPath);
+    update.prepare("UPDATE subtasks SET status='IN_PROGRESS' WHERE subtask_id='employee-subtask'").run();
+    update.close();
+    const executing = await call(
+      "/api/workbench/quality/events?projection=1&testActor=employee-1&employeeStage=ACTIVE&page=1&pageSize=25",
+    );
+    expect(executing.status).toBe(200);
+    expect(executing.payload.data.events).toEqual([
+      expect.objectContaining({ actionRef: "test-event", attentionLabel: "执行中" }),
+    ]);
   });
 
   it("keeps a delegated test specialist in the isolated scope when the URL has no testActor parameter", async () => {
@@ -556,6 +670,19 @@ describe("quality role-panel HTTP APIs", () => {
     });
     expect(planningSession.latestDraft?.tasks).toHaveLength(1);
     expect(planningSession.conversationHistory?.map((item) => item.role)).toEqual(["assistant"]);
+
+    const reopenedPlanning = await call(
+      "/api/workbench/quality/events/test-event/test-action?testActor=manager-1",
+      "POST",
+      {
+        action: "open-planning",
+        expectedVersion: accepted.payload.data.viewModel.branch[0].version,
+        requestId: "82333333-3333-4333-8333-333333333333",
+      },
+    );
+    expect(reopenedPlanning.status).toBe(200);
+    expect(reopenedPlanning.payload.data.planningUrl).toBe(accepted.payload.data.planningUrl);
+    expect(readdirSync(join(tempDir, "sessions"))).toHaveLength(1);
 
     const employees = await call(
       "/api/workbench/quality/events/test-event/test-employee-options?testActor=manager-1",

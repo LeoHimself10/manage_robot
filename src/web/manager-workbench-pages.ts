@@ -11,7 +11,10 @@ import { hasQualityAssignmentNodesForUser } from "../quality/infra/quality-read-
 import { MANAGER_CHAT_V2_CSS } from "./manager-chat-v2-styles";
 
 export const QUALITY_TASK_REPLAN_MESSAGE =
-  "请结合质量事件背景和质量初析，重新规划完整执行任务。必须覆盖已选的全部成果，但不要把一个成果简单等同于一个任务；补全执行步骤、交付物、验收标准、截止和前后依赖。只生成待确认草案，不要发放。";
+  "请作为任务拆解机器人，结合质量事件背景和质量初析，把当前宽泛成果重新规划为可执行、可承接、可验收的完整任务方案。必须覆盖已选的全部成果，但不要把一个成果简单等同于一个任务；每个必选成果的原始名称必须至少原样保留在一项任务的交付物中，以保持质量覆盖映射。围绕复现、原因定位、措施实施和效果验证补齐必要步骤。本轮先完成任务结构拆解；拆出的每一项任务都必须同时生成非空的交付物和完成标准，并补全截止时间和前后依赖，不允许只生成标题和目标。不要写入、沿用或调整正式负责人，拆解完成后由主管在右侧逐项配置负责人。只生成待确认草案，不要发放。";
+
+export const QUALITY_ACCEPTANCE_FILL_MESSAGE =
+  "请只补齐当前质量任务草案中缺失的交付物和完成标准。逐项检查全部任务：交付物要明确员工最终需要提交的文件、记录、数据或证据；完成标准要写成主管可以复核和验收的客观条件。仅更新缺失的 deliverables 与 completionCriteria，不得修改任务标题、目标、负责人、截止时间、前后依赖或质量成果映射，也不要新增、删除任务或发放。";
 
 export function shouldOfferQualityTaskReplan(input: {
   threadKind: "main" | "side";
@@ -910,7 +913,12 @@ export function renderManagerChatPage(params: {
 
     <aside class="chat-sidebar" id="chatSidebar" aria-label="会话列表">
       <div class="chat-sidebar-head">
-        <div class="chat-sidebar-title"><strong>对话历史</strong><span>任务规划记录</span></div>
+        <div class="chat-sidebar-title">
+          <div class="chat-sidebar-title-copy"><strong>对话历史</strong><span>任务规划记录</span></div>
+          <button type="button" class="quality-history-toggle" id="qualityHistoryToggle" hidden aria-label="收起对话历史" aria-expanded="true" title="收起对话历史">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+        </div>
         <button type="button" class="btn btn-primary btn-sm" id="newThreadBtn" style="width:100%;">+ 新规划会话</button>
       </div>
       <ul class="chat-thread-list" id="threadList"><li class="muted" style="padding:8px;">加载中…</li></ul>
@@ -952,10 +960,32 @@ export function renderManagerChatPage(params: {
         <div class="planning-context-body">
           <div class="planning-context-copy"><span id="planningContextDescriptionLabel">任务背景</span><p id="planningContextDescription">—</p></div>
           <div class="planning-context-meta"><span>当前草案</span><strong id="planningContextMeta">—</strong></div>
-          <div class="quality-planning-enhancer" id="qualityPlanningEnhancer" hidden>
-            <div><strong>需要更完整的执行规划？</strong><span>机器人会结合当前质量背景完善待确认草案，不会自动发放。</span></div>
-            <button class="btn btn-primary btn-sm" id="qualityPlanningEnhanceBtn" type="button">让机器人完善任务规划</button>
+          <div class="quality-context-facts" id="qualityContextFacts" hidden></div>
+        </div>
+      </section>
+
+      <section class="quality-planning-enhancer" id="qualityPlanningEnhancer" hidden aria-labelledby="qualityPlanningEnhancerTitle">
+        <div class="quality-planning-enhancer-head">
+          <span class="quality-planning-seal" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="m5.6 5.6 2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/><circle cx="12" cy="12" r="3"/></svg>
+          </span>
+          <div class="quality-planning-copy">
+            <h2 id="qualityPlanningEnhancerTitle">先拆解任务，再配置负责人</h2>
+            <p>机器人先完成任务结构；拆解确认后，再逐项配置负责人、期限、依赖和验收标准。</p>
           </div>
+          <button class="quality-planning-primary" id="qualityPlanningEnhanceBtn" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="18" cy="17" r="2"/><path d="M8 5h2a4 4 0 0 1 4 4v6a2 2 0 0 0 2 2M14 9a2 2 0 0 0 2-2"/></svg>
+            <span id="qualityPlanningEnhanceBtnLabel">让机器人拆解任务</span>
+          </button>
+        </div>
+        <div class="quality-planning-status" aria-live="polite">
+          <span class="quality-planning-pulse" aria-hidden="true"></span>
+          <span id="qualityPlanningStatusText">等待读取当前草案。</span>
+        </div>
+        <div class="quality-planning-suggestions" id="qualityPlanningSuggestions" aria-label="机器人调整建议">
+          <button type="button" class="quality-planning-suggestion" data-quality-command="detail" disabled>再拆细原因定位</button>
+          <button type="button" class="quality-planning-suggestion" data-quality-command="balance" disabled>均衡人员负载</button>
+          <button type="button" class="quality-planning-suggestion" data-quality-command="deadline" disabled>压缩到 7 天</button>
         </div>
       </section>
 
@@ -964,7 +994,7 @@ export function renderManagerChatPage(params: {
           <ul class="msg-list" id="msgList"></ul>
           <section class="planning-draft-board" id="planningDraftBoard" hidden aria-label="任务分配草案">
             <header class="planning-draft-board-head">
-              <div><h3>任务分配草案</h3><p id="planningDraftBoardHint">确认任务内容、负责人和期限后再发放。</p></div>
+              <div><h3 id="planningDraftBoardTitle">任务分配草案 <span class="planning-draft-count" id="planningDraftCount" hidden></span></h3><p id="planningDraftBoardHint">确认任务内容、负责人和期限后再发放。</p></div>
               <span class="planning-draft-state" id="planningDraftState">待补充</span>
             </header>
             <div id="planningTaskCards"></div>
@@ -1013,7 +1043,7 @@ export function renderManagerChatPage(params: {
       <div class="draft-panel-body" id="draftPanelBody" hidden>
         <div class="draft-panel__head">
           <div class="draft-panel__title-row">
-            <h3 class="draft-panel__title">分配摘要 <span class="draft-count-badge" id="draftStatCount">0</span></h3>
+            <h3 class="draft-panel__title"><span id="draftPanelTitleText">分配摘要</span> <span class="draft-count-badge" id="draftStatCount">0</span></h3>
           </div>
           <div class="draft-panel__meta">
             <div class="draft-assign-progress">
@@ -1111,7 +1141,14 @@ export function renderManagerChatPage(params: {
   var publishFlowState = 'idle';
   var activeQualitySourceContext = null;
   var qualityPlanningInFlight = false;
+  var planningContextStateKey = '';
   var QUALITY_TASK_REPLAN_MSG = ${JSON.stringify(QUALITY_TASK_REPLAN_MESSAGE)};
+  var QUALITY_ACCEPTANCE_FILL_MSG = ${JSON.stringify(QUALITY_ACCEPTANCE_FILL_MESSAGE)};
+  var QUALITY_TASK_ADJUSTMENT_MSGS = {
+    detail: '请在当前质量任务草案基础上，进一步拆细原因定位：把复现、日志与数据收集、根因假设、对照验证、影响范围确认拆成必要的可执行任务，并补齐交付物、完成标准、期限和依赖。不得遗漏质量事件必须成果，只更新待确认草案，不要发放。',
+    balance: '请检查当前质量任务草案的负责人建议和人员负载，在已有候选池、花名册和通讯录信息范围内重新均衡分工；如人员信息不足，请明确指出需要补充什么，不得编造人员。保留任务覆盖、交付物、完成标准、期限和依赖，只更新待确认草案，不要发放。',
+    deadline: '请把当前质量任务方案压缩到 7 天内完成，重新编排可并行步骤、前后依赖和每项截止时间；不得省略已选的任何必须成果，也不得降低交付物和验收标准。只更新待确认草案，不要发放。'
+  };
   var cachedDraftSummary = {
     count: 0,
     unassigned: 0,
@@ -1126,6 +1163,14 @@ export function renderManagerChatPage(params: {
   var planningPersonChoice = null;
   var planningPersonSearchTimer = null;
   var planningPersonSearchSeq = 0;
+  var qualityPanelOpen = 'tasks';
+  var qualityPersonTaskId = '';
+  var qualityPersonSearchTimer = null;
+  var qualityPersonSearchSeq = 0;
+  var qualityPersonSaving = false;
+  var qualityPanelNotice = '';
+  var qualityAcceptanceSavingTaskId = '';
+  var qualityAcceptanceNotice = '';
   var PUBLISH_PREPARE_MSG = '请对当前草案做发放预检并展示预览';
   var PUBLISH_CONFIRM_MSG = '确认发放';
 
@@ -1299,7 +1344,16 @@ export function renderManagerChatPage(params: {
   function openPublishPrepareModal() {
     if (!activeHasDraft || sendInFlight) return;
     if (!cachedDraftSummary.readyToPublish) {
-      setComposerStatus('请先补全负责人、期限、交付物和完成标准', 'err');
+      var qualityBlocked = cachedDraftSummary.sourceContext
+        && cachedDraftSummary.sourceContext.kind === 'quality_event';
+      var blockedMessage = qualityBlocked && !cachedDraftSummary.taskDecompositionReady
+        ? '请先让机器人完成任务拆解，再配置负责人'
+        : (qualityBlocked && !cachedDraftSummary.assigneeStepReady
+          ? '任务已拆解，请先逐项配置负责人'
+          : (qualityBlocked && !cachedDraftSummary.scheduleStepReady
+            ? '请先补齐任务期限和前后依赖'
+            : '请先补全交付物和完成标准'));
+      setComposerStatus(qualityBlocked ? blockedMessage : '请先补全负责人、期限、交付物和完成标准', 'err');
       return;
     }
     var sumEl = document.getElementById('publishPrepareSummary');
@@ -1333,6 +1387,15 @@ export function renderManagerChatPage(params: {
   }
   function resetDraftPanelForThreadSwitch() {
     resetPublishFlow();
+    qualityPanelOpen = 'tasks';
+    qualityPersonTaskId = '';
+    qualityPanelNotice = '';
+    qualityPersonSaving = false;
+    qualityAcceptanceSavingTaskId = '';
+    qualityAcceptanceNotice = '';
+    qualityPersonSearchSeq += 1;
+    if (qualityPersonSearchTimer) clearTimeout(qualityPersonSearchTimer);
+    qualityPersonSearchTimer = null;
     applyDraftPanelUi(false);
     updateDraftContext({ count: 0, unassigned: 0, assigned: 0, nearestDue: '', preview: [] }, false);
   }
@@ -1440,19 +1503,37 @@ export function renderManagerChatPage(params: {
     dues.sort();
     var count = cards.length;
     var assignedCount = Math.max(0, count - unassigned);
-    var readyToPublish = count > 0
-      && unassigned === 0
-      && missingDue === 0
-      && missingDeliverables === 0
-      && missingCriteria === 0;
     var draftObj = (draftData.draft && typeof draftData.draft === 'object') ? draftData.draft : {};
     var qualityHandoff = (draftObj.qualityHandoff && typeof draftObj.qualityHandoff === 'object') ? draftObj.qualityHandoff : {};
+    var qualityTaskPackage = (draftObj.qualityTaskPackage && typeof draftObj.qualityTaskPackage === 'object') ? draftObj.qualityTaskPackage : {};
     var rawSource = (draftData.sourceContext && typeof draftData.sourceContext === 'object')
       ? draftData.sourceContext
       : ((draftObj.sourceContext && typeof draftObj.sourceContext === 'object') ? draftObj.sourceContext : {});
     var qualityEventId = String(rawSource.qualityEventId || qualityHandoff.qualityEventId || '').trim();
     var sourceKind = String(rawSource.kind || (qualityEventId ? 'quality_event' : '')).trim();
+    var isQualityDraft = sourceKind === 'quality_event';
+    var taskDecompositionReady = !isQualityDraft || count > 1;
+    var assigneeStepReady = taskDecompositionReady && count > 0 && unassigned === 0;
+    var scheduleStepReady = assigneeStepReady && missingDue === 0;
+    var acceptanceStepReady = scheduleStepReady && missingDeliverables === 0 && missingCriteria === 0;
+    var readyToPublish = isQualityDraft
+      ? acceptanceStepReady
+      : (count > 0
+        && unassigned === 0
+        && missingDue === 0
+        && missingDeliverables === 0
+        && missingCriteria === 0);
+    var primaryDepartment = (qualityTaskPackage.primaryDepartment && typeof qualityTaskPackage.primaryDepartment === 'object')
+      ? qualityTaskPackage.primaryDepartment
+      : {};
+    var requiredDeliverables = Array.isArray(qualityTaskPackage.requiredDeliverables)
+      ? qualityTaskPackage.requiredDeliverables.map(function (item) { return String((item && item.name) || '').trim(); }).filter(Boolean)
+      : [];
+    var handlingRequirements = Array.isArray(qualityTaskPackage.handlingRequirements)
+      ? qualityTaskPackage.handlingRequirements.map(function (item) { return String(item || '').trim(); }).filter(Boolean)
+      : [];
     return {
+      planId: String(draftData.planId || '').trim(),
       count: count,
       unassigned: unassigned,
       assigned: assignedCount,
@@ -1461,12 +1542,33 @@ export function renderManagerChatPage(params: {
       missingDue: missingDue,
       missingDeliverables: missingDeliverables,
       missingCriteria: missingCriteria,
+      taskDecompositionReady: taskDecompositionReady,
+      assigneeStepReady: assigneeStepReady,
+      scheduleStepReady: scheduleStepReady,
+      acceptanceStepReady: acceptanceStepReady,
       readyToPublish: readyToPublish,
       preview: cards.slice(0, 8),
       cards: cards,
       title: String((draftData.draft && draftData.draft.title) || draftData.title || '').trim(),
       description: String((draftData.draft && (draftData.draft.description || draftData.draft.summary)) || draftData.description || '').trim(),
-      sourceContext: sourceKind ? { kind: sourceKind, qualityEventId: qualityEventId } : null
+      sourceContext: sourceKind ? { kind: sourceKind, qualityEventId: qualityEventId } : null,
+      candidatePool: draftData.candidatePool && Array.isArray(draftData.candidatePool.entries)
+        ? draftData.candidatePool.entries.map(function (entry) {
+            return {
+              userId: String((entry && entry.userId) || '').trim(),
+              displayName: String((entry && entry.displayName) || '').trim(),
+              fileNotes: String((entry && entry.fileNotes) || '').trim()
+            };
+          }).filter(function (entry) { return entry.userId && entry.displayName; })
+        : [],
+      qualityContext: qualityEventId ? {
+        analysisVersion: String(qualityTaskPackage.analysisVersion || qualityHandoff.analysisVersion || '').trim(),
+        dueAt: String(qualityTaskPackage.suggestedTotalDueAt || '').trim(),
+        analysis: String(qualityTaskPackage.preliminaryConclusion || qualityTaskPackage.problemDirection || '').trim(),
+        deliverables: requiredDeliverables,
+        requirements: handlingRequirements,
+        department: String(primaryDepartment.departmentName || '').trim()
+      } : null
     };
   }
   function renderPlanningCheck(label, ok, detail) {
@@ -1475,23 +1577,327 @@ export function renderManagerChatPage(params: {
       + '<span class="planning-check-copy"><strong>' + escapeHtml(label) + '</strong><small>' + escapeHtml(detail) + '</small></span>'
       + '</div>';
   }
-  function renderPlanningTaskCard(task, idx) {
-    var assigned = Boolean(task.assigned);
+  function renderQualityPanelSection(id, label, ok, detail, bodyHtml, locked) {
+    var open = !locked && qualityPanelOpen === id;
+    return '<section class="quality-panel-section' + (open ? ' is-open' : '') + (locked ? ' is-locked' : '') + '">'
+      + '<button type="button" class="quality-panel-section-head" data-quality-panel-toggle="' + escapeHtml(id) + '" aria-expanded="' + (open ? 'true' : 'false') + '"' + (locked ? ' disabled aria-disabled="true"' : '') + '>'
+      + '<span class="planning-check-icon" aria-hidden="true">' + (ok ? '✓' : (locked ? '·' : '!')) + '</span>'
+      + '<span class="planning-check-copy"><strong>' + escapeHtml(label) + '</strong><small>' + escapeHtml(detail) + '</small></span>'
+      + '<span class="quality-panel-chevron" aria-hidden="true">⌄</span></button>'
+      + (open ? '<div class="quality-panel-section-body">' + bodyHtml + '</div>' : '')
+      + '</section>';
+  }
+  function renderQualityTaskLinks(summary, kind) {
+    var taskTitleById = {};
+    (summary.cards || []).forEach(function (task) {
+      taskTitleById[task.taskId] = task.title;
+    });
+    return '<div class="quality-panel-detail-list">' + (summary.cards || []).map(function (task, idx) {
+      var detail = '';
+      if (kind === 'tasks') detail = task.objective || task.title;
+      else if (kind === 'dependency') {
+        var dependencyIds = String(task.dependencies || '').split(/[\s,;；]+/).filter(Boolean);
+        var dependencyLabel = dependencyIds.length
+          ? '依赖：' + dependencyIds.map(function (dependencyTaskId) { return taskTitleById[dependencyTaskId] || dependencyTaskId; }).join('、')
+          : '无前置依赖';
+        detail = dependencyLabel + ' · ' + (task.dueComplete ? task.dueAt.slice(0, 10) : '期限待确认');
+      }
+      else detail = task.deliverables || '交付物待补充';
+      return '<button type="button" class="quality-panel-detail-row" data-quality-locate-task="' + escapeHtml(task.taskId) + '">'
+        + '<span class="quality-panel-task-no">' + (idx + 1) + '</span>'
+        + '<span><strong>' + escapeHtml(task.title) + '</strong><small>' + escapeHtml(detail) + '</small></span></button>';
+    }).join('') + '</div>';
+  }
+  function renderQualityCandidateButtons(entries, sourceLabel) {
+    var rows = (entries || []).filter(function (entry) { return entry && entry.userId; });
+    if (!rows.length) {
+      return '<div class="quality-person-empty">输入姓名、岗位或部门，搜索真实通讯录</div>';
+    }
+    return '<div class="quality-person-source">' + escapeHtml(sourceLabel || '候选人员') + '</div>'
+      + rows.map(function (entry) {
+        var name = String(entry.displayName || entry.name || entry.userId || '').trim();
+        var meta = String(entry.meta || entry.departmentSummary || entry.departmentName || entry.fileNotes || '通讯录成员').trim();
+        if (meta.length > 58) meta = meta.slice(0, 58) + '…';
+        return '<button type="button" class="quality-person-option" data-quality-person-id="' + escapeHtml(entry.userId) + '"' + (qualityPersonSaving ? ' disabled' : '') + '>'
+          + '<span class="quality-person-avatar">' + escapeHtml(assigneeInitial(name)) + '</span>'
+          + '<span><strong>' + escapeHtml(name) + '</strong><small>' + escapeHtml(meta) + '</small></span><em>选择</em></button>';
+      }).join('');
+  }
+  function renderQualityAssigneeBody(summary) {
+    var selectedTask = (summary.cards || []).find(function (task) { return task.taskId === qualityPersonTaskId; });
+    if (selectedTask) {
+      var poolRows = (summary.candidatePool || []).map(function (entry) {
+        return {
+          userId: entry.userId,
+          displayName: entry.displayName,
+          meta: entry.fileNotes || '当前花名册候选'
+        };
+      });
+      return '<div class="quality-person-picker">'
+        + '<button type="button" class="quality-person-back" data-quality-person-back="1">← 返回负责人列表</button>'
+        + '<h4>选择负责人</h4><p>任务：' + escapeHtml(selectedTask.title) + '</p>'
+        + '<label for="qualityPersonSearch">搜索真实通讯录</label>'
+        + '<input id="qualityPersonSearch" class="quality-person-search" type="search" autocomplete="off" placeholder="姓名、岗位或部门"' + (qualityPersonSaving ? ' disabled' : '') + '>'
+        + '<div class="quality-person-results" id="qualityPersonResults">'
+        + renderQualityCandidateButtons(poolRows, poolRows.length ? '机器人已有候选' : '') + '</div>'
+        + '<div class="quality-person-scope-note">本次选择只影响当前任务，不发送聊天消息，也不会批量指派。</div>'
+        + (qualityPanelNotice ? '<div class="quality-panel-feedback">' + escapeHtml(qualityPanelNotice) + '</div>' : '')
+        + '</div>';
+    }
+    return '<div class="quality-person-list">' + (summary.cards || []).map(function (task, idx) {
+      var assignee = task.assigned ? (task.assigneeName || task.userId) : '待主管指定';
+      return '<div class="quality-person-row">'
+        + '<button type="button" class="quality-person-task" data-quality-locate-task="' + escapeHtml(task.taskId) + '">'
+        + '<span class="quality-panel-task-no">' + (idx + 1) + '</span>'
+        + '<span><strong>' + escapeHtml(task.title) + '</strong><small>' + escapeHtml(assignee) + '</small></span></button>'
+        + '<button type="button" class="quality-person-change" data-quality-pick-task="' + escapeHtml(task.taskId) + '">' + (task.assigned ? '更换' : '选择') + '</button></div>';
+    }).join('') + '</div>'
+      + (qualityPanelNotice ? '<div class="quality-panel-feedback is-ok">' + escapeHtml(qualityPanelNotice) + '</div>' : '');
+  }
+  function renderQualityAcceptanceBody(summary) {
+    var missingCount = Number(summary.missingDeliverables || 0) + Number(summary.missingCriteria || 0);
+    var intro = '<div class="quality-acceptance-intro">'
+      + '<div><strong>先定义要求，员工发放后再提交成果</strong>'
+      + '<p>交付物写明最终要提交什么；完成标准写明主管依据什么判定合格。</p></div>'
+      + '<button type="button" class="quality-acceptance-ai" data-quality-ai-acceptance="1"'
+      + ((qualityPlanningInFlight || sendInFlight || missingCount === 0) ? ' disabled' : '') + '>'
+      + (qualityPlanningInFlight ? '机器人补全中…' : (missingCount === 0 ? '内容已完整' : '让机器人补全')) + '</button></div>';
+    var cards = '<div class="quality-acceptance-list">' + (summary.cards || []).map(function (task, idx) {
+      var complete = Boolean(task.deliverables && task.completionCriteria);
+      var saving = qualityAcceptanceSavingTaskId === task.taskId;
+      return '<article class="quality-acceptance-card' + (complete ? ' is-complete' : ' is-missing') + '" data-quality-acceptance-card="' + escapeHtml(task.taskId) + '">'
+        + '<header><span class="quality-panel-task-no">' + (idx + 1) + '</span><div><strong>' + escapeHtml(task.title) + '</strong>'
+        + '<small>' + (complete ? '要求已填写，可继续核对修改' : '请补齐后才能通过验收检查') + '</small></div>'
+        + '<em>' + (complete ? '已完整' : '待补充') + '</em></header>'
+        + '<label><span>交付物 <small>员工最后要提交什么</small></span>'
+        + '<textarea rows="3" data-quality-deliverables placeholder="例如：问题复现记录；根因分析报告"' + (saving ? ' disabled' : '') + '>' + escapeHtml(task.deliverables || '') + '</textarea></label>'
+        + '<label><span>完成标准 <small>主管依据什么判断合格</small></span>'
+        + '<textarea rows="3" data-quality-completion-criteria placeholder="例如：问题可稳定复现，根因有证据支撑，影响范围已确认"' + (saving ? ' disabled' : '') + '>' + escapeHtml(task.completionCriteria || '') + '</textarea></label>'
+        + '<footer><span>多项内容可用换行或分号分隔</span><button type="button" data-quality-save-acceptance="' + escapeHtml(task.taskId) + '"' + (saving ? ' disabled' : '') + '>'
+        + (saving ? '保存中…' : '保存本项') + '</button></footer></article>';
+    }).join('') + '</div>';
+    return intro + cards
+      + (qualityAcceptanceNotice ? '<div class="quality-panel-feedback is-ok">' + escapeHtml(qualityAcceptanceNotice) + '</div>' : '');
+  }
+  function renderQualityPanel(summary, qualityChecks) {
+    var tasksReady = Boolean(summary.taskDecompositionReady);
+    var peopleReady = Boolean(summary.assigneeStepReady);
+    var scheduleReady = Boolean(summary.scheduleStepReady);
+    return [
+      renderQualityPanelSection('tasks', '1 · 任务拆解', qualityChecks[0], qualityChecks[0] ? '已拆成 ' + summary.count + ' 项' : '当前是总成果，请先拆成任务', renderQualityTaskLinks(summary, 'tasks'), false),
+      renderQualityPanelSection('people', '2 · 负责人配置', qualityChecks[1], !tasksReady ? '请先完成任务拆解' : (qualityChecks[1] ? summary.count + '/' + summary.count + ' 已配置' : '还缺 ' + summary.unassigned + ' 项'), renderQualityAssigneeBody(summary), !tasksReady),
+      renderQualityPanelSection('dependency', '3 · 依赖与期限', qualityChecks[2], !peopleReady ? '请先完成负责人配置' : (qualityChecks[2] ? '期限完整，依赖按实际关系记录' : '仍需补齐期限或修正依赖'), renderQualityTaskLinks(summary, 'dependency'), !peopleReady),
+      renderQualityPanelSection('criteria', '4 · 交付物与完成标准', qualityChecks[3], !scheduleReady ? '请先完成依赖与期限' : (qualityChecks[3] ? '每项要求均可验收' : '仍需补齐交付物或标准'), renderQualityAcceptanceBody(summary), !scheduleReady)
+    ].join('');
+  }
+  function focusQualityPlanningTask(taskId) {
+    document.querySelectorAll('.planning-task-card.is-panel-focused').forEach(function (card) {
+      card.classList.remove('is-panel-focused');
+    });
+    var card = Array.from(document.querySelectorAll('.planning-task-card')).find(function (item) {
+      return String(item.getAttribute('data-task-id') || '') === String(taskId || '');
+    });
+    if (!card) return;
+    card.classList.add('is-panel-focused');
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(function () { card.classList.remove('is-panel-focused'); }, 1800);
+  }
+  function renderQualityPanelCandidates(entries, sourceLabel) {
+    var results = document.getElementById('qualityPersonResults');
+    if (!results) return;
+    results.innerHTML = renderQualityCandidateButtons(entries, sourceLabel);
+  }
+  async function searchQualityPanelPeople(keyword, seq) {
+    var results = document.getElementById('qualityPersonResults');
+    if (results) results.innerHTML = '<div class="quality-person-empty">正在搜索真实通讯录…</div>';
+    try {
+      var res = await fetch('/api/workbench/manager/contacts?keyword=' + encodeURIComponent(keyword));
+      var data = await res.json().catch(function () { return {}; });
+      if (seq !== qualityPersonSearchSeq) return;
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      renderQualityPanelCandidates(data.contacts || [], '通讯录搜索结果');
+    } catch (error) {
+      if (seq !== qualityPersonSearchSeq) return;
+      if (results) results.innerHTML = '<div class="quality-person-empty">通讯录加载失败，请稍后重试</div>';
+    }
+  }
+  async function saveQualityPanelAssignee(summary, taskId, assigneeUserId) {
+    if (qualityPersonSaving || !summary.taskDecompositionReady || !taskId || !assigneeUserId) return;
+    var task = (summary.cards || []).find(function (item) { return item.taskId === taskId; });
+    qualityPersonSaving = true;
+    qualityPanelNotice = '正在保存当前任务负责人…';
+    paintDraftPanelSummary(summary, true);
+    try {
+      var res = await fetch('/api/workbench/conversation/draft/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId: activeThreadId,
+          threadKind: activeThreadKind,
+          planId: summary.planId,
+          taskId: taskId,
+          assigneeUserId: assigneeUserId
+        })
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      qualityPersonTaskId = '';
+      qualityPanelNotice = '仅任务「' + String((task && task.title) || data.taskTitle || taskId) + '」已更新为 ' + String((data.assignee && data.assignee.displayName) || assigneeUserId) + '，尚未发放。';
+      qualityPersonSaving = false;
+      await loadDraftSummary(loadSeq);
+    } catch (error) {
+      qualityPanelNotice = String(error && error.message ? error.message : error);
+      qualityPersonSaving = false;
+      paintDraftPanelSummary(summary, true);
+    }
+  }
+  async function saveQualityAcceptanceFields(summary, taskId, deliverables, completionCriteria) {
+    if (qualityAcceptanceSavingTaskId || !summary.scheduleStepReady || !taskId) return;
+    if (!String(deliverables || '').trim() || !String(completionCriteria || '').trim()) {
+      qualityAcceptanceNotice = '交付物和完成标准都需要填写。';
+      paintDraftPanelSummary(summary, true);
+      return;
+    }
+    qualityAcceptanceSavingTaskId = taskId;
+    qualityAcceptanceNotice = '正在保存当前任务的验收要求…';
+    paintDraftPanelSummary(summary, true);
+    try {
+      var res = await fetch('/api/workbench/conversation/draft/acceptance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId: activeThreadId,
+          threadKind: activeThreadKind,
+          planId: summary.planId,
+          taskId: taskId,
+          deliverables: deliverables,
+          completionCriteria: completionCriteria
+        })
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      qualityAcceptanceSavingTaskId = '';
+      qualityAcceptanceNotice = '任务「' + String(data.taskTitle || taskId) + '」的交付物和完成标准已保存，尚未发放。';
+      await loadDraftSummary(loadSeq);
+    } catch (error) {
+      qualityAcceptanceSavingTaskId = '';
+      qualityAcceptanceNotice = String(error && error.message ? error.message : error);
+      paintDraftPanelSummary(summary, true);
+    }
+  }
+  function bindQualityPanelInteractions(summary) {
+    var list = document.getElementById('draftPreviewList');
+    if (!list) return;
+    list.onclick = function (event) {
+      var target = event.target;
+      var toggle = target && target.closest ? target.closest('[data-quality-panel-toggle]') : null;
+      if (toggle) {
+        var next = String(toggle.getAttribute('data-quality-panel-toggle') || '');
+        qualityPanelOpen = qualityPanelOpen === next ? '' : next;
+        if (next !== 'people') qualityPersonTaskId = '';
+        paintDraftPanelSummary(summary, true);
+        return;
+      }
+      var back = target && target.closest ? target.closest('[data-quality-person-back]') : null;
+      if (back) {
+        qualityPersonTaskId = '';
+        qualityPanelNotice = '';
+        paintDraftPanelSummary(summary, true);
+        return;
+      }
+      var pick = target && target.closest ? target.closest('[data-quality-pick-task]') : null;
+      if (pick) {
+        if (!summary.taskDecompositionReady) return;
+        qualityPanelOpen = 'people';
+        qualityPersonTaskId = String(pick.getAttribute('data-quality-pick-task') || '');
+        qualityPanelNotice = '';
+        paintDraftPanelSummary(summary, true);
+        setTimeout(function () {
+          var input = document.getElementById('qualityPersonSearch');
+          if (input) input.focus();
+        }, 20);
+        return;
+      }
+      var locate = target && target.closest ? target.closest('[data-quality-locate-task]') : null;
+      if (locate) {
+        focusQualityPlanningTask(String(locate.getAttribute('data-quality-locate-task') || ''));
+        return;
+      }
+      var person = target && target.closest ? target.closest('[data-quality-person-id]') : null;
+      if (person) {
+        void saveQualityPanelAssignee(summary, qualityPersonTaskId, String(person.getAttribute('data-quality-person-id') || ''));
+        return;
+      }
+      var aiAcceptance = target && target.closest ? target.closest('[data-quality-ai-acceptance]') : null;
+      if (aiAcceptance) {
+        if (!summary.scheduleStepReady || qualityPlanningInFlight || sendInFlight) return;
+        qualityPanelOpen = 'criteria';
+        qualityAcceptanceNotice = '机器人正在补齐缺失的交付物和完成标准…';
+        paintDraftPanelSummary(summary, true);
+        void runQualityPlanningMessage(QUALITY_ACCEPTANCE_FILL_MSG).then(function (result) {
+          qualityAcceptanceNotice = result && result.ok
+            ? '机器人已完成补全，请逐项核对后再发放。'
+            : '机器人暂未完成补全，可直接人工填写。';
+          if (activeHasDraft) paintDraftPanelSummary(cachedDraftSummary, true);
+        });
+        return;
+      }
+      var saveAcceptance = target && target.closest ? target.closest('[data-quality-save-acceptance]') : null;
+      if (saveAcceptance) {
+        var card = saveAcceptance.closest('[data-quality-acceptance-card]');
+        if (!card) return;
+        var deliverablesInput = card.querySelector('[data-quality-deliverables]');
+        var criteriaInput = card.querySelector('[data-quality-completion-criteria]');
+        void saveQualityAcceptanceFields(
+          summary,
+          String(saveAcceptance.getAttribute('data-quality-save-acceptance') || ''),
+          String((deliverablesInput && deliverablesInput.value) || ''),
+          String((criteriaInput && criteriaInput.value) || '')
+        );
+      }
+    };
+    var input = document.getElementById('qualityPersonSearch');
+    if (input) {
+      input.addEventListener('input', function () {
+        if (qualityPersonSearchTimer) clearTimeout(qualityPersonSearchTimer);
+        var keyword = String(input.value || '').trim();
+        if (!keyword) {
+          qualityPersonSearchSeq += 1;
+          var poolRows = (summary.candidatePool || []).map(function (entry) {
+            return { userId: entry.userId, displayName: entry.displayName, meta: entry.fileNotes || '当前花名册候选' };
+          });
+          renderQualityPanelCandidates(poolRows, poolRows.length ? '机器人已有候选' : '');
+          return;
+        }
+        qualityPersonSearchTimer = setTimeout(function () {
+          qualityPersonSearchSeq += 1;
+          void searchQualityPanelPeople(keyword, qualityPersonSearchSeq);
+        }, 220);
+      });
+    }
+  }
+  function renderPlanningTaskCard(task, idx, isQuality, assignmentLocked) {
+    var assigned = Boolean(task.assigned) && !assignmentLocked;
     var assigneeName = String(task.assigneeName || '').trim();
-    var assignee = assigned
+    var assignee = assignmentLocked
+      ? '<span class="planning-task-assignee"><span class="planning-task-avatar is-pending">—</span><strong>拆解后配置</strong></span>'
+      : (assigned
       ? '<span class="planning-task-assignee"><span class="planning-task-avatar">' + escapeHtml(assigneeInitial(assigneeName)) + '</span><strong>' + escapeHtml(assigneeName || task.userId) + '</strong></span>'
-      : '<span class="planning-task-assignee"><span class="planning-task-avatar is-pending">?</span><strong>待主管指定</strong></span>';
+      : '<span class="planning-task-assignee"><span class="planning-task-avatar is-pending">?</span><strong>待主管指定</strong></span>');
     var details = [];
     if (task.actions) details.push('执行动作：' + task.actions);
     if (task.dependencies) details.push('前置依赖：' + task.dependencies);
     var detailsHtml = details.length
       ? '<details class="planning-task-details"><summary>查看执行动作与前置依赖</summary><p>' + escapeHtml(details.join('\\n')) + '</p></details>'
       : '';
+    var assignButton = isQuality
+      ? ''
+      : '<button type="button" class="planning-assignee-button" data-planning-assign="1" data-task-id="' + escapeHtml(task.taskId) + '" data-task-title="' + escapeHtml(task.title) + '">' + (assigned ? '调整人员' : '选择人员') + '</button>';
     return '<article class="planning-task-card' + (assigned ? ' is-assigned' : '') + '" data-task-id="' + escapeHtml(task.taskId) + '">'
       + '<span class="planning-task-index" aria-hidden="true">' + (idx + 1) + '</span>'
       + '<div class="planning-task-main">'
       + '<div class="planning-task-title-row"><div><h4 class="planning-task-title">' + escapeHtml(task.title) + '</h4><p class="planning-task-objective"><span>目标</span>' + escapeHtml(task.objective || task.title) + '</p></div>'
-      + '<button type="button" class="planning-assignee-button" data-planning-assign="1" data-task-id="' + escapeHtml(task.taskId) + '" data-task-title="' + escapeHtml(task.title) + '">' + (assigned ? '调整人员' : '选择人员') + '</button></div>'
+      + assignButton + '</div>'
       + '<div class="planning-task-fields">'
       + '<div class="planning-task-field' + (assigned ? '' : ' is-missing') + '"><span>负责人</span>' + assignee + '</div>'
       + '<div class="planning-task-field' + (task.dueComplete ? '' : ' is-missing') + '"><span>截止时间</span><strong>' + escapeHtml(task.dueComplete ? task.dueAt.slice(0, 10) : '待确认') + '</strong></div>'
@@ -1504,21 +1910,40 @@ export function renderManagerChatPage(params: {
     var cards = document.getElementById('planningTaskCards');
     var state = document.getElementById('planningDraftState');
     var hint = document.getElementById('planningDraftBoardHint');
+    var title = document.getElementById('planningDraftBoardTitle');
+    var count = document.getElementById('planningDraftCount');
     if (!board || !cards) return;
     board.hidden = !hasDraft;
     if (!hasDraft) {
       cards.innerHTML = '';
       return;
     }
-    cards.innerHTML = (summary.cards || []).map(renderPlanningTaskCard).join('');
+    var isQuality = !!(summary.sourceContext && summary.sourceContext.kind === 'quality_event');
+    var assignmentLocked = isQuality && !summary.taskDecompositionReady;
+    cards.innerHTML = (summary.cards || []).map(function (task, idx) {
+      return renderPlanningTaskCard(task, idx, isQuality, assignmentLocked);
+    }).join('');
+    if (title) title.firstChild.textContent = isQuality ? '机器人任务方案 ' : '任务分配草案 ';
+    if (count) {
+      count.hidden = !isQuality;
+      count.textContent = summary.count > 1 ? summary.count + ' 项可执行任务' : summary.count + ' 条总成果';
+    }
     if (state) {
-      state.textContent = summary.readyToPublish ? '可以发放' : '待补充';
+      state.textContent = isQuality && !summary.taskDecompositionReady
+        ? '待拆解'
+        : (isQuality && !summary.assigneeStepReady
+          ? '待配负责人'
+          : (summary.readyToPublish ? '可以发放' : '待补充'));
       state.classList.toggle('is-ready', Boolean(summary.readyToPublish));
     }
     if (hint) {
-      hint.textContent = summary.readyToPublish
-        ? '负责人、期限、交付物和完成标准均已完整。'
-        : '仍有未完成项，可通过对话或“选择人员”继续调整。';
+      hint.textContent = isQuality
+        ? (summary.count > 1
+          ? '机器人已完成结构化拆解，可继续对话调整；主管确认后才会正式发放。'
+          : '当前仍是宽泛成果，建议先让机器人拆成可执行任务。')
+        : (summary.readyToPublish
+          ? '负责人、期限、交付物和完成标准均已完整。'
+          : '仍有未完成项，可通过对话或“选择人员”继续调整。');
     }
     bindPlanningTaskButtons();
   }
@@ -1529,12 +1954,64 @@ export function renderManagerChatPage(params: {
       .replace(/\\n{3,}/g, '\\n\\n')
       .trim();
   }
+  function setPlanningContextCollapsed(card, collapsed) {
+    var toggle = document.getElementById('planningContextToggle');
+    card.classList.toggle('is-collapsed', collapsed);
+    if (!toggle) return;
+    toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    toggle.setAttribute('aria-label', collapsed ? '展开任务背景' : '收起任务背景');
+  }
+  function setQualityPlanningMode(isQuality) {
+    var main = document.getElementById('chatMain');
+    var historyToggle = document.getElementById('qualityHistoryToggle');
+    if (main) {
+      main.classList.toggle('is-quality-planning', isQuality);
+      if (!isQuality) main.classList.remove('is-quality-history-collapsed');
+    }
+    document.body.classList.toggle('quality-planning-mode', isQuality);
+    if (historyToggle) {
+      historyToggle.hidden = !isQuality;
+      if (!isQuality) {
+        historyToggle.setAttribute('aria-expanded', 'true');
+        historyToggle.setAttribute('aria-label', '收起对话历史');
+        historyToggle.setAttribute('title', '收起对话历史');
+      }
+    }
+  }
+  function renderQualityContextFacts(summary, isQuality) {
+    var facts = document.getElementById('qualityContextFacts');
+    if (!facts) return;
+    facts.hidden = !isQuality;
+    if (!isQuality) {
+      facts.innerHTML = '';
+      return;
+    }
+    var context = summary.qualityContext || {};
+    var deliverables = Array.isArray(context.deliverables) && context.deliverables.length
+      ? context.deliverables.join('；')
+      : '待确认';
+    var requirements = Array.isArray(context.requirements) && context.requirements.length
+      ? context.requirements.join('；')
+      : '待确认';
+    var cells = [
+      ['质量初析', context.analysis || '待确认'],
+      ['必须成果', deliverables],
+      ['处理要求', requirements],
+      ['建议责任部门', context.department || '待确认']
+    ];
+    facts.innerHTML = cells.map(function (cell) {
+      return '<div class="quality-context-fact"><span>' + escapeHtml(cell[0]) + '</span><strong>' + escapeHtml(cell[1]) + '</strong></div>';
+    }).join('');
+  }
   function renderPlanningContext(summary, hasDraft) {
     var card = document.getElementById('planningContextCard');
     if (!card) return;
     card.hidden = !hasDraft;
     if (!hasDraft) {
       activeQualitySourceContext = null;
+      planningContextStateKey = '';
+      setQualityPlanningMode(false);
+      renderQualityContextFacts({}, false);
       updateQualityPlanningEnhancer();
       return;
     }
@@ -1547,9 +2024,15 @@ export function renderManagerChatPage(params: {
     var source = summary.sourceContext || {};
     var isQuality = source.kind === 'quality_event';
     activeQualitySourceContext = isQuality ? source : null;
+    setQualityPlanningMode(isQuality);
     updateQualityPlanningEnhancer();
     var eventNo = String(source.qualityEventId || '').trim();
     card.classList.toggle('is-quality', isQuality);
+    var contextKey = (isQuality ? 'quality:' : 'task:') + String(activeThreadId || 'main');
+    if (planningContextStateKey !== contextKey) {
+      planningContextStateKey = contextKey;
+      setPlanningContextCollapsed(card, isQuality);
+    }
     if (icon) icon.textContent = isQuality ? '质' : '任';
     if (kicker) kicker.textContent = isQuality ? '质量事件交接 · 只读' : '任务规划上下文 · 只读';
     if (descLabel) descLabel.textContent = isQuality ? '质量交接背景' : '任务背景';
@@ -1557,18 +2040,46 @@ export function renderManagerChatPage(params: {
       ? ((eventNo ? '质量事件 ' + eventNo + ' · ' : '') + (summary.title || '任务草案'))
       : (summary.title || '当前任务草案');
     if (desc) desc.textContent = plainPlanningContextText(summary.description) || '当前草案未填写任务背景，可继续在对话中补充。';
-    if (meta) meta.textContent = summary.count + ' 项任务 · ' + summary.assigned + '/' + summary.count + ' 已指派';
+    if (meta) {
+      var qualityContext = summary.qualityContext || {};
+      var qualityMeta = [];
+      if (qualityContext.analysisVersion) qualityMeta.push('V' + qualityContext.analysisVersion + ' 已确认');
+      if (qualityContext.dueAt) qualityMeta.push('建议期限 ' + String(qualityContext.dueAt).slice(0, 10));
+      meta.textContent = isQuality && qualityMeta.length
+        ? qualityMeta.join(' · ')
+        : summary.count + ' 项任务 · ' + summary.assigned + '/' + summary.count + ' 已指派';
+    }
+    renderQualityContextFacts(summary, isQuality);
   }
   function updateQualityPlanningEnhancer() {
     var action = document.getElementById('qualityPlanningEnhancer');
     var button = document.getElementById('qualityPlanningEnhanceBtn');
+    var buttonLabel = document.getElementById('qualityPlanningEnhanceBtnLabel');
+    var status = document.getElementById('qualityPlanningStatusText');
     if (!action || !button) return;
     var canOffer = !!(activeQualitySourceContext
       && activeQualitySourceContext.kind === 'quality_event'
       && activeThreadKind === 'side');
+    var taskCount = Number(cachedDraftSummary.count || 0);
+    var hasStructuredTasks = taskCount > 1;
     action.hidden = !canOffer;
+    action.classList.toggle('is-working', qualityPlanningInFlight);
     button.disabled = !canOffer || qualityPlanningInFlight || sendInFlight;
-    button.textContent = qualityPlanningInFlight ? '机器人规划中…' : '让机器人完善任务规划';
+    if (buttonLabel) {
+      buttonLabel.textContent = qualityPlanningInFlight
+        ? '正在拆解…'
+        : (hasStructuredTasks ? '重新拆解任务' : '让机器人拆解任务');
+    }
+    if (status) {
+      status.textContent = qualityPlanningInFlight
+        ? '机器人正在读取质量初析，识别任务步骤、前后依赖和验收条件…'
+        : (hasStructuredTasks
+          ? '当前已有 ' + taskCount + ' 项任务草案，可继续让机器人调整方案。'
+          : '尚未完成结构化拆解；当前只有 ' + taskCount + ' 条总成果。');
+    }
+    document.querySelectorAll('[data-quality-command]').forEach(function (chip) {
+      chip.disabled = !canOffer || qualityPlanningInFlight || sendInFlight || !hasStructuredTasks;
+    });
   }
   function paintDraftPanelSummary(summary, hasDraft) {
     var panel = document.getElementById('draftContextPanel');
@@ -1579,29 +2090,46 @@ export function renderManagerChatPage(params: {
     var c = document.getElementById('draftStatCount');
     var list = document.getElementById('draftPreviewList');
     var cap = document.getElementById('draftFootCaption');
+    var title = document.getElementById('draftPanelTitleText');
     var assigned = summary.assigned != null ? summary.assigned : Math.max(0, summary.count - summary.unassigned);
-    var pct = summary.count > 0 ? Math.round((assigned / summary.count) * 100) : 0;
+    var isQuality = !!(summary.sourceContext && summary.sourceContext.kind === 'quality_event');
+    var qualityChecks = [
+      Boolean(summary.taskDecompositionReady),
+      Boolean(summary.assigneeStepReady),
+      Boolean(summary.scheduleStepReady),
+      Boolean(summary.acceptanceStepReady)
+    ];
+    var qualityCompleted = qualityChecks.filter(Boolean).length;
+    var pct = isQuality
+      ? Math.round((qualityCompleted / qualityChecks.length) * 100)
+      : (summary.count > 0 ? Math.round((assigned / summary.count) * 100) : 0);
     if (panel && hasDraft) {
       panel.setAttribute('data-state', summary.readyToPublish ? 'ready' : 'warn');
       panel.style.setProperty('--draft-pct', pct + '%');
     }
     if (c) c.textContent = String(summary.count);
     if (fill) fill.style.width = pct + '%';
-    if (label) label.innerHTML = '<em>' + assigned + '/' + summary.count + '</em> 已指派';
+    if (title) title.textContent = isQuality ? '方案配置中心' : '分配摘要';
+    if (label) {
+      label.innerHTML = isQuality
+        ? '<em>' + qualityCompleted + '/4</em> 已完成'
+        : '<em>' + assigned + '/' + summary.count + '</em> 已指派';
+    }
     if (dueRow) dueRow.hidden = !summary.latestDue;
     if (d) d.textContent = summary.latestDue || '—';
     if (list) {
-      list.innerHTML = [
+      list.innerHTML = isQuality ? renderQualityPanel(summary, qualityChecks) : [
         renderPlanningCheck('负责人完整', summary.unassigned === 0, summary.unassigned === 0 ? summary.count + '/' + summary.count + ' 已指定' : '还缺 ' + summary.unassigned + ' 项'),
         renderPlanningCheck('期限完整', summary.missingDue === 0, summary.missingDue === 0 ? '所有任务均有期限' : '还缺 ' + summary.missingDue + ' 项'),
         renderPlanningCheck('交付物完整', summary.missingDeliverables === 0, summary.missingDeliverables === 0 ? '交付物可核对' : '还缺 ' + summary.missingDeliverables + ' 项'),
         renderPlanningCheck('完成标准完整', summary.missingCriteria === 0, summary.missingCriteria === 0 ? '标准可验收' : '还缺 ' + summary.missingCriteria + ' 项')
       ].join('');
+      if (isQuality) bindQualityPanelInteractions(summary);
     }
     if (cap) {
       cap.textContent = summary.readyToPublish
-        ? '发放前将再次执行后端预检与确认'
-        : '请先补全右侧未通过的检查项';
+        ? '四步完成，发放前将再次执行后端预检'
+        : (isQuality ? '请按 1 → 4 的顺序完成方案配置' : '请先补全右侧未通过的检查项');
     }
     renderPlanningContext(summary, hasDraft);
     renderPlanningDraftBoard(summary, hasDraft);
@@ -2187,19 +2715,32 @@ export function renderManagerChatPage(params: {
       updatePublishBtnUi();
     }
   }
+  function runQualityPlanningMessage(message) {
+    if (qualityPlanningInFlight || sendInFlight || activeThreadKind !== 'side'
+      || !activeQualitySourceContext || activeQualitySourceContext.kind !== 'quality_event') {
+      return Promise.resolve({ ok: false, reason: 'unavailable' });
+    }
+    qualityPlanningInFlight = true;
+    updateQualityPlanningEnhancer();
+    return sendChatMessage({ message: message, fromComposer: false }).finally(function () {
+      qualityPlanningInFlight = false;
+      updateQualityPlanningEnhancer();
+    });
+  }
   var qualityPlanningEnhanceBtn = document.getElementById('qualityPlanningEnhanceBtn');
   if (qualityPlanningEnhanceBtn) {
     qualityPlanningEnhanceBtn.addEventListener('click', function () {
-      if (qualityPlanningInFlight || sendInFlight || activeThreadKind !== 'side'
-        || !activeQualitySourceContext || activeQualitySourceContext.kind !== 'quality_event') return;
-      qualityPlanningInFlight = true;
-      updateQualityPlanningEnhancer();
-      void sendChatMessage({ message: QUALITY_TASK_REPLAN_MSG, fromComposer: false }).finally(function () {
-        qualityPlanningInFlight = false;
-        updateQualityPlanningEnhancer();
-      });
+      void runQualityPlanningMessage(QUALITY_TASK_REPLAN_MSG);
     });
   }
+  document.querySelectorAll('[data-quality-command]').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var command = String(chip.getAttribute('data-quality-command') || '');
+      var message = QUALITY_TASK_ADJUSTMENT_MSGS[command];
+      if (!message) return;
+      void runQualityPlanningMessage(message);
+    });
+  });
   var sendBtn = document.getElementById('sendBtn');
   if (sendBtn) {
     sendBtn.addEventListener('click', function () { void sendChatMessage({ fromComposer: true }); });
@@ -2370,9 +2911,18 @@ export function renderManagerChatPage(params: {
     planningContextToggle.addEventListener('click', function () {
       var contextCard = document.getElementById('planningContextCard');
       if (!contextCard) return;
-      var collapsed = contextCard.classList.toggle('is-collapsed');
-      planningContextToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-      planningContextToggle.setAttribute('aria-label', collapsed ? '展开任务背景' : '收起任务背景');
+      setPlanningContextCollapsed(contextCard, !contextCard.classList.contains('is-collapsed'));
+    });
+  }
+  var qualityHistoryToggle = document.getElementById('qualityHistoryToggle');
+  if (qualityHistoryToggle) {
+    qualityHistoryToggle.addEventListener('click', function () {
+      var main = document.getElementById('chatMain');
+      if (!main || !main.classList.contains('is-quality-planning')) return;
+      var collapsed = main.classList.toggle('is-quality-history-collapsed');
+      qualityHistoryToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      qualityHistoryToggle.setAttribute('aria-label', collapsed ? '展开对话历史' : '收起对话历史');
+      qualityHistoryToggle.setAttribute('title', collapsed ? '展开对话历史' : '收起对话历史');
     });
   }
   var planningPersonSearch = document.getElementById('planningPersonSearch');

@@ -1,0 +1,1038 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>质量事件详情布局提案 V1</title>
+  <style>
+    :root {
+      --ink: #17263a;
+      --ink-soft: #4e6075;
+      --muted: #78889a;
+      --paper: #f6f8fa;
+      --surface: #ffffff;
+      --line: #dce4ec;
+      --line-strong: #c5d1dc;
+      --navy: #12365b;
+      --navy-deep: #0b2743;
+      --blue: #1766c2;
+      --blue-soft: #e8f2ff;
+      --cyan: #0c7c86;
+      --cyan-soft: #e7f6f5;
+      --amber: #b76216;
+      --amber-soft: #fff4e7;
+      --green: #237654;
+      --green-soft: #eaf7f1;
+      --danger: #b33b35;
+      --danger-soft: #fff0ee;
+      --shadow: 0 18px 50px rgba(17, 41, 68, .09);
+      --radius: 16px;
+      --font-display: "Aptos Display", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+      --font-body: "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 1080px;
+      color: var(--ink);
+      font: 14px/1.72 var(--font-body);
+      background:
+        linear-gradient(90deg, rgba(18, 54, 91, .035) 1px, transparent 1px) 0 0 / 48px 48px,
+        linear-gradient(rgba(18, 54, 91, .035) 1px, transparent 1px) 0 0 / 48px 48px,
+        var(--paper);
+    }
+    button, input, select, textarea { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline: 3px solid rgba(23, 102, 194, .22);
+      outline-offset: 2px;
+    }
+
+    .prototype-banner {
+      min-height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 7px 24px;
+      color: #dcecff;
+      background: var(--navy-deep);
+      font-size: 12px;
+      letter-spacing: .05em;
+    }
+    .prototype-banner strong { color: #fff; }
+    .prototype-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #6dd4c5;
+      box-shadow: 0 0 0 5px rgba(109, 212, 197, .12);
+    }
+
+    .shell {
+      width: min(1460px, calc(100% - 48px));
+      margin: 24px auto 80px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 12px;
+    }
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 42px;
+      padding: 0 15px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      color: var(--ink-soft);
+      background: rgba(255, 255, 255, .72);
+      cursor: pointer;
+    }
+    .back-link:hover { border-color: var(--line-strong); background: #fff; }
+    .role-switch {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, .78);
+    }
+    .role-switch-label {
+      padding: 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .role-button {
+      min-height: 36px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 8px;
+      color: var(--ink-soft);
+      background: transparent;
+      cursor: pointer;
+      transition: .18s ease;
+    }
+    .role-button:hover { color: var(--navy); background: #edf3f8; }
+    .role-button.is-active {
+      color: #fff;
+      background: var(--navy);
+      box-shadow: 0 5px 14px rgba(18, 54, 91, .18);
+    }
+
+    .case-header {
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 130px minmax(0, 1fr) auto;
+      gap: 24px;
+      min-height: 176px;
+      padding: 28px 30px;
+      color: #fff;
+      border-radius: 20px 20px 0 0;
+      background:
+        radial-gradient(circle at 78% -40%, rgba(60, 151, 238, .32), transparent 44%),
+        linear-gradient(118deg, var(--navy-deep), var(--navy) 72%, #164a73);
+      box-shadow: var(--shadow);
+    }
+    .case-header::after {
+      content: "";
+      position: absolute;
+      right: -72px;
+      bottom: -112px;
+      width: 310px;
+      height: 310px;
+      border: 1px solid rgba(255, 255, 255, .14);
+      border-radius: 50%;
+      box-shadow: 0 0 0 36px rgba(255, 255, 255, .035), 0 0 0 76px rgba(255, 255, 255, .025);
+    }
+    .case-index {
+      position: relative;
+      z-index: 1;
+      padding-right: 22px;
+      border-right: 1px solid rgba(255, 255, 255, .2);
+    }
+    .case-index small {
+      display: block;
+      margin-bottom: 7px;
+      color: #9fc1e0;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .case-index strong {
+      display: block;
+      font: 700 25px/1.15 var(--font-display);
+      letter-spacing: -.02em;
+    }
+    .case-index .risk {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 17px;
+      padding: 5px 9px;
+      border: 1px solid rgba(255, 216, 165, .32);
+      border-radius: 999px;
+      color: #ffd7a3;
+      background: rgba(183, 98, 22, .16);
+      font-size: 12px;
+    }
+    .case-title { position: relative; z-index: 1; }
+    .case-title .eyebrow {
+      margin: 0 0 7px;
+      color: #9fc1e0;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    .case-title h1 {
+      max-width: 850px;
+      margin: 0 0 12px;
+      font: 700 clamp(24px, 2.25vw, 34px)/1.28 var(--font-display);
+      letter-spacing: -.025em;
+    }
+    .case-title p {
+      max-width: 850px;
+      margin: 0;
+      color: #c7d9eb;
+      line-height: 1.7;
+    }
+    .case-status {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: space-between;
+      min-width: 170px;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid rgba(255, 255, 255, .2);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .1);
+      backdrop-filter: blur(8px);
+    }
+    .status-badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ffbd67;
+      box-shadow: 0 0 0 5px rgba(255, 189, 103, .12);
+    }
+    .case-status small { color: #a9c4dd; }
+
+    .stage-rail {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      border: 1px solid var(--line);
+      border-top: 0;
+      background: rgba(255, 255, 255, .96);
+      box-shadow: 0 9px 22px rgba(23, 38, 58, .06);
+      backdrop-filter: blur(12px);
+    }
+    .stage-button {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      min-height: 67px;
+      padding: 10px 18px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      color: var(--ink-soft);
+      text-align: left;
+      background: transparent;
+      cursor: pointer;
+    }
+    .stage-button:last-child { border-right: 0; }
+    .stage-button:hover { background: #f7fafc; }
+    .stage-button.is-active { color: var(--navy); background: var(--blue-soft); }
+    .stage-button.is-active::after {
+      content: "";
+      position: absolute;
+      right: 16px;
+      bottom: 0;
+      left: 16px;
+      height: 3px;
+      border-radius: 3px 3px 0 0;
+      background: var(--blue);
+    }
+    .stage-no {
+      display: grid;
+      flex: 0 0 auto;
+      width: 29px;
+      height: 29px;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 50%;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      background: #fff;
+    }
+    .stage-button.is-active .stage-no { color: #fff; border-color: var(--blue); background: var(--blue); }
+    .stage-copy b { display: block; font-size: 14px; }
+    .stage-copy small { display: block; color: var(--muted); font-size: 11px; }
+
+    .content {
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-top: 0;
+      border-radius: 0 0 20px 20px;
+      background: rgba(255, 255, 255, .92);
+      box-shadow: var(--shadow);
+    }
+    .snapshot-row {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 1fr 1fr;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+    .snapshot-item {
+      min-height: 92px;
+      padding: 19px 20px;
+      border-right: 1px solid var(--line);
+    }
+    .snapshot-item:last-child { border-right: 0; }
+    .snapshot-item small {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .snapshot-item strong {
+      display: block;
+      font: 700 17px/1.45 var(--font-display);
+    }
+    .snapshot-item em {
+      display: inline-block;
+      margin-top: 4px;
+      color: var(--amber);
+      font-style: normal;
+      font-size: 12px;
+    }
+
+    .section {
+      scroll-margin-top: 86px;
+      margin-top: 26px;
+      padding-top: 4px;
+    }
+    .section-heading {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 14px;
+    }
+    .section-kicker {
+      margin: 0 0 3px;
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .section-heading h2 {
+      margin: 0;
+      font: 700 20px/1.35 var(--font-display);
+      letter-spacing: -.02em;
+    }
+    .section-heading p { margin: 3px 0 0; color: var(--muted); }
+    .ghost-button {
+      min-height: 40px;
+      padding: 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--ink-soft);
+      background: #fff;
+      cursor: pointer;
+    }
+    .ghost-button:hover { border-color: #9fb3c7; background: #f8fafc; }
+
+    .fact-dossier {
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+    .fact-labels {
+      padding: 22px;
+      color: #d9e6f1;
+      background: var(--navy);
+    }
+    .fact-labels .stamp {
+      display: inline-block;
+      margin-bottom: 48px;
+      padding: 6px 9px;
+      border: 1px solid rgba(255, 255, 255, .25);
+      border-radius: 6px;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      transform: rotate(-1.5deg);
+    }
+    .fact-labels strong { display: block; color: #fff; font-size: 17px; }
+    .fact-labels p { margin: 7px 0 0; color: #b8cde0; font-size: 12px; }
+    .fact-content { padding: 4px 22px 16px; }
+    .fact-story {
+      margin: 18px 0 4px;
+      padding: 17px 18px;
+      border-left: 4px solid var(--blue);
+      color: var(--ink);
+      background: #f4f8fc;
+      font-size: 15px;
+      line-height: 1.75;
+    }
+    .fact-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .fact-field {
+      min-height: 76px;
+      padding: 14px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    .fact-field:nth-child(-n + 4) { border-top: 1px solid var(--line); }
+    .fact-field small { display: block; color: var(--muted); font-size: 11px; }
+    .fact-field strong { display: block; margin-top: 4px; font-size: 14px; }
+    .fact-field.is-extra { display: none; }
+    .fact-dossier.is-expanded .fact-field.is-extra { display: block; }
+
+    .judgment-layout {
+      display: grid;
+      grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr);
+      gap: 16px;
+      align-items: stretch;
+    }
+    .ai-sheet, .human-sheet, .analysis-sheet, .task-sheet {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+    .ai-sheet {
+      overflow: hidden;
+      color: #eaf4ff;
+      border-color: #173e64;
+      background: linear-gradient(155deg, #0d2945 0%, #123c62 100%);
+    }
+    .sheet-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 20px 22px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .ai-sheet .sheet-header { border-bottom-color: rgba(255, 255, 255, .12); }
+    .sheet-header h3 { margin: 0; font: 700 17px/1.4 var(--font-display); }
+    .sheet-header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .ai-sheet .sheet-header p { color: #a9c5df; }
+    .readonly-tag {
+      flex: 0 0 auto;
+      padding: 5px 8px;
+      border-radius: 999px;
+      color: #bfe7ff;
+      background: rgba(90, 182, 241, .14);
+      font-size: 11px;
+    }
+    .ai-body { padding: 19px 22px 22px; }
+    .ai-verdict {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, .12);
+    }
+    .ai-verdict small { color: #9fbed9; }
+    .ai-verdict strong { display: block; margin-top: 2px; font-size: 21px; }
+    .strength {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      color: #d6f8ef;
+      background: rgba(43, 169, 130, .15);
+      font-size: 12px;
+    }
+    .strength::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #62d6b3; }
+    .ai-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 18px;
+    }
+    .ai-block h4 { margin: 0 0 8px; color: #9fbed9; font-size: 12px; font-weight: 600; }
+    .ai-block ul { margin: 0; padding-left: 18px; }
+    .ai-block li { margin: 5px 0; }
+    .ai-footnote {
+      margin: 18px 0 0;
+      padding: 11px 12px;
+      border: 1px solid rgba(255, 255, 255, .11);
+      border-radius: 9px;
+      color: #bcd0e3;
+      background: rgba(255, 255, 255, .045);
+      font-size: 12px;
+    }
+    .human-body { padding: 19px 22px 22px; }
+    .choice-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 9px;
+    }
+    .decision-choice {
+      min-height: 86px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      text-align: left;
+      background: #fff;
+      cursor: pointer;
+    }
+    .decision-choice:hover { border-color: #9fb9d5; background: #f8fbff; }
+    .decision-choice.is-selected {
+      border-color: var(--blue);
+      background: var(--blue-soft);
+      box-shadow: inset 0 0 0 1px var(--blue);
+    }
+    .decision-choice b { display: block; margin-bottom: 4px; }
+    .decision-choice small { color: var(--muted); line-height: 1.45; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; margin-top: 16px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field.is-wide { grid-column: 1 / -1; }
+    .field label { color: var(--ink-soft); font-size: 12px; font-weight: 700; }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 9px;
+      color: var(--ink);
+      background: #fff;
+    }
+    .field textarea { min-height: 102px; resize: vertical; line-height: 1.7; }
+    .field input:disabled, .field textarea:disabled { color: var(--muted); background: #f3f6f8; }
+    .required-note { display: none; margin: 7px 0 0; color: var(--danger); font-size: 12px; }
+    .required-note.is-visible { display: block; }
+
+    .role-panel { display: none; }
+    body[data-role="aftersales"] [data-role-panel="aftersales"],
+    body[data-role="quality"] [data-role-panel="quality"],
+    body[data-role="manager"] [data-role-panel="manager"] { display: block; }
+
+    .analysis-sheet, .task-sheet { padding-bottom: 22px; }
+    .analysis-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 14px;
+      padding: 20px 22px 0;
+    }
+    .analysis-grid .field { grid-column: span 4; }
+    .analysis-grid .field.span-6 { grid-column: span 6; }
+    .analysis-grid .field.span-8 { grid-column: span 8; }
+    .analysis-grid .field.span-12 { grid-column: span 12; }
+    .version-note {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin: 0 22px;
+      padding: 13px 15px;
+      border: 1px solid #b8d8d4;
+      border-radius: 10px;
+      color: #285d58;
+      background: var(--cyan-soft);
+    }
+    .version-note b { color: var(--cyan); }
+
+    .task-summary {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 1fr;
+      margin: 0 22px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+    .task-summary > div { padding: 15px; border-right: 1px solid var(--line); }
+    .task-summary > div:last-child { border-right: 0; }
+    .task-summary small { display: block; color: var(--muted); font-size: 11px; }
+    .task-summary strong { display: block; margin-top: 3px; }
+    .handoff-list { margin: 18px 22px 0; border-top: 1px solid var(--line); }
+    .handoff-row {
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr) 170px;
+      gap: 13px;
+      align-items: center;
+      min-height: 72px;
+      border-bottom: 1px solid var(--line);
+    }
+    .handoff-no {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      place-items: center;
+      border-radius: 8px;
+      color: var(--navy);
+      background: var(--blue-soft);
+      font-weight: 700;
+    }
+    .handoff-row small { color: var(--muted); }
+    .handoff-state { justify-self: end; color: var(--amber); font-size: 12px; }
+
+    .evidence-shell {
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 16px;
+    }
+    .empty-evidence, .audit-card {
+      min-height: 150px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+    .empty-evidence { display: grid; place-items: center; text-align: center; color: var(--muted); }
+    .empty-evidence strong { display: block; color: var(--ink); font-size: 16px; }
+    .audit-line { display: grid; grid-template-columns: 100px 1fr; gap: 13px; margin-top: 13px; }
+    .audit-line time { color: var(--muted); font-size: 12px; }
+
+    .action-dock {
+      position: sticky;
+      bottom: 14px;
+      z-index: 18;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      margin: 26px 0 -2px;
+      padding: 13px 14px 13px 18px;
+      border: 1px solid rgba(154, 172, 190, .74);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .92);
+      box-shadow: 0 15px 35px rgba(17, 41, 68, .14);
+      backdrop-filter: blur(15px);
+    }
+    .dock-copy strong { display: block; }
+    .dock-copy small { color: var(--muted); }
+    .dock-actions { display: flex; gap: 9px; }
+    .primary-button, .secondary-button, .danger-button {
+      min-height: 44px;
+      padding: 0 17px;
+      border-radius: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .primary-button { color: #fff; border: 1px solid var(--blue); background: var(--blue); }
+    .primary-button:hover { border-color: #0f58aa; background: #0f58aa; }
+    .secondary-button { color: var(--navy); border: 1px solid var(--line-strong); background: #fff; }
+    .secondary-button:hover { background: #f5f8fb; }
+    .danger-button { color: var(--danger); border: 1px solid #efb5af; background: var(--danger-soft); }
+    .danger-button:hover { background: #ffe3df; }
+
+    .toast {
+      position: fixed;
+      right: 28px;
+      bottom: 28px;
+      z-index: 50;
+      max-width: 380px;
+      padding: 14px 17px;
+      border-radius: 12px;
+      color: #fff;
+      background: var(--navy-deep);
+      box-shadow: 0 16px 40px rgba(11, 39, 67, .28);
+      opacity: 0;
+      transform: translateY(16px);
+      pointer-events: none;
+      transition: .24s ease;
+    }
+    .toast.is-visible { opacity: 1; transform: translateY(0); }
+
+    .reveal { animation: reveal .48s both; }
+    .reveal:nth-child(2) { animation-delay: .05s; }
+    .reveal:nth-child(3) { animation-delay: .1s; }
+    @keyframes reveal {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 1240px) {
+      .case-header { grid-template-columns: 110px minmax(0, 1fr) auto; }
+      .stage-copy small { display: none; }
+      .fact-dossier { grid-template-columns: 180px minmax(0, 1fr); }
+      .fact-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .fact-field:nth-child(-n + 4) { border-top: 0; }
+      .fact-field:nth-child(-n + 3) { border-top: 1px solid var(--line); }
+      .judgment-layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body data-role="aftersales">
+  <div class="prototype-banner">
+    <span class="prototype-dot"></span>
+    <strong>交互评审原型</strong>
+    <span>演示数据 · 所有操作仅在浏览器内模拟，不写入正式系统</span>
+  </div>
+
+  <main class="shell">
+    <div class="toolbar">
+      <button class="back-link" type="button" data-demo-action="back">← 返回事件列表</button>
+      <div class="role-switch" aria-label="切换演示视角">
+        <span class="role-switch-label">预览视角</span>
+        <button class="role-button is-active" type="button" data-role-target="aftersales">马荣鑫</button>
+        <button class="role-button" type="button" data-role-target="quality">佟成</button>
+        <button class="role-button" type="button" data-role-target="manager">测试主管</button>
+      </div>
+    </div>
+
+    <header class="case-header reveal">
+      <div class="case-index">
+        <small>Quality case</small>
+        <strong>QT-DEMO<br />-013</strong>
+        <span class="risk">● 中风险</span>
+      </div>
+      <div class="case-title">
+        <p class="eyebrow">当前角色质量事项 · 隔离测试分类</p>
+        <h1>第二条质量初析待填写</h1>
+        <p>仅用于隔离测试系统，不关联真实客户、员工或钉钉接收人。当前事件处于通报后、质量初析确认前。</p>
+      </div>
+      <div class="case-status">
+        <span class="status-badge" data-role-status>待马荣鑫研判</span>
+        <small>更新于 2026-08-27 17:45</small>
+      </div>
+    </header>
+
+    <nav class="stage-rail reveal" aria-label="事件处理阶段">
+      <button class="stage-button is-active" type="button" data-stage-target="overview">
+        <span class="stage-no">01</span><span class="stage-copy"><b>事件概览</b><small>核心状态与事实</small></span>
+      </button>
+      <button class="stage-button" type="button" data-stage-target="source">
+        <span class="stage-no">02</span><span class="stage-copy"><b>来源事实</b><small>不可变快照</small></span>
+      </button>
+      <button class="stage-button" type="button" data-stage-target="judgment">
+        <span class="stage-no">03</span><span class="stage-copy"><b data-stage-role-label>研判工作区</b><small>建议与人工结论</small></span>
+      </button>
+      <button class="stage-button" type="button" data-stage-target="execution">
+        <span class="stage-no">04</span><span class="stage-copy"><b>任务与证据</b><small>原系统投影</small></span>
+      </button>
+      <button class="stage-button" type="button" data-stage-target="audit">
+        <span class="stage-no">05</span><span class="stage-copy"><b>终验与审计</b><small>全程可追溯</small></span>
+      </button>
+    </nav>
+
+    <div class="content">
+      <section class="snapshot-row reveal" id="overview">
+        <div class="snapshot-item"><small>事件状态</small><strong data-role-state>待我研判</strong><em data-role-hint>需要马荣鑫作最终人工判断</em></div>
+        <div class="snapshot-item"><small>设备 / 批次</small><strong>测试设备-2</strong><em>TEST-BATCH-2</em></div>
+        <div class="snapshot-item"><small>反馈人员</small><strong>测试反馈人</strong><em>2026-08-27 15:17</em></div>
+        <div class="snapshot-item"><small>事实完整度</small><strong>6 / 8 项</strong><em>缺少处理记录、现场照片</em></div>
+      </section>
+
+      <section class="section reveal" id="source">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Immutable source</p>
+            <h2>来源事实</h2>
+            <p>原始反馈与业务判断分层保存，这里的内容只读且不会被人工结论覆盖。</p>
+          </div>
+          <button class="ghost-button" type="button" id="toggle-facts">展开全部原始字段</button>
+        </div>
+        <div class="fact-dossier" id="fact-dossier">
+          <aside class="fact-labels">
+            <span class="stamp">来源快照 · 只读</span>
+            <strong>客户反馈记录</strong>
+            <p>快照版本 V1<br />内容哈希已固化</p>
+          </aside>
+          <div class="fact-content">
+            <blockquote class="fact-story">测试：第二条质量初析待填写；仅用于隔离测试系统，不关联真实客户、员工或钉钉接收人。</blockquote>
+            <div class="fact-grid">
+              <div class="fact-field"><small>反馈单号</small><strong>TEST-QT-DEMO-013</strong></div>
+              <div class="fact-field"><small>反馈时间</small><strong>2026-08-27 15:17</strong></div>
+              <div class="fact-field"><small>设备型号</small><strong>测试设备-2</strong></div>
+              <div class="fact-field"><small>设备序列号</small><strong>TEST-SN-013</strong></div>
+              <div class="fact-field"><small>导管批次</small><strong>TEST-BATCH-2</strong></div>
+              <div class="fact-field"><small>术者感知</small><strong>隔离测试</strong></div>
+              <div class="fact-field"><small>影响说明</small><strong>仅影响隔离测试数据</strong></div>
+              <div class="fact-field"><small>确认情况</small><strong>模拟事实已确认</strong></div>
+              <div class="fact-field is-extra"><small>问题分类</small><strong>隔离测试分类</strong></div>
+              <div class="fact-field is-extra"><small>现场处理</small><strong>暂无记录</strong></div>
+              <div class="fact-field is-extra"><small>解决工程师</small><strong>尚未分配</strong></div>
+              <div class="fact-field is-extra"><small>附件</small><strong>0 个</strong></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section reveal" id="judgment">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Human decision gate</p>
+            <h2 data-judgment-title>研判工作区</h2>
+            <p data-judgment-subtitle>AI 建议保留为只读快照，马荣鑫的最终判断单独保存。</p>
+          </div>
+        </div>
+
+        <div class="role-panel" data-role-panel="aftersales">
+          <div class="judgment-layout">
+            <article class="ai-sheet">
+              <header class="sheet-header">
+                <div><h3>AI 原始研判建议</h3><p>建议 ID · AI-20260827-013 · 来源版本 V1</p></div>
+                <span class="readonly-tag">原始快照 · 不可修改</span>
+              </header>
+              <div class="ai-body">
+                <div class="ai-verdict">
+                  <div><small>建议处理方式</small><strong>待补资料</strong></div>
+                  <span class="strength">证据一般</span>
+                </div>
+                <div class="ai-columns">
+                  <div class="ai-block"><h4>判断依据</h4><ul><li>问题描述明确，但没有现场处理记录</li><li>批次信息完整，可继续进行关联核验</li></ul></div>
+                  <div class="ai-block"><h4>信息缺口</h4><ul><li>缺少异常发生时的设备日志</li><li>缺少现场照片或视频证据</li></ul></div>
+                </div>
+                <p class="ai-footnote">AI 仅提供原始建议。正式结论由主管人工确认，任何修改都会保留差异与原因。</p>
+              </div>
+            </article>
+
+            <article class="human-sheet">
+              <header class="sheet-header">
+                <div><h3>主管最终研判</h3><p>选择处理方式后，再补充人工判断依据。</p></div>
+                <span class="readonly-tag" style="color:#1766c2;background:#e8f2ff">人工决策</span>
+              </header>
+              <div class="human-body">
+                <div class="choice-grid" role="group" aria-label="最终研判方式">
+                  <button class="decision-choice" type="button" data-decision="accept"><b>直接采纳</b><small>沿用 AI 建议，不修改分类与风险</small></button>
+                  <button class="decision-choice is-selected" type="button" data-decision="modify"><b>修改后采纳</b><small>调整建议，并记录本次修正原因</small></button>
+                  <button class="decision-choice" type="button" data-decision="reject"><b>否决重判</b><small>不采纳建议，由主管重新判断</small></button>
+                </div>
+                <div class="form-grid">
+                  <div class="field"><label for="aftersales-disposition">处理方式</label><select id="aftersales-disposition"><option>通报质量异常</option><option>待补资料</option><option>普通反馈</option></select></div>
+                  <div class="field"><label for="aftersales-risk">风险等级</label><select id="aftersales-risk"><option>中</option><option>高</option><option>低</option></select></div>
+                  <div class="field is-wide"><label for="aftersales-reason">修正原因 <span style="color:#b33b35">*</span></label><textarea id="aftersales-reason">现场描述涉及重复异常，需要进入质量流程继续核验，不能只按待补资料结束。</textarea><p class="required-note" id="decision-reason-note">修改或否决 AI 建议时，必须填写修正原因。</p></div>
+                  <div class="field is-wide"><label for="aftersales-note">研判备注</label><textarea id="aftersales-note" placeholder="补充需要质量人员关注的事实，不要在此指定负责人。"></textarea></div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <div class="role-panel" data-role-panel="quality">
+          <article class="analysis-sheet">
+            <header class="sheet-header">
+              <div><h3>质量初析 V1</h3><p>正式通报后的质量分析；只建议责任部门，不在这里选择具体人员。</p></div>
+                <span class="readonly-tag" style="color:#0c7c86;background:#e7f6f5">草稿可编辑</span>
+            </header>
+            <div class="version-note"><span><b>版本提示：</b>正式分配前可修改草稿；任务分配后再次修订会生成 V2/V3，不覆盖 V1。</span><span>最近保存：尚未保存</span></div>
+            <div class="analysis-grid">
+              <div class="field"><label for="analysis-direction">问题方向</label><select id="analysis-direction"><option>产品性能</option><option>生产制造</option><option>临床使用</option></select></div>
+              <div class="field"><label for="analysis-category">人工确认分类</label><select id="analysis-category"><option>影像异常</option><option>设备连接</option><option>耗材质量</option></select></div>
+              <div class="field"><label for="analysis-department">建议责任部门</label><select id="analysis-department"><option>研发中心</option><option>生产中心</option><option>质量中心</option></select></div>
+              <div class="field span-6"><label for="analysis-facts">来源事实摘要</label><textarea id="analysis-facts">隔离测试事件，设备 TEST-SN-013 出现模拟异常，当前未关联真实客户。</textarea></div>
+              <div class="field span-6"><label for="analysis-basis">分析依据</label><textarea id="analysis-basis">反馈描述、设备型号与批次信息已确认；现场日志和图片仍缺失。</textarea></div>
+              <div class="field span-6"><label for="analysis-conclusion">初步结论</label><textarea id="analysis-conclusion" placeholder="写清当前能确认的结论与不能确认的边界"></textarea></div>
+              <div class="field span-6"><label for="analysis-gaps">信息缺口</label><textarea id="analysis-gaps">需要补充设备日志、异常复现步骤和现场图片。</textarea></div>
+              <div class="field span-8"><label for="analysis-requirement">处理要求</label><textarea id="analysis-requirement">复核同批次记录，完成异常复现与根因初步判断，提交可验证证据。</textarea></div>
+              <div class="field"><label for="analysis-due">建议总期限</label><input id="analysis-due" type="date" value="2026-09-05" /></div>
+            </div>
+          </article>
+        </div>
+
+        <div class="role-panel" data-role-panel="manager">
+          <article class="task-sheet">
+            <header class="sheet-header">
+              <div><h3>任务承接</h3><p>质量背景和处理要求已准备好，承接后进入原任务规划机器人确认分配。</p></div>
+              <span class="readonly-tag" style="color:#b76216;background:#fff4e7">待确认</span>
+            </header>
+            <div class="task-summary">
+              <div><small>建议责任部门</small><strong>研发中心（测试）</strong></div>
+              <div><small>建议总期限</small><strong>2026-09-05</strong></div>
+              <div><small>必须成果</small><strong>3 项</strong></div>
+            </div>
+            <div class="handoff-list">
+              <div class="handoff-row"><span class="handoff-no">1</span><div><strong>异常复现记录</strong><br /><small>包含环境、步骤、结果与日志</small></div><span class="handoff-state">待规划</span></div>
+              <div class="handoff-row"><span class="handoff-no">2</span><div><strong>同批次问题核验</strong><br /><small>确认是否存在相同或相似反馈</small></div><span class="handoff-state">待规划</span></div>
+              <div class="handoff-row"><span class="handoff-no">3</span><div><strong>初步根因与措施</strong><br /><small>给出可验证结论及下一步动作</small></div><span class="handoff-state">待规划</span></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section reveal" id="execution">
+        <div class="section-heading">
+          <div><p class="section-kicker">Single source of truth</p><h2>任务与证据</h2><p>人员、期限、承接、进度和验收均从原任务系统只读投影。</p></div>
+        </div>
+        <div class="evidence-shell">
+          <div class="empty-evidence"><div><strong>尚未形成正式任务关联</strong><span>完成质量初析并由主管确认后，这里展示任务、执行人、期限和证据。</span></div></div>
+          <div class="audit-card"><strong>状态说明</strong><div class="audit-line"><time>当前</time><span>等待角色完成本阶段动作</span></div><div class="audit-line"><time>下一步</time><span data-next-step>提交人工研判后进入质量初析</span></div></div>
+        </div>
+      </section>
+
+      <section class="section reveal" id="audit">
+        <div class="section-heading">
+          <div><p class="section-kicker">Traceable history</p><h2>终验与审计</h2><p>最终结论、退回、关闭和重开均保留版本与操作原因。</p></div>
+        </div>
+        <div class="audit-card">
+          <strong>公开审计时间线</strong>
+          <div class="audit-line"><time>08-27 17:45</time><span>系统创建隔离测试来源快照 V1</span></div>
+          <div class="audit-line"><time>等待处理</time><span>尚未形成正式人工研判记录</span></div>
+        </div>
+      </section>
+
+      <div class="action-dock">
+        <div class="dock-copy"><strong data-dock-title>保存马荣鑫的人工研判</strong><small data-dock-subtitle>保存后保留 AI 原建议、人工结论、差异与修正原因。</small></div>
+        <div class="dock-actions" data-dock-actions></div>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" role="status" aria-live="polite" id="toast"></div>
+
+  <script>
+    (function () {
+      var roleConfig = {
+        aftersales: {
+          status: '待马荣鑫研判', state: '待我研判', hint: '需要马荣鑫作最终人工判断',
+          stage: '研判工作区', title: '研判工作区', subtitle: 'AI 建议保留为只读快照，马荣鑫的最终判断单独保存。',
+          dockTitle: '保存马荣鑫的人工研判', dockSubtitle: '保存后保留 AI 原建议、人工结论、差异与修正原因。',
+          next: '提交人工研判后进入质量初析',
+          actions: [{ label: '保存研判修订', tone: 'primary', action: 'save-aftersales' }]
+        },
+        quality: {
+          status: '待佟成初析', state: '待我初析', hint: '需要填写并确认质量初析',
+          stage: '质量初析', title: '质量初析', subtitle: '围绕事实、依据、结论、缺口和处理要求完成结构化初析。',
+          dockTitle: '保存质量初析草稿', dockSubtitle: '确认完成前可持续保存；完成后才能进入主管承接与任务分配。',
+          next: '完成初析后推送测试主管承接',
+          actions: [{ label: '保存草稿', tone: 'secondary', action: 'save-draft' }, { label: '完成初析，推送主管', tone: 'primary', action: 'complete-analysis' }]
+        },
+        manager: {
+          status: '待测试主管承接', state: '待我承接', hint: '需要确认接受或说明退回原因',
+          stage: '任务承接', title: '任务承接', subtitle: '先确认是否承接；接受后进入原任务规划机器人，不在质量页直接分配人员。',
+          dockTitle: '确认是否承接本质量任务', dockSubtitle: '承接后打开专用任务规划会话；退回必须填写原因。',
+          next: '承接后进入原任务规划机器人',
+          actions: [{ label: '退回佟成', tone: 'danger', action: 'reject-manager' }, { label: '接受并进入任务规划', tone: 'primary', action: 'accept-manager' }]
+        }
+      };
+
+      var toastTimer;
+      var body = document.body;
+      var toast = document.getElementById('toast');
+      var dockActions = document.querySelector('[data-dock-actions]');
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('is-visible');
+        window.clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(function () { toast.classList.remove('is-visible'); }, 2600);
+      }
+
+      function makeButton(item) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = item.tone + '-button';
+        button.textContent = item.label;
+        button.addEventListener('click', function () {
+          if (item.action === 'save-aftersales') {
+            var selected = document.querySelector('.decision-choice.is-selected');
+            var reason = document.getElementById('aftersales-reason');
+            var needsReason = selected && selected.dataset.decision !== 'accept';
+            if (needsReason && !reason.value.trim()) {
+              document.getElementById('decision-reason-note').classList.add('is-visible');
+              reason.focus();
+              return;
+            }
+            showToast('原型演示：人工研判已保存，AI 原始快照保持不变。');
+          } else if (item.action === 'complete-analysis') {
+            showToast('原型演示：质量初析已确认，准备推送测试主管承接。');
+          } else if (item.action === 'accept-manager') {
+            showToast('原型演示：即将进入该事件的专用任务规划侧会话。');
+          } else if (item.action === 'reject-manager') {
+            var reasonText = window.prompt('请填写退回给佟成的原因（原型演示）');
+            if (reasonText && reasonText.trim()) showToast('原型演示：已记录退回原因，并退回佟成。');
+          } else {
+            showToast('原型演示：草稿已保存在当前浏览器会话。');
+          }
+        });
+        return button;
+      }
+
+      function setRole(role) {
+        var config = roleConfig[role];
+        if (!config) return;
+        body.dataset.role = role;
+        document.querySelectorAll('[data-role-target]').forEach(function (button) {
+          button.classList.toggle('is-active', button.dataset.roleTarget === role);
+        });
+        document.querySelector('[data-role-status]').textContent = config.status;
+        document.querySelector('[data-role-state]').textContent = config.state;
+        document.querySelector('[data-role-hint]').textContent = config.hint;
+        document.querySelector('[data-stage-role-label]').textContent = config.stage;
+        document.querySelector('[data-judgment-title]').textContent = config.title;
+        document.querySelector('[data-judgment-subtitle]').textContent = config.subtitle;
+        document.querySelector('[data-dock-title]').textContent = config.dockTitle;
+        document.querySelector('[data-dock-subtitle]').textContent = config.dockSubtitle;
+        document.querySelector('[data-next-step]').textContent = config.next;
+        dockActions.replaceChildren();
+        config.actions.forEach(function (item) { dockActions.appendChild(makeButton(item)); });
+      }
+
+      document.querySelectorAll('[data-role-target]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          setRole(button.dataset.roleTarget);
+          document.getElementById('judgment').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+
+      document.querySelectorAll('[data-stage-target]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          document.querySelectorAll('[data-stage-target]').forEach(function (item) { item.classList.remove('is-active'); });
+          button.classList.add('is-active');
+          document.getElementById(button.dataset.stageTarget).scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+
+      document.getElementById('toggle-facts').addEventListener('click', function () {
+        var dossier = document.getElementById('fact-dossier');
+        var expanded = dossier.classList.toggle('is-expanded');
+        this.textContent = expanded ? '收起扩展字段' : '展开全部原始字段';
+      });
+
+      document.querySelectorAll('[data-decision]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          document.querySelectorAll('[data-decision]').forEach(function (item) { item.classList.remove('is-selected'); });
+          button.classList.add('is-selected');
+          var accept = button.dataset.decision === 'accept';
+          var reason = document.getElementById('aftersales-reason');
+          reason.disabled = accept;
+          if (accept) {
+            reason.value = '';
+            document.getElementById('decision-reason-note').classList.remove('is-visible');
+          }
+        });
+      });
+
+      document.querySelector('[data-demo-action="back"]').addEventListener('click', function () {
+        showToast('原型演示：返回上方事件列表。');
+      });
+
+      setRole('aftersales');
+    })();
+  </script>
+</body>
+</html>

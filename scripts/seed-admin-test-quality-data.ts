@@ -129,6 +129,94 @@ function employeeNodeStatus(status: PlannedStatus, index: number): string | null
   return null;
 }
 
+const statusesRequiringConfirmedAnalysis = new Set<PlannedStatus>([
+  "PENDING_ASSIGNMENT",
+  "PENDING_ACCEPTANCE",
+  "IN_PROGRESS",
+  "PENDING_PRIMARY_REVIEW",
+  "PENDING_QUALITY_REVIEW",
+  "CLOSED",
+]);
+
+function hasSelectedDeliverable(value: unknown): boolean {
+  try {
+    const parsed = JSON.parse(String(value ?? "[]"));
+    return Array.isArray(parsed) && parsed.some((item) =>
+      item && typeof item === "object"
+      && String((item as Record<string, unknown>).name ?? "").trim()
+      && (item as Record<string, unknown>).selected !== false,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function ensureConfirmedAnalysis(index: number, status: PlannedStatus): void {
+  if (!statusesRequiringConfirmedAnalysis.has(status)) return;
+  const no = eventNo(index);
+  const event = db.prepare(`
+    SELECT id,overall_due_at
+    FROM quality_events
+    WHERE event_no=? AND is_test=1
+    LIMIT 1
+  `).get(no) as { id: string; overall_due_at: string | null } | undefined;
+  if (!event) throw new Error(`隔离测试事件不存在：${no}`);
+  const latest = db.prepare(`
+    SELECT analysis_version,deliverables_json
+    FROM quality_analysis_versions
+    WHERE event_id=?
+    ORDER BY analysis_version DESC
+    LIMIT 1
+  `).get(event.id) as { analysis_version: number; deliverables_json: string } | undefined;
+  if (latest && hasSelectedDeliverable(latest.deliverables_json)) return;
+
+  const analysisVersion = Number(latest?.analysis_version ?? 0) + 1;
+  const contentJson = JSON.stringify({
+    problemDirection: "隔离测试质量问题核验",
+    confirmedCategoryReference: "隔离测试分类",
+    sourceFactSummary: [`${no} 来源事实已确认，仅用于隔离测试`],
+    analysisBasis: ["来源快照已确认", "主管人工研判已完成"],
+    preliminaryConclusion: `${no} 已完成质量初析，建议研发中心完成原因排查与验证`,
+    informationGaps: [],
+    handlingRequirements: [
+      `完成 ${no} 的原因排查、措施制定与验证`,
+      "上传可复核的过程记录和验证证据",
+    ],
+  });
+  const deliverablesJson = JSON.stringify([{
+    name: "原因排查与验证记录",
+    description: `提交 ${no} 的原因、措施、验证过程和结果`,
+    acceptanceCriteria: "包含事实依据、原因结论、处理措施、验证结果和必要证据",
+    selected: true,
+  }]);
+  db.prepare(`
+    INSERT INTO quality_analysis_versions(
+      analysis_id,event_id,analysis_version,request_id,base_attempt_id,content_json,
+      deliverables_json,diff_json,modification_reason,primary_department_id,
+      primary_department_name,collaborator_departments_json,primary_manager_user_id,
+      primary_manager_name,primary_manager_account_status,suggested_total_due_at,
+      schema_version,prompt_version,model_config_id,input_version,rule_version,
+      case_library_version,knowledge_version,generated_by,edited_by,confirmed_by,
+      confirmed_at,created_at
+    ) VALUES(?,?,?,?,NULL,?,?,?,'补齐隔离测试流程前置数据',
+      'QUALITY_TEST_DEPT_RND','研发中心（测试）','[]','QUALITY_TEST_MANAGER_001',
+      '测试主管','active',?,'quality-analysis-output-v1','admin-test-quality-seed-v1',
+      NULL,1,'rules-test-v1','cases-test-v1','knowledge-test-v1',NULL,
+      'QUALITY_TEST_SPECIALIST_001','QUALITY_TEST_SPECIALIST_001',?,?)
+  `).run(
+    `quality-test-seed-analysis:${event.id}:v${analysisVersion}`,
+    event.id,
+    analysisVersion,
+    requestId(index, 34000000 + analysisVersion),
+    contentJson,
+    deliverablesJson,
+    JSON.stringify({ seedRepair: true }),
+    event.overall_due_at ?? dueAt,
+    createdAt,
+    createdAt,
+  );
+}
+
 let transactionOpen = true;
 db.exec("BEGIN IMMEDIATE");
 try {
@@ -322,6 +410,9 @@ try {
         NULL,NULL,'隔离测试模拟数据',?,?)
       ON CONFLICT(id) DO NOTHING
     `).run(`audit:${id}`, id, requestId(index, 33000000), createdAt);
+  }
+  for (const [index, status] of statusPlan.entries()) {
+    ensureConfirmedAnalysis(index, status);
   }
   db.exec("COMMIT");
   transactionOpen = false;

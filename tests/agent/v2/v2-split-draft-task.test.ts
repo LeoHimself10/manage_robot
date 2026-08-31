@@ -28,8 +28,20 @@ describe("buildSplitDraftTaskHandler", () => {
     const result = handler({
       taskId: "task_2",
       tasks: [
-        { title: "拆分A", objective: "目标A" },
-        { title: "拆分B", objective: "目标B" },
+        {
+          title: "拆分A",
+          objective: "目标A",
+          deliverables: ["交付物A"],
+          completionCriteria: ["标准A"],
+        },
+        {
+          title: "拆分B",
+          objective: "目标B",
+          deliverables: ["交付物B"],
+          completionCriteria: ["标准B"],
+          actions: ["动作B"],
+          dependencyTaskIds: ["task_1"],
+        },
       ],
     }) as Record<string, unknown>;
 
@@ -40,6 +52,10 @@ describe("buildSplitDraftTaskHandler", () => {
     expect(draftTasks[1].title).toBe("拆分A");
     expect(draftTasks[2].title).toBe("拆分B");
     expect((draftTasks[2].timeNode as { dueAt?: string }).dueAt).toBe("2026-07-15");
+    expect(draftTasks[2].deliverables).toEqual(["交付物B"]);
+    expect(draftTasks[2].completionCriteria).toEqual(["标准B"]);
+    expect(draftTasks[2].actions).toEqual(["动作B"]);
+    expect(draftTasks[2].dependencyTaskIds).toEqual(["task_1"]);
   });
 
   it("splits one row into three sequential inserts", () => {

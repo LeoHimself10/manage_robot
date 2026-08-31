@@ -56,6 +56,8 @@ import {
   runManagerOrchestratorTurn,
 } from "../agent/manager-orchestrator-turn";
 import type { KnownFactsStore } from "../agent/tools/update-known-facts";
+import { upsertAssignmentRow } from "../agent/tools/update-draft-task";
+import { clearPublishStagingOnDraft } from "../agent/draft-staging-clear";
 import {
   DingTalkAuthError,
   type DingTalkAuthClient,
@@ -257,6 +259,10 @@ import {
 } from "./quality-http";
 import { createQualityAssignmentService } from "../quality/assignments/quality-assignment-service";
 import { getQualityContextBySubtaskIds } from "../quality/assignments/quality-task-context";
+import { getQualityPlanningContextsBySubtaskIds } from
+  "../quality/analysis/quality-formal-task-projection";
+import { getQualityPlanningDraftContext } from
+  "../quality/analysis/quality-planning-draft-context";
 
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
@@ -936,6 +942,42 @@ function resolveConversationThreadFromBody(body: Record<string, unknown>): {
   };
 }
 
+function resolveConversationDraftWithQualityContext(
+  target: PlanSession,
+  managerUserId: string,
+): Record<string, unknown> | undefined {
+  const rawDraft = target.latestDraft as Record<string, unknown> | undefined;
+  if (!rawDraft) return undefined;
+  const existingHandoff = rawDraft.qualityHandoff
+    && typeof rawDraft.qualityHandoff === "object"
+    && !Array.isArray(rawDraft.qualityHandoff)
+    ? rawDraft.qualityHandoff as Record<string, unknown>
+    : undefined;
+  const existingTaskPackage = rawDraft.qualityTaskPackage
+    && typeof rawDraft.qualityTaskPackage === "object"
+    && !Array.isArray(rawDraft.qualityTaskPackage)
+    ? rawDraft.qualityTaskPackage as Record<string, unknown>
+    : undefined;
+  if (String(existingHandoff?.qualityEventId ?? "").trim() && existingTaskPackage) {
+    return rawDraft;
+  }
+  const thread = buildThreadListItem(target);
+  if (thread.kind !== "side") return rawDraft;
+  const recovered = getQualityPlanningDraftContext({
+    planId: target.planId,
+    threadId: thread.threadId,
+    managerUserId,
+  });
+  if (!recovered) return rawDraft;
+  return {
+    ...rawDraft,
+    qualityTaskPackage: existingTaskPackage ?? recovered.qualityTaskPackage,
+    qualityHandoff: String(existingHandoff?.qualityEventId ?? "").trim()
+      ? existingHandoff
+      : recovered.qualityHandoff,
+  };
+}
+
 function buildOverviewPayload(view: WorkbenchView, userId?: string) {
   const plans = safeReadRecentPlans();
   const sessions = safeReadRecentSessions();
@@ -1132,10 +1174,16 @@ function mapEmployeeSubtasksForApi(
   viewerUserId: string,
 ) {
   const contexts = getQualityContextBySubtaskIds(tasks.map((task) => task.subtaskId), viewerUserId);
+  const planningContexts = getQualityPlanningContextsBySubtaskIds(
+    tasks.map((task) => task.subtaskId),
+    viewerUserId,
+  );
   return tasks.map((task) => {
     const mapped = mapEmployeeSubtaskForApi(task);
     const qualityContext = contexts.get(task.subtaskId);
-    return qualityContext ? { ...mapped, qualityContext } : mapped;
+    if (qualityContext) return { ...mapped, qualityContext };
+    const qualityPlanningContext = planningContexts.get(task.subtaskId);
+    return qualityPlanningContext ? { ...mapped, qualityPlanningContext } : mapped;
   });
 }
 
@@ -7054,7 +7102,7 @@ export function handleAssignmentHttp(
       writeJson(res, 404, { ok: false, error: "No session found for thread" });
       return true;
     }
-    const rawDraft = target.latestDraft as Record<string, unknown> | undefined;
+    const rawDraft = resolveConversationDraftWithQualityContext(target, session.userId);
     const draft = rawDraft ? normalizeDraftTasksForSession(rawDraft) : undefined;
     const qualityHandoff = rawDraft?.qualityHandoff && typeof rawDraft.qualityHandoff === "object"
       ? rawDraft.qualityHandoff as Record<string, unknown>
@@ -7083,6 +7131,226 @@ export function handleAssignmentHttp(
         ? { kind: "quality_event", qualityEventId }
         : undefined,
     });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/conversation/draft/assign") {
+    void (async () => {
+      const session = requireSession(req, res, "manager");
+      if (!session) return;
+      try {
+        const body = (await readJsonBody(req)) as Record<string, unknown>;
+        const threadQuery = resolveConversationThreadFromBody(body);
+        const target = resolveConversationThread(session.userId, threadQuery);
+        if (!target) {
+          writeJson(res, 404, { ok: false, error: "No session found for thread" });
+          return;
+        }
+        const expectedPlanId = String(body.planId ?? "").trim();
+        if (!expectedPlanId || expectedPlanId !== target.planId) {
+          writeJson(res, 409, { ok: false, error: "草案已更新，请刷新后重新选择负责人" });
+          return;
+        }
+        const draft = resolveConversationDraftWithQualityContext(target, session.userId);
+        const qualityHandoff = draft?.qualityHandoff && typeof draft.qualityHandoff === "object"
+          ? draft.qualityHandoff as Record<string, unknown>
+          : undefined;
+        if (!String(qualityHandoff?.qualityEventId ?? "").trim()) {
+          writeJson(res, 403, { ok: false, error: "此入口仅用于质量任务规划" });
+          return;
+        }
+        const taskId = String(body.taskId ?? "").trim();
+        const assigneeUserId = String(body.assigneeUserId ?? "").trim();
+        const tasks = Array.isArray(draft?.tasks)
+          ? draft.tasks as Array<Record<string, unknown>>
+          : [];
+        const task = tasks.find((item) => String(item.id ?? "").trim() === taskId);
+        if (!taskId || !task) {
+          writeJson(res, 400, { ok: false, error: "未找到要配置负责人的任务" });
+          return;
+        }
+        if (!assigneeUserId) {
+          writeJson(res, 400, { ok: false, error: "请选择负责人" });
+          return;
+        }
+        const candidateIds = new Set(
+          (target.candidatePool?.entries ?? []).map((entry) => String(entry.userId ?? "").trim()).filter(Boolean),
+        );
+        if (candidateIds.size > 0 && !candidateIds.has(assigneeUserId)) {
+          writeJson(res, 400, { ok: false, error: "所选人员不在当前花名册候选范围内" });
+          return;
+        }
+        const contact = withPeopleDirectoryStore((store) => store.getContact(assigneeUserId));
+        if (!contact || contact.active === false) {
+          writeJson(res, 400, { ok: false, error: "所选人员不在有效通讯录中" });
+          return;
+        }
+        const previousAssignment = target.latestAssignment as Record<string, unknown> | undefined;
+        const assignmentRows = Array.isArray(previousAssignment?.assignments)
+          ? (previousAssignment.assignments as Array<Record<string, unknown>>).map((row) => ({
+              ...row,
+              ...(row.primary && typeof row.primary === "object"
+                ? { primary: { ...(row.primary as Record<string, unknown>) } }
+                : {}),
+            }))
+          : [];
+        const nextTarget: PlanSession = {
+          ...target,
+          latestDraft: draft as PlanSession["latestDraft"],
+          latestAssignment: {
+            ...(previousAssignment ?? {}),
+            assignments: assignmentRows,
+          },
+        };
+        upsertAssignmentRow(nextTarget, taskId, {
+          assigneeUserId,
+          assigneeDisplayName: contact.name?.trim() || assigneeUserId,
+        });
+        const nowIso = new Date().toISOString();
+        const saved = preserveThreadIdentityOnSave({
+          ...nextTarget,
+          updatedAt: nowIso,
+          revisionEvents: [
+            ...(nextTarget.revisionEvents ?? []),
+            {
+              occurredAt: nowIso,
+              eventType: "QUALITY_PLANNING_ASSIGNEE_CHANGED",
+              planId: nextTarget.planId,
+              taskId,
+              assigneeUserId,
+              actorUserId: session.userId,
+            },
+          ].slice(-60),
+        });
+        planSessionStore.save(saved);
+        planSessionStore.appendEvent({
+          planId: saved.planId,
+          chatKeyHash: saved.chatKeyHash,
+          eventType: "quality_planning_assignee_changed",
+          payload: {
+            actorUserId: session.userId,
+            taskId,
+            assigneeUserId,
+          },
+        });
+        writeJson(res, 200, {
+          ok: true,
+          planId: saved.planId,
+          taskId,
+          taskTitle: String(task.title ?? taskId).trim(),
+          assignee: {
+            userId: assigneeUserId,
+            displayName: contact.name?.trim() || assigneeUserId,
+            departmentName: contact.departmentNames?.[0]?.trim() || "未分配部门",
+          },
+          assignment: saved.latestAssignment,
+        });
+      } catch (err) {
+        writeJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : "负责人配置失败",
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/conversation/draft/acceptance") {
+    void (async () => {
+      const session = requireSession(req, res, "manager");
+      if (!session) return;
+      try {
+        const body = (await readJsonBody(req)) as Record<string, unknown>;
+        const threadQuery = resolveConversationThreadFromBody(body);
+        const target = resolveConversationThread(session.userId, threadQuery);
+        if (!target) {
+          writeJson(res, 404, { ok: false, error: "No session found for thread" });
+          return;
+        }
+        const expectedPlanId = String(body.planId ?? "").trim();
+        if (!expectedPlanId || expectedPlanId !== target.planId) {
+          writeJson(res, 409, { ok: false, error: "草案已更新，请刷新后重新填写验收要求" });
+          return;
+        }
+        const draft = resolveConversationDraftWithQualityContext(target, session.userId);
+        const qualityHandoff = draft?.qualityHandoff && typeof draft.qualityHandoff === "object"
+          ? draft.qualityHandoff as Record<string, unknown>
+          : undefined;
+        if (!String(qualityHandoff?.qualityEventId ?? "").trim()) {
+          writeJson(res, 403, { ok: false, error: "此入口仅用于质量任务规划" });
+          return;
+        }
+        const taskId = String(body.taskId ?? "").trim();
+        const deliverables = parseRichStringListFromBody(body.deliverables);
+        const completionCriteria = parseRichStringListFromBody(body.completionCriteria);
+        if (!deliverables?.length) {
+          writeJson(res, 400, { ok: false, error: "请填写员工需要提交的交付物" });
+          return;
+        }
+        if (!completionCriteria?.length) {
+          writeJson(res, 400, { ok: false, error: "请填写主管可核验的完成标准" });
+          return;
+        }
+        const tasks = Array.isArray(draft?.tasks)
+          ? (draft.tasks as Array<Record<string, unknown>>).map((item) => ({ ...item }))
+          : [];
+        const task = tasks.find((item) => String(item.id ?? "").trim() === taskId);
+        if (!taskId || !task) {
+          writeJson(res, 400, { ok: false, error: "未找到要填写验收要求的任务" });
+          return;
+        }
+        task.deliverables = deliverables;
+        task.completionCriteria = completionCriteria;
+        const nextTarget: PlanSession = {
+          ...target,
+          latestDraft: normalizeDraftTasksForSession({
+            ...draft,
+            tasks,
+          }),
+        };
+        clearPublishStagingOnDraft(nextTarget);
+        const nowIso = new Date().toISOString();
+        const saved = preserveThreadIdentityOnSave({
+          ...nextTarget,
+          updatedAt: nowIso,
+          revisionEvents: [
+            ...(nextTarget.revisionEvents ?? []),
+            {
+              occurredAt: nowIso,
+              eventType: "QUALITY_PLANNING_ACCEPTANCE_CHANGED",
+              planId: nextTarget.planId,
+              taskId,
+              actorUserId: session.userId,
+            },
+          ].slice(-60),
+        });
+        planSessionStore.save(saved);
+        planSessionStore.appendEvent({
+          planId: saved.planId,
+          chatKeyHash: saved.chatKeyHash,
+          eventType: "quality_planning_acceptance_changed",
+          payload: {
+            actorUserId: session.userId,
+            taskId,
+            deliverableCount: deliverables.length,
+            completionCriteriaCount: completionCriteria.length,
+          },
+        });
+        writeJson(res, 200, {
+          ok: true,
+          planId: saved.planId,
+          taskId,
+          taskTitle: String(task.title ?? taskId).trim(),
+          deliverables,
+          completionCriteria,
+        });
+      } catch (err) {
+        writeJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : "交付物与完成标准保存失败",
+        });
+      }
+    })();
     return true;
   }
 

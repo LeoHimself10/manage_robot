@@ -49,6 +49,11 @@ import {
 } from "../quality/analysis/quality-analysis-service";
 import { createQualityDepartmentDirectory } from
   "../quality/analysis/quality-department-directory";
+import {
+  listQualityFormalSubtasksFromDb,
+  qualityEmployeeTaskStage,
+  type QualityEmployeeTaskStage,
+} from "../quality/analysis/quality-formal-task-projection";
 import { createQualityStore } from "../quality/infra/quality-store";
 import { createDingTalkQualitySource } from "../quality/source/dingtalk-quality-source";
 import { createQualitySourceSync } from "../quality/source/quality-source-sync";
@@ -185,6 +190,14 @@ function parsePositiveInt(value: unknown, fallback: number, max = Number.MAX_SAF
 }
 
 type QualityManagerMetricStage = "ACCEPT" | "DELEGATE" | "EXECUTION" | "REVIEW" | "CLOSED";
+
+function qualityManagerMetricLabel(stage: QualityManagerMetricStage | ""): string {
+  return stage === "ACCEPT" ? "待主管承接"
+    : stage === "DELEGATE" ? "待分派员工"
+      : stage === "EXECUTION" ? "员工执行中"
+        : stage === "REVIEW" ? "待主管验收"
+          : stage === "CLOSED" ? "已关闭" : "";
+}
 
 function qualityManagerMetricStage(input: {
   db: DatabaseSync;
@@ -991,11 +1004,32 @@ async function handleQualityApi(input: {
           const query = (url.searchParams.get("q") ?? "").trim().toLocaleLowerCase("zh-CN");
           const requestedStatus = url.searchParams.get("status")?.trim().toUpperCase();
           const requestedStatusLabel = requestedStatus ? qualityStatusLabel(requestedStatus) : "";
+          const requestedStatuses = new Set(
+            String(url.searchParams.get("statuses") ?? "")
+              .split(",")
+              .map((item) => item.trim().toUpperCase())
+              .filter(Boolean),
+          );
+          const requestedStatusLabels = new Set(
+            [...requestedStatuses].map((status) => qualityStatusLabel(status)),
+          );
           const requestedBucket = url.searchParams.get("bucket")?.trim().toUpperCase();
+          const requestedManagerStage = String(url.searchParams.get("managerStage") ?? "")
+            .trim().toUpperCase() as QualityManagerMetricStage | "";
+          const requestedManagerLabel = qualityManagerMetricLabel(requestedManagerStage);
+          const requestedEmployeeStage = String(url.searchParams.get("employeeStage") ?? "")
+            .trim().toUpperCase() as QualityEmployeeTaskStage | "";
+          const requestedEmployeeLabel = requestedEmployeeStage === "ASSIGNED" ? "待我承接"
+            : requestedEmployeeStage === "ACTIVE" ? "执行中"
+              : requestedEmployeeStage === "WAITING_MANAGER" ? "待主管处理"
+                : requestedEmployeeStage === "DONE" ? "已完成" : "";
           const requestedRisk = url.searchParams.get("riskLevel")?.trim().toUpperCase();
           const events = projected.events.filter((event) => {
             if (requestedStatusLabel && event.statusLabel !== requestedStatusLabel) return false;
+            if (requestedStatusLabels.size > 0 && !requestedStatusLabels.has(event.statusLabel)) return false;
             if (requestedBucket && event.attentionBucket !== requestedBucket) return false;
+            if (requestedManagerLabel && event.attentionLabel !== requestedManagerLabel) return false;
+            if (requestedEmployeeLabel && event.attentionLabel !== requestedEmployeeLabel) return false;
             if (requestedRisk) {
               const expected = requestedRisk === "HIGH" ? "高"
                 : requestedRisk === "MEDIUM" ? "中"
@@ -1047,8 +1081,10 @@ async function handleQualityApi(input: {
         );
         const managerStage = String(url.searchParams.get("managerStage") ?? "")
           .trim().toUpperCase() as QualityManagerMetricStage | "";
+        const employeeStage = String(url.searchParams.get("employeeStage") ?? "")
+          .trim().toUpperCase() as QualityEmployeeTaskStage | "";
         const riskLevel = url.searchParams.get("riskLevel")?.trim().toUpperCase();
-        const stageDb = managerStage
+        const stageDb = managerStage || employeeStage
           ? new DatabaseSync(resolveWorkbenchSqlitePath(), { readOnly: true })
           : null;
         let events;
@@ -1062,6 +1098,13 @@ async function handleQualityApi(input: {
               eventStatus: event.status,
               managerUserId: viewerUserId,
             }) !== managerStage) return false;
+            if (employeeStage && stageDb && !listQualityFormalSubtasksFromDb(stageDb, {
+              eventId: event.eventId,
+              assigneeUserId: viewerUserId,
+            }).some((item) => qualityEmployeeTaskStage(
+              item.status,
+              item.openDeclineKind,
+            ) === employeeStage)) return false;
             if (riskLevel && (riskLevel === "HIGH"
               ? !["HIGH", "CRITICAL"].includes(event.urgency ?? "")
               : event.urgency !== riskLevel)) return false;
@@ -1212,7 +1255,7 @@ async function handleQualityApi(input: {
         "generate-analysis-ai",
         "update-aftersales",
         "complete-analysis",
-        "accept", "reject", "delegate", "add-evidence", "submit-completion",
+        "accept", "reject", "open-planning", "delegate", "add-evidence", "submit-completion",
         "review-child", "primary-review",
       ]).parse(body.action);
       const viewModel = projected.viewModel as {
@@ -1225,7 +1268,8 @@ async function handleQualityApi(input: {
         }>;
       };
       const allowed = new Set(viewModel.allowedActions ?? []);
-      const requiredPermission = action === "add-evidence" ? "upload-evidence" : action;
+      const requiredPermission = action === "add-evidence" ? "upload-evidence"
+        : action === "open-planning" ? "delegate" : action;
       if (!allowed.has(requiredPermission)) throw new Error("quality action forbidden");
       if (action === "generate-original-ai" || action === "generate-analysis-ai") {
         const service = createQualityTestAiService();
@@ -1331,7 +1375,18 @@ async function handleQualityApi(input: {
           : node.assigneeTypeLabel === "员工",
       );
       if (!actorNode) throw new Error("记录不存在或无权访问");
-      if (action === "accept" || action === "reject") {
+      if (action === "open-planning") {
+        if (projected.context.perspective !== "manager") throw new Error("quality action forbidden");
+        const planning = createQualityTestAnalysisService();
+        try {
+          planningUrl = planning.preparePlanningHandoff({
+            eventId,
+            testManagerUserId: projected.context.actorUserId,
+          }).planningUrl;
+        } finally {
+          planning.close();
+        }
+      } else if (action === "accept" || action === "reject") {
         const service = createQualityAssignmentService();
         const planning = action === "accept" ? createQualityTestAnalysisService() : null;
         try {

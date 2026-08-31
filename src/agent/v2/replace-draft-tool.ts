@@ -3,6 +3,32 @@ import type { PlanSession } from "../../infra/plan-session-store";
 import { normalizeDraftTasksForSession } from "../draft-person-fields";
 import { stabilizeDraftTaskIds } from "../draft-stabilize";
 import { clearPublishStagingOnDraft } from "../draft-staging-clear";
+import { restoreQualityTaskMappings } from "../quality-task-coverage";
+
+const QUALITY_PLANNING_CONTEXT_KEYS = ["qualityTaskPackage", "qualityHandoff"] as const;
+
+/**
+ * A quality-event redraft may replace tasks, but it must not turn the side
+ * conversation back into an ordinary task or sever the immutable handoff.
+ * The model is never authoritative for these integration fields, so always
+ * carry them from the previous draft and then restore exact deliverable-name
+ * mappings where the redraft retained the required outcome name.
+ */
+function preserveQualityPlanningContext(
+  draft: Record<string, unknown>,
+  previousDraft: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!previousDraft) return draft;
+  const next = { ...draft };
+  let isQualityDraft = false;
+  for (const key of QUALITY_PLANNING_CONTEXT_KEYS) {
+    const value = previousDraft[key];
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    next[key] = value;
+    isQualityDraft = true;
+  }
+  return isQualityDraft ? restoreQualityTaskMappings(next) ?? next : next;
+}
 
 export const REPLACE_DRAFT_TOOL: ToolDefinition = {
   type: "function",
@@ -77,8 +103,9 @@ export function buildReplaceDraftHandler(deps: BuildReplaceDraftHandlerDeps = {}
       tasks: tasksRaw,
     };
 
+    const stabilized = stabilizeDraftTaskIds(draft, previousDraft);
     let normalized = normalizeDraftTasksForSession(
-      stabilizeDraftTaskIds(draft, previousDraft),
+      preserveQualityPlanningContext(stabilized, previousDraft),
     );
     session.latestDraft = normalized as PlanSession["latestDraft"];
     clearPublishStagingOnDraft(session);

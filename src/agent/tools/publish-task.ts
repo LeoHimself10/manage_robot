@@ -6,6 +6,8 @@ import { isStagingStale } from "../publish-helpers";
 import { resolvePublishProjectIdForSession } from "./resolve-publish-project-id";
 import { resolveWorkbenchManagerScope } from "../../security/workbench-manager-scope";
 import { restoreQualityTaskMappings, validateQualityTaskCoverage } from "../quality-task-coverage";
+import { reconcileQualityPlanningPublication } from
+  "../../quality/analysis/quality-formal-task-projection";
 
 type SubtaskRichFields = Pick<WorkbenchSubtaskRow, "dependsOn" | "checkpoints" | "risks" | "inputMaterials" | "actions" | "collaborators" | "inScope" | "outOfScope" | "dueAt" | "dueSetBy" | "dueExpectation">;
 
@@ -216,6 +218,47 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
       throw error;
     }
     deps.recentPublished.mark(planId);
+
+    const latestDraft = session.latestDraft && typeof session.latestDraft === "object"
+      ? session.latestDraft as Record<string, unknown>
+      : undefined;
+    const qualityHandoff = latestDraft?.qualityHandoff
+      && typeof latestDraft.qualityHandoff === "object"
+      && !Array.isArray(latestDraft.qualityHandoff)
+      ? latestDraft.qualityHandoff as Record<string, unknown>
+      : undefined;
+    const qualityEventId = String(qualityHandoff?.qualityEventId ?? "").trim();
+    const qualityIntegrationKey = String(qualityHandoff?.integrationKey ?? "").trim();
+    if (qualityEventId && qualityIntegrationKey) {
+      try {
+        const linked = reconcileQualityPlanningPublication({
+          eventId: qualityEventId,
+          integrationKey: qualityIntegrationKey,
+          planId,
+          formalTaskId: published.task.taskId,
+          actorUserId: trustedActor,
+        });
+        if (!linked.matched) {
+          deps.appendTaskEvent({
+            taskId: published.task.taskId,
+            eventType: "QUALITY_LINK_REPAIR_REQUIRED",
+            actorUserId: trustedActor,
+            note: "quality planning handoff not found; formal task remains available",
+            payload: { qualityEventId, qualityIntegrationKey, planId },
+          });
+        }
+      } catch (error) {
+        // Quality is an add-on projection. A broken projection must never roll
+        // back or block the original manager -> employee task workflow.
+        deps.appendTaskEvent({
+          taskId: published.task.taskId,
+          eventType: "QUALITY_LINK_REPAIR_REQUIRED",
+          actorUserId: trustedActor,
+          note: error instanceof Error ? error.message : String(error),
+          payload: { qualityEventId, qualityIntegrationKey, planId },
+        });
+      }
+    }
 
     const groupedAssignees = new Map<string, Array<{ title: string } & Partial<SubtaskRichFields>>>();
     published.subtasks.forEach((subtask) => {

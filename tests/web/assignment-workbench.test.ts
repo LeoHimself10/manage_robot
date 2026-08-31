@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import {
   __resetWorkbenchStoresForTest,
   __setDingTalkAuthClientForTest,
@@ -20,6 +21,7 @@ import { DingTalkAuthError, type DingTalkAuthClient } from "../../src/integratio
 import type { WorkbenchPublishNotifier } from "../../src/integrations/dingtalk/workbench-notify";
 import { stubWorkbenchPublishNotifier } from "../helpers/stub-workbench-notifier";
 import { __setWeeklyAdvisorLlmForTest } from "../../src/agent/weekly-dashboard/weekly-dashboard-advisor-llm";
+import { createQualityStore } from "../../src/quality/infra/quality-store";
 
 /** Minimal IncomingMessage stub for tests */
 function stubReq(overrides: {
@@ -1120,6 +1122,86 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).toContain('"status":"IN_PROGRESS"');
   });
 
+  it("keeps a quality-planning subtask on the original employee accept API and state machine", async () => {
+    await seedPublishedTask({
+      planId: "plan-quality-employee-original-flow",
+      managerUserId: "manager-1",
+      assigneeUserId: "emp-quality",
+      taskDescription: "质量事件背景只作为正式任务上下文展示。",
+    });
+    const formal = createWorkbenchFormalTaskStore();
+    const subtask = formal.listEmployeeSubtasks("emp-quality")
+      .find((item) => item.planId === "plan-quality-employee-original-flow");
+    if (!subtask) throw new Error("expected formal employee subtask");
+
+    createQualityStore(sqlitePath).close();
+    const db = new DatabaseSync(sqlitePath);
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO quality_events(
+      id,event_no,status,title,problem_status,created_by,version,created_at,updated_at
+    ) VALUES('quality-original-flow','QE-ORIGINAL-FLOW','PENDING_ACCEPTANCE',
+      '原任务流程隔离测试','质量模块不得改变员工承接逻辑','quality-user',1,?,?)`).run(now, now);
+    db.prepare(`INSERT INTO quality_analysis_handoffs(
+      handoff_id,event_id,analysis_version,integration_key,primary_department_id,
+      primary_department_name,primary_manager_user_id,task_package_json,plan_id,
+      thread_id,status,formal_task_id,created_at,published_at
+    ) VALUES('handoff-original-flow','quality-original-flow',1,'quality-node:original-flow',
+      'dept-1','研发中心','manager-1','{}','plan-quality-employee-original-flow',
+      'thread-original-flow','PUBLISHED',?, ?, ?)`).run(subtask.taskId, now, now);
+    db.close();
+
+    const cookie = await loginCookie("emp-quality", "employee");
+    const inboxReq = stubReq({
+      url: "/api/workbench/employee/tasks/new",
+      method: "GET",
+      headers: { cookie },
+    });
+    const inboxRes = stubRes();
+    handleAssignmentHttp(inboxReq, inboxRes.res);
+    await flushAsync();
+    const inbox = JSON.parse(inboxRes.captured().body) as {
+      actionable: Array<{
+        subtaskId: string;
+        qualityPlanningContext?: { eventNo?: string; requiresEvidence?: boolean; source?: string };
+      }>;
+    };
+    const projected = inbox.actionable.find((item) => item.subtaskId === subtask.subtaskId);
+    expect(projected?.qualityPlanningContext).toMatchObject({
+      source: "quality_planning_handoff",
+      eventNo: "QE-ORIGINAL-FLOW",
+      requiresEvidence: false,
+    });
+
+    const acceptReq = stubReq({
+      url: "/api/workbench/employee/subtasks/action",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        planId: "plan-quality-employee-original-flow",
+        subtaskId: subtask.subtaskId,
+        action: "accept",
+        note: "",
+        idempotencyKey: "quality-original-flow-accept",
+      }),
+    });
+    const acceptRes = stubRes();
+    handleAssignmentHttp(acceptReq, acceptRes.res);
+    await flushAsync();
+    expect(acceptRes.captured().statusCode).toBe(200);
+    expect(acceptRes.captured().body).toContain('"status":"IN_PROGRESS"');
+
+    const verify = new DatabaseSync(sqlitePath, { readOnly: true });
+    expect(verify.prepare("SELECT status FROM subtasks WHERE subtask_id=?").get(subtask.subtaskId))
+      .toEqual({ status: "IN_PROGRESS" });
+    expect(verify.prepare("SELECT status FROM quality_analysis_handoffs WHERE handoff_id='handoff-original-flow'").get())
+      .toEqual({ status: "PUBLISHED" });
+    expect(verify.prepare("SELECT status FROM quality_events WHERE id='quality-original-flow'").get())
+      .toEqual({ status: "PENDING_ACCEPTANCE" });
+    expect(verify.prepare("SELECT COUNT(*) AS count FROM quality_task_links").get())
+      .toEqual({ count: 0 });
+    verify.close();
+  });
+
   it("legacy /workbench/conversation redirects manager to chat", async () => {
     const loginReq = stubReq({
       url: "/api/workbench/login",
@@ -1511,6 +1593,266 @@ describe("assignment-workbench HTTP handler", () => {
       qualityEventId: "QE-TEST-001",
     });
     expect(data.rows).toHaveLength(1);
+  });
+
+  it("recovers a quality side-thread context from its handoff and keeps assignment task-scoped", async () => {
+    const now = new Date().toISOString();
+    const threadId = "side-quality-context-recovery";
+    const planId = "plan-quality-context-recovery";
+    const { hashChatKey } = await import("../../src/infra/plan-session-store");
+    const chatKeyHash = hashChatKey(`workbench:side:manager-1:${threadId}`);
+    seedContact("quality-recovered-assignee", "研发中心", "Engineer");
+    writeFileSync(
+      join(sessionDir, `${chatKeyHash}.json`),
+      JSON.stringify({
+        chatKeyHash,
+        planId,
+        threadId,
+        threadKind: "side",
+        threadLabel: "质量事件 QE-RECOVER",
+        senderStaffId: "manager-1",
+        createdAt: now,
+        updatedAt: now,
+        latestDraft: {
+          title: "质量草案（上下文已丢失）",
+          tasks: [
+            { id: "task_1", title: "任务一" },
+            { id: "task_2", title: "任务二" },
+          ],
+        },
+        latestAssignment: {
+          assignments: [
+            { taskId: "task_1", primary: { userId: "existing-user", displayName: "原负责人" } },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    createQualityStore(sqlitePath).close();
+    const db = new DatabaseSync(sqlitePath);
+    const taskPackage = {
+      qualityEventId: "quality-event-recover",
+      eventNo: "QE-RECOVER",
+      analysisVersion: 2,
+      requiredDeliverables: [{ deliverableId: "deliverable-recover", name: "复核报告" }],
+    };
+    db.prepare(`INSERT INTO quality_events(
+      id,event_no,status,title,problem_status,created_by,version,created_at,updated_at
+    ) VALUES(?,?,?,?,?,?,1,?,?)`).run(
+      "quality-event-recover",
+      "QE-RECOVER",
+      "PENDING_ASSIGNMENT",
+      "上下文恢复测试事件",
+      "验证旧质量草案恢复",
+      "quality-user",
+      now,
+      now,
+    );
+    db.prepare(`INSERT INTO quality_analysis_handoffs(
+      handoff_id,event_id,analysis_version,integration_key,primary_department_id,
+      primary_department_name,primary_manager_user_id,task_package_json,plan_id,
+      thread_id,status,created_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,'PENDING_PLANNING',?)`).run(
+      "handoff-recover",
+      "quality-event-recover",
+      2,
+      "quality-analysis:quality-event-recover:v2",
+      "dept-rnd",
+      "研发中心",
+      "manager-1",
+      JSON.stringify(taskPackage),
+      planId,
+      threadId,
+      now,
+    );
+    db.close();
+
+    const cookie = await loginCookie("manager-1", "manager");
+    const getReq = stubReq({
+      url: `/api/workbench/conversation/draft?thread=side&threadId=${threadId}`,
+      method: "GET",
+      headers: { cookie },
+    });
+    const getRes = stubRes();
+    handleAssignmentHttp(getReq, getRes.res);
+    expect(getRes.captured().statusCode).toBe(200);
+    expect(JSON.parse(getRes.captured().body)).toMatchObject({
+      sourceContext: { kind: "quality_event", qualityEventId: "quality-event-recover" },
+      draft: {
+        qualityTaskPackage: { eventNo: "QE-RECOVER" },
+        qualityHandoff: {
+          qualityEventId: "quality-event-recover",
+          requiredDeliverableIds: ["deliverable-recover"],
+        },
+      },
+    });
+
+    const assignReq = stubReq({
+      url: "/api/workbench/conversation/draft/assign",
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({
+        threadKind: "side",
+        threadId,
+        planId,
+        taskId: "task_2",
+        assigneeUserId: "quality-recovered-assignee",
+      }),
+    });
+    const assignRes = stubRes();
+    handleAssignmentHttp(assignReq, assignRes.res);
+    await flushAsync();
+    expect(assignRes.captured().statusCode).toBe(200);
+
+    const persisted = JSON.parse(
+      readFileSync(join(sessionDir, `${chatKeyHash}.json`), "utf8"),
+    ) as PlanSession;
+    const assignments = (persisted.latestAssignment as {
+      assignments?: Array<{ taskId?: string; primary?: { userId?: string } }>;
+    } | undefined)?.assignments ?? [];
+    expect(assignments.find((row) => row.taskId === "task_1")?.primary?.userId).toBe("existing-user");
+    expect(assignments.find((row) => row.taskId === "task_2")?.primary?.userId)
+      .toBe("quality-recovered-assignee");
+    expect((persisted.latestDraft as Record<string, unknown>).qualityHandoff).toMatchObject({
+      qualityEventId: "quality-event-recover",
+    });
+    expect(persisted.conversationHistory).toBeUndefined();
+  });
+
+  it("POST draft assign updates only the selected quality task without creating a chat turn", async () => {
+    const now = new Date().toISOString();
+    const { hashChatKey } = await import("../../src/infra/plan-session-store");
+    const chatKeyHash = hashChatKey("workbench:main:manager-1");
+    seedContact("quality-assignee-new", "研发中心", "Engineer");
+    writeFileSync(
+      join(sessionDir, `${chatKeyHash}.json`),
+      JSON.stringify({
+        chatKeyHash,
+        planId: "plan-quality-direct-assign",
+        createdAt: now,
+        updatedAt: now,
+        senderStaffId: "manager-1",
+        threadKind: "main",
+        threadId: "main",
+        latestDraft: {
+          title: "质量任务草案",
+          qualityHandoff: { qualityEventId: "QE-DIRECT-ASSIGN" },
+          tasks: [
+            { id: "task_1", title: "任务一" },
+            { id: "task_2", title: "任务二" },
+          ],
+        },
+        latestAssignment: {
+          assignments: [
+            { taskId: "task_1", primary: { userId: "existing-user", displayName: "原负责人" } },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    const cookie = await loginCookie("manager-1", "manager");
+    const req = stubReq({
+      url: "/api/workbench/conversation/draft/assign",
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({
+        threadKind: "main",
+        threadId: "main",
+        planId: "plan-quality-direct-assign",
+        taskId: "task_2",
+        assigneeUserId: "quality-assignee-new",
+      }),
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+
+    const response = captured();
+    expect(response.statusCode).toBe(200);
+    const payload = JSON.parse(response.body) as {
+      ok: boolean;
+      taskId?: string;
+      assignee?: { userId?: string; displayName?: string };
+    };
+    expect(payload).toMatchObject({
+      ok: true,
+      taskId: "task_2",
+      assignee: {
+        userId: "quality-assignee-new",
+        displayName: "quality-assignee-new",
+      },
+    });
+    const persisted = JSON.parse(
+      readFileSync(join(sessionDir, `${chatKeyHash}.json`), "utf8"),
+    ) as PlanSession;
+    const assignments = (persisted.latestAssignment as {
+      assignments?: Array<{ taskId?: string; primary?: { userId?: string } }>;
+    } | undefined)?.assignments ?? [];
+    expect(assignments.find((row) => row.taskId === "task_1")?.primary?.userId).toBe("existing-user");
+    expect(assignments.find((row) => row.taskId === "task_2")?.primary?.userId).toBe("quality-assignee-new");
+    expect(persisted.conversationHistory).toBeUndefined();
+    expect(persisted.revisionEvents?.at(-1)?.eventType).toBe("QUALITY_PLANNING_ASSIGNEE_CHANGED");
+  });
+
+  it("POST draft acceptance updates only one quality task without creating a chat turn", async () => {
+    const now = new Date().toISOString();
+    const { hashChatKey } = await import("../../src/infra/plan-session-store");
+    const chatKeyHash = hashChatKey("workbench:main:manager-1");
+    writeFileSync(
+      join(sessionDir, `${chatKeyHash}.json`),
+      JSON.stringify({
+        chatKeyHash,
+        planId: "plan-quality-direct-acceptance",
+        createdAt: now,
+        updatedAt: now,
+        senderStaffId: "manager-1",
+        threadKind: "main",
+        threadId: "main",
+        latestDraft: {
+          title: "质量任务草案",
+          qualityHandoff: { qualityEventId: "QE-DIRECT-ACCEPTANCE" },
+          tasks: [
+            { id: "task_1", title: "任务一", deliverables: ["原交付"], completionCriteria: ["原标准"] },
+            { id: "task_2", title: "任务二", deliverables: [], completionCriteria: [] },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    const cookie = await loginCookie("manager-1", "manager");
+    const req = stubReq({
+      url: "/api/workbench/conversation/draft/acceptance",
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({
+        threadKind: "main",
+        threadId: "main",
+        planId: "plan-quality-direct-acceptance",
+        taskId: "task_2",
+        deliverables: "复现记录；根因分析报告",
+        completionCriteria: "问题可稳定复现\n根因有证据支撑",
+      }),
+    });
+    const { res, captured } = stubRes();
+    handleAssignmentHttp(req, res);
+    await flushAsync();
+
+    expect(captured().statusCode).toBe(200);
+    expect(JSON.parse(captured().body)).toMatchObject({
+      ok: true,
+      taskId: "task_2",
+      deliverables: ["复现记录", "根因分析报告"],
+      completionCriteria: ["问题可稳定复现", "根因有证据支撑"],
+    });
+    const persisted = JSON.parse(
+      readFileSync(join(sessionDir, `${chatKeyHash}.json`), "utf8"),
+    ) as PlanSession;
+    const tasks = (persisted.latestDraft as { tasks?: Array<Record<string, unknown>> } | undefined)?.tasks ?? [];
+    expect(tasks[0].deliverables).toEqual(["原交付"]);
+    expect(tasks[1].deliverables).toEqual(["复现记录", "根因分析报告"]);
+    expect(tasks[1].completionCriteria).toEqual(["问题可稳定复现", "根因有证据支撑"]);
+    expect(persisted.conversationHistory).toBeUndefined();
+    expect(persisted.revisionEvents?.at(-1)?.eventType).toBe("QUALITY_PLANNING_ACCEPTANCE_CHANGED");
   });
 
   it("GET draft on main thread reads dingtalk draft when canonical merges dual session files", async () => {

@@ -541,11 +541,14 @@ ON quality_assignment_nodes(event_id) WHERE is_primary = 1;
 
 CREATE TABLE IF NOT EXISTS quality_task_links (
   node_id TEXT PRIMARY KEY REFERENCES quality_assignment_nodes(node_id),
-  task_id TEXT NOT NULL UNIQUE,
+  task_id TEXT NOT NULL,
   subtask_id TEXT NOT NULL UNIQUE,
   integration_key TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_quality_task_links_task
+ON quality_task_links(task_id);
 
 CREATE TABLE IF NOT EXISTS quality_evidence (
   evidence_id TEXT PRIMARY KEY,
@@ -878,6 +881,51 @@ function migrateQualityEventAnalysisStatus(db: DatabaseSync): void {
   }
 }
 
+function migrateQualityTaskLinksSharedTask(db: DatabaseSync): void {
+  const table = db.prepare(`
+    SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'quality_task_links'
+  `).get() as { sql?: string } | undefined;
+  if (!table?.sql) return;
+  const hasUniqueTaskId = (db.prepare("PRAGMA index_list(quality_task_links)").all() as Array<{
+    name?: string;
+    unique?: number;
+  }>).some((index) => {
+    if (Number(index.unique ?? 0) !== 1 || !index.name) return false;
+    const columns = db.prepare(`PRAGMA index_info(${JSON.stringify(String(index.name))})`).all() as Array<{
+      name?: string;
+    }>;
+    return columns.length === 1 && String(columns[0]?.name ?? "") === "task_id";
+  });
+  if (!hasUniqueTaskId) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_quality_task_links_task
+      ON quality_task_links(task_id)`);
+    return;
+  }
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec(`
+      ALTER TABLE quality_task_links RENAME TO quality_task_links_before_shared_task;
+      CREATE TABLE quality_task_links (
+        node_id TEXT PRIMARY KEY REFERENCES quality_assignment_nodes(node_id),
+        task_id TEXT NOT NULL,
+        subtask_id TEXT NOT NULL UNIQUE,
+        integration_key TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO quality_task_links(node_id,task_id,subtask_id,integration_key,created_at)
+      SELECT node_id,task_id,subtask_id,integration_key,created_at
+      FROM quality_task_links_before_shared_task;
+      DROP TABLE quality_task_links_before_shared_task;
+      CREATE INDEX IF NOT EXISTS idx_quality_task_links_task
+      ON quality_task_links(task_id);
+    `);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export function createQualityStore(
   dbPath = resolveWorkbenchSqlitePath(),
   deps?: { now?: () => string; id?: () => string },
@@ -904,6 +952,7 @@ export function createQualityStore(
   if (!migratedQualityEventColumns.has("is_test")) {
     db.exec("ALTER TABLE quality_events ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0 CHECK(is_test IN (0,1))");
   }
+  migrateQualityTaskLinksSharedTask(db);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_quality_events_scope_status_updated
     ON quality_events(is_test, status, updated_at DESC)`);
   const qualityEvidenceColumns = new Set(
