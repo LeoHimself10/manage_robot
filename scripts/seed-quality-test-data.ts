@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { resolveWorkbenchSqlitePath } from "../src/infra/workbench-db-path";
 import { createQualityStore } from "../src/quality/infra/quality-store";
+import {
+  ensureQualityTestEvidenceFixtures,
+  qualityTestEvidenceStorageKey,
+} from "../src/quality/testing/quality-test-evidence-fixtures";
 
 if (!process.argv.includes("--confirm")) throw new Error("请显式传入 --confirm 后再准备隔离质量测试数据");
 if (!["1", "true", "yes", "on"].includes(String(process.env.QUALITY_TEST_ACTORS_ENABLED ?? "").trim().toLowerCase())) {
@@ -276,13 +280,14 @@ try {
         occurredAt, occurredAt);
       if (node.evidence) {
         const content = Buffer.from(`${item.eventNo} 隔离测试证据`, "utf8");
+        const evidenceId = `evidence:${item.id}:${node.key}`;
         db.prepare(`
           INSERT INTO quality_evidence(
             evidence_id,event_id,node_id,evidence_version,storage_key,original_name,
             mime_type,summary,size_bytes,sha256,uploaded_by,request_id,created_at
           ) VALUES(?,?,?,1,?,'隔离测试证据.txt','text/plain','已完成测试核验',?,?,?,?,?)
           ON CONFLICT(evidence_id) DO NOTHING
-        `).run(`evidence:${item.id}:${node.key}`, item.id, id, `seed:${item.id}:${node.key}`,
+        `).run(evidenceId, item.id, id, qualityTestEvidenceStorageKey(evidenceId),
           content.byteLength, createHash("sha256").update(content).digest("hex"), node.assigneeUserId,
           `10000000-0000-4000-8000-${String(ordinal).padStart(12, "0")}`, occurredAt);
       }
@@ -296,6 +301,7 @@ try {
     `).run(`audit:${item.id}`, item.id, "QUALITY_TEST_AFTERSALES_001",
       `20000000-0000-4000-8000-${String(Number(item.eventNo.slice(-3)) + 1).padStart(12, "0")}`, occurredAt);
   }
+  ensureQualityTestEvidenceFixtures(db);
   db.exec("COMMIT");
 } catch (error) {
   db.exec("ROLLBACK");

@@ -220,7 +220,7 @@ export function renderEmployeeWorkbenchPage(params?: {
 <div class="wb-modal-overlay" id="qualityEvidenceModalOverlay" role="dialog" aria-modal="true" aria-labelledby="qualityEvidenceModalTitle">
   <div class="wb-modal" role="document">
     <div class="wb-modal__head"><h3 class="wb-modal__title" id="qualityEvidenceModalTitle">上传质量证据</h3><button type="button" class="wb-modal__close" id="qualityEvidenceModalClose" aria-label="关闭">×</button></div>
-    <div class="wb-modal__body"><form class="form-stack" id="qualityEvidenceForm"><label>证据摘要<textarea id="qualityEvidenceSummary" maxlength="2000" required placeholder="说明检查过程、结论与文件内容"></textarea></label><label>证据文件（单个不超过 20 MB）<input id="qualityEvidenceFile" type="file" required></label><button class="btn btn-secondary" type="submit">上传证据</button></form><p class="info-banner info-banner--note">如主管已向下分配，下级证据会汇总到链路，不需重复上传。</p></div>
+    <div class="wb-modal__body"><form class="form-stack" id="qualityEvidenceForm"><label>证据摘要<textarea id="qualityEvidenceSummary" maxlength="2000" required placeholder="说明检查过程、结论与文件内容"></textarea></label><label>证据文件（单个不超过 20 MB）<input id="qualityEvidenceFile" type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx" required></label><button class="btn btn-secondary" type="submit">上传证据</button></form><p class="info-banner info-banner--note">如主管已向下分配，下级证据会汇总到链路，不需重复上传。</p></div>
     <div class="wb-modal__foot"><div class="feedback muted" id="qualityEvidenceFeedback"></div><button type="button" class="btn btn-secondary" id="qualityEvidenceDoneBtn">关闭</button><button type="button" class="btn btn-primary" id="qualitySubmitCompletionBtn">提交完成并送上级验收</button></div>
   </div>
 </div>
@@ -523,18 +523,23 @@ export function renderEmployeeWorkbenchPage(params?: {
     if (t.openSignal === 'rejected') return '<span class="badge rejected">已拒绝 · 等主管处理</span>';
     return '<span class="badge '+badgeClass(stRaw)+'">'+esc(t.statusLabel||stRaw)+'</span>';
   }
+  function employeeBusinessNo(t) {
+    var context = t && (t.qualityContext || t.qualityPlanningContext);
+    return String(t && (t.businessNo || (context && context.eventNo) || t.taskNo) || '').trim();
+  }
   function taskCardHtml(t, actionsHtml, extraCardClass) {
     var cardCls = 'task-card' + (extraCardClass ? (' ' + extraCardClass) : '');
     var st = pickEmployeeBadge(t);
     var mgr = (t.managerDisplayName || '').trim();
     var mgrLine = mgr ? (' · 主管 ' + esc(mgr)) : '';
     var td = String(t.taskDescription || '').trim();
-    var descLine = td ? ('<p class="meta task-card-desc">'+esc(clipStr(td, 140))+'</p>') : '';
     var tn = String(t.taskNo || '').trim();
     var fromView = getView();
     var detailLink = tn ? ('<p class="meta"><a class="task-detail-readonly-link" href="/workbench/employee/task?taskNo='+encodeURIComponent(tn)+'&fromView='+encodeURIComponent(fromView)+'">完整背景与分工</a></p>') : '';
     var legacyQualityContext = t.qualityContext || null;
     var q = legacyQualityContext || t.qualityPlanningContext || null;
+    var businessNo = employeeBusinessNo(t);
+    var descLine = td && !q ? ('<p class="meta task-card-desc">'+esc(clipStr(td, 140))+'</p>') : '';
     var qualityContext = q ? ('<div class="emp-quality-context"><div class="emp-quality-context__head"><span class="emp-quality-context__badge">质量任务</span><strong>'+esc(q.eventNo||'')+' · '+esc(q.eventTitle||'')+'</strong></div>'
       + '<p>'+esc(q.eventSummary||'')+'</p>'
       + (legacyQualityContext
@@ -543,10 +548,10 @@ export function renderEmployeeWorkbenchPage(params?: {
       + '</div>') : '';
     var coreLines = subtaskCardCoreLines(t, [t]);
     var actions = actionsHtml || '';
-    return '<article class="'+cardCls+'" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'" data-quality-node-id="'+esc(legacyQualityContext&&legacyQualityContext.nodeId?legacyQualityContext.nodeId:'')+'" data-quality-node-version="'+esc(legacyQualityContext&&legacyQualityContext.nodeVersion?legacyQualityContext.nodeVersion:'')+'" data-search-key="'+esc(((t.title||'')+' '+(t.taskNo||'')+' '+(t.taskDescription||'')).toLowerCase())+'">'
+    return '<article class="'+cardCls+'" data-plan-id="'+esc(t.planId)+'" data-subtask-id="'+esc(t.subtaskId||'')+'" data-quality-node-id="'+esc(legacyQualityContext&&legacyQualityContext.nodeId?legacyQualityContext.nodeId:'')+'" data-quality-node-version="'+esc(legacyQualityContext&&legacyQualityContext.nodeVersion?legacyQualityContext.nodeVersion:'')+'" data-search-key="'+esc(((t.title||'')+' '+businessNo+' '+(t.taskNo||'')+' '+(t.taskDescription||'')).toLowerCase())+'">'
       + '<div class="head"><div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+st+'</div>'
-      + '<p class="title">'+esc(t.title||t.taskNo||'子任务')+'</p>'
-      + '<p class="meta">业务编号 <code>'+esc(t.taskNo||'—')+'</code>'+mgrLine+'</p>'
+      + '<p class="title">'+esc(t.title||businessNo||'子任务')+'</p>'
+      + '<p class="meta">业务编号 <code>'+esc(businessNo||'—')+'</code>'+mgrLine+'</p>'
       + descLine + qualityContext + coreLines + detailLink
       + formatDue(t)
       + '</div></div>'+actions+'</article>';
@@ -559,7 +564,7 @@ export function renderEmployeeWorkbenchPage(params?: {
     tasks.forEach(function (t) {
       var key = String(t.taskNo || t.planId || '').trim() || '__unnamed';
       if (!byNo[key]) {
-        byNo[key] = { taskNo: t.taskNo, planId: t.planId, title: t.title, items: [] };
+        byNo[key] = { taskNo: t.taskNo, businessNo: employeeBusinessNo(t), planId: t.planId, title: t.title, items: [] };
         orderNo.push(key);
       }
       byNo[key].items.push(t);
@@ -588,7 +593,7 @@ export function renderEmployeeWorkbenchPage(params?: {
     return groups.map(function (g) {
       var head = '<div class="emp-task-group__head">'
         + '<span class="emp-task-group__title">'+esc(g.title || g.taskNo || '任务')+'</span>'
-        + '<span class="emp-task-group__no">'+esc(g.taskNo || '—')+'</span>'
+        + '<span class="emp-task-group__no">'+esc(g.businessNo || g.taskNo || '—')+'</span>'
         + '<span class="emp-task-group__count">'+g.items.length+' 个子任务</span>'
         + '</div>';
       var body = '<div class="emp-task-group__body">' + g.items.map(function (t) {
@@ -815,20 +820,22 @@ export function renderEmployeeWorkbenchPage(params?: {
   document.getElementById('progStatus').addEventListener('change', function () {
     document.getElementById('qualityCompletionHint').hidden = !(progressQualityNodeId && this.value === 'DONE');
   });
-  document.getElementById('qualityEvidenceForm').addEventListener('submit', async function (event) {
-    event.preventDefault();
+  async function uploadSelectedQualityEvidence() {
     if (!qualityEvidenceNode) return;
     var file = document.getElementById('qualityEvidenceFile').files[0];
     var summary = (document.getElementById('qualityEvidenceSummary').value || '').trim();
-    if (!file || !summary) { setFb('qualityEvidenceFeedback', '请选择文件并填写摘要', 'err'); return; }
+    if (!file || !summary) throw new Error('请选择文件并填写摘要');
     var form = new FormData(); form.append('requestId', newIdempotencyKey()); form.append('summary', summary); form.append('file', file);
     setFb('qualityEvidenceFeedback', '上传中…', 'muted');
-    try { var res = await fetch('/api/workbench/quality/nodes/'+encodeURIComponent(qualityEvidenceNode.nodeId)+'/evidence',{method:'POST',body:form}); var data=await res.json().catch(function(){return {};}); if(!res.ok||!data.ok)throw new Error(data.error||('请求失败（'+res.status+'）')); document.getElementById('qualityEvidenceForm').reset(); setFb('qualityEvidenceFeedback', '证据已上传，可继续上传或提交完成', 'ok'); } catch(e) { setFb('qualityEvidenceFeedback', String(e&&e.message?e.message:e), 'err'); }
+    var res = await fetch('/api/workbench/quality/nodes/'+encodeURIComponent(qualityEvidenceNode.nodeId)+'/evidence',{method:'POST',body:form}); var data=await res.json().catch(function(){return {};}); if(!res.ok||!data.ok)throw new Error(data.error||('请求失败（'+res.status+'）')); document.getElementById('qualityEvidenceForm').reset(); setFb('qualityEvidenceFeedback', '证据已上传，可继续上传或提交完成', 'ok');
+  }
+  document.getElementById('qualityEvidenceForm').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    try { await uploadSelectedQualityEvidence(); } catch(e) { setFb('qualityEvidenceFeedback', String(e&&e.message?e.message:e), 'err'); }
   });
   document.getElementById('qualitySubmitCompletionBtn').addEventListener('click', async function () {
     if (!qualityEvidenceNode) return;
-    setFb('qualityEvidenceFeedback', '提交中…', 'muted');
-    try { var res=await fetch('/api/workbench/quality/nodes/'+encodeURIComponent(qualityEvidenceNode.nodeId)+'/submit-completion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedVersion:qualityEvidenceNode.version,requestId:newIdempotencyKey()})}); var data=await res.json().catch(function(){return {};}); if(!res.ok||!data.ok)throw new Error(data.error||('请求失败（'+res.status+'）')); closeModal('qualityEvidenceModalOverlay'); await loadCurrent(); } catch(e) { setFb('qualityEvidenceFeedback', String(e&&e.message?e.message:e), 'err'); }
+    try { var pendingFile=document.getElementById('qualityEvidenceFile').files[0]; var pendingSummary=(document.getElementById('qualityEvidenceSummary').value||'').trim(); if(pendingFile||pendingSummary)await uploadSelectedQualityEvidence(); setFb('qualityEvidenceFeedback', '提交中…', 'muted'); var res=await fetch('/api/workbench/quality/nodes/'+encodeURIComponent(qualityEvidenceNode.nodeId)+'/submit-completion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedVersion:qualityEvidenceNode.version,requestId:newIdempotencyKey()})}); var data=await res.json().catch(function(){return {};}); if(!res.ok||!data.ok)throw new Error(data.error||('请求失败（'+res.status+'）')); closeModal('qualityEvidenceModalOverlay'); await loadCurrent(); } catch(e) { setFb('qualityEvidenceFeedback', String(e&&e.message?e.message:e), 'err'); }
   });
 
   async function submitDirect(planId, subtaskId, action, note, opts) {

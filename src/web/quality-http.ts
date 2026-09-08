@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { z, ZodError } from "zod";
 import { AiOriginalAssessmentV0RunError } from
@@ -37,6 +38,10 @@ import {
   resolveQualityPerspectiveContext,
   type QualityPerspectiveRequest,
 } from "../quality/presentation/quality-event-perspective";
+import {
+  resolveQualityManagerTaskStageFromDb,
+  type QualityManagerTaskStage,
+} from "../quality/presentation/quality-manager-task-stage";
 import { createQualityReviewQuery } from "../quality/queries/quality-review-query";
 import { createQualityNotificationOutbox } from "../quality/notifications/quality-notification-outbox";
 import {
@@ -85,7 +90,6 @@ import { createQualityTestAftersalesService } from
   "../quality/testing/quality-test-aftersales-service";
 import { createQualityTestAiService } from
   "../quality/testing/quality-test-ai-service";
-import { qualityStatusLabel } from "../quality/presentation/quality-display-labels";
 
 export interface QualityHttpSession {
   userId: string;
@@ -189,55 +193,19 @@ function parsePositiveInt(value: unknown, fallback: number, max = Number.MAX_SAF
   return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, max) : fallback;
 }
 
-type QualityManagerMetricStage = "ACCEPT" | "DELEGATE" | "EXECUTION" | "REVIEW" | "CLOSED";
-
-function qualityManagerMetricLabel(stage: QualityManagerMetricStage | ""): string {
-  return stage === "ACCEPT" ? "待主管承接"
-    : stage === "DELEGATE" ? "待分派员工"
-      : stage === "EXECUTION" ? "员工执行中"
-        : stage === "REVIEW" ? "待主管验收"
-          : stage === "CLOSED" ? "已关闭" : "";
-}
-
-function qualityManagerMetricStage(input: {
-  db: DatabaseSync;
-  eventId: string;
-  eventStatus: string;
-  managerUserId: string;
-}): QualityManagerMetricStage | null {
-  const own = input.db.prepare(`
-    SELECT node_id,parent_node_id,status
-    FROM quality_assignment_nodes
-    WHERE event_id=? AND assignee_user_id=? AND status NOT IN ('REJECTED','CANCELLED')
-    ORDER BY CASE WHEN parent_node_id IS NULL THEN 0 ELSE 1 END,depth,created_at,node_id
-    LIMIT 1
-  `).get(input.eventId, input.managerUserId) as Record<string, unknown> | undefined;
-  if (!own) return null;
-  if (input.eventStatus === "CLOSED") return "CLOSED";
-  if (String(own.status) === "PENDING_ACCEPTANCE") return "ACCEPT";
-  const childCounts = input.db.prepare(`
-    SELECT COUNT(*) AS total,
-      SUM(CASE WHEN status='PENDING_PARENT_REVIEW' THEN 1 ELSE 0 END) AS pending_review
-    FROM quality_assignment_nodes
-    WHERE parent_node_id=? AND status NOT IN ('REJECTED','CANCELLED')
-  `).get(String(own.node_id)) as Record<string, unknown>;
-  if (Number(childCounts.pending_review ?? 0) > 0
-    || (input.eventStatus === "PENDING_PRIMARY_REVIEW" && own.parent_node_id == null)) {
-    return "REVIEW";
-  }
-  if (Number(childCounts.total ?? 0) === 0
-    && ["IN_PROGRESS", "RETURNED"].includes(String(own.status))) {
-    return "DELEGATE";
-  }
-  return "EXECUTION";
-}
-
 function sourceKeys(value: unknown): string[] {
   return z.array(z.string().trim().min(1).max(300)).min(1).max(200).parse(value);
 }
 
 function requestId(value: unknown): string {
   return z.string().uuid().parse(value);
+}
+
+function qualityTestAssignmentRequestId(eventId: string, analysisRequestId: string): string {
+  const hash = createHash("sha256")
+    .update(`quality-test-auto-primary-assignment\0${eventId}\0${analysisRequestId}`)
+    .digest("hex");
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
 function errorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
@@ -674,6 +642,7 @@ async function handleQualityApi(input: {
         const evidence = service.uploadEvidence({
           nodeId: decodeURIComponent(evidenceUpload[1]!),
           actorUserId: session.userId,
+          actualAdminUserId: session.impersonation?.actorUserId,
           originalName: parsed.file.filename,
           mimeType: parsed.file.mimeType,
           summary: z.string().trim().min(1).max(2000).parse(parsed.fields.summary),
@@ -693,6 +662,7 @@ async function handleQualityApi(input: {
         const result = service.submitCompletion({
           nodeId: decodeURIComponent(evidenceCompletion[1]!),
           actorUserId: session.userId,
+          actualAdminUserId: session.impersonation?.actorUserId,
           expectedVersion: parsePositiveInt(body.expectedVersion, 0),
           requestId: requestId(body.requestId),
         });
@@ -1003,20 +973,15 @@ async function handleQualityApi(input: {
           const projected = projector.listEvents(perspectiveRequest(url, session));
           const query = (url.searchParams.get("q") ?? "").trim().toLocaleLowerCase("zh-CN");
           const requestedStatus = url.searchParams.get("status")?.trim().toUpperCase();
-          const requestedStatusLabel = requestedStatus ? qualityStatusLabel(requestedStatus) : "";
           const requestedStatuses = new Set(
             String(url.searchParams.get("statuses") ?? "")
               .split(",")
               .map((item) => item.trim().toUpperCase())
               .filter(Boolean),
           );
-          const requestedStatusLabels = new Set(
-            [...requestedStatuses].map((status) => qualityStatusLabel(status)),
-          );
           const requestedBucket = url.searchParams.get("bucket")?.trim().toUpperCase();
           const requestedManagerStage = String(url.searchParams.get("managerStage") ?? "")
-            .trim().toUpperCase() as QualityManagerMetricStage | "";
-          const requestedManagerLabel = qualityManagerMetricLabel(requestedManagerStage);
+            .trim().toUpperCase() as QualityManagerTaskStage | "";
           const requestedEmployeeStage = String(url.searchParams.get("employeeStage") ?? "")
             .trim().toUpperCase() as QualityEmployeeTaskStage | "";
           const requestedEmployeeLabel = requestedEmployeeStage === "ASSIGNED" ? "待我承接"
@@ -1024,11 +989,21 @@ async function handleQualityApi(input: {
               : requestedEmployeeStage === "WAITING_MANAGER" ? "待主管处理"
                 : requestedEmployeeStage === "DONE" ? "已完成" : "";
           const requestedRisk = url.searchParams.get("riskLevel")?.trim().toUpperCase();
+          const matchesProjectedStatus = (
+            event: (typeof projected.events)[number],
+            status: string,
+          ) => status === "PENDING_ANALYSIS" && projected.context.perspective === "aftersales"
+            ? event.statusCode === status
+              && (event.dispositionCode == null || event.dispositionCode === "UNASSESSED")
+            : event.statusCode === status;
           const events = projected.events.filter((event) => {
-            if (requestedStatusLabel && event.statusLabel !== requestedStatusLabel) return false;
-            if (requestedStatusLabels.size > 0 && !requestedStatusLabels.has(event.statusLabel)) return false;
+            if (requestedStatus && !matchesProjectedStatus(event, requestedStatus)) return false;
+            if (requestedStatuses.size > 0
+              && ![...requestedStatuses].some((status) => matchesProjectedStatus(event, status))) {
+              return false;
+            }
             if (requestedBucket && event.attentionBucket !== requestedBucket) return false;
-            if (requestedManagerLabel && event.attentionLabel !== requestedManagerLabel) return false;
+            if (requestedManagerStage && !event.managerStages.includes(requestedManagerStage)) return false;
             if (requestedEmployeeLabel && event.attentionLabel !== requestedEmployeeLabel) return false;
             if (requestedRisk) {
               const expected = requestedRisk === "HIGH" ? "高"
@@ -1043,11 +1018,26 @@ async function handleQualityApi(input: {
               event.statusLabel,
               event.currentOwnerName,
               event.currentDepartmentName,
+              ...event.assignmentItems.flatMap((item) => [
+                item.assigneeName,
+                item.previousAssigneeName,
+                item.actionReason,
+                item.itemTitle,
+                item.objective,
+                item.deliverables,
+                item.completionCriteria,
+                item.progressNote,
+              ]),
             ].some((value) => String(value).toLocaleLowerCase("zh-CN").includes(query));
           });
           const page = parsePositiveInt(url.searchParams.get("page"), 1);
           const pageSize = parsePositiveInt(url.searchParams.get("pageSize"), 50, 200);
           const start = (page - 1) * pageSize;
+          const matchingAssignmentItemCount = requestedManagerStage
+            ? events.reduce((total, event) => total + event.assignmentItems.filter(
+              (item) => item.managerStage === requestedManagerStage,
+            ).length, 0)
+            : null;
           writeJson(res, 200, {
             ok: true,
             data: {
@@ -1056,6 +1046,7 @@ async function handleQualityApi(input: {
               readonly: projected.context.readonly,
               events: events.slice(start, start + pageSize),
               stats: projected.stats,
+              matchingAssignmentItemCount,
               pagination: {
                 page,
                 pageSize,
@@ -1080,7 +1071,7 @@ async function handleQualityApi(input: {
             .filter(Boolean),
         );
         const managerStage = String(url.searchParams.get("managerStage") ?? "")
-          .trim().toUpperCase() as QualityManagerMetricStage | "";
+          .trim().toUpperCase() as QualityManagerTaskStage | "";
         const employeeStage = String(url.searchParams.get("employeeStage") ?? "")
           .trim().toUpperCase() as QualityEmployeeTaskStage | "";
         const riskLevel = url.searchParams.get("riskLevel")?.trim().toUpperCase();
@@ -1092,7 +1083,7 @@ async function handleQualityApi(input: {
           events = store.listEvents({ viewerUserId }).filter((event) => {
             if (status && event.status !== status) return false;
             if (statuses.size > 0 && !statuses.has(event.status)) return false;
-            if (managerStage && stageDb && qualityManagerMetricStage({
+            if (managerStage && stageDb && resolveQualityManagerTaskStageFromDb({
               db: stageDb,
               eventId: event.eventId,
               eventStatus: event.status,
@@ -1270,7 +1261,9 @@ async function handleQualityApi(input: {
       const allowed = new Set(viewModel.allowedActions ?? []);
       const requiredPermission = action === "add-evidence" ? "upload-evidence"
         : action === "open-planning" ? "delegate" : action;
-      if (!allowed.has(requiredPermission)) throw new Error("quality action forbidden");
+      if (!allowed.has(requiredPermission) && action !== "complete-analysis") {
+        throw new Error("quality action forbidden");
+      }
       if (action === "generate-original-ai" || action === "generate-analysis-ai") {
         const service = createQualityTestAiService();
         try {
@@ -1317,12 +1310,29 @@ async function handleQualityApi(input: {
             expectedVersion: z.number().int().positive().parse(body.expectedVersion),
             requestId: requestId(body.requestId),
             problemStatus: z.string().trim().min(1).max(10000).parse(body.problemStatus),
-            initialCategory: z.string().trim().min(1).max(200).parse(body.initialCategory),
+            isQualityEvent: z.boolean().parse(body.isQualityEvent),
+            categoryMode: z.enum(["STANDARD", "CUSTOM_SECONDARY", "CUSTOM_FULL"])
+              .parse(body.categoryMode),
+            primaryCategoryCode: body.primaryCategoryCode == null
+              ? null : z.string().trim().max(100).parse(body.primaryCategoryCode),
+            secondaryCategoryCode: body.secondaryCategoryCode == null
+              ? null : z.string().trim().max(100).parse(body.secondaryCategoryCode),
+            customPrimaryCategoryName: body.customPrimaryCategoryName == null
+              ? null : z.string().trim().max(100).parse(body.customPrimaryCategoryName),
+            customSecondaryCategoryName: body.customSecondaryCategoryName == null
+              ? null : z.string().trim().max(100).parse(body.customSecondaryCategoryName),
             urgency: z.enum(["LOW", "MEDIUM", "HIGH"]).parse(body.urgency),
             supplement: body.supplement == null
               ? ""
               : z.string().trim().max(10000).parse(body.supplement),
-            reason: z.string().trim().min(1).max(1000).parse(body.reason),
+            adoptionMode: z.enum(["MANUAL", "DIRECT", "MODIFIED"])
+              .parse(body.adoptionMode),
+            reason: body.reason == null
+              ? ""
+              : z.string().trim().max(1000).parse(body.reason),
+            submissionMode: z.enum(["SAVE_DRAFT", "CONFIRM"])
+              .default("CONFIRM")
+              .parse(body.submissionMode),
           });
         } finally {
           service.close();
@@ -1335,14 +1345,19 @@ async function handleQualityApi(input: {
         if (projected.context.perspective !== "quality_management") {
           throw new Error("quality action forbidden");
         }
+        const completionRequestId = requestId(body.requestId);
+        const suggestedDueAt = z.string().trim().min(1).max(64).parse(body.suggestedDueAt);
+        const handlingRequirements = z.string().trim().min(1).max(10000)
+          .parse(body.handlingRequirements);
         const service = createQualityTestAnalysisService();
+        let completed: ReturnType<typeof service.complete>;
         try {
-          service.complete({
+          completed = service.complete({
             eventId,
             testSpecialistUserId: projected.context.actorUserId,
             actualAdminUserId: qualityTestAuditAdminUserId(session),
             expectedVersion: z.number().int().positive().parse(body.expectedVersion),
-            requestId: requestId(body.requestId),
+            requestId: completionRequestId,
             problemDirection: z.string().trim().min(1).max(5000).parse(body.problemDirection),
             confirmedCategory: z.string().trim().min(1).max(1000).parse(body.confirmedCategory),
             sourceFactSummary: z.string().trim().min(1).max(10000).parse(body.sourceFactSummary),
@@ -1351,14 +1366,32 @@ async function handleQualityApi(input: {
             informationGaps: body.informationGaps == null
               ? undefined
               : z.string().trim().max(5000).parse(body.informationGaps),
-            handlingRequirements: z.string().trim().min(1).max(10000).parse(body.handlingRequirements),
-            suggestedDueAt: z.string().trim().min(1).max(64).parse(body.suggestedDueAt),
+            handlingRequirements,
+            suggestedDueAt,
             deliverableName: z.string().trim().min(1).max(500).parse(body.deliverableName),
             deliverableDescription: z.string().trim().min(1).max(5000).parse(body.deliverableDescription),
             acceptanceCriteria: z.string().trim().min(1).max(5000).parse(body.acceptanceCriteria),
           });
         } finally {
           service.close();
+        }
+        const testManager = getQualityTestActorByUserId("QUALITY_TEST_MANAGER_001");
+        if (!testManager?.departmentName) throw new Error("测试主管配置缺失");
+        const assignment = createQualityAssignmentService();
+        try {
+          await assignment.assignPrimary({
+            eventId,
+            specialistUserId: projected.context.actorUserId,
+            actualAdminUserId: qualityTestAuditAdminUserId(session),
+            primaryManagerUserId: testManager.userId,
+            departmentName: testManager.departmentName,
+            dueAt: suggestedDueAt,
+            taskRequirement: handlingRequirements,
+            expectedVersion: completed.eventVersion,
+            requestId: qualityTestAssignmentRequestId(eventId, completionRequestId),
+          });
+        } finally {
+          assignment.close();
         }
         const updated = projectedDetail(eventId, url, session);
         writeJson(res, 200, { ok: true, data: { viewModel: updated?.viewModel } });

@@ -51,6 +51,16 @@ const LONG_TEXT_KEYS = new Set<DraftExcelColumnKey>([
   "actions",
 ]);
 
+export function fitDraftTextarea(field: HTMLTextAreaElement): void {
+  field.style.height = "auto";
+  field.style.height = `${field.scrollHeight}px`;
+}
+
+function fitDraftTextareas(root: ParentNode): void {
+  root.querySelectorAll<HTMLTextAreaElement>("textarea.cell-input")
+    .forEach(fitDraftTextarea);
+}
+
 let overlayEl: HTMLElement | null = null;
 let detachInputScroll: (() => void) | null = null;
 
@@ -140,6 +150,7 @@ function buildRowTr(row: DraftExcelRow, index: number): HTMLTableRowElement {
       field.className = "cell-input";
       field.rows = 3;
       field.value = String(row[key] ?? "");
+      field.addEventListener("input", () => fitDraftTextarea(field));
       td.appendChild(field);
     } else {
       const field = document.createElement("input");
@@ -235,6 +246,7 @@ function attachColumnResize(
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       saveColWidths(widths);
+      window.requestAnimationFrame(() => fitDraftTextareas(table));
     };
 
     handle.addEventListener("mousedown", (ev) => {
@@ -359,6 +371,7 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   const colEls = Array.from(colgroup.querySelectorAll("col"));
   applyColumnWidths(table, colEls);
   attachColumnResize(table, headTr, colEls);
+  window.requestAnimationFrame(() => fitDraftTextareas(table));
 
   let selectedTr: HTMLTableRowElement | null = tbody.rows[0] ?? null;
   if (selectedTr) selectedTr.classList.add("selected");
@@ -399,9 +412,11 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
         (empty as Record<string, string>)[k] = "";
       }
     });
-    tbody.appendChild(buildRowTr(empty, tbody.rows.length));
+    const inserted = buildRowTr(empty, tbody.rows.length);
+    tbody.appendChild(inserted);
     renumber();
     applyColumnWidths(table, colEls);
+    window.requestAnimationFrame(() => fitDraftTextareas(inserted));
   });
 
   deleteBtn.addEventListener("click", () => {

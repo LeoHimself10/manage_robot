@@ -49,7 +49,7 @@ function metric(input: {
     input.managerStage ? `data-metric-manager-stage="${input.managerStage}"` : "",
     input.employeeStage ? `data-metric-employee-stage="${input.employeeStage}"` : "",
   ].filter(Boolean).join(" ");
-  return `<button class="qpc-metric" type="button" data-metric-view="${input.view}" ${filters} data-metric-count-path="${input.countPath.replaceAll("&", "&amp;")}" style="--tone:${input.tone}"><span>${input.title}</span><strong data-metric-value>—</strong><small>${input.description}</small></button>`;
+  return `<button class="qpc-metric" type="button" data-metric-view="${input.view}" ${filters} data-metric-count-path="${input.countPath.replaceAll("&", "&amp;")}" style="--tone:${input.tone}"><span>${input.title}</span><strong data-metric-value>—</strong><em data-metric-item-value hidden></em><small>${input.description}</small></button>`;
 }
 
 function group(title: string, description: string, metrics: string[]): string {
@@ -88,8 +88,9 @@ export function renderQualityRoleMetricGroups(role: QualityMetricRole): string {
   }
   if (role === "supervisor") {
     return group("主管质量任务", "按当前主管需要采取的动作分类", [
-      metric({ title: "待我承接", description: "等待当前主管接受质量任务", tone: "#28639f", view: "event", managerStage: "ACCEPT", countPath: `${eventBase}&managerStage=ACCEPT` }),
-      metric({ title: "待分派员工", description: "主管已承接，下一步需要分派员工", tone: "#177057", view: "event", managerStage: "DELEGATE", countPath: `${eventBase}&managerStage=DELEGATE` }),
+      metric({ title: "待我承接", description: "质量人员已交办，等待主管确认承接", tone: "#9d6b1e", view: "event", managerStage: "ACCEPT", countPath: `${eventBase}&managerStage=ACCEPT` }),
+      metric({ title: "待分派员工", description: "任务要求已确认，下一步需要分派员工", tone: "#28639f", view: "event", managerStage: "DELEGATE", countPath: `${eventBase}&managerStage=DELEGATE` }),
+      metric({ title: "待员工承接", description: "已分派员工，等待员工确认承接", tone: "#177057", view: "event", managerStage: "WAITING_EMPLOYEE", countPath: `${eventBase}&managerStage=WAITING_EMPLOYEE` }),
       metric({ title: "员工执行中", description: "已分派员工，正在执行任务", tone: "#b96718", view: "event", managerStage: "EXECUTION", countPath: `${eventBase}&managerStage=EXECUTION` }),
       metric({ title: "待我验收", description: "员工已提交，等待当前主管验收", tone: "#9d6b1e", view: "event", managerStage: "REVIEW", countPath: `${eventBase}&managerStage=REVIEW` }),
       metric({ title: "已关闭", description: "质量流程已经完成并关闭", tone: "#64748b", view: "event", managerStage: "CLOSED", countPath: `${eventBase}&managerStage=CLOSED` }),

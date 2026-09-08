@@ -957,7 +957,7 @@ export function renderAdminWorkbenchPage(params: {
   </section>
 
   <div class="card mgr-list-toolbar form-stack" role="search" aria-label="任务筛选">
-    <label>业务编号<input id="taskNoFilter" placeholder="例如 TASK-20260512-0001" /></label>
+    <label>业务编号<input id="taskNoFilter" placeholder="例如 QT-20260902-011" /></label>
     <label>状态
       <select id="statusFilter">
         <option value="">全部</option>
@@ -1038,7 +1038,7 @@ export function renderAdminWorkbenchPage(params: {
         var mgr = (t.managerDisplayName || '').trim();
         var mgrCell = mgr ? esc(mgr) : esc('—');
         return '<tr>'
-          + '<td><code>' + esc(t.taskNo || '—') + '</code></td>'
+          + '<td><code>' + esc(t.businessNo || t.taskNo || '—') + '</code></td>'
           + '<td>' + esc(t.title) + '</td>'
           + '<td>' + mgrCell + '</td>'
           + '<td>' + esc(t.initiatorDepartment || '未配置部门') + '</td>'

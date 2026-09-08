@@ -61,20 +61,70 @@ describe("isolated quality test full flow", () => {
     setup.close();
 
     const aftersales = createQualityTestAftersalesService({ dbPath, now: () => NOW });
-    const reviewed = aftersales.update({
+    const saved = aftersales.update({
       eventId: "test-full-flow",
       testAftersalesUserId: "QUALITY_TEST_AFTERSALES_001",
       actualAdminUserId: admin,
       expectedVersion: 2,
       requestId: uuid(11),
       problemStatus: "测试来源事实已由马荣鑫（测试）完成人工修订。",
-      initialCategory: "影像与光学／无图像或影像中断",
+      isQualityEvent: true,
+      categoryMode: "STANDARD",
+      primaryCategoryCode: "IMAGING_OPTICS",
+      secondaryCategoryCode: "IMAGE_NONE_INTERRUPTED",
       urgency: "MEDIUM",
       supplement: "仅用于隔离测试",
+      adoptionMode: "MANUAL",
       reason: "核对测试人工研判表单",
+      submissionMode: "SAVE_DRAFT",
+    });
+    expect(saved).toMatchObject({ eventVersion: 3, pushedToAnalysis: false });
+    const savedState = new DatabaseSync(dbPath);
+    const savedReviewCount = Number((savedState.prepare(`
+      SELECT COUNT(*) AS count FROM quality_source_reviews review
+      JOIN quality_event_source_links link ON link.source_key=review.source_key
+      WHERE link.event_id='test-full-flow'
+    `).get() as { count: number }).count);
+    savedState.close();
+    expect(savedReviewCount).toBe(0);
+
+    const reviewed = aftersales.update({
+      eventId: "test-full-flow",
+      testAftersalesUserId: "QUALITY_TEST_AFTERSALES_001",
+      actualAdminUserId: admin,
+      expectedVersion: saved.eventVersion,
+      requestId: uuid(12),
+      problemStatus: "测试来源事实已由马荣鑫（测试）完成人工修订。",
+      isQualityEvent: true,
+      categoryMode: "STANDARD",
+      primaryCategoryCode: "IMAGING_OPTICS",
+      secondaryCategoryCode: "IMAGE_NONE_INTERRUPTED",
+      urgency: "MEDIUM",
+      supplement: "仅用于隔离测试",
+      adoptionMode: "MANUAL",
+      reason: "核对测试人工研判表单",
+      submissionMode: "CONFIRM",
+    });
+    const reviewedRetry = aftersales.update({
+      eventId: "test-full-flow",
+      testAftersalesUserId: "QUALITY_TEST_AFTERSALES_001",
+      actualAdminUserId: admin,
+      expectedVersion: saved.eventVersion,
+      requestId: uuid(12),
+      problemStatus: "测试来源事实已由马荣鑫（测试）完成人工修订。",
+      isQualityEvent: true,
+      categoryMode: "STANDARD",
+      primaryCategoryCode: "IMAGING_OPTICS",
+      secondaryCategoryCode: "IMAGE_NONE_INTERRUPTED",
+      urgency: "MEDIUM",
+      supplement: "仅用于隔离测试",
+      adoptionMode: "MANUAL",
+      reason: "核对测试人工研判表单",
+      submissionMode: "CONFIRM",
     });
     aftersales.close();
-    expect(reviewed.eventVersion).toBe(3);
+    expect(reviewed).toMatchObject({ eventVersion: 4, pushedToAnalysis: true });
+    expect(reviewedRetry).toMatchObject({ eventVersion: 4, pushedToAnalysis: true });
 
     const analysis = createQualityTestAnalysisService({ dbPath, now: () => NOW });
     const analyzed = analysis.complete({
@@ -82,7 +132,7 @@ describe("isolated quality test full flow", () => {
       testSpecialistUserId: specialist,
       actualAdminUserId: admin,
       expectedVersion: reviewed.eventVersion,
-      requestId: uuid(12),
+      requestId: uuid(13),
       problemDirection: "影像异常原因核验",
       confirmedCategory: "影像与光学／无图像或影像中断",
       sourceFactSummary: "测试来源事实已确认",
@@ -96,7 +146,27 @@ describe("isolated quality test full flow", () => {
       acceptanceCriteria: "包含原因、措施和验证结果",
     });
     analysis.close();
-    expect(analyzed).toMatchObject({ eventStatus: "PENDING_ASSIGNMENT", eventVersion: 4 });
+    expect(analyzed).toMatchObject({ eventStatus: "PENDING_ASSIGNMENT", eventVersion: 5 });
+
+    const blockedAftersales = createQualityTestAftersalesService({ dbPath, now: () => NOW });
+    expect(() => blockedAftersales.update({
+      eventId: "test-full-flow",
+      testAftersalesUserId: "QUALITY_TEST_AFTERSALES_001",
+      actualAdminUserId: admin,
+      expectedVersion: analyzed.eventVersion,
+      requestId: uuid(14),
+      problemStatus: "不应覆盖已进入初析的事实",
+      isQualityEvent: true,
+      categoryMode: "STANDARD",
+      primaryCategoryCode: "IMAGING_OPTICS",
+      secondaryCategoryCode: "IMAGE_NONE_INTERRUPTED",
+      urgency: "HIGH",
+      supplement: "不应被保存",
+      adoptionMode: "MANUAL",
+      reason: "验证状态边界",
+      submissionMode: "SAVE_DRAFT",
+    })).toThrow("质量初析或任务分配已开始，主管研判不能再修改");
+    blockedAftersales.close();
 
     const directory = createQualitySupervisorDirectory({ dbPath, contacts: [] });
     const managerCandidate = directory.listGroups({ eventId: "test-full-flow", isTest: true })
@@ -243,7 +313,7 @@ describe("isolated quality test full flow", () => {
       links: 0,
       analyses: 1,
       handoffs: 0,
-      testAudit: 12,
+      testAudit: 13,
       unsafeNotices: 0,
     });
   });

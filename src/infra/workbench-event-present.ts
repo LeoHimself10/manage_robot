@@ -154,6 +154,24 @@ export function presentWorkbenchTaskEvent(
         detail: note || undefined,
       };
     }
+    case "MANAGER_QUALITY_REVIEW_APPROVED":
+      return {
+        occurredAt,
+        type,
+        severity: "info",
+        title: "主管验收通过",
+        summary: withSubtaskCtx(shortNote || `${actor} 已通过质量事项验收`),
+        detail: note || undefined,
+      };
+    case "MANAGER_QUALITY_REVIEW_RETURNED":
+      return {
+        occurredAt,
+        type,
+        severity: "warn",
+        title: "主管验收退回",
+        summary: withSubtaskCtx(shortNote || `${actor} 已退回质量事项重做`),
+        detail: note || undefined,
+      };
     case "SUBTASK_REJECTED":
       return {
         occurredAt,

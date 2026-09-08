@@ -130,6 +130,18 @@ export function createQualityAssignmentService(deps?: {
     return link as QualityTaskLink & { subtaskId: string };
   }
 
+  function findSubtaskLink(nodeId: string): (QualityTaskLink & { subtaskId: string }) | null {
+    const store = qualityStore();
+    try {
+      const link = store.getTaskLinkByNodeId(nodeId);
+      return link?.subtaskId
+        ? link as QualityTaskLink & { subtaskId: string }
+        : null;
+    } finally {
+      store.close();
+    }
+  }
+
   function appendAudit(input: {
     eventId: string;
     actorUserId: string;
@@ -361,8 +373,8 @@ export function createQualityAssignmentService(deps?: {
     if (node.parentNodeId == null && event.primaryNodeId && event.primaryNodeId !== node.nodeId) {
       throw new Error("原主责承接人不可替换");
     }
-    if (!event.isTest) {
-      const link = getSubtaskLink(node.nodeId);
+    const link = event.isTest ? findSubtaskLink(node.nodeId) : getSubtaskLink(node.nodeId);
+    if (link) {
       getFormalStore().updateSubtaskStatus({
         subtaskId: link.subtaskId,
         actorUserId: input.actorUserId,
@@ -428,8 +440,8 @@ export function createQualityAssignmentService(deps?: {
     if (node.status === "REJECTED") return resultForNode(node.nodeId);
     if (node.status !== "PENDING_ACCEPTANCE") throw new Error("质量节点当前不可驳回");
     if (node.version !== input.expectedVersion) throw new Error("version conflict");
-    if (!event.isTest) {
-      const link = getSubtaskLink(node.nodeId);
+    const link = event.isTest ? findSubtaskLink(node.nodeId) : getSubtaskLink(node.nodeId);
+    if (link) {
       getFormalStore().updateSubtaskStatus({
         subtaskId: link.subtaskId,
         actorUserId: input.actorUserId,

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { renderTaskDetailPage } from "../../src/web/assignment-workbench";
+import {
+  renderTaskDetailPage,
+  renderTaskEventsPage,
+} from "../../src/web/assignment-workbench";
+import { renderEmployeeWorkbenchPage } from "../../src/web/employee-workbench-pages";
 
 /**
  * Manual acceptance (Workbench 通知落地页 + 员工按钮 + 事件降噪):
@@ -32,6 +36,24 @@ describe("renderTaskDetailPage", () => {
     expect(html).not.toContain("/workbench/manager/tasks?planId=");
   });
 
+  it("manager quality deep link renders exact review evidence and approve/return actions", () => {
+    const html = renderTaskDetailPage({
+      roleLabel: "manager",
+      backPath: "/workbench/quality?eventId=event-1&managerStage=REVIEW",
+      enforceActionGuards: false,
+    });
+    expect(html).toContain("urlFocus === 'quality-review'");
+    expect(html).toContain("质量验收 · ");
+    expect(html).toContain("提交证据");
+    expect(html).toContain("data-mgr-quality-review=\"approve\"");
+    expect(html).toContain("data-mgr-panel=\"quality-return\"");
+    expect(html).toContain("/api/workbench/manager/quality-review");
+    expect(html).toContain("返回质量事项");
+    expect(html).toContain('id="subtasksCard"');
+    expect(html).toContain("subtasksTitle.textContent = '待验收事项'");
+    expect(html).toContain("taskCard.parentNode.insertBefore(subtasksCard, taskCard)");
+  });
+
   it("employee HTML uses shared subtask planning helpers for mine section", () => {
     const html = renderTaskDetailPage({
       roleLabel: "employee",
@@ -40,5 +62,31 @@ describe("renderTaskDetailPage", () => {
     });
     expect(html).toContain("function subtaskCoreDtDds");
     expect(html).not.toContain("function subtaskMoreDtDds");
+  });
+
+  it("uses the quality event number as the public business number without changing task routes", () => {
+    const employee = renderEmployeeWorkbenchPage();
+    expect(employee).toContain("function employeeBusinessNo(t)");
+    expect(employee).toContain("t.businessNo || (context && context.eventNo) || t.taskNo");
+    expect(employee).toContain("业务编号 <code>'+esc(businessNo||'—')");
+    expect(employee).toContain("taskNo='+encodeURIComponent(tn)");
+    expect(employee).toContain("td && !q");
+
+    const detail = renderTaskDetailPage({
+      roleLabel: "employee",
+      backPath: "/workbench/employee?view=new",
+      enforceActionGuards: false,
+    });
+    expect(detail).toContain("t.businessNo || t.taskNo || taskNo");
+    expect(detail).toContain("businessNo !== internalTaskNo");
+    expect(detail).toContain("taskNo <code>");
+
+    const events = renderTaskEventsPage({
+      roleLabel: "employee",
+      backPath: "/workbench/employee?view=new",
+      detailPath: "/workbench/employee/task?taskNo=TASK-1",
+    });
+    expect(events).toContain("t.businessNo||t.taskNo||taskNo");
+    expect(events).toContain("tasks/detail?taskNo='+encodeURIComponent(taskNo)");
   });
 });

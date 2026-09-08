@@ -29,10 +29,16 @@ export function projectQualityEventState(
         ) SELECT * FROM tree
       `).all(primaryNodeId) as DatabaseRow[];
       const root = nodes.find((item) => String(item.node_id) === primaryNodeId);
-      const descendantsApproved = nodes
-        .filter((item) => String(item.node_id) !== primaryNodeId)
-        .every((item) => String(item.status) === "APPROVED");
-      if (root && String(root.status) === "PENDING_PARENT_REVIEW" && descendantsApproved
+      const descendants = nodes.filter((item) => String(item.node_id) !== primaryNodeId);
+      const descendantsApproved = descendants.length > 0
+        && descendants.every((item) => String(item.status) === "APPROVED");
+      const formalTaskDescendants = descendants.length > 0
+        && descendants.every((item) => Boolean(db.prepare(`
+          SELECT 1 FROM quality_task_links WHERE node_id=? LIMIT 1
+        `).get(String(item.node_id))));
+      const primaryReady = String(root?.status) === "PENDING_PARENT_REVIEW"
+        || (String(root?.status) === "IN_PROGRESS" && formalTaskDescendants);
+      if (root && primaryReady && descendantsApproved
         && String(event.status) === "IN_PROGRESS") {
         const nextStatus = transitionQualityEvent("IN_PROGRESS", "ALL_BRANCHES_APPROVED");
         db.prepare(`

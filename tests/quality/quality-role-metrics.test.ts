@@ -43,11 +43,12 @@ describe("quality role metric copy", () => {
     for (const label of [
       "待我承接",
       "待分派员工",
+      "待员工承接",
       "员工执行中",
       "待我验收",
       "已关闭",
     ]) expect(supervisor).toContain(label);
-    for (const stage of ["ACCEPT", "DELEGATE", "EXECUTION", "REVIEW", "CLOSED"]) {
+    for (const stage of ["ACCEPT", "DELEGATE", "WAITING_EMPLOYEE", "EXECUTION", "REVIEW", "CLOSED"]) {
       expect(supervisor).toContain(`data-metric-manager-stage="${stage}"`);
     }
   });

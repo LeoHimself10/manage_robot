@@ -411,13 +411,16 @@ ${portfolio ? `<dialog id="assignProjectDialog">
   function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+  function wbBusinessNo(t) {
+    return String(t && (t.businessNo || t.taskNo) || '').trim();
+  }
   function truncateLabel(s, max) {
     s = String(s || '').trim();
     if (s.length <= max) return s;
     return s.slice(0, Math.max(0, max - 1)) + '…';
   }
   function wbReassignTaskShortLabel(t) {
-    var no = String(t.taskNo || '任务');
+    var no = wbBusinessNo(t) || '任务';
     var title = truncateLabel(String(t.title || ''), 22);
     var st = String(t.statusLabel || t.status || '');
     return no + ' · ' + title + (st ? ' · ' + st : '');
@@ -484,7 +487,7 @@ ${portfolio ? `<dialog id="assignProjectDialog">
       var st = escapeHtml(String(t.statusLabel || t.status || ''));
       var full = escapeHtml(wbReassignTaskShortLabel(t));
       return '<li role="option" tabindex="0" data-plan-id="' + planId + '" data-task-no="' + taskNo + '" data-label="' + full + '">'
-        + '<span class="reassign-task-picker__opt-no">' + escapeHtml(t.taskNo || '—') + '</span>'
+        + '<span class="reassign-task-picker__opt-no">' + escapeHtml(wbBusinessNo(t) || '—') + '</span>'
         + '<span class="reassign-task-picker__opt-main"><span class="reassign-task-picker__opt-title">' + title + '</span>'
         + (st ? '<span class="reassign-task-picker__opt-st">' + st + '</span>' : '') + '</span></li>';
     }).join('');
@@ -661,7 +664,7 @@ ${portfolio ? `<dialog id="assignProjectDialog">
         : ('<td>' + fmtTime(t.updatedAt) + '<br><a href="/workbench/manager/task?taskNo='
           + encodeURIComponent(t.taskNo || '') + '">查看详情</a></td>');
       return '<tr>'
-        + '<td><code>' + escapeHtml(t.taskNo || '—') + '</code></td>'
+        + '<td><code>' + escapeHtml(wbBusinessNo(t) || '—') + '</code></td>'
         + '<td>' + escapeHtml(t.title || '—') + '</td>'
         + '<td>' + escapeHtml(t.assigneeSummary || '—') + '</td>'
         + '<td>' + escapeHtml(String(t.subtasksCount || 0)) + '（阻塞 ' + escapeHtml(String(t.blockedCount || 0)) + '）</td>'
@@ -682,7 +685,7 @@ ${portfolio ? `<dialog id="assignProjectDialog">
     list = list.filter(function (t) {
       if (att && String(t.attentionBucket || '') !== att) return false;
       if (kw) {
-        var hay = (String(t.taskNo || '') + ' ' + String(t.title || '')).toLowerCase();
+        var hay = (wbBusinessNo(t) + ' ' + String(t.taskNo || '') + ' ' + String(t.title || '')).toLowerCase();
         if (hay.indexOf(kw) < 0) return false;
       }
       if (asg) {
@@ -697,7 +700,7 @@ ${portfolio ? `<dialog id="assignProjectDialog">
         var pb = attentionRank(String(b.attentionBucket || ''));
         if (pa !== pb) return pa - pb;
       } else if (sort === 'task_no') {
-        return String(a.taskNo || '').localeCompare(String(b.taskNo || ''), 'zh-CN');
+        return wbBusinessNo(a).localeCompare(wbBusinessNo(b), 'zh-CN');
       }
       var ta = Date.parse(a.updatedAt || '') || 0;
       var tb = Date.parse(b.updatedAt || '') || 0;
@@ -1126,7 +1129,7 @@ export function renderManagerChatPage(params: {
     </div>
   </div>
 </div>`,
-    scriptHtml: `<script src="/static/workbench-draft-grid.js"></script>
+    scriptHtml: `<script src="/static/workbench-draft-grid.js?v=draft-autofit-20260902"></script>
 <script>
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}
@@ -1200,6 +1203,21 @@ export function renderManagerChatPage(params: {
     var stream = document.getElementById('chatStream');
     if (!stream) return;
     stream.scrollTop = stream.scrollHeight;
+  }
+  function scrollLatestAssistantMessageIntoView() {
+    var stream = document.getElementById('chatStream');
+    var rows = document.querySelectorAll('#msgList .msg-row--assistant:not(#pendingAssistantMsg)');
+    var latest = rows.length ? rows[rows.length - 1] : null;
+    if (!stream || !latest) {
+      scrollMessageStreamToBottom();
+      return;
+    }
+    requestAnimationFrame(function () {
+      var streamRect = stream.getBoundingClientRect();
+      var latestRect = latest.getBoundingClientRect();
+      var targetTop = stream.scrollTop + latestRect.top - streamRect.top - 12;
+      stream.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+    });
   }
   var msgInput = document.getElementById('msgInput');
   function focusComposer() {
@@ -2609,7 +2627,8 @@ export function renderManagerChatPage(params: {
       if (retry) retry.addEventListener('click', function () { void loadThreads(selectId); });
     }
   }
-  async function loadMessages(expectedSeq) {
+  async function loadMessages(expectedSeq, opts) {
+    opts = opts || {};
     if (expectedSeq === undefined) expectedSeq = loadSeq;
     renderSkeleton();
     var stream = document.getElementById('chatStream');
@@ -2625,7 +2644,8 @@ export function renderManagerChatPage(params: {
       await loadDraftSummary(expectedSeq);
       if (expectedSeq !== loadSeq) return;
       maybeOpenDraftEditorFromUrl();
-      scrollMessageStreamToBottom();
+      if (opts.scrollToLatestAssistant) scrollLatestAssistantMessageIntoView();
+      else scrollMessageStreamToBottom();
     } catch (e) {
       if (expectedSeq !== loadSeq) return;
       if (activeThreadKind === 'side' && isThreadNotFoundError(e)) {
@@ -2690,7 +2710,7 @@ export function renderManagerChatPage(params: {
       if (data.kind) activeThreadKind = data.kind;
       clearPendingBubble();
       await loadThreads(activeThreadId);
-      await loadMessages();
+      await loadMessages(undefined, { scrollToLatestAssistant: prepareAfter });
       if (fromComposer) focusComposer();
       if (prepareAfter) {
         publishFlowState = 'awaitConfirmPopup';

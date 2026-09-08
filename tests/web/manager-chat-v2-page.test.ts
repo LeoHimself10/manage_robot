@@ -24,7 +24,7 @@ describe("manager smart planning assistant v2 page", () => {
     expect(html).toContain('id="draftPreviewList"');
     expect(html).toContain("/api/workbench/manager/contacts?keyword=");
     expect(html).toContain("/api/workbench/conversation/send");
-    expect(html).toContain("/static/workbench-draft-grid.js");
+    expect(html).toContain("/static/workbench-draft-grid.js?v=draft-autofit-20260902");
     expect(html).toContain("确认分配并发放");
     expect(html).toContain("请先核对通讯录，再更新当前草案指派");
     expect(html).toContain("/api/workbench/conversation/draft/assign");
@@ -80,5 +80,22 @@ describe("manager smart planning assistant v2 page", () => {
     expect(defaultHtml).toContain("var pendingOpenDraftEditor = false");
     expect(deepLinkHtml).toContain("var pendingOpenDraftEditor = true");
     expect(defaultHtml).toContain("function maybeOpenDraftEditorFromUrl()");
+  });
+
+  it("focuses the generated publish preview instead of the draft board below it", () => {
+    const html = renderManagerChatPage({});
+
+    expect(html).toContain("function scrollLatestAssistantMessageIntoView()");
+    expect(html).toContain("#msgList .msg-row--assistant:not(#pendingAssistantMsg)");
+    expect(html).toContain("var targetTop = stream.scrollTop + latestRect.top - streamRect.top - 12");
+    expect(html).toContain(
+      "stream.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })",
+    );
+    expect(html).toContain(
+      "await loadMessages(undefined, { scrollToLatestAssistant: prepareAfter })",
+    );
+    expect(html).toContain(
+      "if (opts.scrollToLatestAssistant) scrollLatestAssistantMessageIntoView()",
+    );
   });
 });

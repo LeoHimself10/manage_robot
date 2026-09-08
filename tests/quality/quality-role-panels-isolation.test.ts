@@ -228,6 +228,240 @@ describe("quality supervisor directory", () => {
 });
 
 describe("quality perspective projector", () => {
+  it("selects Tong Cheng's five-stage workspace from the authoritative event lifecycle", () => {
+    const dbPath = temporaryDb("quality-management-default-stage-");
+    const cases = [
+      ["PENDING_ANALYSIS", "analysis"],
+      ["PENDING_ASSIGNMENT", "assignment"],
+      ["PENDING_ACCEPTANCE", "assignment"],
+      ["IN_PROGRESS", "chain"],
+      ["PENDING_PRIMARY_REVIEW", "chain"],
+      ["PENDING_QUALITY_REVIEW", "final"],
+      ["CLOSED", "final"],
+    ] as const;
+    for (const [status] of cases) {
+      createEvent(dbPath, {
+        id: `event-${status.toLowerCase()}`,
+        eventNo: `QT-${status}`,
+        actorUserId: "QUALITY_TEST_AFTERSALES_001",
+        isTest: true,
+        status,
+      });
+    }
+
+    const projector = createQualityEventPerspectiveProjector(dbPath);
+    for (const [status, defaultStage] of cases) {
+      const detail = projector.getEventDetail({
+        viewerUserId: "admin-1",
+        testActorRef: "quality-management",
+        eventId: `event-${status.toLowerCase()}`,
+      })!;
+      expect(detail.viewModel).toMatchObject({
+        perspective: "quality_management",
+        defaultStage,
+      });
+    }
+    projector.close();
+  });
+
+  it("projects formal-task dependencies, node evidence and manager review into Tong Cheng's view", () => {
+    const dbPath = temporaryDb("quality-management-evidence-projection-");
+    createEvent(dbPath, {
+      id: "test-event-evidence",
+      eventNo: "QT-EVIDENCE-001",
+      actorUserId: "QUALITY_TEST_AFTERSALES_001",
+      isTest: true,
+      status: "IN_PROGRESS",
+    });
+    insertNode(dbPath, {
+      eventId: "test-event-evidence",
+      nodeId: "root-manager",
+      assigneeUserId: "QUALITY_TEST_MANAGER_001",
+      departmentName: "研发中心",
+      status: "IN_PROGRESS",
+    });
+    insertNode(dbPath, {
+      eventId: "test-event-evidence",
+      nodeId: "node-investigation",
+      parentNodeId: "root-manager",
+      assigneeUserId: "QUALITY_TEST_EMPLOYEE_001",
+      assigneeKind: "EMPLOYEE",
+      departmentName: "研发中心",
+      status: "APPROVED",
+    });
+    insertNode(dbPath, {
+      eventId: "test-event-evidence",
+      nodeId: "node-verification",
+      parentNodeId: "root-manager",
+      assigneeUserId: "QUALITY_TEST_EMPLOYEE_002",
+      assigneeKind: "EMPLOYEE",
+      departmentName: "研发中心",
+      status: "PENDING_PARENT_REVIEW",
+    });
+
+    const db = new DatabaseSync(dbPath);
+    db.exec(`
+      CREATE TABLE tasks(
+        task_id TEXT PRIMARY KEY,task_no TEXT NOT NULL,plan_id TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,status TEXT NOT NULL,manager_user_id TEXT NOT NULL,
+        published_at TEXT NOT NULL,updated_at TEXT NOT NULL
+      );
+      CREATE TABLE subtasks(
+        subtask_id TEXT PRIMARY KEY,task_id TEXT NOT NULL,source_task_key TEXT NOT NULL,
+        title TEXT NOT NULL,objective TEXT,deliverables TEXT,completion_criteria TEXT,
+        assignee_user_id TEXT NOT NULL,status TEXT NOT NULL,due_at TEXT,progress_note TEXT,
+        created_at TEXT NOT NULL,updated_at TEXT NOT NULL,completed_at TEXT,depends_on TEXT
+      );
+    `);
+    db.prepare(`UPDATE quality_assignment_nodes SET is_primary=1 WHERE node_id='root-manager'`).run();
+    db.prepare(`UPDATE quality_events SET primary_node_id='root-manager' WHERE id='test-event-evidence'`).run();
+    db.prepare(`INSERT INTO quality_analysis_handoffs(
+      handoff_id,event_id,analysis_version,integration_key,primary_department_id,
+      primary_department_name,primary_manager_user_id,task_package_json,plan_id,
+      thread_id,status,formal_task_id,created_at,published_at
+    ) VALUES('handoff-evidence','test-event-evidence',1,'quality-node:test-event-evidence',
+      'dept-rd','研发中心','QUALITY_TEST_MANAGER_001','{}','plan-evidence','thread-evidence',
+      'PUBLISHED','formal-task-evidence',?,?)`).run(NOW, NOW);
+    db.prepare(`INSERT INTO tasks(
+      task_id,task_no,plan_id,title,status,manager_user_id,published_at,updated_at
+    ) VALUES('formal-task-evidence','TASK-INTERNAL-001','plan-evidence','质量正式任务',
+      'IN_PROGRESS','QUALITY_TEST_MANAGER_001',?,?)`).run(NOW, NOW);
+    db.prepare(`INSERT INTO subtasks(
+      subtask_id,task_id,source_task_key,title,objective,deliverables,completion_criteria,
+      assignee_user_id,status,due_at,progress_note,created_at,updated_at,completed_at,depends_on
+    ) VALUES('formal-subtask-1','formal-task-evidence','task_1','根本原因调查','查明原因',
+      '原因分析报告','包含复现与验证','QUALITY_TEST_EMPLOYEE_001','DONE',?,
+      '调查完成',?,?,?,?)`).run(NOW, NOW, NOW, NOW, JSON.stringify([]));
+    db.prepare(`INSERT INTO subtasks(
+      subtask_id,task_id,source_task_key,title,objective,deliverables,completion_criteria,
+      assignee_user_id,status,due_at,progress_note,created_at,updated_at,completed_at,depends_on
+    ) VALUES('formal-subtask-2','formal-task-evidence','task_2','标签流程复核','复核流程',
+      '流程复核记录','完成复测','QUALITY_TEST_EMPLOYEE_002','DONE',?,
+      '等待主管验收',?,?,?,?)`).run(NOW, NOW, NOW, NOW, JSON.stringify(["task_1"]));
+    db.prepare(`INSERT INTO quality_task_links(node_id,task_id,subtask_id,integration_key,created_at)
+      VALUES('node-investigation','formal-task-evidence','formal-subtask-1',
+        'quality-node:node-investigation',?)`).run(NOW);
+    db.prepare(`INSERT INTO quality_task_links(node_id,task_id,subtask_id,integration_key,created_at)
+      VALUES('node-verification','formal-task-evidence','formal-subtask-2',
+        'quality-node:node-verification',?)`).run(NOW);
+    db.prepare(`INSERT INTO quality_evidence(
+      evidence_id,event_id,node_id,evidence_version,storage_key,original_name,mime_type,
+      summary,size_bytes,sha256,uploaded_by,request_id,created_at
+    ) VALUES('evidence-investigation','test-event-evidence','node-investigation',2,
+      'evidence/investigation.txt','原因分析.txt','text/plain','完成根因核验',128,
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      'QUALITY_TEST_EMPLOYEE_001','request-evidence-investigation',?)`).run(NOW);
+    db.prepare(`INSERT INTO quality_evidence(
+      evidence_id,event_id,node_id,evidence_version,storage_key,original_name,mime_type,
+      summary,size_bytes,sha256,uploaded_by,request_id,created_at
+    ) VALUES('evidence-verification','test-event-evidence','node-verification',1,
+      'evidence/verification.png','流程截图.png','image/png','复测截图',256,
+      'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      'QUALITY_TEST_EMPLOYEE_002','request-evidence-verification',?)`).run(NOW);
+    db.prepare(`INSERT INTO quality_node_reviews(
+      review_id,event_id,node_id,reviewer_user_id,decision,reason,evidence_version,request_id,created_at
+    ) VALUES('review-investigation','test-event-evidence','node-investigation',
+      'QUALITY_TEST_MANAGER_001','APPROVE','证据完整，可以通过',2,
+      'request-review-investigation',?)`).run(NOW);
+    // Legacy/test fixtures can already have authoritative node-to-subtask links
+    // without a newer quality-analysis planning handoff.
+    db.prepare("DELETE FROM quality_analysis_handoffs WHERE event_id='test-event-evidence'").run();
+    const formalStateBefore = db.prepare(`SELECT subtask_id,status FROM subtasks ORDER BY subtask_id`).all();
+    db.close();
+
+    const projector = createQualityEventPerspectiveProjector(dbPath);
+    const tong = projector.getEventDetail({
+      viewerUserId: "admin-1",
+      testActorRef: "quality-management",
+      eventId: "test-event-evidence",
+    })!;
+    const items = tong.viewModel.qualityAssignmentItems as Array<Record<string, unknown>>;
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({
+      actionRef: "formal-subtask-1",
+      nodeId: "node-investigation",
+      parentNodeId: "root-manager",
+      sourceTaskKey: "task_1",
+      dependsOn: [],
+      reviewStatusLabel: "主管已验收",
+      reviewDecision: "APPROVE",
+      reviewReason: "证据完整，可以通过",
+      reviewedAt: NOW,
+      reviewedEvidenceVersion: 2,
+      evidence: [{
+        evidenceId: "evidence-investigation",
+        nodeId: "node-investigation",
+        version: 2,
+        fileName: "原因分析.txt",
+        summary: "完成根因核验",
+        mimeType: "text/plain",
+        sizeBytes: 128,
+        uploaderName: "测试员工1",
+        createdAt: NOW,
+        previewable: true,
+        previewUrl: "/api/workbench/quality/evidence/evidence-investigation",
+        downloadUrl: "/api/workbench/quality/evidence/evidence-investigation?download=1",
+      }],
+    });
+    expect(items[1]).toMatchObject({
+      actionRef: "formal-subtask-2",
+      nodeId: "node-verification",
+      dependsOn: ["task_1"],
+      reviewStatusLabel: "待主管验收",
+      reviewDecision: null,
+      reviewReason: "",
+      reviewedAt: null,
+      evidence: [expect.objectContaining({
+        evidenceId: "evidence-verification",
+        nodeId: "node-verification",
+        version: 1,
+        fileName: "流程截图.png",
+        uploaderName: "测试员工2",
+      })],
+    });
+    expect((items[0]!.evidence as Array<{ evidenceId: string }>).map((item) => item.evidenceId))
+      .not.toContain("evidence-verification");
+
+    const manager = projector.getEventDetail({
+      viewerUserId: "admin-1",
+      testActorRef: "manager-1",
+      eventId: "test-event-evidence",
+    })!;
+    const managerItems = (manager.viewModel.event as {
+      assignmentItems: Array<Record<string, unknown>>;
+    }).assignmentItems;
+    expect(manager.viewModel).toMatchObject({
+      perspective: "manager",
+      formalTaskProjection: true,
+      allowedActions: [],
+      event: { managerStages: ["CLOSED", "REVIEW"] },
+    });
+    expect(managerItems).toHaveLength(2);
+    expect(managerItems.every((item) => item.formalProjection)).toBe(true);
+    expect(managerItems.find((item) => item.actionRef === "formal-subtask-2")).toMatchObject({
+      managerStage: "REVIEW",
+      statusLabel: "已提交，待我验收",
+      reviewStatusLabel: "待主管验收",
+      taskNo: "TASK-INTERNAL-001",
+      taskUrl: expect.stringContaining("/workbench/manager/task?"),
+    });
+
+    const employee = projector.getEventDetail({
+      viewerUserId: "admin-1",
+      testActorRef: "employee-1",
+      eventId: "test-event-evidence",
+    })!;
+    expect(employee.viewModel.qualityAssignmentItems).toEqual([]);
+    expect((employee.viewModel.evidence as Array<{ actionRef: string }>).map((item) => item.actionRef))
+      .toEqual(["evidence-investigation"]);
+    projector.close();
+
+    const verify = new DatabaseSync(dbPath, { readOnly: true });
+    expect(verify.prepare(`SELECT subtask_id,status FROM subtasks ORDER BY subtask_id`).all())
+      .toEqual(formalStateBefore);
+    verify.close();
+  });
+
   it("never falls back to a raw unknown status or permits cross-scope actors", () => {
     expect(qualityStatusLabel("FUTURE_INTERNAL_STATE")).toBe("状态待确认");
     expect(qualityStatusLabel("FUTURE_INTERNAL_STATE")).not.toContain("FUTURE_INTERNAL_STATE");
@@ -311,7 +545,7 @@ describe("quality perspective projector", () => {
     })!;
     expect(aftersales.viewModel).toHaveProperty("assessment");
     expect(aftersales.viewModel).toMatchObject({
-      allowedActions: ["update-aftersales"],
+      allowedActions: [],
       event: { attentionBucket: "PROGRESS", attentionLabel: "待主管承接" },
     });
     expect(JSON.parse(JSON.stringify(specialist.viewModel))).not.toHaveProperty("assessment");
@@ -319,7 +553,11 @@ describe("quality perspective projector", () => {
     expect((manager.viewModel.branch as Array<{ actionRef: string }>).map((item) => item.actionRef))
       .toEqual(["manager-one-node", "manager-one-child", "manager-one-child-three"]);
     expect(manager.viewModel).toMatchObject({
-      event: { attentionBucket: "TODO", attentionLabel: "待主管承接" },
+      event: {
+        title: "事件 QT-TEST-001",
+        attentionBucket: "TODO",
+        attentionLabel: "待我承接",
+      },
     });
     expect(JSON.stringify(manager.viewModel)).not.toContain("RAW_INTERNAL_ACTION");
     expect(JSON.stringify(manager.viewModel)).toContain("业务记录已更新");

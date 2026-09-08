@@ -123,6 +123,17 @@ describe("quality role-panel HTTP APIs", () => {
     db.prepare("UPDATE quality_events SET status='PENDING_ASSIGNMENT',version=2 WHERE id='real-event'").run();
     db.prepare("UPDATE quality_events SET is_test=1,status='PENDING_ASSIGNMENT',version=2 WHERE id='test-event'").run();
     db.prepare("UPDATE quality_events SET is_test=1,status='PENDING_ANALYSIS',version=2,initial_category='测试分类',urgency='MEDIUM',overall_due_at='2026-09-30T08:00:00.000Z' WHERE id='test-analysis-event'").run();
+    db.prepare(`INSERT INTO quality_source_rows(
+      source_key,sheet_id,sheet_name,row_number,state,source_version,content_hash,
+      normalized_json,raw_snapshot_json,previous_snapshot_json,first_seen_at,
+      last_seen_at,source_updated_at,synced_at,version
+    ) VALUES('test-analysis-source','QUALITY_TEST_ISOLATED','隔离测试来源',1,'ACTIVE',1,
+      'test-analysis-content-hash','{}','{}',NULL,?,?,?,?,1)`).run(NOW, NOW, NOW, NOW);
+    db.prepare(`INSERT INTO quality_event_source_links(
+      id,event_id,source_key,source_version,source_state_at_link,
+      source_snapshot_json,linked_by,linked_at
+    ) VALUES('test-analysis-source-link','test-analysis-event','test-analysis-source',1,
+      'ACTIVE','{}','QUALITY_TEST_AFTERSALES_001',?)`).run(NOW);
     db.prepare(`INSERT INTO quality_analysis_versions(
       analysis_id,event_id,analysis_version,request_id,base_attempt_id,content_json,
       deliverables_json,diff_json,modification_reason,primary_department_id,
@@ -219,6 +230,15 @@ describe("quality role-panel HTTP APIs", () => {
     expect(waitingAcceptance.status).toBe(200);
     expect(waitingAcceptance.payload.data.events.map((item: any) => item.actionRef))
       .toEqual(["test-event"]);
+    expect(waitingAcceptance.payload.data.events[0]).toMatchObject({
+      attentionLabel: "待我承接",
+      managerStages: ["ACCEPT"],
+      assignmentItems: [expect.objectContaining({
+        assigneeName: "测试主管",
+        statusLabel: "待主管承接",
+        managerStage: "ACCEPT",
+      })],
+    });
     expect(waitingAcceptance.payload.data.pagination.total).toBe(1);
 
     const executing = await call(
@@ -227,6 +247,109 @@ describe("quality role-panel HTTP APIs", () => {
     expect(executing.status).toBe(200);
     expect(executing.payload.data.events).toEqual([]);
     expect(executing.payload.data.pagination.total).toBe(0);
+
+    const formal = new DatabaseSync(dbPath);
+    formal.exec(`
+      CREATE TABLE tasks(
+        task_id TEXT PRIMARY KEY,task_no TEXT NOT NULL,plan_id TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,manager_user_id TEXT NOT NULL,status TEXT NOT NULL,
+        published_at TEXT NOT NULL
+      );
+      CREATE TABLE subtasks(
+        subtask_id TEXT PRIMARY KEY,task_id TEXT NOT NULL,title TEXT NOT NULL,
+        objective TEXT,deliverables TEXT,completion_criteria TEXT,
+        assignee_user_id TEXT NOT NULL,status TEXT NOT NULL,due_at TEXT,progress_note TEXT,
+        created_at TEXT NOT NULL,updated_at TEXT NOT NULL,completed_at TEXT
+      );
+    `);
+    formal.prepare(`INSERT INTO quality_analysis_handoffs(
+      handoff_id,event_id,analysis_version,integration_key,primary_department_id,
+      primary_department_name,primary_manager_user_id,task_package_json,plan_id,
+      thread_id,status,formal_task_id,created_at,published_at
+    ) VALUES('manager-stage-handoff','test-event',1,'quality-node:test-event','dept-rd',
+      '研发中心（测试）','QUALITY_TEST_MANAGER_001','{}','manager-stage-plan','manager-stage-thread',
+      'PUBLISHED','task:manager-stage-plan',?,?)`).run(NOW, NOW);
+    formal.prepare(`INSERT INTO tasks(task_id,task_no,plan_id,title,manager_user_id,status,published_at)
+      VALUES('task:manager-stage-plan','TASK-MANAGER-STAGE','manager-stage-plan','主管阶段测试任务',
+      'QUALITY_TEST_MANAGER_001','ASSIGNED',?)`).run(NOW);
+    formal.prepare(`INSERT INTO subtasks(
+      subtask_id,task_id,title,objective,assignee_user_id,status,due_at,created_at,updated_at
+    ) VALUES('manager-stage-subtask','task:manager-stage-plan','员工待承接子任务','完成测试核验',
+      'QUALITY_TEST_EMPLOYEE_001','ASSIGNED','2026-09-30T08:00:00.000Z',?,?)`).run(NOW, NOW);
+    formal.prepare(`INSERT INTO subtasks(
+      subtask_id,task_id,title,objective,assignee_user_id,status,due_at,created_at,updated_at
+    ) VALUES('manager-stage-review','task:manager-stage-plan','员工已提交子任务','验收测试结果',
+      'QUALITY_TEST_EMPLOYEE_002','DONE','2026-09-29T08:00:00.000Z',?,?)`).run(NOW, NOW);
+    formal.prepare("UPDATE quality_events SET status='IN_PROGRESS' WHERE id='test-event'").run();
+    formal.prepare("UPDATE quality_assignment_nodes SET status='IN_PROGRESS' WHERE node_id='manager-accept-node'").run();
+    formal.close();
+
+    const waitingEmployee = await call(
+      "/api/workbench/quality/events?projection=1&testActor=manager-1&managerStage=WAITING_EMPLOYEE&page=1&pageSize=25",
+    );
+    expect(waitingEmployee.status).toBe(200);
+    expect(waitingEmployee.payload.data.matchingAssignmentItemCount).toBe(1);
+    expect(waitingEmployee.payload.data.events).toEqual([
+      expect.objectContaining({
+        actionRef: "test-event",
+        attentionLabel: "待员工承接",
+        managerStages: expect.arrayContaining(["WAITING_EMPLOYEE", "REVIEW"]),
+        assignmentItems: expect.arrayContaining([
+          expect.objectContaining({ assigneeName: "测试员工1", managerStage: "WAITING_EMPLOYEE" }),
+          expect.objectContaining({ assigneeName: "测试员工2", managerStage: "REVIEW" }),
+        ]),
+      }),
+    ]);
+    const waitingReview = await call(
+      "/api/workbench/quality/events?projection=1&testActor=manager-1&managerStage=REVIEW&page=1&pageSize=25",
+    );
+    expect(waitingReview.payload.data.events).toEqual([
+      expect.objectContaining({ actionRef: "test-event" }),
+    ]);
+
+    const progress = new DatabaseSync(dbPath);
+    progress.prepare("UPDATE subtasks SET status='IN_PROGRESS' WHERE subtask_id='manager-stage-subtask'").run();
+    progress.close();
+    const formalExecuting = await call(
+      "/api/workbench/quality/events?projection=1&testActor=manager-1&managerStage=EXECUTION&page=1&pageSize=25",
+    );
+    expect(formalExecuting.payload.data.events).toEqual([
+      expect.objectContaining({ actionRef: "test-event", attentionLabel: "员工执行中" }),
+    ]);
+
+    const rejected = new DatabaseSync(dbPath);
+    rejected.exec(`CREATE TABLE task_events(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT NOT NULL,subtask_id TEXT,
+      event_type TEXT NOT NULL,actor_user_id TEXT NOT NULL,note TEXT,payload_json TEXT,
+      occurred_at TEXT NOT NULL
+    )`);
+    rejected.prepare("UPDATE subtasks SET status='REJECTED' WHERE subtask_id='manager-stage-subtask'").run();
+    rejected.prepare(`INSERT INTO task_events(
+      task_id,subtask_id,event_type,actor_user_id,note,occurred_at
+    ) VALUES('task:manager-stage-plan','manager-stage-subtask','SUBTASK_REJECTED',
+      'QUALITY_TEST_EMPLOYEE_001','现有条件无法完成，请重新安排',?)`).run(NOW);
+    rejected.close();
+
+    const waitingReassignment = await call(
+      "/api/workbench/quality/events?projection=1&testActor=manager-1&managerStage=DELEGATE&page=1&pageSize=25",
+    );
+    expect(waitingReassignment.payload.data.matchingAssignmentItemCount).toBe(1);
+    expect(waitingReassignment.payload.data.events).toEqual([
+      expect.objectContaining({
+        actionRef: "test-event",
+        assignmentItems: expect.arrayContaining([
+          expect.objectContaining({
+            actionRef: "manager-stage-subtask",
+            assigneeName: "待重新分派",
+            assignmentKind: "REASSIGN_REQUIRED",
+            previousAssigneeName: "测试员工1",
+            actionReason: "现有条件无法完成，请重新安排",
+            statusLabel: "已拒绝，待重新分派",
+            managerStage: "DELEGATE",
+          }),
+        ]),
+      }),
+    ]);
   });
 
   it("projects a published quality task into the employee view without adding a second action flow", async () => {
@@ -239,8 +362,9 @@ describe("quality role-panel HTTP APIs", () => {
       );
       CREATE TABLE subtasks(
         subtask_id TEXT PRIMARY KEY,task_id TEXT NOT NULL,title TEXT NOT NULL,
-        objective TEXT,assignee_user_id TEXT NOT NULL,status TEXT NOT NULL,due_at TEXT,
-        created_at TEXT NOT NULL
+        objective TEXT,deliverables TEXT,completion_criteria TEXT,
+        assignee_user_id TEXT NOT NULL,status TEXT NOT NULL,due_at TEXT,progress_note TEXT,
+        created_at TEXT NOT NULL,updated_at TEXT NOT NULL,completed_at TEXT
       );
     `);
     db.prepare(`INSERT INTO quality_analysis_handoffs(
@@ -254,9 +378,11 @@ describe("quality role-panel HTTP APIs", () => {
       VALUES('task:employee-plan','TASK-EMPLOYEE-001','employee-plan','原任务系统质量任务',
       'QUALITY_TEST_MANAGER_001','ASSIGNED',?)`).run(NOW);
     db.prepare(`INSERT INTO subtasks(
-      subtask_id,task_id,title,objective,assignee_user_id,status,due_at,created_at
+      subtask_id,task_id,title,objective,deliverables,completion_criteria,
+      assignee_user_id,status,due_at,progress_note,created_at,updated_at
     ) VALUES('employee-subtask','task:employee-plan','完成质量问题核验','提交原因与验证结果',
-      'QUALITY_TEST_EMPLOYEE_001','ASSIGNED','2026-09-30T08:00:00.000Z',?)`).run(NOW);
+      '原因分析报告','包含原因、措施和复测证据','QUALITY_TEST_EMPLOYEE_001','ASSIGNED',
+      '2026-09-30T08:00:00.000Z','已收集原始日志',?,?)`).run(NOW, NOW);
     db.close();
 
     const page = await callPage("/workbench/quality?view=events&testActor=employee-1");
@@ -271,6 +397,41 @@ describe("quality role-panel HTTP APIs", () => {
     expect(waiting.payload.data.events).toEqual([
       expect.objectContaining({ actionRef: "test-event", attentionLabel: "待我承接" }),
     ]);
+
+    const managerWaiting = await call(
+      "/api/workbench/quality/events?projection=1&testActor=manager-1&managerStage=WAITING_EMPLOYEE&page=1&pageSize=25",
+    );
+    expect(managerWaiting.status).toBe(200);
+    expect(managerWaiting.payload.data.events).toEqual([
+      expect.objectContaining({
+        actionRef: "test-event",
+        title: "隔离测试事件",
+        managerStages: ["WAITING_EMPLOYEE"],
+        assignmentItems: [expect.objectContaining({
+          assigneeName: "测试员工1",
+          itemTitle: "完成质量问题核验",
+          deliverables: "原因分析报告",
+          completionCriteria: "包含原因、措施和复测证据",
+          progressNote: "已收集原始日志",
+          managerStage: "WAITING_EMPLOYEE",
+        })],
+      }),
+    ]);
+
+    const managerDetail = await call("/api/workbench/quality/events/test-event?testActor=manager-1");
+    expect(managerDetail.status).toBe(200);
+    expect(managerDetail.payload.data.viewModel).toMatchObject({
+      perspective: "manager",
+      formalTaskProjection: true,
+      event: {
+        assignmentItems: [expect.objectContaining({
+          assigneeName: "测试员工1",
+          itemTitle: "完成质量问题核验",
+          objective: "提交原因与验证结果",
+          taskUrl: "/workbench/manager/task?taskNo=TASK-EMPLOYEE-001&subtaskId=employee-subtask&focus=quality-review&returnTo=%2Fworkbench%2Fquality%3FeventId%3Dtest-event%26managerStage%3DWAITING_EMPLOYEE%26testActor%3Dmanager-1",
+        })],
+      },
+    });
 
     const detail = await call("/api/workbench/quality/events/test-event?testActor=employee-1");
     expect(detail.status).toBe(200);
@@ -294,6 +455,20 @@ describe("quality role-panel HTTP APIs", () => {
     expect(executing.status).toBe(200);
     expect(executing.payload.data.events).toEqual([
       expect.objectContaining({ actionRef: "test-event", attentionLabel: "执行中" }),
+    ]);
+    const managerExecuting = await call(
+      "/api/workbench/quality/events?projection=1&testActor=manager-1&managerStage=EXECUTION&page=1&pageSize=25",
+    );
+    expect(managerExecuting.payload.data.events).toEqual([
+      expect.objectContaining({
+        actionRef: "test-event",
+        managerStages: ["EXECUTION"],
+        assignmentItems: [expect.objectContaining({
+          assigneeName: "测试员工1",
+          managerStage: "EXECUTION",
+          statusLabel: "执行中",
+        })],
+      }),
     ]);
   });
 
@@ -346,29 +521,66 @@ describe("quality role-panel HTTP APIs", () => {
       },
       event: {
         attentionBucket: "TODO",
-        attentionLabel: "待质量初析",
-        statusLabel: "待质量初析",
+        attentionLabel: "待我研判",
+        statusLabel: "待质量研判",
+        urgencyLabel: "待研判",
+        dispositionCode: "UNASSESSED",
       },
     });
-    const reviewed = await call(
+    const assessmentInput = {
+      problemStatus: "人工修订后的测试事实",
+      isQualityEvent: true,
+      categoryMode: "STANDARD",
+      primaryCategoryCode: "IMAGING_OPTICS",
+      secondaryCategoryCode: "IMAGE_NONE_INTERRUPTED",
+      urgency: "HIGH",
+      supplement: "测试补充说明",
+      adoptionMode: "MANUAL",
+      reason: "核对人工研判输入",
+    };
+    const saved = await call(
       "/api/workbench/quality/events/test-analysis-event/test-action?testActor=aftersales",
       "POST",
       {
         action: "update-aftersales",
         expectedVersion: 2,
         requestId: "31111111-1111-4111-8111-111111111111",
-        problemStatus: "人工修订后的测试事实",
-        initialCategory: "影像与光学／无图像或影像中断",
-        urgency: "HIGH",
-        supplement: "测试补充说明",
-        reason: "核对人工研判输入",
+        submissionMode: "SAVE_DRAFT",
+        ...assessmentInput,
       },
     );
-    expect(reviewed.status).toBe(200);
-    expect(reviewed.payload.data.viewModel.event).toMatchObject({
+    expect(saved.status).toBe(200);
+    expect(saved.payload.data.viewModel.event).toMatchObject({
       currentSituation: "人工修订后的测试事实",
       urgencyCode: "HIGH",
+      urgencyLabel: "待研判",
+      dispositionCode: "UNASSESSED",
       version: 3,
+    });
+
+    const hiddenFromSpecialist = await call(
+      "/api/workbench/quality/events/test-analysis-event?testActor=quality-management",
+    );
+    expect(hiddenFromSpecialist.status).toBe(404);
+
+    const confirmed = await call(
+      "/api/workbench/quality/events/test-analysis-event/test-action?testActor=aftersales",
+      "POST",
+      {
+        action: "update-aftersales",
+        expectedVersion: 3,
+        requestId: "31111111-1111-4111-8111-111111111112",
+        submissionMode: "CONFIRM",
+        ...assessmentInput,
+      },
+    );
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.payload.data.viewModel.event).toMatchObject({
+      currentSituation: "人工修订后的测试事实",
+      urgencyCode: "HIGH",
+      urgencyLabel: "高",
+      dispositionCode: "QUALITY_ANOMALY",
+      version: 4,
     });
 
     const specialist = await call(
@@ -382,32 +594,50 @@ describe("quality role-panel HTTP APIs", () => {
       suggestedDepartment: "研发中心",
       deliverableName: "原因排查与验证记录",
     });
+    const completeAnalysisRequest = {
+      action: "complete-analysis",
+      expectedVersion: 4,
+      requestId: "32222222-2222-4222-8222-222222222222",
+      problemDirection: "影像异常原因核验",
+      confirmedCategory: "影像与光学／无图像或影像中断",
+      sourceFactSummary: "测试来源事实已确认",
+      analysisBasis: "AI原始建议\n主管最终研判",
+      preliminaryConclusion: "建议研发中心完成原因排查",
+      informationGaps: "复现记录待补充",
+      handlingRequirements: "完成原因核查\n上传验证证据",
+      suggestedDueAt: "2026-09-30T08:00:00.000Z",
+      deliverableName: "原因排查与验证记录",
+      deliverableDescription: "形成完整测试记录",
+      acceptanceCriteria: "包含原因、措施和验证结果",
+    };
     const analyzed = await call(
       "/api/workbench/quality/events/test-analysis-event/test-action?testActor=quality-management",
       "POST",
-      {
-        action: "complete-analysis",
-        expectedVersion: 3,
-        requestId: "32222222-2222-4222-8222-222222222222",
-        problemDirection: "影像异常原因核验",
-        confirmedCategory: "影像与光学／无图像或影像中断",
-        sourceFactSummary: "测试来源事实已确认",
-        analysisBasis: "AI原始建议\n主管最终研判",
-        preliminaryConclusion: "建议研发中心完成原因排查",
-        informationGaps: "复现记录待补充",
-        handlingRequirements: "完成原因核查\n上传验证证据",
-        suggestedDueAt: "2026-09-30T08:00:00.000Z",
-        deliverableName: "原因排查与验证记录",
-        deliverableDescription: "形成完整测试记录",
-        acceptanceCriteria: "包含原因、措施和验证结果",
-      },
+      completeAnalysisRequest,
     );
     expect(analyzed.status).toBe(200);
     expect(analyzed.payload.data.viewModel).toMatchObject({
       perspective: "quality_management",
-      allowedActions: ["assign-supervisor"],
-      event: { statusLabel: "待任务分配", attentionBucket: "TODO", version: 4 },
+      allowedActions: [],
+      supervisorAssignment: { assigned: true, supervisorName: "测试主管" },
+      event: { statusLabel: "待主管承接", attentionBucket: "PROGRESS", version: 6 },
     });
+
+    const repeated = await call(
+      "/api/workbench/quality/events/test-analysis-event/test-action?testActor=quality-management",
+      "POST",
+      completeAnalysisRequest,
+    );
+    expect(repeated.status).toBe(200);
+    expect(repeated.payload.data.viewModel.event.version).toBe(6);
+
+    const waitingAcceptance = await call(
+      "/api/workbench/quality/events?projection=1&testActor=manager-1&managerStage=ACCEPT&page=1&pageSize=25",
+    );
+    expect(waitingAcceptance.status).toBe(200);
+    expect(waitingAcceptance.payload.data.events).toEqual([
+      expect.objectContaining({ actionRef: "test-analysis-event", attentionLabel: "待我承接" }),
+    ]);
 
     const db = new DatabaseSync(dbPath);
     const auditCount = Number((db.prepare(`
@@ -426,9 +656,105 @@ describe("quality role-panel HTTP APIs", () => {
       SELECT COUNT(*) AS count FROM quality_notification_outbox
       WHERE event_id='test-analysis-event' AND channel<>'TEST'
     `).get() as { count: number }).count);
+    const nodes = Number((db.prepare(`
+      SELECT COUNT(*) AS count FROM quality_assignment_nodes
+      WHERE event_id='test-analysis-event' AND assignee_user_id='QUALITY_TEST_MANAGER_001'
+    `).get() as { count: number }).count);
+    const assignedNotifications = Number((db.prepare(`
+      SELECT COUNT(*) AS count FROM quality_notification_outbox
+      WHERE event_id='test-analysis-event' AND action='PRIMARY_ASSIGNED'
+    `).get() as { count: number }).count);
     db.close();
-    expect({ auditCount, analyses, handoffs, unsafe })
-      .toEqual({ auditCount: 2, analyses: 1, handoffs: 0, unsafe: 0 });
+    expect({ auditCount, analyses, handoffs, unsafe, nodes, assignedNotifications })
+      .toEqual({
+        auditCount: 4,
+        analyses: 1,
+        handoffs: 0,
+        unsafe: 0,
+        nodes: 1,
+        assignedNotifications: 1,
+      });
+  });
+
+  it("records a non-quality decision locally and blocks every downstream quality step", async () => {
+    const initiallyReported = await call(
+      "/api/workbench/quality/events/test-analysis-event/test-action?testActor=aftersales",
+      "POST",
+      {
+        action: "update-aftersales",
+        expectedVersion: 2,
+        requestId: "33333333-3333-4333-8333-333333333330",
+        problemStatus: "人工先确认为质量事件",
+        isQualityEvent: true,
+        categoryMode: "STANDARD",
+        primaryCategoryCode: "OPERATION_SERVICE",
+        secondaryCategoryCode: "OPERATION_TRAINING_MAINTENANCE",
+        urgency: "LOW",
+        supplement: "尚未进入质量初析",
+        adoptionMode: "MANUAL",
+        reason: "初次判断待复核",
+      },
+    );
+    expect(initiallyReported.status).toBe(200);
+
+    const reviewed = await call(
+      "/api/workbench/quality/events/test-analysis-event/test-action?testActor=aftersales",
+      "POST",
+      {
+        action: "update-aftersales",
+        expectedVersion: 3,
+        requestId: "33333333-3333-4333-8333-333333333333",
+        problemStatus: "人工确认属于一般操作反馈",
+        isQualityEvent: false,
+        categoryMode: "STANDARD",
+        primaryCategoryCode: "OPERATION_SERVICE",
+        secondaryCategoryCode: "OPERATION_TRAINING_MAINTENANCE",
+        urgency: "LOW",
+        supplement: "培训后恢复，作为普通事件留档",
+        adoptionMode: "MANUAL",
+        submissionMode: "CONFIRM",
+      },
+    );
+    expect(reviewed.status).toBe(200);
+    expect(reviewed.payload.data.viewModel.event).toMatchObject({
+      dispositionCode: "ORDINARY",
+      dispositionLabel: "普通事件",
+      statusLabel: "普通事件（已记录）",
+      attentionBucket: "DONE",
+      urgencyLabel: "低",
+    });
+
+    const specialist = await call(
+      "/api/workbench/quality/events/test-analysis-event?testActor=quality-management",
+    );
+    expect(specialist.status).toBe(404);
+
+    const db = new DatabaseSync(dbPath);
+    const source = db.prepare(`
+      SELECT review.status,review.event_id,assessment.handling_recommendation,
+             assessment.primary_category_code,assessment.secondary_category_code,
+             assessment.change_reason
+      FROM quality_event_source_links link
+      JOIN quality_source_reviews review ON review.source_key=link.source_key
+      JOIN quality_source_assessments assessment ON assessment.source_key=link.source_key
+      WHERE link.event_id='test-analysis-event'
+    `).get() as Record<string, unknown>;
+    const audit = db.prepare(`
+      SELECT reason FROM quality_audit_events
+      WHERE event_id='test-analysis-event' AND action='AFTERSALES_QUALITY_DECISION'
+        AND reason LIKE '%保存为普通事件%'
+      LIMIT 1
+    `).get() as { reason: string };
+    db.close();
+    expect(source).toMatchObject({
+      status: "ORDINARY",
+      event_id: null,
+      handling_recommendation: "ORDINARY",
+      primary_category_code: "OPERATION_SERVICE",
+      secondary_category_code: "OPERATION_TRAINING_MAINTENANCE",
+      change_reason: null,
+    });
+    expect(audit.reason).toContain("确认不属于质量事件，保存为普通事件");
   });
 
   it("projects different fields and refuses every cross-scope detail read", async () => {
@@ -652,7 +978,7 @@ describe("quality role-panel HTTP APIs", () => {
     );
     expect(accepted.status).toBe(200);
     expect(accepted.payload.data.planningUrl).toMatch(
-      /^\/workbench\/manager\/chat\?thread=side&threadId=.+$/,
+      /^\/workbench\/manager\/chat\?thread=side&threadId=[^&]+&openDraftEditor=1$/,
     );
 
     const planningFiles = readdirSync(join(tempDir, "sessions"));

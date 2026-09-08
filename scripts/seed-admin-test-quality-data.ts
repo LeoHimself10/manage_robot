@@ -6,6 +6,10 @@ import { createWorkbenchFormalTaskStore } from
 import { createQualityTaskBridge } from
   "../src/quality/assignments/quality-task-bridge";
 import { createQualityStore } from "../src/quality/infra/quality-store";
+import {
+  ensureQualityTestEvidenceFixtures,
+  qualityTestEvidenceStorageKey,
+} from "../src/quality/testing/quality-test-evidence-fixtures";
 import { isAdminTestSystemEnabled } from "../src/testing/admin-test-actors";
 
 if (!isAdminTestSystemEnabled()) {
@@ -380,6 +384,7 @@ try {
         );
         if (["PENDING_PARENT_REVIEW", "APPROVED"].includes(childStatus)) {
           const evidenceText = `${no} 隔离测试证据`;
+          const evidenceId = `evidence:${id}:employee`;
           db.prepare(`
             INSERT INTO quality_evidence(
               evidence_id,event_id,node_id,evidence_version,storage_key,original_name,
@@ -388,10 +393,10 @@ try {
               ?,?,?,?,?)
             ON CONFLICT(evidence_id) DO NOTHING
           `).run(
-            `evidence:${id}:employee`,
+            evidenceId,
             id,
             child,
-            `seed:${id}:employee`,
+            qualityTestEvidenceStorageKey(evidenceId),
             Buffer.byteLength(evidenceText),
             createHash("sha256").update(evidenceText).digest("hex"),
             childAssigneeUserId,
@@ -414,6 +419,7 @@ try {
   for (const [index, status] of statusPlan.entries()) {
     ensureConfirmedAnalysis(index, status);
   }
+  ensureQualityTestEvidenceFixtures(db);
   db.exec("COMMIT");
   transactionOpen = false;
 

@@ -20,6 +20,8 @@ const ACTION_LABELS: Record<string, string> = {
   EVENT_SUBMITTED: "正式通报质量事件",
   SUPPLEMENT_ADDED: "补充事件事实",
   REPORT_CORRECTED: "更正事件信息",
+  AFTERSALES_QUALITY_DECISION: "确认质量研判结论",
+  AFTERSALES_ASSESSMENT_SAVED: "保存质量研判（未推送）",
   PRIMARY_ASSIGNED: "选择责任主管",
   QUALITY_NODE_ACCEPTED: "主管接受承接",
   QUALITY_NODE_REJECTED: "主管拒绝承接",

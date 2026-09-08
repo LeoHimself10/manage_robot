@@ -2717,7 +2717,7 @@ dialog::backdrop {
   border-collapse: collapse;
   width: max-content;
   min-width: 100%;
-  font-size: 12px;
+  font-size: 13px;
 }
 .draft-excel-table th {
   position: sticky;
@@ -2783,9 +2783,16 @@ dialog::backdrop {
   outline: none;
   padding: 6px 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.55;
   background: transparent;
   resize: vertical;
+}
+.draft-excel-table textarea.cell-input {
+  min-height: 72px;
+  overflow-y: hidden;
+  resize: none;
+  white-space: pre-wrap;
 }
 .draft-excel-table .cell-input:focus {
   background: #dbeafe;

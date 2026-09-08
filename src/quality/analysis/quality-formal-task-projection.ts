@@ -20,10 +20,17 @@ export interface QualityFormalSubtaskProjection {
   subtaskId: string;
   subtaskTitle: string;
   objective: string;
+  deliverables: string;
+  completionCriteria: string;
   assigneeUserId: string;
   status: string;
   openDeclineKind: QualityEmployeeOpenSignal;
+  openDeclineReason: string;
   dueAt: string | null;
+  progressNote: string;
+  updatedAt: string;
+  acceptedAt: string | null;
+  completedAt: string | null;
   managerUserId: string;
 }
 
@@ -87,10 +94,17 @@ function projectionFromRow(row: DatabaseRow): QualityFormalSubtaskProjection {
     subtaskId: String(row.subtask_id),
     subtaskTitle: String(row.subtask_title),
     objective: String(row.objective ?? ""),
+    deliverables: String(row.deliverables ?? ""),
+    completionCriteria: String(row.completion_criteria ?? ""),
     assigneeUserId: String(row.assignee_user_id),
     status: String(row.status),
     openDeclineKind: null,
+    openDeclineReason: "",
     dueAt: nullable(row.due_at),
+    progressNote: String(row.progress_note ?? ""),
+    updatedAt: String(row.updated_at ?? ""),
+    acceptedAt: nullable(row.accepted_at),
+    completedAt: nullable(row.completed_at),
     managerUserId: String(row.manager_user_id),
   };
 }
@@ -147,46 +161,102 @@ export function listQualityFormalSubtasksFromDb(
   const eventId = input.eventId.trim();
   const assigneeUserId = String(input.assigneeUserId ?? "").trim();
   if (!eventId) return [];
-  if (!["quality_analysis_handoffs", "quality_events", "tasks", "subtasks"]
-    .every((table) => tableExists(db, table))) return [];
-  const rows = db.prepare(`
+  if (!["quality_events", "tasks", "subtasks"].every((table) => tableExists(db, table))) return [];
+  const hasPlanningHandoffs = tableExists(db, "quality_analysis_handoffs");
+  const hasTaskLinks = ["quality_assignment_nodes", "quality_task_links"]
+    .every((table) => tableExists(db, table));
+  if (!hasPlanningHandoffs && !hasTaskLinks) return [];
+  const acceptedAtSelect = tableExists(db, "task_events")
+    ? `(SELECT te.occurred_at FROM task_events te
+         WHERE te.subtask_id=s.subtask_id AND te.event_type='SUBTASK_ACCEPTED'
+         ORDER BY te.occurred_at DESC,te.id DESC LIMIT 1)`
+    : "NULL";
+  const linkedSubtaskExclusion = hasTaskLinks
+    ? `AND NOT EXISTS (
+         SELECT 1
+         FROM quality_task_links linked
+         JOIN quality_assignment_nodes linked_node ON linked_node.node_id=linked.node_id
+         WHERE linked.subtask_id=s.subtask_id AND linked_node.event_id=h.event_id
+       )`
+    : "";
+  const rowsBySubtaskId = new Map<string, DatabaseRow>();
+  if (hasPlanningHandoffs) {
+    const handoffRows = db.prepare(`
       SELECT h.integration_key,
              e.id AS event_id,e.event_no,e.title AS event_title,e.problem_status AS event_summary,
              t.task_id,t.task_no,t.title AS task_title,t.manager_user_id,
-             s.subtask_id,s.title AS subtask_title,s.objective,s.assignee_user_id,s.status,s.due_at
+             s.subtask_id,s.title AS subtask_title,s.objective,s.deliverables,
+             s.completion_criteria,s.assignee_user_id,s.status,s.due_at,s.progress_note,
+             s.updated_at,${acceptedAtSelect} AS accepted_at,s.completed_at,
+             s.created_at AS projection_created_at
       FROM quality_analysis_handoffs h
       JOIN quality_events e ON e.id=h.event_id AND e.deleted_at IS NULL
       JOIN tasks t ON t.plan_id=h.plan_id
       JOIN subtasks s ON s.task_id=t.task_id
       WHERE h.event_id=? AND (?='' OR s.assignee_user_id=?)
+        ${linkedSubtaskExclusion}
       ORDER BY s.created_at,s.subtask_id
     `).all(eventId, assigneeUserId, assigneeUserId) as DatabaseRow[];
+    for (const row of handoffRows) rowsBySubtaskId.set(String(row.subtask_id), row);
+  }
+  if (hasTaskLinks) {
+    const linkedRows = db.prepare(`
+      SELECT l.integration_key,
+             e.id AS event_id,e.event_no,e.title AS event_title,e.problem_status AS event_summary,
+             t.task_id,t.task_no,t.title AS task_title,t.manager_user_id,
+             s.subtask_id,s.title AS subtask_title,s.objective,s.deliverables,
+             s.completion_criteria,s.assignee_user_id,s.status,s.due_at,s.progress_note,
+             s.updated_at,${acceptedAtSelect} AS accepted_at,s.completed_at,
+             s.created_at AS projection_created_at
+      FROM quality_task_links l
+      JOIN quality_assignment_nodes n ON n.node_id=l.node_id
+      JOIN quality_events e ON e.id=n.event_id AND e.deleted_at IS NULL
+      JOIN tasks t ON t.task_id=l.task_id
+      JOIN subtasks s ON s.subtask_id=l.subtask_id AND s.task_id=t.task_id
+      WHERE n.event_id=? AND n.status<>'CANCELLED'
+        AND (?='' OR s.assignee_user_id=?)
+      ORDER BY s.created_at,s.subtask_id
+    `).all(eventId, assigneeUserId, assigneeUserId) as DatabaseRow[];
+    // A published V2 handoff also has task links. The node-level link is the
+    // authoritative event/subtask relation, so it replaces the handoff path.
+    for (const row of linkedRows) rowsBySubtaskId.set(String(row.subtask_id), row);
+  }
+  const rows = [...rowsBySubtaskId.values()].sort((left, right) => {
+    const byCreatedAt = String(left.projection_created_at ?? "")
+      .localeCompare(String(right.projection_created_at ?? ""));
+    return byCreatedAt || String(left.subtask_id).localeCompare(String(right.subtask_id));
+  });
   const projected = rows.map(projectionFromRow);
-  const openSignals = readOpenDeclineKinds(db, projected.map((item) => item.subtaskId));
+  const openSignals = readOpenDeclines(db, projected.map((item) => item.subtaskId));
   return projected.map((item) => ({
     ...item,
-    openDeclineKind: openSignals.get(item.subtaskId) ?? null,
+    openDeclineKind: openSignals.get(item.subtaskId)?.kind ?? null,
+    openDeclineReason: openSignals.get(item.subtaskId)?.reason ?? "",
   }));
 }
 
-function readOpenDeclineKinds(
+function readOpenDeclines(
   db: DatabaseSync,
   subtaskIds: string[],
-): Map<string, QualityEmployeeOpenSignal> {
+): Map<string, { kind: Exclude<QualityEmployeeOpenSignal, null>; reason: string }> {
   const ids = [...new Set(subtaskIds.map((id) => id.trim()).filter(Boolean))];
-  const result = new Map<string, QualityEmployeeOpenSignal>();
+  const result = new Map<string, {
+    kind: Exclude<QualityEmployeeOpenSignal, null>;
+    reason: string;
+  }>();
   if (ids.length === 0 || !tableExists(db, "task_events")) return result;
   const placeholders = ids.map(() => "?").join(",");
-  const rows = db.prepare(`SELECT subtask_id,event_type FROM task_events
+  const rows = db.prepare(`SELECT subtask_id,event_type,note FROM task_events
     WHERE subtask_id IN (${placeholders}) ORDER BY id`).all(...ids) as DatabaseRow[];
   for (const row of rows) {
     const subtaskId = String(row.subtask_id);
     const eventType = String(row.event_type);
-    const open = result.get(subtaskId) ?? null;
+    const open = result.get(subtaskId);
+    const reason = String(row.note ?? "").trim();
     if (eventType === "SUBTASK_CHANGES_REQUESTED" || eventType === "SUBTASK_CUSTOMIZE_NOTE") {
-      result.set(subtaskId, "changes");
+      result.set(subtaskId, { kind: "changes", reason });
     } else if (eventType === "SUBTASK_REJECTED") {
-      result.set(subtaskId, "rejected");
+      result.set(subtaskId, { kind: "rejected", reason });
     } else if (eventType === "MANAGER_DECLINE_CHANGES" || eventType === "MANAGER_REASSIGN") {
       result.delete(subtaskId);
     } else if (open && eventType === "SUBTASK_ACCEPTED") {
@@ -221,11 +291,11 @@ export function getQualityPlanningContextsBySubtaskIds(
       JOIN subtasks s ON s.task_id=t.task_id
       WHERE s.subtask_id IN (${placeholders}) AND s.assignee_user_id=?
     `).all(...ids, viewer) as DatabaseRow[];
-    const openSignals = readOpenDeclineKinds(db, rows.map((row) => String(row.subtask_id)));
+    const openSignals = readOpenDeclines(db, rows.map((row) => String(row.subtask_id)));
     for (const row of rows) {
       const taskNo = String(row.task_no);
       const status = String(row.status);
-      const openDeclineKind = openSignals.get(String(row.subtask_id)) ?? null;
+      const openDeclineKind = openSignals.get(String(row.subtask_id))?.kind ?? null;
       const stage = qualityEmployeeTaskStage(status, openDeclineKind);
       const fromView = stage === "ASSIGNED" || stage === "WAITING_MANAGER" ? "new"
         : stage === "DONE" ? "history" : "current";
@@ -297,17 +367,30 @@ export function reconcileQualityPlanningPublication(input: {
     if (subtasks.length === 0) return { matched: false, eventStatusChanged: false };
     const publishedAt = String(input.publishedAt ?? task.published_at ?? new Date().toISOString());
     const auditRequestId = `quality-planning-published:${integrationKey}`;
-    const rootNodeId = deterministicProjectionId("quality-root", eventId, formalTaskId);
+    const managerUserId = String(task.manager_user_id ?? handoff.primary_manager_user_id).trim();
+    if (!managerUserId) throw new Error("formal task manager is missing");
+    const projectedRootNodeId = deterministicProjectionId("quality-root", eventId, formalTaskId);
     const existingPrimaryNodeId = nullable(event.primary_node_id);
-    if (existingPrimaryNodeId && existingPrimaryNodeId !== rootNodeId) {
-      throw new Error("quality event already has a different primary node");
+    let rootNodeId = projectedRootNodeId;
+    if (existingPrimaryNodeId && existingPrimaryNodeId !== projectedRootNodeId) {
+      const existingPrimary = db.prepare(`SELECT event_id,parent_node_id,assignee_user_id,is_primary
+        FROM quality_assignment_nodes WHERE node_id=?`).get(existingPrimaryNodeId) as DatabaseRow | undefined;
+      if (!existingPrimary
+        || String(existingPrimary.event_id) !== eventId
+        || existingPrimary.parent_node_id != null
+        || String(existingPrimary.assignee_user_id) !== managerUserId
+        || Number(existingPrimary.is_primary) !== 1) {
+        throw new Error("quality event already has a different primary node");
+      }
+      // Older/test quality events can already have a valid accepted supervisor
+      // root before the manager publishes the formal task. Reuse that root and
+      // only materialize the formal subtask links below it.
+      rootNodeId = existingPrimaryNodeId;
     }
     const dueCandidates = subtasks.map((row) => nullable(row.due_at)).filter((value): value is string => Boolean(value));
     const rootDueAt = nullable(event.overall_due_at)
       ?? dueCandidates.sort((a, b) => b.localeCompare(a))[0]
       ?? publishedAt;
-    const managerUserId = String(task.manager_user_id ?? handoff.primary_manager_user_id).trim();
-    if (!managerUserId) throw new Error("formal task manager is missing");
     const departmentName = String(handoff.primary_department_name ?? "").trim() || "待确认部门";
     let eventStatusChanged = false;
     db.exec("BEGIN IMMEDIATE");

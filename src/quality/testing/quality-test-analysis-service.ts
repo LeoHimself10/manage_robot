@@ -94,8 +94,9 @@ export function createQualityTestAnalysisService(deps?: {
     if (!eventBoundary.isTest) throw new Error("真实质量事件不能使用测试初析动作");
 
     const repeated = db.prepare(`
-      SELECT analysis_id,analysis_version FROM quality_analysis_versions WHERE request_id=?
-    `).get(input.requestId) as DatabaseRow | undefined;
+      SELECT analysis_id,analysis_version FROM quality_analysis_versions
+      WHERE event_id=? AND request_id=?
+    `).get(input.eventId, input.requestId) as DatabaseRow | undefined;
     if (repeated) {
       const current = db.prepare("SELECT status,version FROM quality_events WHERE id=?")
         .get(input.eventId) as DatabaseRow;
@@ -263,7 +264,7 @@ export function createQualityTestAnalysisService(deps?: {
         handoffId: String(existing.handoff_id),
         threadId,
         planId: String(existing.plan_id),
-        planningUrl: `/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(threadId)}`,
+        planningUrl: `/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(threadId)}&openDraftEditor=1`,
         created: false,
       };
     }
@@ -428,7 +429,7 @@ export function createQualityTestAnalysisService(deps?: {
       handoffId,
       threadId,
       planId: side.planId,
-      planningUrl: `/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(threadId)}`,
+      planningUrl: `/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(threadId)}&openDraftEditor=1`,
       created: true,
     };
   }

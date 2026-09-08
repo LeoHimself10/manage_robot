@@ -258,11 +258,19 @@ import {
   isQualityPagePath,
 } from "./quality-http";
 import { createQualityAssignmentService } from "../quality/assignments/quality-assignment-service";
-import { getQualityContextBySubtaskIds } from "../quality/assignments/quality-task-context";
+import {
+  getManagerQualityReviewContextsBySubtaskIds,
+  getQualityContextBySubtaskIds,
+} from "../quality/assignments/quality-task-context";
+import { createQualityReviewService } from "../quality/reviews/quality-review-service";
 import { getQualityPlanningContextsBySubtaskIds } from
   "../quality/analysis/quality-formal-task-projection";
 import { getQualityPlanningDraftContext } from
   "../quality/analysis/quality-planning-draft-context";
+import {
+  getQualityBusinessContextsByTaskIds,
+  type QualityBusinessContext,
+} from "../quality/presentation/quality-business-context";
 
 const WORKBENCH_LOGIN_PATH = "/workbench";
 
@@ -1181,10 +1189,28 @@ function mapEmployeeSubtasksForApi(
   return tasks.map((task) => {
     const mapped = mapEmployeeSubtaskForApi(task);
     const qualityContext = contexts.get(task.subtaskId);
-    if (qualityContext) return { ...mapped, qualityContext };
+    if (qualityContext) return {
+      ...mapped,
+      businessNo: qualityContext.eventNo,
+      qualityContext,
+    };
     const qualityPlanningContext = planningContexts.get(task.subtaskId);
-    return qualityPlanningContext ? { ...mapped, qualityPlanningContext } : mapped;
+    return qualityPlanningContext
+      ? { ...mapped, businessNo: qualityPlanningContext.eventNo, qualityPlanningContext }
+      : { ...mapped, businessNo: mapped.taskNo };
   });
+}
+
+function attachQualityBusinessContext<T extends { taskId: string; taskNo: string }>(task: T): T & {
+  businessNo: string;
+  qualityBusinessContext: QualityBusinessContext | null;
+} {
+  const qualityBusinessContext = getQualityBusinessContextsByTaskIds([task.taskId]).get(task.taskId) ?? null;
+  return {
+    ...task,
+    businessNo: qualityBusinessContext?.eventNo ?? task.taskNo,
+    qualityBusinessContext,
+  };
 }
 
 function requirePortfolioManager(
@@ -1344,7 +1370,7 @@ export function renderTaskEventsPage(params: {
     var data = await res.json().catch(function(){ return {}; });
     if(!res.ok || !data.ok){ document.getElementById('taskMount').textContent = data.error || ('HTTP '+res.status); return; }
     var t = data.task || {};
-    document.getElementById('taskMount').innerHTML = '<h2 style="margin:0;font-size:18px;">'+esc(t.title||'—')+'</h2><p class="muted" style="margin:6px 0 0;">业务编号 <code>'+esc(t.taskNo||taskNo)+'</code></p>';
+    document.getElementById('taskMount').innerHTML = '<h2 style="margin:0;font-size:18px;">'+esc(t.title||'—')+'</h2><p class="muted" style="margin:6px 0 0;">业务编号 <code>'+esc(t.businessNo||t.taskNo||taskNo)+'</code></p>';
     var crumb = document.getElementById('detailBreadcrumbTitle');
     if (crumb) crumb.textContent = t.title || taskNo;
     var events = data.events || [];
@@ -1440,8 +1466,8 @@ export function renderTaskDetailPage(params: {
       <div class="feedback muted" id="detailReassignFeedback"></div>
     </div>
   </div>
-  <div class="card">
-    <h3 style="margin:0 0 10px;">子任务</h3>
+  <div class="card" id="subtasksCard">
+    <h3 id="subtasksTitle" style="margin:0 0 10px;">子任务</h3>
     <div id="subtasksMount" class="muted">加载中…</div>
   </div>
   <div class="card" id="addSubtaskCard" style="display:none;">
@@ -1935,6 +1961,50 @@ export function renderTaskDetailPage(params: {
     fb.textContent = msg || '';
     fb.className = 'feedback ' + (cls || 'muted');
   }
+  async function submitManagerQualityReview(row, decision, reason, button) {
+    var sid = String(row.getAttribute('data-subtask-id') || '').trim();
+    if (!sid) {
+      setRowMgrFb(row, 'quality-review', '缺少子任务', 'err');
+      return;
+    }
+    if (decision === 'RETURN' && !String(reason || '').trim()) {
+      setRowMgrFb(row, 'quality-review', '请填写退回原因', 'err');
+      return;
+    }
+    if (button) button.disabled = true;
+    setRowMgrFb(row, 'quality-review', decision === 'APPROVE' ? '正在验收…' : '正在退回…', 'muted');
+    try {
+      var res = await fetch('/api/workbench/manager/quality-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subtaskId: sid,
+          decision: decision,
+          reason: String(reason || '').trim(),
+          requestId: newMgrIdem(),
+        }),
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      await load();
+      var banner = document.getElementById('focusContextBanner');
+      if (banner) {
+        banner.style.display = 'block';
+        banner.innerHTML =
+          '<div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;">' +
+          '<p style="margin:0;font-size:14px;"><strong>' + esc(data.message || '操作已完成') + '</strong></p>' +
+          (String(BACK_PATH || '').indexOf('/workbench/quality') === 0
+            ? '<a class="btn btn-primary btn-sm" href="' + esc(BACK_PATH) + '">返回质量事项</a>'
+            : '') +
+          '</div>';
+        banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    } catch (error) {
+      setRowMgrFb(row, 'quality-review', String(error && error.message ? error.message : error), 'err');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
   function ensureMgrRowHandlers() {
     if (mgrRowHandlersBound) return;
     mgrRowHandlersBound = true;
@@ -1947,6 +2017,16 @@ export function renderTaskDetailPage(params: {
         ev.stopPropagation();
         var sid0 = String(openRs.getAttribute('data-mgr-open-reassign-sub') || '').trim();
         if (lastLoadedPlanId) initDetailReassign(lastSubsForReassign, sid0);
+        return;
+      }
+      var qualityApproveBtn = el.closest('[data-mgr-quality-review="approve"]');
+      if (qualityApproveBtn) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var qualityRow = qualityApproveBtn.closest('details.sub-row-mgr');
+        if (!qualityRow) return;
+        if (!window.confirm('确认该员工提交的事项和证据符合完成标准？')) return;
+        void submitManagerQualityReview(qualityRow, 'APPROVE', '', qualityApproveBtn);
         return;
       }
       var remindBtn = el.closest('[data-mgr-remind-sub]');
@@ -2001,12 +2081,14 @@ export function renderTaskDetailPage(params: {
         var pAckRej = row.querySelector('[data-mgr-panel="ack-rejection"]');
         var pStop = row.querySelector('[data-mgr-panel="stop"]');
         var pDue = row.querySelector('[data-mgr-panel="set-due"]');
+        var pQualityReturn = row.querySelector('[data-mgr-panel="quality-return"]');
         if (kind === 'decline' && pDecl) {
           var showD = pDecl.hidden;
           if (pAck) pAck.hidden = true;
           if (pAckRej) pAckRej.hidden = true;
           if (pStop) pStop.hidden = true;
           if (pDue) pDue.hidden = true;
+          if (pQualityReturn) pQualityReturn.hidden = true;
           pDecl.hidden = !showD;
           if (showD) {
             row.open = true;
@@ -2018,6 +2100,7 @@ export function renderTaskDetailPage(params: {
           if (pAckRej) pAckRej.hidden = true;
           if (pStop) pStop.hidden = true;
           if (pDue) pDue.hidden = true;
+          if (pQualityReturn) pQualityReturn.hidden = true;
           pAck.hidden = !showA;
           if (showA) {
             row.open = true;
@@ -2029,6 +2112,7 @@ export function renderTaskDetailPage(params: {
           if (pAck) pAck.hidden = true;
           if (pStop) pStop.hidden = true;
           if (pDue) pDue.hidden = true;
+          if (pQualityReturn) pQualityReturn.hidden = true;
           pAckRej.hidden = !showR;
           if (showR) {
             row.open = true;
@@ -2040,6 +2124,7 @@ export function renderTaskDetailPage(params: {
           if (pAck) pAck.hidden = true;
           if (pAckRej) pAckRej.hidden = true;
           if (pDue) pDue.hidden = true;
+          if (pQualityReturn) pQualityReturn.hidden = true;
           pStop.hidden = !showS;
           if (showS) {
             row.open = true;
@@ -2051,10 +2136,23 @@ export function renderTaskDetailPage(params: {
           if (pAck) pAck.hidden = true;
           if (pAckRej) pAckRej.hidden = true;
           if (pStop) pStop.hidden = true;
+          if (pQualityReturn) pQualityReturn.hidden = true;
           pDue.hidden = !showDue;
           if (showDue) {
             row.open = true;
             setRowMgrFb(row, 'set-due', '', 'muted');
+          }
+        } else if (kind === 'quality-return' && pQualityReturn) {
+          var showQualityReturn = pQualityReturn.hidden;
+          if (pDecl) pDecl.hidden = true;
+          if (pAck) pAck.hidden = true;
+          if (pAckRej) pAckRej.hidden = true;
+          if (pStop) pStop.hidden = true;
+          if (pDue) pDue.hidden = true;
+          pQualityReturn.hidden = !showQualityReturn;
+          if (showQualityReturn) {
+            row.open = true;
+            setRowMgrFb(row, 'quality-review', '', 'muted');
           }
         }
         return;
@@ -2085,6 +2183,8 @@ export function renderTaskDetailPage(params: {
             row3,
             submitKind === 'decline'
               ? 'decline'
+              : submitKind === 'quality-return'
+                ? 'quality-review'
               : submitKind === 'stop'
                 ? 'stop'
                 : submitKind === 'set-due'
@@ -2095,7 +2195,25 @@ export function renderTaskDetailPage(params: {
           );
           return;
         }
-        if (submitKind === 'decline') {
+        if (submitKind === 'quality-return') {
+          var qualityReturnPanel = row3.querySelector('[data-mgr-panel="quality-return"]');
+          var qualityReasonEl = qualityReturnPanel
+            ? qualityReturnPanel.querySelector('textarea[data-field="quality-return-reason"]')
+            : null;
+          var qualityConfirmEl = qualityReturnPanel
+            ? qualityReturnPanel.querySelector('input[data-field="quality-return-confirm"]')
+            : null;
+          var qualityReason = qualityReasonEl ? String(qualityReasonEl.value || '').trim() : '';
+          if (!qualityReason) {
+            setRowMgrFb(row3, 'quality-review', '请填写退回原因', 'err');
+            return;
+          }
+          if (!qualityConfirmEl || !qualityConfirmEl.checked) {
+            setRowMgrFb(row3, 'quality-review', '请勾选确认退回员工重做', 'err');
+            return;
+          }
+          await submitManagerQualityReview(row3, 'RETURN', qualityReason, subm);
+        } else if (submitKind === 'decline') {
           var pnl = row3.querySelector('[data-mgr-panel="decline"]');
           var noteEl = pnl ? pnl.querySelector('textarea[data-field="note"]') : null;
           var note = noteEl ? String(noteEl.value || '').trim() : '';
@@ -2278,6 +2396,9 @@ export function renderTaskDetailPage(params: {
   }
   function rowBucketForSubtask(s) {
     var st = normSubStatus(s.status);
+    if ((s.qualityReviewContext && s.qualityReviewContext.canReview) || s.qualityReviewPending) {
+      return 'needs_manager';
+    }
     if (st === 'DONE') return 'done';
     if (st === 'STOPPED') return 'stopped';
     var dk = String(s.openDeclineKind || '').trim();
@@ -2298,7 +2419,12 @@ export function renderTaskDetailPage(params: {
     mountEl.querySelectorAll('details.sub-row-mgr').forEach(function (row) {
       var st = String(row.getAttribute('data-status') || '');
       var dk = String(row.getAttribute('data-decline-kind') || '').trim();
-      var bucket = rowBucketForSubtask({ status: st, openDeclineKind: dk || null });
+      var qr = String(row.getAttribute('data-quality-review') || '') === '1';
+      var bucket = rowBucketForSubtask({
+        status: st,
+        openDeclineKind: dk || null,
+        qualityReviewPending: qr,
+      });
       var match = key === 'all' || bucket === key;
       row.classList.toggle('mgr-sub-row--hidden', !match);
     });
@@ -2401,15 +2527,18 @@ export function renderTaskDetailPage(params: {
         + '<button type="button" class="btn btn-danger btn-sm" data-task-stop-submit>确认停止</button></div>'
         + '<div class="feedback muted" data-task-fb="stop"></div></div></div>';
     }
+    var businessNo = String(t.businessNo || t.taskNo || taskNo);
+    var internalTaskNo = String(t.taskNo || taskNo);
     document.getElementById('taskMount').innerHTML =
       '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">'
       +'<h2 style="margin:0;font-size:20px;flex:1 1 200px;">'+esc(t.title||'—')+'</h2>'
       +'<span class="badge '+stBadgeCls+'">'+stLabel+'</span></div>'
-      +'<p class="muted" style="margin:8px 0 0;">业务编号 <code>'+esc(t.taskNo||taskNo)+'</code></p>'
+      +'<p class="muted" style="margin:8px 0 0;">业务编号 <code>'+esc(businessNo)+'</code></p>'
       + mgrTop
       + stopBlock
       + descBlock
       +'<details'+planOpen+' style="margin-top:10px;"><summary>内部编号（排障）</summary>'
+      +(businessNo !== internalTaskNo ? '<p class="muted" style="margin:6px 0 0;">taskNo <code>'+esc(internalTaskNo)+'</code></p>' : '')
       +'<p class="muted" style="margin:6px 0 0;">planId <code>'+esc(t.planId||'—')+'</code></p></details>';
     var crumbTitle = document.getElementById('detailBreadcrumbTitle');
     if (crumbTitle) crumbTitle.textContent = t.title || taskNo;
@@ -2559,7 +2688,11 @@ export function renderTaskDetailPage(params: {
           var hitId = String(hitSu.subtaskId || '');
           var hitDkSrv = String(hitSu.openDeclineKind || '').trim();
           var hitDk = hitDkSrv === 'changes' || hitDkSrv === 'rejected' ? hitDkSrv : getOpenDeclineKindForSubtask(hitId);
-          initialFilter = rowBucketForSubtask({ status: hitSu.status, openDeclineKind: hitDk || null });
+          initialFilter = rowBucketForSubtask({
+            status: hitSu.status,
+            openDeclineKind: hitDk || null,
+            qualityReviewContext: hitSu.qualityReviewContext || null,
+          });
         }
       }
       var chipHtml = function (key, label, cnt, alertCls) {
@@ -2599,6 +2732,8 @@ export function renderTaskDetailPage(params: {
         var bc = subBadgeClass(st);
         var idx = s.orderIndex != null && s.orderIndex !== '' ? esc(String(s.orderIndex)) : '—';
         var title = esc(s.title || '—');
+        var qualityReview = s.qualityReviewContext || null;
+        var qualityReviewPending = Boolean(qualityReview && qualityReview.canReview);
         var due = s.dueAt
           ? esc(String(s.dueAt).slice(0, 10))
           : ('承接时自报' + (s.dueExpectation ? ('（期望：' + esc(String(s.dueExpectation)) + '）') : ''));
@@ -2608,7 +2743,11 @@ export function renderTaskDetailPage(params: {
         var dkSrv = String(s.openDeclineKind || '').trim();
         var declineKind =
           dkSrv === 'changes' || dkSrv === 'rejected' ? dkSrv : getOpenDeclineKindForSubtask(rawId);
-        var bucketSrc = { status: st, openDeclineKind: declineKind || null };
+        var bucketSrc = {
+          status: st,
+          openDeclineKind: declineKind || null,
+          qualityReviewPending: qualityReviewPending,
+        };
         var declineBtnLabel = declineKind === 'rejected' ? '驳回拒绝' : declineKind === 'changes' ? '驳回申请' : '';
         if (st !== 'STOPPED') {
         if (declineKind) {
@@ -2618,7 +2757,14 @@ export function renderTaskDetailPage(params: {
               '</button>',
           );
         }
-        if (st === 'BLOCKED' || st === 'DONE') {
+        if (qualityReviewPending) {
+          actions.push(
+            '<button type="button" class="btn btn-danger btn-sm" data-mgr-toggle="quality-return">退回重做</button>',
+          );
+          actions.push(
+            '<button type="button" class="btn btn-primary btn-sm" data-mgr-quality-review="approve">验收通过</button>',
+          );
+        } else if (st === 'BLOCKED' || st === 'DONE') {
           actions.push('<button type="button" class="btn btn-ghost btn-sm" data-mgr-toggle="ack">已知悉</button>');
         } else if (st === 'REJECTED') {
           actions.push('<button type="button" class="btn btn-secondary btn-sm" data-mgr-toggle="ack-rejection">接受拒绝</button>');
@@ -2692,6 +2838,37 @@ export function renderTaskDetailPage(params: {
           }
           dynParts.push('</div>');
           employeeDynamicHtml = dynParts.join('');
+        }
+        var qualityReviewHtml = '';
+        if (qualityReview) {
+          var evidenceList = Array.isArray(qualityReview.evidence) ? qualityReview.evidence : [];
+          var evidenceHtml = evidenceList.length
+            ? '<ul style="margin:6px 0 0;padding-left:18px;">' + evidenceList.map(function (evidence) {
+                var evidenceName = esc(evidence.originalName || '质量证据');
+                var evidenceSummary = String(evidence.summary || '').trim();
+                return '<li style="margin:4px 0;"><a href="/api/workbench/quality/evidence/' +
+                  encodeURIComponent(String(evidence.evidenceId || '')) + '" target="_blank" rel="noopener">' +
+                  evidenceName + '</a>' +
+                  (evidenceSummary ? ' <span class="muted">— ' + esc(evidenceSummary) + '</span>' : '') +
+                  '</li>';
+              }).join('') + '</ul>'
+            : '<p class="muted" style="margin:6px 0 0;">暂无可下载证据</p>';
+          var reviewedText = qualityReview.reviewDecision === 'APPROVE'
+            ? '该事项已验收通过'
+            : qualityReview.reviewDecision === 'RETURN'
+              ? '该事项已退回重做' + (qualityReview.reviewReason ? '：' + esc(qualityReview.reviewReason) : '')
+              : '';
+          qualityReviewHtml =
+            '<section class="mgr-quality-review-context" style="margin:0 0 12px;padding:12px 14px;border:1px solid #b9d7c9;border-radius:10px;background:#f6fbf8;">' +
+            '<div style="display:flex;gap:10px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;">' +
+            '<div><div style="font-weight:700;">质量验收 · ' + esc(qualityReview.eventNo || '') + '</div>' +
+            '<div class="muted" style="font-size:13px;margin-top:2px;">' + esc(qualityReview.eventTitle || '') + '</div></div>' +
+            '<span class="badge ' + (qualityReviewPending ? 'pending' : 'done') + '">' +
+            esc(qualityReviewPending ? '待您验收' : (reviewedText || '质量事项')) + '</span></div>' +
+            '<div style="margin-top:10px;font-size:13px;"><strong>员工完成说明：</strong>' +
+            esc(note || '员工未填写额外完成说明，请结合交付物和证据验收。') + '</div>' +
+            '<div style="margin-top:8px;font-size:13px;"><strong>提交证据</strong>' + evidenceHtml + '</div>' +
+            '</section>';
         }
         var ctxHtml = '';
         if (declineKind === 'changes') {
@@ -2785,6 +2962,18 @@ export function renderTaskDetailPage(params: {
               '<button type="button" class="btn btn-primary btn-sm" data-mgr-submit="set-due">确认改期</button></div>' +
               '<div class="feedback muted" data-mgr-fb="set-due"></div></div>'
             : '';
+        var qualityReturnPanel = qualityReviewPending
+          ? '<div class="mgr-inline-panel mgr-inline-panel--danger" hidden data-mgr-panel="quality-return">' +
+            '<h4 class="mgr-inline-h">退回员工重做</h4>' +
+            '<p class="muted" style="margin:0 0 8px;font-size:13px;">退回后该子任务恢复为执行中；原因会进入验收记录并通知员工。</p>' +
+            '<label class="mgr-inline-label">退回原因<span class="mgr-req">（必填）</span>' +
+            '<textarea data-field="quality-return-reason" rows="3" maxlength="800" placeholder="请明确指出不符合哪项完成标准，以及员工需要补充的内容。"></textarea></label>' +
+            '<label class="mgr-inline-confirm"><input type="checkbox" data-field="quality-return-confirm" /> 确认退回员工重做</label>' +
+            '<div class="mgr-inline-actions">' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-mgr-cancel="quality-return">取消</button>' +
+            '<button type="button" class="btn btn-danger btn-sm" data-mgr-submit="quality-return">确认退回</button></div>' +
+            '<div class="feedback muted" data-mgr-fb="quality-review"></div></div>'
+          : '';
         return (
           '<details class="sub-row-mgr"' +
           openAttr +
@@ -2794,6 +2983,8 @@ export function renderTaskDetailPage(params: {
           sid +
           '" data-status="' +
           esc(st) +
+          '" data-quality-review="' +
+          (qualityReviewPending ? '1' : '0') +
           '" data-decline-kind="' +
           esc(declineKind || '') +
           '" data-mgr-buckets="' +
@@ -2826,6 +3017,7 @@ export function renderTaskDetailPage(params: {
           summaryActionsRow +
           '</summary>' +
           '<div class="mgr-sub-body">' +
+          qualityReviewHtml +
           employeeDynamicHtml +
           '<div class="mgr-sub-body-grid">' +
           subtaskPlanningBlock(s, subs) +
@@ -2837,6 +3029,7 @@ export function renderTaskDetailPage(params: {
           ackRejectionPanel +
           stopPanel +
           duePanel +
+          qualityReturnPanel +
           '</div></details>'
         );
       });
@@ -2851,6 +3044,28 @@ export function renderTaskDetailPage(params: {
         });
       }
       applyMgrSubtaskFilter(mount, initialFilter);
+      if (urlFocus === 'quality-review' && urlSubtaskId) {
+        var focusedReviewRow = mount.querySelector(
+          '[data-sub-highlight="' + cssEscAttr(urlSubtaskId) + '"]',
+        );
+        if (focusedReviewRow) {
+          mount.querySelectorAll('details.sub-row-mgr').forEach(function (row) {
+            row.classList.toggle('mgr-sub-row--hidden', row !== focusedReviewRow);
+          });
+          focusedReviewRow.open = true;
+          var filterLabel = mount.querySelector('.mgr-sub-filter-label');
+          var filterChips = mount.querySelector('.mgr-sub-filter');
+          if (filterLabel) filterLabel.style.display = 'none';
+          if (filterChips) filterChips.style.display = 'none';
+          var subtasksTitle = document.getElementById('subtasksTitle');
+          if (subtasksTitle) subtasksTitle.textContent = '待验收事项';
+          var subtasksCard = document.getElementById('subtasksCard');
+          var taskCard = document.getElementById('taskMount');
+          if (subtasksCard && taskCard && taskCard.parentNode) {
+            taskCard.parentNode.insertBefore(subtasksCard, taskCard);
+          }
+        }
+      }
     }
     var eventsEl = document.getElementById('eventsMount');
     var eventsMore = document.getElementById('eventsMoreLink');
@@ -2935,6 +3150,10 @@ export function renderTaskDetailPage(params: {
         fcb.style.display = 'block';
         fcb.innerHTML =
           '<p style="margin:0;font-size:14px;">你从通知进入：<strong>知晓 / 抽检</strong>。请在对应子任务行展开后使用「已知悉」留痕；若有待修改申请，请使用「驳回申请」。</p>';
+      } else if (urlFocus === 'quality-review') {
+        fcb.style.display = 'block';
+        fcb.innerHTML =
+          '<p style="margin:0;font-size:14px;">你从质量事项进入：已精准展开待验收子任务。请核对任务目标、交付物、完成标准、员工说明与证据，再选择「验收通过」或「退回重做」。</p>';
       } else {
         fcb.style.display = 'none';
         fcb.innerHTML = '';
@@ -5097,20 +5316,30 @@ export function handleAssignmentHttp(
     const assignee = String(url.searchParams.get("assignee") ?? "").trim();
     const taskNo = String(url.searchParams.get("taskNo") ?? "").trim();
     const keyword = String(url.searchParams.get("keyword") ?? "").trim();
-    const tasks = getFormalTaskStore()
+    const baseTasks = getFormalTaskStore()
       .listAdminTasks({
         status,
         department,
         assignee,
-        taskNo,
+        taskNo: /^TASK-/i.test(taskNo) ? taskNo : "",
         keyword,
-      })
-      .map((t) => ({
+      });
+    const businessContexts = getQualityBusinessContextsByTaskIds(
+      baseTasks.map((task) => task.taskId),
+    );
+    const tasks = baseTasks.map((t) => {
+      const qualityBusinessContext = businessContexts.get(t.taskId) ?? null;
+      return {
         ...t,
+        businessNo: qualityBusinessContext?.eventNo ?? t.taskNo,
+        qualityBusinessContext,
         managerDisplayName:
           withPeopleDirectoryStore((s) => s.getContact(t.managerUserId)?.name?.trim()) ?? "",
         statusLabel: taskStatusLabel(t.status),
-      }));
+      };
+    }).filter((task) => !taskNo
+      || task.businessNo.toLowerCase().includes(taskNo.toLowerCase())
+      || task.taskNo.toLowerCase().includes(taskNo.toLowerCase()));
     writeJson(res, 200, { ok: true, tasks });
     return true;
   }
@@ -5136,7 +5365,7 @@ export function handleAssignmentHttp(
     });
     writeJson(res, 200, {
       ok: true,
-      task: enriched.task,
+      task: attachQualityBusinessContext(enriched.task),
       subtasks: attachSubtaskOpenDeclineHints(enriched.subtasks),
       events: enriched.events,
     });
@@ -5209,7 +5438,7 @@ export function handleAssignmentHttp(
       });
       writeJson(res, 200, {
         ok: true,
-        task: enriched.task,
+        task: attachQualityBusinessContext(enriched.task),
         subtasks: subtasksWithMine,
         events: enriched.events,
       });
@@ -5223,13 +5452,22 @@ export function handleAssignmentHttp(
           presentEventCtx: { showManagerReassignPayload },
         });
         if (session.role === "manager" || session.role === "admin") {
+          const qualityReviews = session.role === "manager"
+            ? getManagerQualityReviewContextsBySubtaskIds(
+                enriched.subtasks.map((subtask) => subtask.subtaskId),
+                session.userId,
+              )
+            : new Map();
           return {
-            task: enriched.task,
-            subtasks: attachSubtaskOpenDeclineHints(enriched.subtasks),
+            task: attachQualityBusinessContext(enriched.task),
+            subtasks: attachSubtaskOpenDeclineHints(enriched.subtasks).map((subtask) => ({
+              ...subtask,
+              qualityReviewContext: qualityReviews.get(subtask.subtaskId) ?? null,
+            })),
             events: enriched.events,
           };
         }
-        return enriched;
+        return { ...enriched, task: attachQualityBusinessContext(enriched.task) };
       })(),
     });
     return true;
@@ -5873,6 +6111,132 @@ export function handleAssignmentHttp(
           ok: false,
           error: err instanceof Error ? err.message : "decline changes failed",
         });
+      }
+    })();
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/workbench/manager/quality-review") {
+    void (async () => {
+      const reviewService = createQualityReviewService();
+      try {
+        const session = requireSession(req, res);
+        if (!session) return;
+        if (session.role !== "manager") {
+          writeJson(res, 403, { ok: false, error: "仅任务所属主管可执行质量验收" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const subtaskId = String(body.subtaskId ?? "").trim();
+        const decision = String(body.decision ?? "").trim().toUpperCase();
+        const reason = String(body.reason ?? "").trim();
+        const requestId = String(body.requestId ?? "").trim() || randomUUID();
+        if (!subtaskId) {
+          writeJson(res, 400, { ok: false, error: "subtaskId is required" });
+          return;
+        }
+        if (decision !== "APPROVE" && decision !== "RETURN") {
+          writeJson(res, 400, { ok: false, error: "decision must be APPROVE or RETURN" });
+          return;
+        }
+        if (decision === "RETURN" && !reason) {
+          writeJson(res, 400, { ok: false, error: "退回原因必填" });
+          return;
+        }
+        const context = getManagerQualityReviewContextsBySubtaskIds(
+          [subtaskId],
+          session.userId,
+        ).get(subtaskId);
+        if (!context) {
+          writeJson(res, 404, { ok: false, error: "未找到当前主管可验收的质量事项" });
+          return;
+        }
+        if (!context.canReview) {
+          if (context.reviewDecision === decision) {
+            writeJson(res, 200, {
+              ok: true,
+              alreadyHandled: true,
+              decision,
+              eventId: context.eventId,
+              eventStatus: context.eventStatus,
+            });
+            return;
+          }
+          writeJson(res, 409, { ok: false, error: "该事项当前不在待主管验收状态" });
+          return;
+        }
+        const actualAdminUserId = context.isTest
+          ? session.impersonation?.actorUserId
+          : undefined;
+        reviewService.reviewDirectChild({
+          childNodeId: context.nodeId,
+          actorUserId: session.userId,
+          decision,
+          reason: reason || undefined,
+          expectedVersion: context.nodeVersion,
+          requestId,
+          actualAdminUserId,
+        });
+
+        let eventAfter = reviewService.getEvent(context.eventId);
+        let advancedToQualityReview = false;
+        if (
+          decision === "APPROVE"
+          && eventAfter.status === "PENDING_PRIMARY_REVIEW"
+          && eventAfter.primaryNodeId
+        ) {
+          const primary = reviewService.getNode(eventAfter.primaryNodeId);
+          if (primary.assigneeUserId === session.userId) {
+            eventAfter = reviewService.primaryReview({
+              eventId: context.eventId,
+              primaryManagerUserId: session.userId,
+              decision: "APPROVE",
+              expectedVersion: eventAfter.version,
+              requestId: randomUUID(),
+              actualAdminUserId,
+            });
+            advancedToQualityReview = eventAfter.status === "PENDING_QUALITY_REVIEW";
+          }
+        }
+
+        const taskStore = getFormalTaskStore();
+        taskStore.appendTaskEvent({
+          taskId: context.taskId,
+          subtaskId,
+          eventType: decision === "APPROVE"
+            ? "MANAGER_QUALITY_REVIEW_APPROVED"
+            : "MANAGER_QUALITY_REVIEW_RETURNED",
+          actorUserId: session.userId,
+          note: decision === "APPROVE"
+            ? `质量事项 ${context.eventNo} 验收通过`
+            : `质量事项 ${context.eventNo} 退回重做：${reason}`,
+          payload: {
+            qualityEventId: context.eventId,
+            qualityNodeId: context.nodeId,
+            requestId,
+            eventStatus: eventAfter.status,
+            advancedToQualityReview,
+          },
+        });
+        writeJson(res, 200, {
+          ok: true,
+          decision,
+          eventId: context.eventId,
+          eventStatus: eventAfter.status,
+          advancedToQualityReview,
+          message: decision === "APPROVE"
+            ? (advancedToQualityReview
+                ? "验收已通过，质量事件已进入质量终验"
+                : "验收已通过，等待其他关联事项完成验收")
+            : "已退回员工重做，退回原因已记录并通知",
+        });
+      } catch (err) {
+        writeJson(res, 400, {
+          ok: false,
+          error: err instanceof Error ? err.message : "quality review failed",
+        });
+      } finally {
+        reviewService.close();
       }
     })();
     return true;
@@ -6575,17 +6939,19 @@ export function handleAssignmentHttp(
           let qualityResult;
           try {
             qualityResult = action === "accept"
-              ? await qualityService.acceptNode({
-                  nodeId: qualityContext.nodeId,
-                  actorUserId: session.userId,
-                  expectedVersion: qualityContext.nodeVersion,
-                  requestId: qualityRequestId,
-                })
-              : await qualityService.rejectNode({
-                  nodeId: qualityContext.nodeId,
-                  actorUserId: session.userId,
-                  expectedVersion: qualityContext.nodeVersion,
-                  requestId: qualityRequestId,
+               ? await qualityService.acceptNode({
+                   nodeId: qualityContext.nodeId,
+                   actorUserId: session.userId,
+                   actualAdminUserId: session.impersonation?.actorUserId,
+                   expectedVersion: qualityContext.nodeVersion,
+                   requestId: qualityRequestId,
+                 })
+               : await qualityService.rejectNode({
+                   nodeId: qualityContext.nodeId,
+                   actorUserId: session.userId,
+                   actualAdminUserId: session.impersonation?.actorUserId,
+                   expectedVersion: qualityContext.nodeVersion,
+                   requestId: qualityRequestId,
                   reason: note,
                 });
           } finally {
@@ -7908,7 +8274,7 @@ export function handleAssignmentHttp(
       const managerBackPath = sanitizeWorkbenchReturnPath(
         url.searchParams.get("returnTo"),
         "/workbench/manager/tasks",
-        new Set(["/workbench/manager/tasks"]),
+        new Set(["/workbench/manager/tasks", "/workbench/quality"]),
       );
       const initialProjectId = url.searchParams.get("projectId")?.trim() ?? "";
       const tasksViewParam = url.searchParams.get("view")?.trim().toLowerCase();

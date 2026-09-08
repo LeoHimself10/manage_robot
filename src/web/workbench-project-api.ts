@@ -16,6 +16,10 @@ import {
   type SubtaskAttentionInput,
 } from "./workbench-attention";
 import { createPeopleDirectoryStore } from "../infra/people-directory-store";
+import {
+  getQualityBusinessContextsByTaskIds,
+  type QualityBusinessContext,
+} from "../quality/presentation/quality-business-context";
 
 function withPeopleDirectoryStore<T>(
   fn: (store: ReturnType<typeof createPeopleDirectoryStore>) => T,
@@ -54,6 +58,7 @@ function enrichOneManagerTask(
   managerUserId: string,
   t: WorkbenchTaskRow & { subtasksCount: number; blockedCount: number },
   projectNameById: Map<string, string>,
+  qualityBusinessContext: QualityBusinessContext | null,
 ) {
   const store = getFormalTaskStore();
   const names = new Set<string>();
@@ -71,6 +76,8 @@ function enrichOneManagerTask(
   const pid = String(t.projectId ?? "").trim();
   return {
     ...t,
+    businessNo: qualityBusinessContext?.eventNo ?? t.taskNo,
+    qualityBusinessContext,
     statusLabel: attn.attentionLabel,
     attentionLabel: attn.attentionLabel,
     attentionBucket: attn.attentionBucket,
@@ -93,7 +100,15 @@ export function enrichManagerTasksForApi(
   const projectNameById = new Map(projects.map((p) => [p.projectId, p.name]));
   const pid = String(filter?.projectId ?? "").trim();
   const tasks = store.listManagerTasks(managerScope, pid ? { projectId: pid } : undefined);
-  return tasks.map((t) => enrichOneManagerTask(managerUserId, t, projectNameById));
+  const qualityBusinessContexts = getQualityBusinessContextsByTaskIds(
+    tasks.map((task) => task.taskId),
+  );
+  return tasks.map((t) => enrichOneManagerTask(
+    managerUserId,
+    t,
+    projectNameById,
+    qualityBusinessContexts.get(t.taskId) ?? null,
+  ));
 }
 
 export function buildManagerProjectsListResponse(managerScope: WorkbenchManagerTaskScope): {

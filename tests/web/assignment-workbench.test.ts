@@ -316,6 +316,21 @@ describe("assignment-workbench HTTP handler", () => {
     expect(c.body).toContain("__wbShowFallbackLogin");
   });
 
+  it("keeps an exact quality event return path on the manager task detail page", async () => {
+    const cookie = await loginCookie("manager-1", "manager");
+    const returnTo = "/workbench/quality?eventId=quality-event-1&managerStage=REVIEW&testActor=manager-1";
+    const req = stubReq({
+      url: `/workbench/manager/task?taskNo=TASK-001&returnTo=${encodeURIComponent(returnTo)}`,
+      method: "GET",
+      headers: { cookie },
+    });
+    const response = stubRes();
+    handleAssignmentHttp(req, response.res);
+    expect(response.captured().statusCode).toBe(200);
+    expect(response.captured().body).toContain(`var BACK_PATH = ${JSON.stringify(returnTo)}`);
+    expect(response.captured().body).toContain(`href="${returnTo}"`);
+  });
+
   it("unauthenticated daily reports page preserves target through login redirect", () => {
     const target = "/workbench/daily-reports?date=2026-07-08&view=custom%3Aoverview";
     const req = stubReq({ url: target, method: "GET" });
@@ -1162,14 +1177,36 @@ describe("assignment-workbench HTTP handler", () => {
     const inbox = JSON.parse(inboxRes.captured().body) as {
       actionable: Array<{
         subtaskId: string;
+        taskNo?: string;
+        businessNo?: string;
         qualityPlanningContext?: { eventNo?: string; requiresEvidence?: boolean; source?: string };
       }>;
     };
     const projected = inbox.actionable.find((item) => item.subtaskId === subtask.subtaskId);
+    expect(projected).toMatchObject({
+      taskNo: subtask.taskNo,
+      businessNo: "QE-ORIGINAL-FLOW",
+    });
     expect(projected?.qualityPlanningContext).toMatchObject({
       source: "quality_planning_handoff",
       eventNo: "QE-ORIGINAL-FLOW",
       requiresEvidence: false,
+    });
+
+    const taskDetailReq = stubReq({
+      url: `/api/workbench/tasks/detail?taskNo=${encodeURIComponent(subtask.taskNo)}`,
+      method: "GET",
+      headers: { cookie },
+    });
+    const taskDetailRes = stubRes();
+    handleAssignmentHttp(taskDetailReq, taskDetailRes.res);
+    const taskDetailPayload = JSON.parse(taskDetailRes.captured().body) as {
+      task?: { taskNo?: string; businessNo?: string; qualityBusinessContext?: { eventNo?: string } };
+    };
+    expect(taskDetailPayload.task).toMatchObject({
+      taskNo: subtask.taskNo,
+      businessNo: "QE-ORIGINAL-FLOW",
+      qualityBusinessContext: { eventNo: "QE-ORIGINAL-FLOW" },
     });
 
     const acceptReq = stubReq({
@@ -1199,6 +1236,128 @@ describe("assignment-workbench HTTP handler", () => {
       .toEqual({ status: "PENDING_ACCEPTANCE" });
     expect(verify.prepare("SELECT COUNT(*) AS count FROM quality_task_links").get())
       .toEqual({ count: 0 });
+    verify.close();
+  });
+
+  it("reviews an exact quality-linked subtask from the original manager task page", async () => {
+    await seedPublishedTask({
+      planId: "plan-quality-manager-review",
+      managerUserId: "manager-1",
+      assigneeUserId: "employee-1",
+      taskDescription: "质量事项主管验收入口测试。",
+    });
+    const formal = createWorkbenchFormalTaskStore();
+    const detail = formal.getTaskDetail("plan-quality-manager-review");
+    const subtask = detail?.subtasks[0];
+    if (!detail || !subtask) throw new Error("expected published formal task");
+
+    createQualityStore(sqlitePath).close();
+    const now = new Date().toISOString();
+    const db = new DatabaseSync(sqlitePath);
+    db.prepare("UPDATE subtasks SET status='DONE',progress_note='已完成复测并提交结论' WHERE subtask_id=?")
+      .run(subtask.subtaskId);
+    db.prepare(`INSERT INTO quality_events(
+      id,event_no,status,title,problem_status,created_by,primary_node_id,version,created_at,updated_at
+    ) VALUES('quality-manager-review','QE-MANAGER-REVIEW','IN_PROGRESS','主管验收测试',
+      '验证质量事项从原任务系统完成验收','quality-user','quality-primary-node',1,?,?)`).run(now, now);
+    db.prepare(`INSERT INTO quality_assignment_nodes(
+      node_id,event_id,parent_node_id,depth,assignee_user_id,assignee_kind,
+      department_name,is_primary,status,due_at,requirement,version,
+      created_by,request_id,submitted_at,created_at,updated_at
+    ) VALUES('quality-primary-node','quality-manager-review',NULL,0,'manager-1','MANAGER',
+      '研发中心',1,'PENDING_PARENT_REVIEW','2026-09-30T08:00:00.000Z','完成整体验收',1,
+      'quality-user','quality-primary-request',?, ?, ?)`)
+      .run(now, now, now);
+    db.prepare(`INSERT INTO quality_assignment_nodes(
+      node_id,event_id,parent_node_id,depth,assignee_user_id,assignee_kind,
+      department_name,is_primary,status,due_at,requirement,version,
+      created_by,request_id,submitted_at,created_at,updated_at
+    ) VALUES('quality-employee-node','quality-manager-review','quality-primary-node',1,
+      'employee-1','EMPLOYEE','研发中心',0,'PENDING_PARENT_REVIEW',
+      '2026-09-29T08:00:00.000Z','提交原因、措施和复测证据',1,
+      'manager-1','quality-employee-request',?, ?, ?)`)
+      .run(now, now, now);
+    db.prepare(`INSERT INTO quality_task_links(node_id,task_id,subtask_id,integration_key,created_at)
+      VALUES('quality-employee-node',?,?, 'quality-node:quality-employee-node',?)`)
+      .run(detail.task.taskId, subtask.subtaskId, now);
+    db.prepare(`INSERT INTO quality_evidence(
+      evidence_id,event_id,node_id,evidence_version,storage_key,original_name,mime_type,
+      summary,size_bytes,sha256,uploaded_by,request_id,created_at
+    ) VALUES('quality-review-evidence','quality-manager-review','quality-employee-node',1,
+      'quality/review/evidence.txt','复测记录.txt','text/plain','复测通过',8,
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','employee-1',
+      'quality-evidence-request',?)`).run(now);
+    db.close();
+
+    const cookie = await loginCookie("manager-1", "manager");
+    const managerTasksReq = stubReq({
+      url: "/api/workbench/manager/tasks",
+      method: "GET",
+      headers: { cookie },
+    });
+    const managerTasksRes = stubRes();
+    handleAssignmentHttp(managerTasksReq, managerTasksRes.res);
+    const managerTasksPayload = JSON.parse(managerTasksRes.captured().body) as {
+      tasks?: Array<{ taskNo?: string; businessNo?: string }>;
+    };
+    expect(managerTasksPayload.tasks?.find((task) => task.taskNo === detail.task.taskNo))
+      .toMatchObject({
+        taskNo: detail.task.taskNo,
+        businessNo: "QE-MANAGER-REVIEW",
+      });
+
+    const detailReq = stubReq({
+      url: `/api/workbench/tasks/detail?taskNo=${encodeURIComponent(detail.task.taskNo)}`,
+      method: "GET",
+      headers: { cookie },
+    });
+    const detailRes = stubRes();
+    handleAssignmentHttp(detailReq, detailRes.res);
+    const detailPayload = JSON.parse(detailRes.captured().body) as {
+      task?: { taskNo?: string; businessNo?: string; qualityBusinessContext?: { eventNo?: string } };
+      subtasks: Array<{ subtaskId: string; qualityReviewContext?: Record<string, unknown> }>;
+    };
+    expect(detailPayload.task).toMatchObject({
+      taskNo: detail.task.taskNo,
+      businessNo: "QE-MANAGER-REVIEW",
+      qualityBusinessContext: { eventNo: "QE-MANAGER-REVIEW" },
+    });
+    expect(detailPayload.subtasks.find((item) => item.subtaskId === subtask.subtaskId)
+      ?.qualityReviewContext).toMatchObject({
+        eventNo: "QE-MANAGER-REVIEW",
+        canReview: true,
+        evidence: [expect.objectContaining({ originalName: "复测记录.txt" })],
+      });
+
+    const reviewReq = stubReq({
+      url: "/api/workbench/manager/quality-review",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        subtaskId: subtask.subtaskId,
+        decision: "APPROVE",
+        requestId: "00000000-0000-4000-8000-000000000071",
+      }),
+    });
+    const reviewRes = stubRes();
+    handleAssignmentHttp(reviewReq, reviewRes.res);
+    await flushAsync();
+    expect(reviewRes.captured().statusCode).toBe(200);
+    expect(JSON.parse(reviewRes.captured().body)).toMatchObject({
+      ok: true,
+      decision: "APPROVE",
+      eventStatus: "PENDING_QUALITY_REVIEW",
+      advancedToQualityReview: true,
+    });
+
+    const verify = new DatabaseSync(sqlitePath, { readOnly: true });
+    expect(verify.prepare("SELECT status FROM quality_assignment_nodes WHERE node_id='quality-employee-node'").get())
+      .toEqual({ status: "APPROVED" });
+    expect(verify.prepare("SELECT status FROM quality_events WHERE id='quality-manager-review'").get())
+      .toEqual({ status: "PENDING_QUALITY_REVIEW" });
+    expect(verify.prepare(`SELECT event_type FROM task_events
+      WHERE subtask_id=? ORDER BY id DESC LIMIT 1`).get(subtask.subtaskId))
+      .toEqual({ event_type: "MANAGER_QUALITY_REVIEW_APPROVED" });
     verify.close();
   });
 
@@ -2388,6 +2547,93 @@ describe("assignment-workbench HTTP handler", () => {
           },
         });
       }
+    });
+
+    it("lets an admin-operated test employee accept a linked quality task in both systems", async () => {
+      vi.stubEnv("WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED", "1");
+      await seedPublishedTask({
+        planId: "plan-test-quality-linked-accept",
+        managerUserId: "QUALITY_TEST_MANAGER_001",
+        assigneeUserId: "QUALITY_TEST_EMPLOYEE_001",
+        taskDescription: "验证测试员工承接后同步主管和质量视角。",
+      });
+      const formal = createWorkbenchFormalTaskStore();
+      const subtask = formal.listEmployeeSubtasks("QUALITY_TEST_EMPLOYEE_001")
+        .find((item) => item.planId === "plan-test-quality-linked-accept");
+      if (!subtask) throw new Error("expected linked test quality subtask");
+
+      createQualityStore(sqlitePath).close();
+      const now = "2026-09-02T06:30:00.000Z";
+      const db = new DatabaseSync(sqlitePath);
+      db.prepare(`INSERT INTO quality_events(
+        id,event_no,status,title,problem_status,created_by,primary_node_id,is_test,version,created_at,updated_at
+      ) VALUES('test-linked-accept-event','QT-LINKED-ACCEPT','PENDING_ACCEPTANCE',
+        '测试员工承接同步','测试承接必须同步原任务和质量链','QUALITY_TEST_SPECIALIST_001',
+        'test-linked-manager-root',1,1,?,?)`).run(now, now);
+      db.prepare(`INSERT INTO quality_analysis_handoffs(
+        handoff_id,event_id,analysis_version,integration_key,primary_department_id,
+        primary_department_name,primary_manager_user_id,task_package_json,plan_id,
+        thread_id,status,formal_task_id,created_at,published_at
+      ) VALUES('test-linked-accept-handoff','test-linked-accept-event',1,
+        'quality-node:test-linked-accept-event','dept-test','研发中心（测试）',
+        'QUALITY_TEST_MANAGER_001','{}','plan-test-quality-linked-accept','thread-test-linked-accept',
+        'PUBLISHED',?,?,?)`).run(subtask.taskId, now, now);
+      db.prepare(`INSERT INTO quality_assignment_nodes(
+        node_id,event_id,parent_node_id,depth,assignee_user_id,assignee_kind,
+        department_name,is_primary,status,due_at,requirement,version,created_by,
+        request_id,accepted_at,created_at,updated_at
+      ) VALUES('test-linked-manager-root','test-linked-accept-event',NULL,0,
+        'QUALITY_TEST_MANAGER_001','MANAGER','研发中心（测试）',1,'IN_PROGRESS',
+        '2026-09-30T08:00:00.000Z','负责测试质量事项',1,'QUALITY_TEST_SPECIALIST_001',
+        'test-linked-manager-root-request',?, ?, ?)`).run(now, now, now);
+      db.prepare(`INSERT INTO quality_assignment_nodes(
+        node_id,event_id,parent_node_id,depth,assignee_user_id,assignee_kind,
+        department_name,is_primary,status,due_at,requirement,version,created_by,
+        request_id,created_at,updated_at
+      ) VALUES('test-linked-employee-node','test-linked-accept-event','test-linked-manager-root',1,
+        'QUALITY_TEST_EMPLOYEE_001','EMPLOYEE','研发中心（测试）',0,'PENDING_ACCEPTANCE',
+        '2026-09-29T08:00:00.000Z','完成测试质量事项',1,'QUALITY_TEST_MANAGER_001',
+        'test-linked-employee-request',?,?)`).run(now, now);
+      db.prepare(`INSERT INTO quality_task_links(node_id,task_id,subtask_id,integration_key,created_at)
+        VALUES('test-linked-employee-node',?,?, 'quality-node:test-linked-employee-node',?)`)
+        .run(subtask.taskId, subtask.subtaskId, now);
+      db.close();
+
+      const adminCookie = await loginCookie("admin-1", "admin");
+      const entered = await enterDelegation(adminCookie, "QUALITY_TEST_EMPLOYEE_001");
+      const acceptReq = stubReq({
+        url: "/api/workbench/employee/subtasks/action",
+        method: "POST",
+        headers: { cookie: entered.cookie, "content-type": "application/json" },
+        body: JSON.stringify({
+          planId: "plan-test-quality-linked-accept",
+          subtaskId: subtask.subtaskId,
+          action: "accept",
+          note: "",
+          idempotencyKey: "00000000-0000-4000-8000-000000000099",
+        }),
+      });
+      const acceptRes = stubRes();
+      handleAssignmentHttp(acceptReq, acceptRes.res);
+      await flushAsync();
+      expect(acceptRes.captured().statusCode).toBe(200);
+      expect(acceptRes.captured().body).toContain('"status":"IN_PROGRESS"');
+
+      const verify = new DatabaseSync(sqlitePath, { readOnly: true });
+      expect(verify.prepare("SELECT status FROM subtasks WHERE subtask_id=?").get(subtask.subtaskId))
+        .toEqual({ status: "IN_PROGRESS" });
+      expect(verify.prepare(`SELECT status,accepted_at FROM quality_assignment_nodes
+        WHERE node_id='test-linked-employee-node'`).get()).toMatchObject({
+        status: "IN_PROGRESS",
+        accepted_at: expect.any(String),
+      });
+      expect(verify.prepare(`SELECT actual_admin_user_id,test_actor_user_id,action
+        FROM quality_test_action_audit WHERE event_id='test-linked-accept-event'`).get()).toEqual({
+        actual_admin_user_id: "admin-1",
+        test_actor_user_id: "QUALITY_TEST_EMPLOYEE_001",
+        action: "QUALITY_NODE_ACCEPTED",
+      });
+      verify.close();
     });
 
     it("enters the selected project manager's complete workbench and can restore admin", async () => {

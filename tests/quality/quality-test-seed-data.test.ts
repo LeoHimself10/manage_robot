@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -22,6 +22,7 @@ describe("quality isolated demo data", () => {
     const root = mkdtempSync(join(tmpdir(), "quality-test-seed-"));
     roots.push(root);
     const dbPath = join(root, "workbench.sqlite");
+    const evidenceDir = join(root, "controlled-evidence");
     vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
     vi.stubEnv("QUALITY_TEST_ACTORS_ENABLED", "1");
     const run = () => execFileSync(
@@ -34,13 +35,26 @@ describe("quality isolated demo data", () => {
           WORKBENCH_SQLITE_PATH: dbPath,
           QUALITY_TEST_ACTORS_ENABLED: "1",
           WORKBENCH_ADMIN_USER_IDS: "admin-1",
+          QUALITY_EVIDENCE_DIR: evidenceDir,
         },
         encoding: "utf8",
       },
     );
 
     expect(run()).toContain("隔离质量测试事件已就绪：12 条；测试员工：3 名");
+    const firstRunDb = new DatabaseSync(dbPath, { readOnly: true });
+    const seededEvidence = firstRunDb.prepare(`
+      SELECT storage_key
+      FROM quality_evidence
+      WHERE evidence_id='evidence:quality-test-event-child-review:employee'
+    `).get() as { storage_key: string };
+    firstRunDb.close();
+    expect(seededEvidence.storage_key).toMatch(/^quality-test-seed-[a-f0-9]{64}$/);
+    const seededEvidencePath = join(evidenceDir, seededEvidence.storage_key);
+    expect(readFileSync(seededEvidencePath, "utf8")).toBe("QT-DEMO-007 隔离测试证据");
+    unlinkSync(seededEvidencePath);
     expect(run()).toContain("隔离质量测试事件已就绪：12 条；测试员工：3 名");
+    expect(existsSync(seededEvidencePath)).toBe(true);
 
     const db = new DatabaseSync(dbPath, { readOnly: true });
     const counts = db.prepare(`

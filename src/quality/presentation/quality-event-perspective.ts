@@ -25,7 +25,16 @@ import {
   listQualityFormalSubtasksFromDb,
   qualityEmployeeTaskStage,
   qualityFormalTaskStatusLabel,
+  type QualityFormalSubtaskProjection,
 } from "../analysis/quality-formal-task-projection";
+import { getManagerQualityReviewContextsBySubtaskIds } from
+  "../assignments/quality-task-context";
+import {
+  qualityManagerTaskStageBucket,
+  qualityManagerTaskStageLabel,
+  resolveQualityManagerTaskStageFromDb,
+  type QualityManagerTaskStage,
+} from "./quality-manager-task-stage";
 
 type DatabaseRow = Record<string, unknown>;
 
@@ -48,6 +57,8 @@ export interface QualityEventSummaryViewModel {
   actionRef: string;
   eventNumber: string;
   title: string;
+  /** Internal non-enumerable value used only before the HTTP response is serialized. */
+  statusCode?: string;
   statusLabel: string;
   attentionBucket: "TODO" | "PROGRESS" | "DONE";
   attentionLabel: string;
@@ -56,6 +67,89 @@ export interface QualityEventSummaryViewModel {
   currentDepartmentName: string;
   updatedAt: string;
   testBadge: string | null;
+  managerStages: QualityManagerTaskStage[];
+  assignmentItems: QualityManagerAssignmentItemViewModel[];
+  dispositionCode: "UNASSESSED" | "ORDINARY" | "QUALITY_ANOMALY" | null;
+  dispositionLabel: string | null;
+}
+
+export interface QualityManagerAssignmentItemViewModel {
+  actionRef: string;
+  assigneeName: string;
+  assignmentKind: "UNASSIGNED" | "REASSIGN_REQUIRED" | "MANAGER_ACTION_REQUIRED" | "ASSIGNED";
+  previousAssigneeName: string | null;
+  actionReason: string;
+  itemTitle: string;
+  objective: string;
+  deliverables: string;
+  completionCriteria: string;
+  statusLabel: string;
+  managerStage: QualityManagerTaskStage;
+  dueAt: string | null;
+  progressNote: string;
+  updatedAt: string;
+  acceptedAt: string | null;
+  completedAt: string | null;
+  submittedAt: string | null;
+  reviewStatusLabel: string;
+  reviewDecision: "APPROVE" | "RETURN" | null;
+  reviewReason: string;
+  reviewedAt: string | null;
+  evidence: Array<{
+    evidenceId: string;
+    fileName: string;
+    summary: string;
+    uploaderName: string;
+    createdAt: string;
+  }>;
+  taskNo: string | null;
+  taskUrl: string | null;
+  formalProjection: boolean;
+}
+
+export interface QualityProjectedEvidenceViewModel {
+  evidenceId: string;
+  nodeId: string;
+  version: number;
+  fileName: string;
+  summary: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploaderName: string;
+  createdAt: string;
+  previewable: boolean;
+  previewUrl: string;
+  downloadUrl: string;
+}
+
+export interface QualityManagementAssignmentItemViewModel {
+  actionRef: string;
+  nodeId: string | null;
+  parentNodeId: string | null;
+  sourceTaskKey: string;
+  assigneeName: string;
+  itemTitle: string;
+  objective: string;
+  deliverables: string;
+  completionCriteria: string;
+  statusLabel: string;
+  nodeStatus: string | null;
+  dueAt: string | null;
+  dependsOn: string[];
+  progressNote: string;
+  updatedAt: string;
+  acceptedAt: string | null;
+  completedAt: string | null;
+  reviewStatusLabel: string;
+  reviewDecision: "APPROVE" | "RETURN" | null;
+  reviewReason: string;
+  reviewedAt: string | null;
+  reviewedEvidenceVersion: number | null;
+  evidence: QualityProjectedEvidenceViewModel[];
+  taskNo: string;
+  taskId: string;
+  subtaskId: string;
+  formalProjection: true;
 }
 
 const FACT_FIELDS: Array<{ label: string; keys: string[] }> = [
@@ -103,8 +197,20 @@ function parseArray(value: unknown): unknown[] {
   }
 }
 
+function parseStringArray(value: unknown): string[] {
+  return [...new Set(parseArray(value)
+    .map((item) => nullable(item))
+    .filter((item): item is string => item != null))];
+}
+
 function tableExists(db: DatabaseSync, table: string): boolean {
   return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table));
+}
+
+function tableHasColumn(db: DatabaseSync, table: string, column: string): boolean {
+  if (!tableExists(db, table)) return false;
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as DatabaseRow[])
+    .some((item) => String(item.name) === column);
 }
 
 function stageKey(status: unknown): string {
@@ -119,6 +225,22 @@ function stageKey(status: unknown): string {
     CLOSED: "closed",
   };
   return keys[String(status ?? "")] ?? "unknown";
+}
+
+type QualityWorkspaceStage = "review" | "analysis" | "assignment" | "chain" | "final";
+
+function qualityManagementDefaultStage(status: unknown): QualityWorkspaceStage {
+  const stages: Record<string, QualityWorkspaceStage> = {
+    DRAFT: "review",
+    PENDING_ANALYSIS: "analysis",
+    PENDING_ASSIGNMENT: "assignment",
+    PENDING_ACCEPTANCE: "assignment",
+    IN_PROGRESS: "chain",
+    PENDING_PRIMARY_REVIEW: "chain",
+    PENDING_QUALITY_REVIEW: "final",
+    CLOSED: "final",
+  };
+  return stages[String(status ?? "")] ?? "review";
 }
 
 function safePerspective(value: unknown): QualityPerspective | null {
@@ -216,10 +338,431 @@ export function createQualityEventPerspectiveProjector(
     return roots.at(-1) ?? null;
   }
 
+  function eventDisposition(eventId: string): {
+    code: "UNASSESSED" | "ORDINARY" | "QUALITY_ANOMALY";
+    label: string;
+  } | null {
+    if (!tableExists(db, "quality_event_source_links")) return null;
+    const rows = db.prepare(`
+      SELECT
+        assessment.handling_recommendation,
+        assessment.version AS assessment_version,
+        review.status AS review_status,
+        review.assessment_version AS reviewed_assessment_version,
+        review.event_id AS review_event_id
+      FROM quality_event_source_links link
+      LEFT JOIN quality_source_assessments assessment
+        ON assessment.source_key=link.source_key
+      LEFT JOIN quality_source_reviews review ON review.source_key=link.source_key
+      WHERE link.event_id=?
+      ORDER BY link.linked_at,link.source_key
+    `).all(eventId) as DatabaseRow[];
+    if (rows.length === 0) return null;
+    const reviewsLatestAssessment = (row: DatabaseRow) =>
+      row.assessment_version != null
+      && row.reviewed_assessment_version != null
+      && Number(row.reviewed_assessment_version) === Number(row.assessment_version);
+    if (rows.some((row) => String(row.review_status) === "REPORTED"
+      && String(row.review_event_id) === eventId
+      && reviewsLatestAssessment(row)
+      && String(row.handling_recommendation) === "QUALITY_ANOMALY")) {
+      return { code: "QUALITY_ANOMALY", label: "质量事件" };
+    }
+    if (rows.every((row) => String(row.review_status) === "ORDINARY"
+      && reviewsLatestAssessment(row)
+      && String(row.handling_recommendation) === "ORDINARY")) {
+      return { code: "ORDINARY", label: "普通事件" };
+    }
+    return { code: "UNASSESSED", label: "待判断是否属于质量事件" };
+  }
+
   function employeeFormalSubtasks(eventId: string, actorUserId: string) {
     return listQualityFormalSubtasksFromDb(db, {
       eventId,
       assigneeUserId: actorUserId,
+    });
+  }
+
+  function managerFormalSubtasks(eventId: string, managerUserId: string) {
+    return listQualityFormalSubtasksFromDb(db, { eventId })
+      .filter((item) => item.managerUserId === managerUserId);
+  }
+
+  function formalManagerStage(
+    item: QualityFormalSubtaskProjection,
+    eventStatus: string,
+  ): QualityManagerTaskStage {
+    if (eventStatus === "CLOSED") return "CLOSED";
+    const stage = qualityEmployeeTaskStage(item.status, item.openDeclineKind);
+    if (stage === "WAITING_MANAGER") return "DELEGATE";
+    if (stage === "ASSIGNED") return "WAITING_EMPLOYEE";
+    if (stage === "ACTIVE") return "EXECUTION";
+    return "REVIEW";
+  }
+
+  function legacyManagerStage(status: unknown, eventStatus: string): QualityManagerTaskStage {
+    if (eventStatus === "CLOSED") return "CLOSED";
+    const normalized = String(status ?? "").trim().toUpperCase();
+    if (normalized === "PENDING_ACCEPTANCE") return "WAITING_EMPLOYEE";
+    if (["IN_PROGRESS", "RETURNED"].includes(normalized)) return "EXECUTION";
+    if (["PENDING_PARENT_REVIEW", "APPROVED"].includes(normalized)) return "REVIEW";
+    return "DELEGATE";
+  }
+
+  function legacyAssignmentStatusLabel(status: unknown, eventStatus: string): string {
+    if (eventStatus === "CLOSED") return "已关闭";
+    const normalized = String(status ?? "").trim().toUpperCase();
+    if (normalized === "PENDING_ACCEPTANCE") return "待员工承接";
+    if (normalized === "IN_PROGRESS") return "执行中";
+    if (normalized === "RETURNED") return "退回后处理中";
+    if (normalized === "PENDING_PARENT_REVIEW") return "已提交，待我验收";
+    if (normalized === "APPROVED") return "已验收";
+    if (normalized === "REJECTED") return "已拒绝，待重新分派";
+    return "等待主管分派员工";
+  }
+
+  function linkedFormalTask(nodeId: string): { taskNo: string; subtaskId: string } | null {
+    if (!["quality_task_links", "tasks", "subtasks"].every((table) => tableExists(db, table))) {
+      return null;
+    }
+    const row = db.prepare(`
+      SELECT t.task_no,l.subtask_id
+      FROM quality_task_links l
+      JOIN tasks t ON t.task_id=l.task_id
+      JOIN subtasks s ON s.subtask_id=l.subtask_id AND s.task_id=t.task_id
+      WHERE l.node_id=?
+      LIMIT 1
+    `).get(nodeId) as DatabaseRow | undefined;
+    return row
+      ? { taskNo: String(row.task_no), subtaskId: String(row.subtask_id) }
+      : null;
+  }
+
+  function managerTaskUrl(input: {
+    eventId: string;
+    managerUserId: string;
+    managerStage: QualityManagerTaskStage;
+    taskNo: string;
+    subtaskId: string;
+  }): string {
+    const returnQuery = new URLSearchParams({
+      eventId: input.eventId,
+      managerStage: input.managerStage,
+    });
+    const testActor = getQualityTestActorByUserId(input.managerUserId);
+    if (testActor) returnQuery.set("testActor", testActor.actorRef);
+    const query = new URLSearchParams({
+      taskNo: input.taskNo,
+      subtaskId: input.subtaskId,
+      focus: "quality-review",
+      returnTo: `/workbench/quality?${returnQuery.toString()}`,
+    });
+    return `/workbench/manager/task?${query.toString()}`;
+  }
+
+  function managerAssignmentItems(input: {
+    row: DatabaseRow;
+    managerUserId: string;
+    allNodes: DatabaseRow[];
+    formalSubtasks: QualityFormalSubtaskProjection[];
+  }): QualityManagerAssignmentItemViewModel[] {
+    const eventStatus = String(input.row.status);
+    if (input.formalSubtasks.length > 0) {
+      const reviewContexts = getManagerQualityReviewContextsBySubtaskIds(
+        input.formalSubtasks.map((item) => item.subtaskId),
+        input.managerUserId,
+        dbPath,
+      );
+      return input.formalSubtasks.map((item) => {
+        const reviewContext = reviewContexts.get(item.subtaskId);
+        const nodeStatus = String(reviewContext?.nodeStatus ?? "").trim().toUpperCase();
+        const managerStage = nodeStatus === "APPROVED" ? "CLOSED"
+          : nodeStatus === "RETURNED" ? "EXECUTION"
+            : nodeStatus === "PENDING_PARENT_REVIEW" ? "REVIEW"
+              : formalManagerStage(item, eventStatus);
+        const normalizedStatus = String(item.status).trim().toUpperCase();
+        const needsReassignment = item.openDeclineKind === "rejected"
+          || normalizedStatus === "REJECTED";
+        const needsManagerAction = !needsReassignment && (
+          item.openDeclineKind === "changes" || normalizedStatus === "CHANGES_REQUESTED"
+        );
+        const employeeName = displayName(item.assigneeUserId);
+        const reviewStatusLabel = reviewContext?.reviewDecision === "APPROVE"
+          || nodeStatus === "APPROVED" ? "验收通过"
+          : reviewContext?.reviewDecision === "RETURN" || nodeStatus === "RETURNED"
+            ? "已退回重做"
+            : reviewContext?.canReview || nodeStatus === "PENDING_PARENT_REVIEW"
+              ? "待主管验收" : "待员工提交";
+        const statusLabel = reviewStatusLabel === "验收通过" ? reviewStatusLabel
+          : reviewStatusLabel === "已退回重做" ? "已退回，员工补充中"
+            : managerStage === "CLOSED" ? "已关闭"
+              : managerStage === "REVIEW" ? "已提交，待我验收"
+            : needsReassignment ? "已拒绝，待重新分派"
+              : needsManagerAction ? "调整申请，待主管处理"
+                : managerStage === "WAITING_EMPLOYEE" ? "待员工承接"
+                  : qualityFormalTaskStatusLabel(item.status, item.openDeclineKind);
+        return {
+          actionRef: item.subtaskId,
+          assigneeName: needsReassignment ? "待重新分派" : employeeName,
+          assignmentKind: needsReassignment ? "REASSIGN_REQUIRED"
+            : needsManagerAction ? "MANAGER_ACTION_REQUIRED" : "ASSIGNED",
+          previousAssigneeName: needsReassignment ? employeeName : null,
+          actionReason: item.openDeclineReason,
+          itemTitle: item.subtaskTitle,
+          objective: item.objective,
+          deliverables: item.deliverables,
+          completionCriteria: item.completionCriteria,
+          statusLabel,
+          managerStage,
+          dueAt: item.dueAt,
+          progressNote: item.progressNote,
+          updatedAt: item.updatedAt,
+          acceptedAt: item.acceptedAt,
+          completedAt: item.completedAt,
+          submittedAt: reviewContext?.nodeStatus === "PENDING_PARENT_REVIEW"
+            || reviewContext?.reviewDecision != null ? item.completedAt : null,
+          reviewStatusLabel,
+          reviewDecision: reviewContext?.reviewDecision ?? null,
+          reviewReason: reviewContext?.reviewReason ?? "",
+          reviewedAt: reviewContext?.reviewedAt ?? null,
+          evidence: (reviewContext?.evidence ?? []).map((evidence) => ({
+            evidenceId: evidence.evidenceId,
+            fileName: evidence.originalName,
+            summary: evidence.summary,
+            uploaderName: displayName(evidence.uploadedBy),
+            createdAt: evidence.createdAt,
+          })),
+          taskNo: item.taskNo,
+          taskUrl: managerTaskUrl({
+            eventId: String(input.row.id),
+            managerUserId: input.managerUserId,
+            managerStage,
+            taskNo: item.taskNo,
+            subtaskId: item.subtaskId,
+          }),
+          formalProjection: true,
+        };
+      });
+    }
+
+    const byId = new Map(input.allNodes.map((node) => [String(node.node_id), node]));
+    const ownNodeIds = new Set(input.allNodes
+      .filter((node) => String(node.assignee_user_id) === input.managerUserId
+        && !["REJECTED", "CANCELLED"].includes(String(node.status)))
+      .map((node) => String(node.node_id)));
+    const belongsToManagerBranch = (node: DatabaseRow) => {
+      let parentId = nullable(node.parent_node_id);
+      const visited = new Set<string>();
+      while (parentId && !visited.has(parentId)) {
+        if (ownNodeIds.has(parentId)) return true;
+        visited.add(parentId);
+        parentId = nullable(byId.get(parentId)?.parent_node_id);
+      }
+      return false;
+    };
+    const delegated = input.allNodes.filter((node) => belongsToManagerBranch(node));
+    if (delegated.length > 0) {
+      return delegated.map((node) => {
+        const managerStage = legacyManagerStage(node.status, eventStatus);
+        const needsReassignment = String(node.status).trim().toUpperCase() === "REJECTED";
+        const employeeName = displayName(node.assignee_user_id);
+        const formalLink = linkedFormalTask(String(node.node_id));
+        return {
+          actionRef: String(node.node_id),
+          assigneeName: needsReassignment ? "待重新分派" : employeeName,
+          assignmentKind: needsReassignment ? "REASSIGN_REQUIRED"
+            : managerStage === "DELEGATE" ? "MANAGER_ACTION_REQUIRED" : "ASSIGNED",
+          previousAssigneeName: needsReassignment ? employeeName : null,
+          actionReason: "",
+          itemTitle: nullable(node.requirement) ?? "分配事项待补充",
+          objective: nullable(node.requirement) ?? "",
+          deliverables: "",
+          completionCriteria: "",
+          statusLabel: legacyAssignmentStatusLabel(node.status, eventStatus),
+          managerStage,
+          dueAt: nullable(node.due_at),
+          progressNote: "",
+          updatedAt: String(node.updated_at ?? ""),
+          acceptedAt: nullable(node.accepted_at),
+          completedAt: nullable(node.submitted_at),
+          submittedAt: nullable(node.submitted_at),
+          reviewStatusLabel: String(node.status) === "APPROVED" ? "验收通过"
+            : String(node.status) === "RETURNED" ? "已退回重做"
+              : String(node.status) === "PENDING_PARENT_REVIEW" ? "待主管验收" : "待员工提交",
+          reviewDecision: String(node.status) === "APPROVED" ? "APPROVE"
+            : String(node.status) === "RETURNED" ? "RETURN" : null,
+          reviewReason: "",
+          reviewedAt: null,
+          evidence: [],
+          taskNo: formalLink?.taskNo ?? null,
+          taskUrl: formalLink
+            ? managerTaskUrl({
+                eventId: String(input.row.id),
+                managerUserId: input.managerUserId,
+                managerStage,
+                taskNo: formalLink.taskNo,
+                subtaskId: formalLink.subtaskId,
+              })
+            : null,
+          formalProjection: false,
+        };
+      });
+    }
+
+    const ownNode = input.allNodes.find((node) => ownNodeIds.has(String(node.node_id)));
+    const awaitingManagerAcceptance = String(ownNode?.status ?? "") === "PENDING_ACCEPTANCE";
+    return ownNode || eventStatus !== "CLOSED"
+      ? [{
+          actionRef: ownNode ? String(ownNode.node_id) : String(input.row.id),
+          assigneeName: awaitingManagerAcceptance ? displayName(ownNode?.assignee_user_id) : "未分派员工",
+          assignmentKind: awaitingManagerAcceptance ? "MANAGER_ACTION_REQUIRED" : "UNASSIGNED",
+          previousAssigneeName: null,
+          actionReason: "",
+          itemTitle: nullable(ownNode?.requirement) ?? nullable(input.row.problem_status) ?? String(input.row.title),
+          objective: nullable(ownNode?.requirement) ?? "",
+          deliverables: "",
+          completionCriteria: "",
+          statusLabel: eventStatus === "CLOSED" ? "已关闭"
+            : awaitingManagerAcceptance ? "待主管承接" : "等待主管分派员工",
+          managerStage: eventStatus === "CLOSED" ? "CLOSED"
+            : awaitingManagerAcceptance ? "ACCEPT" : "DELEGATE",
+          dueAt: nullable(ownNode?.due_at) ?? nullable(input.row.overall_due_at),
+          progressNote: "",
+          updatedAt: String(input.row.updated_at ?? ""),
+          acceptedAt: nullable(ownNode?.accepted_at),
+          completedAt: null,
+          submittedAt: null,
+          reviewStatusLabel: awaitingManagerAcceptance ? "待主管承接" : "待员工提交",
+          reviewDecision: null,
+          reviewReason: "",
+          reviewedAt: null,
+          evidence: [],
+          taskNo: null,
+          taskUrl: null,
+          formalProjection: false,
+        }]
+      : [];
+  }
+
+  function projectedEvidence(row: DatabaseRow): QualityProjectedEvidenceViewModel {
+    const evidenceId = String(row.evidence_id);
+    const mimeType = String(row.mime_type ?? "application/octet-stream").trim()
+      || "application/octet-stream";
+    const evidenceUrl = `/api/workbench/quality/evidence/${encodeURIComponent(evidenceId)}`;
+    return {
+      evidenceId,
+      nodeId: String(row.node_id),
+      version: Number(row.evidence_version),
+      fileName: String(row.original_name ?? "质量证据"),
+      summary: String(row.summary ?? ""),
+      mimeType,
+      sizeBytes: Number(row.size_bytes ?? 0),
+      uploaderName: displayName(row.uploaded_by),
+      createdAt: String(row.created_at ?? ""),
+      previewable: mimeType.startsWith("image/")
+        || mimeType.startsWith("text/")
+        || ["application/pdf", "application/json", "application/xml"].includes(mimeType),
+      previewUrl: evidenceUrl,
+      downloadUrl: `${evidenceUrl}?download=1`,
+    };
+  }
+
+  function qualityManagementAssignmentItems(input: {
+    eventId: string;
+    formalSubtasks: QualityFormalSubtaskProjection[];
+    evidenceRows: DatabaseRow[];
+    reviewRows: DatabaseRow[];
+  }): QualityManagementAssignmentItemViewModel[] {
+    if (input.formalSubtasks.length === 0 || !tableExists(db, "subtasks")) return [];
+    const subtaskIds = input.formalSubtasks.map((item) => item.subtaskId);
+    const placeholders = subtaskIds.map(() => "?").join(",");
+    const dependsOnSelect = tableHasColumn(db, "subtasks", "depends_on")
+      ? "s.depends_on"
+      : "NULL AS depends_on";
+    const hasQualityLinks = tableExists(db, "quality_task_links")
+      && tableExists(db, "quality_assignment_nodes");
+    const metadataRows = hasQualityLinks
+      ? db.prepare(`
+          SELECT s.subtask_id,s.source_task_key,${dependsOnSelect},
+                 n.node_id,n.parent_node_id,n.status AS node_status
+          FROM subtasks s
+          LEFT JOIN quality_task_links l
+            ON l.subtask_id=s.subtask_id AND l.task_id=s.task_id
+          LEFT JOIN quality_assignment_nodes n
+            ON n.node_id=l.node_id AND n.event_id=? AND n.status<>'CANCELLED'
+          WHERE s.subtask_id IN (${placeholders})
+        `).all(input.eventId, ...subtaskIds) as DatabaseRow[]
+      : db.prepare(`
+          SELECT s.subtask_id,s.source_task_key,${dependsOnSelect},
+                 NULL AS node_id,NULL AS parent_node_id,NULL AS node_status
+          FROM subtasks s
+          WHERE s.subtask_id IN (${placeholders})
+        `).all(...subtaskIds) as DatabaseRow[];
+    const metadataBySubtask = new Map(metadataRows
+      .map((row) => [String(row.subtask_id), row] as const));
+
+    const evidenceByNode = new Map<string, QualityProjectedEvidenceViewModel[]>();
+    for (const row of input.evidenceRows) {
+      const nodeId = String(row.node_id);
+      const items = evidenceByNode.get(nodeId) ?? [];
+      items.push(projectedEvidence(row));
+      evidenceByNode.set(nodeId, items);
+    }
+    for (const items of evidenceByNode.values()) {
+      items.sort((left, right) => left.version - right.version
+        || left.createdAt.localeCompare(right.createdAt)
+        || left.evidenceId.localeCompare(right.evidenceId));
+    }
+
+    const latestReviewByNode = new Map<string, DatabaseRow>();
+    for (const row of input.reviewRows) latestReviewByNode.set(String(row.node_id), row);
+
+    return input.formalSubtasks.map((item) => {
+      const metadata = metadataBySubtask.get(item.subtaskId);
+      const nodeId = nullable(metadata?.node_id);
+      const nodeStatus = nullable(metadata?.node_status)?.toUpperCase() ?? null;
+      const latestReview = nodeId ? latestReviewByNode.get(nodeId) : undefined;
+      const reviewCode = nullable(latestReview?.decision)?.toUpperCase();
+      const reviewDecision = reviewCode === "APPROVE" || reviewCode === "RETURN"
+        ? reviewCode
+        : null;
+      const reviewStatusLabel = nodeStatus === "APPROVED" ? "主管已验收"
+        : nodeStatus === "RETURNED" ? "主管已退回重做"
+          : nodeStatus === "PENDING_PARENT_REVIEW"
+            || String(item.status).trim().toUpperCase() === "DONE" ? "待主管验收"
+            : reviewDecision === "RETURN" ? "已退回，员工补充中"
+              : "待员工提交";
+      return {
+        actionRef: item.subtaskId,
+        nodeId,
+        parentNodeId: nullable(metadata?.parent_node_id),
+        sourceTaskKey: String(metadata?.source_task_key ?? ""),
+        assigneeName: displayName(item.assigneeUserId),
+        itemTitle: item.subtaskTitle,
+        objective: item.objective,
+        deliverables: item.deliverables,
+        completionCriteria: item.completionCriteria,
+        statusLabel: qualityFormalTaskStatusLabel(item.status, item.openDeclineKind),
+        nodeStatus,
+        dueAt: item.dueAt,
+        dependsOn: parseStringArray(metadata?.depends_on),
+        progressNote: item.progressNote,
+        updatedAt: item.updatedAt,
+        acceptedAt: item.acceptedAt,
+        completedAt: item.completedAt,
+        reviewStatusLabel,
+        reviewDecision,
+        reviewReason: String(latestReview?.reason ?? ""),
+        reviewedAt: nullable(latestReview?.created_at),
+        reviewedEvidenceVersion: latestReview?.evidence_version == null
+          ? null
+          : Number(latestReview.evidence_version),
+        evidence: nodeId ? evidenceByNode.get(nodeId) ?? [] : [],
+        taskNo: item.taskNo,
+        taskId: item.taskId,
+        subtaskId: item.subtaskId,
+        formalProjection: true,
+      };
     });
   }
 
@@ -228,6 +771,16 @@ export function createQualityEventPerspectiveProjector(
     if (status === "CLOSED") return { bucket: "DONE" as const, label: "已关闭" };
     const allNodes = nodes(String(row.id));
     if (context.perspective === "aftersales") {
+      const disposition = eventDisposition(String(row.id));
+      if (status === "PENDING_ANALYSIS" && disposition?.code === "ORDINARY") {
+        return { bucket: "DONE" as const, label: "普通事件（已记录）" };
+      }
+      if (status === "PENDING_ANALYSIS" && disposition?.code === "UNASSESSED") {
+        return { bucket: "TODO" as const, label: "待我研判" };
+      }
+      if (status === "PENDING_ANALYSIS" && disposition?.code === "QUALITY_ANOMALY") {
+        return { bucket: "PROGRESS" as const, label: "待质量初析" };
+      }
       return {
         bucket: status === "PENDING_ANALYSIS" ? "TODO" as const : "PROGRESS" as const,
         label: qualityStatusLabel(status),
@@ -252,38 +805,59 @@ export function createQualityEventPerspectiveProjector(
       if (stages.has("WAITING_MANAGER")) return { bucket: "TODO" as const, label: "待主管处理" };
       if (formal.length > 0) return { bucket: "DONE" as const, label: "已完成" };
     }
-    const ownNodes = allNodes.filter((node) => String(node.assignee_user_id) === context.actorUserId);
-    const pendingAcceptance = ownNodes.some((node) => String(node.status) === "PENDING_ACCEPTANCE");
-    const ownAction = ownNodes.some((node) => ["IN_PROGRESS", "RETURNED"].includes(String(node.status)));
-    const ownNodeIds = new Set(ownNodes.map((node) => String(node.node_id)));
-    const hasChildren = allNodes.some((node) => ownNodeIds.has(String(node.parent_node_id)));
-    const childReview = context.perspective === "manager" && allNodes.some((node) =>
-      ownNodeIds.has(String(node.parent_node_id)) && String(node.status) === "PENDING_PARENT_REVIEW",
-    );
-    const primaryReview = context.perspective === "manager"
-      && status === "PENDING_PRIMARY_REVIEW"
-      && ownNodes.some((node) => node.parent_node_id == null);
-    if (pendingAcceptance) return { bucket: "TODO" as const, label: "待主管承接" };
-    if (childReview || primaryReview) return { bucket: "TODO" as const, label: "待主管验收" };
-    if (ownAction && !hasChildren) return { bucket: "TODO" as const, label: "待分派员工" };
-    if (ownAction || hasChildren) return { bucket: "PROGRESS" as const, label: "员工执行中" };
+    if (context.perspective === "manager") {
+      const managerStage = resolveQualityManagerTaskStageFromDb({
+        db,
+        eventId: String(row.id),
+        eventStatus: status,
+        managerUserId: context.actorUserId,
+      });
+      if (managerStage) {
+        return {
+          bucket: qualityManagerTaskStageBucket(managerStage),
+          label: qualityManagerTaskStageLabel(managerStage),
+        };
+      }
+    }
     return { bucket: "PROGRESS" as const, label: qualityStatusLabel(status) };
   }
 
   function summary(row: DatabaseRow, context: QualityPerspectiveContext): QualityEventSummaryViewModel {
-    const root = activeRoot(nodes(String(row.id)));
+    const allNodes = nodes(String(row.id));
+    const root = activeRoot(allNodes);
     const attention = attentionFor(row, context);
     const formalEmployeeTasks = context.perspective === "employee"
       ? employeeFormalSubtasks(String(row.id), context.actorUserId)
       : [];
-    return {
+    const formalManagerTasks = context.perspective === "manager"
+      ? managerFormalSubtasks(String(row.id), context.actorUserId)
+      : [];
+    const assignmentItems = context.perspective === "manager"
+      ? managerAssignmentItems({
+          row,
+          managerUserId: context.actorUserId,
+          allNodes,
+          formalSubtasks: formalManagerTasks,
+        })
+      : [];
+    const disposition = eventDisposition(String(row.id));
+    const riskPendingReview = context.perspective === "aftersales"
+      && String(row.status) === "PENDING_ANALYSIS"
+      && disposition?.code === "UNASSESSED";
+    const statusLabel = context.perspective === "aftersales"
+      && String(row.status) === "PENDING_ANALYSIS"
+      ? disposition?.code === "ORDINARY" ? "普通事件（已记录）"
+        : disposition?.code === "UNASSESSED" ? "待质量研判"
+          : qualityStatusLabel(row.status)
+      : qualityStatusLabel(row.status);
+    const viewModel: QualityEventSummaryViewModel = {
       actionRef: String(row.id),
       eventNumber: String(row.event_no),
       title: String(row.title),
-      statusLabel: qualityStatusLabel(row.status),
+      statusLabel,
       attentionBucket: attention.bucket,
       attentionLabel: attention.label,
-      urgencyLabel: qualityUrgencyLabel(row.urgency),
+      urgencyLabel: riskPendingReview ? "待研判" : qualityUrgencyLabel(row.urgency),
       currentOwnerName: formalEmployeeTasks.length > 0
         ? displayName(context.actorUserId)
         : displayName(root?.assignee_user_id),
@@ -292,7 +866,18 @@ export function createQualityEventPerspectiveProjector(
         : nullable(root?.department_name) ?? "暂未指定",
       updatedAt: String(row.updated_at),
       testBadge: Number(row.is_test ?? 0) === 1 ? "测试事件" : null,
+      managerStages: [...new Set(assignmentItems.map((item) => item.managerStage))],
+      assignmentItems,
+      dispositionCode: disposition?.code ?? null,
+      dispositionLabel: disposition?.label ?? null,
     };
+    // Filtering uses the authoritative stored status, while the public API
+    // continues to expose only the role-specific Chinese presentation label.
+    Object.defineProperty(viewModel, "statusCode", {
+      value: String(row.status),
+      enumerable: false,
+    });
+    return viewModel as QualityEventSummaryViewModel & { statusCode: string };
   }
 
   function canSeeEvent(row: DatabaseRow, context: QualityPerspectiveContext): boolean {
@@ -301,9 +886,16 @@ export function createQualityEventPerspectiveProjector(
     if (context.isAdmin && context.scope === "real") return true;
     if (context.perspective === "dashboard") return context.isAdmin;
     if (context.perspective === "aftersales") return String(row.created_by) === context.actorUserId;
-    if (context.perspective === "quality_management") return String(row.status) !== "DRAFT";
+    if (context.perspective === "quality_management") {
+      const disposition = eventDisposition(String(row.id));
+      if (isTest && String(row.status) === "PENDING_ANALYSIS"
+        && disposition != null && disposition.code !== "QUALITY_ANOMALY") return false;
+      return String(row.status) !== "DRAFT";
+    }
     if (context.perspective === "employee"
       && employeeFormalSubtasks(String(row.id), context.actorUserId).length > 0) return true;
+    if (context.perspective === "manager"
+      && managerFormalSubtasks(String(row.id), context.actorUserId).length > 0) return true;
     return nodes(String(row.id)).some((node) => String(node.assignee_user_id) === context.actorUserId);
   }
 
@@ -400,9 +992,12 @@ export function createQualityEventPerspectiveProjector(
       recommendedDecision: recommendation == null
         ? "建议暂不可用"
         : qualityDecisionLabel(recommendation),
+      recommendedDecisionCode: recommendation == null ? null : String(recommendation),
       suggestedCategory: ai
         ? categoryLabel(ai.primaryCategoryCode, ai.secondaryCategoryCode)
         : "分类待确认",
+      primaryCategoryCode: nullable(ai?.primaryCategoryCode),
+      secondaryCategoryCode: nullable(ai?.secondaryCategoryCode),
       suggestedRisk: riskLabel,
       evidenceStrength: ai ? evidenceStrength : "证据情况暂不可用",
       reasons: reasoning.map((item) => nullable(item.statement)).filter(Boolean).slice(0, 20),
@@ -432,6 +1027,7 @@ export function createQualityEventPerspectiveProjector(
       ORDER BY assessment.updated_at DESC
     `).all(eventId) as DatabaseRow[]).map((row) => ({
       conclusion: qualityDecisionLabel(row.handling_recommendation),
+      handlingCode: String(row.handling_recommendation),
       category: categoryLabel(
         row.primary_category_code,
         row.secondary_category_code,
@@ -439,9 +1035,16 @@ export function createQualityEventPerspectiveProjector(
         row.custom_secondary_category_name,
       ),
       riskLabel: qualityUrgencyLabel(row.risk_level),
+      riskCode: String(row.risk_level),
       note: nullable(row.conclusion) ?? "无补充说明",
       adoptionLabel: String(row.adoption_mode) === "DIRECT" ? "直接采纳"
         : String(row.adoption_mode) === "MODIFIED" ? "修改后采纳" : "人工研判",
+      adoptionCode: String(row.adoption_mode),
+      categoryMode: String(row.category_mode),
+      primaryCategoryCode: nullable(row.primary_category_code),
+      secondaryCategoryCode: nullable(row.secondary_category_code),
+      customPrimaryCategoryName: nullable(row.custom_primary_category_name),
+      customSecondaryCategoryName: nullable(row.custom_secondary_category_name),
       changeReason: nullable(row.change_reason),
       dispositionLabel: row.disposition_status == null
         ? "尚未正式处置"
@@ -598,17 +1201,33 @@ export function createQualityEventPerspectiveProjector(
       if (root) context = { ...context, actorUserId: String(root.assignee_user_id) };
     }
     const branch = visibleNodes(allNodes, context);
+    const allFormalTasks = ["quality_management", "manager", "employee"].includes(context.perspective)
+      ? listQualityFormalSubtasksFromDb(db, { eventId: input.eventId })
+      : [];
     const formalEmployeeTasks = context.perspective === "employee"
-      ? employeeFormalSubtasks(input.eventId, context.actorUserId)
+      ? allFormalTasks.filter((item) => item.assigneeUserId === context.actorUserId)
+      : [];
+    const formalManagerTasks = context.perspective === "manager"
+      ? allFormalTasks.filter((item) => item.managerUserId === context.actorUserId)
       : [];
     if ((context.perspective === "manager" || context.perspective === "employee")
-      && branch.length === 0 && formalEmployeeTasks.length === 0) return null;
+      && branch.length === 0
+      && formalEmployeeTasks.length === 0
+      && formalManagerTasks.length === 0) return null;
     const nodeRefs = new Set(branch.map((node) => String(node.node_id)));
     const evidenceRows = tableExists(db, "quality_evidence")
       ? db.prepare("SELECT * FROM quality_evidence WHERE event_id=? ORDER BY created_at,evidence_id").all(input.eventId) as DatabaseRow[]
       : [];
     const reviewRows = tableExists(db, "quality_node_reviews")
       ? db.prepare("SELECT * FROM quality_node_reviews WHERE event_id=? ORDER BY created_at,review_id").all(input.eventId) as DatabaseRow[]
+      : [];
+    const qualityManagementItems = context.perspective === "quality_management"
+      ? qualityManagementAssignmentItems({
+          eventId: input.eventId,
+          formalSubtasks: allFormalTasks,
+          evidenceRows,
+          reviewRows,
+        })
       : [];
     const auditRows = tableExists(db, "quality_audit_events")
       ? db.prepare("SELECT * FROM quality_audit_events WHERE event_id=? ORDER BY occurred_at,id").all(input.eventId) as DatabaseRow[]
@@ -640,13 +1259,15 @@ export function createQualityEventPerspectiveProjector(
       const ownPending = branch.find((node) => String(node.assignee_user_id) === context.actorUserId
         && String(node.status) === "PENDING_ACCEPTANCE");
       if (ownPending) allowedActions.push("accept", "reject");
-      const ownActive = branch.find((node) => String(node.assignee_user_id) === context.actorUserId
-        && ["IN_PROGRESS", "RETURNED"].includes(String(node.status)));
-      if (ownActive) allowedActions.push("delegate", "upload-evidence", "submit-completion");
-      if (branch.some((node) => String(node.parent_node_id) === ownActive?.node_id
-        && String(node.status) === "PENDING_PARENT_REVIEW")) allowedActions.push("review-child");
-      if (String(row.status) === "PENDING_PRIMARY_REVIEW"
-        && root && String(root.assignee_user_id) === context.actorUserId) allowedActions.push("primary-review");
+      if (formalManagerTasks.length === 0) {
+        const ownActive = branch.find((node) => String(node.assignee_user_id) === context.actorUserId
+          && ["IN_PROGRESS", "RETURNED"].includes(String(node.status)));
+        if (ownActive) allowedActions.push("delegate", "upload-evidence", "submit-completion");
+        if (branch.some((node) => String(node.parent_node_id) === ownActive?.node_id
+          && String(node.status) === "PENDING_PARENT_REVIEW")) allowedActions.push("review-child");
+        if (String(row.status) === "PENDING_PRIMARY_REVIEW"
+          && root && String(root.assignee_user_id) === context.actorUserId) allowedActions.push("primary-review");
+      }
     }
     if (!readonly && context.perspective === "employee") {
       const ownPending = branch.find((node) => String(node.assignee_user_id) === context.actorUserId
@@ -658,15 +1279,20 @@ export function createQualityEventPerspectiveProjector(
     }
     if (!readonly && context.perspective === "aftersales" && String(row.status) !== "CLOSED") {
       if (context.scope === "test") {
-        if (String(row.status) === "PENDING_ANALYSIS") allowedActions.push("generate-original-ai");
-        allowedActions.push("update-aftersales");
+        if (String(row.status) === "PENDING_ANALYSIS") {
+          allowedActions.push("generate-original-ai", "update-aftersales");
+        }
       }
       else allowedActions.push("supplement", "correct");
     }
     const viewModel: Record<string, unknown> = {
       scope: context.scope,
       perspective: context.perspective,
+      actorUserId: context.actorUserId,
       readonly,
+      defaultStage: context.perspective === "quality_management"
+        ? qualityManagementDefaultStage(row.status)
+        : undefined,
       actorLabel: context.testActor?.displayName
         ?? (context.perspective === "aftersales" ? "马荣鑫视角"
           : context.perspective === "quality_management" ? "佟成视角"
@@ -687,6 +1313,8 @@ export function createQualityEventPerspectiveProjector(
         supplement: nullable(row.supplement),
         overallDueAt: nullable(row.overall_due_at),
         version: Number(row.version),
+        dispositionCode: eventDisposition(input.eventId)?.code ?? null,
+        dispositionLabel: eventDisposition(input.eventId)?.label ?? null,
       },
       sourceFacts: factRows(input.eventId),
       initialAnalysis: context.perspective === "aftersales" ? undefined : initialAnalysis(input.eventId, context.perspective),
@@ -713,6 +1341,7 @@ export function createQualityEventPerspectiveProjector(
             statusLabel: qualityStatusLabel(node.status),
             dueAt: String(node.due_at),
             requirement: String(node.requirement),
+            acceptedAt: nullable(node.accepted_at),
             version: Number(node.version),
           }))
         : formalEmployeeTasks.map((item) => ({
@@ -724,6 +1353,7 @@ export function createQualityEventPerspectiveProjector(
             statusLabel: qualityFormalTaskStatusLabel(item.status, item.openDeclineKind),
             dueAt: item.dueAt,
             requirement: item.objective || item.subtaskTitle,
+            acceptedAt: item.acceptedAt,
             version: 0,
             taskNo: item.taskNo,
             taskId: item.taskId,
@@ -731,7 +1361,8 @@ export function createQualityEventPerspectiveProjector(
             taskUrl: `/workbench/employee/task?taskNo=${encodeURIComponent(item.taskNo)}`,
             formalProjection: true,
           })),
-      formalTaskProjection: formalEmployeeTasks.length > 0 && branch.length === 0,
+      qualityAssignmentItems: qualityManagementItems,
+      formalTaskProjection: allFormalTasks.length > 0,
       evidence: evidenceRows.filter((item) => !["manager", "employee"].includes(context.perspective) || nodeRefs.has(String(item.node_id))).map((item) => ({
         actionRef: String(item.evidence_id),
         fileName: String(item.original_name),

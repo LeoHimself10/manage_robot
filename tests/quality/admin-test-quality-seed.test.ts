@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { createQualityEvidenceService } from
+  "../../src/quality/evidence/quality-evidence-service";
 
 const roots: string[] = [];
 
@@ -16,6 +18,7 @@ describe("administrator isolated quality seed", () => {
     const root = mkdtempSync(join(tmpdir(), "admin-test-quality-seed-"));
     roots.push(root);
     const dbPath = join(root, "workbench.sqlite");
+    const evidenceDir = join(root, "controlled-evidence");
     const run = () => execFileSync(
       process.execPath,
       ["--import", "tsx", "scripts/seed-admin-test-quality-data.ts"],
@@ -25,6 +28,7 @@ describe("administrator isolated quality seed", () => {
           ...process.env,
           WORKBENCH_SQLITE_PATH: dbPath,
           WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED: "1",
+          QUALITY_EVIDENCE_DIR: evidenceDir,
         },
         encoding: "utf8",
       },
@@ -40,8 +44,37 @@ describe("administrator isolated quality seed", () => {
       WHERE event_id=(SELECT id FROM quality_events WHERE event_no='QT-DEMO-002')`).run();
     damaged.prepare(`UPDATE quality_analysis_versions SET deliverables_json='[]'
       WHERE event_id=(SELECT id FROM quality_events WHERE event_no='QT-DEMO-003')`).run();
+    const seededEvidence = damaged.prepare(`
+      SELECT q.evidence_id,q.storage_key
+      FROM quality_evidence q
+      JOIN quality_events e ON e.id=q.event_id
+      WHERE e.event_no='QT-DEMO-011'
+    `).get() as { evidence_id: string; storage_key: string };
+    expect(seededEvidence.evidence_id).toBe("evidence:quality-test-event-extra-011:employee");
+    expect(seededEvidence.storage_key).toMatch(/^quality-test-seed-[a-f0-9]{64}$/);
+    const seededEvidencePath = join(evidenceDir, seededEvidence.storage_key);
+    expect(readFileSync(seededEvidencePath, "utf8")).toBe("QT-DEMO-011 隔离测试证据");
+    unlinkSync(seededEvidencePath);
+    expect(existsSync(seededEvidencePath)).toBe(false);
+    damaged.prepare("UPDATE quality_evidence SET storage_key=? WHERE evidence_id=?").run(
+      "seed:quality-test-event-extra-011:employee",
+      seededEvidence.evidence_id,
+    );
+    damaged.prepare(`
+      INSERT INTO quality_evidence(
+        evidence_id,event_id,node_id,evidence_version,storage_key,original_name,
+        mime_type,summary,size_bytes,sha256,uploaded_by,request_id,created_at
+      )
+      SELECT 'manual-missing-evidence',event_id,node_id,2,'manual-missing-storage',
+        '人工证据.txt','text/plain','不属于播种器',0,
+        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        uploaded_by,'40000000-0000-4000-8000-000000000011',created_at
+      FROM quality_evidence WHERE evidence_id=?
+    `).run(seededEvidence.evidence_id);
     damaged.close();
     expect(run()).toContain("isolated quality events ready: 30");
+    expect(existsSync(seededEvidencePath)).toBe(true);
+    expect(existsSync(join(evidenceDir, "manual-missing-storage"))).toBe(false);
 
     const db = new DatabaseSync(dbPath, { readOnly: true });
     const rows = db.prepare(`
@@ -68,6 +101,12 @@ describe("administrator isolated quality seed", () => {
       WHERE sheet_id='QUALITY_TEST_ISOLATED'
       GROUP BY state
     `).all() as Array<{ state: string; count: number }>;
+    const manualEvidence = db.prepare(`
+      SELECT storage_key FROM quality_evidence WHERE evidence_id='manual-missing-evidence'
+    `).get() as { storage_key: string };
+    const repairedEvidence = db.prepare(`
+      SELECT storage_key FROM quality_evidence WHERE evidence_id=?
+    `).get(seededEvidence.evidence_id) as { storage_key: string };
     const formalStatuses = db.prepare(`
       SELECT s.status,COUNT(*) AS count
       FROM quality_task_links l
@@ -144,17 +183,33 @@ describe("administrator isolated quality seed", () => {
       .toBe("原因排查与验证记录");
     expect(notifications.count).toBe(0);
     expect(sourceStates).toEqual([{ state: "ACTIVE", count: 30 }]);
+    expect(manualEvidence.storage_key).toBe("manual-missing-storage");
+    expect(repairedEvidence.storage_key).toBe(seededEvidence.storage_key);
+
+    const evidenceService = createQualityEvidenceService({ dbPath, rootDir: evidenceDir });
+    try {
+      const downloaded = evidenceService.readEvidence({
+        evidenceId: seededEvidence.evidence_id,
+        actorUserId: "admin-test-user",
+        actorRole: "admin",
+      });
+      expect(downloaded.buffer.toString("utf8")).toBe("QT-DEMO-011 隔离测试证据");
+    } finally {
+      evidenceService.close();
+    }
   }, 20_000);
 
   it("extends the legacy twelve-event dataset to thirty without replacing existing IDs", () => {
     const root = mkdtempSync(join(tmpdir(), "admin-test-quality-legacy-seed-"));
     roots.push(root);
     const dbPath = join(root, "workbench.sqlite");
+    const evidenceDir = join(root, "controlled-evidence");
     const env = {
       ...process.env,
       WORKBENCH_SQLITE_PATH: dbPath,
       QUALITY_TEST_ACTORS_ENABLED: "1",
       WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED: "1",
+      QUALITY_EVIDENCE_DIR: evidenceDir,
     };
     execFileSync(
       process.execPath,
