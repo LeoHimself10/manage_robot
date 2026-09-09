@@ -11,8 +11,10 @@ import { renderEmployeeWorkbenchPage } from "../src/web/employee-workbench-pages
 import { renderTaskDetailPage } from "../src/web/assignment-workbench.ts";
 import { renderQualityTrackingPage } from "../src/web/quality-tracking-page.ts";
 import { renderQualityReviewPage } from "../src/web/quality-review-page.ts";
+import { renderQualityMaWorkbenchPage } from "../src/web/quality-ma-workbench-page.ts";
 
 const cases = [
+  ["quality-ma-workbench", renderQualityMaWorkbenchPage({role:"manager",userId:"ma-local",displayName:"马荣鑫（本地）",isTest:true})],
   ["manager-tasks", renderManagerTasksPage({ userLabel: "测试" })],
   ["manager-chat", renderManagerChatPage({ userLabel: "测试" })],
   ["manager-projects", renderManagerProjectsPage({ userLabel: "测试" })],

@@ -100,6 +100,8 @@ export function enqueueQualitySourceWriteback(
     id?: string;
   },
 ): void {
+  // OA feedback is not a workbook cell and must never enter workbook writeback.
+  if (input.sourceKey.startsWith("oa:")) return;
   const dedupeKey = `${input.sourceKey}:${input.reviewVersion}:${input.desiredValue}`;
   db.prepare(`
     INSERT INTO quality_source_writeback_outbox(

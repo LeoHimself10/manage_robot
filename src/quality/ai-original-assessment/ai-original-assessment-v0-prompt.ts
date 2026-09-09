@@ -7,8 +7,8 @@ export interface AiOriginalAssessmentPromptMessage {
 
 function compactFeedback(
   source: AiOriginalAssessmentInput["sourceSnapshot"],
-): Record<string, string> {
-  return Object.fromEntries([
+): Record<string, unknown> {
+  const feedback: Record<string, unknown> = Object.fromEntries([
     ["sourceKey", source.sourceKey],
     ["feedbackAt", source.feedbackAt],
     ["deviceModel", source.deviceModel],
@@ -21,6 +21,8 @@ function compactFeedback(
   ].filter((entry): entry is [string, string] => (
     typeof entry[1] === "string" && entry[1].trim().length > 0
   )));
+  if (source.oaContext) feedback.oaContext = source.oaContext;
+  return feedback;
 }
 
 /**
@@ -96,6 +98,7 @@ export function buildAiOriginalAssessmentV0Messages(input: {
     "已有产品、成像、PIU、主机、软件或包装异常时建议QUALITY_ANOMALY；明确为一般操作、培训、患者因素或非质量事项时可建议ORDINARY。根因仍待调查不等于NEEDS_INFO，应写入missingInformation或uncertainties。",
     "风险按HIGH→MEDIUM→LOW判断：术中或生产中核心操作中断，或因异常更换器械、重启设备、改变术式，或严重安全事件，建议HIGH；需更换、维修、排查且影响明显但未中断核心操作，建议MEDIUM；轻微影响或普通咨询/培训且无中断、停机、更换，建议LOW。风险等级只是AI建议，最终由人工审核。",
     "impact和confirmation是可选字段；不得自动补写或伪造。必须填写至少一条uncertainties，明确人工待确认内容。",
+    ...(assessmentInput.sourceSnapshot.oaContext ? ["oaContext是员工提交的OA表单事实；其中attachments仅为附件元数据，附件内容未读取或分析，不得把文件名当作已查证的内容。"] : []),
     "similarCases只能使用实际检索案例ID；无案例时similarCases必须返回空数组[]。citations.sourceId只能使用引用白名单，reasoningBasis.citationIds必须指向已声明的citations.citationId。",
     "返回模板中的竖线表示枚举中选择一个值；数组无内容时返回[]，不要照抄占位文字。",
   ].join("\n");

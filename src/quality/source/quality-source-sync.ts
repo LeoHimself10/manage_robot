@@ -163,7 +163,8 @@ export function createQualitySourceSync(deps: {
 
         const activeRows = db.prepare(
           `SELECT source_key FROM quality_source_rows
-           WHERE state <> 'DELETED' AND sheet_id <> 'QUALITY_TEST_ISOLATED'`,
+           WHERE state <> 'DELETED' AND sheet_id <> 'QUALITY_TEST_ISOLATED'
+             AND source_key NOT LIKE 'oa:%'`,
         ).all() as DatabaseRow[];
         for (const row of activeRows) {
           const sourceKey = String(row.source_key);

@@ -1,5 +1,6 @@
 import type { NormalizedQualitySourceRow } from "../source/quality-source-schema";
 import { normalizeQualitySourceSheet } from "../source/quality-source-schema";
+import { buildAiOaContext } from "./ai-original-assessment-oa-context";
 import {
   AI_ORIGINAL_ASSESSMENT_INPUT_SCHEMA_VERSION,
   aiOriginalAssessmentInputSchema,
@@ -56,6 +57,7 @@ export function prepareAiOriginalAssessmentV0FromNormalizedFeedback(options: {
     clinicianAware: normalizedFeedback.clinicianAware,
     impact: normalizedFeedback.impact,
     confirmation: normalizedFeedback.confirmation,
+    ...(normalizedFeedback.sourceKey.startsWith("oa:") ? { oaContext: buildAiOaContext(normalizedFeedback) } : {}),
   };
   const input = aiOriginalAssessmentInputSchema.parse({
     schemaVersion: AI_ORIGINAL_ASSESSMENT_INPUT_SCHEMA_VERSION,

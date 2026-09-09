@@ -89,6 +89,26 @@ export const aiHistoricalCaseSchema = z.object({
   sourceReference: nonEmptyString,
 }).strict();
 
+/** OA facts are allowlisted; attachment URLs, identities and file bytes are excluded. */
+export const aiOaContextSchema = z.object({
+  productType: normalizedOptionalString.optional(),
+  catheterModel: normalizedOptionalString.optional(),
+  softwareVersion: normalizedOptionalString.optional(),
+  hospital: normalizedOptionalString.optional(),
+  occurredAt: normalizedOptionalString.optional(),
+  reproduction: normalizedOptionalString.optional(),
+  occurrenceCount: normalizedOptionalString.optional(),
+  returnable: normalizedOptionalString.optional(),
+  damagedCount: normalizedOptionalString.optional(),
+  attachmentContent: z.literal("NOT_ANALYZED"),
+  attachments: z.array(z.object({
+    category: nonEmptyString,
+    name: nonEmptyString,
+    mimeType: normalizedOptionalString.optional(),
+    sizeBytes: z.number().finite().nonnegative().optional(),
+  }).strict()).max(64),
+}).strict();
+
 export const aiOriginalAssessmentInputSchema = z.object({
   schemaVersion: z.literal(AI_ORIGINAL_ASSESSMENT_INPUT_SCHEMA_VERSION),
   sourceSnapshot: z.object({
@@ -106,6 +126,7 @@ export const aiOriginalAssessmentInputSchema = z.object({
     clinicianAware: normalizedOptionalString,
     impact: nullableOptionalString,
     confirmation: nullableOptionalString,
+    oaContext: aiOaContextSchema.optional(),
   }).strict(),
   categoryDictionary: aiCategoryDictionarySchema,
   retrievedCases: z.array(aiHistoricalCaseSchema).max(3),

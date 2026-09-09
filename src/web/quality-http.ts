@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { handleQualityMaApi, isQualityMaApiPath } from "./quality-ma-http";
+import { renderQualityMaWorkbenchPage } from "./quality-ma-workbench-page";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { z, ZodError } from "zod";
@@ -66,6 +68,7 @@ import { createQualitySourceWritebackOutbox } from "../quality/source/quality-so
 import { triggerQualitySourceWriteback } from "../quality/source/quality-source-writeback-runtime";
 import { resolveQualityCapabilities } from "../security/quality-capabilities";
 import { resolveWorkbenchSqlitePath } from "../infra/workbench-db-path";
+import { createPeopleDirectoryStore } from "../infra/people-directory-store";
 import { hasQualityPlanningHandoff } from "../quality/queries/quality-event-query";
 import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
 import { readMultipartSingleFile } from "./multipart-single-file";
@@ -100,6 +103,7 @@ export interface QualityHttpSession {
 }
 
 const QUALITY_PAGE_PATHS = new Set([
+  "/workbench/quality/ma",
   "/workbench/quality",
   "/workbench/quality/review",
   "/workbench/quality/opinions",
@@ -124,7 +128,7 @@ export function isQualityPagePath(pathname: string): boolean {
 }
 
 export function isQualityApiPath(pathname: string): boolean {
-  return QUALITY_STATIC_API_PATHS.has(pathname)
+  return isQualityMaApiPath(pathname) || QUALITY_STATIC_API_PATHS.has(pathname)
     || pathname === "/api/workbench/manager/quality-nodes"
     || /^\/api\/workbench\/manager\/quality-nodes\/[^/]+\/(?:accept|reject|delegate)$/.test(pathname)
     || /^\/api\/workbench\/manager\/quality-nodes\/[^/]+\/children\/[^/]+\/due$/.test(pathname)
@@ -1881,6 +1885,46 @@ export function handleQualityHttp(input: {
   }
   const caps = resolveQualityCapabilities(session.userId);
   const isHead = req.method === "HEAD";
+  const maEnabled = process.env.QUALITY_MA_WORKBENCH_ENABLED === "1";
+  if (isQualityMaApiPath(url.pathname)) {
+    if (!maEnabled) writeJson(res, 404, {ok:false,error:"页面未启用"});
+    else void handleQualityMaApi(input).catch(() => {
+      if (!res.headersSent) writeJson(res, 500, {ok:false,error:"读取失败，请稍后重试"});
+      else res.end();
+    });
+    return true;
+  }
+  const isMaPage = url.pathname === "/workbench/quality/ma";
+  if (isMaPage || (maEnabled && caps.canReportQuality && caps.baseRole !== "admin"
+    && ["/workbench/quality", "/workbench/quality/review"].includes(url.pathname))) {
+    if (!maEnabled) { writeJson(res,404,{ok:false,error:"页面未启用"}); return true; }
+    if (!caps.canReportQuality || caps.baseRole === "admin") { forbidden(res); return true; }
+    if (req.method !== "GET" && !isHead) { writeJson(res,405,{ok:false,error:"不支持的请求方式"}); return true; }
+    let initialSourceKey = url.searchParams.get("sourceKey") ?? url.searchParams.get("record") ?? "";
+    const requestedEventId = url.searchParams.get("eventId");
+    if (!initialSourceKey && requestedEventId) {
+      createQualityStore().close();
+      const db = new DatabaseSync(resolveWorkbenchSqlitePath(), {readOnly:true});
+      try {
+        const linked = db.prepare(`SELECT l.source_key FROM quality_event_source_links l
+          JOIN quality_events e ON e.id=l.event_id
+          WHERE e.id=? AND e.created_by=? AND e.deleted_at IS NULL AND e.is_test=0 LIMIT 1`)
+          .get(requestedEventId,session.userId) as {source_key:string}|undefined;
+        initialSourceKey = linked?.source_key ?? "";
+      } finally { db.close(); }
+    }
+    let displayName = session.dingUser?.name;
+    if (!displayName) {
+      const directory = createPeopleDirectoryStore(resolveWorkbenchSqlitePath());
+      try { displayName = directory.getContact(session.userId)?.name || session.userId; }
+      finally { directory.close(); }
+    }
+    const html = renderQualityMaWorkbenchPage({role:session.role,userId:session.userId,displayName,
+      isTest:process.env.QUALITY_MA_LOCAL_DATA === "1",initialSourceKey});
+    res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store, must-revalidate"});
+    res.end(isHead ? "" : decorateWorkbenchHtmlForAdminImpersonation(html,session));
+    return true;
+  }
   const planningManager = caps.baseRole === "manager"
     && (hasQualityPlanningHandoff(session.userId)
       || getAdminTestActor(session.userId)?.impersonationKind === "manager");
