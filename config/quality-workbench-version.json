@@ -1,0 +1,22 @@
+{
+  "snapshotDate": "2026-09-09",
+  "repository": "https://github.com/LeoHimself10/manage_robot",
+  "uiBranch": "codex/tong-quality-prototype",
+  "runtimeDependencies": [
+    {
+      "directory": "../yesterday-admin-test-actors",
+      "branch": "codex/yesterday-admin-test-actors",
+      "commit": "bc58cf595d8091e8884125969e71c8f737a81a94",
+      "purpose": "Original AI adapters, local workbench database, role navigation"
+    },
+    {
+      "directory": "../ma-quality-workbench-v1",
+      "branch": "codex/ma-quality-workbench-v1",
+      "commit": "e9ec021b728bc9334251e49aa814718b8f754b11",
+      "purpose": "OA intake, formal quality review and event projection services"
+    }
+  ],
+  "ports": {"original": 8797, "ma": 8808, "tong": 8809},
+  "dataIncluded": false,
+  "onlineDingtalkWritesEnabled": false
+}

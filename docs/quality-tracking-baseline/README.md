@@ -1,12 +1,22 @@
 ---
 status: baseline
-last_verified_at: 2026-08-25
+last_verified_at: 2026-09-09
 verified_against: working-tree
 scope: current-quality-tracking-without-ai-and-smart-assignment
 maintainer: EDY
 ---
 
 # 质量追踪快速接手包
+
+2026-09-09 视角入口修正：8797 管理员切换到马荣鑫/佟成后，质量首页现在分别导航至已确认的 8808/8809 界面，避免误回旧质量中心。原系统本地启动器启用 `QUALITY_LOCAL_REVIEW_UI_ENABLED=1`，跳转在原权限检查之后生效；接口、任务页面、只读管理视角与原记录深链保留。新版菜单移除重复的旧马荣鑫/佟成链接。18 项 HTTP/权限回归通过；具体文件见 [佟成工作台](../mockups/tong-workbench-20260908/README.md)。
+
+2026-09-09 佟成初析去重：8809 默认显示一份可编辑质量初析草稿，AI 原稿/历史折叠；新 AI 与旧草稿基准不一致时明确提示，预填前确认并保存人工副本。来源摘要按需展开，核实事实单独编辑，原字段与原稿均保留。源码边界和 8 项交互检查、两种分辨率截图见 [佟成工作台记录](../mockups/tong-workbench-20260908/README.md)。
+
+2026-09-09 入口恢复：8808 已恢复已确认 HTML 的全部事件 → 确认进入质量事件 → 待我研判 → 独立保存 → 明确推送，以及后续初析、分配、承办、证据和验收只读导航。真实 OA / AI 保留，正式通报和任务状态复用原系统。此前精简 OA 收件箱描述已被此版本替代；范围、源码与验收见 [完整界面恢复记录](../mockups/quality-oa-workflow-connected-20260909/README.md)。
+
+2026-09-09 OA 接入补充：8808 `/ma-workbench/` 已改为真实“用服反馈流程”收件箱；服务端每分钟补拉，主管通过并到达马荣鑫/佟成会签节点后导入，真实来源和 AI 分别保存。初次补拉 119 天未完结审批，实测导入 6 条。原交互稿保留 `/design/ma-workbench/`；OA 评论、正式通报与 ECS 部署未完成。源码、接口与范围见 [OA 接入记录](../mockups/quality-oa-connected-20260909/README.md)。
+
+2026-09-09 本地新增边界：新版马荣鑫 / 佟成页面已通过独立本机 API 复用 `yesterday-admin-test-actors` 原系统的真实 AI 模块。下文“无真实 AI”描述仅对应本工作树旧版正式页面，不适用于该新入口；这不代表正式业务迁移或部署完成。精确源码、API、输入范围及实测记录见 [新版真实 AI 接入](../mockups/quality-connected-20260909/README.md)。
 
 本目录是质量追踪模块的快速上下文入口，目标是让新的 Codex 会话先理解已经确认的需求、当前业务流程和 HTML 交互，再只核验本次任务涉及的少量源码。它不能替代源码，但应避免每次无差别扫描整个仓库。
 

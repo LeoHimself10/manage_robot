@@ -1,12 +1,20 @@
 ---
 status: baseline
-last_verified_at: 2026-08-25
+last_verified_at: 2026-09-09
 verified_against: working-tree
 scope: current-decisions-gaps-and-open-questions
 maintainer: EDY
 ---
 
 # 质量追踪决策、差距与待确认事项
+
+2026-09-09 初析展示已确认并实施：用户指出完整 AI 原稿与人工草稿重复并明确要求修改。8809 收敛为草稿主界面、AI 原稿与历史按需对照；两个数据层继续独立留存，版本提示与主动预填不意味着自动采纳。来源摘要与核实事实只调整显示层次，不合并存储。该前端改动不代表正式业务迁移或 OA 回写完成；详见 [工作区与验收记录](../mockups/tong-workbench-20260908/README.md)。
+
+2026-09-09 入口恢复：8808 已恢复已确认 HTML 的全部事件 → 确认进入质量事件 → 待我研判 → 独立保存 → 明确推送，以及后续初析、分配、承办、证据和验收只读导航。真实 OA / AI 保留，正式通报和任务状态复用原系统。此前精简 OA 收件箱描述已被此版本替代；范围、源码与验收见 [完整界面恢复记录](../mockups/quality-oa-workflow-connected-20260909/README.md)。
+
+2026-09-09 OA 接入补充：8808 `/ma-workbench/` 已改为真实“用服反馈流程”收件箱；服务端每分钟补拉，主管通过并到达马荣鑫/佟成会签节点后导入，真实来源和 AI 分别保存。初次补拉 119 天未完结审批，实测导入 6 条。原交互稿保留 `/design/ma-workbench/`；OA 评论、正式通报与 ECS 部署未完成。源码、接口与范围见 [OA 接入记录](../mockups/quality-oa-connected-20260909/README.md)。
+
+2026-09-09 已实施：用户明确要求新版界面接入原系统 AI，两处生成按钮已使用原模型、提示词、检索与校验；真实调用成功。待接入范围仍包括正式业务数据、业务 HTTP 会话与对象权限、OA 评论等；不能把真实 AI 接通等同于整套系统完成上线。详见 [本地 AI 接入记录](../mockups/quality-connected-20260909/README.md)。
 
 ## 使用规则
 

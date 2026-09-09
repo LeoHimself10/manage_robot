@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>质量处理工作台 · 佟成 · 交互原型</title>
+<link rel="stylesheet" href="reference-base.css"><link rel="stylesheet" href="reference-workbench.css"><link rel="stylesheet" href="tong.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true">▣</span>任务工作台</div><nav class="toplinks" aria-label="系统位置"><a href="http://127.0.0.1:8797/workbench/employee" target="_blank" rel="noopener">任务分配与执行</a><span class="active">质量追踪</span></nav><div class="user"><span class="avatar">佟</span><div>佟成 <small>· 员工</small></div><span class="capability">质量管理能力已开通</span></div></header>
+<div class="prototype-bar"><strong>交互评审原型</strong><span>所有事件、人员、结论与附件均为演示数据 · 操作仅保存在此浏览器</span><button class="text-btn" id="guideButton">演示情境与说明 →</button></div>
+<main class="container">
+<div class="breadcrumb">质量追踪 / 质量处理工作台</div>
+<div class="page-header"><div><h1>质量处理工作台</h1><p class="subtitle">从质量初析到证据终验，让每个问题都有处理结果。</p></div><div class="header-actions"><div class="sync-state"><strong><span class="dot"></span>佟成的质量工作视角</strong><span id="workSummary"></span></div><button class="btn" id="refreshButton">刷新视图</button></div></div>
+<section class="panel" aria-label="质量事件列表">
+<div class="list-top"><div class="tabs" id="scopeTabs" role="tablist" aria-label="质量事件范围"></div><span class="source-label">马荣鑫确认推送后进入初析</span></div>
+<div class="search-area"><form id="searchForm" class="search-row"><div class="searchbox"><span class="search-symbol" aria-hidden="true">⌕</span><input id="searchInput" aria-label="搜索质量事件" placeholder="搜索事件编号、问题、型号或处理人"><button type="button" class="clear-input" id="clearSearch" aria-label="清除搜索" hidden>×</button></div><button class="btn primary" type="submit">搜索事件</button><label class="compact-filter"><span class="sr-only">风险筛选</span><select id="riskFilter" aria-label="风险筛选"><option value="">全部风险</option><option>高风险</option><option>中风险</option><option>低风险</option></select></label><label class="compact-filter"><span class="sr-only">部门筛选</span><select id="departmentFilter" aria-label="部门筛选"><option value="">全部部门</option><option>研发与测试协作组</option><option>生产与质量协作组</option></select></label></form><div class="search-tip"><span>点击事件，在该行下方展开完整资料与处理流程</span><button class="text-btn inline-text" id="clearFilters" hidden>清空筛选</button></div></div>
+<div class="result-bar"><span id="resultSummary"></span><span>来源事实 · 人工研判 · 质量初析分别留存</span></div>
+<div id="listContent"></div><div class="pagination" id="listFooter"></div>
+</section>
+<footer class="page-note">质量页聚合原任务系统的分配、进度与验收结果。质量终验与主管验收分别记录。<a href="http://127.0.0.1:8808/ma-workbench/" target="_blank" rel="noopener">查看马荣鑫参考原型 ↗</a></footer>
+</main>
+<dialog id="actionDialog" aria-labelledby="dialogTitle"><div class="dialog-head"><div><span class="eyebrow" id="dialogEyebrow">质量处理 · 佟成</span><h2 id="dialogTitle"></h2></div><button class="icon-button" id="closeDialog" aria-label="关闭弹窗">×</button></div><div id="dialogBody"></div><div class="dialog-foot" id="dialogFooter"></div></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="source-data.js"></script><script src="tong.js"></script>
+</body></html>

@@ -1,0 +1,15 @@
+import http from 'node:http';
+import {resolve,join} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {mkdirSync,readFileSync} from 'node:fs';
+import {createOaHandler} from './quality-oa-http.mjs';
+import {createAiHandler} from './quality-ui-ai-http.mjs';
+import {createOaWorkflow} from './quality-oa-workflow.mjs';
+import {OA_SCOPE} from '../src/quality/oa/oa-store.mjs';
+const root=resolve('data/quality-oa-ui-qa');mkdirSync(root,{recursive:true});
+const output={schemaVersion:'ai-original-assessment-output-v0',requestId:randomUUID(),handlingRecommendation:'NEEDS_INFO',primaryCategoryCode:'CATHETER_PRODUCT',secondaryCategoryCode:'CATHETER_BEND_SHAKE',riskLevel:'MEDIUM',reasoningBasis:[{statement:'【离线验收样例】导管弯折，需要检查实物。',citationIds:['F1']}],similarCases:[],missingInformation:[{field:'physical_inspection_result',reason:'需要补充导管外观检查结果。'}],uncertainties:[],citations:[{citationId:'F1',sourceType:'FEEDBACK',sourceId:'offline',description:'离线测试来源'}],provenance:{modelConfigId:'offline-test',promptVersion:'offline',categoryDictionaryVersion:'v0',caseLibraryVersion:'v0'}};
+const runtime={health:{assessment:{configured:true},connected:true},validate:(_k,x)=>x,run:async()=>({input:{sourceSnapshot:{title:'离线测试'}},output,category:{primary:'导管本体',secondary:'弯折、扭曲与旋转异常'},retrievedCases:[],model:'offline-test'})};
+const oa=await createOaHandler({root,runtime,workflowFactory:store=>createOaWorkflow({store,originalRoot:resolve('../yesterday-admin-test-actors'),dbPath:join(root,'workbench.sqlite')})});
+oa.store.ingest('offline-ui-verification',{status:'RUNNING',businessId:'QA-20260909-001',createTime:'2026-09-09T09:00Z',originatorUserId:'离线测试人员',formComponentValues:[{id:'what',name:'WHAT（详细描述故障现象）',value:'【离线验收数据】导管弯折，需要核对',componentType:'TextareaField'}],tasks:[{userId:OA_SCOPE.reviewerId,status:'RUNNING',activityId:'feedback'},{userId:OA_SCOPE.cosignerId,status:'RUNNING',activityId:'feedback'}],operationRecords:[{userId:'离线主管',showName:'部门主管',result:'AGREE'}]});
+const handler=createAiHandler({runtime,oa,roots:{8812:resolve('docs/mockups/quality-oa-workflow-connected-20260909')},journalPath:join(root,'attempts.jsonl')});
+http.createServer(handler).listen(8812,'127.0.0.1',()=>console.log('http://127.0.0.1:8812'+JSON.parse(readFileSync(join(root,'data/quality-oa/local-entry.json'))).path));

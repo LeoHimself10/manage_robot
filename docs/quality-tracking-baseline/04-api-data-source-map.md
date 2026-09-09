@@ -1,12 +1,20 @@
 ---
 status: baseline
-last_verified_at: 2026-08-25
+last_verified_at: 2026-09-09
 verified_against: working-tree
 scope: current-api-data-and-source-map
 maintainer: EDY
 ---
 
 # 质量追踪 API、数据与源码地图
+
+2026-09-09 本地导航桥：相邻 `yesterday-admin-test-actors/src/web/quality-local-review-entry.ts` 由 `quality-http.ts` 在会话/质量权限校验后调用；仅当 `QUALITY_LOCAL_REVIEW_UI_ENABLED=1`、loopback HTTP、质量首页、可处理的马荣鑫/佟成视角时返回 302 到 8808/8809。该标志由 `scripts/local-quality-initial-analysis-dev.ts` 启用；普通部署默认不启用。API、原记录深链、主管/员工任务视图和只读管理视角不重定向。测试 `tests/web/quality-local-review-entry.test.ts` 及角色面板 HTTP 回归共 18 项通过。
+
+2026-09-09 入口恢复：8808 已恢复已确认 HTML 的全部事件 → 确认进入质量事件 → 待我研判 → 独立保存 → 明确推送，以及后续初析、分配、承办、证据和验收只读导航。真实 OA / AI 保留，正式通报和任务状态复用原系统。此前精简 OA 收件箱描述已被此版本替代；范围、源码与验收见 [完整界面恢复记录](../mockups/quality-oa-workflow-connected-20260909/README.md)。
+
+2026-09-09 OA 接入补充：8808 `/ma-workbench/` 已改为真实“用服反馈流程”收件箱；服务端每分钟补拉，主管通过并到达马荣鑫/佟成会签节点后导入，真实来源和 AI 分别保存。初次补拉 119 天未完结审批，实测导入 6 条。原交互稿保留 `/design/ma-workbench/`；OA 评论、正式通报与 ECS 部署未完成。源码、接口与范围见 [OA 接入记录](../mockups/quality-oa-connected-20260909/README.md)。
+
+本地新版 API 补充：`scripts/quality-ui-ai-server.mjs` 在 8808/8809 提供 `/api/quality-ui/status`、`/assessment`、`/initial-analysis`，内部复用相邻原系统工作树的 AI 适配器与校验器。仅分析页面样例快照，审计写入独立 `data/quality-ui-ai/attempts.jsonl`，不代理正式会话权限或改写正式质量表。详见 [API 与数据边界](../mockups/quality-connected-20260909/README.md)。
 
 ## 1. 运行入口
 

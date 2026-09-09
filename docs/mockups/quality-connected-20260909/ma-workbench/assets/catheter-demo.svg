@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="780" viewBox="0 0 1200 780">
+<rect width="1200" height="780" fill="#f4f6f9"/><rect x="44" y="44" width="1112" height="692" rx="12" fill="#fff" stroke="#dbe3ec"/>
+<g font-family="Microsoft YaHei, sans-serif"><text x="85" y="106" fill="#173451" font-size="28" font-weight="bold">导管外观记录</text><text x="85" y="146" fill="#78889b" font-size="18">交互原型示意图 · 非真实现场照片</text><rect x="955" y="77" width="143" height="40" rx="5" fill="#fff4db"/><text x="974" y="105" font-size="18" fill="#9c752d">DEMO 样例</text></g>
+<g stroke="#e8edf3" stroke-width="1"><path d="M100 230H1100M100 290H1100M100 350H1100M100 410H1100M100 470H1100M100 530H1100M100 590H1100M140 200V620M260 200V620M380 200V620M500 200V620M620 200V620M740 200V620M860 200V620M980 200V620"/></g>
+<path d="M157 473H710C840 473 809 354 893 354H1010" fill="none" stroke="#9eb2c8" stroke-width="25" stroke-linecap="round"/><path d="M157 469H710C840 469 809 350 893 350H1010" fill="none" stroke="#d7e3f0" stroke-width="12" stroke-linecap="round"/>
+<rect x="117" y="447" width="150" height="50" rx="13" fill="#597ca3"/><rect x="136" y="453" width="106" height="38" rx="7" fill="#8fa9c6"/><rect x="991" y="338" width="65" height="29" rx="12" fill="#6c89a9"/>
+<circle cx="827" cy="394" r="77" fill="none" stroke="#bd852c" stroke-width="2" stroke-dasharray="8 6"/><path d="M782 334 730 252H490" fill="none" stroke="#bd852c" stroke-width="2"/><text x="491" y="233" fill="#9a702e" font-family="Microsoft YaHei,sans-serif" font-size="22">示意标注区域（仅展示预览交互）</text>
+<g font-family="Microsoft YaHei,sans-serif" fill="#8998a8" font-size="17"><text x="85" y="679">实际接入后，此处显示员工在 OA 上传的原始图片。</text><text x="85" y="708">图片标注不会自动生成故障诊断或质量结论。</text></g></svg>
