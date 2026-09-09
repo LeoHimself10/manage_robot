@@ -61,6 +61,9 @@ function ensureLocalEnvironment(resetData: boolean): void {
   mkdirSync(join(DATA_ROOT, "events"), { recursive: true });
   process.env.ASSIGNMENT_WEB_PORT = String(LOCAL_PORT);
   process.env.WORKBENCH_TEST_LOGIN_ENABLED = "1";
+  // The approved Ma/Tong pages are served by quality-ui-ai-server on 8808/8809.
+  // Only this local launcher enables the navigation bridge; production remains opt-in.
+  process.env.QUALITY_LOCAL_REVIEW_UI_ENABLED ??= "1";
   process.env.WORKBENCH_SESSION_SECRET = "local-quality-analysis-session-secret-min-32-chars";
   process.env.ASSIGNMENT_WEB_SECRET = "local-quality-analysis-assignment-secret-min-32-chars";
   process.env.ASSIGNMENT_WEB_PUBLIC_BASE_URL = `http://127.0.0.1:${LOCAL_PORT}`;

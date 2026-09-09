@@ -70,6 +70,7 @@ import { hasQualityPlanningHandoff } from "../quality/queries/quality-event-quer
 import { listWorkbenchManagerIds } from "../security/workbench-manager-whitelist";
 import { readMultipartSingleFile } from "./multipart-single-file";
 import { renderQualityTrackingPage } from "./quality-tracking-page";
+import { localQualityReviewEntry } from "./quality-local-review-entry";
 import { renderQualityReviewPage } from "./quality-review-page";
 import { renderQualityOpinionsPage } from "./quality-opinions-page";
 import type { WorkbenchShellRole } from "./workbench-shell";
@@ -1924,6 +1925,17 @@ export function handleQualityHttp(input: {
         && url.pathname === "/workbench/quality/review"
         && !caps.roles.includes("aftersales_manager"))) {
       forbidden(res);
+      return true;
+    }
+    const reviewEntry = localQualityReviewEntry({
+      url,
+      perspective: pagePerspective?.perspective
+        ?? (caps.canReportQuality ? "aftersales" : caps.canAnalyzeQuality ? "quality_management" : null),
+      readonly: pagePerspective?.readonly ?? (caps.baseRole === "admin" || caps.isBusinessReadOnly),
+    });
+    if (reviewEntry) {
+      res.writeHead(302, { Location: reviewEntry, "Cache-Control": "no-store, must-revalidate" });
+      res.end();
       return true;
     }
     const html = renderQualityTrackingPage({
