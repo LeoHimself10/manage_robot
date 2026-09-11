@@ -14,6 +14,7 @@ export interface EmployeeQualityTaskContext {
   eventSummary: string;
   primaryAssigneeUserId: string | null;
   parentAssigneeUserId: string | null;
+  reviewReason?: string;
   requiresEvidence: true;
 }
 
@@ -78,7 +79,11 @@ export function getQualityContextBySubtaskIds(
       LEFT JOIN quality_assignment_nodes parent ON parent.node_id = n.parent_node_id
       WHERE l.subtask_id IN (${placeholders}) AND n.assignee_user_id = ?
     `).all(...ids, viewerUserId) as DatabaseRow[];
+    const hasReviews = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='quality_node_reviews'").get();
     for (const row of rows) {
+      const review = hasReviews && String(row.node_status) === "RETURNED"
+        ? db.prepare("SELECT reason FROM quality_node_reviews WHERE node_id=? AND decision='RETURN' ORDER BY created_at DESC,review_id DESC LIMIT 1").get(String(row.node_id)) as DatabaseRow | undefined
+        : undefined;
       result.set(String(row.subtask_id), {
         nodeId: String(row.node_id),
         eventId: String(row.event_id),
@@ -89,6 +94,7 @@ export function getQualityContextBySubtaskIds(
         eventSummary: String(row.event_summary),
         primaryAssigneeUserId: row.primary_assignee_user_id == null ? null : String(row.primary_assignee_user_id),
         parentAssigneeUserId: row.parent_assignee_user_id == null ? null : String(row.parent_assignee_user_id),
+        reviewReason: String(review?.reason ?? ""),
         requiresEvidence: true,
       });
     }

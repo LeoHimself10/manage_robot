@@ -1519,4 +1519,53 @@ body.manager-chat-v2-page.quality-planning-mode .planning-person-option.is-selec
 @media (prefers-reduced-motion: reduce) {
   body.manager-chat-v2-page .quality-planning-pulse { animation: none; }
 }
+
+/* Unified planning workspace: same visual language as quality role pages. */
+body.manager-chat-v2-page.quality-planning-mode {
+ --qp-ink:#18314f; --qp-muted:#6a809f; --qp-line:#d8e3f2;
+ --qp-canvas:#f3f6fa; --qp-paper:#fff; --qp-paper-strong:#fff;
+ --qp-graphite:#285fc0; --qp-graphite-ink:#fff;
+ --qp-warm:#b9d1f5; --qp-warm-soft:#eff5ff; --qp-copper:#285fc0;
+}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-sidebar,
+body.manager-chat-v2-page .chat-main.is-quality-planning .chat-sidebar{background:#fff;color:#18314f;border-right:1px solid #d8e3f2}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-sidebar-head{padding:20px 16px 16px;border-bottom:1px solid #e2eaf5;background:#fff}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-sidebar-title{margin-bottom:16px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-sidebar-title strong{font-size:18px;color:#18314f}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-sidebar-title span{display:block;font-size:12px;color:#7286a2;margin-top:5px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-sidebar-head .btn{min-height:42px;background:#285fc0;color:white;border:1px solid #285fc0;border-radius:7px;font-size:14px;box-shadow:none}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-thread-list{padding:10px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-thread-item{padding:13px 30px 13px 12px;border-radius:7px;color:#18314f;margin-bottom:5px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-thread-title{color:#18314f;font-size:14px;font-weight:600}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-thread-item:hover{background:#f5f8fc}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-thread-item.active{border-color:#c8dafa;background:#edf4ff;box-shadow:inset 3px 0 #285fc0}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-thread-preview,
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-thread-item.active .chat-thread-preview{color:#7385a0;font-size:12px;line-height:1.6}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-thread-badge{color:#52719b;background:#eff4fa;font-size:12px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-thread-menu-btn{color:#7385a0}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-sidebar-tip{background:#f8fafd;border-top:1px solid #e2eaf5;color:#7385a0;font-size:12px;padding:14px 16px;line-height:1.7}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .quality-history-toggle{color:#587498;border-color:#d8e3f2;background:#fff;width:36px;height:36px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .quality-planning-enhancer{padding:16px 18px;background:#fff;border:1px solid #d8e3f2;border-radius:8px}
+body.manager-chat-v2-page .quality-planning-enhancer-head{align-items:center}
+body.manager-chat-v2-page .quality-planning-copy h2{font-size:18px;line-height:1.5;margin-bottom:5px}
+body.manager-chat-v2-page .quality-planning-copy p{font-size:14px;line-height:1.65}
+body.manager-chat-v2-page .quality-planning-seal{background:#eff5ff;color:#285fc0;border-radius:9px}
+body.manager-chat-v2-page .quality-planning-primary{border-radius:7px;font-size:14px}
+body.manager-chat-v2-page .quality-planning-suggestion{border-radius:6px;min-height:36px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .planning-context-card{border-radius:8px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .planning-context-title strong{font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-composer-wrap{background:#f3f6fa;padding-top:12px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-composer-pill{background:#fff;border:1px solid #c9d9ef;border-radius:10px;box-shadow:0 3px 12px #18314f06;min-height:64px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-composer-pill:focus-within{border-color:#285fc0;box-shadow:0 0 0 3px #285fc014}
+body.manager-chat-v2-page .chat-main #msgInput{font-size:14px;line-height:1.7;color:#18314f}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-send-btn{background:#285fc0;border-radius:8px;width:40px;height:40px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-send-btn:disabled{background:#e5ecf6;color:#91a3bd;opacity:1}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .planning-task-card{border-radius:8px;box-shadow:none}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .draft-context-panel{background:#fff;border-left:1px solid #d8e3f2}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-mobile-top{background:#fff;border-bottom:1px solid #d8e3f2;min-height:64px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-icon-btn{color:#285fc0;border-radius:7px}
+body.manager-chat-v2-page .chat-main.manager-chat-v2 .chat-overlay-backdrop{background:rgba(24,49,79,.16);backdrop-filter:blur(1px)}
+@media(min-width:1366px){body.manager-chat-v2-page .chat-main.manager-chat-v2.is-quality-planning{grid-template-columns:240px minmax(0,1fr) 300px}body.manager-chat-v2-page .chat-main.manager-chat-v2.is-quality-planning.is-quality-history-collapsed{grid-template-columns:58px minmax(0,1fr) 300px}}
+@media(max-width:959px){body.manager-chat-v2-page .quality-planning-enhancer-head{display:grid;grid-template-columns:1fr auto;gap:10px}body.manager-chat-v2-page .quality-planning-seal{display:none}body.manager-chat-v2-page .quality-planning-primary{width:auto}body.manager-chat-v2-page .quality-planning-copy h2{font-size:16px}}
+@media(max-width:600px){body.manager-chat-v2-page .quality-planning-enhancer-head{grid-template-columns:1fr}body.manager-chat-v2-page .quality-planning-primary{width:100%}}
 `;

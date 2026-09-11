@@ -75,14 +75,11 @@ export function listQualitySpecialistUserIds(): string[] {
   return [...new Set([
     ...envUserIds("QUALITY_MANAGEMENT_USER_IDS"),
     ...envUserIds("QUALITY_SPECIALIST_USER_IDS"),
-    ...(getAdminTestActor("QUALITY_TEST_SPECIALIST_001")
-      ? ["QUALITY_TEST_SPECIALIST_001"]
-      : []),
   ])]
     // A quality specialist is an employee overlay. Stale or mistaken manager /
     // admin entries must neither gain the capability nor receive business
     // notifications intended for quality specialists.
-    .filter((userId) => resolveWorkbenchRole(userId) === "employee")
+    .filter((userId) => !getAdminTestActor(userId) && resolveWorkbenchRole(userId) === "employee")
     .sort();
 }
 

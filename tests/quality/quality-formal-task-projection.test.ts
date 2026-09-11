@@ -20,6 +20,8 @@ import { createQualityStore } from "../../src/quality/infra/quality-store";
 import { createQualityEventPerspectiveProjector } from "../../src/quality/presentation/quality-event-perspective";
 import { createQualityReviewService } from "../../src/quality/reviews/quality-review-service";
 
+import { resolveQualityManagerTaskStageFromDb } from "../../src/quality/presentation/quality-manager-task-stage";
+
 const NOW = "2026-08-28T01:00:00.000Z";
 
 describe("quality formal-task projection", () => {
@@ -84,6 +86,27 @@ describe("quality formal-task projection", () => {
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "EPERM")) throw error;
     }
+  });
+
+  it("shows pending planning only to its receiving manager before task publication", () => {
+    const db = new DatabaseSync(dbPath);
+    db.prepare("UPDATE quality_analysis_handoffs SET plan_id='unpublished-plan' WHERE handoff_id='handoff-1'").run();
+    expect(resolveQualityManagerTaskStageFromDb({db,eventId:"event-1",eventStatus:"PENDING_ASSIGNMENT",managerUserId:"manager-1"})).toBe("DELEGATE");
+    expect(resolveQualityManagerTaskStageFromDb({db,eventId:"event-1",eventStatus:"PENDING_ASSIGNMENT",managerUserId:"other"})).toBeNull();
+    db.close();
+  });
+
+  it("exposes the return reason only to the assigned employee on returned work", () => {
+    reconcileQualityPlanningPublication({eventId:"event-1",integrationKey:"quality-node:event-1",planId:"plan-1",formalTaskId:"task:plan-1",actorUserId:"manager-1",publishedAt:NOW,dbPath});
+    const db = new DatabaseSync(dbPath);
+    const row=db.prepare("SELECT node_id FROM quality_task_links WHERE subtask_id='subtask-1'").get() as {node_id:string};
+    db.prepare("UPDATE quality_assignment_nodes SET status='RETURNED' WHERE node_id=?").run(row.node_id);
+    db.prepare("INSERT INTO quality_node_reviews(review_id,event_id,node_id,reviewer_user_id,decision,reason,request_id,created_at) VALUES('r-return','event-1',?,'manager-1','RETURN','补充验证记录','request-return',?)").run(row.node_id,NOW);
+    expect(getQualityContextBySubtaskIds(["subtask-1"],"employee-1",dbPath).get("subtask-1")?.reviewReason).toBe("补充验证记录");
+    expect(getQualityContextBySubtaskIds(["subtask-1"],"other",dbPath).size).toBe(0);
+    db.prepare("UPDATE quality_assignment_nodes SET status='APPROVED' WHERE node_id=?").run(row.node_id);
+    expect(getQualityContextBySubtaskIds(["subtask-1"],"employee-1",dbPath).get("subtask-1")?.reviewReason).toBe("");
+    db.close();
   });
 
   it("links an exact published handoff idempotently without changing the formal task state", () => {

@@ -330,7 +330,7 @@ describe("renderQualityTrackingPage", () => {
       expect(html).toContain("员工执行中");
       expect(html).toContain("待我验收");
       expect(html).toContain("已关闭");
-      expect(html).toContain("if (panelPerspective !== 'manager') statusCell.appendChild(make('small', 'qpc-meta', statusText))");
+      expect(html).toContain("if (panelPerspective !== 'manager' && panelPerspective !== 'employee') statusCell.appendChild(make('small', 'qpc-meta', statusText))");
       expect(html).toContain("'员工／分配事项'");
       expect(html).toContain("function renderManagerAssignmentCell(item)");
       expect(html).toContain("function renderManagerAssignmentDetails(view, mount)");
@@ -351,12 +351,13 @@ describe("renderQualityTrackingPage", () => {
       expect(html).not.toContain("查看原任务分配");
       expect(html).toContain("function openManagerFormalTask(view, item, taskLink)");
       expect(html).toContain("targetUserId: view.actorUserId");
-      expect(stageNavigation.match(/data-quality-stage=/g)).toHaveLength(4);
-      expect(stageNavigation).toContain("is-four-stage");
-      expect(stageNavigation).toContain("任务分配与验收");
+      expect(stageNavigation.match(/data-quality-stage=/g)).toHaveLength(6);
+      expect(stageNavigation).not.toContain("is-four-stage");
+      expect(stageNavigation).toContain("分配与承办");
       expect(stageNavigation).toContain("终验与审计");
-      expect(stageNavigation).not.toContain('data-quality-stage="chain"');
-      expect(stageNavigation).not.toContain("责任链与证据");
+      expect(stageNavigation).toContain('data-quality-stage="chain"');
+      expect(stageNavigation).toContain('data-quality-stage="assessment"');
+      expect(stageNavigation).toContain("责任链与证据");
       expect(html).toContain("分派、申请处理和验收统一回到原主管任务页完成。");
       expect(html).toContain("当前仅展示“");
       expect(html).toContain("查看其他阶段任务（");

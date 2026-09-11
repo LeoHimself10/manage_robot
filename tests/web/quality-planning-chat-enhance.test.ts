@@ -125,3 +125,14 @@ describe("quality planning chat enhancement", () => {
     expect(html).toContain("chip.disabled = !canOffer || qualityPlanningInFlight || sendInFlight || !hasStructuredTasks");
   });
 });
+
+// Execute the emitted browser function: template escaping must preserve whitespace regex.
+it("renders predecessor task IDs containing s without splitting their names", () => {
+ const html=renderManagerChatPage({threadId:"side-1",threadKind:"side"});
+ const start=html.indexOf("function renderQualityTaskLinks(");
+ const end=html.indexOf("\n  function ",start+10);
+ const render=new Function("summary","kind","escapeHtml",html.slice(start,end)+";return renderQualityTaskLinks(summary,kind);");
+ const output=render({cards:[{taskId:"task_1",title:"复现"},{taskId:"task_2",title:"分析",dependencies:"task_1",dueComplete:false}]},"dependency",(value:string)=>String(value));
+ expect(output).toContain("依赖：复现");
+ expect(output).not.toContain("ta、k_1");
+});

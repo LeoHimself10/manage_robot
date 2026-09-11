@@ -285,6 +285,9 @@ function errorResponse(error: unknown): { status: number; body: Record<string, u
   if (/不在待|当前节点/.test(message)) {
     return { status: 409, body: { ok: false, error: message } };
   }
+  if (message === "质量任务完成前必须上传证据") {
+    return { status: 400, body: { ok: false, error: message } };
+  }
   if (/必填|必须选择/.test(message)) {
     return { status: 400, body: { ok: false, error: message } };
   }

@@ -5,7 +5,7 @@
  *   npm run dev:quality-analysis:keep
  */
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -85,6 +85,12 @@ function ensureLocalEnvironment(resetData: boolean): void {
   mergeIds("QUALITY_AFTERSALES_MANAGER_USER_IDS", [SUPERVISOR_ID]);
   mergeIds("QUALITY_MANAGEMENT_USER_IDS", [QUALITY_EMPLOYEE_ID]);
   mergeIds("WORKBENCH_ADMIN_USER_IDS", [ADMIN_ID]);
+  // Non-secret role configuration shared with the local OA adapter.
+  writeFileSync(join(DATA_ROOT, "local-role-config.json"), JSON.stringify({
+    managerUserIds: process.env.WORKBENCH_MANAGER_USER_IDS,
+    managerIdsFile: process.env.WORKBENCH_MANAGER_IDS_FILE || "",
+    dynamicManagerIdsFile: process.env.WORKBENCH_DYNAMIC_MANAGER_IDS_FILE || resolve("data/workbench-managers.json"),
+  }));
 }
 
 function seedDirectory(): void {

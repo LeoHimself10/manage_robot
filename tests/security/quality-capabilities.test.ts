@@ -7,6 +7,14 @@ import {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("quality capability overlay", () => {
+  it("keeps test specialists out of real notification recipients while retaining test capabilities", () => {
+    vi.stubEnv("WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED", "1");
+    vi.stubEnv("QUALITY_TEST_ACTORS_ENABLED", "1");
+    vi.stubEnv("QUALITY_MANAGEMENT_USER_IDS", "quality-employee");
+    expect(listQualitySpecialistUserIds()).not.toContain("QUALITY_TEST_SPECIALIST_001");
+    expect(resolveQualityCapabilities("QUALITY_TEST_SPECIALIST_001").canAnalyzeQuality).toBe(true);
+  });
+
   it("keeps the three base roles and grants quality analysis only through explicit capability", () => {
     vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "manager-1");
     vi.stubEnv("WORKBENCH_ADMIN_USER_IDS", "admin-1");
