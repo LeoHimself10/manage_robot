@@ -1,5 +1,21 @@
 # 曹玉寒受限质量入口 · 2026-09-11
 
+## 用户确认版发布基线（11:40 更新）
+
+last_verified_at: 2026-09-11
+
+- 用户确认本地 8808/8809 与 8797 联动的 9 月 10 日晚版本，以本地闭环验收事件 `QE-20260910-E2EC5AEA` 为核对样本。此样本是本地测试数据，不导入生产。
+- 原始 UI 与 OA 联动源码已保存在 `codex/tong-quality-prototype`，提交 `5b3eedd272367713028701bff293bb9cb8e62b67`；主管、员工及正式任务闭环源码在 `codex/yesterday-admin-test-actors`，提交 `3e7502433801f7113d6a4b58fa8a409c1a0425ca`。两个分支均已推到 GitHub。
+- 可部署整合版在 `codex/quality-cao-production`，发布标识 `quality-approved-20260910-evening-r1`。`quality-release.lock.json` 固定上述来源及经过审核的生产接入差异；`quality-release.json` 保存发布包 518 个文件的 SHA-256。
+- 31 个当前使用的 Ma/Tong 界面文件和附件逐文件核对：除两个菜单使用真实登录身份及生产路径外，与固定的原始版本一致。原正式任务源码的差异仅限锁文件所列 OA 接入、身份能力、登录和导航适配；执行、证据和验收沿用原闭环版本。
+- 构建顺序：三个 `build:*` 浏览器 bundle → `node scripts/quality-release-verify.mjs --write` → 再执行不带 `--write` 的校验 → 打包 → `Dockerfile.quality-pilot`。镜像构建时再次校验所有文件，内容不符即失败。
+- 服务响应新增 `X-Quality-Release`；本机 `/health` 返回该标识及两份原始提交号，以便区分实际运行版本和钉钉应用发布版本。
+- 23 项生产身份、路径、OA 查询回归通过；隔离预发布的七个页面/API、三个跳转和无会话/错误用户拒绝检查通过。浏览器实际点击 Ma → 主管 → 员工 → Tong，页面保持已确认的蓝白布局。
+- 目标镜像 `manage-robot:quality-approved-20260910-evening-r1`，服务器材料位于 `/opt/quality-pilot/releases/approved-20260910-evening-r1`。只替换 `manage-robot-quality-cao` 容器，沿用 `/opt/quality-pilot/new-app.env` 和共享数据卷。原任务系统、明思和安徽容器不替换。
+- 回滚使用上一镜像 `manage-robot:quality-ui-fix-20260911-1118` 并沿用当前配置和数据卷，不恢复数据库。
+
+部署为同一台 ECS 上的独立服务：独立钉钉应用、容器、进程与配置；代码仍属于同一个 GitHub 仓库，质量与正式任务共用 SQLite。真实客户端免登和真实 OA 写回不由上述隔离验收代替。
+
 ## 独立应用发布（09:56 更新）
 
 - 已在微光创建并发布「质量追踪系统」1.0.0，发布人曹玉寒，平台发布时间 2026-09-11 09:56:24。

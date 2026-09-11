@@ -3,7 +3,9 @@ WORKDIR /app
 COPY src ./src
 COPY dist ./dist
 COPY public/quality ./public/quality
+COPY quality-release.json quality-release.lock.json ./
 COPY scripts/quality-production-access.mjs scripts/quality-production-paths.mjs scripts/quality-production-server.mjs scripts/quality-ui-ai-runtime.mjs scripts/quality-oa-http.mjs scripts/quality-oa-workflow.mjs ./scripts/
+RUN node --input-type=module -e "import{readFileSync}from'node:fs';import{createHash}from'node:crypto';const m=JSON.parse(readFileSync('quality-release.json'));for(const[p,h]of Object.entries(m.files)){if(createHash('sha256').update(readFileSync(p)).digest('hex')!==h)throw Error('Release mismatch: '+p)}console.log('Verified release',m.release)"
 ENV NODE_ENV=production
 EXPOSE 8092
 CMD ["node", "--import", "tsx", "scripts/quality-production-server.mjs"]

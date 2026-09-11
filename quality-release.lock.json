@@ -1,0 +1,89 @@
+{
+  "release": "quality-approved-20260910-evening-r1",
+  "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
+  "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
+  "ui": [
+    {
+      "source": "docs/mockups/quality-oa-workflow-connected-20260909/ma-workbench",
+      "destination": "public/quality/ma-workbench"
+    },
+    {
+      "source": "docs/mockups/tong-workbench-20260908",
+      "destination": "public/quality/tong"
+    }
+  ],
+  "productionOnlyFiles": {
+    "public/quality/ma-workbench/view-switcher.js": {
+      "sha256": "5baedd824c981256eb089454063583f02205dae2d71275b777e81d3656b312f7",
+      "reason": "Use real signed-in identity and production quality routes instead of local test users."
+    },
+    "public/quality/tong/view-switcher.js": {
+      "sha256": "f6fd917a40d5f41a03f5af39e60907777f64d6829a10fd9f9524bcb6755a8170",
+      "reason": "Use real signed-in identity and production quality routes instead of local test users."
+    },
+    "src/quality/ma-workbench/contracts.ts": {
+      "sha256": "93c0dd131a10bfa39275ab420776f7de023034a3f218914e06648b8abd254113",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/quality/ma-workbench/service.ts": {
+      "sha256": "8affc894cbbec7e13fb7395dcc903492af9e8cf029bf68a8c612109dd396fb93",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/quality/oa/oa-client.mjs": {
+      "sha256": "2c2eb5364ff6b853d0fea986fabeda47a09aa77e492ec546c90eb4775a3604d4",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/quality/oa/oa-store.mjs": {
+      "sha256": "323a4757ce88362943b4569e8d4f96364445a6fccbf6c4c7e6c7dab4f6f47211",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/quality/oa/oa-sync.mjs": {
+      "sha256": "f8cef7607ebff338cb51e965cd376126f60ef62cbc88e94d2cd0a7a3afaf6f60",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/quality/oa/quality-oa-connector.ts": {
+      "sha256": "96005ce189458c4cafbe438b51c68d38c1df3a39e89f59b35d04661568f947b8",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/quality/oa/quality-oa-source.ts": {
+      "sha256": "7ed864dedf1639d7296b8042732ee3eb9568bf2d63894e9dfa0b3bdf89ddac38",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/quality/presentation/quality-event-perspective.ts": {
+      "sha256": "afe75beab2c322b887fd7da2d7498cf6bc522de2f4e4231719af92f4e0c37690",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/security/quality-capabilities.ts": {
+      "sha256": "e02bb842ee5a7fb992f5a188c7b058ac0ee561c169068aa205d896c9c5519c4a",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/web/assignment-workbench.ts": {
+      "sha256": "c9257a5f88222ab618a5bb5c98ab2fdd3cf45cf7ac6f6bfcb6650c72c6a91b31",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/web/quality-http.ts": {
+      "sha256": "1a1e31ede28f7c809c0607a5e903582f4d3cee94e8613f2c0a23041f90e30e00",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/web/quality-pilot-navigation.ts": {
+      "sha256": "0aa9d21fcbf71655556b78fe86cf4c0275c9ade375d075a8d407cd811baac404",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/web/quality-tracking-page.ts": {
+      "sha256": "265fdaf22f23edee2962731aa33aba97b7e4b743b58b6851fb4cf0acb1cdfaf6",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/web/workbench-dd-login-entry.ts": {
+      "sha256": "9ca951046599626cb3d3c02f3e4f7b243239d11d4653fff53ae1670d768844f8",
+      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    }
+  },
+  "runtimeScripts": [
+    "scripts/quality-production-access.mjs",
+    "scripts/quality-production-paths.mjs",
+    "scripts/quality-production-server.mjs",
+    "scripts/quality-ui-ai-runtime.mjs",
+    "scripts/quality-oa-http.mjs",
+    "scripts/quality-oa-workflow.mjs"
+  ]
+}

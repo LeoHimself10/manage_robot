@@ -12,6 +12,7 @@ import {createOaWorkflow} from './quality-oa-workflow.mjs';
 import {OA_SCOPE} from '../src/quality/oa/oa-store.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const release=JSON.parse(await readFile(resolve(root,'quality-release.json'),'utf8'));
 const userId=process.env.QUALITY_PILOT_USER_ID;
 const origin=process.env.QUALITY_PILOT_ORIGIN;
 const access=createProductionAccess({userId,origin,secret:process.env.WORKBENCH_SESSION_SECRET||process.env.ASSIGNMENT_WEB_SECRET});
@@ -40,8 +41,9 @@ const {handleAssignmentHttp}=await import('../src/web/assignment-workbench.ts');
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.woff2':'font/woff2'};
 function reject(res,status,message){res.writeHead(status,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'});res.end(message);}
 const server=http.createServer(async(req,res)=>{
+  res.setHeader('X-Quality-Release',release.release);
   try {
-    if(req.url==='/health'){res.end(JSON.stringify({ok:true,service:'quality-pilot'}));return;}
+    if(req.url==='/health'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,service:'quality-pilot',release:release.release,uiCommit:release.uiCommit,backendCommit:release.backendCommit}));return;}
     const url=new URL(req.url,origin);
     if(!url.pathname.startsWith(PREFIX+'/')&&url.pathname!==PREFIX)return reject(res,404,'Not found');
     if(req.headers.origin&&req.headers.origin!==origin)return reject(res,403,'不允许跨站请求');
