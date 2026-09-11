@@ -1,0 +1,11 @@
+.view-switcher{position:relative;margin-left:8px;font-weight:400;color:var(--ink);z-index:60}
+.view-switch-trigger{display:flex;align-items:center;gap:9px;min-height:42px;padding:9px 13px;border:1px solid #bdcee4;border-radius:6px;background:#fff;color:var(--blue);font-size:14px;font-family:inherit;cursor:pointer;white-space:nowrap}
+.view-switch-trigger:hover,.view-switch-trigger[aria-expanded=true]{background:#f1f6fd;border-color:#82a5d4}.view-switch-trigger svg{width:15px;height:15px;transition:transform .15s}.view-switch-trigger[aria-expanded=true] svg{transform:rotate(180deg)}
+.view-switch-panel{position:absolute;right:0;top:calc(100% + 12px);width:350px;max-height:calc(100vh - 98px);overflow-y:auto;background:white;border:1px solid #cdd9e8;border-radius:9px;box-shadow:0 10px 30px #1834531a;text-align:left;white-space:normal}
+.view-switch-panel[hidden]{display:none}.view-switch-panel h3{font-size:12px;font-weight:500;color:#71839a;margin:0;padding:13px 18px 8px;line-height:1.6;background:#fbfcff}
+.view-switch-panel .view-switch-list{display:grid;gap:0;margin:0;padding:3px 7px 7px;border-bottom:1px solid #e6edf6}
+.view-switch-link{width:100%;display:flex;justify-content:space-between;align-items:center;gap:18px;text-decoration:none;text-align:left;background:white;border:0;border-radius:5px;padding:9px 11px;min-height:53px;color:var(--ink);font-size:14px;line-height:1.5;font-family:inherit;cursor:pointer}
+.view-switch-link:hover{background:#f4f8fe}.view-switch-link strong{font-size:14px;font-weight:500;display:block;color:#294765}.view-switch-link small{font-size:12px;line-height:1.6;display:block;color:#788aa0;margin:1px 0 0}.view-switch-link .view-switch-arrow{color:#8ca0b7;font-size:15px}.view-switch-link[aria-current=page]{background:#edf4ff}.view-switch-link[aria-current=page] strong{color:var(--blue)}.view-switch-current{font-size:12px;color:var(--blue);white-space:nowrap}
+.view-switch-note{font-size:12px;line-height:1.7;padding:11px 18px;color:#788aa0;margin:0;background:#fbfcfe}
+.view-switch-trigger:focus-visible,.view-switch-link:focus-visible{outline:2px solid #76a5e6;outline-offset:2px}
+@media(max-width:700px){.view-switcher{margin-left:0}.view-switch-panel{width:min(350px,calc(100vw - 32px))}.view-switch-trigger{padding:8px 10px}.topbar .user{gap:9px}}

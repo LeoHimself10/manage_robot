@@ -75,14 +75,12 @@ export function listQualitySpecialistUserIds(): string[] {
   return [...new Set([
     ...envUserIds("QUALITY_MANAGEMENT_USER_IDS"),
     ...envUserIds("QUALITY_SPECIALIST_USER_IDS"),
-    ...(getAdminTestActor("QUALITY_TEST_SPECIALIST_001")
-      ? ["QUALITY_TEST_SPECIALIST_001"]
-      : []),
   ])]
     // A quality specialist is an employee overlay. Stale or mistaken manager /
     // admin entries must neither gain the capability nor receive business
     // notifications intended for quality specialists.
-    .filter((userId) => resolveWorkbenchRole(userId) === "employee")
+    .filter((userId) => !getAdminTestActor(userId) && (resolveWorkbenchRole(userId) === "employee"
+      || userId === process.env.QUALITY_PILOT_BUSINESS_USER_ID?.trim()))
     .sort();
 }
 
@@ -152,8 +150,13 @@ export function resolveQualityCapabilities(userId: string): QualityCapabilities 
   // manager -> optional project manager; employee -> optional quality specialist.
   // An allowlist entry never changes the user's base role and never grants an
   // administrator business write access.
-  const canReportQuality = baseRole === "manager" && aftersalesManagers.has(normalized);
-  const hasQualityManagement = baseRole === "employee" && qualitySpecialists.has(normalized);
+  // Explicit single-operator pilot capability; never inferred from admin role.
+  // The dedicated pilot process also checks a real DingTalk session on every
+  // page/API. Ordinary deployment does not set this capability.
+  const pilotOperator = Boolean(process.env.QUALITY_PILOT_BUSINESS_USER_ID?.trim())
+    && normalized === process.env.QUALITY_PILOT_BUSINESS_USER_ID?.trim();
+  const canReportQuality = (baseRole === "manager" || pilotOperator) && aftersalesManagers.has(normalized);
+  const hasQualityManagement = (baseRole === "employee" || pilotOperator) && qualitySpecialists.has(normalized);
   const roles: QualityBusinessRole[] = [];
   if (canReportQuality) roles.push("aftersales_manager");
   // Legacy role name is retained only as a compatibility facade. The product
@@ -168,7 +171,7 @@ export function resolveQualityCapabilities(userId: string): QualityCapabilities 
     canAccessOpinions: roles.includes("quality_report"),
     canReportQuality,
     canAnalyzeQuality: hasQualityManagement,
-    isBusinessReadOnly: baseRole === "admin",
+    isBusinessReadOnly: baseRole === "admin" && !pilotOperator,
     hasQualityManagement,
     isProjectManager: canReportQuality,
     isQualitySpecialist: hasQualityManagement,

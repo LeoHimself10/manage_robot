@@ -541,7 +541,8 @@ export function renderEmployeeWorkbenchPage(params?: {
     var businessNo = employeeBusinessNo(t);
     var descLine = td && !q ? ('<p class="meta task-card-desc">'+esc(clipStr(td, 140))+'</p>') : '';
     var qualityContext = q ? ('<div class="emp-quality-context"><div class="emp-quality-context__head"><span class="emp-quality-context__badge">质量任务</span><strong>'+esc(q.eventNo||'')+' · '+esc(q.eventTitle||'')+'</strong></div>'
-      + '<p>'+esc(q.eventSummary||'')+'</p>'
+      + (q.reviewReason ? '<p role="alert" class="emp-quality-return"><strong>主管退回意见：</strong>'+esc(q.reviewReason)+'</p>' : '')
+      + '<details><summary>查看质量事件背景</summary><p>'+esc(q.eventSummary||'')+'</p></details>'
       + (legacyQualityContext
         ? '<p>原主责：'+esc(q.primaryAssigneeUserId||'待确定')+' · 直接上级：'+esc(q.parentAssigneeUserId||'暂无')+' · 完成时需上传证据</p>'
         : '<p>状态直接同步原任务系统；仍按本页原有方式承接、反馈和完成。</p>')

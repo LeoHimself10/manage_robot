@@ -1,0 +1,9 @@
+FROM manage-robot:dingtalk-0bc0a78-admin-test-9690b3c
+WORKDIR /app
+COPY src ./src
+COPY dist ./dist
+COPY public/quality ./public/quality
+COPY scripts/quality-production-access.mjs scripts/quality-production-paths.mjs scripts/quality-production-server.mjs scripts/quality-ui-ai-runtime.mjs scripts/quality-oa-http.mjs scripts/quality-oa-workflow.mjs ./scripts/
+ENV NODE_ENV=production
+EXPOSE 8092
+CMD ["node", "--import", "tsx", "scripts/quality-production-server.mjs"]

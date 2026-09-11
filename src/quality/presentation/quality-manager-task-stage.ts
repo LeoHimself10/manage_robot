@@ -66,7 +66,11 @@ export function resolveQualityManagerTaskStageFromDb(input: {
     : [];
   const formalSubtasks = listQualityFormalSubtasksFromDb(input.db, { eventId })
     .filter((item) => item.managerUserId === managerUserId);
-  if (ownNodes.length === 0 && formalSubtasks.length === 0) return null;
+  if (ownNodes.length === 0 && formalSubtasks.length === 0) {
+    const handoff = tableExists(input.db, "quality_analysis_handoffs")
+      && input.db.prepare("SELECT 1 FROM quality_analysis_handoffs WHERE event_id=? AND primary_manager_user_id=? LIMIT 1").get(eventId, managerUserId);
+    return handoff && input.eventStatus === "PENDING_ASSIGNMENT" ? "DELEGATE" : null;
+  }
   if (input.eventStatus === "CLOSED") return "CLOSED";
   if (ownNodes.some((node) => String(node.status) === "PENDING_ACCEPTANCE")) return "ACCEPT";
 
