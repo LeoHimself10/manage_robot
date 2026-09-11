@@ -90,7 +90,7 @@ function readWorkbenchNextPath(): string {
   const next = getQueryValue("next");
   if (
     next &&
-    next.startsWith("/workbench/") &&
+    (next.startsWith("/workbench/") || next.startsWith("/workbench/quality-pilot/")) &&
     !next.startsWith("//") &&
     !next.includes("\\") &&
     !next.includes("//")

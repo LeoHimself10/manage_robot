@@ -4,7 +4,8 @@ import {readFile,realpath,stat} from 'node:fs/promises';
 import {resolve,dirname,relative,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createProductionAccess} from './quality-production-access.mjs';
-import {PREFIX,rewriteProductionLinks} from './quality-production-paths.mjs';
+import {PREFIX,rewriteProductionLinks,productionLocation} from './quality-production-paths.mjs';
+import {sanitizeQualityPilotNextPath} from '../src/web/quality-pilot-navigation.ts';
 import {loadOriginalAiRuntime} from './quality-ui-ai-runtime.mjs';
 import {createOaHandler} from './quality-oa-http.mjs';
 import {createOaWorkflow} from './quality-oa-workflow.mjs';
@@ -59,6 +60,18 @@ const server=http.createServer(async(req,res)=>{
       return reject(res,403,'新版仅限曹玉寒通过钉钉登录访问。');
     }
     if(path==='/'){res.writeHead(302,{Location:PREFIX+'/ma-workbench/'});res.end();return;}
+    if(identity&&path==='/workbench'&&req.method==='GET'){
+      const next=sanitizeQualityPilotNextPath(url.searchParams.get('next')||'',p=>p.startsWith('/workbench/')&&!p.startsWith(PREFIX));
+      res.writeHead(302,{Location:next||PREFIX+'/ma-workbench/','Cache-Control':'no-store'});res.end();return;
+    }
+    if(identity&&req.method==='GET'&&['/workbench/quality','/workbench/quality/review'].includes(path)){
+      const perspective=url.searchParams.get('perspective');
+      const detail=['eventId','sourceKey','nodeId'].some(k=>url.searchParams.has(k));
+      if(!detail&&!["manager","employee","dashboard"].includes(perspective)){
+        res.writeHead(302,{Location:PREFIX+(perspective==='quality_management'?'/tong/':'/ma-workbench/'),'Cache-Control':'no-store'});res.end();return;
+      }
+      if(detail&&!perspective)url.searchParams.set('perspective','quality_management');
+    }
     // An expired or fallback cookie must not make the legacy login renderer
     // skip the new application's real DingTalk authentication.
     if(loginRoute&&!identity)req.headers.cookie='';
@@ -76,7 +89,7 @@ const server=http.createServer(async(req,res)=>{
     const writeHead=res.writeHead.bind(res);
     res.writeHead=function(status,...args){
       for(const headers of args){if(headers&&typeof headers==='object'&&!Array.isArray(headers)){
-        for(const key of Object.keys(headers))if(key.toLowerCase()==='location'&&String(headers[key]).startsWith('/'))headers[key]=PREFIX+headers[key];
+        for(const key of Object.keys(headers))if(key.toLowerCase()==='location')headers[key]=productionLocation(String(headers[key]));
       }}
       return writeHead(status,...args);
     };

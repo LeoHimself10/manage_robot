@@ -413,7 +413,7 @@ async function handleQualityApi(input: {
     const caps = resolveQualityCapabilities(session.userId);
     const aftersales = caps.canReportQuality;
     const specialist = caps.canAnalyzeQuality;
-    const adminReadOnly = caps.baseRole === "admin";
+    const adminReadOnly = caps.baseRole === "admin" && caps.isBusinessReadOnly;
     const planningManager = caps.baseRole === "manager"
       && (hasQualityPlanningHandoff(session.userId)
         || getAdminTestActor(session.userId)?.impersonationKind === "manager");

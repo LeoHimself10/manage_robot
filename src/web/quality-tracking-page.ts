@@ -103,6 +103,13 @@ export function renderQualityTrackingPage(params: {
     ? `<label class="qpc-perspective"><span>代办主管工作台</span><select id="qualityManagerPerspective"><option value="">请选择具体主管</option>${params.managerPerspectives.map((item) => `<option value="${escapeHtml(item.managerUserId)}">${escapeHtml(item.label)}</option>`).join("")}</select><small>确认后进入该主管完整工作台，权限与本人登录一致</small></label>`
     : "";
   const unified = activePerspective === "manager" || isEmployeePerspective;
+  const pilotTabs = process.env.QUALITY_PILOT_BUSINESS_USER_ID?.trim() === params.userId
+    ? `<details class="qpc-view-switch"><summary>切换视角</summary><nav class="qpc-perspective-tabs" aria-label="质量工作台视角">
+      <a href="/workbench/quality-pilot/ma-workbench/">马荣鑫 · 反馈研判</a>
+      <a href="/workbench/quality-pilot/tong/">佟成 · 质量管理</a>
+      <a href="/workbench/quality?perspective=manager">主管 · 分配与验收</a>
+      <a href="/workbench/quality?perspective=employee">员工 · 承接与执行</a>
+    </nav></details>` : "";
   const managerStageNavigation = activePerspective === "manager" && !unified;
   const workspaceTitle = unified ? (isEmployeePerspective ? "我的质量任务" : "主管质量工作台") : "质量处理中心";
   const qualityChainTitle = activePerspective === "quality_management"
@@ -120,7 +127,7 @@ export function renderQualityTrackingPage(params: {
     mainBodyClass: "wb-main-body--quality-center",
     extraCss: QUALITY_TRACKING_STYLES + (unified ? QUALITY_UNIFIED_STYLES : ""),
     mainHtml: `<main class="qpc-page${unified ? " qpc-unified" : ""}" id="qualityProcessingCenter" data-can-report="${canReport ? "1" : "0"}" data-can-view-sources="${showSourceList ? "1" : "0"}" data-is-specialist="${isSpecialist ? "1" : "0"}" data-business-readonly="${isBusinessReadOnly ? "1" : "0"}" data-planning-mode="${planningMode ? "1" : "0"}" data-manager-user-id="${escapeHtml(params.selectedManagerUserId ?? "")}" data-role-panels="${projectedMode ? "1" : "0"}" data-perspective="${escapeHtml(activePerspective)}" data-test-actor="${escapeHtml(activeTestActor)}" data-metric-role="${metricRole}">
-  ${unified && testPerspectiveTabs ? `<details class="qpc-view-switch"><summary>切换视角</summary>${testPerspectiveTabs}</details>` : testPerspectiveTabs}
+  ${pilotTabs || (unified && testPerspectiveTabs ? `<details class="qpc-view-switch"><summary>切换视角</summary>${testPerspectiveTabs}</details>` : testPerspectiveTabs)}
   ${isBusinessReadOnly ? `<div class="qpc-readonly-banner" role="status"><div><strong>管理员全局质量视图</strong><span>当前用于全局核查；如需代办，请选择具体人员，系统将切换到与本人登录完全一致的工作台。</span></div>${managerPerspectiveSelect}</div>` : ""}
   <section class="qpc-hero" aria-labelledby="qualityCenterTitle">
     <div><span class="qpc-eyebrow">QUALITY PROCESSING CENTER</span><h1 id="qualityCenterTitle">${workspaceTitle}</h1><p>${unified ? (isEmployeePerspective ? "查看任务要求，反馈进度并提交成果。" : "承接质量事项，安排员工处理并核对验收。") : "研判真实客户反馈，跟踪质量事件，并查看原任务系统回传的任务分配与执行证据。"}</p></div>

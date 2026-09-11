@@ -269,6 +269,12 @@ export function resolveQualityPerspectiveContext(input: QualityPerspectiveReques
     };
   }
   const requested = safePerspective(input.perspective);
+  // The pilot's explicit business grant never borrows another person's identity.
+  if (process.env.QUALITY_PILOT_BUSINESS_USER_ID?.trim() === input.viewerUserId
+    && requested !== "dashboard") {
+    return { scope: "real", perspective: requested ?? "aftersales",
+      actorUserId: input.viewerUserId, testActor: null, isAdmin: false, readonly: false };
+  }
   if (isAdmin) {
     const perspective = requested ?? "aftersales";
     const aftersales = listQualityAftersalesManagerUserIds()[0] ?? input.viewerUserId;

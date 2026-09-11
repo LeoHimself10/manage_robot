@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { sanitizeQualityPilotNextPath } from "./quality-pilot-navigation";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -357,6 +358,8 @@ function isEmployeeWorkbenchHtmlPath(pathname: string): boolean {
 
 function sanitizeInternalWorkbenchNextPath(raw: string | null | undefined): string | undefined {
   const value = String(raw ?? "").trim();
+  const pilotNext = sanitizeQualityPilotNextPath(value, isWorkbenchHtmlPath);
+  if (pilotNext) return pilotNext;
   if (!value.startsWith("/workbench/")) return undefined;
   if (value.startsWith("//") || value.includes("\\")) return undefined;
   try {
