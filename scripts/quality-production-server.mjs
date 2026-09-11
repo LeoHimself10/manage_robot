@@ -16,7 +16,9 @@ const origin=process.env.QUALITY_PILOT_ORIGIN;
 const access=createProductionAccess({userId,origin,secret:process.env.WORKBENCH_SESSION_SECRET||process.env.ASSIGNMENT_WEB_SECRET});
 const dbPath=process.env.WORKBENCH_SQLITE_PATH;
 if(!dbPath||!process.env.QUALITY_PILOT_DATA_DIR)throw new Error('Explicit production database and data directory required');
-if(!process.env.QUALITY_OA_SCOPE_FILE||OA_SCOPE.clientId!==process.env.DINGTALK_CLIENT_ID||OA_SCOPE.corpId!==process.env.DINGTALK_CORP_ID)throw new Error('OA application and organization scope mismatch');
+const oaClientId=process.env.QUALITY_OA_CLIENT_ID||process.env.DINGTALK_CLIENT_ID;
+const oaClientSecret=process.env.QUALITY_OA_CLIENT_SECRET||process.env.DINGTALK_CLIENT_SECRET;
+if(!process.env.QUALITY_OA_SCOPE_FILE||OA_SCOPE.clientId!==oaClientId||OA_SCOPE.corpId!==process.env.DINGTALK_CORP_ID)throw new Error('OA application and organization scope mismatch');
 // This process serves only the restricted quality pilot. It does not start
 // another bot, reminder worker or fallback login service.
 Object.assign(process.env,{
@@ -31,7 +33,7 @@ const directory=new DatabaseSync(dbPath,{readOnly:true});
 try{for(const person of directory.prepare('SELECT user_id,name FROM dingtalk_contacts WHERE active=1').all())names[person.user_id]=person.name;}finally{directory.close();}
 const oa=await createOaHandler({root,runtime,names,productionAccess:access,
   dataDirectory:process.env.QUALITY_PILOT_DATA_DIR,
-  oaConfig:{clientId:process.env.DINGTALK_CLIENT_ID,clientSecret:process.env.DINGTALK_CLIENT_SECRET},
+  oaConfig:{clientId:oaClientId,clientSecret:oaClientSecret},
   workflowFactory:store=>createOaWorkflow({store,originalRoot:root,serviceRoot:root,dbPath,modelEnv:runtime.modelEnv,productionUserId:userId})});
 const {handleAssignmentHttp}=await import('../src/web/assignment-workbench.ts');
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.woff2':'font/woff2'};
@@ -41,15 +43,25 @@ const server=http.createServer(async(req,res)=>{
     if(req.url==='/health'){res.end(JSON.stringify({ok:true,service:'quality-pilot'}));return;}
     const url=new URL(req.url,origin);
     if(!url.pathname.startsWith(PREFIX+'/')&&url.pathname!==PREFIX)return reject(res,404,'Not found');
+    if(req.headers.origin&&req.headers.origin!==origin)return reject(res,403,'不允许跨站请求');
+    let path=url.pathname.slice(PREFIX.length)||'/';
+    const loginRoute=(req.method==='GET'&&['/workbench','/static/workbench-dd-login.js','/api/workbench/auth/jsapi-config'].includes(path))
+      ||(req.method==='POST'&&path==='/api/workbench/auth/dingtalk');
+    if(path==='/api/workbench/auth/jsapi-config'){
+      const signingUrl=new URL(url.searchParams.get('url')||'/',origin);
+      if(signingUrl.origin!==origin||!signingUrl.pathname.startsWith(PREFIX+'/'))return reject(res,400,'无效免登页面');
+    }
     const identity=access(req);
-    if(!identity){
-      if(!req.headers.cookie?.includes('wb_session=')&&req.method==='GET'&&!url.pathname.includes('/api/')){
-        res.writeHead(302,{Location:'/workbench?next='+encodeURIComponent(url.pathname+url.search),'Cache-Control':'no-store'});res.end();return;
+    if(!identity&&!loginRoute){
+      if(req.method==='GET'&&!url.pathname.includes('/api/')){
+        res.writeHead(302,{Location:PREFIX+'/workbench?next='+encodeURIComponent(PREFIX+'/ma-workbench/'),'Cache-Control':'no-store'});res.end();return;
       }
       return reject(res,403,'新版仅限曹玉寒通过钉钉登录访问。');
     }
-    let path=url.pathname.slice(PREFIX.length)||'/';
     if(path==='/'){res.writeHead(302,{Location:PREFIX+'/ma-workbench/'});res.end();return;}
+    // An expired or fallback cookie must not make the legacy login renderer
+    // skip the new application's real DingTalk authentication.
+    if(loginRoute&&!identity)req.headers.cookie='';
     // Identity is never accepted from UI, query parameters or request bodies.
     if(path.startsWith('/oa/')||/\/(?:login|logout|impersonat|test-actor)/i.test(path)||url.searchParams.has('testActor'))return reject(res,403,'此入口不支持切换登录身份');
     req.url=path+url.search;

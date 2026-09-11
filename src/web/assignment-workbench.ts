@@ -3823,6 +3823,11 @@ export function handleAssignmentHttp(
         }
         const next = sanitizeInternalWorkbenchNextPath(String(body.next ?? "").trim());
         const dingIdentity = await dingtalkAuthClient.resolveIdentityByAuthCode(authCode);
+        const pilotUserId = process.env.QUALITY_PILOT_BUSINESS_USER_ID?.trim();
+        if (pilotUserId && dingIdentity.userId !== pilotUserId) {
+          writeJson(res, 403, {ok:false,error:"质量追踪系统当前仅向曹玉寒开放。"});
+          return;
+        }
         const role = defaultLoginViewRole(dingIdentity.userId);
         logStructured({
           event: "workbench_dingtalk_auth_ok",

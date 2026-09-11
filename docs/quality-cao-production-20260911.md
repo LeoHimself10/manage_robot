@@ -1,5 +1,16 @@
 # 曹玉寒受限质量入口 · 2026-09-11
 
+## 独立应用发布（09:56 更新）
+
+- 已在微光创建并发布「质量追踪系统」1.0.0，发布人曹玉寒，平台发布时间 2026-09-11 09:56:24。
+- App ID：`aef00be4-004e-4826-b099-ec320d4ae7fc`；AgentId：`4981819826`。
+- 正式发布详情显示“仅我可见”，创建人为曹玉寒；后端仍逐请求限制真实 userId。
+- 移动端、PC 端首页均为下面的新版入口；登录页及免登接口现在在新版前缀内，不再转到旧应用登录页。
+- 运行镜像更新为 `manage-robot:quality-app-20260911`，配置为服务器 `/opt/quality-pilot/new-app.env`。其中新应用凭证用于免登，`QUALITY_OA_CLIENT_ID/SECRET` 保留原应用 OA 读取授权，两者分离。
+- 对外 JSAPI 配置接口已验证 200，并返回新 AgentId；登录页面 200，未登录业务接口 403。另通过 7 项登录相关回归、20 项生产接入测试和 TypeScript 检查。
+- 用户本人点击确认发布。真实钉钉客户端首次打开并完成免登仍需实际验证；签名接口成功不等于已验证整个客户端登录过程。
+- 原 `/opt/quality-pilot/production.env` 和旧镜像保留用于回滚；新服务重建应使用 `new-app.env`。
+
 本次发布入口：`https://managebot.vivolightsales.com/workbench/quality-pilot/`。
 微光原应用仍由 `manage-robot-dingtalk` 提供；新入口由独立容器
 `manage-robot-quality-cao` 提供，Caddy 仅将上述前缀转发至本机 8092。
