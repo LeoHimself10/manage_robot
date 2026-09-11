@@ -90,6 +90,7 @@ function syncDetailNavigation(){
  $('detailContent').setAttribute('aria-label',detailLabels[state.tab]);
 }
 function detailFooter(r){
+ if(viewState.surface==='feedback'&&!admissions[r.id]&&(r.oaStatus!=='RUNNING'||!r.activeForMa))return '<p>只有审批中且已到马荣鑫处理节点的记录才能进入质量流程。当前记录仅供查看。</p>';
  if(viewState.surface==='feedback')return `<p>${admissions[r.id]?'已选入质量处理；再次进入将打开当前研判或处理记录。':'确认选入后才加入“待我研判”，由 AI 辅助、马荣鑫作最终判断。'}</p><div class="footer-actions"><button class="btn primary" data-enter-event="${r.id}">进入质量事件 ${icon('arrow')}</button></div>`;
  return '<p>来源事实、AI 建议与人工结论分别保留；后续处理结果可持续跟踪。</p><div class="footer-actions"><button class="btn" data-action="oa">'+icon('out')+'查看 OA 原单</button>'+(state.tab!=='overview'?'<button class="btn" data-tab="overview">返回处理总览</button>':'')+'</div>';
 }

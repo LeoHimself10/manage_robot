@@ -1,6 +1,6 @@
 ---
 status: interactive-prototype
-last_verified_at: 2026-09-09
+last_verified_at: 2026-09-10
 scope: tong-quality-management-view
 runtime: local-real-ai-with-sample-business-data
 ---
@@ -151,3 +151,12 @@ AI 内容为固定的本地交互样例，未连接模型。页面明确标为�
 8797 原系统使用原来的 `local-quality-initial-analysis-dev.ts --keep-data` 恢复运行，保留已有数据并继续禁用真实同步、回写、通知。8808 马荣鑫静态原型服务同时恢复。恢复前的入口文件保存在 `revisions/before-view-switcher/`。
 
 验证：菜单展开、Esc 关闭、原系统测试主管入口及登录后主管页面、原型导航地址、当前视角标记、浏览器脚本语法检查。
+
+
+## 2026-09-10 佟成真实事件接入
+
+- 8809 使用 `oa-connected.js` 从 `/api/quality-oa/tong` 读取已正式通报的 OA 事件，不再加载浏览器样例；未通报反馈不会混入初析列表。
+- `scripts/quality-oa-workflow.mjs` 复用相邻原系统 `createQualityAnalysisService`，生成 AI、保存人工草稿、正式确认分别使用原质量 SQLite 表。部门及唯一主管取原目录；规划会话使用原数据库旁的 sessions 目录，避免交接写入另一个工作树。
+- `/api/quality-oa/tong/{generate,draft,confirm}` 沿用本机授权 Cookie、来源校验和原服务版本冲突校验。原任务与 OA 线上审批不会由列表查询更改；本地通知仍禁用。这是单用户本地接入，非生产身份认证或上线声明。
+- 页面保留质量初析的已确认布局；任务进度取正式投影。完整附件、证据和实际终验操作目前通过对应原系统链接查看/操作，不模拟成功，也不声称已在新页完成这些操作的迁移。
+- 验证：隔离数据库覆盖 Ma 通报 → Tong 队列 → 草稿保存 → 过期版本拒绝 → 确认进入分配 → 重复确认幂等 → Ma 回显；实际浏览器确认已有 OA 事件进入待初析，真实 AI 生成成功且刷新后原稿仍存在。实际事件没有自动确认或分配。

@@ -1,14 +1,24 @@
+import {existsSync,readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
-import {join,resolve} from 'node:path';
+import {join,resolve,dirname} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 
 // The OA inbox is an intake adapter. Formal quality events and task progress
 // continue to use the original workbench database and its existing services.
-export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath}) {
+export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,modelEnv}) {
   serviceRoot ||= resolve(originalRoot,'../ma-quality-workbench-v1');
   dbPath ||= join(originalRoot,'data/local-quality-initial-analysis-v1/workbench.sqlite');
   const actor='quality-supervisor-local';
+  const roleConfigPath=join(dirname(dbPath),'local-role-config.json');
+  if(existsSync(roleConfigPath)){
+    const roles=JSON.parse(readFileSync(roleConfigPath,'utf8'));
+    process.env.WORKBENCH_MANAGER_USER_IDS=roles.managerUserIds || process.env.WORKBENCH_MANAGER_USER_IDS || '';
+    if(roles.managerIdsFile)process.env.WORKBENCH_MANAGER_IDS_FILE=roles.managerIdsFile;
+    if(roles.dynamicManagerIdsFile)process.env.WORKBENCH_DYNAMIC_MANAGER_IDS_FILE=roles.dynamicManagerIdsFile;
+  }
   process.env.WORKBENCH_SQLITE_PATH=dbPath;
+  process.env.PLAN_SESSION_DIR=join(dirname(dbPath),'sessions');
+  process.env.PLAN_SESSION_EVENTS_PATH=join(dirname(dbPath),'events','plan-session-events.jsonl');
   process.env.WORKBENCH_MANAGER_USER_IDS=[...new Set([...(process.env.WORKBENCH_MANAGER_USER_IDS||'').split(','),actor])].filter(Boolean).join(',');
   process.env.QUALITY_AFTERSALES_MANAGER_USER_IDS=actor;
   process.env.QUALITY_MANAGEMENT_USER_IDS='quality-employee-local';
@@ -60,6 +70,7 @@ export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath}) 
     return {source,detail,key:'oa:'+source.instanceId,base:{requestId:body.requestId,expectedSourceVersion:detail.sourceVersion}};
   }
   function mutate(action,id,body) {
+    if(action==='admit'&&store.get(id)?.oaStatus!=='RUNNING')throw new ma.MaWorkbenchError('VERSION_CONFLICT','只有审批中的 OA 记录才能进入质量流程');
     const {detail,key,base}=check(id,body);
     if(action!=='admit'&&!detail.admission)throw new ma.MaWorkbenchError('NOT_ADMITTED','请先从全部事件确认进入质量事件');
     if(action==='admit')service.admit(key,actor,base);
@@ -75,7 +86,31 @@ export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath}) 
     else throw new ma.MaWorkbenchError('NOT_FOUND','操作不存在');
     return get(id);
   }
+  const analysisModule=await import(pathToFileURL(join(originalRoot,'src/quality/analysis/quality-analysis-service.ts')).href);
+  const contracts=await import(pathToFileURL(join(originalRoot,'src/quality/analysis/quality-analysis-contracts.ts')).href);
+  const directoryModule=await import(pathToFileURL(join(originalRoot,'src/quality/analysis/quality-department-directory.ts')).href);
+  const analysis=analysisModule.createQualityAnalysisService({dbPath,env:modelEnv});
+  const qualityActor='quality-employee-local';
+  function tongGet(id) {
+    const detail=get(id);
+    if(!detail.event)throw new Error('尚未正式推送质量初析');
+    const workspace=analysis.workspace({eventId:detail.event.id,viewerUserId:qualityActor});
+    const directory=directoryModule.createQualityDepartmentDirectory(dbPath);
+    try {workspace.departments=workspace.departments.map(d=>({...d,managerName:directory.resolveManager(d.departmentId).managerName}));}finally{directory.close();}
+    return {id,source:store.get(id),detail,workspace};
+  }
   return {get,mutate,list:()=>store.list().map(s=>({id:s.id,detail:get(s.id)})),
+    tongList:()=>store.list().filter(s=>get(s.id).event).map(s=>tongGet(s.id)),tongGet,
+    async tongMutate(action,id,body){
+      const {workspace}=tongGet(id),eventId=workspace.event.eventId;
+      if(action==='generate') {
+        if(!/^[a-f0-9-]{36}$/i.test(body.requestId||''))throw new Error('请求编号无效');
+        await analysis.generate({eventId,actorUserId:qualityActor,requestId:body.requestId});
+      } else if(action==='draft')analysis.saveDraft({eventId,actorUserId:qualityActor,draft:contracts.saveQualityAnalysisDraftSchema.parse(body.draft)});
+      else if(action==='confirm')analysis.confirm({eventId,actorUserId:qualityActor,...contracts.confirmQualityAnalysisSchema.parse(body.confirm)});
+      else throw new Error('操作不存在');
+      return tongGet(id);
+    },
     requireAssessment(id,version){const {detail}=check(id,{version});if(!detail.admission||!detail.canAssess)throw new ma.MaWorkbenchError('NOT_ADMITTED','请先从全部事件确认进入质量事件，再进行研判');},
-    close(){service.close();persistence.close();db.close();}};
+    close(){analysis.close();service.close();persistence.close();db.close();}};
 }

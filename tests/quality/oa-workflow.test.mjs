@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve,join} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {DatabaseSync} from 'node:sqlite';
 import {OaStore,OA_SCOPE} from '../../src/quality/oa/oa-store.mjs';
 import {createOaWorkflow} from '../../scripts/quality-oa-workflow.mjs';
@@ -18,6 +19,12 @@ test('OA requires admission, persists human versions, submits once into original
  const count=()=>db.prepare('SELECT count(*) n FROM quality_events').get().n;
  assert.equal(workflow.get(id).admission,null);assert.equal(workflow.get(id).title,'导管弯折，待核实原因');assert.equal(count(),0);
  assert.throws(()=>workflow.requireAssessment(id,1),/确认进入/);
+ for(const status of ['COMPLETED','TERMINATED']) {
+  store.ingest('offline-only',{...fixture,status});
+  assert.throws(()=>workflow.mutate('admit',id,{requestId:randomUUID(),version:store.get(id).version}),/只有审批中/);
+  assert.equal(workflow.get(id).admission,null);assert.equal(count(),0);
+ }
+ store.ingest('offline-only',fixture);
  const request=()=>({requestId:randomUUID(),version:store.get(id).version});
  assert.throws(()=>workflow.mutate('save',id,{...request(),draft:{primary:'导管本体',secondary:'弯折、扭曲与旋转异常',description:'原始事实'}}),/确认进入/);
  workflow.mutate('admit',id,request());workflow.mutate('admit',id,request());assert.equal(workflow.get(id).admission.version,1);assert.equal(count(),0);
@@ -30,5 +37,21 @@ test('OA requires admission, persists human versions, submits once into original
  workflow.mutate('admit',id,request());workflow.mutate('save',id,{...request(),expectedVersion:1,adoption:'MANUAL',draft});
  const result=workflow.mutate('submit',id,{...request(),expectedVersion:2});assert.equal(result.event.status,'PENDING_ANALYSIS');assert.equal(count(),1);assert.equal(result.downstream.readonly,true);assert.deepEqual(result.downstream.tasks,[]);
  assert.equal(workflow.mutate('submit',id,{...request(),expectedVersion:2}).event.id,result.event.id);assert.equal(count(),1);
- assert.throws(()=>workflow.requireAssessment(id,2),/确认进入/);
+ assert.throws(()=>workflow.requireAssessment(id,store.get(id).version),/确认进入/);
+ // The Tong queue uses the same submitted event, never a browser seed.
+ assert.equal(workflow.tongList().length,1);
+ assert.equal(workflow.tongGet(id).workspace.event.eventId,result.event.id);
+ const {createPeopleDirectoryStore}=await import(pathToFileURL(join(root,'src/infra/people-directory-store.ts')).href);
+ const people=createPeopleDirectoryStore(dbPath);
+ people.upsertContact({userId:'quality-supervisor-local',name:'本地验证主管',departmentIds:['local-dept'],departmentNames:['验证部门'],active:true,isAdmin:false,isBoss:false,isSenior:false});people.close();
+ const now=new Date().toISOString();
+ const analysisDraft={requestId:randomUUID(),expectedVersion:0,baseAttemptId:null,primaryDepartmentId:'local-dept',collaboratorDepartmentIds:[],modificationReason:'隔离数据库人工验证',content:{problemDirection:'弯折调查',confirmedCategoryReference:result.assessment.categoryDisplayName,sourceFactSummary:['反馈导管弯折'],confirmedFacts:['来源报告弯折'],analysisBasis:['来源记录'],preliminaryConclusion:'需调查',causeHypotheses:[],investigationDirections:['复核实物'],informationGaps:[],handlingRequirements:['形成验证记录'],suggestedTotalDueAt:'2026-09-30T18:00'},deliverables:[{deliverableId:randomUUID(),name:'验证记录',description:'检查实物',acceptanceCriteria:'记录检查结果',source:'HUMAN_CUSTOM',selected:true,createdAt:now,updatedAt:now}]};
+ const saved=await workflow.tongMutate('draft',id,{draft:analysisDraft});
+ assert.equal(saved.workspace.draft.version,1);assert.equal(saved.workspace.event.status,'PENDING_ANALYSIS');
+ await assert.rejects(workflow.tongMutate('draft',id,{draft:{...analysisDraft,requestId:randomUUID()}}),/version conflict/);
+ const confirmation={requestId:randomUUID(),expectedDraftVersion:1,expectedEventVersion:saved.workspace.event.version,modificationReason:'隔离数据库验证确认'};
+ const confirmed=await workflow.tongMutate('confirm',id,{confirm:confirmation});
+ assert.equal(confirmed.workspace.event.status,'PENDING_ASSIGNMENT');assert.equal(confirmed.workspace.versions.length,1);
+ assert.equal((await workflow.tongMutate('confirm',id,{confirm:confirmation})).workspace.versions.length,1);
+ assert.equal(workflow.get(id).downstream.analysisVersions.length,1);
 });

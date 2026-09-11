@@ -47,7 +47,26 @@ export async function createOaHandler({root,runtime,names={},workflowFactory}) {
       if(!authorized(req)){json(res,401,{ok:false,error:'请从本机授权入口打开 OA 工作台。'});return true;}
       try {
         if(req.method==='GET'&&url.pathname==='/api/quality-oa/status')json(res,200,{ok:true,data:status()});
+        else if(req.method==='GET'&&url.pathname==='/api/quality-oa/attachment') {
+          const source=store.get(url.searchParams.get('id'));
+          const field=source?.attachments.find(f=>f.id===url.searchParams.get('field'));
+          let files=[];try{files=JSON.parse(field?.value||'[]');}catch{}
+          const file=Array.isArray(files)?files.find(f=>String(f.fileId)===url.searchParams.get('file')):null;
+          if(!file||!config){json(res,404,{ok:false,error:'附件不存在或尚未配置 OA'});return true;}
+          try {
+            const result=await new DingTalkOaClient(config).request('/v1.0/workflow/processInstances/spaces/files/urls/download',{processInstanceId:source.instanceId,fileId:String(file.fileId)});
+            const link=new URL(result.downloadUri);
+            // DingTalk may return an HTTP OSS signed URL; the same signature works over TLS.
+            if(link.protocol==='http:'&&link.hostname.endsWith('.aliyuncs.com'))link.protocol='https:';
+            if(link.protocol!=='https:')throw new Error('INVALID_ATTACHMENT_URL');
+            json(res,200,{ok:true,url:link.href});
+          }catch(error){json(res,error.status===403?403:502,{ok:false,error:error.status===403?'钉钉应用缺少审批附件下载权限，请管理员开通后重试。':'附件链接获取失败，请稍后重试。'});}
+        }
         else if(req.method==='GET'&&url.pathname==='/api/quality-oa/sources')json(res,200,{ok:true,items:store.list(),status:status()});
+        else if(workflow&&req.method==='GET'&&url.pathname==='/api/quality-oa/tong')json(res,200,{ok:true,items:workflow.tongList()});
+        else if(workflow&&req.method==='POST'&&/^\/api\/quality-oa\/tong\/(generate|draft|confirm)$/.test(url.pathname)) {
+          const b=await body(req);json(res,200,{ok:true,data:await workflow.tongMutate(url.pathname.split('/').at(-1),b.id,b)});
+        }
         else if(workflow&&req.method==='GET'&&url.pathname==='/api/quality-oa/workflow')json(res,200,{ok:true,items:workflow.list()});
         else if(workflow&&req.method==='POST'&&/^\/api\/quality-oa\/workflow\/(admit|save|submit)$/.test(url.pathname)) {
           const b=await body(req);json(res,200,{ok:true,data:workflow.mutate(url.pathname.split('/').at(-1),b.id,b)});

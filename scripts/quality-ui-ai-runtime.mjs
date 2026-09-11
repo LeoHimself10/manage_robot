@@ -66,6 +66,7 @@ export async function loadOriginalAiRuntime(originalRoot, env = process.env) {
       rules: contracts.QUALITY_ANALYSIS_RULE_VERSION, knowledge: contracts.QUALITY_ANALYSIS_KNOWLEDGE_VERSION},
   };
   return {
+    modelEnv,
     health,
     validate(kind, body) {
       const parsed = schema.parse(body);

@@ -41,12 +41,10 @@ const initialDisclosureState=new Map();
 function initialDisclosureKey(e,name){return e.id+':'+name;}
 function initialDisclosureOpen(e,name){return initialDisclosureState.get(initialDisclosureKey(e,name))===true;}
 function renderInitialWorkspaceHeader(e){
- const d=editorFor(e),base=e.initialAi.attempts.find(a=>a.id===d.initialAiAttemptId),latest=successfulInitial(e),last=e.initialAi.attempts.at(-1),busy=e.initialAi.attempts.some(a=>a.status==='GENERATING');
- const newer=latest&&(!base||latest.number>base.number);
+ const d=editorFor(e),base=e.initialAi.attempts.find(a=>a.id===d.initialAiAttemptId),last=e.initialAi.attempts.at(-1),busy=e.initialAi.attempts.some(a=>a.status==='GENERATING');
  let html=`<div class="initial-hero initial-workspace-header" id="initialDraftStart"><div><h3>质量初析草稿</h3><p>核对并编辑下方内容，确认后提交。${base?'草稿基于第 '+base.number+' 次 AI 建议。':'当前为人工填写。'}</p></div><div class="initial-actions">${badge('交互模拟','blue')}<button class="btn" data-initial="generate" ${busy?'disabled':''}>${busy?'AI 建议生成中…':e.initialAi.attempts.length?'重新生成 AI 建议':'生成 AI 建议'}</button></div></div>`;
  if(busy)html+='<div class="initial-info initial-workspace-notice" role="status">正在生成 AI 建议，你可以继续编辑草稿。<div class="initial-loading-bar" aria-label="正在请求原系统 AI"></div></div>';
  else if(last?.status==='FAILED')html+=`<div class="initial-error initial-workspace-notice" role="status">本次 AI 生成未成功，草稿已保留，可继续填写或重试。${last.failure?'<details><summary>查看失败原因</summary><p>'+esc(last.failure)+'</p></details>':''}</div>`;
- if(newer)html+=`<div class="initial-new-version" role="status"><div><strong>第 ${latest.number} 次 AI 建议可供参考</strong><p>${base?'当前草稿仍基于第 '+base.number+' 次建议，':'当前人工草稿尚未采用 AI 建议，'}你填写的内容已保留。</p></div><div class="initial-actions"><button class="btn" data-initial="compare-latest">对照新建议</button><button class="text-btn" data-initial="prefill" data-attempt-id="${esc(latest.id)}">用新建议预填草稿</button></div></div>`;
  return html;
 }
 function renderInitialReference(e,canEdit){

@@ -48,7 +48,7 @@ function seed(){
  }
  return result;
 }
-let storeData;try{const raw=localStorage.getItem(STORAGE);storeData=raw?JSON.parse(raw):seed();if(!Array.isArray(storeData.events)||!storeData.formalTasks)throw Error('invalid');}catch{storeData=seed();}
+let storeData={events:[],formalTasks:{}};
 const state={scope:'全部事件',query:'',risk:'',department:'',selected:null,tab:'analysis',sourceTab:'form',version:null,taskFilter:'全部任务',editing:false};
 function persist(){try{localStorage.setItem(STORAGE,JSON.stringify(storeData));}catch{toast('浏览器存储不可用，本次操作仅保留到页面关闭。');}}
 function eventById(id=state.selected){return storeData.events.find(e=>e.id===id);}

@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
+<script>window.oaInitialSearch=location.search;</script>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OA 反馈收件箱 · 行内展开版 · 马荣鑫视角</title>
 <style>
@@ -11,7 +12,8 @@
 <link rel="stylesheet" href="workbench.css">
 <link rel="stylesheet" href="assessment.css">
 <link rel="stylesheet" href="flow-examples.css">
-</head>
+<link rel="stylesheet" href="view-switcher.css">
+<link rel="stylesheet" href="oa-form-display.css"></head>
 <body>
 <svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true"><defs>
 <symbol id="i-box" viewBox="0 0 24 24"><path d="M4 6h16v14H4zM2 3h20v4H2zM9 11h6"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol><symbol id="i-clip" viewBox="0 0 24 24"><path d="m9 17 8-8a3 3 0 0 0-4-4L5 13a5 5 0 0 0 7 7l9-9M8 14l7-7"/></symbol><symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol><symbol id="i-up" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></symbol><symbol id="i-down" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol><symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7V3l-3 3a8 8 0 1 0 3 10M20 7h-5"/></symbol><symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol><symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 7h16M7 12h10m-7 5h4"/><circle cx="8" cy="7" r="2" fill="white"/><circle cx="15" cy="12" r="2" fill="white"/></symbol><symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.6"/><path d="m3 17 6-6 5 5 3-3 4 4"/></symbol><symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 10 7-10 7z"/></symbol><symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H5v20h14V7l-5-5v5h5M8 12h8m-8 4h8"/></symbol><symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 4v3"/></symbol><symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></symbol><symbol id="i-out" viewBox="0 0 24 24"><path d="M14 3h7v7m0-7L10 14M10 4H4v16h16v-6"/></symbol><symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V4h7l3 3h8v14H3V7z"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L20 5"/></symbol><symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/></symbol><symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol><symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></symbol>
@@ -20,7 +22,7 @@
 <div class="prototype-bar"><strong>钉钉 OA 已接入</strong><span>用服反馈流程 · 原始资料只读 · 主管审批后自动同步</span><button class="text-btn" id="openGuide">使用说明 <svg class="icon" style="width:14px;height:14px"><use href="#i-chevron"/></svg></button></div>
 <main class="container">
 <div class="breadcrumb">质量追踪 <span style="margin:0 8px">/</span> 客户反馈收件箱</div>
-<section class="page-header"><div><h1>客户反馈收件箱</h1><p class="subtitle">汇集 OA「用服反馈流程」提交记录，按编号查找，查看原始表单与附件。</p></div><div class="header-actions"><div class="sync-state" id="syncState"><strong><span class="dot"></span>员工提交后自动接入</strong>演示同步时间 · 09-08 14:32</div><button class="btn" id="refresh"><svg class="icon"><use href="#i-refresh"/></svg>模拟同步</button></div></section>
+<section class="page-header"><div><h1>客户反馈收件箱</h1><p class="subtitle">汇集 OA「用服反馈流程」提交记录，按编号查找，查看原始表单与附件。</p></div><div class="header-actions"><div class="sync-state" id="syncState"><strong><span class="dot"></span>员工提交后自动接入</strong>正在读取同步状态</div><button class="btn" id="refresh"><svg class="icon"><use href="#i-refresh"/></svg>模拟同步</button></div></section>
 <div class="notice red" id="syncError" hidden style="margin-bottom:16px"><svg class="icon"><use href="#i-info"/></svg><span>本次同步未完成，当前展示最近一次成功同步的反馈。<button id="retrySync">重新同步</button><small style="margin-left:8px">（演示状态）</small></span></div>
 <section class="panel" id="inbox" aria-labelledby="inboxTitle">
 <div class="list-top"><div class="tabs" role="tablist" aria-label="研判范围" id="scopeTabs"></div><span class="source-label" id="inboxTitle">来源：OA 审批 / 用服反馈流程</span></div>
@@ -122,9 +124,10 @@ if(b.dataset.demo){const d=b.dataset.demo;$('infoDialog').close();if(d==='new'){
 });
 renderList();renderDetail();
 </script>
-<script>window.oaInitialSearch=location.search;</script><script src="assessment.js"></script>
+<script src="assessment.js"></script>
 <script src="flow-examples.js"></script>
 <script src="workbench.js"></script>
-<script src="oa-ai-business-display.js"></script><script src="oa-workflow.js"></script>
+<script src="oa-form-display.js"></script><script src="oa-ai-business-display.js"></script><script src="oa-workflow.js"></script>
+<script src="view-switcher.js"></script>
 </body>
 </html>

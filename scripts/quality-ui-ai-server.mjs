@@ -17,7 +17,7 @@ if(existsSync(directoryPath)) {
   const directory=new DatabaseSync(directoryPath,{readOnly:true});
   try {for(const person of directory.prepare('SELECT user_id,name FROM dingtalk_contacts WHERE active=1').all())names[person.user_id]=person.name;}finally{directory.close();}
 }
-const oa=await createOaHandler({root,runtime,names,workflowFactory:store=>createOaWorkflow({store,originalRoot})});
+const oa=await createOaHandler({root,runtime,names,workflowFactory:store=>createOaWorkflow({store,originalRoot,modelEnv:runtime.modelEnv})});
 const roots = {
   '8808':resolve(root,'docs/mockups/quality-oa-workflow-connected-20260909'),
   '8809':resolve(root,'docs/mockups/tong-workbench-20260908'),

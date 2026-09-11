@@ -1,6 +1,6 @@
 ---
 status: baseline
-last_verified_at: 2026-09-09
+last_verified_at: 2026-09-10
 verified_against: working-tree
 scope: current-api-data-and-source-map
 maintainer: EDY
@@ -374,3 +374,18 @@ V2 下 `assign-primary` 和 `due` 被服务端拒绝。人员、执行人和期�
 - 改权限：先看 capabilities、event query 对象可见性、下载权限和 HTTP。
 - 改 HTML：先看 [03-html-interaction-spec.md](./03-html-interaction-spec.md)，再改页面和对应测试。
 - 改未来 AI 或智能派分：不要写入本基线；另建架构文档并明确与当前接口的连接点。
+
+2026-09-10 准入限制：仅 OA RUNNING 且仍在马荣鑫处理节点的来源可新进入质量流程。已结束、已撤销的来源不显示新准入按钮；后端 admit 独立检查 OA 状态。已有质量记录保留查看入口，不删除历史。6 项回归通过，含结束/撤销拒绝准入与恢复审批中后正常准入。
+
+2026-09-10 附件显示：增加文件名、大小与按需预览。GET /api/quality-oa/attachment 保留本机会话与来源附件归属校验，仅用服务端文件编号向钉钉申请下载链接。实际附件接口返回 403 AccessTokenPermissionDenied，当前应用仍缺少该接口权限，图片读取尚未验收成功；页面明确展示错误并允许重试，不宣称已能预览。
+
+2026-09-10 附件权限实测更新：用户明确授权后，在钉钉开发平台开通 Workflow.Instance.Write（包含下载附件及审批写能力）。未执行审批变更，也未发布其他应用配置。下载接口随即返回成功；对 OSS HTTP 链接改用 HTTPS，实测 JPEG 返回 200、432123 字节，浏览器已成功显示真实图片。修复预览按钮冒泡触发行点击、导致预览被清空的问题。以上取代此前权限阻塞状态；视频与链接自然过期场景尚未实测。
+
+
+## 2026-09-10 佟成真实事件接入
+
+- 8809 使用 `oa-connected.js` 从 `/api/quality-oa/tong` 读取已正式通报的 OA 事件，不再加载浏览器样例；未通报反馈不会混入初析列表。
+- `scripts/quality-oa-workflow.mjs` 复用相邻原系统 `createQualityAnalysisService`，生成 AI、保存人工草稿、正式确认分别使用原质量 SQLite 表。部门及唯一主管取原目录；规划会话使用原数据库旁的 sessions 目录，避免交接写入另一个工作树。
+- `/api/quality-oa/tong/{generate,draft,confirm}` 沿用本机授权 Cookie、来源校验和原服务版本冲突校验。原任务与 OA 线上审批不会由列表查询更改；本地通知仍禁用。这是单用户本地接入，非生产身份认证或上线声明。
+- 页面保留质量初析的已确认布局；任务进度取正式投影。完整附件、证据和实际终验操作目前通过对应原系统链接查看/操作，不模拟成功，也不声称已在新页完成这些操作的迁移。
+- 验证：隔离数据库覆盖 Ma 通报 → Tong 队列 → 草稿保存 → 过期版本拒绝 → 确认进入分配 → 重复确认幂等 → Ma 回显；实际浏览器确认已有 OA 事件进入待初析，真实 AI 生成成功且刷新后原稿仍存在。实际事件没有自动确认或分配。
