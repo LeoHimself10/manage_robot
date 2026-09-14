@@ -734,7 +734,7 @@ function eventFromRow(row: DatabaseRow): QualityEventRecord {
   };
 }
 
-function assignmentNodeFromRow(row: DatabaseRow): QualityAssignmentNode {
+export function assignmentNodeFromRow(row: DatabaseRow): QualityAssignmentNode {
   return {
     nodeId: String(row.node_id),
     eventId: String(row.event_id),
@@ -965,6 +965,23 @@ export function createQualityStore(
   if (!qualityEvidenceColumns.has("request_id")) {
     db.exec("ALTER TABLE quality_evidence ADD COLUMN request_id TEXT");
   }
+  for (const [name, definition] of Object.entries({
+    requirement_id: "TEXT", supersedes_id: "TEXT", file_revision: "INTEGER NOT NULL DEFAULT 1",
+    submitted_at: "TEXT", removed_at: "TEXT",
+  })) {
+    if (!qualityEvidenceColumns.has(name)) db.exec(`ALTER TABLE quality_evidence ADD COLUMN ${name} ${definition}`);
+  }
+  if (!qualityEvidenceColumns.has("submitted_at")) {
+    // Preserve immutability of files already submitted before this migration.
+    db.exec(`UPDATE quality_evidence SET submitted_at=(SELECT n.submitted_at FROM quality_assignment_nodes n
+      WHERE n.node_id=quality_evidence.node_id) WHERE EXISTS(SELECT 1 FROM quality_assignment_nodes n
+      WHERE n.node_id=quality_evidence.node_id AND n.submitted_at IS NOT NULL AND quality_evidence.created_at<=n.submitted_at)`);
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS quality_employee_drafts (
+    node_id TEXT PRIMARY KEY REFERENCES quality_assignment_nodes(node_id),
+    progress TEXT NOT NULL DEFAULT '',next_plan TEXT NOT NULL DEFAULT '',completion_note TEXT NOT NULL DEFAULT '',
+    version INTEGER NOT NULL DEFAULT 1,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL
+  )`);
   const qualityAssessmentColumns = new Set(
     (db.prepare("PRAGMA table_info(quality_source_assessments)").all() as Array<{ name?: string }>)
       .map((row) => String(row.name ?? "")),

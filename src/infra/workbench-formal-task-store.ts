@@ -529,10 +529,10 @@ function resolveDbPath(): string {
   return resolveWorkbenchSqlitePath();
 }
 
-export function createWorkbenchFormalTaskStore() {
-  const dbPath = resolveDbPath();
+export function createWorkbenchFormalTaskStore(options?: { dbPath?: string; database?: DatabaseSync }) {
+  const dbPath = options?.dbPath ?? resolveDbPath();
   mkdirSync(dirname(dbPath), { recursive: true });
-  const db = new DatabaseSync(dbPath);
+  const db = options?.database ?? new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout = 8000");
 
   db.exec(`
@@ -826,12 +826,13 @@ export function createWorkbenchFormalTaskStore() {
   }
 
   function runInTransaction(fn: () => void): void {
-    db.exec("BEGIN");
+    // Quality completion can share its transaction with the existing formal state update.
+    db.exec(options?.database ? "SAVEPOINT formal_task_write" : "BEGIN");
     try {
       fn();
-      db.exec("COMMIT");
+      db.exec(options?.database ? "RELEASE formal_task_write" : "COMMIT");
     } catch (err) {
-      db.exec("ROLLBACK");
+      db.exec(options?.database ? "ROLLBACK TO formal_task_write; RELEASE formal_task_write" : "ROLLBACK");
       throw err;
     }
   }

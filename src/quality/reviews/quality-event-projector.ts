@@ -139,7 +139,7 @@ export function getQualityEvidencePackage(input: {
       },
       nodes: ordered.map((item) => {
         const nodeId = String(item.node_id);
-        const evidence = (db.prepare(`SELECT * FROM quality_evidence WHERE node_id = ? ORDER BY evidence_version,created_at,evidence_id`).all(nodeId) as DatabaseRow[])
+        const evidence = (db.prepare(`SELECT * FROM quality_evidence WHERE node_id = ? AND removed_at IS NULL ORDER BY evidence_version,created_at,evidence_id`).all(nodeId) as DatabaseRow[])
           .map((row) => ({
             evidenceId: String(row.evidence_id), evidenceVersion: Number(row.evidence_version), originalName: String(row.original_name),
             mimeType: String(row.mime_type), summary: String(row.summary ?? ""), sizeBytes: Number(row.size_bytes), sha256: String(row.sha256),

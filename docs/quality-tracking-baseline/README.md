@@ -7,3 +7,5 @@ scope: codex/quality-cao-production 独立测试容器
 
 - 页面与模拟身份：[03-html-interaction-spec.md](03-html-interaction-spec.md)
 - API、身份与数据：[04-api-data-source-map.md](04-api-data-source-map.md)
+
+- 员工页内办理发布与验证：[r7 发布记录](../quality-inline-employee-release-20260914.md)

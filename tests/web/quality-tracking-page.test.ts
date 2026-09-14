@@ -1,3 +1,4 @@
+import { isQualityApiPath } from "../../src/web/quality-http";
 import { describe, expect, it } from "vitest";
 import { renderQualityTrackingPage } from "../../src/web/quality-tracking-page";
 
@@ -591,4 +592,11 @@ describe("renderQualityTrackingPage", () => {
     expect(regular).not.toContain("测试员工1");
     expect(regular).toContain("反馈研判");
   });
+});
+
+
+it("routes inline drafts and evidence removal through authenticated quality handlers", () => {
+  expect(isQualityApiPath("/api/workbench/quality/nodes/node-1/employee-draft")).toBe(true);
+  expect(isQualityApiPath("/api/workbench/quality/nodes/node-1/evidence/file-1/remove")).toBe(true);
+  expect(isQualityApiPath("/api/workbench/quality/nodes/node-1/unknown-action")).toBe(false);
 });

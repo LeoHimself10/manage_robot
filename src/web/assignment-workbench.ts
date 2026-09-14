@@ -1,3 +1,4 @@
+import { createQualityEvidenceService } from "../quality/evidence/quality-evidence-service";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sanitizeQualityPilotNextPath } from "./quality-pilot-navigation";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -7220,7 +7221,14 @@ export function handleAssignmentHttp(
         }
 
         const now = new Date().toISOString();
-        const updated = getFormalTaskStore().updateSubtaskStatus({
+        const qualityProgressContext = getQualityContextBySubtaskIds([targetSubtaskId],session.userId).get(targetSubtaskId);
+        const updated = qualityProgressContext ? (() => {
+          const service = createQualityEvidenceService();
+          try { return service.updateProgress({ nodeId:qualityProgressContext.nodeId,actorUserId:session.userId,
+            actualAdminUserId:session.impersonation?.actorUserId,note,
+            progressStatus:progressStatus === "BLOCKED" ? "BLOCKED" : "IN_PROGRESS" }); }
+          finally { service.close(); }
+        })() : getFormalTaskStore().updateSubtaskStatus({
           subtaskId: targetSubtaskId,
           actorUserId: session.userId,
           action: "progress",

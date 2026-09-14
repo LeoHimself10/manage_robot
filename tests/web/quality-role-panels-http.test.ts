@@ -462,7 +462,7 @@ describe("quality role-panel HTTP APIs", () => {
       branch: [expect.objectContaining({
         actionRef: "employee-subtask",
         statusLabel: "待承接",
-        taskUrl: "/workbench/employee/task?taskNo=TASK-EMPLOYEE-001",
+        taskUrl: "/workbench/employee?view=new",
       })],
     });
 

@@ -1,3 +1,4 @@
+import { readQualityEmployeeWork } from "../evidence/quality-employee-work";
 import { DatabaseSync } from "node:sqlite";
 import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
@@ -1227,7 +1228,7 @@ export function createQualityEventPerspectiveProjector(
       && formalManagerTasks.length === 0) return null;
     const nodeRefs = new Set(branch.map((node) => String(node.node_id)));
     const evidenceRows = tableExists(db, "quality_evidence")
-      ? db.prepare("SELECT * FROM quality_evidence WHERE event_id=? ORDER BY created_at,evidence_id").all(input.eventId) as DatabaseRow[]
+      ? db.prepare("SELECT * FROM quality_evidence WHERE event_id=? AND removed_at IS NULL ORDER BY created_at,evidence_id").all(input.eventId) as DatabaseRow[]
       : [];
     const reviewRows = tableExists(db, "quality_node_reviews")
       ? db.prepare("SELECT * FROM quality_node_reviews WHERE event_id=? ORDER BY created_at,review_id").all(input.eventId) as DatabaseRow[]
@@ -1360,6 +1361,8 @@ export function createQualityEventPerspectiveProjector(
               if (!item) return {};
               return {
                 taskNo: item.taskNo, taskId: item.taskId, subtaskId: item.subtaskId,
+                employeeWork: context.perspective === "employee" && context.actorUserId === item.assigneeUserId
+                  ? { ...readQualityEmployeeWork(db, String(node.node_id)), managerName: displayName(item.managerUserId) } : undefined,
                 formalStatus: item.status, formalProjection: true,
                 statusLabel: qualityFormalTaskStatusLabel(item.status, item.openDeclineKind),
                 dueAt: item.dueAt, acceptedAt: item.acceptedAt,

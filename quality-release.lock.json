@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-employee-accept-20260914-r6",
+  "release": "quality-test-inline-employee-20260914-r7",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -50,32 +50,64 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/quality/presentation/quality-event-perspective.ts": {
-      "sha256": "206bb601b48a154f88fbc20b80dede71151670966a1c7ce6794e088bbae972d3",
-      "reason": "Restore employee acceptance entry and authoritative formal-task status for linked responsibility nodes (2026-09-14)."
+      "sha256": "40a88d5754445596ea8d5b3275ff5f3608eb4b296c9c52f089691f9b0224dc7a",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
     },
     "src/security/quality-capabilities.ts": {
       "sha256": "918d9a6512a778b39e45fb2a3b4eb86cd61e041a32c9a7531419ed7a99bf673a",
       "reason": "User-approved isolated test department and fixed simulated manager/employee perspectives (2026-09-14)."
     },
     "src/web/assignment-workbench.ts": {
-      "sha256": "c9257a5f88222ab618a5bb5c98ab2fdd3cf45cf7ac6f6bfcb6650c72c6a91b31",
-      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+      "sha256": "d704fcf06a399f5c57b02da04b131a6132866a37be05ed61c684b1fc8ae7a079",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
     },
     "src/web/quality-http.ts": {
-      "sha256": "1ff3e98107ff693279b98d55743748bcb5817d37fe1ad019367457ab4b17c1bb",
-      "reason": "Resolve fixed simulated manager/employee page and API perspectives to the approved unified UI in isolated test mode."
+      "sha256": "bb3b9f94950fc867e8cb35f8d08f3ef338222b0950f37ae63229fdb7fe767c0d",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
     },
     "src/web/quality-pilot-navigation.ts": {
       "sha256": "0aa9d21fcbf71655556b78fe86cf4c0275c9ade375d075a8d407cd811baac404",
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/web/quality-tracking-page.ts": {
-      "sha256": "9f94cd48de5e24d05f0ad15e1be3ebaafafacab28e8f5e5d44706a29b1beaa90",
-      "reason": "Restore employee acceptance entry and authoritative formal-task status for linked responsibility nodes (2026-09-14)."
+      "sha256": "901bfde01e7864a36933c30eac1a03f52d719082fbe3d1ffdd0e45a5f6273198",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
     },
     "src/web/workbench-dd-login-entry.ts": {
       "sha256": "9ca951046599626cb3d3c02f3e4f7b243239d11d4653fff53ae1670d768844f8",
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+    },
+    "src/infra/workbench-formal-task-store.ts": {
+      "sha256": "48bc2a7db19594410a3dd8317151ab41ca0c0ea8ae4cae51a9cb0c2916952d4e",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
+    },
+    "src/quality/assignments/quality-task-context.ts": {
+      "sha256": "55ba1f90bc2f740363185b349fc95703c46ef0e76c6d5f60bd7fee4215591177",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
+    },
+    "src/quality/domain/quality-types.ts": {
+      "sha256": "9e50e9bb67fb8676650ca5b3c13ca1d1df9dd57ac98d59221d2d3be396b900c3",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
+    },
+    "src/quality/evidence/quality-evidence-service.ts": {
+      "sha256": "19e98b72ae80114948cb773ddc4241ae94e3d05725e673a50ee01f0267893906",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
+    },
+    "src/quality/infra/quality-store.ts": {
+      "sha256": "ffd9516f0cc14ad31008e6ce21d49378a794796dcda9abbd62b3c68e28151edc",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
+    },
+    "src/quality/reviews/quality-event-projector.ts": {
+      "sha256": "1bc0293e75f969d56686431baa8c03f0240e28e563e02c423ec2afec41e8b456",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
+    },
+    "src/quality/evidence/quality-employee-work.ts": {
+      "sha256": "f54c0bf846bb39cf0e6428217137c1aa3e0e862acea00e31864df22ebb74e2b6",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
+    },
+    "src/web/quality-employee-inline.ts": {
+      "sha256": "32171f54c4522a9f1e6c48866e0e314b0f837de531ea852401b6ae346981ea68",
+      "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
     }
   },
   "runtimeScripts": [

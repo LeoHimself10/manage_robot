@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { qualityEvidenceRequirements, readQualityEmployeeWork } from "../../src/quality/evidence/quality-employee-work";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -626,6 +628,7 @@ describe("quality formal-task projection", () => {
     evidence.uploadEvidence({
       nodeId: beforeAccept.node_id,
       actorUserId: "employee-1",
+      requirementId: qualityEvidenceRequirements("subtask-1", "原因分析报告")[0]!.id,
       originalName: "verification.txt",
       mimeType: "text/plain",
       summary: "已完成原因核验并附复测结论",
@@ -635,6 +638,7 @@ describe("quality formal-task projection", () => {
     const completed = evidence.submitCompletion({
       nodeId: beforeAccept.node_id,
       actorUserId: "employee-1",
+      completionNote: "已完成原因核验并附复测结论",
       expectedVersion: accepted.node.version,
       requestId: "00000000-0000-4000-8000-000000000003",
     });
@@ -866,4 +870,81 @@ describe("quality formal-task projection", () => {
     });
     verify.close();
   });
+  function activeWork() {
+    const db = new DatabaseSync(dbPath);
+    db.prepare("UPDATE subtasks SET status='IN_PROGRESS',deliverables='调查报告；验证记录'").run();
+    reconcileQualityPlanningPublication({eventId:"event-1",integrationKey:"quality-node:event-1",planId:"plan-1",formalTaskId:"task:plan-1",actorUserId:"manager-1",publishedAt:NOW,dbPath});
+    const nodeId = String(db.prepare("SELECT node_id FROM quality_task_links WHERE subtask_id='subtask-1'").get()!.node_id);
+    const evidence = createQualityEvidenceService({dbPath,rootDir:join(tempDir,"inline-evidence")});
+    const work = () => readQualityEmployeeWork(db,nodeId)!;
+    const upload = (requirementId?:string, supersedesId?:string) => evidence.uploadEvidence({nodeId,actorUserId:"employee-1",originalName:"记录.txt",mimeType:"text/plain",summary:"验证资料",buffer:Buffer.from("验证结果"),requestId:randomUUID(),requirementId,supersedesId});
+    const submit = () => evidence.submitCompletion({nodeId,actorUserId:"employee-1",expectedVersion:work().nodeVersion,completionNote:"完成核验，详见附件",requirementRevision:work().requirementRevision,requestId:randomUUID()});
+    return {db,nodeId,evidence,work,upload,submit,close:()=>{evidence.close();db.close();}};
+  }
+
+  it("requires each formal deliverable and cannot satisfy them with optional attachments", () => {
+    const t=activeWork(); try {
+      expect(t.work().requirements.map(r=>r.name)).toEqual(["调查报告","验证记录"]);
+      t.upload(); expect(()=>t.submit()).toThrow("还缺少必交证据");
+      t.upload(t.work().requirements[0]!.id); expect(()=>t.submit()).toThrow("验证记录");
+      t.upload(t.work().requirements[1]!.id); t.submit();
+      expect(t.work()).toMatchObject({formalStatus:"DONE",nodeStatus:"PENDING_PARENT_REVIEW",canEdit:false,draft:{completion:"完成核验，详见附件"}});
+      expect(t.work().files.every(f=>f.submittedAt)).toBe(true);
+      expect(()=>t.upload()).toThrow("不可编辑");
+    } finally {t.close();}
+  });
+
+  it("persists drafts across connections and rejects stale drafts and other employees", () => {
+    const t=activeWork(); try {
+      const input={nodeId:t.nodeId,actorUserId:"employee-1",progress:"已核查",next:"复测",completion:"待补",expectedVersion:0};
+      t.evidence.saveDraft(input); expect(t.work().draft).toEqual({progress:"已核查",next:"复测",completion:"待补",version:1});
+      expect(()=>t.evidence.saveDraft(input)).toThrow("草稿已更新");
+      expect(()=>t.evidence.saveDraft({...input,actorUserId:"employee-2",expectedVersion:1})).toThrow("仅节点承接人");
+      expect(t.work().formalStatus).toBe("IN_PROGRESS");
+    } finally {t.close();}
+  });
+
+  it("preserves versions, restores the prior file when removing an unsubmitted replacement, and keeps submitted evidence immutable", () => {
+    const t=activeWork(); try {
+      const first=t.upload(t.work().requirements[0]!.id), second=t.upload(undefined,first.evidenceId);
+      expect(second).toMatchObject({fileRevision:2,requirementId:first.requirementId,supersedesId:first.evidenceId});
+      expect(t.work().files.find(f=>f.evidenceId===first.evidenceId)?.current).toBe(false);
+      expect(()=>t.upload(undefined,first.evidenceId)).toThrow("当前有效文件");
+      t.evidence.removeEvidence({nodeId:t.nodeId,evidenceId:second.evidenceId,actorUserId:"employee-1"});
+      expect(t.work().files.find(f=>f.evidenceId===first.evidenceId)?.current).toBe(true);
+      t.upload(t.work().requirements[1]!.id);t.submit();
+      const review=createQualityReviewService({dbPath});review.reviewDirectChild({childNodeId:t.nodeId,actorUserId:"manager-1",decision:"RETURN",reason:"补充验证结论",expectedVersion:t.work().nodeVersion,requestId:randomUUID()});review.close();
+      expect(t.work()).toMatchObject({nodeStatus:"RETURNED",formalStatus:"IN_PROGRESS",canEdit:true});
+      expect(()=>t.evidence.removeEvidence({nodeId:t.nodeId,evidenceId:first.evidenceId,actorUserId:"employee-1"})).toThrow("历史证据不能移除");
+      t.upload(undefined,first.evidenceId);t.submit();expect(t.work().files.length).toBe(4);
+    } finally {t.close();}
+  });
+
+  it("rolls back both quality and formal state plus submission markers if the formal write fails", () => {
+    const t=activeWork(); try {
+      t.work().requirements.forEach(r=>t.upload(r.id));
+      t.db.exec("CREATE TRIGGER fail_formal_done BEFORE UPDATE ON subtasks WHEN NEW.status='DONE' BEGIN SELECT RAISE(ABORT,'simulated formal write failure'); END");
+      expect(()=>t.submit()).toThrow("simulated formal write failure");
+      expect(t.work()).toMatchObject({formalStatus:"IN_PROGRESS",nodeStatus:"IN_PROGRESS"});
+      expect(t.work().files.every(f=>!f.submittedAt)).toBe(true);
+      expect(t.db.prepare("SELECT COUNT(*) AS n FROM quality_audit_events WHERE action='QUALITY_NODE_COMPLETION_SUBMITTED'").get()!.n).toBe(0);
+    } finally {t.close();}
+  });
+
+  it("rejects forged requirements, video uploads, stale assignment snapshots and cross-user upload retries", () => {
+    const t=activeWork(); try {
+      expect(()=>t.upload("invented")).toThrow("要求已变更");
+      const input={nodeId:t.nodeId,actorUserId:"employee-1",originalName:"file.txt",mimeType:"text/plain",summary:"资料",buffer:Buffer.from("x"),requestId:randomUUID()};
+      const file=t.evidence.uploadEvidence(input);expect(t.evidence.uploadEvidence(input).evidenceId).toBe(file.evidenceId);
+      expect(()=>t.evidence.uploadEvidence({...input,actorUserId:"employee-2"})).toThrow("仅节点承接人");
+      expect(()=>t.evidence.uploadEvidence({...input,requestId:randomUUID(),originalName:"movie.mp4",mimeType:"video/mp4"})).toThrow("不支持视频");
+      t.work().requirements.forEach(r=>t.upload(r.id));const revision=t.work().requirementRevision;
+      t.db.prepare("UPDATE subtasks SET completion_criteria='新验收标准'").run();
+      expect(()=>t.evidence.submitCompletion({nodeId:t.nodeId,actorUserId:"employee-1",expectedVersion:t.work().nodeVersion,completionNote:"完成",requirementRevision:revision,requestId:randomUUID()})).toThrow("分配要求已变更");
+      t.db.prepare("UPDATE subtasks SET assignee_user_id='employee-2'").run();
+      expect(()=>t.upload()).toThrow("仅节点承接人");
+      expect(()=>t.evidence.readEvidence({evidenceId:file.evidenceId,actorUserId:"employee-1"})).toThrow("无权下载");
+    } finally {t.close();}
+  });
+
 });

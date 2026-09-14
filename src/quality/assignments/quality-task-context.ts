@@ -164,7 +164,7 @@ export function getManagerQualityReviewContextsBySubtaskIds(
       SELECT evidence_id,node_id,evidence_version,original_name,summary,mime_type,
              uploaded_by,created_at
       FROM quality_evidence
-      WHERE node_id IN (${nodePlaceholders})
+      WHERE node_id IN (${nodePlaceholders}) AND removed_at IS NULL
       ORDER BY node_id,evidence_version,created_at,evidence_id
     `).all(...nodeIds) as DatabaseRow[];
     const reviewRows = db.prepare(`

@@ -78,6 +78,11 @@ export interface QualityEvidenceRecord {
   uploadedBy: string;
   requestId: string;
   createdAt: string;
+  requirementId?: string | null;
+  supersedesId?: string | null;
+  fileRevision?: number;
+  submittedAt?: string | null;
+  removedAt?: string | null;
 }
 
 export type QualityAuditActorRole =

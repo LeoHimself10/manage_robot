@@ -129,7 +129,8 @@ export function isQualityApiPath(pathname: string): boolean {
     || pathname === "/api/workbench/manager/quality-nodes"
     || /^\/api\/workbench\/manager\/quality-nodes\/[^/]+\/(?:accept|reject|delegate)$/.test(pathname)
     || /^\/api\/workbench\/manager\/quality-nodes\/[^/]+\/children\/[^/]+\/due$/.test(pathname)
-    || /^\/api\/workbench\/quality\/nodes\/[^/]+\/(?:evidence|submit-completion)$/.test(pathname)
+    || /^\/api\/workbench\/quality\/nodes\/[^/]+\/(?:evidence|submit-completion|employee-draft)$/.test(pathname)
+    || /^\/api\/workbench\/quality\/nodes\/[^/]+\/evidence\/[^/]+\/remove$/.test(pathname)
     || /^\/api\/workbench\/quality\/nodes\/[^/]+\/review$/.test(pathname)
     || /^\/api\/workbench\/quality\/evidence\/[^/]+$/.test(pathname)
     || /^\/api\/workbench\/quality\/events\/[^/]+\/(?:primary-review|evidence-package|assign-primary|due|return-node|close|reopen)$/.test(pathname)
@@ -251,6 +252,12 @@ function errorResponse(error: unknown): { status: number; body: Record<string, u
         data: { existingEventId: sourceDuplicate[1] },
       },
     };
+  }
+  if (/草稿已更新|分配要求已变更|证据要求已变更|当前任务不可编辑/.test(message)) {
+    return { status: 409, body: { ok: false, error: message } };
+  }
+  if (/请填写完成说明|还缺少必交证据|不能上传空文件|请求编号已用于|新版本不能改变|历史版本不能移除/.test(message)) {
+    return { status: 400, body: { ok: false, error: message } };
   }
   if (message.includes("version conflict")) {
     return { status: 409, body: { ok: false, error: "版本冲突，请刷新后重试" } };
@@ -589,6 +596,27 @@ async function handleQualityApi(input: {
       return;
     }
 
+    const employeeDraft = url.pathname.match(/^\/api\/workbench\/quality\/nodes\/([^/]+)\/employee-draft$/);
+    const evidenceRemove = url.pathname.match(/^\/api\/workbench\/quality\/nodes\/([^/]+)\/evidence\/([^/]+)\/remove$/);
+    if (req.method === "POST" && (employeeDraft || evidenceRemove)) {
+      const body = await readJsonBody(req);
+      const service = createQualityEvidenceService();
+      try {
+        const common = { nodeId: decodeURIComponent((employeeDraft || evidenceRemove)![1]!),
+          actorUserId: session.userId, actualAdminUserId: session.impersonation?.actorUserId };
+        if (employeeDraft) {
+          const result = service.saveDraft({ ...common, progress: z.string().max(5000).parse(body.progress),
+            next: z.string().max(5000).parse(body.next), completion: z.string().max(5000).parse(body.completion),
+            expectedVersion: z.number().int().nonnegative().parse(body.expectedVersion) });
+          writeJson(res, 200, { ok: true, data: result });
+        } else {
+          service.removeEvidence({ ...common, evidenceId: decodeURIComponent(evidenceRemove![2]!) });
+          writeJson(res, 200, { ok: true, data: {} });
+        }
+      } finally { service.close(); }
+      return;
+    }
+
     const evidenceUpload = url.pathname.match(/^\/api\/workbench\/quality\/nodes\/([^/]+)\/evidence$/);
     const evidenceCompletion = url.pathname.match(/^\/api\/workbench\/quality\/nodes\/([^/]+)\/submit-completion$/);
     const evidenceDownload = url.pathname.match(/^\/api\/workbench\/quality\/evidence\/([^/]+)$/);
@@ -650,6 +678,8 @@ async function handleQualityApi(input: {
           originalName: parsed.file.filename,
           mimeType: parsed.file.mimeType,
           summary: z.string().trim().min(1).max(2000).parse(parsed.fields.summary),
+          requirementId: parsed.fields.requirementId,
+          supersedesId: parsed.fields.supersedesId,
           buffer: parsed.file.buffer,
           requestId: requestId(parsed.fields.requestId),
         });
@@ -668,6 +698,8 @@ async function handleQualityApi(input: {
           actorUserId: session.userId,
           actualAdminUserId: session.impersonation?.actorUserId,
           expectedVersion: parsePositiveInt(body.expectedVersion, 0),
+          completionNote: body.completionNote == null ? undefined : z.string().max(5000).parse(body.completionNote),
+          requirementRevision: body.requirementRevision == null ? undefined : z.string().max(64).parse(body.requirementRevision),
           requestId: requestId(body.requestId),
         });
         writeJson(res, 200, { ok: true, data: result });
