@@ -129,7 +129,7 @@ export function isQualityApiPath(pathname: string): boolean {
     || pathname === "/api/workbench/manager/quality-nodes"
     || /^\/api\/workbench\/manager\/quality-nodes\/[^/]+\/(?:accept|reject|delegate)$/.test(pathname)
     || /^\/api\/workbench\/manager\/quality-nodes\/[^/]+\/children\/[^/]+\/due$/.test(pathname)
-    || /^\/api\/workbench\/quality\/nodes\/[^/]+\/(?:evidence|submit-completion|employee-draft)$/.test(pathname)
+    || /^\/api\/workbench\/quality\/nodes\/[^/]+\/(?:evidence|submit-completion|employee-draft|manager-return)$/.test(pathname)
     || /^\/api\/workbench\/quality\/nodes\/[^/]+\/evidence\/[^/]+\/remove$/.test(pathname)
     || /^\/api\/workbench\/quality\/nodes\/[^/]+\/review$/.test(pathname)
     || /^\/api\/workbench\/quality\/evidence\/[^/]+$/.test(pathname)
@@ -593,6 +593,20 @@ async function handleQualityApi(input: {
         const notification = outbox.retryDead(decodeURIComponent(notificationRetry[1]!), { actorUserId: session.userId, requestId: requestId(body.requestId) });
         writeJson(res, 200, { ok: true, data: { notification } });
       } finally { outbox.close(); }
+      return;
+    }
+
+    const managerReturn = url.pathname.match(/^\/api\/workbench\/quality\/nodes\/([^/]+)\/manager-return$/);
+    if (req.method === "POST" && managerReturn) {
+      if (session.role !== 'manager') throw new Error('仅被退回主管可处理');
+      const body=await readJsonBody(req),service=createQualityClosureService();
+      try {
+        const event=service.handleManagerReturn({nodeId:decodeURIComponent(managerReturn[1]!),actorUserId:session.userId,
+          actualAdminUserId:session.impersonation?.actorUserId,expectedVersion:z.number().int().positive().parse(body.expectedVersion),
+          reason:z.string().trim().min(1).max(2000).parse(body.reason),requestId:requestId(body.requestId),
+          childNodeId:body.childNodeId?z.string().max(300).parse(body.childNodeId):undefined});
+        writeJson(res,200,{ok:true,data:{event}});
+      }finally{service.close();}
       return;
     }
 

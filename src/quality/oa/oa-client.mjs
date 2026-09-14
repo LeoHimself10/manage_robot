@@ -1,5 +1,6 @@
 // Official API: open.dingtalk.com/document/orgapp/obtains-the-details-of-a-single-approval-instance-pop
-// This adapter deliberately exposes no approval, message or template mutation.
+// Final comments are sent only by the gated, durable quality-final-comment outbox.
+// Verified against the official @alicloud/dingtalk 2.2.48 workflow_1_0 SDK.
 export class OaApiError extends Error {
   constructor(code, status = 502) { super(code); this.code = code; this.status = status; }
 }
@@ -30,6 +31,24 @@ export class DingTalkOaClient {
     if (res.status === 401 && retry) {this.cached = null; return this.request(path,body,false);}
     if (!res.ok || data.success === false || data.success === 'false') throw new OaApiError(String(data.code || 'OA_READ_FAILED'),res.status);
     return data.result ?? data;
+  }
+  async addComment({processInstanceId, commentUserId, text}) {
+    if (process.env.QUALITY_PILOT_TEST_MODE === '1' || process.env.QUALITY_OA_FINAL_COMMENT_ENABLED !== '1') throw new OaApiError('OA_COMMENT_DISABLED',403);
+    if (!processInstanceId || !commentUserId || !text?.trim() || text.length > 1024) throw new OaApiError('OA_COMMENT_INVALID',400);
+    let token;try{token=await this.token();}catch(error){error.definitelyRejected=true;throw error;}
+    // Unlike read calls, a POST is never automatically retried after a network/parse failure.
+    const res=await this.fetch('https://api.dingtalk.com/v1.0/workflow/processInstances/comments',{
+      method:'POST',headers:{'content-type':'application/json','x-acs-dingtalk-access-token':token},
+      body:JSON.stringify({processInstanceId,commentUserId,text}),signal:AbortSignal.timeout(25000),redirect:'error',
+    });
+    const data=await res.json();
+    if(!res.ok || data.success!==true || data.result!==true){
+      const error=new OaApiError(String(data.code||'OA_COMMENT_FAILED'),res.status);
+      // Server errors and an unfamiliar response can be delivered-but-unacknowledged.
+      error.definitelyRejected=(res.status>=400&&res.status<500)||(res.ok&&data.success===false);
+      throw error;
+    }
+    return true;
   }
   listIds(processCode, startTime, endTime, nextToken = 0) {
     // The inbox includes completed instances for read-only history. Admission

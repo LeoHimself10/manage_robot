@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-inline-manager-20260914-r8",
+  "release": "quality-test-final-review-20260914-r9",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -30,8 +30,8 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/quality/oa/oa-client.mjs": {
-      "sha256": "2c2eb5364ff6b853d0fea986fabeda47a09aa77e492ec546c90eb4775a3604d4",
-      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+      "sha256": "cd754255a69c33590b00f12c62c3c1d5cd955ef74b71d8354d4194564a68542d",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "src/quality/oa/oa-store.mjs": {
       "sha256": "323a4757ce88362943b4569e8d4f96364445a6fccbf6c4c7e6c7dab4f6f47211",
@@ -50,8 +50,8 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/quality/presentation/quality-event-perspective.ts": {
-      "sha256": "e66b83ca82e021a43365cf7393605389e0af9e97a6eaa320b0554971dde2fae1",
-      "reason": "User-approved inline supervisor acceptance: shared formal review endpoint, scoped returns, optimistic versions, transactional formal reopen and review audit (2026-09-14)."
+      "sha256": "1664e8f25e1107fb7cfc45751678b8219daa27f9826a0c580f28c673a56dcf9a",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "src/security/quality-capabilities.ts": {
       "sha256": "918d9a6512a778b39e45fb2a3b4eb86cd61e041a32c9a7531419ed7a99bf673a",
@@ -62,16 +62,16 @@
       "reason": "User-approved inline supervisor acceptance: shared formal review endpoint, scoped returns, optimistic versions, transactional formal reopen and review audit (2026-09-14)."
     },
     "src/web/quality-http.ts": {
-      "sha256": "458e145ec6d37ba1d62cc042d5457b742a1c501f466d490fc946ec75d4dbe6c3",
-      "reason": "User-approved inline supervisor acceptance: shared formal review endpoint, scoped returns, optimistic versions, transactional formal reopen and review audit (2026-09-14)."
+      "sha256": "3650bd4f3c3be74a5e4b9a5457130145d27250c95aa7477fc0b3b6f1becaadb7",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "src/web/quality-pilot-navigation.ts": {
       "sha256": "0aa9d21fcbf71655556b78fe86cf4c0275c9ade375d075a8d407cd811baac404",
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/web/quality-tracking-page.ts": {
-      "sha256": "6c67e26e33b1a662721a771031f7204f4a436a8c39a02cc6163c3e4d6f49d000",
-      "reason": "User-approved inline supervisor acceptance: shared formal review endpoint, scoped returns, optimistic versions, transactional formal reopen and review audit (2026-09-14)."
+      "sha256": "77cb5146d8da9919b00879a737ec16f1609bfd31a66bc2e466aff10bae29a803",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "src/web/workbench-dd-login-entry.ts": {
       "sha256": "9ca951046599626cb3d3c02f3e4f7b243239d11d4653fff53ae1670d768844f8",
@@ -114,8 +114,64 @@
       "reason": "User-approved inline supervisor acceptance: shared formal review endpoint, scoped returns, optimistic versions, transactional formal reopen and review audit (2026-09-14)."
     },
     "src/web/quality-manager-inline.ts": {
-      "sha256": "5f05102e1bd4f632436a424d97a59bcd3b055cfc97522aadb4e84c485b62d617",
-      "reason": "User-approved inline supervisor acceptance: shared formal review endpoint, scoped returns, optimistic versions, transactional formal reopen and review audit (2026-09-14)."
+      "sha256": "c50b5debdbdfae207cd464502d492977c0e6a828b2d02093a1e51f3feab93c0f",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "public/quality/tong/index.html": {
+      "sha256": "fa98ccc37f639b0d3361f83e5b319265fce0a37b9389687f9c583aa33f3f1b0c",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "scripts/quality-oa-http.mjs": {
+      "sha256": "f86a4c6ac6da116c79183d88c0ed12f142b1e0eeeeeb4b719734e7767bb8de70",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "scripts/quality-oa-workflow.mjs": {
+      "sha256": "90cd20bd495d067898e12e02774d39def3291bd634b62ba5ccdb7cea23ef3ccd",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "scripts/quality-production-server.mjs": {
+      "sha256": "c439ca8dd09079d201f9b52f166732612afb33b0c5aa833b8fdb0acfaffdf697",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "src/quality/closure/quality-closure-service.ts": {
+      "sha256": "858ddebaff80021785c2cd5e7dd39e00aeaa89391a30941297c3bef5233aba00",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "src/quality/presentation/quality-display-labels.ts": {
+      "sha256": "5a8c2354f6219bcc2b1e45f7a1c67a6254a5dcbf91a5ba4125a1a800efdc6a0b",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "src/quality/oa/quality-final-comment.ts": {
+      "sha256": "c6f5f9a006a9916124571ec5ce1788258a2d082fcdf7c8d74ccd856c1cfd6b62",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "src/quality/oa/oa-client.d.mts": {
+      "sha256": "f511bf7da4b1018917bbb637061db56e94ec73bccca30b195ed569913e9ea726",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "public/quality/tong/final-connected.css": {
+      "sha256": "5d059873f6f99843136b8b86cfea778a0567df0c3de77c261d9870c2e63c95cb",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "public/quality/tong/final-connected.js": {
+      "sha256": "f968d1a1fdabe238e0bf179bbd630c40014bce1e982b3bfcf21a3e79b75517c6",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "public/quality/tong/oa-connected.js": {
+      "sha256": "9b2eea93443ec4f7bd396d5a13343f0ba68d0276c2b222162e14a73dc6c0cfad",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "public/quality/tong/pdf-lib.js": {
+      "sha256": "b0fc97331dc1fc03c4a381ebdd88f751a4d12de4ec97fa1faf18bb37721a4b5b",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "public/quality/tong/pdf-worker.js": {
+      "sha256": "52fadd5b81b6abd1eb665bab0c3749a8ad6a293fcb6ee9d9e0309f29d4f82619",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "public/quality/tong/pdf-LICENSE.txt": {
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     }
   },
   "runtimeScripts": [

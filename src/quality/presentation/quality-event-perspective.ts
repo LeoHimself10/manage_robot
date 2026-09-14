@@ -885,7 +885,7 @@ export function createQualityEventPerspectiveProjector(
         : nullable(root?.department_name) ?? "暂未指定",
       updatedAt: String(row.updated_at),
       testBadge: Number(row.is_test ?? 0) === 1 ? "测试事件" : null,
-      managerStages: [...new Set(assignmentItems.map((item) => item.managerStage))],
+      managerStages: context.perspective === "manager" && allNodes.some(n=>n.assignee_user_id===context.actorUserId && n.status==="RETURNED" && n.assignee_kind==="MANAGER") ? ["REVIEW"] : [...new Set(assignmentItems.map(item=>item.managerStage))],
       assignmentItems,
       dispositionCode: disposition?.code ?? null,
       dispositionLabel: disposition?.label ?? null,
@@ -1256,6 +1256,7 @@ export function createQualityEventPerspectiveProjector(
       : [];
     const managerAuditVisible = (audit: DatabaseRow) => {
       if (context.perspective !== "manager" && context.perspective !== "employee") return true;
+      if (String(audit.action) === "QUALITY_CLOSED") return true;
       for (const raw of [audit.before_json, audit.after_json]) {
         const value = parseObject(raw);
         if (value.nodeId != null && nodeRefs.has(String(value.nodeId))) return true;
@@ -1395,6 +1396,10 @@ export function createQualityEventPerspectiveProjector(
             taskUrl: `/workbench/employee?view=${item.status === "ASSIGNED" ? "new" : ["DONE", "STOPPED"].includes(item.status) ? "history" : "current"}`,
             formalProjection: true,
           })),
+      managerReturns: context.perspective === 'manager' ? branch.filter(n=>n.assignee_user_id===context.actorUserId && n.assignee_kind==='MANAGER' && n.status==='RETURNED').map(n=>({
+        nodeId:String(n.node_id),reason:String(db.prepare("SELECT reason FROM quality_node_reviews WHERE node_id=? AND decision='RETURN' ORDER BY created_at DESC,review_id DESC LIMIT 1").get(String(n.node_id))?.reason??''),
+        children:branch.filter(c=>c.parent_node_id===n.node_id && c.assignee_kind==='EMPLOYEE' && c.status==='APPROVED').map(c=>({nodeId:String(c.node_id),name:displayName(c.assignee_user_id),title:readQualityEmployeeWork(db,String(c.node_id))?.title||String(c.requirement)}))
+      })) : [],
       qualityAssignmentItems: qualityManagementItems,
       formalTaskProjection: allFormalTasks.length > 0,
       evidence: evidenceRows.filter((item) => !["manager", "employee"].includes(context.perspective) || nodeRefs.has(String(item.node_id))).map((item) => ({

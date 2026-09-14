@@ -32,6 +32,7 @@ const ACTION_LABELS: Record<string, string> = {
   QUALITY_PRIMARY_APPROVED: "完成主管验收",
   QUALITY_PRIMARY_RETURNED_BRANCH: "退回责任分支",
   QUALITY_RETURNED: "质量终验退回",
+  QUALITY_MANAGER_RETURN_HANDLED: "主管已处理终验退回",
   QUALITY_CLOSED: "关闭质量事件",
   QUALITY_REOPENED: "重开质量事件",
   QUALITY_NOTIFICATION_REQUEUED: "重新记录通知",

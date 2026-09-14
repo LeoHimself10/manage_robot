@@ -20,3 +20,11 @@ last_verified_at: 2026-09-14
 - 验收服务先校验人员与正式任务关联，再验证幂等请求属于同节点、同主管、同决定和意见。退回更新原正式子任务为 IN_PROGRESS、节点 RETURNED、验收意见、任务事件、质量审计和通知 outbox 共用 SQLite 事务；原正式任务写入借用同一连接和 SAVEPOINT。实际登录操作人也进入审计，即使物理隔离副本中事件 is_test 为 false。
 - 完成逐项验收后仍走现有状态投影及原主责整体验收，最后一项通过自动进入 PENDING_QUALITY_REVIEW。权限和业务角色不新增；测试通知仍强制禁用。
 - 主管 HTTP 副本回归脚本：`scripts/quality-inline-manager-staging-probe.mjs`，需要专用假密钥和 `.inline-staging-only` 标记。复制数据后可重置场景，不得用于用户正在操作的测试数据库。
+
+2026-09-14 r9：
+- `GET /api/quality-oa/tong` 增加 `finalReview`，包含正式任务、当前／历史证据、退回节点、终验历史和评论同步状态。
+- `POST /api/quality-oa/tong/{final-close|final-return|final-reopen|comment-retry}` 服务端解析已授权 OA 来源对应的事件；浏览器不能指定任意 OA 实例、发表评论人或替换已保存意见。模拟主管／员工调用 OA 写操作路由被拒绝。
+- `POST /api/workbench/quality/nodes/:nodeId/manager-return` 仅被退回主管可处理，支持补充说明再次送终验或选择本人直接员工任务补充，原因、版本和请求 UUID 必须有效。
+- `quality_final_comment_outbox` 只由成功终验关闭事务写入；草稿／退回／重开／主管验收均不产生评论。关闭与队列写入原子提交，正式子任务重开与质量退回同事务。
+- 已通过意见、原 OA 实例／流程、实际操作用户、唯一终验 ID 固化；幂等请求必须匹配事件、身份、动作、目标和内容。测试／禁用开关下记录为 SUPPRESSED，永不自动转成待发送。
+- OA 评论 worker 仅在 `QUALITY_OA_FINAL_COMMENT_ENABLED=1` 且非测试运行；独立测试服务器硬设为 0，客户端再检查一次。明确拒绝可手动重试原记录，超时／断连为 UNKNOWN，只核对同用户同文本评论，不盲目补发；结果不明时宁可保留待核对状态，避免重复评论。接口成功不回滚终验；同步失败也不回滚关闭。

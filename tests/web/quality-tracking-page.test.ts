@@ -352,13 +352,13 @@ describe("renderQualityTrackingPage", () => {
       expect(html).not.toContain("查看原任务分配");
       expect(html).toContain("function openManagerFormalTask(view, item, taskLink)");
       expect(html).toContain("targetUserId: view.actorUserId");
-      expect(stageNavigation.match(/data-quality-stage=/g)).toHaveLength(6);
+      expect(stageNavigation.match(/data-quality-stage=/g)).toHaveLength(5);
       expect(stageNavigation).not.toContain("is-four-stage");
-      expect(stageNavigation).toContain("分配与承办");
+      expect(stageNavigation).toContain("任务分配与验收");
       expect(stageNavigation).toContain("终验与审计");
-      expect(stageNavigation).toContain('data-quality-stage="chain"');
+      expect(stageNavigation).not.toContain('data-quality-stage="chain"');
       expect(stageNavigation).toContain('data-quality-stage="assessment"');
-      expect(stageNavigation).toContain("责任链与证据");
+      expect(stageNavigation).toContain("is-five-stage");
       expect(html).toContain("验收可直接在任务卡片中完成，分派与调整仍在原主管任务页处理。");
       expect(html).toContain("当前仅展示“");
       expect(html).toContain("查看其他阶段任务（");

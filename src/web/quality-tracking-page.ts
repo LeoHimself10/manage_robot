@@ -113,7 +113,7 @@ export function renderQualityTrackingPage(params: {
       <a href="/workbench/quality?perspective=manager">主管 · 分配与验收</a>
       <a href="/workbench/quality?perspective=employee">员工 · 承接与执行</a>
     </nav></details>` : "";
-  const managerStageNavigation = activePerspective === "manager" && !unified;
+  const managerStageNavigation = activePerspective === "manager";
   const workspaceTitle = unified ? (isEmployeePerspective ? "我的质量任务" : "主管质量工作台") : "质量处理中心";
   const qualityChainTitle = activePerspective === "quality_management"
     ? "责任结构与证据"
@@ -154,13 +154,13 @@ export function renderQualityTrackingPage(params: {
     </section>
     <section class="qpc-workspace" id="qualityWorkspace" hidden aria-labelledby="qualityWorkspaceTitle">
       <header class="qpc-workbar"><div><h3 id="qualityWorkspaceTitle"></h3><p id="qualityWorkspaceMeta"></p></div><div class="qpc-work-badges"><span id="qualityWorkspaceRisk"></span><span id="qualityWorkspaceStatus"></span><button class="btn btn-secondary btn-sm" type="button" id="qualityWorkspaceCollapse">收起</button></div></header>
-      <nav class="qpc-stages${managerStageNavigation ? " is-four-stage" : ""}" aria-label="质量处理阶段">
+      <nav class="qpc-stages${managerStageNavigation ? unified ? " is-five-stage" : " is-four-stage" : ""}" aria-label="质量处理阶段">
         <button class="qpc-stage is-active" type="button" data-quality-stage="review"><span class="qpc-stage-number">1</span><span><b>${unified ? "来源事实" : "来源与研判"}</b><small>当前可用</small></span></button>
         ${unified ? `<button class="qpc-stage" type="button" data-quality-stage="assessment"><span class="qpc-stage-number">2</span><span><b>马荣鑫研判</b><small>只读参考</small></span></button>` : ""}
         <button class="qpc-stage" type="button" data-quality-stage="analysis"><span class="qpc-stage-number">${unified ? "3" : "2"}</span><span><b>质量初析</b><small>AI辅助 · 人工确认</small></span></button>
-        <button class="qpc-stage" type="button" data-quality-stage="assignment"><span class="qpc-stage-number">${unified ? "4" : "3"}</span><span><b>${unified ? isEmployeePerspective ? "我的任务" : "分配与承办" : managerStageNavigation ? "任务分配与验收" : "任务分配结果"}</b><small>${managerStageNavigation ? "上游交办 + 员工事项" : "只读回传"}</small></span></button>
+        <button class="qpc-stage" type="button" data-quality-stage="assignment"><span class="qpc-stage-number">${unified ? "4" : "3"}</span><span><b>${unified ? isEmployeePerspective ? "我的任务" : managerStageNavigation ? "任务分配与验收" : "分配与承办" : managerStageNavigation ? "任务分配与验收" : "任务分配结果"}</b><small>${managerStageNavigation ? "上游交办 + 员工事项" : "只读回传"}</small></span></button>
         ${managerStageNavigation ? "" : `<button class="qpc-stage" type="button" data-quality-stage="chain"><span class="qpc-stage-number">${unified ? "5" : "4"}</span><span><b>${qualityChainTitle}</b><small>${activePerspective === "quality_management" ? "并行任务 · 证据归档" : "只读回传"}</small></span></button>`}
-        <button class="qpc-stage" type="button" data-quality-stage="final"><span class="qpc-stage-number">${unified ? "6" : managerStageNavigation ? "4" : "5"}</span><span><b>终验与审计</b><small>只读回传</small></span></button>
+        <button class="qpc-stage" type="button" data-quality-stage="final"><span class="qpc-stage-number">${unified ? managerStageNavigation ? "5" : "6" : managerStageNavigation ? "4" : "5"}</span><span><b>终验与审计</b><small>只读回传</small></span></button>
       </nav>
       <div class="qpc-work-content"><section id="qualityStageReview"></section><section id="qualityStageAssessment" hidden></section><section id="qualityStageAnalysis" hidden></section><section id="qualityStageAssignment" hidden></section><section id="qualityStageChain" hidden></section><section id="qualityStageFinal" hidden></section></div>
     </section>
@@ -330,7 +330,7 @@ function buildQualityTrackingClientScript(reviewSourceKey?: string): string {
   function facts(entries) { var grid = make('div', 'qpc-fact-grid'); entries.forEach(function (entry) { grid.appendChild(fact(entry[0], entry[1])); }); return grid; }
   function showWorkspaceHeader(title, meta, risk, status) { document.getElementById('qualityWorkspaceTitle').textContent = value(title); document.getElementById('qualityWorkspaceMeta').textContent = value(meta); document.getElementById('qualityWorkspaceRisk').textContent = value(risk); document.getElementById('qualityWorkspaceStatus').textContent = value(status); workspace.hidden = false; }
   function alignWorkspace() { if (!workspace || workspace.hidden) return; window.requestAnimationFrame(function () { var top = workspace.getBoundingClientRect().top + window.scrollY - 82; window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' }); }); }
-  function switchStage(stage) { state.activeStage = stage; var map = { assessment: 'qualityStageAssessment', review: 'qualityStageReview', analysis: 'qualityStageAnalysis', assignment: 'qualityStageAssignment', chain: 'qualityStageChain', final: 'qualityStageFinal' }; Object.keys(map).forEach(function (key) { document.getElementById(map[key]).hidden = key !== stage; }); document.querySelectorAll('[data-quality-stage]').forEach(function (button) { button.classList.toggle('is-active', button.getAttribute('data-quality-stage') === stage); }); }
+  function switchStage(stage) { if(panelPerspective==='manager' && stage==='chain')stage='assignment'; state.activeStage = stage; var map = { assessment: 'qualityStageAssessment', review: 'qualityStageReview', analysis: 'qualityStageAnalysis', assignment: 'qualityStageAssignment', chain: 'qualityStageChain', final: 'qualityStageFinal' }; Object.keys(map).forEach(function (key) { document.getElementById(map[key]).hidden = key !== stage; }); document.querySelectorAll('[data-quality-stage]').forEach(function (button) { button.classList.toggle('is-active', button.getAttribute('data-quality-stage') === stage); }); }
   function renderUnopenedStage(id, number, title, detail) { var mount = document.getElementById(id); clear(mount); var empty = make('div', 'qpc-stage-empty'); empty.appendChild(make('span', '', number)); empty.appendChild(make('h3', '', title)); empty.appendChild(make('p', '', detail)); mount.appendChild(empty); }
   function renderReportedSourceStages(event) { var analysis = document.getElementById('qualityStageAnalysis'); clear(analysis); var card = make('div', 'qpc-stage-empty is-ready'); card.appendChild(make('span', '', '2')); card.appendChild(make('h3', '', '已推送质量专员初析')); card.appendChild(make('p', '', '质量事件 ' + value(event.eventNo) + ' 已创建，质量初析功能已开放。请进入事件查看实时初析和后续流转。')); card.appendChild(eventLink(event)); analysis.appendChild(card); renderUnopenedStage('qualityStageAssignment', '3', '等待质量初析完成', '质量专员完成初析并确认推送后，责任部门主管将在“待我分配”中收到事件。'); renderUnopenedStage('qualityStageChain', '4', '等待正式任务发布', '责任链以原任务系统的正式分配结果为准。'); renderUnopenedStage('qualityStageFinal', '5', '等待质量闭环', '正式任务执行并回传证据后进入质量终验。'); }
   function analysisLines(valueToSplit) { return String(valueToSplit || '').split(/\r?\n/).map(function (item) { return item.trim(); }).filter(Boolean); }
@@ -656,6 +656,7 @@ function buildQualityTrackingClientScript(reviewSourceKey?: string): string {
   }
   function isManagerFormalAssignmentItem(item) { return Boolean(item && (item.formalProjection || item.taskUrl || item.taskNo)); }
   function renderManagerAssignmentDetails(view, mount) {
+    renderManagerReturnPanel(view, mount);
     var allItems = (Array.isArray(view.event && view.event.assignmentItems) ? view.event.assignmentItems : []).filter(isManagerFormalAssignmentItem);
     if (!allItems.length) { mount.appendChild(make('div', 'qpc-empty', '尚未发布正式员工任务；承接并完成任务规划后，这里将展示由您负责的员工事项。')); return; }
     var focusedItems = state.metricManagerStage ? allItems.filter(function (item) { return item.managerStage === state.metricManagerStage; }) : allItems;
@@ -667,6 +668,7 @@ function buildQualityTrackingClientScript(reviewSourceKey?: string): string {
     mount.appendChild(make('div', 'qpc-notice is-green', notice));
     var approvedCount = allItems.filter(function (item) { return qualityTaskReviewLabel(item) === '验收通过'; }).length;
     var actionCount = allItems.filter(function (item) { return item.assignmentKind === 'REASSIGN_REQUIRED' || item.assignmentKind === 'MANAGER_ACTION_REQUIRED' || item.managerStage === 'DELEGATE' || item.managerStage === 'REVIEW'; }).length;
+    actionCount += (view.managerReturns || []).length;
     var evidenceCount = allItems.reduce(function (total, item) { return total + (Array.isArray(item.evidence) ? item.evidence.length : 0); }, 0);
     var supervisor = view.supervisorAssignment || {}, managerName = value(view.actorLabel && view.actorLabel !== '主管视角' ? view.actorLabel : supervisor.supervisorName);
     var structure = make('section', 'qpc-responsibility-structure qpc-manager-responsibility');
@@ -686,7 +688,7 @@ function buildQualityTrackingClientScript(reviewSourceKey?: string): string {
     if (!items.length) return;
     var approved = items.filter(function (item) { return item.reviewStatusLabel === '验收通过'; }).length, total = items.length, allApproved = approved === total;
     var gate = make('section', 'qpc-review-gate ' + (allApproved ? 'is-complete' : 'is-waiting'));
-    var copy = make('div'); copy.appendChild(make('span', 'qpc-eyebrow', 'EMPLOYEE REVIEW GATE')); copy.appendChild(make('h4', 'qpc-subtitle', allApproved ? '员工任务已全部完成主管验收' : '主管验收尚未完成')); copy.appendChild(make('p', 'qpc-action-help', allApproved ? '所有员工事项均已通过，系统已自动推送给佟成老师进行质量终验；主管无需在这里执行终验。' : '当前已通过 ' + approved + ' / ' + total + ' 项；剩余事项全部通过后，系统才会自动送交佟成老师。')); gate.appendChild(copy);
+    var copy = make('div'); copy.appendChild(make('span', 'qpc-eyebrow', 'EMPLOYEE REVIEW GATE')); copy.appendChild(make('h4', 'qpc-subtitle', allApproved ? '员工任务已全部完成主管验收' : '主管验收尚未完成')); copy.appendChild(make('p', 'qpc-action-help', allApproved ? ((view.managerReturns || []).length ? '佟成已退回主管，请先处理上方退回要求；员工验收结果保持不变。' : '所有员工事项均已通过，系统已自动推送给佟成老师进行质量终验；主管无需在这里执行终验。') : '当前已通过 ' + approved + ' / ' + total + ' 项；剩余事项全部通过后，系统才会自动送交佟成老师。')); gate.appendChild(copy);
     var meter = make('div', 'qpc-review-meter'); var bar = make('span'); bar.style.width = String(total ? Math.round(approved / total * 100) : 0) + '%'; meter.appendChild(bar); gate.appendChild(meter); gate.appendChild(make('strong', 'qpc-review-count', approved + ' / ' + total)); mount.appendChild(gate);
   }
   function renderQualityManagementAssignmentDetails(view, mount) {
@@ -828,7 +830,7 @@ function buildQualityTrackingClientScript(reviewSourceKey?: string): string {
       var judgment=review.querySelector('.qpc-judgment-layout');
       assessmentMount.appendChild(make('h3','qpc-block-title','马荣鑫研判'));
       if(judgment)assessmentMount.appendChild(judgment);else assessmentMount.appendChild(make('p','qpc-notice','本条记录未关联上游研判快照。'));
-      var labels={review:'来源事实',assessment:'马荣鑫研判',analysis:'佟成初析',assignment:view.perspective==='employee'?'我的任务':'分配与承办',chain:'证据与验收',final:'质量终验'};
+      var labels={review:'来源事实',assessment:'马荣鑫研判',analysis:'佟成初析',assignment:view.perspective==='employee'?'我的任务':view.perspective==='manager'?'任务分配与验收':'分配与承办',chain:'证据与验收',final:'质量终验'};
       Object.keys(labels).forEach(function(key){var button=document.querySelector('[data-quality-stage="'+key+'"]');if(button){button.querySelector('b').textContent=labels[key];var hint=button.querySelector('small');if(hint)hint.textContent=key==='assignment'?(view.perspective==='employee'?'承接 · 执行 · 提交':'承接 · 分配 · 验收'):'只读查看';}});
     }
     renderProjectedAftersalesActions(view, review);

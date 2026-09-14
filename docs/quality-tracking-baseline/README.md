@@ -11,3 +11,5 @@ scope: codex/quality-cao-production 独立测试容器
 - 员工页内办理发布与验证：[r7 发布记录](../quality-inline-employee-release-20260914.md)
 
 - 主管页内验收发布与验证：[r8 发布记录](../quality-inline-manager-release-20260914.md)
+
+- 终验与 OA 评论同步链路：[r9 实现与验证记录](../quality-final-review-release-20260914.md)

@@ -5,7 +5,7 @@ import {DatabaseSync} from 'node:sqlite';
 
 // The OA inbox is an intake adapter. Formal quality events and task progress
 // continue to use the original workbench database and its existing services.
-export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,modelEnv,productionUserId}) {
+export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,modelEnv,productionUserId,commentClient}) {
   serviceRoot ||= resolve(originalRoot,'../ma-quality-workbench-v1');
   dbPath ||= join(originalRoot,'data/local-quality-initial-analysis-v1/workbench.sqlite');
   const actor=productionUserId || 'quality-supervisor-local';
@@ -91,19 +91,45 @@ export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,mo
   const directoryModule=await import(pathToFileURL(join(originalRoot,'src/quality/analysis/quality-department-directory.ts')).href);
   const analysis=analysisModule.createQualityAnalysisService({dbPath,env:modelEnv});
   const qualityActor=productionUserId || 'quality-employee-local';
+  const closureModule=await load('quality/closure/quality-closure-service.ts');
+  const commentModule=await load('quality/oa/quality-final-comment.ts');
+  const closure=closureModule.createQualityClosureService({dbPath});
+  const commentWorker=commentClient ? commentModule.createQualityFinalCommentWorker(db,commentClient,store.scope.processCode) : null;
+  const commentTimer=setInterval(()=>commentWorker?.processOne().catch(()=>{}),30000);commentTimer.unref();
   function tongGet(id) {
     const detail=get(id);
     if(!detail.event)throw new Error('尚未正式推送质量初析');
     const workspace=analysis.workspace({eventId:detail.event.id,viewerUserId:qualityActor});
     const directory=directoryModule.createQualityDepartmentDirectory(dbPath);
     try {workspace.departments=workspace.departments.map(d=>({...d,managerName:directory.resolveManager(d.departmentId).managerName}));}finally{directory.close();}
-    return {id,source:store.get(id),detail,workspace};
+    const finalReview=closure.workspace(detail.event.id,qualityActor);
+    const name=uid=>{try{return db.prepare('SELECT name FROM dingtalk_contacts WHERE user_id=?').get(uid)?.name||uid;}catch{return uid;}};
+    finalReview.nodes=finalReview.nodes.map(n=>({...n,assigneeName:name(n.assigneeUserId)}));
+    return {id,source:store.get(id),detail,workspace,finalReview};
   }
   return {get,mutate,list:()=>store.list().map(s=>({id:s.id,detail:get(s.id)})),
     tongList:()=>store.list().filter(s=>get(s.id).event).map(s=>tongGet(s.id)),tongGet,
     async tongMutate(action,id,body){
       const {workspace}=tongGet(id),eventId=workspace.event.eventId;
-      if(action==='generate') {
+      if(action.startsWith('final-') || action==='comment-retry') {
+        try {
+          if(action==='comment-retry') {
+            const view=closure.workspace(eventId,qualityActor);
+            if(!view.comments.some(c=>c.closureId===body.closureId))throw new Error('同步记录不存在');
+            await commentWorker?.processOne(body.closureId);
+          } else {
+            if(!Number.isSafeInteger(body.expectedVersion)||body.expectedVersion<1)throw new Error('请刷新后重试');
+            const common={eventId,specialistUserId:qualityActor,actualAdminUserId:productionUserId,expectedVersion:body.expectedVersion,requestId:body.requestId};
+            if(action==='final-close')closure.closeEvent({...common,conclusion:String(body.opinion??'')});
+            else {
+              const target=closure.workspace(eventId,qualityActor).nodes.find(n=>n.nodeId===body.nodeId);
+              if(!target || !['MANAGER','EMPLOYEE'].includes(body.targetKind) || target.assigneeKind!==body.targetKind)throw new Error('请重新选择当前事件内的退回节点');
+              const input={...common,nodeId:target.nodeId,reason:String(body.opinion??'')};
+              if(action==='final-return')closure.returnSpecificNode(input);else closure.reopenEvent(input);
+            }
+          }
+        } catch(error) { throw new ma.MaWorkbenchError('VERSION_CONFLICT', /SQLITE|constraint|no such|Zod|requestId/.test(error.message)?'提交校验未通过，请刷新后重试':error.message); }
+      } else if(action==='generate') {
         if(!/^[a-f0-9-]{36}$/i.test(body.requestId||''))throw new Error('请求编号无效');
         await analysis.generate({eventId,actorUserId:qualityActor,requestId:body.requestId});
       } else if(action==='draft')analysis.saveDraft({eventId,actorUserId:qualityActor,draft:contracts.saveQualityAnalysisDraftSchema.parse(body.draft)});
@@ -112,5 +138,5 @@ export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,mo
       return tongGet(id);
     },
     requireAssessment(id,version){const {detail}=check(id,{version});if(!detail.admission||!detail.canAssess)throw new ma.MaWorkbenchError('NOT_ADMITTED','请先从全部事件确认进入质量事件，再进行研判');},
-    close(){analysis.close();service.close();persistence.close();db.close();}};
+    close(){clearInterval(commentTimer);closure.close();analysis.close();service.close();persistence.close();db.close();}};
 }

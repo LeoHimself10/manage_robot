@@ -31,7 +31,7 @@ Object.assign(process.env,{
   QUALITY_PILOT_BUSINESS_USER_ID:userId,
   WORKBENCH_TEST_LOGIN_ENABLED:'0',QUALITY_TEST_ACTORS_ENABLED:'0',WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED:'0',
   QUALITY_LOCAL_REVIEW_UI_ENABLED:'0',QUALITY_SOURCE_SYNC_ENABLED:'0',QUALITY_SOURCE_WRITEBACK_ENABLED:'0',
-  QUALITY_NOTIFICATION_WORKER_ENABLED:'0',WORKBENCH_DINGTALK_NOTIFY_ENABLED:'0',
+  QUALITY_OA_FINAL_COMMENT_ENABLED:'0',QUALITY_NOTIFICATION_WORKER_ENABLED:'0',WORKBENCH_DINGTALK_NOTIFY_ENABLED:'0',
   WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED:'0',FOLLOWUP_REMINDER_ENABLED:'0',DINGTALK_CONTACT_SYNC_ENABLED:'0',
 });
 seedSimulationDirectory(dbPath,userId);
@@ -42,7 +42,7 @@ try{for(const person of directory.prepare('SELECT user_id,name FROM dingtalk_con
 const oa=await createOaHandler({root,runtime,names,productionAccess:access,
   dataDirectory:process.env.QUALITY_PILOT_DATA_DIR,
   oaConfig:{clientId:oaClientId,clientSecret:oaClientSecret},
-  workflowFactory:store=>createOaWorkflow({store,originalRoot:root,serviceRoot:root,dbPath,modelEnv:runtime.modelEnv,productionUserId:userId})});
+  workflowFactory:(store,commentClient)=>createOaWorkflow({store,commentClient,originalRoot:root,serviceRoot:root,dbPath,modelEnv:runtime.modelEnv,productionUserId:userId})});
 const {handleAssignmentHttp}=await import('../src/web/assignment-workbench.ts');
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.woff2':'font/woff2'};
 function reject(res,status,message){res.writeHead(status,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'});res.end(message);}
@@ -110,6 +110,7 @@ const server=http.createServer(async(req,res)=>{
       }}
       return writeHead(status,...args);
     };
+    if(simulated&&req.method==='POST'&&path.startsWith('/api/quality-oa/'))return reject(res,403,'请切换回质量管理视角后操作');
     if(await oa.handle(req,res))return;
     if(path.startsWith('/api/quality-ui/')){
       if(path==='/api/quality-ui/status'&&req.method==='GET'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,data:runtime.health}));return;}

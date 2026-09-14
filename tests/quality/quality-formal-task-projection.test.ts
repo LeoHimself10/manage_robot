@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createQualityClosureService } from "../../src/quality/closure/quality-closure-service";
 import { qualityEvidenceRequirements, readQualityEmployeeWork } from "../../src/quality/evidence/quality-employee-work";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -935,6 +936,99 @@ describe("quality formal-task projection", () => {
       expect(()=>t.review.reviewDirectChild({...t.input,decision:"APPROVE",requestId:randomUUID()})).toThrow("version conflict");
       expect(t.work().nodeStatus).toBe("PENDING_PARENT_REVIEW");
     } finally {t.close();}
+  });
+
+  function finalWork() {
+    vi.stubEnv('QUALITY_MANAGEMENT_USER_IDS','quality-user');
+    vi.stubEnv('QUALITY_PILOT_TEST_MODE','1');
+    const t=submittedWork();
+    t.db.prepare("UPDATE quality_events SET status='IN_PROGRESS' WHERE id='event-1'").run();
+    t.review.reviewDirectChild({...t.input,decision:'APPROVE'});
+    let event=t.review.getEvent('event-1');
+    event=t.review.primaryReview({eventId:event.eventId,primaryManagerUserId:'manager-1',decision:'APPROVE',expectedVersion:event.version,requestId:randomUUID()});
+    const closure=createQualityClosureService({dbPath});
+    const common=()=>({eventId:'event-1',specialistUserId:'quality-user',expectedVersion:closure.getEvent('event-1').version,requestId:randomUUID()});
+    return {...t,event,closure,common,close:()=>{closure.close();t.close();}};
+  }
+
+  it('closes atomically and queues only the final passed opinion, with test delivery suppressed',()=>{
+    const t=finalWork();try{
+      const input={...t.common(),conclusion:'证据完整，终验通过'};
+      expect(t.closure.closeEvent(input).status).toBe('CLOSED');
+      t.closure.closeEvent(input);
+      expect(t.db.prepare('SELECT opinion,status FROM quality_final_comment_outbox').all()).toEqual([{opinion:input.conclusion,status:'SUPPRESSED'}]);
+      expect(()=>t.closure.closeEvent({...input,specialistUserId:'unauthorized'})).toThrow('质量管理');
+      expect(()=>t.closure.closeEvent({...input,conclusion:'不同内容'})).toThrow('requestId conflict');
+      expect(t.work().formalStatus).toBe('DONE');
+    }finally{t.close();}
+  });
+
+  it('rolls back final closure if comment enqueue fails and rejects removed evidence',()=>{
+    const t=finalWork();try{
+      t.db.exec("CREATE TRIGGER fail_final_comment BEFORE INSERT ON quality_final_comment_outbox BEGIN SELECT RAISE(ABORT,'forced enqueue failure'); END");
+      const input={...t.common(),conclusion:'通过'};
+      expect(()=>t.closure.closeEvent(input)).toThrow('forced enqueue failure');
+      expect(t.closure.getEvent('event-1')).toMatchObject({status:'PENDING_QUALITY_REVIEW',version:input.expectedVersion});
+      expect(t.db.prepare("SELECT COUNT(*) AS count FROM quality_audit_events WHERE action='QUALITY_CLOSED'").get()).toEqual({count:0});
+      t.db.exec('DROP TRIGGER fail_final_comment');
+      t.db.prepare('UPDATE quality_evidence SET removed_at=? WHERE node_id=?').run(NOW,t.nodeId);
+      expect(()=>t.closure.closeEvent(input)).toThrow('证据不完整');
+    }finally{t.close();}
+  });
+
+  it('returns only the chosen employee task, preserves evidence and requires supervisor review again',()=>{
+    const t=finalWork();try{
+      const before=t.work().files;
+      const input={...t.common(),nodeId:t.nodeId,reason:'补充验证结论'};
+      vi.stubEnv('WORKBENCH_SQLITE_PATH',join(tempDir,'unrelated.sqlite'));
+      t.closure.returnSpecificNode(input);t.closure.returnSpecificNode(input);
+      expect(t.work()).toMatchObject({formalStatus:'IN_PROGRESS',nodeStatus:'RETURNED',files:before});
+      expect(t.db.prepare('SELECT COUNT(*) AS count FROM quality_final_comment_outbox').get()).toEqual({count:0});
+      t.upload(t.work().requirements[0]!.id);t.submit();
+      expect(t.work().nodeStatus).toBe('PENDING_PARENT_REVIEW');
+      t.review.reviewDirectChild({...t.input,decision:'APPROVE',expectedVersion:t.work().nodeVersion,requestId:randomUUID()});
+      expect(t.review.getEvent('event-1').status).toBe('PENDING_PRIMARY_REVIEW');
+    }finally{t.close();}
+  });
+
+  it('rolls back a quality return when formal task reopening fails',()=>{
+    const t=finalWork();try{
+      t.db.exec("CREATE TRIGGER fail_final_reopen BEFORE INSERT ON task_events WHEN NEW.event_type='SUBTASK_PROGRESS' BEGIN SELECT RAISE(ABORT,'forced reopen failure'); END");
+      expect(()=>t.closure.returnSpecificNode({...t.common(),nodeId:t.nodeId,reason:'需要补充'})).toThrow('forced reopen failure');
+      expect(t.closure.getEvent('event-1').status).toBe('PENDING_QUALITY_REVIEW');
+      expect(t.work()).toMatchObject({formalStatus:'DONE',nodeStatus:'APPROVED'});
+    }finally{t.close();}
+  });
+
+  it('keeps employee approvals on manager return, then accepts a manager response without OA comments',()=>{
+    const t=finalWork();try{
+      t.closure.returnSpecificNode({...t.common(),nodeId:t.event.primaryNodeId!,reason:'请主管补充整体说明'});
+      expect(t.work()).toMatchObject({formalStatus:'DONE',nodeStatus:'APPROVED'});
+      vi.stubEnv('WORKBENCH_MANAGER_USER_IDS','manager-1');vi.stubEnv('QUALITY_PILOT_BUSINESS_USER_ID','manager-1');
+      const projector=createQualityEventPerspectiveProjector(dbPath);
+      try { const view=projector.getEventDetail({viewerUserId:'manager-1',perspective:'manager',eventId:'event-1'})!.viewModel;
+        expect(view.managerReturns).toEqual(expect.arrayContaining([expect.objectContaining({nodeId:t.event.primaryNodeId,reason:'请主管补充整体说明'})]));
+        expect((view.event as {managerStages:string[]}).managerStages).toEqual(['REVIEW']);
+      }finally{projector.close();}
+      const input={nodeId:t.event.primaryNodeId!,actorUserId:'manager-1',expectedVersion:t.closure.getEvent('event-1').version,reason:'已补充整体核验说明',requestId:randomUUID()};
+      expect(()=>t.closure.handleManagerReturn({...input,actorUserId:'employee-1'})).toThrow('仅被退回主管');
+      expect(()=>t.closure.handleManagerReturn({...input,requestId:t.input.requestId})).toThrow('requestId conflict');
+      expect(t.closure.handleManagerReturn(input).status).toBe('PENDING_QUALITY_REVIEW');t.closure.handleManagerReturn(input);
+      expect(t.work()).toMatchObject({formalStatus:'DONE',nodeStatus:'APPROVED'});
+      expect(t.db.prepare('SELECT COUNT(*) AS count FROM quality_final_comment_outbox').get()).toEqual({count:0});
+    }finally{t.close();}
+  });
+
+  it('lets a returned supervisor choose their employee task to supplement',()=>{
+    const t=finalWork();try{
+      t.closure.returnSpecificNode({...t.common(),nodeId:t.event.primaryNodeId!,reason:'请完善验证结果'});
+      const input={nodeId:t.event.primaryNodeId!,actorUserId:'manager-1',expectedVersion:t.closure.getEvent('event-1').version,reason:'员工补充复测记录',childNodeId:t.nodeId,requestId:randomUUID()};
+      expect(t.closure.handleManagerReturn(input).status).toBe('IN_PROGRESS');
+      expect(t.work()).toMatchObject({formalStatus:'IN_PROGRESS',nodeStatus:'RETURNED'});
+      t.upload(t.work().requirements[0]!.id);t.submit();
+      t.review.reviewDirectChild({...t.input,decision:'APPROVE',expectedVersion:t.work().nodeVersion,requestId:randomUUID()});
+      expect(t.review.getEvent('event-1').status).toBe('PENDING_PRIMARY_REVIEW');
+    }finally{t.close();}
   });
 
   function activeWork() {

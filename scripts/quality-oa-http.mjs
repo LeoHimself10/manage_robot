@@ -28,7 +28,7 @@ export async function createOaHandler({root,runtime,names={},workflowFactory,pro
   const trigger=()=>syncer?.sync().catch(()=>{});
   const timer=setInterval(trigger,60000);timer.unref(); if(syncer)trigger();
   const inFlight=new Map();
-  const workflow=workflowFactory?await workflowFactory(store):null;
+  const workflow=workflowFactory?await workflowFactory(store,config ? new DingTalkOaClient(config) : null):null;
   const status=()=>({configured:!!config,scope:OA_SCOPE,sync:store.meta('sync'),count:store.list().length,intervalSeconds:60,transport:'POLLING',ai:runtime.health.assessment});
   async function body(req){let size=0;const chunks=[];for await(const c of req){size+=c.length;if(size>20000)throw new Error('请求过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
   const authorized=req=>(req.headers.cookie||'').split(';').some(c=>same(c.trim(),'quality_oa_session='+session));
@@ -65,7 +65,7 @@ export async function createOaHandler({root,runtime,names={},workflowFactory,pro
         }
         else if(req.method==='GET'&&url.pathname==='/api/quality-oa/sources')json(res,200,{ok:true,items:store.list(),status:status()});
         else if(workflow&&req.method==='GET'&&url.pathname==='/api/quality-oa/tong')json(res,200,{ok:true,items:workflow.tongList()});
-        else if(workflow&&req.method==='POST'&&/^\/api\/quality-oa\/tong\/(generate|draft|confirm)$/.test(url.pathname)) {
+        else if(workflow&&req.method==='POST'&&/^\/api\/quality-oa\/tong\/(generate|draft|confirm|final-close|final-return|final-reopen|comment-retry)$/.test(url.pathname)) {
           const b=await body(req);json(res,200,{ok:true,data:await workflow.tongMutate(url.pathname.split('/').at(-1),b.id,b)});
         }
         else if(workflow&&req.method==='GET'&&url.pathname==='/api/quality-oa/workflow')json(res,200,{ok:true,items:workflow.list()});
