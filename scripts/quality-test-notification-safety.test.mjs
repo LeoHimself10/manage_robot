@@ -8,4 +8,3 @@ for(const [name,fn] of Object.entries(notifier)){
  const result=await fn(input);assert.equal(result.enabled,false,name);console.log(name,'suppressed');
 }
 assert.equal(calls,0);console.log('Zero outbound network calls');
-
