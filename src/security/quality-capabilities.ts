@@ -116,6 +116,11 @@ export function resolveQualityCapabilities(userId: string): QualityCapabilities 
     };
   }
 
+  if(process.env.QUALITY_PILOT_TEST_MODE === "1" && /^QUALITY_SIM_(MANAGER|EMPLOYEE_[123])$/.test(normalized)) {
+    return {baseRole,roles:[],canAccessTracking:true,canAccessOpinions:false,canReportQuality:false,
+      canAnalyzeQuality:false,isBusinessReadOnly:false,hasQualityManagement:false,isProjectManager:false,
+      isQualitySpecialist:false,specialistUserIds:[]};
+  }
   const testActor = getAdminTestActor(normalized);
   if (testActor) {
     const isAftersales = testActor.userId === "QUALITY_TEST_AFTERSALES_001";

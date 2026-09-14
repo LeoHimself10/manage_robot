@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-isolated-20260914-r3",
+  "release": "quality-test-simulation-20260914-r4",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -14,12 +14,12 @@
   ],
   "productionOnlyFiles": {
     "public/quality/ma-workbench/view-switcher.js": {
-      "sha256": "f92e95657a7f5860145426c87100cc7e5593b0a912a33cb32ff30b25637e322d",
-      "reason": "Use real signed-in identity and production quality routes; all perspective links navigate in the current page (user approved 2026-09-14)."
+      "sha256": "e7dbe688b49b5f32b450ad2db3a9c96e172844c5860d6e3b9f0fa71f6e606b4f",
+      "reason": "User-approved isolated test department and fixed simulated manager/employee perspectives (2026-09-14)."
     },
     "public/quality/tong/view-switcher.js": {
-      "sha256": "c86497d339ee47d26b3a1d1af6c33714bbd4289947b81a9b9b29c07e6ac6d309",
-      "reason": "Use real signed-in identity and production quality routes; all perspective links navigate in the current page (user approved 2026-09-14)."
+      "sha256": "8dbb98cbbfaeb546c23fbbc6744300d103abf5e94dbc5d9af97a8f19a98618aa",
+      "reason": "User-approved isolated test department and fixed simulated manager/employee perspectives (2026-09-14)."
     },
     "src/quality/ma-workbench/contracts.ts": {
       "sha256": "93c0dd131a10bfa39275ab420776f7de023034a3f218914e06648b8abd254113",
@@ -54,8 +54,8 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/security/quality-capabilities.ts": {
-      "sha256": "e02bb842ee5a7fb992f5a188c7b058ac0ee561c169068aa205d896c9c5519c4a",
-      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+      "sha256": "918d9a6512a778b39e45fb2a3b4eb86cd61e041a32c9a7531419ed7a99bf673a",
+      "reason": "User-approved isolated test department and fixed simulated manager/employee perspectives (2026-09-14)."
     },
     "src/web/assignment-workbench.ts": {
       "sha256": "c9257a5f88222ab618a5bb5c98ab2fdd3cf45cf7ac6f6bfcb6650c72c6a91b31",
@@ -70,8 +70,8 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/web/quality-tracking-page.ts": {
-      "sha256": "265fdaf22f23edee2962731aa33aba97b7e4b743b58b6851fb4cf0acb1cdfaf6",
-      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+      "sha256": "3aaea1fef8cb2a8cd1f54a9fa94a72d9952adda98c7392afb2aef1f45bd5a2cf",
+      "reason": "User-approved isolated test department and fixed simulated manager/employee perspectives (2026-09-14)."
     },
     "src/web/workbench-dd-login-entry.ts": {
       "sha256": "9ca951046599626cb3d3c02f3e4f7b243239d11d4653fff53ae1670d768844f8",
@@ -84,6 +84,7 @@
     "scripts/quality-production-server.mjs",
     "scripts/quality-ui-ai-runtime.mjs",
     "scripts/quality-oa-http.mjs",
-    "scripts/quality-oa-workflow.mjs"
+    "scripts/quality-oa-workflow.mjs",
+    "scripts/quality-simulation.mjs"
   ]
 }

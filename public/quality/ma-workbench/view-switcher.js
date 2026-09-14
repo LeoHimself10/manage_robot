@@ -4,8 +4,8 @@
   const container=document.createElement('div');
   container.className='view-switcher';
   const originalViews=[
-    ['主管工作台','曹玉寒 · 分配与验收','/workbench/quality?perspective=manager'],
-    ['员工工作台','曹玉寒 · 承接与执行','/workbench/quality?perspective=employee']
+    ['主管工作台','模拟主管 · 分配与验收','/workbench/quality?perspective=manager'],
+    ['员工工作台','模拟员工1 · 承接与执行','/workbench/quality?perspective=employee']
   ];
   const link=(title,subtitle,url)=>`<a class="view-switch-link" href="${url}" target="_self"><span><strong>${title}</strong><small>${subtitle}</small></span><span class="view-switch-arrow" aria-hidden="true">→</span></a>`;
   container.innerHTML=`<button type="button" id="viewSwitchButton" class="view-switch-trigger" aria-expanded="false" aria-controls="viewSwitchPanel">切换视角<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
@@ -14,7 +14,7 @@
         <button type="button" class="view-switch-link" id="viewSwitchCurrent" aria-current="page"><span><strong>马荣鑫</strong><small>主管 · 反馈研判</small></span><span class="view-switch-current">当前视角</span></button>
         ${link('佟成','员工 · 质量管理能力已开通','http://127.0.0.1:8809/')}
       </nav><h3>任务与系统管理</h3><nav class="view-switch-list" aria-label="任务与系统管理视角">${originalViews.map(([title,subtitle,path])=>link(title,subtitle,path)).join('')}</nav>
-      <p class="view-switch-note">当前操作人：曹玉寒。切换页面不会切换登录身份。</p>
+      <p class="view-switch-note">当前操作人：曹玉寒。主管和员工使用隔离的模拟身份；实际操作人仍为曹玉寒。</p>
     </div>`;
   document.querySelector('.topbar .user').appendChild(container);
   const button=container.querySelector('#viewSwitchButton');

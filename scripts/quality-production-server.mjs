@@ -9,6 +9,7 @@ import {sanitizeQualityPilotNextPath} from '../src/web/quality-pilot-navigation.
 import {loadOriginalAiRuntime} from './quality-ui-ai-runtime.mjs';
 import {createOaHandler} from './quality-oa-http.mjs';
 import {createOaWorkflow} from './quality-oa-workflow.mjs';
+import {seedSimulationDirectory,resolveSimulationActor,simulationSessionToken,simulationNavigation} from './quality-simulation.mjs';
 import {OA_SCOPE} from '../src/quality/oa/oa-store.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
@@ -33,6 +34,7 @@ Object.assign(process.env,{
   QUALITY_NOTIFICATION_WORKER_ENABLED:'0',WORKBENCH_DINGTALK_NOTIFY_ENABLED:'0',
   WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED:'0',FOLLOWUP_REMINDER_ENABLED:'0',DINGTALK_CONTACT_SYNC_ENABLED:'0',
 });
+seedSimulationDirectory(dbPath,userId);
 const runtime=await loadOriginalAiRuntime(root);
 const names={};
 const directory=new DatabaseSync(dbPath,{readOnly:true});
@@ -81,14 +83,22 @@ const server=http.createServer(async(req,res)=>{
     // An expired or fallback cookie must not make the legacy login renderer
     // skip the new application's real DingTalk authentication.
     if(loginRoute&&!identity)req.headers.cookie='';
-    // Identity is never accepted from UI, query parameters or request bodies.
+    if(identity&&req.method==='POST'&&path==='/api/workbench/admin/impersonation/exit'){
+      res.setHeader('Set-Cookie',`quality_simulation=; Path=${PREFIX}/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
+      res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,redirectTo:PREFIX+'/ma-workbench/'}));return;
+    }
+    // Only the fixed simulation actor list may change internal business identity.
     if(path.startsWith('/oa/')||/\/(?:login|logout|impersonat|test-actor)/i.test(path)||url.searchParams.has('testActor'))return reject(res,403,'此入口不支持切换登录身份');
+    const simulated=identity&&!loginRoute?resolveSimulationActor(path,url,req.headers.cookie):null;
+    if(identity&&!loginRoute&&req.method==='GET'&&!path.startsWith('/api/')&&!path.startsWith('/static/')&&!/\.(js|css|svg|png)$/.test(path)){
+      res.setHeader('Set-Cookie',`quality_simulation=${simulated?.ref||''}; Path=${PREFIX}/; HttpOnly; Secure; SameSite=Lax; Max-Age=43200`);
+    }
     req.url=path+url.search;
     const originalEnd=res.end.bind(res);
     res.end=function(chunk,...args){
       if(chunk&&/text\/|javascript|json/.test(String(res.getHeader('content-type')||''))){
         chunk=rewriteProductionLinks(Buffer.isBuffer(chunk)?chunk.toString('utf8'):String(chunk));
-        if(String(res.getHeader('content-type')||'').includes('text/html'))chunk=chunk.replace(/<body([^>]*)>/i,'<body$1><div role="status" style="padding:10px 20px;background:#fff4cc;color:#684900;font-size:14px;line-height:1.6;text-align:center">测试系统 · 数据已隔离 · 不发送钉钉业务消息、待办或催办 · 不回写 OA</div>');
+        if(String(res.getHeader('content-type')||'').includes('text/html'))chunk=chunk.replace(/<body([^>]*)>/i,(_,attrs)=>'<body'+attrs+'>'+simulationNavigation(simulated));
         if(!res.headersSent)res.removeHeader('content-length');
       }
       return originalEnd(chunk,...args);
@@ -106,6 +116,18 @@ const server=http.createServer(async(req,res)=>{
       return reject(res,404,'请从真实 OA 事件生成分析');
     }
     if(path.startsWith('/workbench')||path.startsWith('/api/workbench')||path.startsWith('/static/')){
+      if(simulated&&!loginRoute){
+        req.headers.cookie='wb_session='+simulationSessionToken(identity,simulated,process.env.WORKBENCH_SESSION_SECRET||process.env.ASSIGNMENT_WEB_SECRET);
+        const setHeader=res.setHeader.bind(res);
+        res.setHeader=function(name,value){
+          if(name.toLowerCase()==='set-cookie'){
+            const values=(Array.isArray(value)?value:[String(value)]).filter(v=>!v.startsWith('wb_session='));
+            if(!values.length)return res;
+            return setHeader(name,values);
+          }
+          return setHeader(name,value);
+        };
+      }
       if(handleAssignmentHttp(req,res))return;
     }
     if(!['GET','HEAD'].includes(req.method))return reject(res,405,'Method not allowed');

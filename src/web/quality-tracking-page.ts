@@ -104,6 +104,7 @@ export function renderQualityTrackingPage(params: {
     : "";
   const unified = activePerspective === "manager" || isEmployeePerspective;
   const pilotTabs = process.env.QUALITY_PILOT_BUSINESS_USER_ID?.trim() === params.userId
+    || (process.env.QUALITY_PILOT_TEST_MODE === "1" && /^QUALITY_SIM_(MANAGER|EMPLOYEE_[123])$/.test(params.userId))
     ? `<details class="qpc-view-switch"><summary>切换视角</summary><nav class="qpc-perspective-tabs" aria-label="质量工作台视角">
       <a href="/workbench/quality-pilot/ma-workbench/">马荣鑫 · 反馈研判</a>
       <a href="/workbench/quality-pilot/tong/">佟成 · 质量管理</a>

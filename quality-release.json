@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-isolated-20260914-r3",
+  "release": "quality-test-simulation-20260914-r4",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "verifiedUiFiles": 31,
@@ -363,7 +363,7 @@
     "src/quality/testing/quality-test-boundary.ts": "ff78753a775b40c79b4ed084dab81a402646ff4380c3ba0e13e2da5991de26f3",
     "src/quality/testing/quality-test-evidence-fixtures.ts": "3109ca10cbcdfac07ad759cd05aa7f559dd2b71548f87a2d75da546503d4b208",
     "src/security/initiator-whitelist.ts": "cf7c090feed2e46d2ee91b5e31a1698c64b76f890295c59e4d61cc0de711b391",
-    "src/security/quality-capabilities.ts": "3cd6a7186821a4f2cc2cd7f718232116285a4c5412c28336cb8b190c4fb1c5cb",
+    "src/security/quality-capabilities.ts": "8471761bd85a67d057c4dc28371864a73df21f82d9103d39801831160bf12b3a",
     "src/security/url-fetch-guard.ts": "c3f7c534f8a24479bb812c37a68ce33bdc6674db3643934c90fe07b6eebddb74",
     "src/security/web-entry-token.ts": "34b50ac3313d2464ecbf321f7575ffffa7153b347ae80b1402fd9800c085bbfd",
     "src/security/workbench-admin-perspective.ts": "5e4e304764958afd6a9a2f201a366d8146a200a1dfecc31d513e81328fd17ed2",
@@ -422,7 +422,7 @@
     "src/web/quality-pilot-navigation.ts": "0aa9d21fcbf71655556b78fe86cf4c0275c9ade375d075a8d407cd811baac404",
     "src/web/quality-review-page.ts": "1b75a0bf1c023b9e3906f338410d69c946c19c27bab41a8ba72dddf3a6ccc786",
     "src/web/quality-review-styles.ts": "ada8f4c6bd090440cbfbdb19c2a5865f1342de0713f6bfe8b00cc7813830f801",
-    "src/web/quality-tracking-page.ts": "f82a6c90c3079e7992d3c3c338b58ce10a9f4e084d161f1f873e29178d73b574",
+    "src/web/quality-tracking-page.ts": "ddcf6468e5c17778a71e226b497ab9285765780b8f737369d86dfa4b5f89da28",
     "src/web/quality-tracking-styles.ts": "c40eef1cb47aa91494c1c4539f559cdfa9fb70a1563cab5e5d059e0e9015bbd4",
     "src/web/quality-unified-styles.ts": "96a87df65d0429c1c3caf61d8c45f24466a933a535dfc01a81ba5c6c38bc646d",
     "src/web/task-intake-api.ts": "e361eaadeb7751b91792afabc0c1743c3b2d428a4e4b50cbbe678556e11418bf",
@@ -464,7 +464,7 @@
     "public/quality/ma-workbench/oa-form-display.js": "f65c90de1e6a94ee2383b26579e911c583c4f2a9de9ca89a473b350e8f6a1722",
     "public/quality/ma-workbench/oa-workflow.js": "1a96b74777e36a5570e470ec3f64677a6568e1bfca25c56d32c025648e30fa81",
     "public/quality/ma-workbench/view-switcher.css": "4094f8caf0e3c6502a0e26cb224829783f8ef1b453ab9afe4818a2743786fdb6",
-    "public/quality/ma-workbench/view-switcher.js": "f92e95657a7f5860145426c87100cc7e5593b0a912a33cb32ff30b25637e322d",
+    "public/quality/ma-workbench/view-switcher.js": "e7dbe688b49b5f32b450ad2db3a9c96e172844c5860d6e3b9f0fa71f6e606b4f",
     "public/quality/ma-workbench/workbench.css": "684667068f897aef0bdee0958c2a11aedf322b5b56e5a8a70f1945d758830c23",
     "public/quality/ma-workbench/workbench.js": "0191f2ac45002258e4f82fdabb623dde223def0e353dc1b187d26725e4715610",
     "public/quality/tong/.gitignore": "ed78a1b9e508cc19dc1635d621de93485e384a1de3fbd8cc4cd10a6e51d97597",
@@ -514,13 +514,14 @@
     "public/quality/tong/tong.css": "d91d7ad68979f1c7bb238424cc8ca94fd70007f0cd1575822ca10756cf3a8ca3",
     "public/quality/tong/tong.js": "f41b92ce8abaff1f35bd15aa05042fd2be4881c7b369eaff61e3ef0f9e61a9b0",
     "public/quality/tong/view-switcher.css": "4094f8caf0e3c6502a0e26cb224829783f8ef1b453ab9afe4818a2743786fdb6",
-    "public/quality/tong/view-switcher.js": "c86497d339ee47d26b3a1d1af6c33714bbd4289947b81a9b9b29c07e6ac6d309",
+    "public/quality/tong/view-switcher.js": "8dbb98cbbfaeb546c23fbbc6744300d103abf5e94dbc5d9af97a8f19a98618aa",
     "scripts/quality-production-access.mjs": "4e4b315b3ea720a9be22aeb12572d9408f7e97482941471880ad120dcf4c1e81",
     "scripts/quality-production-paths.mjs": "d38cc5561f913736266b5e156a753d0953a50afb558ae040941a7e2fbaaad394",
-    "scripts/quality-production-server.mjs": "6096354efb094844514fb9e5cb0b439f50bf498574246a27ed0fbb471cb15b10",
+    "scripts/quality-production-server.mjs": "d6abb0582f8a7949cfc0583a1cf7a8adc898b8a767d87bb8bbbbe76eebebc0be",
     "scripts/quality-ui-ai-runtime.mjs": "204d284b919d9bf89681f7d2c6a7d0a63f0f54eff9bf41d25efb8dc2b742e94f",
     "scripts/quality-oa-http.mjs": "ee7fb03a9df1bab6bdbc07776c76b520797997c7f56fc0ca44c3ba5c5726a90c",
     "scripts/quality-oa-workflow.mjs": "09d3c45b8febe86c89f2331c56b8b77cb4adf21f4622acd520a480a2ee026c97",
-    "quality-release.lock.json": "a501d24cd34e3d81a043a7e5e66e9fa13783e57961c8b3a886607478bf85a9e8"
+    "scripts/quality-simulation.mjs": "f8ca39943e605bb7770f8ea3c4c7b09f1f29e0e900f1f9c5ef986b6059c16a67",
+    "quality-release.lock.json": "8e47a42e9e3bbb4a98841c55d55b4a995a93d78bce30bdf12e298384998bd834"
   }
 }
