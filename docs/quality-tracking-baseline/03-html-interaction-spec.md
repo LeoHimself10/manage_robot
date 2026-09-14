@@ -9,3 +9,5 @@ last_verified_at: 2026-09-14
 源码：scripts/quality-simulation.mjs、scripts/quality-production-server.mjs、public/quality/{ma-workbench,tong}/view-switcher.js、src/web/quality-tracking-page.ts。
 
 2026-09-14 r5 修复：模拟主管和员工必须显式解析角色视角，页面 main 为 qpc-unified，员工标题“我的质量任务”、主管标题“主管质量工作台”；同时启用对应的事件投影 API，不能因模拟身份不是 admin 回退为售后默认界面。
+
+2026-09-14 r6：员工责任链卡片按 quality_task_links 关联原正式子任务；已有节点也必须显示处理入口。待承接进入原员工待承接列表（当前页），其他状态进入执行或历史列表；卡片状态、截止和承接时间读取正式任务，禁止显示滞后的节点状态。

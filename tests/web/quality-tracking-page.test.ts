@@ -204,7 +204,7 @@ describe("renderQualityTrackingPage", () => {
     expect(html).toContain("我的质量任务");
     expect(html).toContain('data-metric-employee-stage="ASSIGNED"');
     expect(html).toContain("以下状态直接来自原员工任务系统");
-    expect(html).toContain("去原员工任务处理");
+    expect(html).toContain("去承接任务");
     expect(html).toContain("if (view.formalTaskProjection) return 'assignment'");
     expect(html).toContain("params.set('employeeStage', employeeStage)");
   });

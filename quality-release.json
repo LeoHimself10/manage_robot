@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-unified-ui-20260914-r5",
+  "release": "quality-test-employee-accept-20260914-r6",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "verifiedUiFiles": 31,
@@ -338,7 +338,7 @@
     "src/quality/oa/quality-oa-source.ts": "7ed864dedf1639d7296b8042732ee3eb9568bf2d63894e9dfa0b3bdf89ddac38",
     "src/quality/presentation/quality-business-context.ts": "e6371bc0a3bf11245537dee8da59bf65fae911867d846188b7679994174a3523",
     "src/quality/presentation/quality-display-labels.ts": "ec019a233cd9c5a15f6b1797f9898f82c3ee3569347323b0683dd52eb888a3d1",
-    "src/quality/presentation/quality-event-perspective.ts": "e3c1c662849dbaca67829848f71a972da759f41c754ae79026ba83b5498adfd6",
+    "src/quality/presentation/quality-event-perspective.ts": "ed0aa5fe01ec7919bf0adf3eae81ab26b8c0d1d8df46bea387618a0a29111e48",
     "src/quality/presentation/quality-manager-task-stage.ts": "676bb720ecd38163500ff38212a844d9543251e2f1f436f470bc191e393a4547",
     "src/quality/presentation/quality-role-metrics.ts": "ef215285b4158818afd21864270dc0d15cc6d1db5da4331ec6249d1a5d0e6204",
     "src/quality/queries/quality-event-query.ts": "50d3d185274f45c5b765ec7990cb8a40ff4c3605360d1d940cbaa2ef0ea8f836",
@@ -422,7 +422,7 @@
     "src/web/quality-pilot-navigation.ts": "0aa9d21fcbf71655556b78fe86cf4c0275c9ade375d075a8d407cd811baac404",
     "src/web/quality-review-page.ts": "1b75a0bf1c023b9e3906f338410d69c946c19c27bab41a8ba72dddf3a6ccc786",
     "src/web/quality-review-styles.ts": "ada8f4c6bd090440cbfbdb19c2a5865f1342de0713f6bfe8b00cc7813830f801",
-    "src/web/quality-tracking-page.ts": "ddcf6468e5c17778a71e226b497ab9285765780b8f737369d86dfa4b5f89da28",
+    "src/web/quality-tracking-page.ts": "63e365061e95d681c1ecc93057430e6782441a79ba0bfb0719aa912202597777",
     "src/web/quality-tracking-styles.ts": "c40eef1cb47aa91494c1c4539f559cdfa9fb70a1563cab5e5d059e0e9015bbd4",
     "src/web/quality-unified-styles.ts": "96a87df65d0429c1c3caf61d8c45f24466a933a535dfc01a81ba5c6c38bc646d",
     "src/web/task-intake-api.ts": "e361eaadeb7751b91792afabc0c1743c3b2d428a4e4b50cbbe678556e11418bf",
@@ -522,6 +522,6 @@
     "scripts/quality-oa-http.mjs": "ee7fb03a9df1bab6bdbc07776c76b520797997c7f56fc0ca44c3ba5c5726a90c",
     "scripts/quality-oa-workflow.mjs": "09d3c45b8febe86c89f2331c56b8b77cb4adf21f4622acd520a480a2ee026c97",
     "scripts/quality-simulation.mjs": "f8ca39943e605bb7770f8ea3c4c7b09f1f29e0e900f1f9c5ef986b6059c16a67",
-    "quality-release.lock.json": "0ff63dee5ddde24f7f4de9d4bd02c44ae3f826ef28ee6d73b54278c2c8332972"
+    "quality-release.lock.json": "6158d3621a4384853b345e4e352985b59329f8ae776d1a35945c0f2ad3c0da4e"
   }
 }

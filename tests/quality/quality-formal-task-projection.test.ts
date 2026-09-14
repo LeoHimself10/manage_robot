@@ -88,6 +88,20 @@ describe("quality formal-task projection", () => {
     }
   });
 
+  it("keeps employee acceptance links and live formal status when responsibility nodes exist", () => {
+    vi.stubEnv("QUALITY_PILOT_TEST_MODE", "1");
+    const db = new DatabaseSync(dbPath);
+    db.prepare("UPDATE subtasks SET assignee_user_id='QUALITY_SIM_EMPLOYEE_1'").run();
+    reconcileQualityPlanningPublication({eventId:"event-1",integrationKey:"quality-node:event-1",planId:"plan-1",formalTaskId:"task:plan-1",actorUserId:"manager-1",publishedAt:NOW,dbPath});
+    const projector = createQualityEventPerspectiveProjector(dbPath);
+    const read = () => projector.getEventDetail({viewerUserId:"QUALITY_SIM_EMPLOYEE_1",eventId:"event-1"});
+    expect(read()?.viewModel.branch).toEqual(expect.arrayContaining([expect.objectContaining({subtaskId:"subtask-1",formalStatus:"ASSIGNED",taskUrl:"/workbench/employee?view=new",formalProjection:true})]));
+    db.prepare("UPDATE subtasks SET status='IN_PROGRESS'").run();
+    expect(read()?.viewModel.branch).toEqual(expect.arrayContaining([expect.objectContaining({formalStatus:"IN_PROGRESS",taskUrl:"/workbench/employee?view=current",statusLabel:"执行中"})]));
+    expect(projector.getEventDetail({viewerUserId:"QUALITY_SIM_EMPLOYEE_2",eventId:"event-1"})).toBeNull();
+    projector.close(); db.close();
+  });
+
   it("shows pending planning only to its receiving manager before task publication", () => {
     const db = new DatabaseSync(dbPath);
     db.prepare("UPDATE quality_analysis_handoffs SET plan_id='unpublished-plan' WHERE handoff_id='handoff-1'").run();

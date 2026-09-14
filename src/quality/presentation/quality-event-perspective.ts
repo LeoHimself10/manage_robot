@@ -1354,6 +1354,18 @@ export function createQualityEventPerspectiveProjector(
             requirement: String(node.requirement),
             acceptedAt: nullable(node.accepted_at),
             version: Number(node.version),
+            ...(() => {
+              const link = db.prepare("SELECT subtask_id FROM quality_task_links WHERE node_id=?").get(String(node.node_id));
+              const item = formalEmployeeTasks.find((task) => task.subtaskId === link?.subtask_id);
+              if (!item) return {};
+              return {
+                taskNo: item.taskNo, taskId: item.taskId, subtaskId: item.subtaskId,
+                formalStatus: item.status, formalProjection: true,
+                statusLabel: qualityFormalTaskStatusLabel(item.status, item.openDeclineKind),
+                dueAt: item.dueAt, acceptedAt: item.acceptedAt,
+                taskUrl: `/workbench/employee?view=${item.status === "ASSIGNED" ? "new" : ["DONE", "STOPPED"].includes(item.status) ? "history" : "current"}`,
+              };
+            })(),
           }))
         : formalEmployeeTasks.map((item) => ({
             actionRef: item.subtaskId,
@@ -1369,7 +1381,8 @@ export function createQualityEventPerspectiveProjector(
             taskNo: item.taskNo,
             taskId: item.taskId,
             subtaskId: item.subtaskId,
-            taskUrl: `/workbench/employee/task?taskNo=${encodeURIComponent(item.taskNo)}`,
+            formalStatus: item.status,
+            taskUrl: `/workbench/employee?view=${item.status === "ASSIGNED" ? "new" : ["DONE", "STOPPED"].includes(item.status) ? "history" : "current"}`,
             formalProjection: true,
           })),
       qualityAssignmentItems: qualityManagementItems,
