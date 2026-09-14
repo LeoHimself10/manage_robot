@@ -1,5 +1,5 @@
 {
-  "release": "quality-approved-20260910-evening-r1",
+  "release": "quality-approved-20260914-same-page-r2",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "verifiedUiFiles": 31,
@@ -464,7 +464,7 @@
     "public/quality/ma-workbench/oa-form-display.js": "f65c90de1e6a94ee2383b26579e911c583c4f2a9de9ca89a473b350e8f6a1722",
     "public/quality/ma-workbench/oa-workflow.js": "1a96b74777e36a5570e470ec3f64677a6568e1bfca25c56d32c025648e30fa81",
     "public/quality/ma-workbench/view-switcher.css": "4094f8caf0e3c6502a0e26cb224829783f8ef1b453ab9afe4818a2743786fdb6",
-    "public/quality/ma-workbench/view-switcher.js": "5baedd824c981256eb089454063583f02205dae2d71275b777e81d3656b312f7",
+    "public/quality/ma-workbench/view-switcher.js": "f92e95657a7f5860145426c87100cc7e5593b0a912a33cb32ff30b25637e322d",
     "public/quality/ma-workbench/workbench.css": "684667068f897aef0bdee0958c2a11aedf322b5b56e5a8a70f1945d758830c23",
     "public/quality/ma-workbench/workbench.js": "0191f2ac45002258e4f82fdabb623dde223def0e353dc1b187d26725e4715610",
     "public/quality/tong/.gitignore": "ed78a1b9e508cc19dc1635d621de93485e384a1de3fbd8cc4cd10a6e51d97597",
@@ -514,13 +514,13 @@
     "public/quality/tong/tong.css": "d91d7ad68979f1c7bb238424cc8ca94fd70007f0cd1575822ca10756cf3a8ca3",
     "public/quality/tong/tong.js": "f41b92ce8abaff1f35bd15aa05042fd2be4881c7b369eaff61e3ef0f9e61a9b0",
     "public/quality/tong/view-switcher.css": "4094f8caf0e3c6502a0e26cb224829783f8ef1b453ab9afe4818a2743786fdb6",
-    "public/quality/tong/view-switcher.js": "f6fd917a40d5f41a03f5af39e60907777f64d6829a10fd9f9524bcb6755a8170",
+    "public/quality/tong/view-switcher.js": "c86497d339ee47d26b3a1d1af6c33714bbd4289947b81a9b9b29c07e6ac6d309",
     "scripts/quality-production-access.mjs": "4e4b315b3ea720a9be22aeb12572d9408f7e97482941471880ad120dcf4c1e81",
     "scripts/quality-production-paths.mjs": "d38cc5561f913736266b5e156a753d0953a50afb558ae040941a7e2fbaaad394",
     "scripts/quality-production-server.mjs": "6e11ab5acd877902f4e503913e56008cd0449586e0d32ffb0a072465137fb8af",
     "scripts/quality-ui-ai-runtime.mjs": "204d284b919d9bf89681f7d2c6a7d0a63f0f54eff9bf41d25efb8dc2b742e94f",
     "scripts/quality-oa-http.mjs": "ee7fb03a9df1bab6bdbc07776c76b520797997c7f56fc0ca44c3ba5c5726a90c",
     "scripts/quality-oa-workflow.mjs": "09d3c45b8febe86c89f2331c56b8b77cb4adf21f4622acd520a480a2ee026c97",
-    "quality-release.lock.json": "ec4a758b296f41e65f9ce3e84d4ba3c45706d788049690034a441a01fa4e2b19"
+    "quality-release.lock.json": "d9da514969a37a8b8d1f43fed8a6a0aa1b455a548b0ec771ba694aea3db89ea9"
   }
 }

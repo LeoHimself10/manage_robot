@@ -75,3 +75,11 @@ last_verified_at: 2026-09-11
 - 回滚只替换此独立容器镜像为 `manage-robot:quality-app-20260911`，沿用当前 env 和数据卷；不要恢复数据库。
 
 钉钉新应用仍为“质量追踪系统”，AgentId `4981819826`，首页为 `https://managebot.vivolightsales.com/workbench/quality-pilot/`。钉钉客户端内真实免登仍需用户重新进入应用确认；本次没有把预发布会话验证当作生产免登验证。
+
+## 2026-09-14 当前页面切换视角
+
+last_verified_at: 2026-09-14
+
+马荣鑫、佟成菜单中的全部视角链接（包含主管、员工）改用 target="_self"，箭头改为向右；主管、员工页面自身的四项菜单原本就在当前页打开。实际操作人仍是当前登录账号。发布标识 quality-approved-20260914-same-page-r2；原始确认版原型不覆盖。
+
+验证：6 项导航测试通过；镜像构建对 518 个发布文件校验通过。已部署 manage-robot:quality-approved-20260914-same-page-r2，/health 正常，公网响应返回新发布标识，运行菜单确认 target="_self"。微光、明思、安徽及 Caddy 容器 ID 保持不变。钉钉客户端实际点击需刷新页面后确认。回滚镜像为 manage-robot:quality-approved-20260910-evening-r1，沿用当前配置与数据卷。

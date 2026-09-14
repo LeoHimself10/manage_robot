@@ -7,7 +7,7 @@
     ['主管工作台','曹玉寒 · 分配与验收','/workbench/quality?perspective=manager'],
     ['员工工作台','曹玉寒 · 承接与执行','/workbench/quality?perspective=employee']
   ];
-  const link=(title,subtitle,url)=>`<a class="view-switch-link" href="${url}" target="_blank" rel="noopener"><span><strong>${title}</strong><small>${subtitle}</small></span><span class="view-switch-arrow" aria-hidden="true">↗</span></a>`;
+  const link=(title,subtitle,url)=>`<a class="view-switch-link" href="${url}" target="_self"><span><strong>${title}</strong><small>${subtitle}</small></span><span class="view-switch-arrow" aria-hidden="true">→</span></a>`;
   container.innerHTML=`<button type="button" id="viewSwitchButton" class="view-switch-trigger" aria-expanded="false" aria-controls="viewSwitchPanel">切换视角<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
     <div id="viewSwitchPanel" class="view-switch-panel" hidden>
       <h3>质量工作台</h3><nav class="view-switch-list" aria-label="质量工作台视角">

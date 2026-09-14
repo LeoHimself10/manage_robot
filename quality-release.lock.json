@@ -1,5 +1,5 @@
 {
-  "release": "quality-approved-20260910-evening-r1",
+  "release": "quality-approved-20260914-same-page-r2",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -14,12 +14,12 @@
   ],
   "productionOnlyFiles": {
     "public/quality/ma-workbench/view-switcher.js": {
-      "sha256": "5baedd824c981256eb089454063583f02205dae2d71275b777e81d3656b312f7",
-      "reason": "Use real signed-in identity and production quality routes instead of local test users."
+      "sha256": "f92e95657a7f5860145426c87100cc7e5593b0a912a33cb32ff30b25637e322d",
+      "reason": "Use real signed-in identity and production quality routes; all perspective links navigate in the current page (user approved 2026-09-14)."
     },
     "public/quality/tong/view-switcher.js": {
-      "sha256": "f6fd917a40d5f41a03f5af39e60907777f64d6829a10fd9f9524bcb6755a8170",
-      "reason": "Use real signed-in identity and production quality routes instead of local test users."
+      "sha256": "c86497d339ee47d26b3a1d1af6c33714bbd4289947b81a9b9b29c07e6ac6d309",
+      "reason": "Use real signed-in identity and production quality routes; all perspective links navigate in the current page (user approved 2026-09-14)."
     },
     "src/quality/ma-workbench/contracts.ts": {
       "sha256": "93c0dd131a10bfa39275ab420776f7de023034a3f218914e06648b8abd254113",

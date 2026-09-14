@@ -24,6 +24,8 @@ test('the executed Ma and Tong menus reach the approved quality views without a 
     const source=readFileSync(new URL('../public/quality/'+role+'/view-switcher.js',import.meta.url),'utf8');
     runInNewContext(rewrite(source),{document});
     assert.ok(!element.innerHTML.includes(PREFIX+PREFIX));
+    assert.equal((element.innerHTML.match(/target="_self"/g)||[]).length,3);
+    assert.ok(!element.innerHTML.includes('target="_blank"'));
     assert.ok(element.innerHTML.includes('href="'+PREFIX+'/workbench/quality?perspective=manager"'));
     assert.ok(element.innerHTML.includes('href="'+PREFIX+'/workbench/quality?perspective=employee"'));
   }
