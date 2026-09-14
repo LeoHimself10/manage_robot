@@ -366,6 +366,7 @@ describe("quality perspective projector", () => {
     // Legacy/test fixtures can already have authoritative node-to-subtask links
     // without a newer quality-analysis planning handoff.
     db.prepare("DELETE FROM quality_analysis_handoffs WHERE event_id='test-event-evidence'").run();
+    db.exec(`CREATE TABLE IF NOT EXISTS task_events(id INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT,subtask_id TEXT,event_type TEXT,actor_user_id TEXT,note TEXT,payload_json TEXT,occurred_at TEXT)`);
     const formalStateBefore = db.prepare(`SELECT subtask_id,status FROM subtasks ORDER BY subtask_id`).all();
     db.close();
 

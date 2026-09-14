@@ -4,7 +4,7 @@ import { z } from "zod";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
 import { createWorkbenchFormalTaskStore } from "../../infra/workbench-formal-task-store";
 import type { QualityAssignmentNode, QualityEventRecord } from "../domain/quality-types";
-import { createQualityStore } from "../infra/quality-store";
+import { assignmentNodeFromRow, eventFromRow, createQualityStore } from "../infra/quality-store";
 import { projectQualityEventState } from "./quality-event-projector";
 import { transitionQualityEvent } from "../domain/quality-state-machine";
 import { listQualitySpecialistUserIds } from "../../security/quality-capabilities";
@@ -26,24 +26,18 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
   const now = deps?.now ?? (() => new Date().toISOString());
   const id = deps?.id ?? randomUUID;
 
+  // Use the same connection so formal state, node review and audit roll back together.
+  const formalStore = createWorkbenchFormalTaskStore({ dbPath, database: db });
   function getNode(nodeId: string): QualityAssignmentNode {
-    const store = createQualityStore(dbPath);
-    try {
-      const node = store.getAssignmentNode(nodeId);
-      if (!node) throw new Error("质量节点不存在");
-      return node;
-    } finally { store.close(); }
+    const row = db.prepare("SELECT * FROM quality_assignment_nodes WHERE node_id=?").get(nodeId) as DatabaseRow | undefined;
+    if (!row) throw new Error("质量节点不存在");
+    return assignmentNodeFromRow(row);
   }
-
   function getEvent(eventId: string): QualityEventRecord {
-    const store = createQualityStore(dbPath);
-    try {
-      const event = store.getEvent(eventId);
-      if (!event) throw new Error("质量事件不存在");
-      return event;
-    } finally { store.close(); }
+    const row = db.prepare("SELECT * FROM quality_events WHERE id=? AND deleted_at IS NULL").get(eventId) as DatabaseRow | undefined;
+    if (!row) throw new Error("质量事件不存在");
+    return eventFromRow(row);
   }
-
   function evidenceVersion(nodeId: string): number | null {
     const row = db.prepare("SELECT MAX(evidence_version) AS version FROM quality_evidence WHERE node_id = ?")
       .get(nodeId) as DatabaseRow;
@@ -54,7 +48,7 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
     const link = db.prepare("SELECT subtask_id FROM quality_task_links WHERE node_id = ?")
       .get(node.nodeId) as DatabaseRow | undefined;
     if (!link) return;
-    createWorkbenchFormalTaskStore().updateSubtaskStatus({
+    formalStore.updateSubtaskStatus({
       subtaskId: String(link.subtask_id), actorUserId: node.assigneeUserId,
       action: "progress", progressStatus: "IN_PROGRESS", note,
     });
@@ -70,9 +64,6 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
     actualAdminUserId?: string;
   }): QualityAssignmentNode {
     const requestId = z.string().uuid().parse(input.requestId);
-    const repeated = db.prepare("SELECT node_id FROM quality_node_reviews WHERE request_id = ?")
-      .get(requestId) as DatabaseRow | undefined;
-    if (repeated) return getNode(String(repeated.node_id));
     const child = getNode(input.childNodeId);
     const event = getEvent(child.eventId);
     assertQualityActorBoundary({ event, actorUserId: input.actorUserId });
@@ -80,9 +71,24 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
     if (!child.parentNodeId) throw new Error("根节点不属于直接上级验收");
     const parent = getNode(child.parentNodeId);
     if (parent.assigneeUserId !== input.actorUserId) throw new Error("仅直接上级承接人可验收该节点");
-    if (child.status !== "PENDING_PARENT_REVIEW") throw new Error("当前节点不在待上级验收状态");
-    if (child.version !== input.expectedVersion) throw new Error("version conflict");
+    const link = db.prepare(`SELECT s.subtask_id,s.task_id,s.status,s.assignee_user_id,t.manager_user_id
+      FROM quality_task_links l JOIN subtasks s ON s.subtask_id=l.subtask_id AND s.task_id=l.task_id
+      JOIN tasks t ON t.task_id=s.task_id WHERE l.node_id=?`).get(child.nodeId) as DatabaseRow | undefined;
+    if (!link && db.prepare("SELECT 1 FROM quality_task_links WHERE node_id=?").get(child.nodeId)) throw new Error("正式任务关联已变化，请刷新");
+    if (link && (String(link.manager_user_id) !== input.actorUserId || String(link.assignee_user_id) !== child.assigneeUserId)) {
+      throw new Error("无权验收已改派的正式任务，请刷新");
+    }
     const reason = String(input.reason ?? "").trim();
+    if (reason.length > 2000) throw new Error("验收意见不能超过 2000 字");
+    const repeated = db.prepare("SELECT node_id,reviewer_user_id,decision,reason FROM quality_node_reviews WHERE request_id=?").get(requestId) as DatabaseRow | undefined;
+    if (repeated) {
+      if (String(repeated.node_id) !== child.nodeId || String(repeated.reviewer_user_id) !== input.actorUserId
+        || repeated.decision !== input.decision || String(repeated.reason ?? "") !== reason) throw new Error("requestId conflict");
+      return child;
+    }
+    if (event.status === "CLOSED") throw new Error("已关闭事件只读");
+    if (child.status !== "PENDING_PARENT_REVIEW" || (link && String(link.status) !== "DONE")) throw new Error("当前节点不在待上级验收状态");
+    if (child.version !== input.expectedVersion) throw new Error("version conflict");
     if (input.decision === "RETURN" && !reason) throw new Error("退回原因必填");
     const occurredAt = now();
     db.exec("BEGIN IMMEDIATE");
@@ -100,7 +106,7 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
       db.prepare(`
         INSERT INTO quality_audit_events(id,event_id,actor_user_id,actor_role,action,before_json,after_json,reason,request_id,occurred_at)
         VALUES (?,?,?,'department_manager','QUALITY_DIRECT_CHILD_REVIEWED',?,?,?,?,?)
-      `).run(id(), child.eventId, input.actorUserId, JSON.stringify({ nodeId: child.nodeId, status: child.status }), JSON.stringify({ status: nextStatus, decision: input.decision }), reason || null, requestId, occurredAt);
+      `).run(id(), child.eventId, input.actorUserId, JSON.stringify({ nodeId: child.nodeId, status: child.status }), JSON.stringify({ status: nextStatus, decision: input.decision, actualOperatorUserId: input.actualAdminUserId ?? input.actorUserId }), reason || null, requestId, occurredAt);
       if (event.isTest) appendQualityTestActionAudit(db, {
         eventId: event.eventId,
         testActorUserId: input.actorUserId,
@@ -114,12 +120,18 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
         context: { returnedAssigneeUserId: child.assigneeUserId }, subject: "质量节点证据被退回",
         summary: `${event.title}；退回原因：${reason}`, occurredAt,
       });
+      if (input.decision === "RETURN") reopenFormalTask(child, `质量证据被直接上级退回：${reason}`);
+      if (link) formalStore.appendTaskEvent({
+        taskId: String(link.task_id), subtaskId: String(link.subtask_id), actorUserId: input.actorUserId,
+        eventType: input.decision === "APPROVE" ? "MANAGER_QUALITY_REVIEW_APPROVED" : "MANAGER_QUALITY_REVIEW_RETURNED",
+        note: input.decision === "APPROVE" ? `质量事项 ${event.eventNo} 验收通过${reason ? `：${reason}` : ""}` : `质量事项 ${event.eventNo} 退回补充：${reason}`,
+        payload: { qualityEventId: event.eventId, qualityNodeId: child.nodeId, requestId, actualOperatorUserId: input.actualAdminUserId ?? input.actorUserId },
+      });
       db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");
       throw error;
     }
-    if (input.decision === "RETURN") reopenFormalTask(child, `质量证据被直接上级退回：${reason}`);
     projectQualityEventState(child.eventId, dbPath);
     return getNode(child.nodeId);
   }
@@ -218,12 +230,12 @@ export function createQualityReviewService(deps?: { dbPath?: string; now?: () =>
         context: { aftersalesManagerUserId: event.createdBy, primaryManagerUserId: primary.assigneeUserId, returnedAssigneeUserId: target.assigneeUserId },
         subject: "质量事件分支被退回", summary: `${event.title}；退回原因：${reason}`, occurredAt,
       });
+      for (const row of lineage) {
+        const reopened = getNode(String(row.node_id));
+        reopenFormalTask(reopened, `原主责退回分支：${reason}`);
+      }
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }
-    for (const row of lineage) {
-      const reopened = getNode(String(row.node_id));
-      reopenFormalTask(reopened, `原主责退回分支：${reason}`);
-    }
     return getEvent(event.eventId);
   }
 

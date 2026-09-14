@@ -15,3 +15,8 @@ last_verified_at: 2026-09-14
 - `POST .../nodes/:nodeId/submit-completion` 校验执行人、正式状态、节点版本、分配要求版本、各项必交文件与完成说明。正式子任务 DONE、质量节点待主管验收、提交说明、文件提交标记及审计共用 SQLite 事务；调用原正式任务更新方法（借用连接与 SAVEPOINT），避免两套状态部分成功。
 - `POST .../nodes/:nodeId/evidence/:evidenceId/remove` 仅允许当前执行人移除未提交的有效版本。下载沿用有权限校验的证据接口；文件哈希验证，改派后的旧执行人不能借滞后节点权限下载。
 - 回归：58 项质量/权限/页面测试通过；覆盖必交缺项、补充材料不能代替、版本继承和历史不可删、草稿冲突、改派后拒绝、视频拒绝、失败事务回滚。`scripts/quality-inline-employee-staging-probe.mjs` 在专用假密钥和 `.inline-staging-only` 标记双重限制下，验收隔离副本完整 HTTP 承接、进度、上传、下载、完成、主管退回、V3 再提交与通过链路；禁止在实际测试数据卷运行此探针。
+
+- r8 主管页内验收直接复用 `POST /api/workbench/manager/quality-review`，带正式 subtaskId、节点 expectedVersion、decision、reason 与 requestId。原主管页面不传 expectedVersion 时保持兼容。每项投影只在正式主管、节点直接上级及正式执行人均匹配时返回验收上下文；CLOSED 不可验收。
+- 验收服务先校验人员与正式任务关联，再验证幂等请求属于同节点、同主管、同决定和意见。退回更新原正式子任务为 IN_PROGRESS、节点 RETURNED、验收意见、任务事件、质量审计和通知 outbox 共用 SQLite 事务；原正式任务写入借用同一连接和 SAVEPOINT。实际登录操作人也进入审计，即使物理隔离副本中事件 is_test 为 false。
+- 完成逐项验收后仍走现有状态投影及原主责整体验收，最后一项通过自动进入 PENDING_QUALITY_REVIEW。权限和业务角色不新增；测试通知仍强制禁用。
+- 主管 HTTP 副本回归脚本：`scripts/quality-inline-manager-staging-probe.mjs`，需要专用假密钥和 `.inline-staging-only` 标记。复制数据后可重置场景，不得用于用户正在操作的测试数据库。

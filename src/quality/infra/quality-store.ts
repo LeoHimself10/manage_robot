@@ -701,7 +701,7 @@ function nullableString(value: unknown): string | null {
   return value == null ? null : String(value);
 }
 
-function eventFromRow(row: DatabaseRow): QualityEventRecord {
+export function eventFromRow(row: DatabaseRow): QualityEventRecord {
   return {
     eventId: String(row.id),
     eventNo: String(row.event_no),

@@ -6160,29 +6160,15 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "未找到当前主管可验收的质量事项" });
           return;
         }
-        if (!context.canReview) {
-          if (context.reviewDecision === decision) {
-            writeJson(res, 200, {
-              ok: true,
-              alreadyHandled: true,
-              decision,
-              eventId: context.eventId,
-              eventStatus: context.eventStatus,
-            });
-            return;
-          }
-          writeJson(res, 409, { ok: false, error: "该事项当前不在待主管验收状态" });
-          return;
-        }
-        const actualAdminUserId = context.isTest
-          ? session.impersonation?.actorUserId
-          : undefined;
+        const actualAdminUserId = session.impersonation?.actorUserId;
+        const expectedVersion = body.expectedVersion == null ? context.nodeVersion : Number(body.expectedVersion);
+        if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new Error("验收版本不符合要求");
         reviewService.reviewDirectChild({
           childNodeId: context.nodeId,
           actorUserId: session.userId,
           decision,
           reason: reason || undefined,
-          expectedVersion: context.nodeVersion,
+          expectedVersion,
           requestId,
           actualAdminUserId,
         });
@@ -6208,25 +6194,6 @@ export function handleAssignmentHttp(
           }
         }
 
-        const taskStore = getFormalTaskStore();
-        taskStore.appendTaskEvent({
-          taskId: context.taskId,
-          subtaskId,
-          eventType: decision === "APPROVE"
-            ? "MANAGER_QUALITY_REVIEW_APPROVED"
-            : "MANAGER_QUALITY_REVIEW_RETURNED",
-          actorUserId: session.userId,
-          note: decision === "APPROVE"
-            ? `质量事项 ${context.eventNo} 验收通过`
-            : `质量事项 ${context.eventNo} 退回重做：${reason}`,
-          payload: {
-            qualityEventId: context.eventId,
-            qualityNodeId: context.nodeId,
-            requestId,
-            eventStatus: eventAfter.status,
-            advancedToQualityReview,
-          },
-        });
         writeJson(res, 200, {
           ok: true,
           decision,
@@ -6237,7 +6204,7 @@ export function handleAssignmentHttp(
             ? (advancedToQualityReview
                 ? "验收已通过，质量事件已进入质量终验"
                 : "验收已通过，等待其他关联事项完成验收")
-            : "已退回员工重做，退回原因已记录并通知",
+            : "已退回员工补充，退回原因已记录",
         });
       } catch (err) {
         writeJson(res, 400, {

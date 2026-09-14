@@ -75,6 +75,9 @@ export interface QualityEventSummaryViewModel {
 }
 
 export interface QualityManagerAssignmentItemViewModel {
+  reviewNodeId?: string;
+  reviewNodeVersion?: number;
+  canReview?: boolean;
   actionRef: string;
   assigneeName: string;
   assignmentKind: "UNASSIGNED" | "REASSIGN_REQUIRED" | "MANAGER_ACTION_REQUIRED" | "ASSIGNED";
@@ -499,7 +502,8 @@ export function createQualityEventPerspectiveProjector(
           item.openDeclineKind === "changes" || normalizedStatus === "CHANGES_REQUESTED"
         );
         const employeeName = displayName(item.assigneeUserId);
-        const reviewStatusLabel = reviewContext?.reviewDecision === "APPROVE"
+        const reviewStatusLabel = nodeStatus === "PENDING_PARENT_REVIEW" ? "待主管验收"
+          : reviewContext?.reviewDecision === "APPROVE"
           || nodeStatus === "APPROVED" ? "验收通过"
           : reviewContext?.reviewDecision === "RETURN" || nodeStatus === "RETURNED"
             ? "已退回重做"
@@ -515,6 +519,9 @@ export function createQualityEventPerspectiveProjector(
                   : qualityFormalTaskStatusLabel(item.status, item.openDeclineKind);
         return {
           actionRef: item.subtaskId,
+          reviewNodeId: reviewContext?.nodeId,
+          reviewNodeVersion: reviewContext?.nodeVersion,
+          canReview: eventStatus != "CLOSED" && Boolean(reviewContext?.canReview),
           assigneeName: needsReassignment ? "待重新分派" : employeeName,
           assignmentKind: needsReassignment ? "REASSIGN_REQUIRED"
             : needsManagerAction ? "MANAGER_ACTION_REQUIRED" : "ASSIGNED",

@@ -108,7 +108,7 @@ export function getQualityContextBySubtaskIds(
 
 /**
  * 原主管任务详情中的质量验收上下文。只返回当前主管直接管理、且通过
- * quality_task_links 关联的正式子任务；质量页仍不直接执行验收。
+ * quality_task_links 关联的正式子任务；质量页与原主管页共享验收入口。
  */
 export function getManagerQualityReviewContextsBySubtaskIds(
   subtaskIds: string[],
@@ -155,6 +155,7 @@ export function getManagerQualityReviewContextsBySubtaskIds(
       WHERE l.subtask_id IN (${placeholders})
         AND t.manager_user_id=?
         AND parent.assignee_user_id=?
+        AND n.assignee_user_id=s.assignee_user_id
     `).all(...ids, manager, manager) as DatabaseRow[];
     if (rows.length === 0) return result;
 
@@ -214,7 +215,8 @@ export function getManagerQualityReviewContextsBySubtaskIds(
         parentAssigneeUserId: row.parent_assignee_user_id == null
           ? null
           : String(row.parent_assignee_user_id),
-        canReview: String(row.node_status) === "PENDING_PARENT_REVIEW"
+        canReview: String(row.event_status) !== "CLOSED"
+          && String(row.node_status) === "PENDING_PARENT_REVIEW"
           && String(row.subtask_status).toUpperCase() === "DONE",
         reviewDecision: decision === "APPROVE" || decision === "RETURN" ? decision : null,
         reviewReason: String(latestReview?.reason ?? ""),

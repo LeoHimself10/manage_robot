@@ -864,12 +864,79 @@ describe("quality formal-task projection", () => {
       reason: "复测过程缺少原始日志，请补充后重新提交",
     });
     expect(verify.prepare(`SELECT event_type,note FROM task_events
-      WHERE subtask_id='subtask-1' ORDER BY id DESC LIMIT 1`).get()).toEqual({
+      WHERE subtask_id='subtask-1' AND event_type='SUBTASK_PROGRESS' ORDER BY id DESC LIMIT 1`).get()).toEqual({
       event_type: "SUBTASK_PROGRESS",
       note: "质量证据被直接上级退回：复测过程缺少原始日志，请补充后重新提交",
     });
     verify.close();
   });
+  function submittedWork() {
+    const t = activeWork();
+    for (const requirement of t.work().requirements) t.upload(requirement.id);
+    t.submit();
+    const review = createQualityReviewService({ dbPath });
+    const input = { childNodeId:t.nodeId, actorUserId:"manager-1", decision:"RETURN" as const,
+      reason:"补充复测原始记录", expectedVersion:t.work().nodeVersion, requestId:randomUUID(), actualAdminUserId:"admin-operator" };
+    return {...t, review, input, close:()=>{review.close();t.close();}};
+  }
+
+  it("rolls back formal reopening, review, audit and outbox if a task event write fails", () => {
+    const t = submittedWork();
+    try {
+      const before = t.db.prepare("SELECT COUNT(*) AS count FROM quality_notification_outbox").get();
+      t.db.exec("CREATE TRIGGER fail_manager_audit BEFORE INSERT ON task_events WHEN NEW.event_type='MANAGER_QUALITY_REVIEW_RETURNED' BEGIN SELECT RAISE(ABORT,'forced review audit failure'); END");
+      expect(()=>t.review.reviewDirectChild(t.input)).toThrow("forced review audit failure");
+      expect(t.work()).toMatchObject({formalStatus:"DONE",nodeStatus:"PENDING_PARENT_REVIEW",nodeVersion:t.input.expectedVersion});
+      expect(t.db.prepare("SELECT COUNT(*) AS count FROM quality_node_reviews WHERE request_id=?").get(t.input.requestId)).toEqual({count:0});
+      expect(t.db.prepare("SELECT COUNT(*) AS count FROM quality_audit_events WHERE request_id=?").get(t.input.requestId)).toEqual({count:0});
+      expect(t.db.prepare("SELECT COUNT(*) AS count FROM quality_notification_outbox").get()).toEqual(before);
+    } finally { t.close(); }
+  });
+
+  it("scopes repeated review requests to the authorized manager, node and decision", () => {
+    const t = submittedWork();
+    try {
+      vi.stubEnv("WORKBENCH_SQLITE_PATH",join(tempDir,"unrelated.sqlite"));
+      t.review.reviewDirectChild(t.input);
+      t.review.reviewDirectChild(t.input);
+      expect(t.work()).toMatchObject({formalStatus:"IN_PROGRESS",nodeStatus:"RETURNED"});
+      expect(t.db.prepare("SELECT COUNT(*) AS count FROM task_events WHERE event_type='MANAGER_QUALITY_REVIEW_RETURNED'").get()).toEqual({count:1});
+      expect(()=>t.review.reviewDirectChild({...t.input,actorUserId:"other-manager"})).toThrow("仅直接上级");
+      expect(()=>t.review.reviewDirectChild({...t.input,decision:"APPROVE"})).toThrow("requestId conflict");
+      const audit=t.db.prepare("SELECT after_json FROM quality_audit_events WHERE request_id=? AND action='QUALITY_DIRECT_CHILD_REVIEWED'").get(t.input.requestId)!;
+      expect(JSON.parse(String(audit.after_json)).actualOperatorUserId).toBe("admin-operator");
+    } finally {t.close();}
+  });
+
+  it("rejects stale review versions, closed events and reassigned formal ownership", () => {
+    const t = submittedWork();
+    try {
+      expect(()=>t.review.reviewDirectChild({...t.input,expectedVersion:t.input.expectedVersion-1})).toThrow("version conflict");
+      t.db.prepare("UPDATE quality_events SET status='CLOSED' WHERE id='event-1'").run();
+      expect(()=>t.review.reviewDirectChild(t.input)).toThrow("已关闭");
+      t.db.prepare("UPDATE quality_events SET status='IN_PROGRESS' WHERE id='event-1'").run();
+      t.db.prepare("UPDATE subtasks SET assignee_user_id='employee-2' WHERE subtask_id='subtask-1'").run();
+      expect(()=>t.review.reviewDirectChild(t.input)).toThrow("已改派");
+      expect(getManagerQualityReviewContextsBySubtaskIds(["subtask-1"],"manager-1",dbPath).size).toBe(0);
+    } finally {t.close();}
+  });
+
+  it("projects resubmitted work as pending review instead of the previous return decision", () => {
+    const t = submittedWork();
+    try {
+      vi.stubEnv("WORKBENCH_MANAGER_USER_IDS","manager-1");
+      vi.stubEnv("QUALITY_PILOT_BUSINESS_USER_ID","manager-1");
+      t.review.reviewDirectChild(t.input); t.upload(t.work().requirements[0]!.id); t.submit();
+      const projector = createQualityEventPerspectiveProjector(dbPath);
+      try {
+        const view=projector.getEventDetail({viewerUserId:"manager-1",perspective:"manager",eventId:"event-1"})!.viewModel;
+        expect((view.event as {assignmentItems:unknown[]}).assignmentItems).toEqual(expect.arrayContaining([expect.objectContaining({actionRef:"subtask-1",reviewNodeId:t.nodeId,canReview:true,reviewNodeVersion:t.work().nodeVersion,managerStage:"REVIEW",reviewStatusLabel:"待主管验收"})]));
+      } finally {projector.close();}
+      expect(()=>t.review.reviewDirectChild({...t.input,decision:"APPROVE",requestId:randomUUID()})).toThrow("version conflict");
+      expect(t.work().nodeStatus).toBe("PENDING_PARENT_REVIEW");
+    } finally {t.close();}
+  });
+
   function activeWork() {
     const db = new DatabaseSync(dbPath);
     db.prepare("UPDATE subtasks SET status='IN_PROGRESS',deliverables='调查报告；验证记录'").run();

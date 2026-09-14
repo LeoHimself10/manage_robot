@@ -630,6 +630,7 @@ async function handleQualityApi(input: {
         const node = service.reviewDirectChild({
           childNodeId: decodeURIComponent(childReview[1]!),
           actorUserId: session.userId,
+          actualAdminUserId: session.impersonation?.actorUserId,
           decision: z.enum(["APPROVE", "RETURN"]).parse(body.decision),
           reason: body.reason == null ? undefined : z.string().max(2000).parse(body.reason),
           expectedVersion: parsePositiveInt(body.expectedVersion, 0),
