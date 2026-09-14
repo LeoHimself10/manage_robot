@@ -78,6 +78,26 @@ describe("quality role-panel HTTP APIs", () => {
   let tempDir: string;
   let dbPath: string;
 
+  it.each(["1", "0"])("renders the approved simulated manager/employee UI with role panels=%s", async (flag) => {
+    vi.stubEnv("QUALITY_PILOT_TEST_MODE", "1");
+    vi.stubEnv("QUALITY_EVENT_ROLE_PANELS_ENABLED", flag);
+    vi.stubEnv("QUALITY_TEST_ACTORS_ENABLED", "0");
+    vi.stubEnv("WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED", "0");
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "QUALITY_SIM_MANAGER");
+    for (const [userId, role, title] of [
+      ["QUALITY_SIM_MANAGER", "manager", "主管质量工作台"],
+      ...[1, 2, 3].map(n => [`QUALITY_SIM_EMPLOYEE_${n}`, "employee", "我的质量任务"]),
+    ]) {
+      const response = await callPage(`/workbench/quality?perspective=${role}`, userId, role as "manager" | "employee");
+      expect(response.status).toBe(200);
+      expect(response.body).toContain('class="qpc-page qpc-unified"');
+      expect(response.body).toContain(`data-perspective="${role}"`);
+      expect(response.body).toContain('data-role-panels="1"');
+      expect(response.body).toContain(`id="qualityCenterTitle">${title}</h1>`);
+      expect(response.body).not.toContain('id="qualityCenterTitle">质量处理中心</h1>');
+    }
+  });
+
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "quality-role-http-"));
     dbPath = join(tempDir, "workbench.sqlite");

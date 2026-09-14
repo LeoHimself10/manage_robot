@@ -253,6 +253,11 @@ function safePerspective(value: unknown): QualityPerspective | null {
 export function resolveQualityPerspectiveContext(input: QualityPerspectiveRequest): QualityPerspectiveContext {
   const workbench = resolveWorkbenchCapabilities(input.viewerUserId);
   const isAdmin = workbench.primaryRole === "admin";
+  if (process.env.QUALITY_PILOT_TEST_MODE === "1"
+    && /^QUALITY_SIM_(MANAGER|EMPLOYEE_[123])$/.test(input.viewerUserId)) {
+    return { scope: "real", perspective: workbench.primaryRole === "manager" ? "manager" : "employee",
+      actorUserId: input.viewerUserId, testActor: null, isAdmin: false, readonly: false };
+  }
   const sessionTestActor = getQualityTestActorByUserId(input.viewerUserId);
   const testActor = resolveQualityTestActor(input.testActorRef) ?? sessionTestActor;
   if (testActor) {

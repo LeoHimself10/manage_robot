@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-simulation-20260914-r4",
+  "release": "quality-test-unified-ui-20260914-r5",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -50,8 +50,8 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/quality/presentation/quality-event-perspective.ts": {
-      "sha256": "afe75beab2c322b887fd7da2d7498cf6bc522de2f4e4231719af92f4e0c37690",
-      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+      "sha256": "97625d9a50323d2bf573abbe14678757bd1629bb854415aa900525e286f5d5b7",
+      "reason": "Resolve fixed simulated manager/employee page and API perspectives to the approved unified UI in isolated test mode."
     },
     "src/security/quality-capabilities.ts": {
       "sha256": "918d9a6512a778b39e45fb2a3b4eb86cd61e041a32c9a7531419ed7a99bf673a",
@@ -62,8 +62,8 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/web/quality-http.ts": {
-      "sha256": "1a1e31ede28f7c809c0607a5e903582f4d3cee94e8613f2c0a23041f90e30e00",
-      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+      "sha256": "1ff3e98107ff693279b98d55743748bcb5817d37fe1ad019367457ab4b17c1bb",
+      "reason": "Resolve fixed simulated manager/employee page and API perspectives to the approved unified UI in isolated test mode."
     },
     "src/web/quality-pilot-navigation.ts": {
       "sha256": "0aa9d21fcbf71655556b78fe86cf4c0275c9ade375d075a8d407cd811baac404",

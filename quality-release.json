@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-simulation-20260914-r4",
+  "release": "quality-test-unified-ui-20260914-r5",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "verifiedUiFiles": 31,
@@ -338,7 +338,7 @@
     "src/quality/oa/quality-oa-source.ts": "7ed864dedf1639d7296b8042732ee3eb9568bf2d63894e9dfa0b3bdf89ddac38",
     "src/quality/presentation/quality-business-context.ts": "e6371bc0a3bf11245537dee8da59bf65fae911867d846188b7679994174a3523",
     "src/quality/presentation/quality-display-labels.ts": "ec019a233cd9c5a15f6b1797f9898f82c3ee3569347323b0683dd52eb888a3d1",
-    "src/quality/presentation/quality-event-perspective.ts": "b787e9bcea8913f9e699e38d6293d52a6c810eb8419723c8df6430cdd07601cd",
+    "src/quality/presentation/quality-event-perspective.ts": "e3c1c662849dbaca67829848f71a972da759f41c754ae79026ba83b5498adfd6",
     "src/quality/presentation/quality-manager-task-stage.ts": "676bb720ecd38163500ff38212a844d9543251e2f1f436f470bc191e393a4547",
     "src/quality/presentation/quality-role-metrics.ts": "ef215285b4158818afd21864270dc0d15cc6d1db5da4331ec6249d1a5d0e6204",
     "src/quality/queries/quality-event-query.ts": "50d3d185274f45c5b765ec7990cb8a40ff4c3605360d1d940cbaa2ef0ea8f836",
@@ -416,7 +416,7 @@
     "src/web/performance-dashboard-api.ts": "7729f87a378375752938e1c227e4c68cfc76c2f9ae87ef1f1364379f4a272d5d",
     "src/web/performance-dashboard-page.ts": "320271a2724d55c77af89bc8b5e2746a050e78205cbaf6997ef29d512eb569df",
     "src/web/performance-page-styles.ts": "b2aab2ea308e7058e7791dded44da3a22998043e05669a77d6d57ba43c5d5f23",
-    "src/web/quality-http.ts": "fc40773ceb1972f11039e973d75a41e39686880df855335ecefe0df08decce52",
+    "src/web/quality-http.ts": "0b2c8ad74ad9f13810ba819323ef3e30d585dd6d458ee82aa6c6d60f761530bf",
     "src/web/quality-local-review-entry.ts": "bb006fb530d6d182e429fc40d830e2de8d6b5ea34bcdaaf0b19adaf7ed74524b",
     "src/web/quality-opinions-page.ts": "0048308e95614545fa482c28e4da98a839fa52424b0f2da4e1f362ebc6427e8c",
     "src/web/quality-pilot-navigation.ts": "0aa9d21fcbf71655556b78fe86cf4c0275c9ade375d075a8d407cd811baac404",
@@ -522,6 +522,6 @@
     "scripts/quality-oa-http.mjs": "ee7fb03a9df1bab6bdbc07776c76b520797997c7f56fc0ca44c3ba5c5726a90c",
     "scripts/quality-oa-workflow.mjs": "09d3c45b8febe86c89f2331c56b8b77cb4adf21f4622acd520a480a2ee026c97",
     "scripts/quality-simulation.mjs": "f8ca39943e605bb7770f8ea3c4c7b09f1f29e0e900f1f9c5ef986b6059c16a67",
-    "quality-release.lock.json": "8e47a42e9e3bbb4a98841c55d55b4a995a93d78bce30bdf12e298384998bd834"
+    "quality-release.lock.json": "0ff63dee5ddde24f7f4de9d4bd02c44ae3f826ef28ee6d73b54278c2c8332972"
   }
 }

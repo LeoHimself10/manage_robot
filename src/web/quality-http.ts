@@ -1911,7 +1911,9 @@ export function handleQualityHttp(input: {
   const requestedPerspective = caps.baseRole === "admin" && rolePanelsEnabled
     ? String(url.searchParams.get("perspective") ?? "").trim()
     : "";
-  const pagePerspective = rolePanelsEnabled && (caps.baseRole === "admin" || requestedTestActor)
+  const simulatedPerspective = process.env.QUALITY_PILOT_TEST_MODE === "1"
+    && /^QUALITY_SIM_(MANAGER|EMPLOYEE_[123])$/.test(session.userId);
+  const pagePerspective = simulatedPerspective || (rolePanelsEnabled && (caps.baseRole === "admin" || requestedTestActor))
     ? resolveQualityPerspectiveContext({
         viewerUserId: session.userId,
         perspective: requestedPerspective as QualityPerspectiveRequest["perspective"],

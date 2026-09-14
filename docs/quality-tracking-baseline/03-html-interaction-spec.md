@@ -7,3 +7,5 @@ last_verified_at: 2026-09-14
 只在独立测试数据卷运行；不发送消息、待办或催办，不回写 OA。旧初析草稿的真实部门不会自动改为模拟部门，应重新选择后保存。原始来源和 AI 快照不修改。原正式任务页面和处理逻辑复用。
 
 源码：scripts/quality-simulation.mjs、scripts/quality-production-server.mjs、public/quality/{ma-workbench,tong}/view-switcher.js、src/web/quality-tracking-page.ts。
+
+2026-09-14 r5 修复：模拟主管和员工必须显式解析角色视角，页面 main 为 qpc-unified，员工标题“我的质量任务”、主管标题“主管质量工作台”；同时启用对应的事件投影 API，不能因模拟身份不是 admin 回退为售后默认界面。
