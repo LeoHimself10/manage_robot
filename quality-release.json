@@ -1,5 +1,5 @@
 {
-  "release": "quality-approved-20260914-same-page-r2",
+  "release": "quality-test-isolated-20260914-r3",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "verifiedUiFiles": 31,
@@ -517,10 +517,10 @@
     "public/quality/tong/view-switcher.js": "c86497d339ee47d26b3a1d1af6c33714bbd4289947b81a9b9b29c07e6ac6d309",
     "scripts/quality-production-access.mjs": "4e4b315b3ea720a9be22aeb12572d9408f7e97482941471880ad120dcf4c1e81",
     "scripts/quality-production-paths.mjs": "d38cc5561f913736266b5e156a753d0953a50afb558ae040941a7e2fbaaad394",
-    "scripts/quality-production-server.mjs": "6e11ab5acd877902f4e503913e56008cd0449586e0d32ffb0a072465137fb8af",
+    "scripts/quality-production-server.mjs": "6096354efb094844514fb9e5cb0b439f50bf498574246a27ed0fbb471cb15b10",
     "scripts/quality-ui-ai-runtime.mjs": "204d284b919d9bf89681f7d2c6a7d0a63f0f54eff9bf41d25efb8dc2b742e94f",
     "scripts/quality-oa-http.mjs": "ee7fb03a9df1bab6bdbc07776c76b520797997c7f56fc0ca44c3ba5c5726a90c",
     "scripts/quality-oa-workflow.mjs": "09d3c45b8febe86c89f2331c56b8b77cb4adf21f4622acd520a480a2ee026c97",
-    "quality-release.lock.json": "d9da514969a37a8b8d1f43fed8a6a0aa1b455a548b0ec771ba694aea3db89ea9"
+    "quality-release.lock.json": "a501d24cd34e3d81a043a7e5e66e9fa13783e57961c8b3a886607478bf85a9e8"
   }
 }

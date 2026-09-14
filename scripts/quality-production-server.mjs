@@ -13,6 +13,9 @@ import {OA_SCOPE} from '../src/quality/oa/oa-store.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const release=JSON.parse(await readFile(resolve(root,'quality-release.json'),'utf8'));
+// This DingTalk entry is a test system, not a shared-database production service.
+if(process.env.QUALITY_PILOT_TEST_MODE!=='1')throw new Error('Explicit isolated test mode required');
+await readFile('/app/data/.quality-test-isolated','utf8');
 const userId=process.env.QUALITY_PILOT_USER_ID;
 const origin=process.env.QUALITY_PILOT_ORIGIN;
 const access=createProductionAccess({userId,origin,secret:process.env.WORKBENCH_SESSION_SECRET||process.env.ASSIGNMENT_WEB_SECRET});
@@ -28,6 +31,7 @@ Object.assign(process.env,{
   WORKBENCH_TEST_LOGIN_ENABLED:'0',QUALITY_TEST_ACTORS_ENABLED:'0',WORKBENCH_ADMIN_TEST_SYSTEM_ENABLED:'0',
   QUALITY_LOCAL_REVIEW_UI_ENABLED:'0',QUALITY_SOURCE_SYNC_ENABLED:'0',QUALITY_SOURCE_WRITEBACK_ENABLED:'0',
   QUALITY_NOTIFICATION_WORKER_ENABLED:'0',WORKBENCH_DINGTALK_NOTIFY_ENABLED:'0',
+  WORKBENCH_DINGTALK_NOTIFY_MANAGER_ENABLED:'0',FOLLOWUP_REMINDER_ENABLED:'0',DINGTALK_CONTACT_SYNC_ENABLED:'0',
 });
 const runtime=await loadOriginalAiRuntime(root);
 const names={};
@@ -84,6 +88,7 @@ const server=http.createServer(async(req,res)=>{
     res.end=function(chunk,...args){
       if(chunk&&/text\/|javascript|json/.test(String(res.getHeader('content-type')||''))){
         chunk=rewriteProductionLinks(Buffer.isBuffer(chunk)?chunk.toString('utf8'):String(chunk));
+        if(String(res.getHeader('content-type')||'').includes('text/html'))chunk=chunk.replace(/<body([^>]*)>/i,'<body$1><div role="status" style="padding:10px 20px;background:#fff4cc;color:#684900;font-size:14px;line-height:1.6;text-align:center">测试系统 · 数据已隔离 · 不发送钉钉业务消息、待办或催办 · 不回写 OA</div>');
         if(!res.headersSent)res.removeHeader('content-length');
       }
       return originalEnd(chunk,...args);
