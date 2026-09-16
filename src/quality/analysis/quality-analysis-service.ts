@@ -781,7 +781,7 @@ export function createQualityAnalysisService(deps?: {
     expectedDraftVersion: number;
     expectedEventVersion: number;
     requestId: string;
-    modificationReason: string;
+    modificationReason?: string;
   }): { version: Record<string, unknown>; handoff: Record<string, unknown> } {
     requireQualityManagement(input.eventId, input.actorUserId);
     const repeated = db.prepare(`SELECT * FROM quality_analysis_versions WHERE request_id=?`)
@@ -870,7 +870,7 @@ export function createQualityAnalysisService(deps?: {
       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         analysisId, input.eventId, analysisVersion, input.requestId,
         baseAttempt?.attemptId ?? null, JSON.stringify(content), JSON.stringify(deliverables),
-        JSON.stringify(diff), input.modificationReason.trim(), primaryDepartmentId,
+        JSON.stringify(diff), (input.modificationReason ?? "").trim(), primaryDepartmentId,
         manager.department.departmentName, JSON.stringify([]), manager.managerUserId,
         manager.managerName, "ACTIVE", content.suggestedTotalDueAt,
         QUALITY_ANALYSIS_OUTPUT_SCHEMA_VERSION, baseAttempt?.promptVersion ?? null,
@@ -899,7 +899,7 @@ export function createQualityAnalysisService(deps?: {
         action: "QUALITY_ANALYSIS_CONFIRMED",
         before: { eventVersion: input.expectedEventVersion, draftVersion: input.expectedDraftVersion },
         after: { analysisVersion, integrationKey, primaryManagerUserId: manager.managerUserId },
-        reason: input.modificationReason.trim(),
+        reason: (input.modificationReason ?? "").trim() || null,
         requestId: input.requestId,
         occurredAt,
       });

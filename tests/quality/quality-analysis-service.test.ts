@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPeopleDirectoryStore } from "../../src/infra/people-directory-store";
 import {
   QUALITY_ANALYSIS_OUTPUT_SCHEMA_VERSION,
+  confirmQualityAnalysisSchema,
   type QualityAnalysisInput,
   type QualityAnalysisOutput,
 } from "../../src/quality/analysis/quality-analysis-contracts";
@@ -198,7 +199,7 @@ afterEach(() => {
 });
 
 describe("AI quality initial analysis V1", () => {
-  it("generates, saves and confirms without information gaps and preserves the AI snapshot", async () => {
+  it.each([undefined, ""])("confirms without retired fields or explanation (%s), preserving the AI snapshot", async (modificationReason) => {
     const eventId = seedEvent();
     const service = createQualityAnalysisService({ dbPath, model: model(input => {
       const { informationGaps: _retired, ...current } = output(input);
@@ -209,10 +210,13 @@ describe("AI quality initial analysis V1", () => {
     expect(attempt.output?.informationGaps).toEqual([]);
     const draft = draftFromAttempt(attempt);
     const { informationGaps: _retired, ...content } = draft.content;
-    service.saveDraft({eventId,actorUserId:"quality-employee",draft:{...draft,content}});
-    const confirmed = service.confirm({eventId,actorUserId:"quality-employee",expectedDraftVersion:1,expectedEventVersion:1,requestId:"55555555-5555-4555-8555-555555555555",modificationReason:"已核对分析和处理要求"});
+    service.saveDraft({eventId,actorUserId:"quality-employee",draft:{...draft,content,modificationReason}});
+    const confirmation = {expectedDraftVersion:1,expectedEventVersion:1,requestId:"55555555-5555-4555-8555-555555555555",modificationReason};
+    expect(confirmQualityAnalysisSchema.parse(confirmation).modificationReason).toBe("");
+    const confirmed = service.confirm({eventId,actorUserId:"quality-employee",...confirmation});
     expect(confirmed.handoff.status).toBe("PENDING_PLANNING");
     expect(confirmed.version.analysisVersion).toBe(1);
+    expect(confirmed.version.modificationReason).toBe("");
     const stored = service.workspace({eventId,viewerUserId:"quality-employee"});
     expect(stored.attempts).toEqual(expect.arrayContaining([expect.objectContaining({attemptId:attempt.attemptId,output:attempt.output})]));
     service.close();

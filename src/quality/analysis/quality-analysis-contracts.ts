@@ -141,5 +141,5 @@ export const confirmQualityAnalysisSchema = z.object({
   expectedDraftVersion: z.number().int().positive(),
   expectedEventVersion: z.number().int().positive(),
   requestId: z.string().uuid(),
-  modificationReason: text(2_000),
+  modificationReason: optionalText(2_000),
 }).strict();

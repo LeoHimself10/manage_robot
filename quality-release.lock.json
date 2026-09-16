@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-dialog-20260916-r11",
+  "release": "quality-test-confirm-20260916-r12",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -186,8 +186,8 @@
       "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "public/quality/tong/ai-initial-analysis.js": {
-      "sha256": "1804d1a5fb02b67ef5b1bc4169038539406d54e027062b0f463ad069818349a6",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "f0a26f947c497ec644ef1d88963d25abd08da232e33d231c37fe259d8bdc6610",
+      "reason": "FR-QS-07: remove mandatory initial analysis modification/confirmation explanation, preserve historical records and version audit."
     },
     "public/quality/tong/tong.js": {
       "sha256": "bc0ce4b755f4dba6fe92517b752369148e944d3bc65d5b72ebe8a71a88afb90c",
@@ -206,16 +206,16 @@
       "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "src/quality/analysis/quality-analysis-contracts.ts": {
-      "sha256": "2bc5ae1acfb2b8e24cfecf0545047a2fce19bdc207a31d74021de1766ac6f7e1",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "7a6d82eca120a4c842cdb351285fd356d1456ff7bf5e603a614134862a549557",
+      "reason": "FR-QS-07: remove mandatory initial analysis modification/confirmation explanation, preserve historical records and version audit."
     },
     "src/quality/analysis/quality-analysis-prompt.ts": {
       "sha256": "2b909216c394eaf92b1704cb18235281b45391daa4b66b929c779bda06e3bcae",
       "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "src/quality/analysis/quality-analysis-service.ts": {
-      "sha256": "bbca2215a1f8b64655495bc60f1bbcea29d6cffd135509ec9580091e7498b2bf",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "8cc4c50a27870853506512617984f7c4208c969f4f9019022f2d70426fd5f621",
+      "reason": "FR-QS-07: remove mandatory initial analysis modification/confirmation explanation, preserve historical records and version audit."
     },
     "public/quality/business-display.js": {
       "sha256": "6551c6606a12b6c93862635ebb511a8c2129a0ef436624d01872d0079c84fe1f",
