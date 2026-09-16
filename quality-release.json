@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-simplify-20260916-r10",
+  "release": "quality-test-dialog-20260916-r11",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "verifiedUiFiles": 31,
@@ -464,7 +464,7 @@
     "public/quality/ma-workbench/assessment.js": "e9c2879ca0322acca6ca1dffb258079c04004ef9c7859a13aeec6ea52971024c",
     "public/quality/ma-workbench/flow-examples.css": "91b8a92ade4e0695180587a84cf321d2dac1f84741972445edc16bcf2b140561",
     "public/quality/ma-workbench/flow-examples.js": "9fd9ba42dd26fae3c3850c6fddcb971f452e42af1e7dd0737d6286131b952490",
-    "public/quality/ma-workbench/index.html": "cb2eb61d7456c4c6820b89f687b05a1c5c9d12c49e2ae109e4af6728e5598d29",
+    "public/quality/ma-workbench/index.html": "0af8963d309b937041868e12251ec1d9e5cc21a510e6548cb91acfd4ea26fff0",
     "public/quality/ma-workbench/oa-ai-business-display.js": "dc48b9cf9a5e138c2504fd79a704d137be0986efedf812cb0deac1ff58aa05d8",
     "public/quality/ma-workbench/oa-form-display.css": "a74718db7e8068baaa6d7c2d10f704c04b48040eb542a89de7a75c97bebbbbc3",
     "public/quality/ma-workbench/oa-form-display.js": "f65c90de1e6a94ee2383b26579e911c583c4f2a9de9ca89a473b350e8f6a1722",
@@ -537,6 +537,6 @@
     "scripts/quality-oa-workflow.mjs": "90cd20bd495d067898e12e02774d39def3291bd634b62ba5ccdb7cea23ef3ccd",
     "scripts/quality-simulation.mjs": "f8ca39943e605bb7770f8ea3c4c7b09f1f29e0e900f1f9c5ef986b6059c16a67",
     "scripts/quality-view-access.mjs": "902b595c8309dbadfa15f05362ec07e539b213b889675f155008d1c01906c5bf",
-    "quality-release.lock.json": "d34c64a87307ddd3ce7d8bf9c4def3baaedd34900105d23bfb51fa5cc6c9c66b"
+    "quality-release.lock.json": "c76065cb0e1e2f9ded05f46cb3e901db12b86e1c7d3c0708a44c147748c3edb8"
   }
 }

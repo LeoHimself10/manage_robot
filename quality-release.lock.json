@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-simplify-20260916-r10",
+  "release": "quality-test-dialog-20260916-r11",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -174,8 +174,8 @@
       "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "public/quality/ma-workbench/index.html": {
-      "sha256": "cb2eb61d7456c4c6820b89f687b05a1c5c9d12c49e2ae109e4af6728e5598d29",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "0af8963d309b937041868e12251ec1d9e5cc21a510e6548cb91acfd4ea26fff0",
+      "reason": "FR-QS-06: align intake confirmation actions in the shared dialog footer; reset actions on reopening."
     },
     "public/quality/ma-workbench/oa-ai-business-display.js": {
       "sha256": "dc48b9cf9a5e138c2504fd79a704d137be0986efedf812cb0deac1ff58aa05d8",

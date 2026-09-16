@@ -68,7 +68,14 @@ function hasFilters(){return state.query||state.scope!=='全部事件'||Object.v
 function highlight(value){let s=String(value),q=state.query.trim();if(!q)return esc(s);const index=s.toLowerCase().indexOf(q.toLowerCase());return index<0?esc(s):esc(s.slice(0,index))+'<mark>'+esc(s.slice(index,index+q.length))+'</mark>'+esc(s.slice(index+q.length));}
 function badge(text,kind){let tone=kind==='approval'?({'审批中':'blue','已通过':'green','已退回':'amber','已拒绝':'red','已撤销':''}[text]):({'待研判':'blue','待补资料':'amber','已通报':'green','普通反馈':''}[text]);return `<span class="tag ${tone||''}">${esc(text)}</span>`;}
 function toast(text){clearTimeout(toastTimer);$('toast').textContent=text;$('toast').hidden=false;toastTimer=setTimeout(()=>$('toast').hidden=true,3400);}
-function info(title,body){$('infoTitle').textContent=title;$('infoBody').innerHTML=body;$('infoDialog').showModal();}
+function info(title,body){
+ $('infoTitle').textContent=title;$('infoBody').innerHTML=body;
+ const close=$('closeInfo'),actions=$('infoDialog').querySelector('.dialog-actions');
+ actions.replaceChildren(close);close.textContent='知道了';close.className='btn primary';
+ const confirm=$('infoBody').querySelector(':scope > button[data-confirm-intake]');
+ if(confirm){close.textContent='取消';close.className='btn';actions.append(confirm);}
+ $('infoDialog').showModal();
+}
 function renderTabs(){const counts={'全部事件':rows.length,'待研判':rows.filter(r=>r.review==='待研判').length,'待补资料':rows.filter(r=>r.review==='待补资料').length,'已研判':rows.filter(r=>['已通报','普通反馈'].includes(r.review)).length};$('scopeTabs').innerHTML=scopes.map(s=>`<button role="tab" aria-selected="${s===state.scope}" class="tab" data-scope="${s}">${s}<span class="count">${counts[s]}</span></button>`).join('');}
 function renderList(){if($('detail'))$('detailStore').appendChild($('detail'));renderTabs();const list=filtered(),pages=Math.max(1,Math.ceil(list.length/state.pageSize));state.page=Math.min(state.page,pages);$('clearSearch').hidden=!$('searchInput').value;$('resetFilters').hidden=!hasFilters();$('resultSummary').innerHTML=state.query?`找到 <strong>${list.length}</strong> 条与“<strong>${esc(state.query)}</strong>”相关的反馈`:`共 <strong>${list.length}</strong> 条反馈 <span style="margin-left:9px">包含审批中、退回、拒绝和撤销记录</span>`;
 if(!list.length){$('listContent').innerHTML=`<div class="empty">${icon('search')}<h3>没有找到匹配的反馈</h3><p>试试审批编号尾号，或清除审批进度、日期等筛选条件。</p><button class="btn" data-action="reset">清空筛选，查看全部</button></div>`;$('pagination').hidden=true;return;}
