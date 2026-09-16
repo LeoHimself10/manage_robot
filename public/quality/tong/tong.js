@@ -2,7 +2,7 @@
 // Standalone review prototype. No live business API is called. Formal task projections
 // are kept separately from quality context, mirroring the single-authority contract.
 const $=id=>document.getElementById(id);
-const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const esc=v=>QualityBusinessDisplay.text(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clone=v=>JSON.parse(JSON.stringify(v));
 const STORAGE='tong-quality-review-20260908-v1';
 const NOW='2026-09-08 16:30';
@@ -10,7 +10,7 @@ const stages=[['source','来源事实','员工 / OA'],['assessment','AI 与主�
 const scopes=['待我初析','跟踪处理中','待我终验','退回与重开','已关闭','全部事件'];
 const statusText={analysis:'待我初析',assignment:'待主管分配',active:'员工执行中',quality:'待我终验',returned:'质量退回补充',reopened:'已重开 · 处理中',closed:'已关闭'};
 const taskText={pending:'待员工承接',active:'执行中',submitted:'待主管验收',returned:'退回补充',passed:'主管验收通过'};
-const fieldLabels={problemDirection:'问题方向',confirmedCategory:'人工确认分类',sourceSummary:'来源事实摘要',analysisBasis:'分析依据',initialConclusion:'初步结论',informationGaps:'信息缺口',suggestedDepartment:'建议责任部门',processingRequirements:'处理要求',suggestedDueAt:'建议总期限'};
+const fieldLabels={problemDirection:'问题方向',confirmedCategory:'人工确认分类',sourceSummary:'来源事实摘要',analysisBasis:'分析依据',initialConclusion:'初步结论',suggestedDepartment:'建议责任部门',processingRequirements:'处理要求',suggestedDueAt:'建议总期限'};
 let toastTimer,dialogAction=null,lastDialogFocus=null,preview=null;
 function badge(text,tone=''){return `<span class="tag ${tone}">${esc(text)}</span>`;}
 function tone(e){return e.mode==='closed'?'green':['returned','reopened'].includes(e.mode)?'amber':'blue';}

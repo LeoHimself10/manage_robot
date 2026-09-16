@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
+<script src="../business-display.js?v=20260916-r10"></script>
 <script>window.oaInitialSearch=location.search;</script>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OA 反馈收件箱 · 行内展开版 · 马荣鑫视角</title>
@@ -40,7 +41,7 @@
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const esc=value=>QualityBusinessDisplay.text(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon=name=>`<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const files={image:{id:'image',kind:'图片',name:'导管外观记录-演示.svg',size:'1.9 KB',type:'SVG 图片',field:'上传问题记录图片及视频',url:'assets/catheter-demo.svg',status:'ready'},video:{id:'video',kind:'视频',name:'现场操作记录-演示.webm',size:'47.6 KB',type:'WebM 视频',field:'上传问题记录图片及视频',url:'assets/operation-demo.webm',status:'ready'},log:{id:'log',kind:'日志',name:'设备服务日志-演示.txt',size:'867 B',type:'TXT 文本',field:'服务日志导出并上传',url:'assets/service-demo.txt',status:'ready'},raw:{id:'raw',kind:'原始数据',name:'设备原始数据-演示.zip',size:'363 B',type:'ZIP 压缩包',field:'数据原始格式导出并上传',url:'assets/raw-data-demo.zip',status:'ready'},pending:{id:'pending',kind:'图片',name:'现场补充图片-演示.svg',size:'1.9 KB',type:'SVG 图片',field:'上传问题记录图片及视频',url:'assets/catheter-demo.svg',status:'failed'}};
 const baseRows=[

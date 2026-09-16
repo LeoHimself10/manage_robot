@@ -6,7 +6,7 @@ import {OaStore,OA_SCOPE} from '../src/quality/oa/oa-store.mjs';
 import {createOaSync} from '../src/quality/oa/oa-sync.mjs';
 const json=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(data));};
 const same=(a,b)=>typeof a==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
-export async function createOaHandler({root,runtime,names={},workflowFactory,productionAccess,dataDirectory,oaConfig}) {
+export async function createOaHandler({root,runtime,names={},workflowFactory,productionAccess,tongAccess,dataDirectory,oaConfig}) {
   const dataRoot=dataDirectory || join(root,'data/quality-oa'); await mkdir(dataRoot,{recursive:true});
   const store=new OaStore(join(dataRoot,'oa.sqlite'));
   store.db.exec(`CREATE TABLE IF NOT EXISTS oa_ai (request_id TEXT PRIMARY KEY,source_id TEXT NOT NULL,source_version INTEGER NOT NULL,status TEXT NOT NULL,hash TEXT NOT NULL,response TEXT,at TEXT NOT NULL)`);
@@ -25,7 +25,7 @@ export async function createOaHandler({root,runtime,names={},workflowFactory,pro
   function install(c){config=c;syncer=createOaSync({client:new DingTalkOaClient(c),store,names:namesWithReviewers});}
   if(oaConfig)install(oaConfig);
   else try {install(JSON.parse(await readFile(configFile,'utf8')));}catch(e){if(e.code!=='ENOENT')throw e;}
-  const trigger=()=>syncer?.sync().catch(()=>{});
+  const trigger=()=>process.env.QUALITY_OA_SYNC_ENABLED==='0'?undefined:syncer?.sync().catch(()=>{});
   const timer=setInterval(trigger,60000);timer.unref(); if(syncer)trigger();
   const inFlight=new Map();
   const workflow=workflowFactory?await workflowFactory(store,config ? new DingTalkOaClient(config) : null):null;
@@ -46,6 +46,7 @@ export async function createOaHandler({root,runtime,names={},workflowFactory,pro
         res.writeHead(303,{'set-cookie':`quality_oa_session=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`,'location':'/ma-workbench/','cache-control':'no-store'});res.end();return true;
       }
       if(!(productionAccess?productionAccess(req):authorized(req))){json(res,401,{ok:false,error:'请从本机授权入口打开 OA 工作台。'});return true;}
+      if(productionAccess&&url.pathname.startsWith('/api/quality-oa/tong')&&(!tongAccess||!tongAccess(req))){json(res,403,{ok:false,error:'仅佟成视角可访问质量处理工作台'});return true;}
       try {
         if(req.method==='GET'&&url.pathname==='/api/quality-oa/status')json(res,200,{ok:true,data:status()});
         else if(req.method==='GET'&&url.pathname==='/api/quality-oa/attachment') {

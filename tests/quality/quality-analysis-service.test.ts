@@ -198,6 +198,26 @@ afterEach(() => {
 });
 
 describe("AI quality initial analysis V1", () => {
+  it("generates, saves and confirms without information gaps and preserves the AI snapshot", async () => {
+    const eventId = seedEvent();
+    const service = createQualityAnalysisService({ dbPath, model: model(input => {
+      const { informationGaps: _retired, ...current } = output(input);
+      return current;
+    }) });
+    const attempt = await service.generate({eventId, actorUserId:"quality-employee", requestId:"11111111-1111-4111-8111-111111111111"});
+    expect(attempt.status).toBe("SUCCEEDED");
+    expect(attempt.output?.informationGaps).toEqual([]);
+    const draft = draftFromAttempt(attempt);
+    const { informationGaps: _retired, ...content } = draft.content;
+    service.saveDraft({eventId,actorUserId:"quality-employee",draft:{...draft,content}});
+    const confirmed = service.confirm({eventId,actorUserId:"quality-employee",expectedDraftVersion:1,expectedEventVersion:1,requestId:"55555555-5555-4555-8555-555555555555",modificationReason:"已核对分析和处理要求"});
+    expect(confirmed.handoff.status).toBe("PENDING_PLANNING");
+    expect(confirmed.version.analysisVersion).toBe(1);
+    const stored = service.workspace({eventId,viewerUserId:"quality-employee"});
+    expect(stored.attempts).toEqual(expect.arrayContaining([expect.objectContaining({attemptId:attempt.attemptId,output:attempt.output})]));
+    service.close();
+  });
+
   it("builds model input only from saved snapshots, real departments and attachment descriptions", () => {
     const eventId = seedEvent();
     const service = createQualityAnalysisService({ dbPath, model: model() });

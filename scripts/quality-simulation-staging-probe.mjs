@@ -1,9 +1,11 @@
+import {createQualityViewAccess} from './quality-view-access.mjs';
 import assert from 'node:assert/strict';import {createHmac,randomUUID} from 'node:crypto';
 assert.equal(process.env.WORKBENCH_SESSION_SECRET,'isolated-staging-secret-not-for-production-20260911');
 const id=process.env.QUALITY_PILOT_USER_ID,now=Math.floor(Date.now()/1000),prefix='/workbench/quality-pilot';
 const p=Buffer.from(JSON.stringify({sid:'simulation-staging-test',userId:id,role:'admin',primaryRole:'admin',loginSource:'dingtalk_authcode',dingUser:{userId:id,name:'隔离验收操作人'},iat:now,exp:now+600})).toString('base64url');
+const viewCookie=createQualityViewAccess({secret:process.env.WORKBENCH_SESSION_SECRET,prefix}).cookie({userId:id},'tong').split(';')[0];
 const auth='wb_session='+p+'.'+createHmac('sha256',process.env.WORKBENCH_SESSION_SECRET).update(p).digest('hex');
-const request=(path,actor)=>fetch('http://127.0.0.1:8092'+prefix+path,{headers:{cookie:auth+(actor?'; quality_simulation='+actor:'')},redirect:'manual'});
+const request=(path,actor)=>fetch('http://127.0.0.1:8092'+prefix+path,{headers:{cookie:auth+(actor?'; quality_simulation='+actor:path.startsWith('/api/quality-oa/tong')?'; '+viewCookie:'')},redirect:'manual'});
 for(const [ref,role,target] of [['manager','manager','QUALITY_SIM_MANAGER'],... [1,2,3].map(n=>['employee-'+n,'employee','QUALITY_SIM_EMPLOYEE_'+n])]){
  const page=await request('/workbench/quality?perspective='+role+'&simulation='+ref,ref);assert.equal(page.status,200,ref+' page');const html=await page.text();assert.ok(html.includes('模拟视角'));assert.ok(html.includes('class="qpc-page qpc-unified"'));assert.ok(html.includes('data-perspective="'+role+'"'));assert.ok(html.includes('id="qualityCenterTitle">'+(role==='employee'?'我的质量任务':'主管质量工作台')+'</h1>'));assert.ok(!page.headers.getSetCookie().some(c=>c.startsWith('wb_session=')));
  const r=await request('/api/workbench/me',ref);assert.equal(r.status,200);const me=await r.json();assert.equal(me.userId,target);assert.equal(me.impersonation.actorUserId,id);console.log(ref,'page and effective identity OK');
@@ -13,7 +15,7 @@ console.log('Tong actual API: only simulated department and manager');
 const ma=await request('/ma-workbench/','employee-3');assert.equal(ma.status,200);assert.ok(ma.headers.getSetCookie().some(c=>c.startsWith('quality_simulation=;')));console.log('return to Ma clears simulation identity');
 
 if(process.argv.includes('--read-only')){for(const a of ['manager','employee-1','employee-2','employee-3']){const r=await request('/api/workbench/quality/events?projection=1',a);assert.equal(r.status,200,a+' projected events');console.log(a,'projection API OK');}process.exit(0);}
-const post=async(path,body,actor)=>{const r=await fetch('http://127.0.0.1:8092'+prefix+path,{method:'POST',headers:{cookie:auth+(actor?'; quality_simulation='+actor:''),'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await r.json();assert.equal(r.status,200,JSON.stringify({path,error:data.error}));return data;};
+const post=async(path,body,actor)=>{const r=await fetch('http://127.0.0.1:8092'+prefix+path,{method:'POST',headers:{cookie:auth+(actor?'; quality_simulation='+actor:path.startsWith('/api/quality-oa/tong')?'; '+viewCookie:''),'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await r.json();assert.equal(r.status,200,JSON.stringify({path,error:data.error}));return data;};
 const item=j.items[0],stamp=new Date().toISOString();
 const draft={requestId:randomUUID(),expectedVersion:item.workspace.draft?.version||0,baseAttemptId:null,primaryDepartmentId:'QUALITY_SIM_DEPT',collaboratorDepartmentIds:[],modificationReason:'隔离预发布模拟人员闭环验收',content:{problemDirection:'测试调查',confirmedCategoryReference:'测试分类',sourceFactSummary:['隔离测试来源'],confirmedFacts:['测试事实'],analysisBasis:['测试依据'],preliminaryConclusion:'测试分析',causeHypotheses:[],investigationDirections:['测试检查'],informationGaps:[],handlingRequirements:['提交测试证据'],suggestedTotalDueAt:'2026-09-30T18:00'},deliverables:[{deliverableId:randomUUID(),name:'模拟验证记录',description:'隔离预发布测试',acceptanceCriteria:'记录验证结果',source:'HUMAN_CUSTOM',selected:true,createdAt:stamp,updatedAt:stamp}]};
 const saved=await post('/api/quality-oa/tong/draft',{id:item.id,draft});

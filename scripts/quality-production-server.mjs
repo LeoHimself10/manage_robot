@@ -3,6 +3,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFile,realpath,stat} from 'node:fs/promises';
 import {resolve,dirname,relative,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {createQualityViewAccess} from './quality-view-access.mjs';
 import {createProductionAccess} from './quality-production-access.mjs';
 import {PREFIX,rewriteProductionLinks,productionLocation} from './quality-production-paths.mjs';
 import {sanitizeQualityPilotNextPath} from '../src/web/quality-pilot-navigation.ts';
@@ -20,6 +21,7 @@ await readFile('/app/data/.quality-test-isolated','utf8');
 const userId=process.env.QUALITY_PILOT_USER_ID;
 const origin=process.env.QUALITY_PILOT_ORIGIN;
 const access=createProductionAccess({userId,origin,secret:process.env.WORKBENCH_SESSION_SECRET||process.env.ASSIGNMENT_WEB_SECRET});
+const viewAccess=createQualityViewAccess({secret:process.env.WORKBENCH_SESSION_SECRET||process.env.ASSIGNMENT_WEB_SECRET,prefix:PREFIX});
 const dbPath=process.env.WORKBENCH_SQLITE_PATH;
 if(!dbPath||!process.env.QUALITY_PILOT_DATA_DIR)throw new Error('Explicit production database and data directory required');
 const oaClientId=process.env.QUALITY_OA_CLIENT_ID||process.env.DINGTALK_CLIENT_ID;
@@ -39,7 +41,7 @@ const runtime=await loadOriginalAiRuntime(root);
 const names={};
 const directory=new DatabaseSync(dbPath,{readOnly:true});
 try{for(const person of directory.prepare('SELECT user_id,name FROM dingtalk_contacts WHERE active=1').all())names[person.user_id]=person.name;}finally{directory.close();}
-const oa=await createOaHandler({root,runtime,names,productionAccess:access,
+const oa=await createOaHandler({root,runtime,names,productionAccess:access,tongAccess:req=>viewAccess.isTong(req,access(req)),
   dataDirectory:process.env.QUALITY_PILOT_DATA_DIR,
   oaConfig:{clientId:oaClientId,clientSecret:oaClientSecret},
   workflowFactory:(store,commentClient)=>createOaWorkflow({store,commentClient,originalRoot:root,serviceRoot:root,dbPath,modelEnv:runtime.modelEnv,productionUserId:userId})});
@@ -90,8 +92,16 @@ const server=http.createServer(async(req,res)=>{
     // Only the fixed simulation actor list may change internal business identity.
     if(path.startsWith('/oa/')||/\/(?:login|logout|impersonat|test-actor)/i.test(path)||url.searchParams.has('testActor'))return reject(res,403,'此入口不支持切换登录身份');
     const simulated=identity&&!loginRoute?resolveSimulationActor(path,url,req.headers.cookie):null;
+    const viewPage=identity&&!loginRoute&&['GET','HEAD'].includes(req.method)&&(
+      ['/tong/','/tong/index.html','/ma-workbench/','/ma-workbench/index.html','/workbench/quality'].includes(path));
+    if(viewPage){
+      const view=path.startsWith('/tong/')?'tong':path.startsWith('/ma-workbench/')?'ma':simulated?.ref||'other';
+      res.setHeader('Set-Cookie',viewAccess.cookie(identity,view));
+    }
+    if((path.startsWith('/api/quality-oa/tong')||(path.startsWith('/tong/')&&!viewPage))&&
+      (simulated||!viewAccess.isTong(req,identity)))return reject(res,403,'请切换到佟成视角访问质量处理工作台');
     if(identity&&!loginRoute&&req.method==='GET'&&!path.startsWith('/api/')&&!path.startsWith('/static/')&&!/\.(js|css|svg|png)$/.test(path)){
-      res.setHeader('Set-Cookie',`quality_simulation=${simulated?.ref||''}; Path=${PREFIX}/; HttpOnly; Secure; SameSite=Lax; Max-Age=43200`);
+      res.setHeader('Set-Cookie',[...(res.getHeader('Set-Cookie')?[res.getHeader('Set-Cookie')]:[]),`quality_simulation=${simulated?.ref||''}; Path=${PREFIX}/; HttpOnly; Secure; SameSite=Lax; Max-Age=43200`]);
     }
     req.url=path+url.search;
     const originalEnd=res.end.bind(res);
@@ -132,7 +142,7 @@ const server=http.createServer(async(req,res)=>{
       if(handleAssignmentHttp(req,res))return;
     }
     if(!['GET','HEAD'].includes(req.method))return reject(res,405,'Method not allowed');
-    if(!path.startsWith('/tong/')&&!path.startsWith('/ma-workbench/'))return reject(res,404,'Not found');
+    if(path!=='/business-display.js'&&!path.startsWith('/tong/')&&!path.startsWith('/ma-workbench/'))return reject(res,404,'Not found');
     const publicRoot=await realpath(resolve(root,'public/quality'));
     const file=await realpath(resolve(publicRoot,'.'+decodeURIComponent(path)+(path.endsWith('/')?'index.html':'')));
     if(relative(publicRoot,file).startsWith('..')||!types[extname(file)]||!(await stat(file)).isFile())return reject(res,404,'Not found');

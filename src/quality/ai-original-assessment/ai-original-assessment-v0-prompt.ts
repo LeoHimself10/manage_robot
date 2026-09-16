@@ -61,8 +61,6 @@ function outputTemplate(sourceKey: string): string {
     riskLevel: "LOW|MEDIUM|HIGH",
     reasoningBasis: [{ statement: "判断依据", citationIds: ["F1"] }],
     similarCases: [{ caseId: "实际检索案例ID", similarityReason: "相似原因" }],
-    missingInformation: [{ field: "待补字段", reason: "缺失原因" }],
-    uncertainties: [{ topic: "待人工确认内容", reason: "不确定原因" }],
     citations: [{
       citationId: "F1",
       sourceType: "FEEDBACK|HISTORICAL_CASE",
@@ -92,10 +90,10 @@ export function buildAiOriginalAssessmentV0Messages(input: {
     "每条反馈只选一个主要分类；一级/二级编码必须原样取自27行分类表中的同一父子组合。按现象和分类边界判断，原因类分类必须有明确事实，不得猜测。",
     "对象边界：轴体/中段/内核/弹簧管弯折扭曲选CATHETER_BEND_SHAKE；头端/尖端/出水口/远端标记段局部变形选CATHETER_PASSAGE_SHAPE；根因不明的图像抖动选IMAGE_SHAKE_NURD；算法或测量结果异常选SOFTWARE_DATA_MEASUREMENT。",
     "只有屏幕/界面显示错误提示时，应按提示指向的实际问题分类。明确患者躁动、血管严重钙化或迂曲为主因时选CLINICAL_ANATOMY_PATIENT。",
-    "描述为空、只有附件名、明确原因不清，或多个独立问题无法确定主问题时，返回OTHER_UNCLEAR/INSUFFICIENT_INFO和NEEDS_INFO；二者必须同时出现。信息充分的咨询、建议或明确非质量事项才用OTHER_UNCLEAR/OTHER_GENERAL。",
-    "已有产品、成像、PIU、主机、软件或包装异常时建议QUALITY_ANOMALY；明确为一般操作、培训、患者因素或非质量事项时可建议ORDINARY。根因仍待调查不等于NEEDS_INFO，应写入missingInformation或uncertainties。",
+    "描述为空、只有附件名，或多个独立问题无法确定主问题时，返回OTHER_UNCLEAR/INSUFFICIENT_INFO和NEEDS_INFO；二者必须同时出现。信息充分的咨询、建议或明确非质量事项才用OTHER_UNCLEAR/OTHER_GENERAL。",
+    "已有产品、成像、PIU、主机、软件或包装异常时建议QUALITY_ANOMALY；明确为一般操作、培训、患者因素或非质量事项时可建议ORDINARY。根因仍待调查不等于NEEDS_INFO；研判只决定处理方式、分类、风险和判断依据，不提前生成技术调查清单。",
     "风险按HIGH→MEDIUM→LOW判断：术中或生产中核心操作中断，或因异常更换器械、重启设备、改变术式，或严重安全事件，建议HIGH；需更换、维修、排查且影响明显但未中断核心操作，建议MEDIUM；轻微影响或普通咨询/培训且无中断、停机、更换，建议LOW。风险等级只是AI建议，最终由人工审核。",
-    "impact和confirmation是可选字段；不得自动补写或伪造。必须填写至少一条uncertainties，明确人工待确认内容。",
+    "impact和confirmation是可选字段；不得自动补写或伪造。不输出missingInformation或uncertainties；只有原始描述确实不足以研判时，才在reasoningBasis说明无法判断的具体原因。不得因缺少视频、批次历史记录或尚未确认根因就要求补资料。",
     "similarCases只能使用实际检索案例ID；无案例时similarCases必须返回空数组[]。citations.sourceId只能使用引用白名单，reasoningBasis.citationIds必须指向已声明的citations.citationId。",
     "返回模板中的竖线表示枚举中选择一个值；数组无内容时返回[]，不要照抄占位文字。",
   ].join("\n");

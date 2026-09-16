@@ -148,11 +148,11 @@ export const aiOriginalAssessmentOutputSchema = z.object({
   missingInformation: z.array(z.object({
     field: nonEmptyString,
     reason: nonEmptyString,
-  }).strict()),
+  }).strict()).default([]),
   uncertainties: z.array(z.object({
     topic: nonEmptyString,
     reason: nonEmptyString,
-  }).strict()).min(1),
+  }).strict()).default([]),
   citations: z.array(z.object({
     citationId: nonEmptyString,
     sourceType: z.enum(["FEEDBACK", "HISTORICAL_CASE"]),

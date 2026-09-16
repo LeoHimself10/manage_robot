@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {createQualityViewAccess} from './quality-view-access.mjs';
 import {createHmac,randomUUID} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
@@ -7,12 +8,13 @@ assert.ok(existsSync('/app/data/.inline-staging-only'));
 const now=Math.floor(Date.now()/1000), userId=process.env.QUALITY_PILOT_USER_ID;
 const payload=Buffer.from(JSON.stringify({userId,role:'admin',loginSource:'dingtalk_authcode',dingUser:{userId,name:'隔离验收'},iat:now,exp:now+600})).toString('base64url');
 const cookie='wb_session='+payload+'.'+createHmac('sha256',process.env.WORKBENCH_SESSION_SECRET).update(payload).digest('hex');
+const viewCookie=createQualityViewAccess({secret:process.env.WORKBENCH_SESSION_SECRET,prefix:'/workbench/quality-pilot'}).cookie({userId},'tong').split(';')[0];
 const base='http://127.0.0.1:8092/workbench/quality-pilot';
 const db=new DatabaseSync(process.env.WORKBENCH_SQLITE_PATH);
 const row=db.prepare("SELECT s.subtask_id,n.node_id,n.event_id FROM subtasks s JOIN quality_task_links l ON l.subtask_id=s.subtask_id JOIN quality_assignment_nodes n ON n.node_id=l.node_id WHERE s.assignee_user_id='QUALITY_SIM_EMPLOYEE_1' LIMIT 1").get();assert.ok(row);
 const node='/api/workbench/quality/nodes/'+row.node_id;
 const siblingsBefore=JSON.stringify(db.prepare("SELECT n.node_id,n.status,s.status AS formal_status FROM quality_assignment_nodes n JOIN quality_task_links l ON l.node_id=n.node_id JOIN subtasks s ON s.subtask_id=l.subtask_id WHERE n.event_id=? AND n.node_id<>? ORDER BY n.node_id").all(row.event_id,row.node_id));
-async function request(path,actor='employee-1',body,form){const res=await fetch(base+path,{method:body||form?'POST':'GET',headers:{cookie:cookie+'; quality_simulation='+actor,...(body?{'Content-Type':'application/json'}:{})},body:form||body&&JSON.stringify(body)});return res;}
+async function request(path,actor='employee-1',body,form){const res=await fetch(base+path,{method:body||form?'POST':'GET',headers:{cookie:cookie+'; '+viewCookie+'; quality_simulation='+actor,...(body?{'Content-Type':'application/json'}:{})},body:form||body&&JSON.stringify(body)});return res;}
 async function post(path,body,actor='employee-1'){const res=await request(path,actor,body),json=await res.json();assert.equal(res.status,200,JSON.stringify(json));assert.equal(json.ok,true,JSON.stringify(json));return json.data;}
 async function detail(actor='employee-1'){const res=await request('/api/workbench/quality/events/'+row.event_id+'?projection=1',actor);assert.equal(res.status,200);return (await res.json()).data.viewModel;}
 async function work(){const view=await detail();return view.branch.find(b=>b.subtaskId===row.subtask_id).employeeWork;}

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const QUALITY_ANALYSIS_INPUT_SCHEMA_VERSION = "quality-analysis-input-v1";
 export const QUALITY_ANALYSIS_OUTPUT_SCHEMA_VERSION = "quality-analysis-output-v1";
-export const QUALITY_ANALYSIS_PROMPT_VERSION = "quality-analysis-prompt-v1.0.2";
+export const QUALITY_ANALYSIS_PROMPT_VERSION = "quality-analysis-prompt-v1.0.3";
 export const QUALITY_ANALYSIS_MODEL_CONFIG_ID = "project-default-qwen-quality-analysis-v2";
 export const QUALITY_ANALYSIS_RULE_VERSION = "quality-analysis-rules-v1";
 export const QUALITY_ANALYSIS_KNOWLEDGE_VERSION = "quality-product-knowledge-v1";
@@ -79,7 +79,7 @@ export const qualityAnalysisOutputSchema = z.object({
   preliminaryConclusion: text(3_000),
   causeHypotheses: z.array(text(1_000)).max(30),
   investigationDirections: z.array(text(1_000)).min(1).max(30),
-  informationGaps: z.array(text(1_000)).max(30),
+  informationGaps: z.array(text(1_000)).max(30).default([]),
   primaryDepartmentCandidates: z.array(z.object({
     departmentName: text(200),
     recommendationReason: text(1_000),
@@ -117,7 +117,7 @@ export const qualityAnalysisDraftContentSchema = z.object({
   preliminaryConclusion: text(3_000),
   causeHypotheses: z.array(text(1_000)).max(30),
   investigationDirections: z.array(text(1_000)).min(1).max(30),
-  informationGaps: z.array(text(1_000)).max(30),
+  informationGaps: z.array(text(1_000)).max(30).default([]),
   handlingRequirements: z.array(text(1_000)).min(1).max(30),
   suggestedTotalDueAt: text(100),
 }).strict();
@@ -135,7 +135,7 @@ export const saveQualityAnalysisDraftSchema = z.object({
   modificationReason: optionalText(2_000),
 }).strict();
 
-export type SaveQualityAnalysisDraftInput = z.infer<typeof saveQualityAnalysisDraftSchema>;
+export type SaveQualityAnalysisDraftInput = z.input<typeof saveQualityAnalysisDraftSchema>;
 
 export const confirmQualityAnalysisSchema = z.object({
   expectedDraftVersion: z.number().int().positive(),

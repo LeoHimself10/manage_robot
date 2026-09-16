@@ -16,7 +16,7 @@ const oaAiCategoryAliases = {
   CATHETER_PRODUCT:['导管本体故障'],
 };
 function oaAiBusinessText(value) {
-  let text=String(value??'');
+  let text=QualityBusinessDisplay.text(value);
   for(const [code,label] of Object.entries(oaAiCategoryLabels)) {
     for(const alias of [label,...(oaAiCategoryAliases[code]||[])]) {
       // Remove a redundant machine annotation only when its business label is present.
@@ -50,8 +50,6 @@ function renderOaAiBusinessResult(data) {
     +fact('建议风险',risk[output.riskLevel]||'待确认')
     +fact('建议处理',handling[output.handlingRecommendation]||'待确认')+'</div>'
     +section('判断依据',basis.map(statement=>'<li><p>'+clean(statement)+'</p></li>'))
-    +section('需要补充的资料',information(output.missingInformation))
-    +section('还需核实的问题',information(output.uncertainties))
     +'<details class="raw-fields"><summary>生成记录</summary>'
     +fact('生成时间',fmt(data.createdAt))+fact('依据资料','OA 资料 V'+data.sourceVersion)+'</details></div>';
 }

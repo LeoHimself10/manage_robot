@@ -17,10 +17,10 @@ function mapRealInitial(d) {
   const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(due);
   return {problemDirection:o.problemDirection,confirmedCategory:o.confirmedCategoryReference,
     sourceSummary:o.sourceFactSummary.join('\n'),confirmedFacts:o.confirmedFacts.join('\n'),
-    analysisBasis:o.analysisBasis.map(x=>x.statement+'〔'+x.sourceReference+'〕').join('\n'),
-    basis:o.analysisBasis.map(x=>({statement:x.statement,source:x.sourceType+' · '+x.sourceReference})),
+    analysisBasis:o.analysisBasis.map(x=>QualityBusinessDisplay.text(x.statement)+'〔'+QualityBusinessDisplay.reference(x.sourceType,x.sourceReference)+'〕').join('\n'),
+    basis:o.analysisBasis.map(x=>({statement:x.statement,source:QualityBusinessDisplay.reference(x.sourceType,x.sourceReference)})),
     initialConclusion:o.preliminaryConclusion,causeHypotheses:o.causeHypotheses.join('\n'),
-    investigationDirections:o.investigationDirections.join('\n'),informationGaps:o.informationGaps.join('\n'),
+    investigationDirections:o.investigationDirections.join('\n'),informationGaps:(o.informationGaps||[]).join('\n'),
     processingRequirements:o.handlingRequirements.join('\n'),suggestedDueAt:date+'T18:00',suggestedDueDays:o.suggestedTotalDueDays,
     departmentCandidates:o.primaryDepartmentCandidates.map(x=>({name:x.departmentName,reason:x.recommendationReason})),
     deliverables:o.deliverables.map(x=>({title:x.name,output:x.description,criteria:x.acceptanceCriteria,source:'AI_SUGGESTED',selected:false}))};

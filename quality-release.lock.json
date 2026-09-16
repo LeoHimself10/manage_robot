@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-final-review-20260914-r9",
+  "release": "quality-test-simplify-20260916-r10",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -118,20 +118,20 @@
       "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "public/quality/tong/index.html": {
-      "sha256": "fa98ccc37f639b0d3361f83e5b319265fce0a37b9389687f9c583aa33f3f1b0c",
-      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+      "sha256": "dd6cb987bca4910405a6ba4d92942c3227da0a1cebe9b450eb7bc0d8001d7a98",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "scripts/quality-oa-http.mjs": {
-      "sha256": "f86a4c6ac6da116c79183d88c0ed12f142b1e0eeeeeb4b719734e7767bb8de70",
-      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+      "sha256": "ea8a3a4a19a7777d2e634559d4a1c0ebd940d6f88ec7fa9f4be966e11edfe89e",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "scripts/quality-oa-workflow.mjs": {
       "sha256": "90cd20bd495d067898e12e02774d39def3291bd634b62ba5ccdb7cea23ef3ccd",
       "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "scripts/quality-production-server.mjs": {
-      "sha256": "c439ca8dd09079d201f9b52f166732612afb33b0c5aa833b8fdb0acfaffdf697",
-      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+      "sha256": "5773ce60aceb9eeef2260921c3917693873cdb067671042639b678f5b7dff517",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "src/quality/closure/quality-closure-service.ts": {
       "sha256": "858ddebaff80021785c2cd5e7dd39e00aeaa89391a30941297c3bef5233aba00",
@@ -158,8 +158,8 @@
       "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "public/quality/tong/oa-connected.js": {
-      "sha256": "9b2eea93443ec4f7bd396d5a13343f0ba68d0276c2b222162e14a73dc6c0cfad",
-      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+      "sha256": "cd1f3f876fc711fae3f6ca149468f1f977bc8eb0f93dc86c327514d453e41b9d",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "public/quality/tong/pdf-lib.js": {
       "sha256": "b0fc97331dc1fc03c4a381ebdd88f751a4d12de4ec97fa1faf18bb37721a4b5b",
@@ -172,6 +172,74 @@
     "public/quality/tong/pdf-LICENSE.txt": {
       "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
       "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+    },
+    "public/quality/ma-workbench/index.html": {
+      "sha256": "cb2eb61d7456c4c6820b89f687b05a1c5c9d12c49e2ae109e4af6728e5598d29",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "public/quality/ma-workbench/oa-ai-business-display.js": {
+      "sha256": "dc48b9cf9a5e138c2504fd79a704d137be0986efedf812cb0deac1ff58aa05d8",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "public/quality/tong/ai-connected.js": {
+      "sha256": "b67e1cec5a2065895f9bea487aafc3e9644636ce1ac663b35bc2248c33df1358",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "public/quality/tong/ai-initial-analysis.js": {
+      "sha256": "1804d1a5fb02b67ef5b1bc4169038539406d54e027062b0f463ad069818349a6",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "public/quality/tong/tong.js": {
+      "sha256": "bc0ce4b755f4dba6fe92517b752369148e944d3bc65d5b72ebe8a71a88afb90c",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "src/quality/ai-original-assessment/ai-original-assessment-contracts.ts": {
+      "sha256": "27746c426167e24d114ab783b7e988c4b86d5e84b6b6ccb9872101dfd995b982",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "src/quality/ai-original-assessment/ai-original-assessment-v0-context.ts": {
+      "sha256": "eb1b4b176bcbaad263c046fc140657dfa3ca54c7cb315b85790d6c5b00345a6f",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "src/quality/ai-original-assessment/ai-original-assessment-v0-prompt.ts": {
+      "sha256": "2c5f840a0625223af41c98e77ae72d79c97a7df438922fc7d95c5c025e08513e",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "src/quality/analysis/quality-analysis-contracts.ts": {
+      "sha256": "2bc5ae1acfb2b8e24cfecf0545047a2fce19bdc207a31d74021de1766ac6f7e1",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "src/quality/analysis/quality-analysis-prompt.ts": {
+      "sha256": "2b909216c394eaf92b1704cb18235281b45391daa4b66b929c779bda06e3bcae",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "src/quality/analysis/quality-analysis-service.ts": {
+      "sha256": "bbca2215a1f8b64655495bc60f1bbcea29d6cffd135509ec9580091e7498b2bf",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "public/quality/business-display.js": {
+      "sha256": "6551c6606a12b6c93862635ebb511a8c2129a0ef436624d01872d0079c84fe1f",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "public/quality/tong/dashboard-data.js": {
+      "sha256": "aa399832dcdb6a6a40337607df86e84b75b4f051f093ea912b34b8450f624864",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "public/quality/tong/dashboard.js": {
+      "sha256": "e98596e6aaeecd721ff2a5af43afae64c4ab66204c55a6b6978ac8de33feb7c9",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "public/quality/tong/dashboard.css": {
+      "sha256": "781a9eccdf49d2585041c8b9c9e497f317008a6199d0769c1b45446d15a3b9a1",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "scripts/quality-view-access.mjs": {
+      "sha256": "902b595c8309dbadfa15f05362ec07e539b213b889675f155008d1c01906c5bf",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+    },
+    "public/quality/ma-workbench/oa-workflow.js": {
+      "sha256": "ac33e99921f37da2607687b19f85e00f8802273180bf3e14ddc0e7ba511da703",
+      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     }
   },
   "runtimeScripts": [
@@ -181,6 +249,7 @@
     "scripts/quality-ui-ai-runtime.mjs",
     "scripts/quality-oa-http.mjs",
     "scripts/quality-oa-workflow.mjs",
-    "scripts/quality-simulation.mjs"
+    "scripts/quality-simulation.mjs",
+    "scripts/quality-view-access.mjs"
   ]
 }

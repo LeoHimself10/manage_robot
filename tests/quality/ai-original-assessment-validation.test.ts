@@ -26,6 +26,16 @@ function expectIssueCode(
 }
 
 describe("AI原始研判V0数据合同", () => {
+  it("研判不再要求缺失材料和不确定性，兼容读取历史快照", () => {
+    const { input } = prepareAiOriginalAssessmentV0();
+    const old = buildValidAiSimulatedOutput(input);
+    const { missingInformation: _missing, uncertainties: _uncertain, ...current } = old;
+    expect(validateAiOriginalAssessment(input, current)).toMatchObject({ ok: true });
+    expect(aiOriginalAssessmentOutputSchema.parse(current)).toMatchObject({ missingInformation: [], uncertainties: [] });
+    expect(aiOriginalAssessmentOutputSchema.parse(old).uncertainties).toEqual(old.uncertainties);
+    expect(old.uncertainties.length).toBeGreaterThan(0);
+  });
+
   it("完整输入和输出通过Schema及跨字段校验", () => {
     const { input } = prepareAiOriginalAssessmentV0();
     const output = buildValidAiSimulatedOutput(input);
