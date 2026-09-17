@@ -70,6 +70,7 @@ export interface QualityEventSummaryViewModel {
   testBadge: string | null;
   managerStages: QualityManagerTaskStage[];
   assignmentItems: QualityManagerAssignmentItemViewModel[];
+  planningHandoff?: { planningUrl: string; analysisVersion: number; departmentName: string };
   dispositionCode: "UNASSESSED" | "ORDINARY" | "QUALITY_ANOMALY" | null;
   dispositionLabel: string | null;
 }
@@ -401,6 +402,24 @@ export function createQualityEventPerspectiveProjector(
   function managerFormalSubtasks(eventId: string, managerUserId: string) {
     return listQualityFormalSubtasksFromDb(db, { eventId })
       .filter((item) => item.managerUserId === managerUserId);
+  }
+
+  function pendingManagerHandoff(row: DatabaseRow, managerUserId: string) {
+    if (String(row.status) !== "PENDING_ASSIGNMENT"
+      || !tableExists(db, "quality_analysis_handoffs")) return null;
+    // Only the latest confirmed handoff can grant access before formal allocation.
+    const handoff = db.prepare(`SELECT * FROM quality_analysis_handoffs
+      WHERE event_id=? ORDER BY analysis_version DESC,created_at DESC LIMIT 1`)
+      .get(String(row.id)) as DatabaseRow | undefined;
+    if (!handoff || String(handoff.primary_manager_user_id) !== managerUserId
+      || String(handoff.status) !== "PENDING_PLANNING" || !handoff.thread_id) return null;
+    if (tableExists(db, "tasks") && db.prepare("SELECT 1 FROM tasks WHERE plan_id=?")
+      .get(String(handoff.plan_id))) return null;
+    return {
+      planningUrl: `/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(String(handoff.thread_id))}&openDraftEditor=1`,
+      analysisVersion: Number(handoff.analysis_version),
+      departmentName: String(handoff.primary_department_name),
+    };
   }
 
   function formalManagerStage(
@@ -843,6 +862,8 @@ export function createQualityEventPerspectiveProjector(
 
   function summary(row: DatabaseRow, context: QualityPerspectiveContext): QualityEventSummaryViewModel {
     const allNodes = nodes(String(row.id));
+    const planningHandoff = context.perspective === "manager"
+      ? pendingManagerHandoff(row, context.actorUserId) : null;
     const root = activeRoot(allNodes);
     const attention = attentionFor(row, context);
     const formalEmployeeTasks = context.perspective === "employee"
@@ -879,14 +900,15 @@ export function createQualityEventPerspectiveProjector(
       urgencyLabel: riskPendingReview ? "待研判" : qualityUrgencyLabel(row.urgency),
       currentOwnerName: formalEmployeeTasks.length > 0
         ? displayName(context.actorUserId)
-        : displayName(root?.assignee_user_id),
+        : displayName(root?.assignee_user_id ?? (planningHandoff ? context.actorUserId : null)),
       currentDepartmentName: formalEmployeeTasks.length > 0
         ? "原员工任务系统"
-        : nullable(root?.department_name) ?? "暂未指定",
+        : nullable(root?.department_name) ?? planningHandoff?.departmentName ?? "暂未指定",
       updatedAt: String(row.updated_at),
       testBadge: Number(row.is_test ?? 0) === 1 ? "测试事件" : null,
       managerStages: context.perspective === "manager" && allNodes.some(n=>n.assignee_user_id===context.actorUserId && n.status==="RETURNED" && n.assignee_kind==="MANAGER") ? ["REVIEW"] : [...new Set(assignmentItems.map(item=>item.managerStage))],
       assignmentItems,
+      ...(planningHandoff ? { planningHandoff } : {}),
       dispositionCode: disposition?.code ?? null,
       dispositionLabel: disposition?.label ?? null,
     };
@@ -915,6 +937,7 @@ export function createQualityEventPerspectiveProjector(
       && employeeFormalSubtasks(String(row.id), context.actorUserId).length > 0) return true;
     if (context.perspective === "manager"
       && managerFormalSubtasks(String(row.id), context.actorUserId).length > 0) return true;
+    if (context.perspective === "manager" && pendingManagerHandoff(row, context.actorUserId)) return true;
     return nodes(String(row.id)).some((node) => String(node.assignee_user_id) === context.actorUserId);
   }
 
@@ -1232,7 +1255,8 @@ export function createQualityEventPerspectiveProjector(
     if ((context.perspective === "manager" || context.perspective === "employee")
       && branch.length === 0
       && formalEmployeeTasks.length === 0
-      && formalManagerTasks.length === 0) return null;
+      && formalManagerTasks.length === 0
+      && !(context.perspective === "manager" && pendingManagerHandoff(row, context.actorUserId))) return null;
     const nodeRefs = new Set(branch.map((node) => String(node.node_id)));
     const evidenceRows = tableExists(db, "quality_evidence")
       ? db.prepare("SELECT * FROM quality_evidence WHERE event_id=? AND removed_at IS NULL ORDER BY created_at,evidence_id").all(input.eventId) as DatabaseRow[]

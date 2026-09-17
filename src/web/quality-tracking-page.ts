@@ -657,8 +657,16 @@ function buildQualityTrackingClientScript(reviewSourceKey?: string): string {
   function isManagerFormalAssignmentItem(item) { return Boolean(item && (item.formalProjection || item.taskUrl || item.taskNo)); }
   function renderManagerAssignmentDetails(view, mount) {
     renderManagerReturnPanel(view, mount);
+    var handoff = view.event && view.event.planningHandoff;
+    if (handoff) {
+      var pending = make('section', 'qpc-notice is-green');
+      pending.appendChild(make('h4', 'qpc-subtitle', '质量初析已移交 · 待分派员工'));
+      pending.appendChild(make('p', 'qpc-action-help', '质量初析 V' + handoff.analysisVersion + ' 已确认，请进入原任务分配系统确认员工与期限并发布。'));
+      if (!view.readonly) { var planningLink = make('a', 'btn btn-primary', '进入任务分配'); planningLink.href = handoff.planningUrl; pending.appendChild(planningLink); }
+      mount.appendChild(pending);
+    }
     var allItems = (Array.isArray(view.event && view.event.assignmentItems) ? view.event.assignmentItems : []).filter(isManagerFormalAssignmentItem);
-    if (!allItems.length) { mount.appendChild(make('div', 'qpc-empty', '尚未发布正式员工任务；承接并完成任务规划后，这里将展示由您负责的员工事项。')); return; }
+    if (!allItems.length) { if (!handoff) mount.appendChild(make('div', 'qpc-empty', '尚未发布正式员工任务；承接并完成任务规划后，这里将展示由您负责的员工事项。')); return; }
     var focusedItems = state.metricManagerStage ? allItems.filter(function (item) { return item.managerStage === state.metricManagerStage; }) : allItems;
     var otherItems = state.metricManagerStage ? allItems.filter(function (item) { return item.managerStage !== state.metricManagerStage; }) : [];
     var stageLabel = managerStageLabels[state.metricManagerStage] || '';

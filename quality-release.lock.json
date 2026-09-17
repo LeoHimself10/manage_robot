@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-confirm-20260916-r12",
+  "release": "quality-test-handoff-20260917-r13",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -50,8 +50,8 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/quality/presentation/quality-event-perspective.ts": {
-      "sha256": "1664e8f25e1107fb7cfc45751678b8219daa27f9826a0c580f28c673a56dcf9a",
-      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+      "sha256": "79161770f7c3149775da926793d79032c5471dac140283786814fc167f712414",
+      "reason": "FR-QH-01: show pending analysis handoffs only to the receiving manager and open existing planning thread."
     },
     "src/security/quality-capabilities.ts": {
       "sha256": "918d9a6512a778b39e45fb2a3b4eb86cd61e041a32c9a7531419ed7a99bf673a",
@@ -70,8 +70,8 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/web/quality-tracking-page.ts": {
-      "sha256": "77cb5146d8da9919b00879a737ec16f1609bfd31a66bc2e466aff10bae29a803",
-      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+      "sha256": "aba6a751dbc0eccaf6594ca5a0f7d492ace815293773a0477ead590a1747f5d5",
+      "reason": "FR-QH-01: show pending analysis handoffs only to the receiving manager and open existing planning thread."
     },
     "src/web/workbench-dd-login-entry.ts": {
       "sha256": "9ca951046599626cb3d3c02f3e4f7b243239d11d4653fff53ae1670d768844f8",

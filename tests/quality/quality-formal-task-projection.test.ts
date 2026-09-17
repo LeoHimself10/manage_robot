@@ -113,6 +113,37 @@ describe("quality formal-task projection", () => {
     db.close();
   });
 
+  it("projects unallocated handoffs in manager list and detail without granting employee or stale-recipient access", () => {
+    vi.stubEnv("QUALITY_PILOT_TEST_MODE", "1");
+    vi.stubEnv("WORKBENCH_MANAGER_USER_IDS", "QUALITY_SIM_MANAGER");
+    const db = new DatabaseSync(dbPath);
+    db.exec("DELETE FROM subtasks; DELETE FROM tasks;");
+    db.prepare("UPDATE quality_analysis_handoffs SET primary_manager_user_id='QUALITY_SIM_MANAGER'").run();
+    const projector = createQualityEventPerspectiveProjector(dbPath);
+    try {
+      const request = { viewerUserId: "QUALITY_SIM_MANAGER", eventId: "event-1" };
+      expect(projector.listEvents(request).events).toEqual([expect.objectContaining({
+        actionRef: "event-1", attentionBucket: "TODO", attentionLabel: "待分派员工",
+        managerStages: ["DELEGATE"], planningHandoff: {
+          planningUrl: "/workbench/manager/chat?thread=side&threadId=thread-1&openDraftEditor=1",
+          analysisVersion: 1, departmentName: "研发中心",
+        },
+      })]);
+      expect(projector.getEventDetail(request)?.viewModel.event).toMatchObject({ planningHandoff: expect.any(Object) });
+      expect(projector.getEventDetail(request)?.viewModel.allowedActions).toEqual([]);
+      expect(projector.listEvents({ viewerUserId: "QUALITY_SIM_EMPLOYEE_1" }).events).toEqual([]);
+      expect(projector.getEventDetail({ viewerUserId: "QUALITY_SIM_EMPLOYEE_1", eventId: "event-1" })).toBeNull();
+      db.prepare(`INSERT INTO quality_analysis_handoffs SELECT 'handoff-2',event_id,2,
+        'new-key',primary_department_id,primary_department_name,'other-manager',task_package_json,
+        'new-plan','new-thread',status,NULL,created_at,NULL FROM quality_analysis_handoffs WHERE handoff_id='handoff-1'`).run();
+      expect(projector.listEvents(request).events).toEqual([]);
+      expect(projector.getEventDetail(request)).toBeNull();
+      db.prepare("DELETE FROM quality_analysis_handoffs WHERE handoff_id='handoff-2'").run();
+      db.prepare("UPDATE quality_events SET status='CLOSED'").run();
+      expect(projector.listEvents(request).events).toEqual([]);
+    } finally { projector.close(); db.close(); }
+  });
+
   it("exposes the return reason only to the assigned employee on returned work", () => {
     reconcileQualityPlanningPublication({eventId:"event-1",integrationKey:"quality-node:event-1",planId:"plan-1",formalTaskId:"task:plan-1",actorUserId:"manager-1",publishedAt:NOW,dbPath});
     const db = new DatabaseSync(dbPath);
