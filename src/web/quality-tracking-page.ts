@@ -660,9 +660,15 @@ function buildQualityTrackingClientScript(reviewSourceKey?: string): string {
     var handoff = view.event && view.event.planningHandoff;
     if (handoff) {
       var pending = make('section', 'qpc-notice is-green');
-      pending.appendChild(make('h4', 'qpc-subtitle', '质量初析已移交 · 待分派员工'));
-      pending.appendChild(make('p', 'qpc-action-help', '质量初析 V' + handoff.analysisVersion + ' 已确认，请进入原任务分配系统确认员工与期限并发布。'));
-      if (!view.readonly) { var planningLink = make('a', 'btn btn-primary', '进入任务分配'); planningLink.href = handoff.planningUrl; pending.appendChild(planningLink); }
+      pending.appendChild(make('h4', 'qpc-subtitle', handoff.requiresAcceptance ? '质量初析已移交 · 待我承接' : '已承接 · 待分派员工'));
+      pending.appendChild(make('p', 'qpc-action-help', '质量初析 V' + handoff.analysisVersion + (handoff.requiresAcceptance ? ' 已确认，请先核对事项与处理要求，再确认承接。承接后可进入任务规划与分配。' : ' 已承接，请进入原任务分配系统规划任务、确认员工与期限并发放。')));
+      if (!view.readonly && handoff.requiresAcceptance) {
+        var acceptButton=make('button','btn btn-primary','确认承接');acceptButton.type='button';
+        acceptButton.addEventListener('click',async function(){acceptButton.disabled=true;try{
+          await api('/api/workbench/quality/handoffs/accept',jsonOptions('POST',{eventId:view.event.actionRef,handoffId:handoff.handoffId}));
+          state.metricManagerStage='DELEGATE';await selectEvent(view.event.actionRef,true);switchStage('assignment');await Promise.all([loadList(),loadMetrics()]);
+        }catch(error){pending.appendChild(make('p','qpc-notice is-error',error.message||'承接失败，请重试'));}finally{acceptButton.disabled=false;}});pending.appendChild(acceptButton);
+      } else if (!view.readonly) { var planningLink = make('a', 'btn btn-primary', '进入任务分配'); planningLink.href = handoff.planningUrl; pending.appendChild(planningLink); }
       mount.appendChild(pending);
     }
     var allItems = (Array.isArray(view.event && view.event.assignmentItems) ? view.event.assignmentItems : []).filter(isManagerFormalAssignmentItem);

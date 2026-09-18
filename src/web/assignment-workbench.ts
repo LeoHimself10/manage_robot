@@ -1,3 +1,4 @@
+import {acceptQualityHandoff,assertQualityPlanningAccepted} from '../quality/analysis/quality-handoff-acceptance';
 import { createQualityEvidenceService } from "../quality/evidence/quality-evidence-service";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sanitizeQualityPilotNextPath } from "./quality-pilot-navigation";
@@ -954,6 +955,10 @@ function resolveConversationThreadFromBody(body: Record<string, unknown>): {
     threadKind,
     planId: planId || undefined,
   };
+}
+
+function requireQualityPlanningAcceptance(res: ServerResponse,planId:string,userId:string):boolean {
+  try{assertQualityPlanningAccepted(planId,userId);return true;}catch(e){writeJson(res,409,{ok:false,error:e instanceof Error?e.message:'请先承接质量事项'});return false;}
 }
 
 function resolveConversationDraftWithQualityContext(
@@ -7444,6 +7449,14 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if(req.method==='POST' && url.pathname==='/api/workbench/quality/handoffs/accept') {
+    void(async()=>{const session=requireSession(req,res,'manager');if(!session)return;
+      try{const body=await readJsonBody(req) as Record<string,unknown>;
+        const data=acceptQualityHandoff({eventId:String(body.eventId||''),handoffId:String(body.handoffId||''),managerUserId:session.userId,actorUserId:session.impersonation?.actorUserId??session.userId});
+        writeJson(res,200,{ok:true,data});
+      }catch(e){writeJson(res,409,{ok:false,error:e instanceof Error?e.message:'承接失败'});}
+    })();return true;
+  }
   if(req.method==='POST' && url.pathname==='/api/workbench/conversation/draft/quality-plan') {
     void (async()=>{
       const session=requireSession(req,res,'manager');if(!session)return;
@@ -7451,6 +7464,7 @@ export function handleAssignmentHttp(
         const body=await readJsonBody(req) as Record<string,unknown>;
         const target=resolveConversationThread(session.userId,resolveConversationThreadFromBody(body));
         if(!target||target.planId!==body.planId)throw Error('会话已变化，请刷新后重试');
+        if(!requireQualityPlanningAcceptance(res,target.planId,session.userId))return;
         const draft=resolveConversationDraftWithQualityContext(target,session.userId);
         const thread=buildThreadListItem(target);
         if(!draft||!getQualityPlanningDraftContext({planId:target.planId,threadId:thread.threadId,managerUserId:session.userId}))throw Error('仅接收移交的主管可确认未发放的质量任务方案');
@@ -7519,6 +7533,7 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "No session found for thread" });
           return;
         }
+        if(!requireQualityPlanningAcceptance(res,target.planId,session.userId))return;
         const expectedPlanId = String(body.planId ?? "").trim();
         if (!expectedPlanId || expectedPlanId !== target.planId) {
           writeJson(res, 409, { ok: false, error: "草案已更新，请刷新后重新选择负责人" });
@@ -7641,6 +7656,7 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "No session found for thread" });
           return;
         }
+        if(!requireQualityPlanningAcceptance(res,target.planId,session.userId))return;
         const expectedPlanId = String(body.planId ?? "").trim();
         if (!expectedPlanId || expectedPlanId !== target.planId) {
           writeJson(res, 409, { ok: false, error: "草案已更新，请刷新后重新填写验收要求" });
@@ -7750,6 +7766,7 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "No session found for thread" });
           return;
         }
+        if(!requireQualityPlanningAcceptance(res,target.planId,session.userId))return;
         const preTurnDraft = target.latestDraft;
         const preTurnAssignment = target.latestAssignment;
         const preTurnPlanId = target.planId;
@@ -7774,6 +7791,7 @@ export function handleAssignmentHttp(
           return;
         }
 
+        if(!requireQualityPlanningAcceptance(res,target.planId,session.userId))return;
         const planId = target.planId;
         const memoryContext = loadMemoryContextForPlan(planId);
         let mutableKnownFacts = [...(target.knownFacts ?? [])];
@@ -7943,6 +7961,7 @@ export function handleAssignmentHttp(
                 : undefined,
           planId: planIdInput || undefined,
         }) ?? findMainThreadSession(session.userId);
+        if(!requireQualityPlanningAcceptance(res,target.planId,session.userId))return;
         const planId = target.planId;
         if (target.senderStaffId && target.senderStaffId !== session.userId) {
           writeJson(res, 403, { ok: false, error: "Plan does not belong to current manager" });
@@ -8048,6 +8067,7 @@ export function handleAssignmentHttp(
           writeJson(res, 404, { ok: false, error: "No session found for thread" });
           return;
         }
+        if(!requireQualityPlanningAcceptance(res,target.planId,session.userId))return;
         const planId = target.planId;
         const memoryContext = loadMemoryContextForPlan(planId);
         const turn = await runManagerOrchestratorTurn({
@@ -8271,6 +8291,7 @@ export function handleAssignmentHttp(
           return true;
         }
         const target = resolved ?? findMainThreadSession(session.userId);
+        try{assertQualityPlanningAccepted(target.planId,session.userId);}catch{redirect(res,"/workbench/quality?perspective=manager&managerStage=ACCEPT");return true;}
         const meta = buildThreadListItem(target);
         chatThreadId = meta.threadId;
         chatThreadKind = meta.kind;

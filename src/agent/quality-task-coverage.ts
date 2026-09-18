@@ -1,3 +1,4 @@
+import {assertQualityPlanningAccepted} from '../quality/analysis/quality-handoff-acceptance';
 import type { PlanSession } from "../infra/plan-session-store";
 import {qualityPlanningConfirmed} from './quality-planning-contract';
 
@@ -82,7 +83,8 @@ export function restoreQualityTaskMappings(
   return changed ? { ...draft, tasks: nextTasks } : draft;
 }
 
-export function validateQualityTaskCoverage(session: Pick<PlanSession, "latestDraft">): QualityTaskCoverageResult {
+export function validateQualityTaskCoverage(session: Pick<PlanSession, "latestDraft"> & Partial<Pick<PlanSession,"planId">>): QualityTaskCoverageResult {
+  try{if(session.planId)assertQualityPlanningAccepted(session.planId);}catch{return {applicable:true,ok:false,requiredDeliverableIds:[],coveredDeliverableIds:[],missingDeliverableIds:[]};}
   const draft = restoreQualityTaskMappings(session.latestDraft as Record<string, unknown> | undefined);
   if (!draft || typeof draft !== "object" || Array.isArray(draft)) {
     return { applicable: false, ok: true, requiredDeliverableIds: [], coveredDeliverableIds: [], missingDeliverableIds: [] };

@@ -1,3 +1,4 @@
+import {handoffAcceptance} from '../analysis/quality-handoff-acceptance';
 import { readQualityEmployeeWork } from "../evidence/quality-employee-work";
 import { DatabaseSync } from "node:sqlite";
 import { createPeopleDirectoryStore } from "../../infra/people-directory-store";
@@ -70,7 +71,7 @@ export interface QualityEventSummaryViewModel {
   testBadge: string | null;
   managerStages: QualityManagerTaskStage[];
   assignmentItems: QualityManagerAssignmentItemViewModel[];
-  planningHandoff?: { planningUrl: string; analysisVersion: number; departmentName: string };
+  planningHandoff?: { planningUrl: string; analysisVersion: number; departmentName: string; handoffId: string; requiresAcceptance: boolean; acceptedAt: string | null };
   dispositionCode: "UNASSESSED" | "ORDINARY" | "QUALITY_ANOMALY" | null;
   dispositionLabel: string | null;
 }
@@ -419,6 +420,9 @@ export function createQualityEventPerspectiveProjector(
       planningUrl: `/workbench/manager/chat?thread=side&threadId=${encodeURIComponent(String(handoff.thread_id))}&openDraftEditor=1`,
       analysisVersion: Number(handoff.analysis_version),
       departmentName: String(handoff.primary_department_name),
+      handoffId: String(handoff.handoff_id),
+      requiresAcceptance: !handoffAcceptance(db,String(handoff.handoff_id)),
+      acceptedAt: nullable(handoffAcceptance(db,String(handoff.handoff_id))?.accepted_at),
     };
   }
 
@@ -648,11 +652,12 @@ export function createQualityEventPerspectiveProjector(
     }
 
     const ownNode = input.allNodes.find((node) => ownNodeIds.has(String(node.node_id)));
-    const awaitingManagerAcceptance = String(ownNode?.status ?? "") === "PENDING_ACCEPTANCE";
+    const pendingHandoff=pendingManagerHandoff(input.row,input.managerUserId);
+    const awaitingManagerAcceptance = Boolean(pendingHandoff?.requiresAcceptance) || String(ownNode?.status ?? "") === "PENDING_ACCEPTANCE";
     return ownNode || eventStatus !== "CLOSED"
       ? [{
           actionRef: ownNode ? String(ownNode.node_id) : String(input.row.id),
-          assigneeName: awaitingManagerAcceptance ? displayName(ownNode?.assignee_user_id) : "未分派员工",
+          assigneeName: awaitingManagerAcceptance ? displayName(ownNode?.assignee_user_id ?? input.managerUserId) : "未分派员工",
           assignmentKind: awaitingManagerAcceptance ? "MANAGER_ACTION_REQUIRED" : "UNASSIGNED",
           previousAssigneeName: null,
           actionReason: "",
@@ -667,7 +672,7 @@ export function createQualityEventPerspectiveProjector(
           dueAt: nullable(ownNode?.due_at) ?? nullable(input.row.overall_due_at),
           progressNote: "",
           updatedAt: String(input.row.updated_at ?? ""),
-          acceptedAt: nullable(ownNode?.accepted_at),
+          acceptedAt: nullable(ownNode?.accepted_at) ?? pendingHandoff?.acceptedAt ?? null,
           completedAt: null,
           submittedAt: null,
           reviewStatusLabel: awaitingManagerAcceptance ? "待主管承接" : "待员工提交",

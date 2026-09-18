@@ -1,3 +1,5 @@
+import {validateQualityTaskCoverage} from '../../src/agent/quality-task-coverage';
+import {acceptQualityHandoff,assertQualityPlanningAccepted} from '../../src/quality/analysis/quality-handoff-acceptance';
 import { randomUUID } from "node:crypto";
 import { createQualityClosureService } from "../../src/quality/closure/quality-closure-service";
 import { qualityEvidenceRequirements, readQualityEmployeeWork } from "../../src/quality/evidence/quality-employee-work";
@@ -108,7 +110,7 @@ describe("quality formal-task projection", () => {
   it("shows pending planning only to its receiving manager before task publication", () => {
     const db = new DatabaseSync(dbPath);
     db.prepare("UPDATE quality_analysis_handoffs SET plan_id='unpublished-plan' WHERE handoff_id='handoff-1'").run();
-    expect(resolveQualityManagerTaskStageFromDb({db,eventId:"event-1",eventStatus:"PENDING_ASSIGNMENT",managerUserId:"manager-1"})).toBe("DELEGATE");
+    expect(resolveQualityManagerTaskStageFromDb({db,eventId:"event-1",eventStatus:"PENDING_ASSIGNMENT",managerUserId:"manager-1"})).toBe("ACCEPT");
     expect(resolveQualityManagerTaskStageFromDb({db,eventId:"event-1",eventStatus:"PENDING_ASSIGNMENT",managerUserId:"other"})).toBeNull();
     db.close();
   });
@@ -123,14 +125,24 @@ describe("quality formal-task projection", () => {
     try {
       const request = { viewerUserId: "QUALITY_SIM_MANAGER", eventId: "event-1" };
       expect(projector.listEvents(request).events).toEqual([expect.objectContaining({
-        actionRef: "event-1", attentionBucket: "TODO", attentionLabel: "待分派员工",
-        managerStages: ["DELEGATE"], planningHandoff: {
+        actionRef: "event-1", attentionBucket: "TODO", attentionLabel: "待我承接",
+        managerStages: ["ACCEPT"], planningHandoff: {
           planningUrl: "/workbench/manager/chat?thread=side&threadId=thread-1&openDraftEditor=1",
-          analysisVersion: 1, departmentName: "研发中心",
+          analysisVersion: 1, departmentName: "研发中心", handoffId:"handoff-1",requiresAcceptance:true,acceptedAt:null,
         },
       })]);
       expect(projector.getEventDetail(request)?.viewModel.event).toMatchObject({ planningHandoff: expect.any(Object) });
       expect(projector.getEventDetail(request)?.viewModel.allowedActions).toEqual([]);
+      expect(()=>assertQualityPlanningAccepted('plan-1','QUALITY_SIM_MANAGER',dbPath)).toThrow('先在主管质量工作台承接');
+      expect(validateQualityTaskCoverage({planId:'plan-1',latestDraft:{tasks:[]}}).ok).toBe(false);
+      expect(()=>acceptQualityHandoff({eventId:'event-1',handoffId:'handoff-1',managerUserId:'other',actorUserId:'other',dbPath})).toThrow('无权');
+      const accepted=acceptQualityHandoff({eventId:'event-1',handoffId:'handoff-1',managerUserId:'QUALITY_SIM_MANAGER',actorUserId:'admin-real',dbPath});
+      expect(acceptQualityHandoff({eventId:'event-1',handoffId:'handoff-1',managerUserId:'QUALITY_SIM_MANAGER',actorUserId:'admin-real',dbPath})).toEqual(accepted);
+      expect(()=>assertQualityPlanningAccepted('plan-1','QUALITY_SIM_MANAGER',dbPath)).not.toThrow();
+      expect(projector.listEvents(request).events[0]).toMatchObject({attentionLabel:'待分派员工',managerStages:['DELEGATE'],planningHandoff:{requiresAcceptance:false,acceptedAt:accepted.accepted_at}});
+      expect(db.prepare("SELECT COUNT(*) n FROM quality_audit_events WHERE action='QUALITY_HANDOFF_ACCEPTED'").get()!.n).toBe(1);
+      expect(db.prepare('SELECT actor_user_id FROM quality_handoff_acceptances').get()!.actor_user_id).toBe('admin-real');
+
       expect(projector.listEvents({ viewerUserId: "QUALITY_SIM_EMPLOYEE_1" }).events).toEqual([]);
       expect(projector.getEventDetail({ viewerUserId: "QUALITY_SIM_EMPLOYEE_1", eventId: "event-1" })).toBeNull();
       db.prepare(`INSERT INTO quality_analysis_handoffs SELECT 'handoff-2',event_id,2,

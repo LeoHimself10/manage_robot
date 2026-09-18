@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-assessment-20260918-r15",
+  "release": "quality-test-acceptance-20260918-r16",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -50,16 +50,16 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/quality/presentation/quality-event-perspective.ts": {
-      "sha256": "530e582f112d1860a5684013a31158693230fc95aee5a135532fa41f35d7b6f1",
-      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+      "sha256": "d2f9c3e23360771b03539a87cbdf5326411cc4a57cb938aaa9681ac64b94ab1d",
+      "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "src/security/quality-capabilities.ts": {
       "sha256": "5d253cdb36b52b26bb1c5ee37674f0b5240622d5c5b99923cbe84305958a6cf7",
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/assignment-workbench.ts": {
-      "sha256": "f4907c8f5c14ae3b4a0ddfb99415825e4504b91ff99f222afbac445a8161cc49",
-      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+      "sha256": "c31d90da094fbcbd7bac2c9873d91546ab970004ca8442b82a13ef6b223f092a",
+      "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "src/web/quality-http.ts": {
       "sha256": "3650bd4f3c3be74a5e4b9a5457130145d27250c95aa7477fc0b3b6f1becaadb7",
@@ -70,8 +70,8 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/web/quality-tracking-page.ts": {
-      "sha256": "1671ceb894fccb3704e7279ecf18d102a7ca8cd3a36903185bd98b6ee7793b42",
-      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+      "sha256": "e7b4bbfb4d229f2baf8849fb418148c9077c13cb782269165955cde82738490e",
+      "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "src/web/workbench-dd-login-entry.ts": {
       "sha256": "9ca951046599626cb3d3c02f3e4f7b243239d11d4653fff53ae1670d768844f8",
@@ -94,8 +94,8 @@
       "reason": "User-approved inline employee execution prototype V3: formal task authority, required evidence, persistent drafts and atomic completion (2026-09-14)."
     },
     "src/quality/infra/quality-store.ts": {
-      "sha256": "4b641c4d8dd1cbcaad6a8b75acfec6f6bf215d82294aaf9f24f44e966d23c015",
-      "reason": "User-approved inline supervisor acceptance: shared formal review endpoint, scoped returns, optimistic versions, transactional formal reopen and review audit (2026-09-14)."
+      "sha256": "34e1a506da5bee0e53f08f3960ef974cc523bf46941ae5eaaee6e79d7c550864",
+      "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "src/quality/reviews/quality-event-projector.ts": {
       "sha256": "1bc0293e75f969d56686431baa8c03f0240e28e563e02c423ec2afec41e8b456",
@@ -138,8 +138,8 @@
       "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "src/quality/presentation/quality-display-labels.ts": {
-      "sha256": "5a8c2354f6219bcc2b1e45f7a1c67a6254a5dcbf91a5ba4125a1a800efdc6a0b",
-      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+      "sha256": "d7d348900bbab4eba13fa0509de12d8261a6ce0a70ff88dc15be5bc8abfb8a63",
+      "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "src/quality/oa/quality-final-comment.ts": {
       "sha256": "c6f5f9a006a9916124571ec5ce1788258a2d082fcdf7c8d74ccd856c1cfd6b62",
@@ -214,8 +214,8 @@
       "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "src/quality/analysis/quality-analysis-service.ts": {
-      "sha256": "42a4d14705fd08d7b8552c87987d546155a41a7dce6b0a7089c235141061338e",
-      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+      "sha256": "c7a272a63b1c5b724d6b7300b3fc6138a3f795e6c3ea8d111b70b3248bf00c68",
+      "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "public/quality/business-display.js": {
       "sha256": "6551c6606a12b6c93862635ebb511a8c2129a0ef436624d01872d0079c84fe1f",
@@ -226,8 +226,8 @@
       "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "public/quality/tong/dashboard.js": {
-      "sha256": "e98596e6aaeecd721ff2a5af43afae64c4ab66204c55a6b6978ac8de33feb7c9",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "36ffe537cace9ad909a6170d902ee2ca699e17fe3f063ed8dd794cbd5c57f158",
+      "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "public/quality/tong/dashboard.css": {
       "sha256": "781a9eccdf49d2585041c8b9c9e497f317008a6199d0769c1b45446d15a3b9a1",
@@ -282,8 +282,8 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/agent/quality-task-coverage.ts": {
-      "sha256": "06fb6bd460760d1d8280aee0f32a5fb7a4118da0fcd2fbb7ff472487601eaf6d",
-      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+      "sha256": "75de3378b5f35be40bdb0a83c436459e562c80f695a59321b55b2f276cc19116",
+      "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "src/agent/tools/prepare-publish-task.ts": {
       "sha256": "ee86ece3357d5a571d5b8da4a93d96c48d440722b9659652f0caebe03f24fafe",
@@ -332,6 +332,14 @@
     "scripts/quality-assessment-error.mjs": {
       "sha256": "e81525efcb6f51fed61a6d324f2d012c11164af75b8f851df325b548266f495a",
       "reason": "Repair only the OA handling/category mismatch once under full validation; surface safe failure diagnostics (2026-09-18)."
+    },
+    "src/quality/presentation/quality-manager-task-stage.ts": {
+      "sha256": "f1db690c87c07a8c3183fc0c84506b4f912a5ffc967434362f2f3211f4f9c183",
+      "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
+    },
+    "src/quality/analysis/quality-handoff-acceptance.ts": {
+      "sha256": "87ba9c46d7e51b32f9d1433679bcac2da7611fa0f976a609503e58a365a84c0c",
+      "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     }
   },
   "runtimeScripts": [

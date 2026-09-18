@@ -500,6 +500,13 @@ CREATE TABLE IF NOT EXISTS quality_analysis_handoffs (
   UNIQUE(event_id, analysis_version)
 );
 
+CREATE TABLE IF NOT EXISTS quality_handoff_acceptances (
+  handoff_id TEXT PRIMARY KEY REFERENCES quality_analysis_handoffs(handoff_id),
+  manager_user_id TEXT NOT NULL,
+  actor_user_id TEXT NOT NULL,
+  accepted_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_quality_analysis_handoffs_manager
 ON quality_analysis_handoffs(primary_manager_user_id, status, created_at DESC);
 

@@ -58,6 +58,7 @@ export function qualityStatusLabel(status: unknown): string {
 }
 
 export function qualityActionLabel(action: unknown): string {
+  if(action === "QUALITY_HANDOFF_ACCEPTED")return "主管确认承接";
   return ACTION_LABELS[String(action ?? "")] ?? "业务记录已更新";
 }
 
