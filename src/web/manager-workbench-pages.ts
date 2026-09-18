@@ -1141,7 +1141,7 @@ export function renderManagerChatPage(params: {
     </div>
   </div>
 </div>`,
-    scriptHtml: `<script src="/static/workbench-draft-grid.js?v=draft-optional-20260918-r18"></script>
+    scriptHtml: `<script src="/static/workbench-draft-grid.js?v=draft-dependencies-20260918-r19"></script>
 <script>
 (function () {
   ${buildWorkbenchViewSwitchClientJs()}

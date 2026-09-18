@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-draft-editor-20260918-r18b",
+  "release": "quality-test-draft-dependencies-20260918-r19",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "verifiedUiFiles": 31,
@@ -89,7 +89,7 @@
     "src/agent/draft-fingerprint.ts": "91279fa3f4da196d379f0cedbde607b2fa64dabaf70bc53449831a1bc0d0550f",
     "src/agent/draft-merge.ts": "7bba1567eb6273ca0e0d5cf8ac71aaff110cc2862b6e8b024808e97d9e9af72f",
     "src/agent/draft-mutation/false-split.ts": "c1cf02ab737f51db6f8b9093c3bdfb8569a4315a89b46576373870e9c3b55722",
-    "src/agent/draft-person-fields.ts": "bb6e560f3ef386355ae73ee6524a7e3f66f9b3652b5b03e7a7730b45495ccb96",
+    "src/agent/draft-person-fields.ts": "b51b4d604e3f73b71067d7254636f5aeccd2e4a3bfb45f48f480ddc65ee8b5df",
     "src/agent/draft-stabilize.ts": "42d633ac419ec7f1bfc1028839eb3a5c2d8072688407ff8182135fd2e347f28b",
     "src/agent/draft-staging-clear.ts": "705245784c8e9384109373d0e4df427f198189e9740b5cc30cb8d3f685f7c897",
     "src/agent/draft-task-ids.ts": "86874d23b7e56b3b6e747dc72b9624a0800452f922a1ba3043e2ee0d5d62eeee",
@@ -221,7 +221,7 @@
     "src/agent/weekly-dashboard/weekly-dashboard-policy.ts": "348a3ee8acab1a17caca45ac8a60e072752e74ece4d8fc577569e5c411d5bf37",
     "src/agent/weekly-dashboard/weekly-dashboard-timeline.ts": "32c2e941e6c26d8bb26b1be0819b09fd477c744c8a32a17466ee522b9a07bd23",
     "src/agent/workbench/conversation-turn-display.ts": "ecbae04e9f266594a07fba8d86c46322d77ba8aaa0f92d79e7dc6ff11f6dc0b0",
-    "src/agent/workbench/draft-revise-prevalidate.ts": "7ba991a7e37361e3c2bd66a0b15034c95c853d0c548e067e5401e2bca329e092",
+    "src/agent/workbench/draft-revise-prevalidate.ts": "f0a6d8fc641992cb77c90632f7a46c66e1d7382e0a6496b47cf9828a458481ad",
     "src/agent/workbench/draft-revision.ts": "ec635dc9ff0b142ec65bf4ec8a0679bfae8e567e898af6b2652733473ff1e36a",
     "src/agent/workbench/reassign-notify-side-effect.ts": "405b47c15319df497bfe20ece26f6d70c4b1319eaf4a8e9f9378c2092d5b33e7",
     "src/agent/workbench/reassign-with-side-effects.ts": "34ad4d96b2f13b177656596d61e2664e23fe91ef14ee628fd9ed2eb01f3a4819",
@@ -414,7 +414,7 @@
     "src/web/manager-meeting-import-page.ts": "d19f71dd5e8467243c52dcc84db729b6f19b5aad96b9bfbe9313d3454b3ebe0a",
     "src/web/manager-projects-pages.ts": "2f68badace8cae7c3fc1072b1f77380fdd3abf4a2b1972b29a304c3e1cdf4e03",
     "src/web/manager-task-intake-page.ts": "0a4b481771fe56f86e3cc6c32791668bf6626686cc9173b54e8f0e7c0587e825",
-    "src/web/manager-workbench-pages.ts": "4aa5aec1b968020b470606fac2688643b3f890c9d820e33b409b03c4b5749b56",
+    "src/web/manager-workbench-pages.ts": "3992fe2ed885bd3aea6bd04bee1259ada5c8d35bf6794596443e4fd360a434c6",
     "src/web/meeting-import-api.ts": "ae6a0a5177d5f262f0afc0a6042130e6f7b2721e260384014d1d5d07308da3ac",
     "src/web/multipart-single-file.ts": "d7bbe3d47e950a86739d91c43abaf4dcacda8c3461c58e199b06321773ef063c",
     "src/web/ops-dashboard-api.ts": "604bd39e120cada2c3615d9141158509fef10164b498650dfd7b5ff8089fdb16",
@@ -462,7 +462,7 @@
     "src/web/workbench-view-switch-snippet.ts": "10f699b24a7f5a9f91987dbb358ebbeb080ac5058b1e2aab64f914ebdc13791d",
     "dist/performance-chat-markdown.js": "6a5f5f02853c52dd2b3665215c80de77cf8f53f662e6633eadf8205a6ec6e068",
     "dist/workbench-dd-login.js": "db7a1ff4b6f946c9250fde2b490edd9d2c794de21b06935858f089bd688e7cf6",
-    "dist/workbench-draft-grid.js": "5a2296aa29ed63dc12758f81d66af96fc33e561fc2dcf7ad99a2ea545888aa7c",
+    "dist/workbench-draft-grid.js": "37159b4026d476b856bbd3347067fe274bcae41d9e5c7649564de3c3b17f255f",
     "public/quality/admin/posts.html": "b3ad1f0de0919e4a04f327c8e8312175e69c0296bbad374ec0bb5afbd45c8dbd",
     "public/quality/admin/posts.js": "f738780b33c62c4c2cc8199d7475c58f2a4ea225e8fb39602a00488719408b3a",
     "public/quality/business-display.js": "e6bc43324aec49bf4e77e1efc4b302d6de9f0231293626398b104f338fd9b011",
@@ -537,6 +537,6 @@
     "scripts/quality-view-access.mjs": "37ce50203e88e00cc48ccd2bb6bc3ae783373ee46d161cd65757232e7a88a51f",
     "scripts/quality-post-admin.mjs": "611b61b2959659c03633fd0d8b349294bc588031e04b7269fe1ad7feac449d27",
     "scripts/quality-assessment-error.mjs": "b76e1e8a8fd7b9569e3864ee1cc69b220ee0c8adaf9161f6545d6cb34070a085",
-    "quality-release.lock.json": "9e48befa5f5e14a5a8827f7f59df1f9680abe0785dbb792d890bc68f2cab5057"
+    "quality-release.lock.json": "a3281f484948318fa506b99314207a0aceb4422e113f13db19d79ff3b2524607"
   }
 }

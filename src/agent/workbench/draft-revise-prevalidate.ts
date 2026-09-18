@@ -6,7 +6,7 @@ import {
 import { stabilizeDraftTaskIds } from "../draft-stabilize";
 import { reconcileAssignmentWithDraft } from "../assignment/reconcile-assignment";
 import { clearPublishStagingFieldsOnDraft } from "../draft-staging-clear";
-import { normalizeDraftTasksForSession } from "../draft-person-fields";
+import { normalizeDraftTasksForSession, normalizeQualityPlanningPlaceholder } from "../draft-person-fields";
 
 export interface DraftRevisePrevalidateInput {
   draft: Record<string, unknown>;
@@ -29,6 +29,7 @@ export interface DraftRevisePrevalidateError {
 export function prevalidateWorkbenchDraftRevision(
   input: DraftRevisePrevalidateInput,
 ): DraftRevisePrevalidateResult | DraftRevisePrevalidateError {
+  input = {...input, draft: normalizeQualityPlanningPlaceholder(input.draft)};
   const errors: string[] = [];
   const tasks = Array.isArray(input.draft.tasks)
     ? (input.draft.tasks as Array<Record<string, unknown>>)

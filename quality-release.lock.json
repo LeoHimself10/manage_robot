@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-draft-editor-20260918-r18b",
+  "release": "quality-test-draft-dependencies-20260918-r19",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -310,7 +310,7 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/manager-workbench-pages.ts": {
-      "sha256": "f3ced393794d856c49e4122f179af98cf42e6c96ff7b32f273e276d047c2ba08",
+      "sha256": "ca9d7b957a963364315323bfd4171c705931b27754454b98049a50f24955941b",
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/quality-planning-editor.ts": {
@@ -352,6 +352,14 @@
     "src/web/workbench-draft-grid-entry.ts": {
       "sha256": "db5d02e0f4af333bef0e12d4ba0b4eb6980a020c8e6650ee67d6c890bdd12298",
       "reason": "User-requested draft editor readability: optional columns collapsed without loss, wrapping titles, wider editor and responsive text heights."
+    },
+    "src/agent/draft-person-fields.ts": {
+      "sha256": "624a1796897e9c64f17573a3d8891b7c9bfb6f6881b2fe5bca11a9b6ab1f95d6",
+      "reason": "Fix observed quality planning placeholder retaining its internal ID while downstream tasks reference task_1; promote only a complete first starter without collision or confirmed mappings."
+    },
+    "src/agent/workbench/draft-revise-prevalidate.ts": {
+      "sha256": "86b3c01977bee7154a23ffc588cc2c282156d49295d809a2454af4b8eb9cacb0",
+      "reason": "Fix observed quality planning placeholder retaining its internal ID while downstream tasks reference task_1; promote only a complete first starter without collision or confirmed mappings."
     }
   },
   "runtimeScripts": [

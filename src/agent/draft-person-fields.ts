@@ -72,5 +72,24 @@ export function stripPlanningPersonFieldsFromDraft(
 export function normalizeDraftTasksForSession(
   draft: Record<string, unknown>,
 ): Record<string, unknown> {
-  return stripDeprecatedPlanningFieldsOnDraft(stripPlanningPersonFieldsFromDraft(draft));
+  return stripDeprecatedPlanningFieldsOnDraft(stripPlanningPersonFieldsFromDraft(normalizeQualityPlanningPlaceholder(draft)));
+}
+
+/** Promote the first quality starter row only once it contains a real execution task.
+ * Never treat arbitrary dangling task IDs as row numbers or remove dependencies.
+ */
+export function normalizeQualityPlanningPlaceholder(draft: Record<string, unknown>): Record<string, unknown> {
+  const handoff = asRecord(draft.qualityHandoff);
+  const tasks = Array.isArray(draft.tasks) ? draft.tasks as Array<Record<string, unknown>> : [];
+  const first = tasks[0];
+  if (!handoff || handoff.planning || !first || first.id !== "__quality_planning__"
+    || tasks.filter(task => task.id === "__quality_planning__").length !== 1
+    || tasks.some(task => task.id === "task_1")
+    || !String(first.title ?? "").trim() || first.title === "待规划执行任务"
+    || !Array.isArray(first.deliverables) || !first.deliverables.some(value => String(value ?? "").trim())
+    || !Array.isArray(first.completionCriteria) || !first.completionCriteria.some(value => String(value ?? "").trim())) return draft;
+  return {...draft, tasks: tasks.map(task => ({...task,
+    id: task.id === "__quality_planning__" ? "task_1" : task.id,
+    ...(Array.isArray(task.dependencyTaskIds) ? {dependencyTaskIds: task.dependencyTaskIds.map(id => id === "__quality_planning__" ? "task_1" : id)} : {}),
+  }))};
 }
