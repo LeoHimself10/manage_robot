@@ -1,3 +1,4 @@
+import {assessmentFailure,assessmentFailureDiagnostic} from './quality-assessment-error.mjs';
 import {randomBytes,createHash,timingSafeEqual} from 'node:crypto';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -104,7 +105,7 @@ export async function createOaHandler({root,runtime,names={},workflowFactory,pro
             const promise=(async()=>{
               let response;const began=Date.now();
               try {const result=await runtime.run('assessment',input,'DINGTALK_OA');response={ok:true,data:{...result,requestId:b.requestId,createdAt:new Date().toISOString(),durationMs:Date.now()-began,sourceVersion:source.version,dataScope:'DINGTALK_OA'}};}
-              catch {response={ok:false,error:'原系统 AI 调用失败，请重试；已保存的来源和 AI 版本保留。'};}
+              catch (error) {response=assessmentFailure(error,b.requestId);console.error(JSON.stringify(assessmentFailureDiagnostic(error,b.requestId)));}
               store.db.prepare('UPDATE oa_ai SET status=?,response=? WHERE request_id=?').run(response.ok?'SUCCEEDED':'FAILED',JSON.stringify(response),b.requestId);
               return response;
             })().finally(()=>inFlight.delete(b.requestId));inFlight.set(b.requestId,promise);

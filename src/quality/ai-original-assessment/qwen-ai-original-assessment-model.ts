@@ -17,6 +17,7 @@ import { AI_ORIGINAL_ASSESSMENT_V0_MODEL_CONFIG_ID } from
 
 export interface AiOriginalAssessmentModelRequest {
   input: AiOriginalAssessmentInput;
+  validationFeedback?: { previousOutput: unknown; instruction: string };
 }
 
 export interface AiOriginalAssessmentModelResponse {
@@ -165,6 +166,10 @@ export class QwenAiOriginalAssessmentModel implements AiOriginalAssessmentModelA
     const messages = buildAiOriginalAssessmentV0Messages({
       assessmentInput: request.input,
     });
+    if (request.validationFeedback) {
+      messages.push({ role: "assistant", content: JSON.stringify(request.validationFeedback.previousOutput) });
+      messages.push({ role: "user", content: request.validationFeedback.instruction });
+    }
     const result = await this.client.callWithTools({
       traceId: request.input.runMetadata.requestId,
       messages,

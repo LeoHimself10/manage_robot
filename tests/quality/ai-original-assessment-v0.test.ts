@@ -345,3 +345,35 @@ describe("Qwen/DashScope兼容无工具模型适配器", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('OA handling consistency repair',()=>{
+  it('repairs only the handling/category conflict once with original facts and full validation',async()=>{
+    const prepared=prepareAiOriginalAssessmentV0(),valid=buildValidAiSimulatedOutput(prepared.input);
+    const invalid={...valid,handlingRecommendation:'NEEDS_INFO'};
+    const generate=vi.fn().mockResolvedValueOnce(offlineModelResponse(invalid)).mockResolvedValueOnce(offlineModelResponse(valid));
+    const result=await runAiOriginalAssessmentV0({model:{generate},prepared,repairHandlingMismatch:true});
+    expect(result.attempts).toBe(2);expect(result.output).toEqual(valid);expect(invalid.handlingRecommendation).toBe('NEEDS_INFO');
+    expect(generate.mock.calls[1][0].input).toBe(prepared.input);
+    expect(generate.mock.calls[1][0].validationFeedback.previousOutput).toEqual(invalid);
+    expect(generate.mock.calls[1][0].validationFeedback.instruction).toContain('不要机械改标签');
+  });
+  it('does not loop or accept an inconsistent correction',async()=>{
+    const prepared=prepareAiOriginalAssessmentV0(),invalid={...buildValidAiSimulatedOutput(prepared.input),handlingRecommendation:'NEEDS_INFO'};
+    const generate=vi.fn().mockResolvedValue(offlineModelResponse(invalid));
+    await expect(runAiOriginalAssessmentV0({model:{generate},prepared,repairHandlingMismatch:true})).rejects.toMatchObject({code:'MODEL_OUTPUT_INVALID',attempts:2});
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+  it('never retries unrelated invalid output or network errors',async()=>{
+    const prepared=prepareAiOriginalAssessmentV0();
+    const generate=vi.fn().mockResolvedValue(offlineModelResponse({...buildValidAiSimulatedOutput(prepared.input),primaryCategoryCode:'invented'}));
+    await expect(runAiOriginalAssessmentV0({model:{generate},prepared,repairHandlingMismatch:true})).rejects.toMatchObject({code:'MODEL_OUTPUT_INVALID',attempts:1});
+    expect(generate).toHaveBeenCalledTimes(1);
+    generate.mockReset().mockRejectedValue(new Error('offline timeout'));
+    await expect(runAiOriginalAssessmentV0({model:{generate},prepared,repairHandlingMismatch:true})).rejects.toMatchObject({code:'MODEL_CALL_FAILED',attempts:1});
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+  it('keeps default callers single-attempt',async()=>{
+    const prepared=prepareAiOriginalAssessmentV0(),generate=vi.fn().mockResolvedValue(offlineModelResponse({...buildValidAiSimulatedOutput(prepared.input),handlingRecommendation:'NEEDS_INFO'}));
+    await expect(runAiOriginalAssessmentV0({model:{generate},prepared})).rejects.toMatchObject({attempts:1});expect(generate).toHaveBeenCalledTimes(1);
+  });
+});

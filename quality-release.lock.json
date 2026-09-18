@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-roles-planning-20260918-r14",
+  "release": "quality-test-assessment-20260918-r15",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -122,8 +122,8 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "scripts/quality-oa-http.mjs": {
-      "sha256": "5362c22ba0c3b4cdb7a6f2764d48bb353dd9451bd15f7b1054f2a119e70dea1d",
-      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+      "sha256": "da9473ab01b4a3db655a51a55cb177540e91e5db7bef0728ce6bdaa633c40132",
+      "reason": "Repair only the OA handling/category mismatch once under full validation; surface safe failure diagnostics (2026-09-18)."
     },
     "scripts/quality-oa-workflow.mjs": {
       "sha256": "fe5203b9c138ebad6652cf528dec2cdc0efc4864ee67f3660655fb2b7ba9368f",
@@ -198,12 +198,12 @@
       "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "src/quality/ai-original-assessment/ai-original-assessment-v0-context.ts": {
-      "sha256": "eb1b4b176bcbaad263c046fc140657dfa3ca54c7cb315b85790d6c5b00345a6f",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "4a6054b6354eafb759b58ba173c95a0e33940cacf6cc117c89c67559c8a360a9",
+      "reason": "Repair only the OA handling/category mismatch once under full validation; surface safe failure diagnostics (2026-09-18)."
     },
     "src/quality/ai-original-assessment/ai-original-assessment-v0-prompt.ts": {
-      "sha256": "2c5f840a0625223af41c98e77ae72d79c97a7df438922fc7d95c5c025e08513e",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "534d3910d417b5ca7fa034d0d6f05b26114ecd754a17d34530122b3099386b48",
+      "reason": "Repair only the OA handling/category mismatch once under full validation; surface safe failure diagnostics (2026-09-18)."
     },
     "src/quality/analysis/quality-analysis-contracts.ts": {
       "sha256": "7a6d82eca120a4c842cdb351285fd356d1456ff7bf5e603a614134862a549557",
@@ -316,6 +316,22 @@
     "src/web/quality-planning-editor.ts": {
       "sha256": "468238d4bd069b891f03ce881dcb345421ef4ad359085d434043b38ca33cf02e",
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "scripts/quality-ui-ai-runtime.mjs": {
+      "sha256": "2bf8d992cb81d8a95c80c814871176784e1526e4a0be3db701998f7324309067",
+      "reason": "Repair only the OA handling/category mismatch once under full validation; surface safe failure diagnostics (2026-09-18)."
+    },
+    "src/quality/ai-original-assessment/ai-original-assessment-v0-runner.ts": {
+      "sha256": "830e31f221768a4228bf6fa9bb3650521ec4400a242a815d74f0d845ebf461eb",
+      "reason": "Repair only the OA handling/category mismatch once under full validation; surface safe failure diagnostics (2026-09-18)."
+    },
+    "src/quality/ai-original-assessment/qwen-ai-original-assessment-model.ts": {
+      "sha256": "7e43d8dfd54927d7d8c95b11f31a4af7505370eba43171bbd7a4df7bc9e2b79b",
+      "reason": "Repair only the OA handling/category mismatch once under full validation; surface safe failure diagnostics (2026-09-18)."
+    },
+    "scripts/quality-assessment-error.mjs": {
+      "sha256": "e81525efcb6f51fed61a6d324f2d012c11164af75b8f851df325b548266f495a",
+      "reason": "Repair only the OA handling/category mismatch once under full validation; surface safe failure diagnostics (2026-09-18)."
     }
   },
   "runtimeScripts": [
@@ -327,6 +343,7 @@
     "scripts/quality-oa-workflow.mjs",
     "scripts/quality-simulation.mjs",
     "scripts/quality-view-access.mjs",
-    "scripts/quality-post-admin.mjs"
+    "scripts/quality-post-admin.mjs",
+    "scripts/quality-assessment-error.mjs"
   ]
 }

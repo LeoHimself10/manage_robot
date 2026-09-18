@@ -81,9 +81,9 @@ export async function loadOriginalAiRuntime(originalRoot, env = process.env) {
         normalizedFeedback, requestId: body.requestId, sourceVersion: body.source.version, caseRetriever,
       });
       if (kind === 'assessment') {
-        const result = await maRunner.runAiOriginalAssessmentV0({model: new maModel.QwenAiOriginalAssessmentModel(config), prepared});
+        const result = await maRunner.runAiOriginalAssessmentV0({model: new maModel.QwenAiOriginalAssessmentModel(config), prepared, repairHandlingMismatch: dataScope === 'DINGTALK_OA'});
         const category = context.V0_CATEGORY_DICTIONARY.categories.find(x => x.primaryCode === result.output.primaryCategoryCode);
-        return {input: prepared.input, output: result.output, retrievedCases: prepared.input.retrievedCases,
+        return {input: prepared.input, output: result.output, attempts: result.attempts, retrievedCases: prepared.input.retrievedCases,
           category: {primary: category.primaryLabel, secondary: category.secondaryCategories.find(x => x.secondaryCode === result.output.secondaryCategoryCode).secondaryLabel},
           model: result.modelResponse.trace.model, usage: result.modelResponse.trace.tokenUsage,
           promptVersion: health.assessment.promptVersion};

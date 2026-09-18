@@ -128,34 +128,30 @@ export interface AiOriginalAssessmentV0RunResult extends PreparedAiOriginalAsses
 export async function runAiOriginalAssessmentV0(input: {
   model: AiOriginalAssessmentModelAdapter;
   prepared?: PreparedAiOriginalAssessmentV0;
+  /** Only the explicit OA assessment click opts into one consistency repair. */
+  repairHandlingMismatch?: boolean;
 }): Promise<AiOriginalAssessmentV0RunResult> {
   const prepared = input.prepared ?? prepareAiOriginalAssessmentV0();
-  let modelResponse: AiOriginalAssessmentModelResponse;
-  try {
-    modelResponse = await input.model.generate({ input: prepared.input });
-  } catch (error) {
-    throw new AiOriginalAssessmentV0RunError(
-      "MODEL_CALL_FAILED",
-      `AI原始研判模型调用失败：${error instanceof Error ? error.message : String(error)}`,
-      1,
-    );
+  let feedback: { previousOutput: unknown; instruction: string } | undefined;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    let modelResponse: AiOriginalAssessmentModelResponse;
+    try {
+      modelResponse = await input.model.generate({ input: prepared.input, ...(feedback ? { validationFeedback: feedback } : {}) });
+    } catch (error) {
+      throw new AiOriginalAssessmentV0RunError("MODEL_CALL_FAILED",
+        `AI原始研判模型调用失败：${error instanceof Error ? error.message : String(error)}`, attempt);
+    }
+    const validation = validateAiOriginalAssessment(prepared.input, modelResponse.payload);
+    if (validation.ok) return { ...prepared, output: validation.output, validation, modelResponse, attempts: attempt };
+    if (attempt === 1 && input.repairHandlingMismatch && validation.issues.length > 0
+      && validation.issues.every(issue => issue.code === "HANDLING_CATEGORY_MISMATCH")) {
+      feedback = { previousOutput: modelResponse.payload, instruction:
+        "上一份JSON未通过处理方式与分类的一致性校验。请依据同一份原始反馈重新判断并返回完整业务JSON：NEEDS_INFO必须且只能与OTHER_UNCLEAR/INSUFFICIENT_INFO配套；其他分类必须按事实选ORDINARY或QUALITY_ANOMALY。现象明确但根因未知不是信息不足。不要机械改标签，不要编造事实或引用，不要修改原始资料。这是唯一一次修正，结果仍将通过完整校验。" };
+      continue;
+    }
+    throw new AiOriginalAssessmentV0RunError("MODEL_OUTPUT_INVALID",
+      attempt === 1 ? "AI本次返回未通过校验，已停止且未伪造结果、未重新调用模型"
+        : "AI修正后仍未通过校验，已停止且未保存为有效研判", attempt, validation.issues);
   }
-
-  const validation = validateAiOriginalAssessment(prepared.input, modelResponse.payload);
-  if (!validation.ok) {
-    throw new AiOriginalAssessmentV0RunError(
-      "MODEL_OUTPUT_INVALID",
-      "AI本次返回未通过校验，已停止且未伪造结果、未重新调用模型",
-      1,
-      validation.issues,
-    );
-  }
-
-  return {
-    ...prepared,
-    output: validation.output,
-    validation,
-    modelResponse,
-    attempts: 1,
-  };
+  throw new Error("Unreachable assessment attempt");
 }

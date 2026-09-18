@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-roles-planning-20260918-r14",
+  "release": "quality-test-assessment-20260918-r15",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "verifiedUiFiles": 31,
@@ -292,13 +292,13 @@
     "src/integrations/url-fetch/fetch-url-content.ts": "c20448924f5f05e6ab97356d89c8965bb70b89b533049d588c3c7a3bdf535b2b",
     "src/quality/ai-original-assessment/ai-original-assessment-contracts.ts": "eedcdf9f1316c5606b5542e1ab52b8c2ca955e940397d35133f3b96c89252cc7",
     "src/quality/ai-original-assessment/ai-original-assessment-v0-batch.ts": "b9ce9b656ed625431fbce9c5d848c0c812f084642fd826444b1a0093c2285869",
-    "src/quality/ai-original-assessment/ai-original-assessment-v0-context.ts": "4e659f7c2d5e3477672b0b1d19f851ce13ab8533144035bfdf709fc5f2bbe861",
-    "src/quality/ai-original-assessment/ai-original-assessment-v0-prompt.ts": "808ffe619788486bfa7866e6ae5e3d6397ee18de76b03fe78e40a3a8c00cdfee",
-    "src/quality/ai-original-assessment/ai-original-assessment-v0-runner.ts": "890e039088832901a4383755ae2f9e3aa9e3d1f39be88680c509ee909117eca5",
+    "src/quality/ai-original-assessment/ai-original-assessment-v0-context.ts": "2493446177d0d6c5ecdb6be6895378df959d56d426d6d806da721bae31aa8bcf",
+    "src/quality/ai-original-assessment/ai-original-assessment-v0-prompt.ts": "8a01532e17872f95104367db549993d1b752d6f39cdde5ef8d4d67e49090dcc5",
+    "src/quality/ai-original-assessment/ai-original-assessment-v0-runner.ts": "a1aa8acf44886ad34acfc2aed9216d3079e753ec7b31edd61410e85247741fa3",
     "src/quality/ai-original-assessment/historical-feedback-case-retriever.ts": "1e8ddca0ea5ae3df684c93c2430a611aa615130030212fd1dc440e87e4119851",
     "src/quality/ai-original-assessment/historical-feedback-taxonomy-v0.ts": "e72b7318012e532a3916a07dfe37fe4483bf1c129614488b0bd5024b7b509faa",
     "src/quality/ai-original-assessment/historical-feedback-v0-case-index.json": "ca44e86c4cae7a49e6d5bdbedfc8f2e590687c160fb897c37fa7ba235607e549",
-    "src/quality/ai-original-assessment/qwen-ai-original-assessment-model.ts": "15e18b5e389816beb6b4567187489ea001594ff1687eb6c17df71b2fca22f08b",
+    "src/quality/ai-original-assessment/qwen-ai-original-assessment-model.ts": "6f9bcd75f090ff68d08c1fe7620c5c5c772480f824d0edc883f892bc9eff2fcf",
     "src/quality/ai-original-assessment/reported-source-status-policy.ts": "88be0a307c0cfddad8a1e0980e9606b46333184f507c939b130c123714241c09",
     "src/quality/ai-original-assessment/validate-ai-original-assessment.ts": "da1544888506fc8c09fe3e756e95d44e1a0cb8f01aadfac7df0896cc89e36455",
     "src/quality/analysis/quality-analysis-contracts.ts": "26826721ca9aa3809d2e22ffe903b364ac57141d5f2e6ff348b1a414e31ba788",
@@ -529,12 +529,13 @@
     "scripts/quality-production-access.mjs": "895fb38f6baa627a15a11dcb50ca69ba344ee14029fc0dc39093aeab76f927ea",
     "scripts/quality-production-paths.mjs": "a52a739baa5b4a1a2e7398eb5be5512954ba1c458092d890a2524688992961a5",
     "scripts/quality-production-server.mjs": "d80cde5ff9c8102e86da966a3fd7d45509ea253b3a6cea2673319c5296261ef3",
-    "scripts/quality-ui-ai-runtime.mjs": "09ecfbafd7e91c2bed165285f04b4faa4a39f3ceb29aca4c2d9d51cf4b9b16db",
-    "scripts/quality-oa-http.mjs": "0ee6d125247c8bb5f883d96934f24b9fdcf66dbee29d03cdf2998b8ee3d9c926",
+    "scripts/quality-ui-ai-runtime.mjs": "a074fad07e7f8f67508a68a2eff2df5674ef06ff256a8ea3f83d5e576867211b",
+    "scripts/quality-oa-http.mjs": "166f7175cdf51aecafff03f2a706b75203b77f076862c149970654da09d51176",
     "scripts/quality-oa-workflow.mjs": "097a1b7327505f5205f3fbfb158d0b233185e5ddfe0193adddf3e5c656f6c7a4",
     "scripts/quality-simulation.mjs": "5373906bef15839547ba2ff79f0037687d4bd411c081b4c0cc47e8d05443fba5",
     "scripts/quality-view-access.mjs": "37ce50203e88e00cc48ccd2bb6bc3ae783373ee46d161cd65757232e7a88a51f",
     "scripts/quality-post-admin.mjs": "611b61b2959659c03633fd0d8b349294bc588031e04b7269fe1ad7feac449d27",
-    "quality-release.lock.json": "12c026e4963799bd21102884aa1bf9f961002f613fcd96745e850e56124cb93a"
+    "scripts/quality-assessment-error.mjs": "b76e1e8a8fd7b9569e3864ee1cc69b220ee0c8adaf9161f6545d6cb34070a085",
+    "quality-release.lock.json": "125ac5a511b91ca0cee8a267918aa2b5c8dc278a4ad421b816e6ed28789191bf"
   }
 }
