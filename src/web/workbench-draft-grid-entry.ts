@@ -31,20 +31,22 @@ const VISIBLE_KEYS = DRAFT_EXCEL_COLUMN_KEYS.filter(
   (k) => k !== "taskId",
 ) as DraftExcelColumnKey[];
 
-const COL_WIDTH_STORAGE_KEY = "workbench-draft-excel-col-widths-v2";
+const COL_WIDTH_STORAGE_KEY = "workbench-draft-excel-col-widths-v3";
 const DEFAULT_COL_WIDTHS: Partial<Record<DraftExcelColumnKey, number>> = {
   rowNum: 36,
-  title: 140,
-  objective: 120,
-  deliverables: 120,
-  completionCriteria: 140,
-  dueAt: 120,
+  title: 180,
+  objective: 170,
+  deliverables: 190,
+  completionCriteria: 220,
+  dueAt: 145,
   actions: 120,
   dependencyTaskIds: 100,
-  assignee: 140,
+  assignee: 160,
 };
 
 const LONG_TEXT_KEYS = new Set<DraftExcelColumnKey>([
+  "title",
+  "dependencyTaskIds",
   "objective",
   "deliverables",
   "completionCriteria",
@@ -62,6 +64,7 @@ function fitDraftTextareas(root: ParentNode): void {
 }
 
 let overlayEl: HTMLElement | null = null;
+let resizeObserver: ResizeObserver | null = null;
 let detachInputScroll: (() => void) | null = null;
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -122,12 +125,15 @@ function buildRowTr(row: DraftExcelRow, index: number): HTMLTableRowElement {
   tr.dataset.rowNum = String(index + 1);
   VISIBLE_KEYS.forEach((key) => {
     const td = document.createElement("td");
+    td.dataset.colKey = key;
     if (key === "rowNum") {
       td.className = "cell-readonly col-frozen";
       td.textContent = String(index + 1);
     } else if (key === "title") {
       td.className = "col-frozen";
-      const field = document.createElement("input");
+      const field = document.createElement("textarea");
+      field.rows = 2;
+      field.addEventListener("input", () => fitDraftTextarea(field));
       field.className = "cell-input";
       field.value = String(row[key] ?? "");
       td.appendChild(field);
@@ -263,6 +269,8 @@ function attachColumnResize(
 }
 
 export function closeDraftExcelModal(): void {
+  resizeObserver?.disconnect();
+  resizeObserver = null;
   detachInputScroll?.();
   detachInputScroll = null;
   closeDraftCardEditor();
@@ -282,9 +290,10 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   const previousAssignment = loaded.previousAssignment;
 
   overlayEl = el("div", "draft-modal-overlay");
-  const modal = el("div", "draft-modal");
+  const modal = el("div", "draft-modal draft-modal--optional-hidden");
   const top = el("div", "draft-modal-top");
-  const titleInput = document.createElement("input");
+  const titleInput = document.createElement("textarea");
+  titleInput.rows = 2;
   titleInput.className = "draft-meta-input";
   titleInput.value = loaded.title;
   titleInput.placeholder = "任务标题";
@@ -301,7 +310,10 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   const descLbl = el("label");
   descLbl.textContent = "任务背景";
   descLbl.appendChild(descInput);
-  metaRow.append(titleLbl, descLbl);
+  const background = el("details", "draft-background");
+  background.appendChild(el("summary")).textContent = "查看 / 编辑任务背景";
+  background.appendChild(descLbl);
+  metaRow.append(titleLbl, background);
   topLeft.append(metaRow);
   const topRight = el("div", "draft-modal-top-right");
   const fullscreenBtn = el("button", "btn btn-ghost btn-sm");
@@ -318,7 +330,18 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   deleteBtn.textContent = "删除选中行";
   const discardBtn = el("button", "btn btn-secondary btn-sm");
   discardBtn.textContent = "放弃更改";
-  toolbar.append(insertBtn, deleteBtn, discardBtn);
+  const optionalBtn = el("button", "btn btn-secondary btn-sm");
+  const optionalCount = initialRows.filter(row => row.actions || row.dependencyTaskIds).length;
+  const optionalLabel = "可选字段：执行动作 / 前置依赖" + (optionalCount ? `（${optionalCount} 项已有内容）` : "");
+  optionalBtn.textContent = "展开" + optionalLabel;
+  optionalBtn.setAttribute("aria-expanded", "false");
+  optionalBtn.addEventListener("click", () => {
+    const hidden = modal.classList.toggle("draft-modal--optional-hidden");
+    optionalBtn.textContent = (hidden ? "展开" : "收起") + optionalLabel;
+    optionalBtn.setAttribute("aria-expanded", String(!hidden));
+    window.requestAnimationFrame(() => fitDraftTextareas(table));
+  });
+  toolbar.append(insertBtn, deleteBtn, discardBtn, optionalBtn);
 
   const gridWrap = el("div", "draft-modal-grid-wrap");
   const submitOverlay = el("div", "draft-modal-submit-overlay");
@@ -340,7 +363,7 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   const headTr = document.createElement("tr");
   VISIBLE_KEYS.forEach((key) => {
     const th = document.createElement("th");
-    th.textContent = DRAFT_EXCEL_COLUMN_HEADERS[key];
+    th.textContent = DRAFT_EXCEL_COLUMN_HEADERS[key] + (["actions", "dependencyTaskIds"].includes(key) ? "（选填）" : "");
     th.dataset.colKey = key;
     if (key === "rowNum" || key === "title") th.className = "col-frozen";
     headTr.appendChild(th);
@@ -372,6 +395,8 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
   applyColumnWidths(table, colEls);
   attachColumnResize(table, headTr, colEls);
   window.requestAnimationFrame(() => fitDraftTextareas(table));
+  resizeObserver = new ResizeObserver(() => fitDraftTextareas(table));
+  resizeObserver.observe(scroll);
 
   let selectedTr: HTMLTableRowElement | null = tbody.rows[0] ?? null;
   if (selectedTr) selectedTr.classList.add("selected");
@@ -384,6 +409,7 @@ export async function openDraftExcelModal(opts: OpenDraftExcelModalOpts): Promis
     insertBtn.disabled = active;
     deleteBtn.disabled = active;
     discardBtn.disabled = active;
+    optionalBtn.disabled = active;
     closeBtn.disabled = active;
     fullscreenBtn.disabled = active;
   }

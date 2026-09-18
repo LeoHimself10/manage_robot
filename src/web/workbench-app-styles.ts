@@ -2644,9 +2644,9 @@ dialog::backdrop {
   padding: 16px;
 }
 .draft-modal {
-  width: 92vw;
-  height: 88vh;
-  max-width: 1600px;
+  width: 96vw;
+  height: 94vh;
+  max-width: 1840px;
   background: var(--surface);
   border-radius: var(--radius);
   box-shadow: 0 25px 50px rgba(0, 0, 0, 0.22);
@@ -2670,14 +2670,15 @@ dialog::backdrop {
   align-items: flex-start;
   justify-content: space-between;
 }
+.draft-modal .btn { min-height:42px; }
 .draft-modal-top-left { flex: 1; min-width: 240px; }
 .draft-modal-top-left h2 { margin: 0 0 8px; font-size: 17px; }
-.draft-meta-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.draft-meta-row { display: flex; flex-direction: column; gap: 8px; }
 .draft-meta-row label {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--muted);
 }
@@ -2689,7 +2690,13 @@ dialog::backdrop {
   padding: 6px 8px;
   min-width: 200px;
 }
-.draft-meta-textarea { min-width: 320px; min-height: 40px; resize: vertical; }
+.draft-meta-input { width:100%; min-height:52px; max-height:120px; resize:vertical; font-size:14px; line-height:1.65; }
+.draft-meta-textarea { width:100%; min-height:160px; max-height:28vh; resize:vertical; font-size:14px; line-height:1.65; }
+.draft-background summary { cursor:pointer; font-size:13px; color:var(--primary); padding:4px 0; }
+.draft-modal--optional-hidden [data-col-key="actions"],
+.draft-modal--optional-hidden [data-col-key="dependencyTaskIds"] { display:none; }
+.draft-modal .draft-meta-input, .draft-modal .draft-meta-textarea, .draft-excel-table .cell-input { box-sizing:border-box; }
+
 .draft-modal-top-right { display: flex; gap: 6px; flex-wrap: wrap; }
 .draft-modal-toolbar {
   flex-shrink: 0;
@@ -2717,7 +2724,7 @@ dialog::backdrop {
   border-collapse: collapse;
   width: max-content;
   min-width: 100%;
-  font-size: 13px;
+  font-size: 14px;
 }
 .draft-excel-table th {
   position: sticky;
@@ -2778,13 +2785,13 @@ dialog::backdrop {
 }
 .draft-excel-table .cell-input {
   width: 100%;
-  min-height: 36px;
+  min-height: 42px;
   border: none;
   outline: none;
   padding: 6px 8px;
   font: inherit;
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.65;
   background: transparent;
   resize: vertical;
 }

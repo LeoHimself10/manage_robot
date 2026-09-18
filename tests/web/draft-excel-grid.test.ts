@@ -111,4 +111,15 @@ describe("draft-excel-grid", () => {
     expect(next.description).toBe("新描述");
     expect(next.summary).toBe("新描述");
   });
+  it("accepts empty optional actions and dependencies without inventing values", () => {
+    const rows = draftToExcelRows({ draft: sampleDraft });
+    rows.forEach(row => { row.actions = ""; row.dependencyTaskIds = ""; });
+    const result = prevalidateFromExcelRows({rows, title: "质量复盘", description: "背景", previousDraft: sampleDraft});
+    expect(result.ok).toBe(true);
+    if (result.ok) for (const task of result.draft.tasks as Array<Record<string, unknown>>) {
+      expect(task.actions).toEqual([]);
+      expect(task.dependencyTaskIds).toEqual([]);
+    }
+  });
+
 });

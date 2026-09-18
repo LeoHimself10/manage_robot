@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-list-compact-20260918-r17",
+  "release": "quality-test-draft-editor-20260918-r18b",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -310,7 +310,7 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/manager-workbench-pages.ts": {
-      "sha256": "30a228bd47306b249d243c3403e600d119444691c586c9249904dc41d2f0989b",
+      "sha256": "f3ced393794d856c49e4122f179af98cf42e6c96ff7b32f273e276d047c2ba08",
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/quality-planning-editor.ts": {
@@ -344,6 +344,14 @@
     "src/web/quality-unified-styles.ts": {
       "sha256": "9e6928ead40b90759459aadf9900e3834e4c5335fde4fdc684d82d8e577dc989",
       "reason": "User-requested r17 compact manager list: clamp formal assignment titles to two lines, preserve full detail."
+    },
+    "src/web/workbench-app-styles.ts": {
+      "sha256": "30fdf1d60a7b50dc42ff4cb8ab0781ac5f0fbbee02388815bcf9b2ad628cf45d",
+      "reason": "User-requested draft editor readability: optional columns collapsed without loss, wrapping titles, wider editor and responsive text heights."
+    },
+    "src/web/workbench-draft-grid-entry.ts": {
+      "sha256": "db5d02e0f4af333bef0e12d4ba0b4eb6980a020c8e6650ee67d6c890bdd12298",
+      "reason": "User-requested draft editor readability: optional columns collapsed without loss, wrapping titles, wider editor and responsive text heights."
     }
   },
   "runtimeScripts": [

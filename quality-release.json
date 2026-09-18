@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-list-compact-20260918-r17",
+  "release": "quality-test-draft-editor-20260918-r18b",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "verifiedUiFiles": 31,
@@ -414,7 +414,7 @@
     "src/web/manager-meeting-import-page.ts": "d19f71dd5e8467243c52dcc84db729b6f19b5aad96b9bfbe9313d3454b3ebe0a",
     "src/web/manager-projects-pages.ts": "2f68badace8cae7c3fc1072b1f77380fdd3abf4a2b1972b29a304c3e1cdf4e03",
     "src/web/manager-task-intake-page.ts": "0a4b481771fe56f86e3cc6c32791668bf6626686cc9173b54e8f0e7c0587e825",
-    "src/web/manager-workbench-pages.ts": "0b1d27872004a89e94a7a11cbad82ab7e892ad96d169aee8c87d5642a6bb2af1",
+    "src/web/manager-workbench-pages.ts": "4aa5aec1b968020b470606fac2688643b3f890c9d820e33b409b03c4b5749b56",
     "src/web/meeting-import-api.ts": "ae6a0a5177d5f262f0afc0a6042130e6f7b2721e260384014d1d5d07308da3ac",
     "src/web/multipart-single-file.ts": "d7bbe3d47e950a86739d91c43abaf4dcacda8c3461c58e199b06321773ef063c",
     "src/web/ops-dashboard-api.ts": "604bd39e120cada2c3615d9141158509fef10164b498650dfd7b5ff8089fdb16",
@@ -438,14 +438,14 @@
     "src/web/weekly-dashboard-api.ts": "a68ae1ce8d004ff6b7a98f861a12b521d16e863b5d3c77e7bcc7292cb5e3e357",
     "src/web/weekly-dashboard-sanitize.ts": "2ac6b1f7d8ed2b31999328eae95d0da871f32965fecdd244234dde51b4282a2e",
     "src/web/workbench-admin-impersonation.ts": "743fdc8efb8ac8b5d77036c6bfc2c2a62e6020864704895ac2eefef8338fa662",
-    "src/web/workbench-app-styles.ts": "ad4db6fc5accacf93ec4b3c38ff1dffae9c211e5ba69cea535ac82d628b7e971",
+    "src/web/workbench-app-styles.ts": "c87d8b98b0ce0c96bc7f94313e330a7eb8638648f8a9f72bd41947c255312d93",
     "src/web/workbench-attention.ts": "d6cc7294b45cd5f3962043b192d655d22abd4766239f43e1c7efc2cf78281dbe",
     "src/web/workbench-contact-combo-snippet.ts": "8b650fc7febe8ffcd054e57938c6e318414032381c3caaeb6bc3d9f1a135f141",
     "src/web/workbench-contact-combo.ts": "2168d4b4211153305c28433dcc22bdd0282557add7e2c4cd79f13164406ebc09",
     "src/web/workbench-datetime.ts": "0b3973180c7643b0766e5877805ebaead18c443ae263781a2beca8f0adc1252c",
     "src/web/workbench-dd-login-entry.ts": "9c473d8721348c59abd816395a960837079145d8690d3fe474d451965ea473f1",
     "src/web/workbench-draft-card-editor.ts": "01bdf97f20116f6a73d8143c05510e1e18826c42ab34b7f95f2eb591b0e1283f",
-    "src/web/workbench-draft-grid-entry.ts": "302af6a9b144a4c5d2bf2a8ed31d113165fb4ef3c04f17b1ab89510261667322",
+    "src/web/workbench-draft-grid-entry.ts": "60abbd481610847ea4dbf2e2fa5f878ff6dca78aacf45aa78a835867d91180b5",
     "src/web/workbench-draft-submit.ts": "8d4ef2da5236bc07b34fb41e1e455e88c02254cee4b809319d4ba1b1afb60b0a",
     "src/web/workbench-employee-auth-snippet.ts": "d8d6a6f5c4ea9134f9637f2414ba1f236e673fb186fefe5524e422b7ce8b555e",
     "src/web/workbench-keyboard-snippet.ts": "8a3f9bdc90f8aef52b00ee3be87377c51d2427c6541ddf90a1c08e4d11a90489",
@@ -462,7 +462,7 @@
     "src/web/workbench-view-switch-snippet.ts": "10f699b24a7f5a9f91987dbb358ebbeb080ac5058b1e2aab64f914ebdc13791d",
     "dist/performance-chat-markdown.js": "6a5f5f02853c52dd2b3665215c80de77cf8f53f662e6633eadf8205a6ec6e068",
     "dist/workbench-dd-login.js": "db7a1ff4b6f946c9250fde2b490edd9d2c794de21b06935858f089bd688e7cf6",
-    "dist/workbench-draft-grid.js": "fb468b63a3bfa1ea85fb3a57ae4381aabc2b01f9b3b1a23c3279d6e7397440a5",
+    "dist/workbench-draft-grid.js": "5a2296aa29ed63dc12758f81d66af96fc33e561fc2dcf7ad99a2ea545888aa7c",
     "public/quality/admin/posts.html": "b3ad1f0de0919e4a04f327c8e8312175e69c0296bbad374ec0bb5afbd45c8dbd",
     "public/quality/admin/posts.js": "f738780b33c62c4c2cc8199d7475c58f2a4ea225e8fb39602a00488719408b3a",
     "public/quality/business-display.js": "e6bc43324aec49bf4e77e1efc4b302d6de9f0231293626398b104f338fd9b011",
@@ -537,6 +537,6 @@
     "scripts/quality-view-access.mjs": "37ce50203e88e00cc48ccd2bb6bc3ae783373ee46d161cd65757232e7a88a51f",
     "scripts/quality-post-admin.mjs": "611b61b2959659c03633fd0d8b349294bc588031e04b7269fe1ad7feac449d27",
     "scripts/quality-assessment-error.mjs": "b76e1e8a8fd7b9569e3864ee1cc69b220ee0c8adaf9161f6545d6cb34070a085",
-    "quality-release.lock.json": "a1b5d2e2eec48dc418e4f0817c8e55e04c50df6e338dcd6b6d496a14a1a669d9"
+    "quality-release.lock.json": "9e48befa5f5e14a5a8827f7f59df1f9680abe0785dbb792d890bc68f2cab5057"
   }
 }
