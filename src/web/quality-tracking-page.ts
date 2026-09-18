@@ -297,7 +297,19 @@ function buildQualityTrackingClientScript(reviewSourceKey?: string): string {
   function feedbackAiStatus(row) { var live = state.aiStatuses[row.sourceKey]; if (live === 'READY') return '已生成·待确认'; if (live === 'FAILED') return '调用失败'; if (!row.aiAssessment && !row.assessment) return '未运行'; if (!row.assessment) return '已生成·待确认'; if (row.assessment.adoptionMode === 'DIRECT') return '已直接采纳'; if (row.assessment.adoptionMode === 'MODIFIED') return '已修改采纳'; return '人工填写'; }
   function workspaceFeedbackStatus(data) { if (data.reportEvent && data.reportEvent.status !== 'DRAFT') return '已通报'; if (data.sourceUpdatedSinceDecision || data.sourceUpdatedSinceAssessment) return '资料已更新'; if (data.review && data.review.status === 'ORDINARY') return '普通反馈'; if (data.review && data.review.status === 'NEEDS_INFO') return '待补资料'; return data.assessment ? '待正式处置' : '待研判'; }
   function visibleManagerAssignmentItems(item) { var items = Array.isArray(item.assignmentItems) ? item.assignmentItems : []; if (panelPerspective !== 'manager' || !state.metricManagerStage) return items; return items.filter(function (assignment) { return assignment.managerStage === state.metricManagerStage; }); }
-  function renderManagerAssignmentCell(item) { var td = make('td', 'qpc-assignment-cell'), items = visibleManagerAssignmentItems(item); if (!items.length) { td.appendChild(make('strong', '', '未分派员工')); td.appendChild(make('small', 'qpc-meta', '分配事项待主管确认')); return td; } items.slice(0, 3).forEach(function (assignment) { var line = make('div', 'qpc-assignment-line'); line.appendChild(make('strong', '', value(assignment.assigneeName))); var summary = value(assignment.itemTitle) + ' · ' + value(assignment.statusLabel); if (assignment.previousAssigneeName) summary += ' · 原负责人：' + assignment.previousAssigneeName; line.appendChild(make('small', 'qpc-meta', summary)); if (assignment.actionReason) line.appendChild(make('small', 'qpc-meta qpc-assignment-reason', '原因：' + assignment.actionReason)); td.appendChild(line); }); if (items.length > 3) td.appendChild(make('small', 'qpc-meta', '另有 ' + (items.length - 3) + ' 项，点击查看全部')); return td; }
+  function renderManagerAssignmentCell(item) {
+    var td = make('td', 'qpc-assignment-cell'), items = visibleManagerAssignmentItems(item);
+    if (!items.length) { td.appendChild(make('strong', '', '未分派员工')); td.appendChild(make('small', 'qpc-meta', '分配事项待主管确认')); return td; }
+    items.slice(0, 2).forEach(function (assignment) {
+      var line = make('div', 'qpc-assignment-line');
+      line.appendChild(make('strong', '', value(assignment.assigneeName)));
+      if (isManagerFormalAssignmentItem(assignment)) line.appendChild(make('small', 'qpc-meta qpc-assignment-excerpt', value(assignment.itemTitle)));
+      line.appendChild(make('small', 'qpc-meta', value(assignment.statusLabel)));
+      td.appendChild(line);
+    });
+    if (items.length > 2) td.appendChild(make('small', 'qpc-meta', '另有 ' + (items.length - 2) + ' 项，点击查看全部'));
+    return td;
+  }
   function renderFeedbackRow(item) {
     var row = make('tr', state.selectedKey === item.sourceKey ? 'is-active' : ''); row.tabIndex = 0;
     var number = make('button', 'qpc-link', value(item.feedbackNo || ('第' + item.rowNumber + '行'))); number.type = 'button'; number.addEventListener('click', function (event) { event.stopPropagation(); void selectFeedback(item.sourceKey, false); });

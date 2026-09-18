@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-acceptance-20260918-r16",
+  "release": "quality-test-list-compact-20260918-r17",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -70,7 +70,7 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/web/quality-tracking-page.ts": {
-      "sha256": "e7b4bbfb4d229f2baf8849fb418148c9077c13cb782269165955cde82738490e",
+      "sha256": "c5658d3db256a5d5476cf6044f766d502e84b41bafcf836838eb2681e3948e76",
       "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "src/web/workbench-dd-login-entry.ts": {
@@ -340,6 +340,10 @@
     "src/quality/analysis/quality-handoff-acceptance.ts": {
       "sha256": "87ba9c46d7e51b32f9d1433679bcac2da7611fa0f976a609503e58a365a84c0c",
       "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
+    },
+    "src/web/quality-unified-styles.ts": {
+      "sha256": "9e6928ead40b90759459aadf9900e3834e4c5335fde4fdc684d82d8e577dc989",
+      "reason": "User-requested r17 compact manager list: clamp formal assignment titles to two lines, preserve full detail."
     }
   },
   "runtimeScripts": [

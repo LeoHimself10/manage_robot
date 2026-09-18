@@ -42,6 +42,8 @@ export const QUALITY_UNIFIED_STYLES = String.raw`
 .qpc-unified .qpc-table th:nth-child(5){width:9%}
 .qpc-unified .qpc-table th:nth-child(6){width:13%}
 .qpc-unified .qpc-table th:last-child,.qpc-unified .qpc-table tr:not(.qpc-inline-detail)>td:last-child:not([colspan]){display:none}
+.qpc-unified .qpc-assignment-line + .qpc-assignment-line{margin-top:8px}
+.qpc-unified .qpc-assignment-excerpt{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.65;max-height:3.3em;overflow-wrap:anywhere}
 .qpc-unified .qpc-table tr.is-active{background:#edf4ff}
 .qpc-unified .qpc-link{color:#245fc2;text-align:left;white-space:normal}
 .qpc-unified .qpc-inline-detail>td{padding:0!important;background:#f8fbff;border:0}
