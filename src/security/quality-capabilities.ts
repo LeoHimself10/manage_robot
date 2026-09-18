@@ -1,3 +1,4 @@
+import { getQualityPosts, hasQualityPost, qualityPostHolder } from "./quality-posts";
 import { existsSync, readFileSync } from "node:fs";
 import {
   resolveWorkbenchRole,
@@ -72,6 +73,7 @@ function specialistUserIdsForReport(reportUserId: string): string[] {
 }
 
 export function listQualitySpecialistUserIds(): string[] {
+  if(getQualityPosts()) return [qualityPostHolder("quality")!];
   return [...new Set([
     ...envUserIds("QUALITY_MANAGEMENT_USER_IDS"),
     ...envUserIds("QUALITY_SPECIALIST_USER_IDS"),
@@ -85,6 +87,7 @@ export function listQualitySpecialistUserIds(): string[] {
 }
 
 export function listQualityAftersalesManagerUserIds(): string[] {
+  if(getQualityPosts()) return [qualityPostHolder("customer")!];
   return [...envUserIds("QUALITY_AFTERSALES_MANAGER_USER_IDS")].sort();
 }
 
@@ -120,6 +123,14 @@ export function resolveQualityCapabilities(userId: string): QualityCapabilities 
     return {baseRole,roles:[],canAccessTracking:true,canAccessOpinions:false,canReportQuality:false,
       canAnalyzeQuality:false,isBusinessReadOnly:false,hasQualityManagement:false,isProjectManager:false,
       isQualitySpecialist:false,specialistUserIds:[]};
+  }
+  if (getQualityPosts()) {
+    const customer=hasQualityPost(normalized,"customer"), quality=hasQualityPost(normalized,"quality");
+    return {baseRole,roles:[...(customer?["aftersales_manager" as const]:[]),...(quality?["quality_specialist" as const]:[])],
+      canAccessTracking:baseRole==="admin"||customer||quality,canAccessOpinions:false,
+      canReportQuality:customer,canAnalyzeQuality:quality,isBusinessReadOnly:baseRole==="admin"&&!customer&&!quality,
+      hasQualityManagement:quality,isProjectManager:customer,isQualitySpecialist:quality,
+      specialistUserIds:customer?[qualityPostHolder("quality")!]:[]};
   }
   const testActor = getAdminTestActor(normalized);
   if (testActor) {

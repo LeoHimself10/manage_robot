@@ -29,13 +29,13 @@ function seedAdmissions(){
  Object.keys(assessments).forEach(k=>delete assessments[k]);
  for(const r of rows){
   if(['a1','a9'].includes(r.id)){r.review='未选入';continue;}
-  admissions[r.id]={sourceVersion:r.version,at:r.date,by:'马荣鑫（演示）'};
+  admissions[r.id]={sourceVersion:r.version,at:r.date,by:'客服主管（演示）'};
   if(flows[r.id]||['普通反馈','待补资料'].includes(r.review)){
    const a=assessmentFor(r);a.finalized=true;
    a.draft.handling=flows[r.id]?'QUALITY_ANOMALY':r.review==='普通反馈'?'ORDINARY':'NEEDS_INFO';
-   a.draft.conclusion=r.comment||(flows[r.id]?'已核对原始资料，确认通报质量异常，交由佟成初析。':r.review==='普通反馈'?'现场核实后归为普通反馈，保存结论。':'请补充完整操作步骤、设备日志及现场确认。');
+   a.draft.conclusion=r.comment||(flows[r.id]?'已核对原始资料，确认通报质量异常，交由质量主管初析。':r.review==='普通反馈'?'现场核实后归为普通反馈，保存结论。':'请补充完整操作步骤、设备日志及现场确认。');
    a.draft.missing=a.draft.handling==='NEEDS_INFO'?a.draft.conclusion:'';
-   a.saved.push({version:1,sourceVersion:r.updated?r.version-1:r.version,at:r.date,by:'马荣鑫（演示）',draft:structuredClone(a.draft),adoption:'MANUAL',aiId:null,seeded:true});a.dirty=false;
+   a.saved.push({version:1,sourceVersion:r.updated?r.version-1:r.version,at:r.date,by:'客服主管（演示）',draft:structuredClone(a.draft),adoption:'MANUAL',aiId:null,seeded:true});a.dirty=false;
   }
  }
 }
@@ -53,13 +53,13 @@ function decorateIntakeList(){
 function confirmIntake(id){
  const r=rows.find(x=>x.id===id);if(!r)return;
  if(admissions[id])return openAdmitted(id);
- info('确认进入质量事件',`<p class="confirm-lead">将这条事件加入你的<strong>待我研判</strong>？</p><div class="confirm-record"><b>${esc(r.title)}</b><p>OA ${r.no} · 来源 V${r.version}</p><p>${esc(r.person)} · ${r.date} · ${r.fileIds.length} 份原始附件</p></div><p>确认后进入质量事件的待研判环节，由你核对分类、风险和结论；完成研判后再推送佟成初析。</p><button class="btn primary" data-confirm-intake="${id}">确认加入待我研判 ${icon('arrow')}</button>`);
+ info('确认进入质量事件',`<p class="confirm-lead">将这条事件加入你的<strong>待我研判</strong>？</p><div class="confirm-record"><b>${esc(r.title)}</b><p>OA ${r.no} · 来源 V${r.version}</p><p>${esc(r.person)} · ${r.date} · ${r.fileIds.length} 份原始附件</p></div><p>确认后进入质量事件的待研判环节，由你核对分类、风险和结论；完成研判后再推送质量主管初析。</p><button class="btn primary" data-confirm-intake="${id}">确认加入待我研判 ${icon('arrow')}</button>`);
  $('closeInfo').textContent='取消';
 }
 function admitRecord(id){
  const r=rows.find(x=>x.id===id);if(!r)return;
  if(admissions[id])return toast('该事件已选入，不会重复加入。');
- admissions[id]={sourceVersion:r.version,at:demoNow,by:'马荣鑫（演示）'};
+ admissions[id]={sourceVersion:r.version,at:demoNow,by:'客服主管（演示）'};
  r.review='待研判';assessmentFor(r);viewState.lastAdmitted=id;
  $('infoDialog').close();setSurface('feedback');
  state.scope='待我研判';state.query='';state.page=1;state.selected=null;state.filters={};state.fileKind='全部';
@@ -85,7 +85,7 @@ function updateWorkspaceHeading(){
  const pending=!flows[r.id];
  document.querySelector('.breadcrumb').innerHTML=`质量追踪 <span>/</span> <button class="breadcrumb-link" data-return-feedback>${esc(scope)}</button> <span>/</span> ${pending?'AI 与人工研判':esc(r.eventNo)}`;
  document.querySelector('.event-toolbar').innerHTML=`<button class="btn" data-return-feedback>← 返回${esc(scope)}</button><span class="quiet">${pending?'已进入质量事件 · 完成研判后推送质量初析':'质量事件 · 持续跟踪初析、分配、承办与验收'}</span>`;
- document.title=(pending?'待我研判':r.eventNo)+' · 马荣鑫 · 交互原型';
+ document.title=(pending?'待我研判':r.eventNo)+' · 客服主管 · 交互原型';
 }
 function snapshotFixture(r,n){
  const isCatheter=r.id==='a1',isImage=r.id==='a2',enough=isCatheter||isImage;
@@ -108,13 +108,13 @@ function renderAI(r,a){
 function renderAssessment(r){
  if(!admissions[r.id])return emptyStage('请先确认选入','从全部事件核对详细资料，点击“进入质量事件”后才加入待我研判。');
  const a=assessmentFor(r),d=a.draft,last=a.saved.at(-1);
- const intro=`<div class="assessment-intro"><div><b>先 AI 辅助，再由你确认</b><p>已选入待我研判 · 来源 V${r.version} · ${admissions[r.id].at}。${a.finalized?'已保存处理结论。':'已进入质量事件，完成分类、风险和结论研判后，确认推送佟成初析。'}</p></div><button class="btn" data-tab="attachments">${icon('clip')}查看原始附件 ${r.fileIds.length}</button></div>`;
- if(a.finalized)return intro+(a.snapshots.length?renderAI(r,a):`<div class="section-note">${icon('info')}这条既有演示记录未保留 AI 建议快照；下方只展示已有人工结论。</div>`)+`<section class="assessment-section"><div class="section-head"><h3>马荣鑫的最终研判 ${badge(r.review)}</h3><span class="quiet">人工 V${last?.version||1} · 引用来源 V${last?.sourceVersion||r.version}</span></div><p class="long-fact">${esc(d.conclusion)}</p>${d.primary?`<div class="facts-grid">${textFact('分类',d.primary+' / '+d.secondary)}${textFact('风险',riskLabels[d.risk])}${textFact('判断方式',a.adoption==='DIRECT'?'直接采纳 AI':a.adoption==='MODIFIED'?'修改后采纳':'人工填写')}</div>`:''}${d.changeReason?`<p>人工判断 / 修正原因：${esc(d.changeReason)}</p>`:''}${d.missing?`<div class="change-note">需补充：${esc(d.missing)}</div>`:''}<div class="assessment-next">${flows[r.id]?`<span>已关联 ${r.eventNo}，进入佟成初析及后续处理。</span><button class="btn primary" data-tab="analysis">查看佟成初析 ${icon('arrow')}</button>`:r.review==='待补资料'?`<span>${r.version>(last?.sourceVersion||r.version)?'OA 资料已更新为 V'+r.version+'；旧结论继续保留。':'等待员工补齐资料，保留原始表单与附件。'}</span>${r.version>(last?.sourceVersion||r.version)?'<button class="btn primary" data-reopen-assessment>按当前版本重新研判</button>':''}`:'<span>普通反馈已结束，未生成佟成初析或承办任务。</span>'}</div>${renderHumanHistory(a)}</section>`;
- return intro+renderAI(r,a)+`<section class="assessment-section human-section"><div class="section-head"><div><span class="assessment-step">02 · 最终判断</span><h3>我的人工研判</h3></div><span id="adoptionStatus" class="tag blue">${adoptionLabel(a)}</span></div><p class="quiet">可采用 AI 建议，也可自行填写。人工修改不会覆盖上方 AI 原始快照。</p><form id="assessmentForm" novalidate><div class="assessment-fields"><label>一级分类 <em>*</em><select data-assessment-field="primary" aria-label="人工一级分类">${choiceOptions(Object.keys(assessmentCategories),d.primary)}</select></label><label>二级分类 <em>*</em><select data-assessment-field="secondary" aria-label="人工二级分类">${choiceOptions(assessmentCategories[d.primary]||[],d.secondary,'先选择一级分类')}</select></label><label>风险等级 <em>*</em><select data-assessment-field="risk" aria-label="人工风险等级"><option value="">请选择风险</option>${Object.entries(riskLabels).map(([k,v])=>`<option value="${k}" ${d.risk===k?'selected':''}>${v}</option>`).join('')}</select></label><label class="span-all">事实摘要 / 正式问题描述 <em>*</em><textarea data-assessment-field="description" rows="2" maxlength="2000">${esc(d.description)}</textarea></label><label class="span-all">研判结论 <em>*</em><textarea data-assessment-field="conclusion" rows="3" maxlength="2000" placeholder="结合来源事实，写明最终判断和依据">${esc(d.conclusion)}</textarea></label><label class="span-all" id="changeReasonField">人工判断 / 修正原因 <em id="reasonRequired">${a.adoption!=='DIRECT'||assessmentDiff(a).length?'*':''}</em><textarea data-assessment-field="changeReason" rows="2" maxlength="2000" placeholder="修改或否决 AI 建议时，说明依据；未使用 AI 时说明独立判断依据">${esc(d.changeReason)}</textarea></label></div><div id="assessmentDifferences" class="assessment-differences"></div><p class="form-error" id="assessmentError" role="alert" hidden></p><div class="assessment-save"><span class="quiet" id="assessmentSaveStatus">${last&&!a.dirty?'人工 V'+last.version+' 已保存，尚未推送质量初析。':'当前尚有未保存内容；保存不会推送佟成初析。'}</span><button class="btn" type="button" data-save-assessment>保存研判</button></div></form></section><section class="assessment-section disposition-section"><span class="assessment-step">03 · 推送初析</span><h3>确认研判结果，再进入下一环节</h3><p id="dispositionText">${dispositionText()}</p><div class="assessment-next"><span id="dispositionHint" class="quiet">${last&&!a.dirty?'已保存人工 V'+last.version+'，请核对后确认。':'请先保存当前人工研判。'}</span><button class="btn primary" data-confirm-disposition ${!last||a.dirty?'disabled':''}>${dispositionLabel()} ${icon('arrow')}</button></div>${renderHumanHistory(a)}</section>`;
+ const intro=`<div class="assessment-intro"><div><b>先 AI 辅助，再由你确认</b><p>已选入待我研判 · 来源 V${r.version} · ${admissions[r.id].at}。${a.finalized?'已保存处理结论。':'已进入质量事件，完成分类、风险和结论研判后，确认推送质量主管初析。'}</p></div><button class="btn" data-tab="attachments">${icon('clip')}查看原始附件 ${r.fileIds.length}</button></div>`;
+ if(a.finalized)return intro+(a.snapshots.length?renderAI(r,a):`<div class="section-note">${icon('info')}这条既有演示记录未保留 AI 建议快照；下方只展示已有人工结论。</div>`)+`<section class="assessment-section"><div class="section-head"><h3>客服主管的最终研判 ${badge(r.review)}</h3><span class="quiet">人工 V${last?.version||1} · 引用来源 V${last?.sourceVersion||r.version}</span></div><p class="long-fact">${esc(d.conclusion)}</p>${d.primary?`<div class="facts-grid">${textFact('分类',d.primary+' / '+d.secondary)}${textFact('风险',riskLabels[d.risk])}${textFact('判断方式',a.adoption==='DIRECT'?'直接采纳 AI':a.adoption==='MODIFIED'?'修改后采纳':'人工填写')}</div>`:''}${d.changeReason?`<p>人工判断 / 修正原因：${esc(d.changeReason)}</p>`:''}${d.missing?`<div class="change-note">需补充：${esc(d.missing)}</div>`:''}<div class="assessment-next">${flows[r.id]?`<span>已关联 ${r.eventNo}，进入质量主管初析及后续处理。</span><button class="btn primary" data-tab="analysis">查看质量主管初析 ${icon('arrow')}</button>`:r.review==='待补资料'?`<span>${r.version>(last?.sourceVersion||r.version)?'OA 资料已更新为 V'+r.version+'；旧结论继续保留。':'等待员工补齐资料，保留原始表单与附件。'}</span>${r.version>(last?.sourceVersion||r.version)?'<button class="btn primary" data-reopen-assessment>按当前版本重新研判</button>':''}`:'<span>普通反馈已结束，未生成质量主管初析或承办任务。</span>'}</div>${renderHumanHistory(a)}</section>`;
+ return intro+renderAI(r,a)+`<section class="assessment-section human-section"><div class="section-head"><div><span class="assessment-step">02 · 最终判断</span><h3>我的人工研判</h3></div><span id="adoptionStatus" class="tag blue">${adoptionLabel(a)}</span></div><p class="quiet">可采用 AI 建议，也可自行填写。人工修改不会覆盖上方 AI 原始快照。</p><form id="assessmentForm" novalidate><div class="assessment-fields"><label>一级分类 <em>*</em><select data-assessment-field="primary" aria-label="人工一级分类">${choiceOptions(Object.keys(assessmentCategories),d.primary)}</select></label><label>二级分类 <em>*</em><select data-assessment-field="secondary" aria-label="人工二级分类">${choiceOptions(assessmentCategories[d.primary]||[],d.secondary,'先选择一级分类')}</select></label><label>风险等级 <em>*</em><select data-assessment-field="risk" aria-label="人工风险等级"><option value="">请选择风险</option>${Object.entries(riskLabels).map(([k,v])=>`<option value="${k}" ${d.risk===k?'selected':''}>${v}</option>`).join('')}</select></label><label class="span-all">事实摘要 / 正式问题描述 <em>*</em><textarea data-assessment-field="description" rows="2" maxlength="2000">${esc(d.description)}</textarea></label><label class="span-all">研判结论 <em>*</em><textarea data-assessment-field="conclusion" rows="3" maxlength="2000" placeholder="结合来源事实，写明最终判断和依据">${esc(d.conclusion)}</textarea></label><label class="span-all" id="changeReasonField">人工判断 / 修正原因 <em id="reasonRequired">${a.adoption!=='DIRECT'||assessmentDiff(a).length?'*':''}</em><textarea data-assessment-field="changeReason" rows="2" maxlength="2000" placeholder="修改或否决 AI 建议时，说明依据；未使用 AI 时说明独立判断依据">${esc(d.changeReason)}</textarea></label></div><div id="assessmentDifferences" class="assessment-differences"></div><p class="form-error" id="assessmentError" role="alert" hidden></p><div class="assessment-save"><span class="quiet" id="assessmentSaveStatus">${last&&!a.dirty?'人工 V'+last.version+' 已保存，尚未推送质量初析。':'当前尚有未保存内容；保存不会推送质量主管初析。'}</span><button class="btn" type="button" data-save-assessment>保存研判</button></div></form></section><section class="assessment-section disposition-section"><span class="assessment-step">03 · 推送初析</span><h3>确认研判结果，再进入下一环节</h3><p id="dispositionText">${dispositionText()}</p><div class="assessment-next"><span id="dispositionHint" class="quiet">${last&&!a.dirty?'已保存人工 V'+last.version+'，请核对后确认。':'请先保存当前人工研判。'}</span><button class="btn primary" data-confirm-disposition ${!last||a.dirty?'disabled':''}>${dispositionLabel()} ${icon('arrow')}</button></div>${renderHumanHistory(a)}</section>`;
 }
 function adoptionLabel(a){return a.adoption==='DIRECT'?'直接采纳 AI · 建议 V'+(adoptedSnapshot(a)?.version||''):a.adoption==='MODIFIED'?'修改后采纳 AI':'人工独立判断';}
 function dispositionLabel(){return '确认并推送质量初析';}
-function dispositionText(){return '确认分类、风险与研判结论后，推送佟成进行质量初析；本事件从待我研判移至跟踪处理中。';}
+function dispositionText(){return '确认分类、风险与研判结论后，推送质量主管进行质量初析；本事件从待我研判移至跟踪处理中。';}
 function renderHumanHistory(a){return a.saved.length?`<details class="human-history"><summary>人工研判版本记录 · ${a.saved.length} 版</summary>${[...a.saved].reverse().map(s=>`<article><b>人工 V${s.version}</b><small>${s.by} · ${s.at} · 来源 V${s.sourceVersion}${s.aiId?' · 引用 '+s.aiId:' · 人工填写'}</small><p>${esc(s.draft.conclusion)}</p>${s.draft.changeReason?`<p>原因：${esc(s.draft.changeReason)}</p>`:''}</article>`).join('')}</details>`:'';}
 function renderAssessmentBody(){const r=currentRow();if(r&&state.tab==='review'){renderDetailContent(r);updateAssessmentDiff();}}
 function updateAssessmentDiff(){
@@ -126,7 +126,7 @@ function updateAssessmentDiff(){
  $('dispositionText').textContent=dispositionText();
  const button=document.querySelector('[data-confirm-disposition]');
  if(button){button.disabled=!a.saved.length||a.dirty;button.innerHTML=dispositionLabel()+' '+icon('arrow');}
- $('assessmentSaveStatus').textContent=a.dirty?'当前内容尚未保存；保存不会推送佟成初析。':'人工 V'+a.saved.at(-1)?.version+' 已保存，尚未推送质量初析。';
+ $('assessmentSaveStatus').textContent=a.dirty?'当前内容尚未保存；保存不会推送质量主管初析。':'人工 V'+a.saved.at(-1)?.version+' 已保存，尚未推送质量初析。';
  $('dispositionHint').textContent=a.dirty?'请先保存当前人工研判。':'已保存，可核对后确认。';
 }
 async function runAssessmentAI(){
@@ -156,7 +156,7 @@ function saveAssessment(){
  const a=assessmentFor(r);if(a.finalized)return;
  const error=validateAssessment(a);if(error)return assessmentError(error);
  if(!a.dirty&&a.saved.length)return toast('当前版本已保存，无需重复保存。');
- a.saved.push({version:a.saved.length+1,sourceVersion:r.version,at:demoNow,by:'马荣鑫（演示）',draft:structuredClone(a.draft),adoption:a.adoption,aiId:a.adoptedId});a.dirty=false;
+ a.saved.push({version:a.saved.length+1,sourceVersion:r.version,at:demoNow,by:'客服主管（演示）',draft:structuredClone(a.draft),adoption:a.adoption,aiId:a.adoptedId});a.dirty=false;
  renderAssessmentBody();$('dispositionHint')?.scrollIntoView({block:'center',behavior:'instant'});
  toast('人工研判已保存；仍在待我研判，尚未推送初析。');
 }
@@ -173,7 +173,7 @@ function commitDisposition(id,version){
  r.manualConclusion=s.draft.conclusion;r.review='已通报';a.finalized=true;
  if(r.review==='已通报'){
   r.eventNo='QT-DEMO-20260908-'+r.id.replace(/\D/g,'').padStart(3,'0');flows[id]=makeFlow(r,'analysis');flows[id].reviewTime=demoNow;flows[id].updated=demoNow;
-  flows[id].activity=[{category:'研判',time:demoNow,person:'马荣鑫',title:'确认并推送质量初析',text:s.draft.conclusion,tab:'review'}];
+  flows[id].activity=[{category:'研判',time:demoNow,person:'客服主管',title:'确认并推送质量初析',text:s.draft.conclusion,tab:'review'}];
  }
  $('infoDialog').close();
  // Recompute counts without moving the mounted event detail or replacing its persistent navigation.
@@ -181,7 +181,7 @@ function commitDisposition(id,version){
  const flow=$('detailFlow');if(flow)flow.innerHTML=phasePath(r);syncDetailNavigation();
  document.querySelector('#detail .detail-meta').innerHTML=`<span>OA 审批 ${r.no}</span><span>${esc(r.person)} · ${r.date}</span>${badge(r.approval,'approval')} ${badge(r.review)}`;
  document.querySelector('#detail .detail-eyebrow').innerHTML=`${r.eventNo?'质量事件 '+r.eventNo:'已保存人工结论'} ${tag('演示记录')}<span>来源 V${r.version}</span>`;
- updateWorkspaceHeading();$('detail').scrollIntoView({block:'start',behavior:'instant'});toast(r.review==='已通报'?'演示：已确认通报，等待佟成初析。':'演示：处理结论已确认，移入'+(r.review==='待补资料'?'待补资料':'已结束')+'。');
+ updateWorkspaceHeading();$('detail').scrollIntoView({block:'start',behavior:'instant'});toast(r.review==='已通报'?'演示：已确认通报，等待质量主管初析。':'演示：处理结论已确认，移入'+(r.review==='待补资料'?'待补资料':'已结束')+'。');
 }
 function reopenAssessment(){
  const r=currentRow(),a=assessmentFor(r),s=a.saved.at(-1);if(r.review!=='待补资料'||!s||r.version<=s.sourceVersion)return;
@@ -195,7 +195,7 @@ function initializeAssessmentUI(){
  document.querySelector('.scope-summary p').innerHTML='<strong>处理顺序：</strong>全部事件核对资料 → 确认进入质量事件 → 待我研判（AI + 人工）→ 确认后续处理';
  document.querySelector('.search-tip').innerHTML='<span>支持 OA / 事件编号和尾号。试试 <button class="search-example" data-query="48912">48912</button>（尚未选入）或 <button class="search-example" data-query="45802">45802</button>（处理中）</span><span>全部事件的详情在当前行下方展开</span>';
  $('inboxTitle').textContent='事件与处理记录';
- showGuide=function(){info('马荣鑫视角 · 交互评审',`<p>所有数据与 AI 结果为演示；刷新恢复初始状态，未连接真实服务。</p><ol><li>在“全部事件”搜索 48912，核对详细表单和 4 份 OA 附件。</li><li>点击“进入质量事件”，取消不会选入；确认后加入待我研判。</li><li>在待我研判打开该事件，运行 AI 研判，选择直接采纳、修改后采纳或自行判断。</li><li>修改 AI 结论须说明原因。保存研判后，仍需确认并推送佟成初析。</li><li>已通报的事件可查看初析、主管分配、员工承办与验收结果。</li></ol><div class="scenario-list"><button class="btn" data-scenario="a1">从未选入事件开始 · 48912 ${icon('arrow')}</button><button class="btn" data-scenario="a2">已选入待研判 · 51826 ${icon('arrow')}</button><button class="btn" data-scenario="a5">后续处理中 · 45802 ${icon('arrow')}</button><button class="btn" data-scenario="a10">待补资料已收到新版本 ${icon('arrow')}</button></div><button class="text-btn" data-reset-demo>重置全部演示状态</button>`);$('closeInfo').textContent='关闭';};
+ showGuide=function(){info('客服主管视角 · 交互评审',`<p>所有数据与 AI 结果为演示；刷新恢复初始状态，未连接真实服务。</p><ol><li>在“全部事件”搜索 48912，核对详细表单和 4 份 OA 附件。</li><li>点击“进入质量事件”，取消不会选入；确认后加入待我研判。</li><li>在待我研判打开该事件，运行 AI 研判，选择直接采纳、修改后采纳或自行判断。</li><li>修改 AI 结论须说明原因。保存研判后，仍需确认并推送质量主管初析。</li><li>已通报的事件可查看初析、主管分配、员工承办与验收结果。</li></ol><div class="scenario-list"><button class="btn" data-scenario="a1">从未选入事件开始 · 48912 ${icon('arrow')}</button><button class="btn" data-scenario="a2">已选入待研判 · 51826 ${icon('arrow')}</button><button class="btn" data-scenario="a5">后续处理中 · 45802 ${icon('arrow')}</button><button class="btn" data-scenario="a10">待补资料已收到新版本 ${icon('arrow')}</button></div><button class="text-btn" data-reset-demo>重置全部演示状态</button>`);$('closeInfo').textContent='关闭';};
  $('openGuide').onclick=showGuide;
  if(viewState.surface==='event')updateWorkspaceHeading();
  renderTabs();

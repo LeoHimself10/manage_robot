@@ -160,7 +160,7 @@ export function buildPublishTaskHandler(deps: BuildPublishTaskHandlerDeps): Tool
         ok: false,
         reason: "quality_deliverables_uncovered",
         missingDeliverableIds: qualityCoverage.missingDeliverableIds,
-        hint: `正式发布已阻止：以下质量必须成果没有任务覆盖：${qualityCoverage.missingDeliverableIds.join("、")}。`,
+        hint: `正式发布已阻止：请先确认任务结构与成果对应关系，以下成果尚未确认：${qualityCoverage.missingDeliverableIds.join("、")}。`,
       };
     }
 

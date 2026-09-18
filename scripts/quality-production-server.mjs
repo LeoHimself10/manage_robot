@@ -12,6 +12,8 @@ import {createOaHandler} from './quality-oa-http.mjs';
 import {createOaWorkflow} from './quality-oa-workflow.mjs';
 import {seedSimulationDirectory,resolveSimulationActor,simulationSessionToken,simulationNavigation} from './quality-simulation.mjs';
 import {OA_SCOPE} from '../src/quality/oa/oa-store.mjs';
+import {initializeQualityPosts,getQualityPosts,hasQualityPost,qualityPostContext,auditQualityPostOperation} from '../src/security/quality-posts.ts';
+import {handleQualityPostAdmin} from './quality-post-admin.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const release=JSON.parse(await readFile(resolve(root,'quality-release.json'),'utf8'));
@@ -20,10 +22,17 @@ if(process.env.QUALITY_PILOT_TEST_MODE!=='1')throw new Error('Explicit isolated 
 await readFile('/app/data/.quality-test-isolated','utf8');
 const userId=process.env.QUALITY_PILOT_USER_ID;
 const origin=process.env.QUALITY_PILOT_ORIGIN;
-const access=createProductionAccess({userId,origin,secret:process.env.WORKBENCH_SESSION_SECRET||process.env.ASSIGNMENT_WEB_SECRET});
+const isAdministrator=id=>id===userId||(process.env.QUALITY_POST_ADMIN_USER_IDS||'').split(',').includes(id);
+const access=createProductionAccess({userId,origin,secret:process.env.WORKBENCH_SESSION_SECRET||process.env.ASSIGNMENT_WEB_SECRET,
+  allowedUser:id=>isAdministrator(id)||Boolean(getQualityPosts('real')?.some(p=>p.userId===id))});
 const viewAccess=createQualityViewAccess({secret:process.env.WORKBENCH_SESSION_SECRET||process.env.ASSIGNMENT_WEB_SECRET,prefix:PREFIX});
 const dbPath=process.env.WORKBENCH_SQLITE_PATH;
 if(!dbPath||!process.env.QUALITY_PILOT_DATA_DIR)throw new Error('Explicit production database and data directory required');
+process.env.QUALITY_POSTS_DB_PATH=dbPath;
+initializeQualityPosts({real:{customer:OA_SCOPE.reviewerId,quality:OA_SCOPE.cosignerId},test:{customer:userId,quality:userId}});
+// Preserve the contact directory before the simulation seed hides real assignees.
+const postDirectory=new DatabaseSync(dbPath);
+try {postDirectory.exec(`CREATE TABLE IF NOT EXISTS quality_post_directory AS SELECT user_id,name,department_names_json FROM dingtalk_contacts WHERE user_id NOT LIKE 'QUALITY_%' AND deleted_at IS NULL`);} finally {postDirectory.close();}
 const oaClientId=process.env.QUALITY_OA_CLIENT_ID||process.env.DINGTALK_CLIENT_ID;
 const oaClientSecret=process.env.QUALITY_OA_CLIENT_SECRET||process.env.DINGTALK_CLIENT_SECRET;
 if(!process.env.QUALITY_OA_SCOPE_FILE||OA_SCOPE.clientId!==oaClientId||OA_SCOPE.corpId!==process.env.DINGTALK_CORP_ID)throw new Error('OA application and organization scope mismatch');
@@ -48,7 +57,7 @@ const oa=await createOaHandler({root,runtime,names,productionAccess:access,tongA
 const {handleAssignmentHttp}=await import('../src/web/assignment-workbench.ts');
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.woff2':'font/woff2'};
 function reject(res,status,message){res.writeHead(status,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'});res.end(message);}
-const server=http.createServer(async(req,res)=>{
+const server=http.createServer(async(req,res)=>qualityPostContext.run({scope:isAdministrator(access(req)?.userId)?'test':'real',actorUserId:access(req)?.userId||''},async()=>{
   res.setHeader('X-Quality-Release',release.release);
   try {
     if(req.url==='/health'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,service:'quality-pilot',release:release.release,uiCommit:release.uiCommit,backendCommit:release.backendCommit}));return;}
@@ -63,11 +72,22 @@ const server=http.createServer(async(req,res)=>{
       if(signingUrl.origin!==origin||!signingUrl.pathname.startsWith(PREFIX+'/'))return reject(res,400,'无效免登页面');
     }
     const identity=access(req);
+    const admin=Boolean(identity&&isAdministrator(identity.userId));
+    if(await handleQualityPostAdmin(req,res,{identity,isAdmin:admin,dbPath,path,url}))return;
+    if(path.startsWith('/admin/')&&!admin)return reject(res,403,'仅管理员可访问岗位配置');
+    if(identity&&!admin&&!loginRoute){
+      const customer=hasQualityPost(identity.userId,'customer','real'),quality=hasQualityPost(identity.userId,'quality','real');
+      if(path==='/'||path==='/workbench'){res.writeHead(302,{Location:PREFIX+(customer?'/ma-workbench/':'/tong/')});res.end();return;}
+      if((path.startsWith('/tong/')||path.startsWith('/api/quality-oa/tong'))&&!quality)return reject(res,403,'当前账号没有质量主管权限');
+      if(path.startsWith('/ma-workbench/')&&!customer)return reject(res,403,'当前账号没有客服主管权限');
+      if(req.method==='POST'&&path.startsWith('/api/quality-oa/')&&!path.startsWith('/api/quality-oa/tong')&&!customer)return reject(res,403,'当前账号没有客服主管权限');
+      if(!path.startsWith('/api/quality-oa/')&&!path.startsWith('/tong/')&&!path.startsWith('/ma-workbench/')&&path!=='/business-display.js'&&!path.startsWith('/api/workbench/quality/evidence/'))return reject(res,403,'请从岗位工作台处理质量业务');
+    }
     if(!identity&&!loginRoute){
       if(req.method==='GET'&&!url.pathname.includes('/api/')){
         res.writeHead(302,{Location:PREFIX+'/workbench?next='+encodeURIComponent(PREFIX+'/ma-workbench/'),'Cache-Control':'no-store'});res.end();return;
       }
-      return reject(res,403,'新版仅限曹玉寒通过钉钉登录访问。');
+      return reject(res,403,'请使用已配置质量岗位的钉钉账号登录。');
     }
     if(path==='/'){res.writeHead(302,{Location:PREFIX+'/ma-workbench/'});res.end();return;}
     if(identity&&path==='/workbench'&&req.method==='GET'){
@@ -91,7 +111,7 @@ const server=http.createServer(async(req,res)=>{
     }
     // Only the fixed simulation actor list may change internal business identity.
     if(path.startsWith('/oa/')||/\/(?:login|logout|impersonat|test-actor)/i.test(path)||url.searchParams.has('testActor'))return reject(res,403,'此入口不支持切换登录身份');
-    const simulated=identity&&!loginRoute?resolveSimulationActor(path,url,req.headers.cookie):null;
+    const simulated=admin&&!loginRoute?resolveSimulationActor(path,url,req.headers.cookie):null;
     const viewPage=identity&&!loginRoute&&['GET','HEAD'].includes(req.method)&&(
       ['/tong/','/tong/index.html','/ma-workbench/','/ma-workbench/index.html','/workbench/quality'].includes(path));
     if(viewPage){
@@ -99,7 +119,7 @@ const server=http.createServer(async(req,res)=>{
       res.setHeader('Set-Cookie',viewAccess.cookie(identity,view));
     }
     if((path.startsWith('/api/quality-oa/tong')||(path.startsWith('/tong/')&&!viewPage))&&
-      (simulated||!viewAccess.isTong(req,identity)))return reject(res,403,'请切换到佟成视角访问质量处理工作台');
+      (simulated||!viewAccess.isTong(req,identity)))return reject(res,403,'请切换到质量主管视角访问质量处理工作台');
     if(identity&&!loginRoute&&req.method==='GET'&&!path.startsWith('/api/')&&!path.startsWith('/static/')&&!/\.(js|css|svg|png)$/.test(path)){
       res.setHeader('Set-Cookie',[...(res.getHeader('Set-Cookie')?[res.getHeader('Set-Cookie')]:[]),`quality_simulation=${simulated?.ref||''}; Path=${PREFIX}/; HttpOnly; Secure; SameSite=Lax; Max-Age=43200`]);
     }
@@ -108,7 +128,7 @@ const server=http.createServer(async(req,res)=>{
     res.end=function(chunk,...args){
       if(chunk&&/text\/|javascript|json/.test(String(res.getHeader('content-type')||''))){
         chunk=rewriteProductionLinks(Buffer.isBuffer(chunk)?chunk.toString('utf8'):String(chunk));
-        if(String(res.getHeader('content-type')||'').includes('text/html'))chunk=chunk.replace(/<body([^>]*)>/i,(_,attrs)=>'<body'+attrs+'>'+simulationNavigation(simulated));
+        if(String(res.getHeader('content-type')||'').includes('text/html')&&admin)chunk=chunk.replace(/<body([^>]*)>/i,(_,attrs)=>'<body'+attrs+'>'+simulationNavigation(simulated));
         if(!res.headersSent)res.removeHeader('content-length');
       }
       return originalEnd(chunk,...args);
@@ -121,6 +141,7 @@ const server=http.createServer(async(req,res)=>{
       return writeHead(status,...args);
     };
     if(simulated&&req.method==='POST'&&path.startsWith('/api/quality-oa/'))return reject(res,403,'请切换回质量管理视角后操作');
+    if(req.method==='POST'&&path.startsWith('/api/quality-oa/'))res.once('finish',()=>{try{auditQualityPostOperation(path,res.statusCode);}catch(e){console.error('quality_post_audit_failed',e.code||e.name);}});
     if(await oa.handle(req,res))return;
     if(path.startsWith('/api/quality-ui/')){
       if(path==='/api/quality-ui/status'&&req.method==='GET'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,data:runtime.health}));return;}
@@ -142,13 +163,13 @@ const server=http.createServer(async(req,res)=>{
       if(handleAssignmentHttp(req,res))return;
     }
     if(!['GET','HEAD'].includes(req.method))return reject(res,405,'Method not allowed');
-    if(path!=='/business-display.js'&&!path.startsWith('/tong/')&&!path.startsWith('/ma-workbench/'))return reject(res,404,'Not found');
+    if(path!=='/business-display.js'&&!path.startsWith('/tong/')&&!path.startsWith('/ma-workbench/')&&!path.startsWith('/admin/'))return reject(res,404,'Not found');
     const publicRoot=await realpath(resolve(root,'public/quality'));
     const file=await realpath(resolve(publicRoot,'.'+decodeURIComponent(path)+(path.endsWith('/')?'index.html':'')));
     if(relative(publicRoot,file).startsWith('..')||!types[extname(file)]||!(await stat(file)).isFile())return reject(res,404,'Not found');
     res.setHeader('Content-Type',types[extname(file)]);res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');
     res.end(req.method==='HEAD'?undefined:await readFile(file));
   }catch(error){if(!res.headersSent)reject(res,500,'页面暂时无法读取，请重试');else res.end();console.error('quality_pilot_error',error.code||error.name);}
-});
+}));
 server.requestTimeout=240000;
 server.listen(Number(process.env.PORT||8092),'0.0.0.0',()=>console.log('quality_pilot_ready'));

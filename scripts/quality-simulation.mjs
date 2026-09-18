@@ -57,7 +57,7 @@ export function simulationSessionToken(identity,actor,secret) {
 
 export function simulationNavigation(actor) {
   const prefix='/workbench/quality-pilot';
-  const links=[['马荣鑫',prefix+'/ma-workbench/'],['佟成',prefix+'/tong/'],
+  const links=[['岗位配置',prefix+'/admin/posts.html'],['客服主管（模拟）',prefix+'/ma-workbench/'],['质量主管（模拟）',prefix+'/tong/'],
     ...SIMULATION_ACTORS.map(a=>[a.name,`${prefix}/workbench/quality?perspective=${a.role}&simulation=${a.ref}`])];
   return `<nav aria-label="模拟视角" style="padding:10px 16px;background:#fff4cc;color:#684900;font-size:14px;line-height:1.8;text-align:center"><strong>测试系统 · ${actor?.name||'质量研判与初析'} · 数据已隔离，禁止真实推送</strong><br>${links.map(([name,url])=>`<a style="display:inline-block;padding:5px 12px" target="_self" href="${url}">${name}</a>`).join('')}</nav>`;
 }

@@ -179,7 +179,7 @@ export function buildPreparePublishTaskHandler(
         ok: false,
         reason: "quality_deliverables_uncovered",
         missingDeliverableIds: qualityCoverage.missingDeliverableIds,
-        hint: `以下质量必须成果尚未被任何子任务覆盖：${qualityCoverage.missingDeliverableIds.join("、")}。请补充任务或在对应任务保留qualityDeliverableIds映射后再预检。`,
+        hint: `以下质量必须成果尚未被任何子任务覆盖：${qualityCoverage.missingDeliverableIds.join("、")}。请在“编辑任务与成果对应 / 确认结构”中核对任务及最终交付关系，确认后再预检。`,
       };
     }
 

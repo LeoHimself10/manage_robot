@@ -57,7 +57,7 @@ function acceptanceImpact(e, target) {
   const n=acceptanceNodes(e).find(n=>n.id===target);
   if (!n) return '<strong>先选择一个退回节点</strong>可以退回主管，也可以退回某个员工承担的具体任务。';
   if (n.kind==='MANAGER') return `<strong>退回给主管 · ${esc(n.person)}</strong>由主管核对问题并组织后续处理。员工已提交的结果和历史证据保留，由主管判断哪些工作需要补充。`;
-  return `<strong>退回给员工 · ${esc(n.person)}</strong>${esc(n.title)} → ${esc(n.manager)}重新验收 → 佟成质量验收。其他任务的有效结果与全部历史证据保留。`;
+  return `<strong>退回给员工 · ${esc(n.person)}</strong>${esc(n.title)} → ${esc(n.manager)}重新验收 → 质量主管质量验收。其他任务的有效结果与全部历史证据保留。`;
 }
 function renderAcceptanceHistory(e) {
   const history = e.acceptanceHistory;
@@ -65,7 +65,7 @@ function renderAcceptanceHistory(e) {
   if (!history.length && !legacy.length) return '';
   return `<details class="acceptance-history"><summary>历史验收记录 · ${history.length+legacy.length} 条</summary>
     ${[...history].reverse().map(h=>`<article class="acceptance-history-item">${badge(h.outcome==='PASS'?'验收通过':h.outcome==='REOPEN'?'重开事件':'验收不通过',h.outcome==='PASS'?'green':'amber')}
-      <small>佟成 · ${esc(h.time)}${h.target?' · 退回给 '+esc(h.target.person):''}</small><p>${esc(h.comment)}</p></article>`).join('')}
+      <small>质量主管 · ${esc(h.time)}${h.target?' · 退回给 '+esc(h.target.person):''}</small><p>${esc(h.comment)}</p></article>`).join('')}
     ${[...legacy].reverse().map(c=>`<article class="acceptance-history-item">${badge('历史验收通过','green')} <small>${esc(c.author)} · ${esc(c.time)}</small><p>${esc(c.conclusion)}</p>
       <details class="link-details"><summary>查看历史完整记录</summary>${block('最终分类',c.category)}${block('根因',c.root)}${block('处理措施',c.measure)}${block('验证结果',c.validation)}</details></article>`).join('')}
   </details>`;
@@ -86,13 +86,13 @@ renderFinal = function(e) {
   let html=`<div class="section-heading"><div><h3>质量验收</h3><p>核对任务结果与证据，选择本次验收结果。</p></div>${badge(statusText[e.mode],tone(e))}</div>`;
   if (e.mode==='closed') {
     const c=e.closures.at(-1);
-    return html+`<div class="acceptance-record"><h3>✓ 验收通过，事件已关闭</h3><p>${esc(c?.conclusion||'历史验收通过')}</p><small>${esc(c?.author||'佟成')} · ${esc(c?.time||'')} · 证据与历史版本已保留</small></div>`+
+    return html+`<div class="acceptance-record"><h3>✓ 验收通过，事件已关闭</h3><p>${esc(c?.conclusion||'历史验收通过')}</p><small>${esc(c?.author||'质量主管')} · ${esc(c?.time||'')} · 证据与历史版本已保留</small></div>`+
       renderOaComments(e)+`<div class="form-actions"><button class="btn" data-tab="evidence">查看验收证据</button><button class="text-btn" data-action="reopen">选择节点并重开事件</button></div>`+renderAcceptanceHistory(e);
   }
   if (e.mode!=='quality') {
     const ret=e.returnInfo;
     html+=ret&&['returned','reopened'].includes(e.mode)?`<div class="acceptance-record returned"><h3>${e.mode==='reopened'?'事件已重开':'验收不通过'} · 已退回${ret.kind==='MANAGER'?'主管':'员工'}</h3><p>${esc(ret.reason)}</p><small>当前处理：${esc(ret.person||tasks(e).find(t=>t.id===ret.taskId)?.person||'对应责任人')} · ${esc(ret.time)}</small></div>`:note('任务处理及主管验收完成后，再进行质量验收。');
-    html+=`<div class="form-actions"><span class="muted">${ret?.kind==='MANAGER'?'等待主管核对并重新提交验收。':'补充处理并通过主管验收后，再交佟成验收。'}</span><button class="btn" data-tab="evidence">查看责任链与证据</button></div>`;
+    html+=`<div class="form-actions"><span class="muted">${ret?.kind==='MANAGER'?'等待主管核对并重新提交验收。':'补充处理并通过主管验收后，再交质量主管验收。'}</span><button class="btn" data-tab="evidence">查看责任链与证据</button></div>`;
     return html+(e.oaComments.length?renderOaComments(e):'')+renderAcceptanceHistory(e);
   }
   const f=acceptanceDraft(e),gate=acceptanceGate(e);
@@ -164,9 +164,9 @@ closeEvent = function() {
   if (f.comment.length>ACCEPTANCE_LIMIT) return acceptanceError('验收意见最多 2000 字。');
   const comment=f.comment.trim(),round=e.closures.length+1,id=e.id+'-acceptance-'+round;
   if (e.oaComments.some(c=>c.id===id)) return;
-  const c={id,author:'佟成',time:NOW,opinion:comment,content:'【质量验收通过】\n事件：'+e.no+' · '+e.source.title+'\n\n'+comment,status:'PENDING',attempts:1,failDelivery:!!e.failNextOaComment};
+  const c={id,author:'质量主管',time:NOW,opinion:comment,content:'【质量验收通过】\n事件：'+e.no+' · '+e.source.title+'\n\n'+comment,status:'PENDING',attempts:1,failDelivery:!!e.failNextOaComment};
   e.failNextOaComment=false;
-  e.closures.push({acceptanceId:id,author:'佟成',time:NOW,conclusion:comment,category:e.versions.at(-1)?.confirmedCategory||e.managerReview.category});
+  e.closures.push({acceptanceId:id,author:'质量主管',time:NOW,conclusion:comment,category:e.versions.at(-1)?.confirmedCategory||e.managerReview.category});
   e.acceptanceHistory.push({id,outcome:'PASS',comment,time:NOW});
   e.oaComments.push(c);e.mode='closed';e.finalDraft=null;
   log(e,'质量验收通过',comment);

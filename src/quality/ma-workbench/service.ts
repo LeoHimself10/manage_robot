@@ -1,3 +1,4 @@
+import { ownsCustomerHistory, qualityPostDisplayName } from "../../security/quality-posts";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
@@ -91,10 +92,10 @@ export function createMaWorkbenchService(deps: {
     const event = assessments.getLinkedEvent(key);
     if (event) {
       const owner = db.prepare("SELECT created_by,is_test FROM quality_events WHERE id=? AND deleted_at IS NULL").get(event.eventId) as Row | undefined;
-      if (!owner || Number(owner.is_test) === 1 || String(owner.created_by) !== actor) throw new MaWorkbenchError("NOT_FOUND", "反馈不存在或无权查看");
+      if (!owner || Number(owner.is_test) === 1 || !ownsCustomerHistory(actor,String(owner.created_by))) throw new MaWorkbenchError("NOT_FOUND", "反馈不存在或无权查看");
     }
     const admitted = admission(key);
-    if (admitted && admitted.admitted_by !== actor) throw new MaWorkbenchError("NOT_FOUND", "反馈不存在或无权查看");
+    if (admitted && !ownsCustomerHistory(actor,String(admitted.admitted_by))) throw new MaWorkbenchError("NOT_FOUND", "反馈不存在或无权查看");
     return row;
   }
   function requireAdmission(key: string, actor: string, expectedSourceVersion: number): Row {
@@ -149,7 +150,7 @@ export function createMaWorkbenchService(deps: {
     const query = createQualityEventQuery(dbPath);
     let detail: ReturnType<typeof query.getEventDetail>;
     try { detail = query.getEventDetail({ eventId, viewerUserId: actor }); } finally { query.close(); }
-    if (!detail || detail.event.createdBy !== actor) throw new MaWorkbenchError("NOT_FOUND", "质量事件不存在或无权查看");
+    if (!detail || !ownsCustomerHistory(actor,detail.event.createdBy)) throw new MaWorkbenchError("NOT_FOUND", "质量事件不存在或无权查看");
     const evidence = detail.evidence.map(item => ({ id: String(item.evidenceId), name: String(item.originalName), mimeType: String(item.mimeType), sizeBytes: Number(item.sizeBytes), category: "处理证据", downloadUrl: `/api/workbench/quality/evidence/${encodeURIComponent(String(item.evidenceId))}`, status: "AVAILABLE", version: Number(item.evidenceVersion), nodeId: String(item.nodeId), uploader: name(item.uploadedBy), createdAt: String(item.createdAt), summary: String(item.summary ?? "") }));
     const reviews = detail.reviews.map(item => ({ nodeId: String(item.nodeId), reviewer: name(item.reviewerUserId), decision: String(item.decision), reason: String(item.reason ?? ""), createdAt: String(item.createdAt) }));
     const versions = hasTable("quality_analysis_versions") ? rows("SELECT * FROM quality_analysis_versions WHERE event_id=? ORDER BY analysis_version DESC", eventId) : [];
@@ -163,18 +164,18 @@ export function createMaWorkbenchService(deps: {
         const node = detail!.assignmentTree.find(node => node.subtaskId === item.subtaskId);
         return { taskId: item.taskId, taskNo: item.taskNo, subtaskId: item.subtaskId, title: item.subtaskTitle, objective: item.objective, deliverables: item.deliverables, completionCriteria: item.completionCriteria, assignee: name(item.assigneeUserId), assigneeUserId: item.assigneeUserId, manager: name(item.managerUserId), managerUserId: item.managerUserId, department: String(node?.departmentName ?? handoffs[0]?.primary_department_name ?? ""), status: item.status, statusLabel: qualityFormalTaskStatusLabel(item.status, item.openDeclineKind), dueAt: item.dueAt, progressNote: item.progressNote, acceptedAt: item.acceptedAt, completedAt: item.completedAt, evidence: evidence.filter(ev => ev.nodeId === node?.nodeId), reviews: reviews.filter(review => review.nodeId === node?.nodeId) };
       }), evidence, reviews,
-      timeline: detail.publicAudit.map((item, index) => ({ id: `${eventId}:${index}`, action: item.action === "REPORT_SUBMITTED" ? "研判已推送质量初析" : item.action === "REPORTING_SNAPSHOTS_FROZEN" ? "保存正式通报来源与研判快照" : qualityActionLabel(item.action), actor: name(item.actorUserId), at: String(item.occurredAt), reason: nullable(item.reason) })),
+      timeline: detail.publicAudit.map((item, index) => ({ id: `${eventId}:${index}`, action: item.action === "REPORT_SUBMITTED" ? "研判已推送质量初析" : item.action === "REPORTING_SNAPSHOTS_FROZEN" ? "保存正式通报来源与研判快照" : qualityActionLabel(item.action), actor: item.actorRole === "aftersales_manager" ? "客服主管" : item.actorRole === "quality_specialist" ? "质量主管" : name(item.actorUserId), at: String(item.occurredAt), reason: nullable(item.reason) })),
     };
   }
   function get(key: string, actor: string): MaFeedbackDetail {
     const row = source(key, actor); const base = summary(row); const saved = assessments.getAssessment(key);
-    const history = rows("SELECT * FROM quality_source_assessment_audit WHERE source_key=? ORDER BY occurred_at DESC,rowid DESC", key).map(row => { const value = assessmentView(object(row.after_json)); return { ...value, reviewedBy: name(value.reviewedBy) }; });
+    const history = rows("SELECT * FROM quality_source_assessment_audit WHERE source_key=? ORDER BY occurred_at DESC,rowid DESC", key).map(row => { const value = assessmentView(object(row.after_json)); return { ...value, reviewedBy: "客服主管" }; });
     const aiHistory = rows("SELECT * FROM quality_source_ai_assessments WHERE source_key=? ORDER BY created_at DESC,rowid DESC", key).map(aiView);
     const currentAi = aiHistory.find(item => item.sourceVersion === base.sourceVersion) ?? null;
     const admittedCurrent = base.admission != null && base.admission.sourceVersion === base.sourceVersion;
     const raw = object(row.raw_snapshot_json);
     return { ...base, rawFields: Object.entries(raw).map(([label, value]) => ({ label, value: typeof value === "string" ? value : JSON.stringify(value) })),
-      attachments: attachments(key), assessment: saved ? { ...assessmentView(saved), reviewedBy: name(saved.reviewedBy) } : null, aiAssessment: currentAi,
+      attachments: attachments(key), assessment: saved ? { ...assessmentView(saved), reviewedBy: "客服主管" } : null, aiAssessment: currentAi,
       assessmentHistory: history, aiHistory, sourceUpdatedSinceAdmission: base.admission != null && !admittedCurrent,
       sourceUpdatedSinceAssessment: saved != null && saved.sourceVersion !== base.sourceVersion,
       canAssess: admittedCurrent && !base.event,

@@ -1,3 +1,4 @@
+import { ownsCustomerHistory } from "../../security/quality-posts";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -295,9 +296,9 @@ export function createQualityEventService(deps?: {
   function ownedDraft(actor: QualityEventActor, eventId: string): QualityEventRecord {
     const row = db.prepare(`
       SELECT * FROM quality_events
-      WHERE id = ? AND status = 'DRAFT' AND created_by = ? AND deleted_at IS NULL
-    `).get(eventId, actor.userId) as DatabaseRow | undefined;
-    if (!row) throw new Error("draft not found");
+      WHERE id = ? AND status = 'DRAFT' AND deleted_at IS NULL
+    `).get(eventId) as DatabaseRow | undefined;
+    if (!row || !ownsCustomerHistory(actor.userId,String(row.created_by))) throw new Error("draft not found");
     return eventFromRow(row);
   }
 
@@ -565,7 +566,7 @@ export function createQualityEventService(deps?: {
       draft: qualityDraftFieldsSchema.parse({ ...prefilled, ...input.overrides }),
     });
     if (!result.created && result.event.status === "DRAFT"
-      && result.event.createdBy === input.actor.userId) {
+      && ownsCustomerHistory(input.actor.userId,result.event.createdBy)) {
       db.prepare(`
         INSERT INTO quality_event_reporting_context (
           event_id, source_key, assessment_version, created_by, created_at
@@ -885,7 +886,7 @@ export function createQualityEventService(deps?: {
     requireAftersales(input.actor);
     assertRequestId(input.requestId);
     const current = visibleEvent(input.eventId);
-    if (current && current.createdBy === input.actor.userId && current.status !== "DRAFT") {
+    if (current && ownsCustomerHistory(input.actor.userId,current.createdBy) && current.status !== "DRAFT") {
       return current;
     }
     const before = ownedDraft(input.actor, input.eventId);
@@ -910,7 +911,7 @@ export function createQualityEventService(deps?: {
         occurredAt,
         occurredAt,
         input.eventId,
-        input.actor.userId,
+        before.createdBy,
         input.expectedVersion,
       );
       if (Number(result.changes) !== 1) throw new Error("version conflict");
@@ -992,7 +993,7 @@ export function createQualityEventService(deps?: {
   }): QualityEventRecord {
     assertRequestId(input.requestId);
     const before = visibleEvent(input.eventId);
-    if (!before || before.createdBy !== input.actor.userId) throw new Error("event not found");
+    if (!before || !ownsCustomerHistory(input.actor.userId,before.createdBy)) throw new Error("event not found");
     if (before.version !== input.expectedVersion) throw new Error("version conflict");
     if (input.allowDraft ? before.status !== "DRAFT" : ["DRAFT", "CLOSED"].includes(before.status)) {
       throw new Error("event state does not allow adding sources");
@@ -1036,7 +1037,7 @@ export function createQualityEventService(deps?: {
     const before = visibleEvent(input.eventId);
     if (!before || before.status === "DRAFT") throw new Error("event not found");
     if (before.status === "CLOSED") throw new Error("已关闭质量事件只读");
-    if (before.createdBy !== input.actor.userId && input.actor.role !== "quality_specialist") {
+    if (!ownsCustomerHistory(input.actor.userId,before.createdBy) && input.actor.role !== "quality_specialist") {
       throw new Error("event not found");
     }
     if (before.version !== input.expectedVersion) throw new Error("version conflict");
@@ -1080,7 +1081,7 @@ export function createQualityEventService(deps?: {
     assertRequestId(input.requestId);
     if (!input.reason.trim()) throw new Error("correction reason is required");
     const before = visibleEvent(input.eventId);
-    if (!before || before.status === "DRAFT" || before.createdBy !== input.actor.userId) {
+    if (!before || before.status === "DRAFT" || !ownsCustomerHistory(input.actor.userId,before.createdBy)) {
       throw new Error("event not found");
     }
     if (before.status === "CLOSED") throw new Error("已关闭质量事件只读");

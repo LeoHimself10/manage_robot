@@ -21,7 +21,7 @@ export async function createOaHandler({root,runtime,names={},workflowFactory,pro
   // Neither credentials nor this bootstrap URL are served by the static file handler.
   await writeFile(join(dataRoot,'local-entry.json'),JSON.stringify({path:'/oa/login?key='+bootstrap}),{mode:0o600});
   const configFile=join(root,'.env.oa.local');let syncer,config;
-  const namesWithReviewers={...names,[OA_SCOPE.reviewerId]:'马荣鑫',[OA_SCOPE.cosignerId]:'佟成'};
+  const namesWithReviewers={...names,[OA_SCOPE.reviewerId]:'客服主管',[OA_SCOPE.cosignerId]:'质量主管'};
   function install(c){config=c;syncer=createOaSync({client:new DingTalkOaClient(c),store,names:namesWithReviewers});}
   if(oaConfig)install(oaConfig);
   else try {install(JSON.parse(await readFile(configFile,'utf8')));}catch(e){if(e.code!=='ENOENT')throw e;}
@@ -46,7 +46,7 @@ export async function createOaHandler({root,runtime,names={},workflowFactory,pro
         res.writeHead(303,{'set-cookie':`quality_oa_session=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`,'location':'/ma-workbench/','cache-control':'no-store'});res.end();return true;
       }
       if(!(productionAccess?productionAccess(req):authorized(req))){json(res,401,{ok:false,error:'请从本机授权入口打开 OA 工作台。'});return true;}
-      if(productionAccess&&url.pathname.startsWith('/api/quality-oa/tong')&&(!tongAccess||!tongAccess(req))){json(res,403,{ok:false,error:'仅佟成视角可访问质量处理工作台'});return true;}
+      if(productionAccess&&url.pathname.startsWith('/api/quality-oa/tong')&&(!tongAccess||!tongAccess(req))){json(res,403,{ok:false,error:'仅质量主管视角可访问质量处理工作台'});return true;}
       try {
         if(req.method==='GET'&&url.pathname==='/api/quality-oa/status')json(res,200,{ok:true,data:status()});
         else if(req.method==='GET'&&url.pathname==='/api/quality-oa/attachment') {
@@ -90,7 +90,7 @@ export async function createOaHandler({root,runtime,names={},workflowFactory,pro
           const id=url.searchParams.get('id');json(res,200,{ok:true,items:store.db.prepare("SELECT response FROM oa_ai WHERE source_id=? AND status='SUCCEEDED' ORDER BY at DESC").all(id).map(r=>JSON.parse(r.response).data)});
         } else if(req.method==='POST'&&url.pathname==='/api/quality-oa/assessment'){
           const b=await body(req),source=store.get(b.id);
-          if(!source||!source.activeForMa){json(res,409,{ok:false,error:'本条 OA 当前未处于马荣鑫待处理节点'});return true;}
+          if(!source||!source.activeForMa){json(res,409,{ok:false,error:'本条 OA 当前未处于客服主管待处理节点'});return true;}
           if(source.version!==b.version){json(res,409,{ok:false,error:'OA 来源已更新，请刷新后按新版本研判'});return true;}
           workflow?.requireAssessment(b.id,b.version);
           const sourceInput=Object.fromEntries(['id','version','no','title','what','how','date','occurred','person','model','serial','batch','software','impact'].map(k=>[k,source[k]||'']));

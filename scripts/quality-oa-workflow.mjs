@@ -1,3 +1,4 @@
+import { qualityPostHolder, qualityPostContext, qualityPostDisplayName } from "../src/security/quality-posts.ts";
 import {existsSync,readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {join,resolve,dirname} from 'node:path';
@@ -8,7 +9,8 @@ import {DatabaseSync} from 'node:sqlite';
 export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,modelEnv,productionUserId,commentClient}) {
   serviceRoot ||= resolve(originalRoot,'../ma-quality-workbench-v1');
   dbPath ||= join(originalRoot,'data/local-quality-initial-analysis-v1/workbench.sqlite');
-  const actor=productionUserId || 'quality-supervisor-local';
+  const currentCustomer=()=>qualityPostHolder('customer') || productionUserId || 'quality-supervisor-local';
+  const actor=currentCustomer();
   const roleConfigPath=join(dirname(dbPath),'local-role-config.json');
   if(!productionUserId&&existsSync(roleConfigPath)){
     const roles=JSON.parse(readFileSync(roleConfigPath,'utf8'));
@@ -52,13 +54,13 @@ export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,mo
       const data=JSON.parse(row.response).data;
       const mapping=store.db.prepare('SELECT quality_version FROM oa_workflow_versions WHERE source_id=? AND oa_version=?').get(source.id,row.source_version);
       persistence.saveAiAssessment({sourceKey:key,sourceVersion:mapping.quality_version,requestId:data.requestId,
-        sourceSnapshot:data.input.sourceSnapshot,output:data.output,retrievedCases:data.retrievedCases||[],actorUserId:actor});
+        sourceSnapshot:data.input.sourceSnapshot,output:data.output,retrievedCases:data.retrievedCases||[],actorUserId:currentCustomer()});
     }
     return key;
   }
   function get(id) {
     const source=store.get(id);if(!source)throw new ma.MaWorkbenchError('NOT_FOUND','反馈不存在');
-    const detail=service.get(syncSource(source),actor);
+    const detail=service.get(syncSource(source),currentCustomer());
     detail.oaVersion=source.version;
     detail.humanFacts=Object.fromEntries(store.db.prepare('SELECT version,description FROM oa_workflow_human_facts WHERE source_id=?').all(id).map(x=>[x.version,x.description]));
     return detail;
@@ -73,16 +75,16 @@ export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,mo
     if(action==='admit'&&store.get(id)?.oaStatus!=='RUNNING')throw new ma.MaWorkbenchError('VERSION_CONFLICT','只有审批中的 OA 记录才能进入质量流程');
     const {detail,key,base}=check(id,body);
     if(action!=='admit'&&!detail.admission)throw new ma.MaWorkbenchError('NOT_ADMITTED','请先从全部事件确认进入质量事件');
-    if(action==='admit')service.admit(key,actor,base);
+    if(action==='admit')service.admit(key,currentCustomer(),base);
     else if(action==='save') {
       const category=taxonomy.HISTORICAL_FEEDBACK_TAXONOMY_V0.categories.find(c=>c.primaryLabel===body.draft?.primary);
       const secondary=category?.secondaryCategories.find(c=>c.secondaryLabel===body.draft?.secondary);
       if(!secondary||!body.draft?.description?.trim())throw new ma.MaWorkbenchError('INVALID_ASSESSMENT','请补全分类和事实摘要');
-      const saved=service.saveAssessment(key,actor,{...base,expectedVersion:body.expectedVersion,categoryMode:'STANDARD',
+      const saved=service.saveAssessment(key,currentCustomer(),{...base,expectedVersion:body.expectedVersion,categoryMode:'STANDARD',
         primaryCategoryCode:category.primaryCode,secondaryCategoryCode:secondary.secondaryCode,riskLevel:body.draft.risk,
         conclusion:body.draft.conclusion,adoptionMode:body.adoption,changeReason:body.draft.changeReason});
       store.db.prepare('INSERT OR IGNORE INTO oa_workflow_human_facts VALUES (?,?,?)').run(id,saved.assessment.version,body.draft.description);
-    } else if(action==='submit') service.submit(key,actor,{...base,expectedAssessmentVersion:body.expectedVersion});
+    } else if(action==='submit') service.submit(key,currentCustomer(),{...base,expectedAssessmentVersion:body.expectedVersion});
     else throw new ma.MaWorkbenchError('NOT_FOUND','操作不存在');
     return get(id);
   }
@@ -90,7 +92,7 @@ export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,mo
   const contracts=await import(pathToFileURL(join(originalRoot,'src/quality/analysis/quality-analysis-contracts.ts')).href);
   const directoryModule=await import(pathToFileURL(join(originalRoot,'src/quality/analysis/quality-department-directory.ts')).href);
   const analysis=analysisModule.createQualityAnalysisService({dbPath,env:modelEnv});
-  const qualityActor=productionUserId || 'quality-employee-local';
+  const currentQuality=()=>qualityPostHolder('quality') || productionUserId || 'quality-employee-local';
   const closureModule=await load('quality/closure/quality-closure-service.ts');
   const commentModule=await load('quality/oa/quality-final-comment.ts');
   const closure=closureModule.createQualityClosureService({dbPath});
@@ -99,10 +101,10 @@ export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,mo
   function tongGet(id) {
     const detail=get(id);
     if(!detail.event)throw new Error('尚未正式推送质量初析');
-    const workspace=analysis.workspace({eventId:detail.event.id,viewerUserId:qualityActor});
+    const workspace=analysis.workspace({eventId:detail.event.id,viewerUserId:currentQuality()});
     const directory=directoryModule.createQualityDepartmentDirectory(dbPath);
     try {workspace.departments=workspace.departments.map(d=>({...d,managerName:directory.resolveManager(d.departmentId).managerName}));}finally{directory.close();}
-    const finalReview=closure.workspace(detail.event.id,qualityActor);
+    const finalReview=closure.workspace(detail.event.id,currentQuality());
     const name=uid=>{try{return db.prepare('SELECT name FROM dingtalk_contacts WHERE user_id=?').get(uid)?.name||uid;}catch{return uid;}};
     finalReview.nodes=finalReview.nodes.map(n=>({...n,assigneeName:name(n.assigneeUserId)}));
     return {id,source:store.get(id),detail,workspace,finalReview};
@@ -114,15 +116,15 @@ export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,mo
       if(action.startsWith('final-') || action==='comment-retry') {
         try {
           if(action==='comment-retry') {
-            const view=closure.workspace(eventId,qualityActor);
+            const view=closure.workspace(eventId,currentQuality());
             if(!view.comments.some(c=>c.closureId===body.closureId))throw new Error('同步记录不存在');
             await commentWorker?.processOne(body.closureId);
           } else {
             if(!Number.isSafeInteger(body.expectedVersion)||body.expectedVersion<1)throw new Error('请刷新后重试');
-            const common={eventId,specialistUserId:qualityActor,actualAdminUserId:productionUserId,expectedVersion:body.expectedVersion,requestId:body.requestId};
+            const common={eventId,specialistUserId:currentQuality(),actualAdminUserId:qualityPostContext.getStore()?.actorUserId || productionUserId,expectedVersion:body.expectedVersion,requestId:body.requestId};
             if(action==='final-close')closure.closeEvent({...common,conclusion:String(body.opinion??'')});
             else {
-              const target=closure.workspace(eventId,qualityActor).nodes.find(n=>n.nodeId===body.nodeId);
+              const target=closure.workspace(eventId,currentQuality()).nodes.find(n=>n.nodeId===body.nodeId);
               if(!target || !['MANAGER','EMPLOYEE'].includes(body.targetKind) || target.assigneeKind!==body.targetKind)throw new Error('请重新选择当前事件内的退回节点');
               const input={...common,nodeId:target.nodeId,reason:String(body.opinion??'')};
               if(action==='final-return')closure.returnSpecificNode(input);else closure.reopenEvent(input);
@@ -131,9 +133,9 @@ export async function createOaWorkflow({store,originalRoot,serviceRoot,dbPath,mo
         } catch(error) { throw new ma.MaWorkbenchError('VERSION_CONFLICT', /SQLITE|constraint|no such|Zod|requestId/.test(error.message)?'提交校验未通过，请刷新后重试':error.message); }
       } else if(action==='generate') {
         if(!/^[a-f0-9-]{36}$/i.test(body.requestId||''))throw new Error('请求编号无效');
-        await analysis.generate({eventId,actorUserId:qualityActor,requestId:body.requestId});
-      } else if(action==='draft')analysis.saveDraft({eventId,actorUserId:qualityActor,draft:contracts.saveQualityAnalysisDraftSchema.parse(body.draft)});
-      else if(action==='confirm')analysis.confirm({eventId,actorUserId:qualityActor,...contracts.confirmQualityAnalysisSchema.parse(body.confirm)});
+        await analysis.generate({eventId,actorUserId:currentQuality(),requestId:body.requestId});
+      } else if(action==='draft')analysis.saveDraft({eventId,actorUserId:currentQuality(),draft:contracts.saveQualityAnalysisDraftSchema.parse(body.draft)});
+      else if(action==='confirm')analysis.confirm({eventId,actorUserId:currentQuality(),...contracts.confirmQualityAnalysisSchema.parse(body.confirm)});
       else throw new Error('操作不存在');
       return tongGet(id);
     },

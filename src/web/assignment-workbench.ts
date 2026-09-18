@@ -59,6 +59,8 @@ import {
 } from "../agent/manager-orchestrator-turn";
 import type { KnownFactsStore } from "../agent/tools/update-known-facts";
 import { upsertAssignmentRow } from "../agent/tools/update-draft-task";
+import { getQualityPosts } from '../security/quality-posts';
+import {confirmQualityPlanning,qualityStructureHash,qualityPlanningConfirmed,saveQualityExecutionPlan} from '../agent/quality-planning-contract';
 import { clearPublishStagingOnDraft } from "../agent/draft-staging-clear";
 import {
   DingTalkAuthError,
@@ -3828,8 +3830,8 @@ export function handleAssignmentHttp(
         const next = sanitizeInternalWorkbenchNextPath(String(body.next ?? "").trim());
         const dingIdentity = await dingtalkAuthClient.resolveIdentityByAuthCode(authCode);
         const pilotUserId = process.env.QUALITY_PILOT_BUSINESS_USER_ID?.trim();
-        if (pilotUserId && dingIdentity.userId !== pilotUserId) {
-          writeJson(res, 403, {ok:false,error:"质量追踪系统当前仅向曹玉寒开放。"});
+        if (pilotUserId && dingIdentity.userId !== pilotUserId && !getQualityPosts('real')?.some(p=>p.userId===dingIdentity.userId) && !(process.env.QUALITY_POST_ADMIN_USER_IDS||'').split(',').includes(dingIdentity.userId)) {
+          writeJson(res, 403, {ok:false,error:"当前账号未配置质量岗位。"});
           return;
         }
         const role = defaultLoginViewRole(dingIdentity.userId);
@@ -7442,6 +7444,27 @@ export function handleAssignmentHttp(
     return true;
   }
 
+  if(req.method==='POST' && url.pathname==='/api/workbench/conversation/draft/quality-plan') {
+    void (async()=>{
+      const session=requireSession(req,res,'manager');if(!session)return;
+      try{
+        const body=await readJsonBody(req) as Record<string,unknown>;
+        const target=resolveConversationThread(session.userId,resolveConversationThreadFromBody(body));
+        if(!target||target.planId!==body.planId)throw Error('会话已变化，请刷新后重试');
+        const draft=resolveConversationDraftWithQualityContext(target,session.userId);
+        const thread=buildThreadListItem(target);
+        if(!draft||!getQualityPlanningDraftContext({planId:target.planId,threadId:thread.threadId,managerUserId:session.userId}))throw Error('仅接收移交的主管可确认未发放的质量任务方案');
+        const next=confirmQualityPlanning(draft,{expectedHash:String(body.expectedHash||''),mappings:body.mappings,tasks:body.tasks,actorUserId:session.userId});
+        saveQualityExecutionPlan(process.env.WORKBENCH_SQLITE_PATH || 'data/workbench.sqlite',target.planId,next);
+        const taskIds=new Set(next.tasks.map((task: {id:string})=>task.id));
+        const assignment=target.latestAssignment ? {...target.latestAssignment,assignments:(Array.isArray(target.latestAssignment.assignments)?target.latestAssignment.assignments:[]).filter((row: {taskId:string})=>taskIds.has(row.taskId))} : undefined;
+        const saved=preserveThreadIdentityOnSave({...target,latestDraft:next as PlanSession['latestDraft'],latestAssignment:assignment,updatedAt:new Date().toISOString()});
+        planSessionStore.save(saved);
+        planSessionStore.appendEvent({planId:saved.planId,chatKeyHash:saved.chatKeyHash,eventType:'quality_task_structure_confirmed',payload:{actorUserId:session.userId,planning:next.qualityHandoff.planning}});
+        writeJson(res,200,{ok:true});
+      }catch(e){writeJson(res,409,{ok:false,error:e instanceof Error?e.message:'方案确认失败'});}
+    })();return true;
+  }
   if (isGetOrHead && url.pathname === "/api/workbench/conversation/draft") {
     const session = requireSession(req, res, "manager");
     if (!session) return true;
@@ -7479,6 +7502,7 @@ export function handleAssignmentHttp(
       sourceContext: qualityEventId
         ? { kind: "quality_event", qualityEventId }
         : undefined,
+      qualityPlanning: qualityEventId&&draft ? {hash:qualityStructureHash(draft),confirmed:qualityPlanningConfirmed(draft)} : undefined,
     });
     return true;
   }
@@ -7508,6 +7532,7 @@ export function handleAssignmentHttp(
           writeJson(res, 403, { ok: false, error: "此入口仅用于质量任务规划" });
           return;
         }
+        if(!qualityPlanningConfirmed(draft!)){writeJson(res,409,{ok:false,error:'请先确认任务结构及每项成果的最终交付任务'});return;}
         const taskId = String(body.taskId ?? "").trim();
         const assigneeUserId = String(body.assigneeUserId ?? "").trim();
         const tasks = Array.isArray(draft?.tasks)

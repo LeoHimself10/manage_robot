@@ -1,4 +1,5 @@
 import type { PlanSession } from "../infra/plan-session-store";
+import {qualityPlanningConfirmed} from './quality-planning-contract';
 
 export interface QualityTaskCoverageResult {
   applicable: boolean;
@@ -42,6 +43,11 @@ export function restoreQualityTaskMappings(
     : undefined;
   if (!handoff || !taskPackage || !tasks) return draft;
 
+  const explicitPlan=asRecord(handoff.planning);
+  if(explicitPlan && Array.isArray(explicitPlan.mappings)) {
+    const mappings=explicitPlan.mappings as Array<Record<string,unknown>>;
+    return {...draft,tasks:tasks.map(task=>({...task,qualityDeliverableIds:mappings.filter(m=>m.finalTaskId===task.id).map(m=>m.deliverableId)}))};
+  }
   const required = stringList(handoff.requiredDeliverableIds);
   const packageDeliverables = Array.isArray(taskPackage.requiredDeliverables)
     ? (taskPackage.requiredDeliverables as Array<Record<string, unknown>>)
@@ -86,6 +92,7 @@ export function validateQualityTaskCoverage(session: Pick<PlanSession, "latestDr
     return { applicable: false, ok: true, requiredDeliverableIds: [], coveredDeliverableIds: [], missingDeliverableIds: [] };
   }
   const required = stringList((handoff as Record<string, unknown>).requiredDeliverableIds);
+  if(!qualityPlanningConfirmed(draft)) return {applicable:true,ok:false,requiredDeliverableIds:required,coveredDeliverableIds:[],missingDeliverableIds:required};
   const covered = new Set<string>();
   const tasks = (draft as Record<string, unknown>).tasks;
   if (Array.isArray(tasks)) {

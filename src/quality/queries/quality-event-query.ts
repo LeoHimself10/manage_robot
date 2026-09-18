@@ -1,3 +1,4 @@
+import { ownsCustomerHistory } from "../../security/quality-posts";
 import { DatabaseSync } from "node:sqlite";
 import { resolveWorkbenchSqlitePath } from "../../infra/workbench-db-path";
 import { resolveQualityCapabilities } from "../../security/quality-capabilities";
@@ -208,7 +209,7 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
     const event = eventFromRow(row);
     const caps = resolveQualityCapabilities(input.viewerUserId);
     if (event.status === "DRAFT") {
-      if (event.createdBy !== input.viewerUserId) return null;
+      if (!ownsCustomerHistory(input.viewerUserId,event.createdBy)) return null;
       return {
         event, sourceSnapshots: [], relatedEvents: [], assignmentTree: [], evidence: [], reviews: [], publicAudit: [], notifications: [],
         reportingSnapshots: null,
@@ -234,7 +235,7 @@ export function createQualityEventQuery(dbPath = resolveWorkbenchSqlitePath()) {
     const primary = allNodes.find((node) => Number(node.is_primary) === 1 || String(node.node_id) === event.primaryNodeId);
     const isSpecialist = caps.canAnalyzeQuality;
     const isAdmin = caps.baseRole === "admin";
-    const isAftersalesOwner = caps.roles.includes("aftersales_manager") && event.createdBy === input.viewerUserId;
+    const isAftersalesOwner = caps.roles.includes("aftersales_manager") && ownsCustomerHistory(input.viewerUserId,event.createdBy);
     const isPrimary = String(primary?.assignee_user_id ?? "") === input.viewerUserId;
     const isPlanningManager = tableExists(db, "quality_analysis_handoffs")
       && Boolean(db.prepare(`SELECT 1 AS ok FROM quality_analysis_handoffs

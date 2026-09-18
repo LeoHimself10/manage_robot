@@ -70,7 +70,7 @@ describe("quality planning chat enhancement", () => {
     const html = renderManagerChatPage({ threadId: "side-1", threadKind: "side" });
 
     expect(html).toContain("var qualityPanelOpen = 'tasks'");
-    expect(html).toContain("var taskDecompositionReady = !isQualityDraft || count > 1");
+    expect(html).toContain("var taskDecompositionReady = !isQualityDraft || Boolean(draftData.qualityPlanning && draftData.qualityPlanning.confirmed)");
     expect(html).toContain("var assigneeStepReady = taskDecompositionReady");
     expect(html).toContain("var scheduleStepReady = assigneeStepReady");
     expect(html).toContain("var acceptanceStepReady = scheduleStepReady");

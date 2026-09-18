@@ -11,8 +11,8 @@
   container.innerHTML=`<button type="button" id="viewSwitchButton" class="view-switch-trigger" aria-expanded="false" aria-controls="viewSwitchPanel">切换视角<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
     <div id="viewSwitchPanel" class="view-switch-panel" hidden>
       <h3>质量工作台</h3><nav class="view-switch-list" aria-label="质量工作台视角">
-        <button type="button" class="view-switch-link" id="viewSwitchCurrent" aria-current="page"><span><strong>马荣鑫</strong><small>主管 · 反馈研判</small></span><span class="view-switch-current">当前视角</span></button>
-        ${link('佟成','员工 · 质量管理能力已开通','http://127.0.0.1:8809/')}
+        <button type="button" class="view-switch-link" id="viewSwitchCurrent" aria-current="page"><span><strong>客服主管</strong><small>主管 · 反馈研判</small></span><span class="view-switch-current">当前视角</span></button>
+        ${link('质量主管','员工 · 质量管理能力已开通','http://127.0.0.1:8809/')}
       </nav><h3>任务与系统管理</h3><nav class="view-switch-list" aria-label="任务与系统管理视角">${originalViews.map(([title,subtitle,path])=>link(title,subtitle,path)).join('')}</nav>
       <p class="view-switch-note">当前操作人：曹玉寒。主管和员工使用隔离的模拟身份；实际操作人仍为曹玉寒。</p>
     </div>`;

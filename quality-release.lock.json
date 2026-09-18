@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-handoff-20260917-r13",
+  "release": "quality-test-roles-planning-20260918-r14",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -14,20 +14,20 @@
   ],
   "productionOnlyFiles": {
     "public/quality/ma-workbench/view-switcher.js": {
-      "sha256": "e7dbe688b49b5f32b450ad2db3a9c96e172844c5860d6e3b9f0fa71f6e606b4f",
-      "reason": "User-approved isolated test department and fixed simulated manager/employee perspectives (2026-09-14)."
+      "sha256": "2adfc5c424cad5a5685bf682a452320b2131143636c44c8cd7fd0c6ca512ad4a",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "public/quality/tong/view-switcher.js": {
-      "sha256": "8dbb98cbbfaeb546c23fbbc6744300d103abf5e94dbc5d9af97a8f19a98618aa",
-      "reason": "User-approved isolated test department and fixed simulated manager/employee perspectives (2026-09-14)."
+      "sha256": "9f3f179bd7e897130bfc6dbe57d34a58c0b32e0d83bab7b9819dd769cfb1d923",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/quality/ma-workbench/contracts.ts": {
       "sha256": "93c0dd131a10bfa39275ab420776f7de023034a3f218914e06648b8abd254113",
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/quality/ma-workbench/service.ts": {
-      "sha256": "8affc894cbbec7e13fb7395dcc903492af9e8cf029bf68a8c612109dd396fb93",
-      "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
+      "sha256": "fdf18ac2995ed354029ebc0e9c8644760379e4f94d55aa1a4aa7afbc6be66e6e",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/quality/oa/oa-client.mjs": {
       "sha256": "cd754255a69c33590b00f12c62c3c1d5cd955ef74b71d8354d4194564a68542d",
@@ -50,16 +50,16 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/quality/presentation/quality-event-perspective.ts": {
-      "sha256": "79161770f7c3149775da926793d79032c5471dac140283786814fc167f712414",
-      "reason": "FR-QH-01: show pending analysis handoffs only to the receiving manager and open existing planning thread."
+      "sha256": "530e582f112d1860a5684013a31158693230fc95aee5a135532fa41f35d7b6f1",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/security/quality-capabilities.ts": {
-      "sha256": "918d9a6512a778b39e45fb2a3b4eb86cd61e041a32c9a7531419ed7a99bf673a",
-      "reason": "User-approved isolated test department and fixed simulated manager/employee perspectives (2026-09-14)."
+      "sha256": "5d253cdb36b52b26bb1c5ee37674f0b5240622d5c5b99923cbe84305958a6cf7",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/assignment-workbench.ts": {
-      "sha256": "b5d6d7e2acc21b7bcb932aad0ea69051f7626699fabc6362823cdbafeccf78c4",
-      "reason": "User-approved inline supervisor acceptance: shared formal review endpoint, scoped returns, optimistic versions, transactional formal reopen and review audit (2026-09-14)."
+      "sha256": "f4907c8f5c14ae3b4a0ddfb99415825e4504b91ff99f222afbac445a8161cc49",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/quality-http.ts": {
       "sha256": "3650bd4f3c3be74a5e4b9a5457130145d27250c95aa7477fc0b3b6f1becaadb7",
@@ -70,8 +70,8 @@
       "reason": "Reviewed production OA integration, signed-in capability or login/navigation adapter."
     },
     "src/web/quality-tracking-page.ts": {
-      "sha256": "aba6a751dbc0eccaf6594ca5a0f7d492ace815293773a0477ead590a1747f5d5",
-      "reason": "FR-QH-01: show pending analysis handoffs only to the receiving manager and open existing planning thread."
+      "sha256": "1671ceb894fccb3704e7279ecf18d102a7ca8cd3a36903185bd98b6ee7793b42",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/workbench-dd-login-entry.ts": {
       "sha256": "9ca951046599626cb3d3c02f3e4f7b243239d11d4653fff53ae1670d768844f8",
@@ -118,20 +118,20 @@
       "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "public/quality/tong/index.html": {
-      "sha256": "dd6cb987bca4910405a6ba4d92942c3227da0a1cebe9b450eb7bc0d8001d7a98",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "d58e723ed13826c9ba9cce5b6cb76de3fe41d2b803fb4194de2225109a1b14cc",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "scripts/quality-oa-http.mjs": {
-      "sha256": "ea8a3a4a19a7777d2e634559d4a1c0ebd940d6f88ec7fa9f4be966e11edfe89e",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "5362c22ba0c3b4cdb7a6f2764d48bb353dd9451bd15f7b1054f2a119e70dea1d",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "scripts/quality-oa-workflow.mjs": {
-      "sha256": "90cd20bd495d067898e12e02774d39def3291bd634b62ba5ccdb7cea23ef3ccd",
-      "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
+      "sha256": "fe5203b9c138ebad6652cf528dec2cdc0efc4864ee67f3660655fb2b7ba9368f",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "scripts/quality-production-server.mjs": {
-      "sha256": "5773ce60aceb9eeef2260921c3917693873cdb067671042639b678f5b7dff517",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "f2d3a8cb91a45452e0d26c6bbda69388af666f6b247150e12f5b4461ca830845",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/quality/closure/quality-closure-service.ts": {
       "sha256": "858ddebaff80021785c2cd5e7dd39e00aeaa89391a30941297c3bef5233aba00",
@@ -158,8 +158,8 @@
       "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "public/quality/tong/oa-connected.js": {
-      "sha256": "cd1f3f876fc711fae3f6ca149468f1f977bc8eb0f93dc86c327514d453e41b9d",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "85fec1fe852ff39d00a44061bf0408f70720267a435987c727628791d752248e",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "public/quality/tong/pdf-lib.js": {
       "sha256": "b0fc97331dc1fc03c4a381ebdd88f751a4d12de4ec97fa1faf18bb37721a4b5b",
@@ -174,8 +174,8 @@
       "reason": "User-approved inline final quality review, scoped manager/employee returns, merged manager navigation and pass-only OA comment outbox; isolated test delivery remains disabled (2026-09-14)."
     },
     "public/quality/ma-workbench/index.html": {
-      "sha256": "0af8963d309b937041868e12251ec1d9e5cc21a510e6548cb91acfd4ea26fff0",
-      "reason": "FR-QS-06: align intake confirmation actions in the shared dialog footer; reset actions on reopening."
+      "sha256": "0e263d64173c79cdd847c26957180a9627f371752fda54c7fa4093bc0cbe2b7c",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "public/quality/ma-workbench/oa-ai-business-display.js": {
       "sha256": "dc48b9cf9a5e138c2504fd79a704d137be0986efedf812cb0deac1ff58aa05d8",
@@ -186,12 +186,12 @@
       "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "public/quality/tong/ai-initial-analysis.js": {
-      "sha256": "f0a26f947c497ec644ef1d88963d25abd08da232e33d231c37fe259d8bdc6610",
-      "reason": "FR-QS-07: remove mandatory initial analysis modification/confirmation explanation, preserve historical records and version audit."
+      "sha256": "4ce67cfa596d770031ebf14673485a286b145e050bee33b841b64f29dc27e785",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "public/quality/tong/tong.js": {
-      "sha256": "bc0ce4b755f4dba6fe92517b752369148e944d3bc65d5b72ebe8a71a88afb90c",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "0bb0c9a66fb6785621858f622367e397880675e3ab0f38a6a0f2708ba1da5db5",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/quality/ai-original-assessment/ai-original-assessment-contracts.ts": {
       "sha256": "27746c426167e24d114ab783b7e988c4b86d5e84b6b6ccb9872101dfd995b982",
@@ -214,8 +214,8 @@
       "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "src/quality/analysis/quality-analysis-service.ts": {
-      "sha256": "8cc4c50a27870853506512617984f7c4208c969f4f9019022f2d70426fd5f621",
-      "reason": "FR-QS-07: remove mandatory initial analysis modification/confirmation explanation, preserve historical records and version audit."
+      "sha256": "42a4d14705fd08d7b8552c87987d546155a41a7dce6b0a7089c235141061338e",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "public/quality/business-display.js": {
       "sha256": "6551c6606a12b6c93862635ebb511a8c2129a0ef436624d01872d0079c84fe1f",
@@ -238,8 +238,84 @@
       "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
     },
     "public/quality/ma-workbench/oa-workflow.js": {
-      "sha256": "ac33e99921f37da2607687b19f85e00f8802273180bf3e14ddc0e7ba511da703",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "ab15e6553d78b872d67382180871c079d919918584add7f30ecf4c664c280b2f",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "public/quality/admin/posts.html": {
+      "sha256": "141d15f1fedf7029fc05661d1eb39aa818a85710a04662fe94c129d707f76c9f",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "public/quality/admin/posts.js": {
+      "sha256": "4b113e3c2967d31c99a097a73df10555de6156d6f8745b2927514905dd187479",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "public/quality/ma-workbench/assessment.js": {
+      "sha256": "05ac9925a302f2e29244b644917834359bef214535f2ab4620ec062840013abf",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "public/quality/ma-workbench/flow-examples.js": {
+      "sha256": "99e52e5b7e1e987abfbf0ba867f5440ce3be292122a39b641f8ccb4f66c226ff",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "public/quality/ma-workbench/workbench.js": {
+      "sha256": "290b3ae4784ab08d9f84babea590bf5b421406c7951fc74cff439a73e89cfbc5",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "public/quality/tong/acceptance.js": {
+      "sha256": "56d5bc0cca37bc0e6212097f53192c7d4b679b8db50dd427392324c4b25c375a",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "scripts/quality-post-admin.mjs": {
+      "sha256": "611b61b2959659c03633fd0d8b349294bc588031e04b7269fe1ad7feac449d27",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "scripts/quality-production-access.mjs": {
+      "sha256": "dc444de0516101d0684153addad7696078dc8fe10e66fd647f76bc5678c32fbb",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "scripts/quality-simulation.mjs": {
+      "sha256": "19a6b60a4a3551f88fa4b274e05b579b5a2c951cdcfe835555042e2b2c898b27",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "src/agent/quality-planning-contract.ts": {
+      "sha256": "d8032f05ad3726bbc7c4a23cdf06ff6fa4117727a5f660e318c3b466f8869b44",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "src/agent/quality-task-coverage.ts": {
+      "sha256": "06fb6bd460760d1d8280aee0f32a5fb7a4118da0fcd2fbb7ff472487601eaf6d",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "src/agent/tools/prepare-publish-task.ts": {
+      "sha256": "ee86ece3357d5a571d5b8da4a93d96c48d440722b9659652f0caebe03f24fafe",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "src/agent/tools/publish-task.ts": {
+      "sha256": "2664eb94ae4b712a06bb69441f7d5580bcf9870c554cb1ceeb814e391959fa04",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "src/quality/events/quality-event-service.ts": {
+      "sha256": "4c1e48cea1861d7436f81300fbade99483ac7372de90ac870fe55b4f1d415425",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "src/quality/presentation/quality-role-metrics.ts": {
+      "sha256": "60f0f4ee1950e90a5a29ab6339df5f6360c8ac746b926104106035798a2dbc0c",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "src/quality/queries/quality-event-query.ts": {
+      "sha256": "7f546fc9c39b23aaf51ab72e1a9faad1f1a6f61fd38936b162e3cdb45133a30c",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "src/security/quality-posts.ts": {
+      "sha256": "597595626080a3db0375e39a9c443a79734a37ff6cf2b9558f17456f252b65cd",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "src/web/manager-workbench-pages.ts": {
+      "sha256": "30a228bd47306b249d243c3403e600d119444691c586c9249904dc41d2f0989b",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
+    },
+    "src/web/quality-planning-editor.ts": {
+      "sha256": "468238d4bd069b891f03ce881dcb345421ef4ad359085d434043b38ca33cf02e",
+      "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     }
   },
   "runtimeScripts": [
@@ -250,6 +326,7 @@
     "scripts/quality-oa-http.mjs",
     "scripts/quality-oa-workflow.mjs",
     "scripts/quality-simulation.mjs",
-    "scripts/quality-view-access.mjs"
+    "scripts/quality-view-access.mjs",
+    "scripts/quality-post-admin.mjs"
   ]
 }

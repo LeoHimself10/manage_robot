@@ -1,3 +1,4 @@
+import {qualityPlanningEditorScript} from "./quality-planning-editor";
 import { renderWorkbenchPage } from "./workbench-shell";
 import { buildWorkbenchContactComboClientJs } from "./workbench-contact-combo-snippet";
 import { buildWorkbenchFmtTimeClientJs } from "./workbench-datetime";
@@ -11,7 +12,7 @@ import { hasQualityAssignmentNodesForUser } from "../quality/infra/quality-read-
 import { MANAGER_CHAT_V2_CSS } from "./manager-chat-v2-styles";
 
 export const QUALITY_TASK_REPLAN_MESSAGE =
-  "请作为任务拆解机器人，结合质量事件背景和质量初析，把当前宽泛成果重新规划为可执行、可承接、可验收的完整任务方案。必须覆盖已选的全部成果，但不要把一个成果简单等同于一个任务；每个必选成果的原始名称必须至少原样保留在一项任务的交付物中，以保持质量覆盖映射。围绕复现、原因定位、措施实施和效果验证补齐必要步骤。本轮先完成任务结构拆解；拆出的每一项任务都必须同时生成非空的交付物和完成标准，并补全截止时间和前后依赖，不允许只生成标题和目标。完成标准仅描述员工可交付的成果和可验证条件，不得把主管审批通过、质量终验或关闭质量事件作为员工提交完成的前置条件；这些是提交后的独立验收环节。不要写入、沿用或调整正式负责人，拆解完成后由主管在右侧逐项配置负责人。只生成待确认草案，不要发放。";
+  "请作为任务拆解机器人，结合质量事件背景和质量初析，把当前宽泛成果重新规划为可执行、可承接、可验收的完整任务方案。必须覆盖已选的全部成果，但不要把一个成果简单等同于一个任务；每个必选成果的原始名称必须至少原样保留在一项任务的交付物中，以保持质量覆盖映射。围绕复现、原因定位、措施实施和效果验证补齐必要步骤。本轮先完成任务结构拆解；若存在待规划占位项，请删除占位项并创建实际任务。拆出的每一项任务都必须同时生成非空的交付物和完成标准，并补全截止时间和前后依赖，不允许只生成标题和目标。完成标准仅描述员工可交付的成果和可验证条件，不得把主管审批通过、质量终验或关闭质量事件作为员工提交完成的前置条件；这些是提交后的独立验收环节。不要写入、沿用或调整正式负责人，拆解完成后由主管先确认成果与任务对应关系，再在右侧逐项配置负责人。只生成待确认草案，不要发放。";
 
 export const QUALITY_ACCEPTANCE_FILL_MESSAGE =
   "请只补齐当前质量任务草案中缺失的交付物和完成标准。逐项检查全部任务：交付物要明确员工最终需要提交的文件、记录、数据或证据；完成标准要写成主管可以复核和验收的客观条件。仅更新缺失的 deliverables 与 completionCriteria，不得修改任务标题、目标、负责人、截止时间、前后依赖或质量成果映射，也不要新增、删除任务或发放。";
@@ -1541,7 +1542,7 @@ export function renderManagerChatPage(params: {
     var qualityEventId = String(rawSource.qualityEventId || qualityHandoff.qualityEventId || '').trim();
     var sourceKind = String(rawSource.kind || (qualityEventId ? 'quality_event' : '')).trim();
     var isQualityDraft = sourceKind === 'quality_event';
-    var taskDecompositionReady = !isQualityDraft || count > 1;
+    var taskDecompositionReady = !isQualityDraft || Boolean(draftData.qualityPlanning && draftData.qualityPlanning.confirmed);
     var assigneeStepReady = taskDecompositionReady && count > 0 && unassigned === 0;
     var scheduleStepReady = assigneeStepReady && missingDue === 0;
     var acceptanceStepReady = scheduleStepReady && missingDeliverables === 0 && missingCriteria === 0;
@@ -1562,6 +1563,7 @@ export function renderManagerChatPage(params: {
       ? qualityTaskPackage.handlingRequirements.map(function (item) { return String(item || '').trim(); }).filter(Boolean)
       : [];
     return {
+      planningData: draftData,
       planId: String(draftData.planId || '').trim(),
       count: count,
       unassigned: unassigned,
@@ -1708,12 +1710,13 @@ export function renderManagerChatPage(params: {
     return intro + cards
       + (qualityAcceptanceNotice ? '<div class="quality-panel-feedback is-ok">' + escapeHtml(qualityAcceptanceNotice) + '</div>' : '');
   }
+${qualityPlanningEditorScript}
   function renderQualityPanel(summary, qualityChecks) {
     var tasksReady = Boolean(summary.taskDecompositionReady);
     var peopleReady = Boolean(summary.assigneeStepReady);
     var scheduleReady = Boolean(summary.scheduleStepReady);
     return [
-      renderQualityPanelSection('tasks', '1 · 任务拆解', qualityChecks[0], qualityChecks[0] ? '已拆成 ' + summary.count + ' 项' : '当前是总成果，请先拆成任务', renderQualityTaskLinks(summary, 'tasks'), false),
+      renderQualityPanelSection('tasks', '1 · 任务拆解', qualityChecks[0], qualityChecks[0] ? '已拆成 ' + summary.count + ' 项' : '请规划任务并确认成果对应关系', renderQualityTaskLinks(summary, 'tasks') + '<button type="button" data-quality-plan-edit style="min-height:42px;margin:12px 0;padding:8px 14px">编辑任务与成果对应 / 确认结构</button>', false),
       renderQualityPanelSection('people', '2 · 负责人配置', qualityChecks[1], !tasksReady ? '请先完成任务拆解' : (qualityChecks[1] ? summary.count + '/' + summary.count + ' 已配置' : '还缺 ' + summary.unassigned + ' 项'), renderQualityAssigneeBody(summary), !tasksReady),
       renderQualityPanelSection('dependency', '3 · 依赖与期限', qualityChecks[2], !peopleReady ? '请先完成负责人配置' : (qualityChecks[2] ? '期限完整，依赖按实际关系记录' : '仍需补齐期限或修正依赖'), renderQualityTaskLinks(summary, 'dependency'), !peopleReady),
       renderQualityPanelSection('criteria', '4 · 交付物与完成标准', qualityChecks[3], !scheduleReady ? '请先完成依赖与期限' : (qualityChecks[3] ? '每项要求均可验收' : '仍需补齐交付物或标准'), renderQualityAcceptanceBody(summary), !scheduleReady)
@@ -2090,21 +2093,21 @@ export function renderManagerChatPage(params: {
       && activeQualitySourceContext.kind === 'quality_event'
       && activeThreadKind === 'side');
     var taskCount = Number(cachedDraftSummary.count || 0);
-    var hasStructuredTasks = taskCount > 1;
+    var hasStructuredTasks = Boolean(cachedDraftSummary.taskDecompositionReady);
     action.hidden = !canOffer;
     action.classList.toggle('is-working', qualityPlanningInFlight);
     button.disabled = !canOffer || qualityPlanningInFlight || sendInFlight;
     if (buttonLabel) {
       buttonLabel.textContent = qualityPlanningInFlight
         ? '正在拆解…'
-        : (hasStructuredTasks ? '重新拆解任务' : '让机器人拆解任务');
+        : (hasStructuredTasks ? '重新拆解任务' : '生成任务方案');
     }
     if (status) {
       status.textContent = qualityPlanningInFlight
         ? '机器人正在读取质量初析，识别任务步骤、前后依赖和验收条件…'
         : (hasStructuredTasks
           ? '当前已有 ' + taskCount + ' 项任务草案，可继续让机器人调整方案。'
-          : '尚未完成结构化拆解；当前只有 ' + taskCount + ' 条总成果。');
+          : '先生成或手工编排任务，再点击“编辑任务与成果对应 / 确认结构”。');
     }
     document.querySelectorAll('[data-quality-command]').forEach(function (chip) {
       chip.disabled = !canOffer || qualityPlanningInFlight || sendInFlight || !hasStructuredTasks;
@@ -2483,6 +2486,7 @@ export function renderManagerChatPage(params: {
     if (!pendingOpenDraftEditor || !activeHasDraft) return;
     pendingOpenDraftEditor = false;
     stripOpenDraftEditorParam();
+    if (cachedDraftSummary && cachedDraftSummary.qualityContext) return;
     openDraftEditorModal();
   }
   async function loadDraftSummary(expectedSeq) {

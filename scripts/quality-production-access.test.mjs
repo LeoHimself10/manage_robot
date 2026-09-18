@@ -20,3 +20,9 @@ test('reject cross-site',()=>assert.equal(authenticate(request({}, {'sec-fetch-s
 test('reject forged and absent cookies',()=>{assert.equal(authenticate({headers:{cookie:'wb_session=x.'+'0'.repeat(64)}},now),null);assert.equal(authenticate({headers:{}},now),null);});
 test('reject duplicate session cookies',()=>{const r=request();r.headers.cookie+='; '+r.headers.cookie;assert.equal(authenticate(r,now),null);});
 test('fail closed without secure configuration',()=>assert.throws(()=>createProductionAccess({secret,userId:'cao',origin:'http://localhost'})));
+
+test('configured post access is evaluated on every request and revokes an existing session',()=>{
+  let holder='other';const auth=createProductionAccess({secret,userId:'cao',origin,allowedUser:id=>id===holder});
+  const r=request({userId:'other',dingUser:{userId:'other'}});
+  assert.equal(auth(r,now)?.userId,'other');holder='replacement';assert.equal(auth(r,now),null);
+});

@@ -72,7 +72,7 @@ export function renderQualityRoleMetricGroups(role: QualityMetricRole): string {
     ].join("");
   }
   if (role === "aftersales_event") {
-    return group("我的质量研判", "只显示当前需要马荣鑫处理的隔离事件", [
+    return group("我的质量研判", "只显示当前需要客服主管处理的隔离事件", [
       metric({ title: "待我研判", description: "等待完成人工研判或研判修订", tone: "#28639f", view: "event", eventStatuses: "PENDING_ANALYSIS", countPath: `${eventBase}&status=PENDING_ANALYSIS` }),
       metric({ title: "后续处理中", description: "已完成研判，质量流程尚未关闭", tone: "#b96718", view: "event", eventStatuses: "PENDING_ASSIGNMENT,PENDING_ACCEPTANCE,IN_PROGRESS,PENDING_PRIMARY_REVIEW,PENDING_QUALITY_REVIEW", countPath: `${eventBase}&statuses=PENDING_ASSIGNMENT,PENDING_ACCEPTANCE,IN_PROGRESS,PENDING_PRIMARY_REVIEW,PENDING_QUALITY_REVIEW` }),
       metric({ title: "已关闭", description: "质量流程已经完成并关闭", tone: "#64748b", view: "event", eventStatuses: "CLOSED", countPath: `${eventBase}&status=CLOSED` }),

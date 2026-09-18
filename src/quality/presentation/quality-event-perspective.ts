@@ -1173,7 +1173,7 @@ export function createQualityEventPerspectiveProjector(
     const firstDeliverable = generatedDeliverables[0];
     return {
       aiSummary: generated
-        ? "AI质量初析已生成并预填；请由佟成（测试）核对后再确认。"
+        ? "AI质量初析已生成并预填；请由质量主管（测试）核对后再确认。"
         : "当前显示预置测试草案，尚未调用AI质量初析模型。",
       evidenceStrength: generated ? "AI模型已生成" : "预置测试草案",
       generationSource: generated ? "MODEL" : "FIXTURE",
@@ -1338,8 +1338,8 @@ export function createQualityEventPerspectiveProjector(
         ? qualityManagementDefaultStage(row.status)
         : undefined,
       actorLabel: context.testActor?.displayName
-        ?? (context.perspective === "aftersales" ? "马荣鑫视角"
-          : context.perspective === "quality_management" ? "佟成视角"
+        ?? (context.perspective === "aftersales" ? "客服主管视角"
+          : context.perspective === "quality_management" ? "质量主管视角"
             : context.perspective === "manager" ? "主管视角"
               : context.perspective === "employee" ? "员工视角" : "管理看板"),
       event: {
@@ -1440,7 +1440,7 @@ export function createQualityEventPerspectiveProjector(
         createdAt: String(item.created_at),
       })),
       audit: auditRows.filter(managerAuditVisible).map((item) => ({
-        actorName: displayName(item.actor_user_id),
+        actorName: item.actor_role === "aftersales_manager" ? "客服主管" : item.actor_role === "quality_specialist" ? "质量主管" : displayName(item.actor_user_id),
         actionLabel: qualityActionLabel(item.action),
         reason: nullable(item.reason),
         occurredAt: String(item.occurred_at),
