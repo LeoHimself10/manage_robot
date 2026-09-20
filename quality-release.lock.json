@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-draft-dependencies-20260918-r19",
+  "release": "quality-test-planning-status-20260920-r20",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -310,7 +310,7 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/manager-workbench-pages.ts": {
-      "sha256": "ca9d7b957a963364315323bfd4171c705931b27754454b98049a50f24955941b",
+      "sha256": "17eb65840ca865040326722f9f962e7b1d5b356e57cbe2feac22a7f43c3332ea",
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/quality-planning-editor.ts": {

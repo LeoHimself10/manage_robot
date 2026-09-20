@@ -985,8 +985,8 @@ export function renderManagerChatPage(params: {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="m5.6 5.6 2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/><circle cx="12" cy="12" r="3"/></svg>
           </span>
           <div class="quality-planning-copy">
-            <h2 id="qualityPlanningEnhancerTitle">先拆解任务，再配置负责人</h2>
-            <p>机器人先完成任务结构；拆解确认后，再逐项配置负责人、期限、依赖和验收标准。</p>
+            <h2 id="qualityPlanningEnhancerTitle">先确认任务方案，再配置负责人</h2>
+            <p>生成或手工编排任务，确认任务与成果对应关系后，再配置负责人、期限和验收要求。</p>
           </div>
           <button class="quality-planning-primary" id="qualityPlanningEnhanceBtn" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="18" cy="17" r="2"/><path d="M8 5h2a4 4 0 0 1 4 4v6a2 2 0 0 0 2 2M14 9a2 2 0 0 0 2-2"/></svg>
@@ -1377,9 +1377,9 @@ export function renderManagerChatPage(params: {
       var qualityBlocked = cachedDraftSummary.sourceContext
         && cachedDraftSummary.sourceContext.kind === 'quality_event';
       var blockedMessage = qualityBlocked && !cachedDraftSummary.taskDecompositionReady
-        ? '请先让机器人完成任务拆解，再配置负责人'
+        ? '请先规划任务并确认成果对应关系，再配置负责人'
         : (qualityBlocked && !cachedDraftSummary.assigneeStepReady
-          ? '任务已拆解，请先逐项配置负责人'
+          ? '任务方案已确认，请先逐项配置负责人'
           : (qualityBlocked && !cachedDraftSummary.scheduleStepReady
             ? '请先补齐任务期限和前后依赖'
             : '请先补全交付物和完成标准'));
@@ -1542,6 +1542,7 @@ export function renderManagerChatPage(params: {
     var qualityEventId = String(rawSource.qualityEventId || qualityHandoff.qualityEventId || '').trim();
     var sourceKind = String(rawSource.kind || (qualityEventId ? 'quality_event' : '')).trim();
     var isQualityDraft = sourceKind === 'quality_event';
+    var taskPlanGenerated = count > 0 && cards.every(function (task) { return task.taskId !== '__quality_planning__'; });
     var taskDecompositionReady = !isQualityDraft || Boolean(draftData.qualityPlanning && draftData.qualityPlanning.confirmed);
     var assigneeStepReady = taskDecompositionReady && count > 0 && unassigned === 0;
     var scheduleStepReady = assigneeStepReady && missingDue === 0;
@@ -1573,6 +1574,7 @@ export function renderManagerChatPage(params: {
       missingDue: missingDue,
       missingDeliverables: missingDeliverables,
       missingCriteria: missingCriteria,
+      taskPlanGenerated: taskPlanGenerated,
       taskDecompositionReady: taskDecompositionReady,
       assigneeStepReady: assigneeStepReady,
       scheduleStepReady: scheduleStepReady,
@@ -1716,8 +1718,8 @@ ${qualityPlanningEditorScript}
     var peopleReady = Boolean(summary.assigneeStepReady);
     var scheduleReady = Boolean(summary.scheduleStepReady);
     return [
-      renderQualityPanelSection('tasks', '1 · 任务拆解', qualityChecks[0], qualityChecks[0] ? '已拆成 ' + summary.count + ' 项' : '请规划任务并确认成果对应关系', renderQualityTaskLinks(summary, 'tasks') + '<button type="button" data-quality-plan-edit style="min-height:42px;margin:12px 0;padding:8px 14px">编辑任务与成果对应 / 确认结构</button>', false),
-      renderQualityPanelSection('people', '2 · 负责人配置', qualityChecks[1], !tasksReady ? '请先完成任务拆解' : (qualityChecks[1] ? summary.count + '/' + summary.count + ' 已配置' : '还缺 ' + summary.unassigned + ' 项'), renderQualityAssigneeBody(summary), !tasksReady),
+      renderQualityPanelSection('tasks', '1 · 任务方案确认', qualityChecks[0], qualityChecks[0] ? '已确认 ' + summary.count + ' 项任务' : '请规划任务并确认成果对应关系', renderQualityTaskLinks(summary, 'tasks') + '<button type="button" data-quality-plan-edit style="min-height:42px;margin:12px 0;padding:8px 14px">编辑任务与成果对应 / 确认结构</button>', false),
+      renderQualityPanelSection('people', '2 · 负责人配置', qualityChecks[1], !tasksReady ? '请先确认任务方案' : (qualityChecks[1] ? summary.count + '/' + summary.count + ' 已配置' : '还缺 ' + summary.unassigned + ' 项'), renderQualityAssigneeBody(summary), !tasksReady),
       renderQualityPanelSection('dependency', '3 · 依赖与期限', qualityChecks[2], !peopleReady ? '请先完成负责人配置' : (qualityChecks[2] ? '期限完整，依赖按实际关系记录' : '仍需补齐期限或修正依赖'), renderQualityTaskLinks(summary, 'dependency'), !peopleReady),
       renderQualityPanelSection('criteria', '4 · 交付物与完成标准', qualityChecks[3], !scheduleReady ? '请先完成依赖与期限' : (qualityChecks[3] ? '每项要求均可验收' : '仍需补齐交付物或标准'), renderQualityAcceptanceBody(summary), !scheduleReady)
     ].join('');
@@ -1912,7 +1914,7 @@ ${qualityPlanningEditorScript}
     var assigned = Boolean(task.assigned) && !assignmentLocked;
     var assigneeName = String(task.assigneeName || '').trim();
     var assignee = assignmentLocked
-      ? '<span class="planning-task-assignee"><span class="planning-task-avatar is-pending">—</span><strong>拆解后配置</strong></span>'
+      ? '<span class="planning-task-assignee"><span class="planning-task-avatar is-pending">—</span><strong>确认方案后配置</strong></span>'
       : (assigned
       ? '<span class="planning-task-assignee"><span class="planning-task-avatar">' + escapeHtml(assigneeInitial(assigneeName)) + '</span><strong>' + escapeHtml(assigneeName || task.userId) + '</strong></span>'
       : '<span class="planning-task-assignee"><span class="planning-task-avatar is-pending">?</span><strong>待主管指定</strong></span>');
@@ -1937,6 +1939,16 @@ ${qualityPlanningEditorScript}
       + '<div class="planning-task-field' + (task.completionCriteria ? '' : ' is-missing') + '"><span>完成标准</span><p>' + escapeHtml(task.completionCriteria || '待补充') + '</p></div>'
       + '</div>' + detailsHtml + '</div></article>';
   }
+  function qualityPlanningPresentation(summary) {
+    var generated = Boolean(summary.taskPlanGenerated);
+    var confirmed = Boolean(summary.taskDecompositionReady);
+    var countLabel = generated ? summary.count + (confirmed ? ' 项已确认任务' : ' 项任务草案') : '尚未形成任务方案';
+    if (!generated) return {state:'待规划', countLabel:countLabel, hint:'请生成或手工编排任务方案，再确认任务与成果对应关系。'};
+    if (!confirmed) return {state:'方案待确认', countLabel:countLabel, hint:'方案已生成，请核对任务与成果对应关系并确认；一项任务也可以覆盖多项成果。'};
+    if (!summary.assigneeStepReady) return {state:'待配负责人', countLabel:countLabel, hint:'任务方案已确认，请为每项任务配置负责人。'};
+    if (!summary.readyToPublish) return {state:'待补充', countLabel:countLabel, hint:'方案与负责人已确认，请补齐期限、交付物和完成标准。'};
+    return {state:'可以发放', countLabel:countLabel, hint:'任务方案、负责人、期限与验收要求已齐备，确认发放后才会进入正式任务。'};
+  }
   function renderPlanningDraftBoard(summary, hasDraft) {
     var board = document.getElementById('planningDraftBoard');
     var cards = document.getElementById('planningTaskCards');
@@ -1956,26 +1968,19 @@ ${qualityPlanningEditorScript}
       return renderPlanningTaskCard(task, idx, isQuality, assignmentLocked);
     }).join('');
     if (title) title.firstChild.textContent = isQuality ? '机器人任务方案 ' : '任务分配草案 ';
+    var presentation = qualityPlanningPresentation(summary);
     if (count) {
       count.hidden = !isQuality;
-      count.textContent = summary.count > 1 ? summary.count + ' 项可执行任务' : summary.count + ' 条总成果';
+      count.textContent = presentation.countLabel;
     }
     if (state) {
-      state.textContent = isQuality && !summary.taskDecompositionReady
-        ? '待拆解'
-        : (isQuality && !summary.assigneeStepReady
-          ? '待配负责人'
-          : (summary.readyToPublish ? '可以发放' : '待补充'));
+      state.textContent = isQuality ? presentation.state : (summary.readyToPublish ? '可以发放' : '待补充');
       state.classList.toggle('is-ready', Boolean(summary.readyToPublish));
     }
     if (hint) {
-      hint.textContent = isQuality
-        ? (summary.count > 1
-          ? '机器人已完成结构化拆解，可继续对话调整；主管确认后才会正式发放。'
-          : '当前仍是宽泛成果，建议先让机器人拆成可执行任务。')
-        : (summary.readyToPublish
-          ? '负责人、期限、交付物和完成标准均已完整。'
-          : '仍有未完成项，可通过对话或“选择人员”继续调整。');
+      hint.textContent = isQuality ? presentation.hint : (summary.readyToPublish
+        ? '负责人、期限、交付物和完成标准均已完整。'
+        : '仍有未完成项，可通过对话或“选择人员”继续调整。');
     }
     bindPlanningTaskButtons();
   }
@@ -2093,14 +2098,14 @@ ${qualityPlanningEditorScript}
       && activeQualitySourceContext.kind === 'quality_event'
       && activeThreadKind === 'side');
     var taskCount = Number(cachedDraftSummary.count || 0);
-    var hasStructuredTasks = Boolean(cachedDraftSummary.taskDecompositionReady);
+    var hasStructuredTasks = Boolean(cachedDraftSummary.taskPlanGenerated);
     action.hidden = !canOffer;
     action.classList.toggle('is-working', qualityPlanningInFlight);
     button.disabled = !canOffer || qualityPlanningInFlight || sendInFlight;
     if (buttonLabel) {
       buttonLabel.textContent = qualityPlanningInFlight
-        ? '正在拆解…'
-        : (hasStructuredTasks ? '重新拆解任务' : '生成任务方案');
+        ? '正在生成方案…'
+        : (hasStructuredTasks ? '调整任务方案' : '生成任务方案');
     }
     if (status) {
       status.textContent = qualityPlanningInFlight
