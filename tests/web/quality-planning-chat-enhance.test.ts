@@ -174,3 +174,11 @@ it('derives generated and confirmed flags separately from real draft data',()=>{
   expect(compute({...data,qualityPlanning:{confirmed:true}}).taskDecompositionReady).toBe(true);
  }
 });
+
+it('shows concrete missing outcomes instead of declaring a partial plan ready for confirmation',()=>{
+ const html=renderManagerChatPage({threadId:'test',threadKind:'side'});
+ const start=html.indexOf('function qualityPlanningPresentation('),end=html.indexOf('\n  function ',start+10);
+ const present=new Function('summary',html.slice(start,end)+';return qualityPlanningPresentation(summary);');
+ const result=present({taskPlanGenerated:true,count:1,missingOutcomes:['导管检测','视频分析','批次追溯']});
+ expect(result.state).toBe('方案不完整');expect(result.hint).toContain('导管检测、视频分析、批次追溯');
+});

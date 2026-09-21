@@ -61,7 +61,7 @@ import {
 import type { KnownFactsStore } from "../agent/tools/update-known-facts";
 import { upsertAssignmentRow } from "../agent/tools/update-draft-task";
 import { getQualityPosts } from '../security/quality-posts';
-import {confirmQualityPlanning,qualityStructureHash,qualityPlanningConfirmed,saveQualityExecutionPlan} from '../agent/quality-planning-contract';
+import {qualityPlanCoverage,confirmQualityPlanning,qualityStructureHash,qualityPlanningConfirmed,saveQualityExecutionPlan} from '../agent/quality-planning-contract';
 import { clearPublishStagingOnDraft } from "../agent/draft-staging-clear";
 import {
   DingTalkAuthError,
@@ -7516,7 +7516,7 @@ export function handleAssignmentHttp(
       sourceContext: qualityEventId
         ? { kind: "quality_event", qualityEventId }
         : undefined,
-      qualityPlanning: qualityEventId&&draft ? {hash:qualityStructureHash(draft),confirmed:qualityPlanningConfirmed(draft)} : undefined,
+      qualityPlanning: qualityEventId&&draft ? {hash:qualityStructureHash(draft),confirmed:qualityPlanningConfirmed(draft),coverage:qualityPlanCoverage(draft)} : undefined,
     });
     return true;
   }

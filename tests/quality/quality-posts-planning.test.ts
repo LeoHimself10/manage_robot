@@ -31,7 +31,7 @@ it('reassigns a single post, revokes cached/legacy grants, retains history and i
 const task=(id:string)=>({id,title:id,objective:'调查并验证',deliverables:['本任务记录'],completionCriteria:['记录可复核'],timeNode:{dueAt:'2026-10-01'}});
 const draft=()=>({tasks:[task('reproduce'),task('test'),task('report')],qualityTaskPackage:{requiredDeliverables:[{deliverableId:'root',name:'根因报告',acceptanceCriteria:'结论有证据',selected:true},{deliverableId:'verification',name:'验证报告',acceptanceCriteria:'验证达标',selected:true}]},qualityHandoff:{qualityEventId:'event',planningRequired:true,requiredDeliverableIds:['root','verification']}});
 it('requires explicit final delivery mappings, supports many-to-many and preserves ordinary flows',()=>{
- const d=draft();expect(qualityPlanningConfirmed(d)).toBe(false);expect(validateQualityTaskCoverage({latestDraft:d}).ok).toBe(false);
+ const d=draft();d.tasks[2].deliverables.push('根因报告','验证报告');expect(qualityPlanningConfirmed(d)).toBe(false);expect(validateQualityTaskCoverage({latestDraft:d}).ok).toBe(false);
  const mappings=[{deliverableId:'root',finalTaskId:'report',supportTaskIds:['reproduce','test']},{deliverableId:'verification',finalTaskId:'report',supportTaskIds:['test']}];
  const confirmed=confirmQualityPlanning(d,{expectedHash:qualityStructureHash(d),actorUserId:'manager',mappings});
  expect(qualityPlanningConfirmed(confirmed)).toBe(true);expect(validateQualityTaskCoverage({latestDraft:confirmed}).ok).toBe(true);
@@ -43,16 +43,17 @@ it('requires explicit final delivery mappings, supports many-to-many and preserv
  expect(()=>confirmQualityPlanning(d,{expectedHash:qualityStructureHash(d),actorUserId:'manager',mappings:[{deliverableId:'root',finalTaskId:'missing',supportTaskIds:[]}]})).toThrow('最终交付');
 });
 it('accepts one valid task without forcing a multi-task count',()=>{
- const d=draft();d.tasks=[task('single')];
+ const d=draft();d.tasks=[{...task('single'),deliverables:['根因报告','验证报告']}];
  const confirmed=confirmQualityPlanning(d,{expectedHash:qualityStructureHash(d),actorUserId:'manager',mappings:d.qualityTaskPackage.requiredDeliverables.map(r=>({deliverableId:r.deliverableId,finalTaskId:'single',supportTaskIds:[]}))});
  expect(qualityPlanningConfirmed(confirmed)).toBe(true);
 });
 
-it('moves automatically attached final outcomes without making the old final task deliver them again',()=>{
- const d=draft();const mappings=d.qualityTaskPackage.requiredDeliverables.map(r=>({deliverableId:r.deliverableId,finalTaskId:'report',supportTaskIds:['test']}));
+it('does not disguise missing work by injecting outcomes during confirmation',()=>{
+ const d=draft();const before=structuredClone(d);
+ const mappings=d.qualityTaskPackage.requiredDeliverables.map(r=>({deliverableId:r.deliverableId,finalTaskId:'report',supportTaskIds:[]}));
+ expect(()=>confirmQualityPlanning(d,{expectedHash:qualityStructureHash(d),actorUserId:'manager',mappings})).toThrow('方案不完整');
+ expect(d).toEqual(before);
+ d.tasks[2].deliverables=['根因报告','验证报告'];
  const a=confirmQualityPlanning(d,{expectedHash:qualityStructureHash(d),actorUserId:'manager',mappings});
- const b=confirmQualityPlanning(a,{expectedHash:qualityStructureHash(a),actorUserId:'manager',mappings:mappings.map(m=>({...m,finalTaskId:'test',supportTaskIds:['report']}))});
- expect(b.tasks.find((t:any)=>t.id==='report').deliverables).toEqual(['本任务记录']);
- expect(b.tasks.find((t:any)=>t.id==='test').deliverables).toContain('根因报告');
- expect(qualityPlanningConfirmed(b)).toBe(true);
+ expect(()=>confirmQualityPlanning(a,{expectedHash:qualityStructureHash(a),actorUserId:'manager',mappings:mappings.map(m=>({...m,finalTaskId:'test'}))})).toThrow('方案不完整');
 });

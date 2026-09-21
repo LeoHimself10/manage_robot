@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-outcome-evidence-20260921-r21",
+  "release": "quality-test-plan-coverage-20260921-r22",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -58,7 +58,7 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/assignment-workbench.ts": {
-      "sha256": "c31d90da094fbcbd7bac2c9873d91546ab970004ca8442b82a13ef6b223f092a",
+      "sha256": "f96d59931425cc6d349d3ea5c1d3b7665bdec4c1239c1f55e46b16cc5486cf06",
       "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "src/web/quality-http.ts": {
@@ -278,7 +278,7 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/agent/quality-planning-contract.ts": {
-      "sha256": "d8032f05ad3726bbc7c4a23cdf06ff6fa4117727a5f660e318c3b466f8869b44",
+      "sha256": "b83c2d624a7cf8215416aa76ba2cdd6ded3c88846fff811e465e82ff9e1db453",
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/agent/quality-task-coverage.ts": {
@@ -310,11 +310,11 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/manager-workbench-pages.ts": {
-      "sha256": "17eb65840ca865040326722f9f962e7b1d5b356e57cbe2feac22a7f43c3332ea",
+      "sha256": "9e1d51a5e48d3040fefbb6912a27efe77a1c072ac8fa496c7c1d65701c96a903",
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/quality-planning-editor.ts": {
-      "sha256": "468238d4bd069b891f03ce881dcb345421ef4ad359085d434043b38ca33cf02e",
+      "sha256": "44bd38e6ef907c2435c6c65d400dea2c12b926a90b95dbd12377b8cc7251d375",
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "scripts/quality-ui-ai-runtime.mjs": {

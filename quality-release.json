@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-outcome-evidence-20260921-r21",
+  "release": "quality-test-plan-coverage-20260921-r22",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "verifiedUiFiles": 31,
@@ -144,7 +144,7 @@
     "src/agent/progress-digest/progress-digest-templates.ts": "dd963438047cf00637269b7bce4be85e5f8f425005eedb055d579fbb9ab81b3c",
     "src/agent/publish-helpers.ts": "cbacc5adf05a1c52738998c36615f043ed1c597af33dfeba23ae9320e2cfcd6b",
     "src/agent/publish-staging.ts": "20b2359bb6c7cd08f5935eac321493725e8d082fd6f323563527d087bc2d7922",
-    "src/agent/quality-planning-contract.ts": "b37907c9ca9c94ccc5885ed9b57f61504251a0f993ae66db2c4651c931058f4d",
+    "src/agent/quality-planning-contract.ts": "be60cd0b877728ceb7293a482270e15c8ce73328df7444e7e3dd521f621aad44",
     "src/agent/quality-task-coverage.ts": "aeeab1a6612fd04262493b27426a255ac4326bd8560270afd6a23d68f1b34622",
     "src/agent/registry-pre-draft-gate.ts": "3db794696bff2291f845273388d7d110f7a63f5d3231f042339538123d4926a8",
     "src/agent/reminders/due-at-parse.ts": "fe867f9c62484cdda58c5dae3e7a665761609341a16511f488bf0d4fb18b17b6",
@@ -392,7 +392,7 @@
     "src/web/admin-ops-dashboard-page.ts": "e40dd6d20217b6552ca140182701feeeb2ee8018a407985e5e29bde3199ca5e7",
     "src/web/admin-workbench-pages.ts": "4896ab8f4d0d0736c70718be05d3f32dfc06d0f898ced61645f43651a4f03120",
     "src/web/assignment-workbench-session-types.ts": "6f8d92149ed0e175426ac6e8898bca33e212d6baa2d8a61372e1c5ce0c4976f5",
-    "src/web/assignment-workbench.ts": "3a91e63268f4e98adc6200bbd695df9a18d9d43097bff9a690e94225ccfa1832",
+    "src/web/assignment-workbench.ts": "0b0d5ab99c9e26fffd999fde9c3a3c58773fa15fc88a75228643ee6bdb564a56",
     "src/web/canonical-main-session.ts": "efdb0025bceefab911cb0e86faba2581c8736171da489b21e00e3955bc11f48c",
     "src/web/competency-eval-api.ts": "7ca0ff03b93b4fea96a219af73f413cce7988a3cd3475d95fd70b9e02a16c894",
     "src/web/competency-eval-page-styles.ts": "a1a0f2ae5046c886a91fb5b1bd7e2fa4bb01d518d08c4ad3789acefd3c862d7b",
@@ -414,7 +414,7 @@
     "src/web/manager-meeting-import-page.ts": "d19f71dd5e8467243c52dcc84db729b6f19b5aad96b9bfbe9313d3454b3ebe0a",
     "src/web/manager-projects-pages.ts": "2f68badace8cae7c3fc1072b1f77380fdd3abf4a2b1972b29a304c3e1cdf4e03",
     "src/web/manager-task-intake-page.ts": "0a4b481771fe56f86e3cc6c32791668bf6626686cc9173b54e8f0e7c0587e825",
-    "src/web/manager-workbench-pages.ts": "7cc6614f263e9a1f63ec346b630523f587563accfbc04d5d65da5fabaa0bec1a",
+    "src/web/manager-workbench-pages.ts": "c19fd8fe944538f18c67ab9ad46158be1bd375c3be0461bc84a51be7c04bf9c4",
     "src/web/meeting-import-api.ts": "ae6a0a5177d5f262f0afc0a6042130e6f7b2721e260384014d1d5d07308da3ac",
     "src/web/multipart-single-file.ts": "d7bbe3d47e950a86739d91c43abaf4dcacda8c3461c58e199b06321773ef063c",
     "src/web/ops-dashboard-api.ts": "604bd39e120cada2c3615d9141158509fef10164b498650dfd7b5ff8089fdb16",
@@ -428,7 +428,7 @@
     "src/web/quality-manager-inline.ts": "330538c50a850536efcd8eaf0eb7a1e7a2038e7904d5bb8a8941313c80a415a4",
     "src/web/quality-opinions-page.ts": "0048308e95614545fa482c28e4da98a839fa52424b0f2da4e1f362ebc6427e8c",
     "src/web/quality-pilot-navigation.ts": "d4561df79964a90996461e6378e9ddc2641e831708fe319124c167cb128aa316",
-    "src/web/quality-planning-editor.ts": "8d23b415cdb8c32037e49c2c2c6b9e419eeda6ec4627ada863759ce39bc44298",
+    "src/web/quality-planning-editor.ts": "b2e2ec2caf64dfe2765c43a85aae41389ee5aa64c48b876157e39358dcdc7252",
     "src/web/quality-review-page.ts": "1b75a0bf1c023b9e3906f338410d69c946c19c27bab41a8ba72dddf3a6ccc786",
     "src/web/quality-review-styles.ts": "ada8f4c6bd090440cbfbdb19c2a5865f1342de0713f6bfe8b00cc7813830f801",
     "src/web/quality-tracking-page.ts": "afa07c3302eb634db5b4101d45fd76158647343810d9b89673a939776a249685",
@@ -537,6 +537,6 @@
     "scripts/quality-view-access.mjs": "37ce50203e88e00cc48ccd2bb6bc3ae783373ee46d161cd65757232e7a88a51f",
     "scripts/quality-post-admin.mjs": "611b61b2959659c03633fd0d8b349294bc588031e04b7269fe1ad7feac449d27",
     "scripts/quality-assessment-error.mjs": "b76e1e8a8fd7b9569e3864ee1cc69b220ee0c8adaf9161f6545d6cb34070a085",
-    "quality-release.lock.json": "fe03788f31e1488b2a02fc14aeff7d682b211d9fd66645bc6222587b95511958"
+    "quality-release.lock.json": "af1d5413768d501d48bf89abac2fd190bb5fbef077e716520cd39295caed2c4b"
   }
 }

@@ -12,7 +12,7 @@ import { hasQualityAssignmentNodesForUser } from "../quality/infra/quality-read-
 import { MANAGER_CHAT_V2_CSS } from "./manager-chat-v2-styles";
 
 export const QUALITY_TASK_REPLAN_MESSAGE =
-  "请作为任务拆解机器人，结合质量事件背景和质量初析，把当前宽泛成果重新规划为可执行、可承接、可验收的完整任务方案。必须覆盖已选的全部成果，但不要把一个成果简单等同于一个任务；每个必选成果的原始名称必须至少原样保留在一项任务的交付物中，以保持质量覆盖映射。围绕复现、原因定位、措施实施和效果验证补齐必要步骤。本轮先完成任务结构拆解；若存在待规划占位项，请删除占位项并创建实际任务。拆出的每一项任务都必须同时生成非空的交付物和完成标准，并补全截止时间和前后依赖，不允许只生成标题和目标。完成标准仅描述员工可交付的成果和可验证条件，不得把主管审批通过、质量终验或关闭质量事件作为员工提交完成的前置条件；这些是提交后的独立验收环节。不要写入、沿用或调整正式负责人，拆解完成后由主管先确认成果与任务对应关系，再在右侧逐项配置负责人。只生成待确认草案，不要发放。";
+  "请作为任务拆解机器人，结合质量事件背景和质量初析，把当前宽泛成果重新规划为可执行、可承接、可验收的完整任务方案。必须覆盖已选的全部成果，但不要把一个成果简单等同于一个任务；每个必选成果的原始名称必须至少原样保留在一项任务的交付物中，以保持质量覆盖映射。围绕复现、原因定位、措施实施和效果验证补齐必要步骤。本轮必须一次返回覆盖全部已选成果的完整任务方案，不得只生成回收、登记等第一步就结束。输出前逐项核对必须成果清单，缺项时补全任务；可以合并任务，但不能省略成果。优先使用完整草案替换，不把只修改一行当作整套方案。 本轮先完成任务结构拆解；若存在待规划占位项，请删除占位项并创建实际任务。拆出的每一项任务都必须同时生成非空的交付物和完成标准，并补全截止时间和前后依赖，不允许只生成标题和目标。完成标准仅描述员工可交付的成果和可验证条件，不得把主管审批通过、质量终验或关闭质量事件作为员工提交完成的前置条件；这些是提交后的独立验收环节。不要写入、沿用或调整正式负责人，拆解完成后由主管先确认成果与任务对应关系，再在右侧逐项配置负责人。只生成待确认草案，不要发放。";
 
 export const QUALITY_ACCEPTANCE_FILL_MESSAGE =
   "请只补齐当前质量任务草案中缺失的交付物和完成标准。逐项检查全部任务：交付物要明确员工最终需要提交的文件、记录、数据或证据；完成标准要写成主管可以复核和验收的客观条件。仅更新缺失的 deliverables 与 completionCriteria，不得修改任务标题、目标、负责人、截止时间、前后依赖或质量成果映射，也不要新增、删除任务或发放。";
@@ -1574,6 +1574,7 @@ export function renderManagerChatPage(params: {
       missingDue: missingDue,
       missingDeliverables: missingDeliverables,
       missingCriteria: missingCriteria,
+      missingOutcomes: (draftData.qualityPlanning && draftData.qualityPlanning.coverage && draftData.qualityPlanning.coverage.missing || []).map(function(item){return item.name;}),
       taskPlanGenerated: taskPlanGenerated,
       taskDecompositionReady: taskDecompositionReady,
       assigneeStepReady: assigneeStepReady,
@@ -1944,6 +1945,7 @@ ${qualityPlanningEditorScript}
     var confirmed = Boolean(summary.taskDecompositionReady);
     var countLabel = generated ? summary.count + (confirmed ? ' 项已确认任务' : ' 项任务草案') : '尚未形成任务方案';
     if (!generated) return {state:'待规划', countLabel:countLabel, hint:'请生成或手工编排任务方案，再确认任务与成果对应关系。'};
+    if (summary.missingOutcomes && summary.missingOutcomes.length) return {state:'方案不完整',countLabel:countLabel,hint:'缺少成果：'+summary.missingOutcomes.join('、')+'。请先补全任务的交付物与完成标准，再确认对应关系。'};
     if (!confirmed) return {state:'方案待确认', countLabel:countLabel, hint:'方案已生成，请核对任务与成果对应关系并确认；一项任务也可以覆盖多项成果。'};
     if (!summary.assigneeStepReady) return {state:'待配负责人', countLabel:countLabel, hint:'任务方案已确认，请为每项任务配置负责人。'};
     if (!summary.readyToPublish) return {state:'待补充', countLabel:countLabel, hint:'方案与负责人已确认，请补齐期限、交付物和完成标准。'};
@@ -2111,7 +2113,7 @@ ${qualityPlanningEditorScript}
       status.textContent = qualityPlanningInFlight
         ? '机器人正在读取质量初析，识别任务步骤、前后依赖和验收条件…'
         : (hasStructuredTasks
-          ? '当前已有 ' + taskCount + ' 项任务草案，可继续让机器人调整方案。'
+          ? (cachedDraftSummary.missingOutcomes && cachedDraftSummary.missingOutcomes.length ? '方案不完整，缺少：' + cachedDraftSummary.missingOutcomes.join('、') : '当前已有 ' + taskCount + ' 项任务草案，请核对执行范围与成果对应关系。')
           : '先生成或手工编排任务，再点击“编辑任务与成果对应 / 确认结构”。');
     }
     document.querySelectorAll('[data-quality-command]').forEach(function (chip) {

@@ -5,11 +5,24 @@ type RecordValue=Record<string,any>;
 export function qualityStructureHash(draft:RecordValue){
   return createHash('sha256').update(JSON.stringify((draft.tasks||[]).map((t:RecordValue)=>({id:t.id,title:t.title,objective:t.objective,deliverables:t.deliverables,completionCriteria:t.completionCriteria,actions:t.actions,dependencyTaskIds:t.dependencyTaskIds})))).digest('hex');
 }
+/** Exact outcome names are the explicit planning contract, not semantic proof. */
+export function qualityPlanCoverage(draft:RecordValue,mappings?:unknown) {
+  const required=(draft.qualityTaskPackage?.requiredDeliverables||[]).filter((d:RecordValue)=>d.selected!==false);
+  const tasks=(draft.tasks||[]).filter((t:RecordValue)=>t.id!=='__quality_planning__');
+  const normalize=(value:unknown)=>String(value||'').trim().replace(/\s+/g,' ');
+  const missing=required.filter((d:RecordValue)=>{
+    const mapping=Array.isArray(mappings)?mappings.find((m:RecordValue)=>m.deliverableId===d.deliverableId):null;
+    return !tasks.some((t:RecordValue)=>(!Array.isArray(mappings)||t.id===mapping?.finalTaskId)
+      && Array.isArray(t.deliverables)&&t.deliverables.some((value:unknown)=>normalize(value)===normalize(d.name))
+      && Array.isArray(t.completionCriteria)&&t.completionCriteria.some((value:unknown)=>String(value||'').trim()));
+  }).map((d:RecordValue)=>({deliverableId:d.deliverableId,name:d.name}));
+  return {complete:required.length>0&&missing.length===0,missing};
+}
 export function qualityPlanningRequired(draft:RecordValue){return Boolean(draft.qualityHandoff&&(draft.qualityHandoff.planningRequired||process.env.QUALITY_POSTS_DB_PATH));}
 export function qualityPlanningConfirmed(draft:RecordValue){
   if(!qualityPlanningRequired(draft))return true;
   const plan=draft.qualityHandoff.planning;
-  return Boolean(plan&&plan.hash===qualityStructureHash(draft)&&validMappings(draft,plan.mappings));
+  return Boolean(plan&&plan.hash===qualityStructureHash(draft)&&validMappings(draft,plan.mappings)&&qualityPlanCoverage(draft,plan.mappings).complete);
 }
 function validMappings(draft:RecordValue,mappings:unknown):boolean {
   const required=(draft.qualityTaskPackage?.requiredDeliverables||[]).filter((d:RecordValue)=>d.selected!==false);
@@ -30,24 +43,11 @@ export function confirmQualityPlanning(draft:RecordValue,input:{expectedHash:str
 
   if(!validMappings(next,input.mappings))throw Error('每项必须成果须指定一个最终交付任务，支撑任务须属于当前方案');
   const mappings=input.mappings as {deliverableId:string;finalTaskId:string;supportTaskIds:string[]}[];
-  const previousInjected=next.qualityHandoff.planning?.injectedByTask||{};
-  const injectedByTask:RecordValue={};
-  for(const task of next.tasks){
-    const prior=previousInjected[task.id]||{};
-    task.deliverables=(Array.isArray(task.deliverables)?task.deliverables:[]).filter((s:unknown)=>!(prior.deliverables||[]).includes(s));
-    task.completionCriteria=(Array.isArray(task.completionCriteria)?task.completionCriteria:[]).filter((s:unknown)=>!(prior.completionCriteria||[]).includes(s));
-    const injected={deliverables:[] as string[],completionCriteria:[] as string[]};
-    task.qualityDeliverableIds=mappings.filter(m=>m.finalTaskId===task.id).map(m=>m.deliverableId);
-    for(const d of next.qualityTaskPackage.requiredDeliverables.filter((d:RecordValue)=>task.qualityDeliverableIds.includes(d.deliverableId))){
-      if(!task.deliverables.includes(d.name))injected.deliverables.push(d.name);
-      if(d.acceptanceCriteria&&!task.completionCriteria.includes(d.acceptanceCriteria))injected.completionCriteria.push(d.acceptanceCriteria);
-      task.deliverables=[...new Set([...task.deliverables,d.name])];
-      if(d.acceptanceCriteria)task.completionCriteria=[...new Set([...task.completionCriteria,d.acceptanceCriteria])];
-    }
-    injectedByTask[task.id]=injected;
-  }
+  const coverage=qualityPlanCoverage(next,mappings);
+  if(!coverage.complete)throw Error('方案不完整，请先在最终交付任务中写明成果及完成标准：'+coverage.missing.map((d:{name:string})=>d.name).join('、'));
+  for(const task of next.tasks)task.qualityDeliverableIds=mappings.filter(m=>m.finalTaskId===task.id).map(m=>m.deliverableId);
   if(!next.tasks.every((t:RecordValue)=>/^[\w-]{1,100}$/.test(t.id)&&t.title&&t.title.length<=200&&t.objective&&Array.isArray(t.deliverables)&&t.deliverables.some((s:unknown)=>typeof s==='string'&&s.trim())&&Array.isArray(t.completionCriteria)&&t.completionCriteria.some((s:unknown)=>typeof s==='string'&&s.trim())))throw Error('每项任务须填写标题、目标、交付物和完成标准');
-  next.qualityHandoff={...next.qualityHandoff,planningRequired:true,planning:{hash:qualityStructureHash(next),mappings,injectedByTask,confirmedBy:input.actorUserId,confirmedAt:new Date().toISOString()}};
+  next.qualityHandoff={...next.qualityHandoff,planningRequired:true,planning:{hash:qualityStructureHash(next),mappings,confirmedBy:input.actorUserId,confirmedAt:new Date().toISOString()}};
   return next;
 }
 export function saveQualityExecutionPlan(dbPath:string,planId:string,draft:RecordValue) {
