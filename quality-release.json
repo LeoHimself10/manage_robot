@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-thread-recovery-20260921-r23",
+  "release": "quality-test-direct-allocation-20260921-r24",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "verifiedUiFiles": 31,
@@ -144,8 +144,8 @@
     "src/agent/progress-digest/progress-digest-templates.ts": "dd963438047cf00637269b7bce4be85e5f8f425005eedb055d579fbb9ab81b3c",
     "src/agent/publish-helpers.ts": "cbacc5adf05a1c52738998c36615f043ed1c597af33dfeba23ae9320e2cfcd6b",
     "src/agent/publish-staging.ts": "20b2359bb6c7cd08f5935eac321493725e8d082fd6f323563527d087bc2d7922",
-    "src/agent/quality-planning-contract.ts": "be60cd0b877728ceb7293a482270e15c8ce73328df7444e7e3dd521f621aad44",
-    "src/agent/quality-task-coverage.ts": "aeeab1a6612fd04262493b27426a255ac4326bd8560270afd6a23d68f1b34622",
+    "src/agent/quality-planning-contract.ts": "731457e5e55038684a01f7fe9b2b6d1f8768bb5994cfad48cd5ebd0579c5071f",
+    "src/agent/quality-task-coverage.ts": "09cd8b023acba27c849f83e9494b8cbe52ebea816aebf1d413104a6449d31425",
     "src/agent/registry-pre-draft-gate.ts": "3db794696bff2291f845273388d7d110f7a63f5d3231f042339538123d4926a8",
     "src/agent/reminders/due-at-parse.ts": "fe867f9c62484cdda58c5dae3e7a665761609341a16511f488bf0d4fb18b17b6",
     "src/agent/reminders/reminder-eligibility.ts": "d0c22a5099e8d33a00ba811f205a54d1d0e991710aec03dad501e08d946762a9",
@@ -303,12 +303,12 @@
     "src/quality/ai-original-assessment/validate-ai-original-assessment.ts": "da1544888506fc8c09fe3e756e95d44e1a0cb8f01aadfac7df0896cc89e36455",
     "src/quality/analysis/quality-analysis-contracts.ts": "4ef8618fb147cd32b88fc0e6742383ea3fd9d66afe3fd372745b0b7f3c203719",
     "src/quality/analysis/quality-analysis-prompt.ts": "80597f0b79699caa46a164cb192cb244fc88d9ca3a175bba28008d091d92833c",
-    "src/quality/analysis/quality-analysis-service.ts": "92927fd6bf2ab5bb74950f3c807339a53eb6fbe7fffe6d81b0c94ee536eb8658",
+    "src/quality/analysis/quality-analysis-service.ts": "3b4ee2a3eb982bea0e1c5b1f208cb583669fa0da2bf51a673f2663a59932a295",
     "src/quality/analysis/quality-department-directory.ts": "cf6f03222da1bd796ecb9e6bd2e46583642b6b6111aa3ff2fd33635e44dfa4e6",
     "src/quality/analysis/quality-formal-task-projection.ts": "35417abaca4c5986f4673ce102c600fb85c8c72be2c083bd501bd6be3523c6c1",
     "src/quality/analysis/quality-handoff-acceptance.ts": "56370ac36fe26700475fc0406cd36a1cd7a0e6e4e23d171d9a9493321a339c0f",
     "src/quality/analysis/quality-planning-draft-context.ts": "2953d4f16422401ea15f9f54f78f90b15627d8fef982a9c6f9efede634132bc2",
-    "src/quality/analysis/quality-planning-thread-recovery.ts": "4f82adb46c18e217912055bcccd9ce6511cdec2367f2bcada9fd7c80b122919e",
+    "src/quality/analysis/quality-planning-thread-recovery.ts": "2d14b119315ddb57059ae81e60efa78af7a2aad579661b4dc0d9e250c3afb694",
     "src/quality/analysis/qwen-quality-analysis-model.ts": "cab628ee65a7c267710a829241802b1602cd5104840c86e99a1a5cd8bf775658",
     "src/quality/analysis/validate-quality-analysis.ts": "9533b9428f94b38030f3deac8c8dc270317112b6e3e737f849eda2cb858a12dd",
     "src/quality/assignments/quality-assignment-policy.ts": "2301c8183726bc0876ee2c7ea6138327577797972efd779e1b282a5f1d1ca2b6",
@@ -393,7 +393,7 @@
     "src/web/admin-ops-dashboard-page.ts": "e40dd6d20217b6552ca140182701feeeb2ee8018a407985e5e29bde3199ca5e7",
     "src/web/admin-workbench-pages.ts": "4896ab8f4d0d0736c70718be05d3f32dfc06d0f898ced61645f43651a4f03120",
     "src/web/assignment-workbench-session-types.ts": "6f8d92149ed0e175426ac6e8898bca33e212d6baa2d8a61372e1c5ce0c4976f5",
-    "src/web/assignment-workbench.ts": "5c23d681ec2b446957a11813ca6ab1bf09f7961b7b7a5598607800b93237b735",
+    "src/web/assignment-workbench.ts": "a9ba1a86f4186533653d9053f37ae42e93ce2b08df3b166ca950a6c0c77eb645",
     "src/web/canonical-main-session.ts": "efdb0025bceefab911cb0e86faba2581c8736171da489b21e00e3955bc11f48c",
     "src/web/competency-eval-api.ts": "7ca0ff03b93b4fea96a219af73f413cce7988a3cd3475d95fd70b9e02a16c894",
     "src/web/competency-eval-page-styles.ts": "a1a0f2ae5046c886a91fb5b1bd7e2fa4bb01d518d08c4ad3789acefd3c862d7b",
@@ -415,7 +415,7 @@
     "src/web/manager-meeting-import-page.ts": "d19f71dd5e8467243c52dcc84db729b6f19b5aad96b9bfbe9313d3454b3ebe0a",
     "src/web/manager-projects-pages.ts": "2f68badace8cae7c3fc1072b1f77380fdd3abf4a2b1972b29a304c3e1cdf4e03",
     "src/web/manager-task-intake-page.ts": "0a4b481771fe56f86e3cc6c32791668bf6626686cc9173b54e8f0e7c0587e825",
-    "src/web/manager-workbench-pages.ts": "8e758fb5187742da9720fc13a3b247b572066c44dba3e7627d87b2e6c8374ef8",
+    "src/web/manager-workbench-pages.ts": "686a0ddcf3719de1a7cd82ab389078e7b6667261a9186971a2470910cf57a61a",
     "src/web/meeting-import-api.ts": "ae6a0a5177d5f262f0afc0a6042130e6f7b2721e260384014d1d5d07308da3ac",
     "src/web/multipart-single-file.ts": "d7bbe3d47e950a86739d91c43abaf4dcacda8c3461c58e199b06321773ef063c",
     "src/web/ops-dashboard-api.ts": "604bd39e120cada2c3615d9141158509fef10164b498650dfd7b5ff8089fdb16",
@@ -538,6 +538,6 @@
     "scripts/quality-view-access.mjs": "37ce50203e88e00cc48ccd2bb6bc3ae783373ee46d161cd65757232e7a88a51f",
     "scripts/quality-post-admin.mjs": "611b61b2959659c03633fd0d8b349294bc588031e04b7269fe1ad7feac449d27",
     "scripts/quality-assessment-error.mjs": "b76e1e8a8fd7b9569e3864ee1cc69b220ee0c8adaf9161f6545d6cb34070a085",
-    "quality-release.lock.json": "9f2b99333108e5c0f4e0dbebf568e94d0f167614041f8795e6fd2b56a8e15920"
+    "quality-release.lock.json": "a98e627525789b0f8e5593ccb0db5917fe54d6693c249a47b20de4ff0430ff52"
   }
 }

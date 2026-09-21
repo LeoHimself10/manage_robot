@@ -1,6 +1,6 @@
 import {assertQualityPlanningAccepted} from '../quality/analysis/quality-handoff-acceptance';
 import type { PlanSession } from "../infra/plan-session-store";
-import {qualityPlanningConfirmed} from './quality-planning-contract';
+import {qualityPlanningConfirmed,qualityPlanningRequired} from './quality-planning-contract';
 
 export interface QualityTaskCoverageResult {
   applicable: boolean;
@@ -108,7 +108,7 @@ export function validateQualityTaskCoverage(session: Pick<PlanSession, "latestDr
   const missing = required.filter((id) => !covered.has(id));
   return {
     applicable: true,
-    ok: required.length > 0 && missing.length === 0,
+    ok: qualityPlanningRequired(draft) ? qualityPlanningConfirmed(draft) : required.length > 0 && missing.length === 0,
     requiredDeliverableIds: required,
     coveredDeliverableIds: [...covered],
     missingDeliverableIds: missing,

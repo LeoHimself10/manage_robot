@@ -28,7 +28,7 @@ describe("quality planning chat enhancement", () => {
     expect(html).toContain("activeQualitySourceContext.kind === 'quality_event'");
     expect(html).toContain("activeThreadKind === 'side'");
     expect(html).toContain("action.hidden = !canOffer");
-    expect(html).toContain("先确认任务方案，再配置负责人");
+    expect(html).toContain("生成任务方案，配置后直接发放");
     expect(html).toContain("让机器人拆解任务");
     expect(html).toContain("chat-main.is-quality-planning");
     expect(html).toContain("setPlanningContextCollapsed(card, isQuality)");
@@ -75,10 +75,10 @@ describe("quality planning chat enhancement", () => {
     expect(html).toContain("var scheduleStepReady = assigneeStepReady");
     expect(html).toContain("var acceptanceStepReady = scheduleStepReady");
     expect(html).toContain("isQualityDraft\n      ? acceptanceStepReady");
-    expect(html).toContain("请先确认任务方案");
+    expect(html).toContain("请先生成任务方案");
     expect(html).toContain("请先完成负责人配置");
     expect(html).toContain("请先完成依赖与期限");
-    expect(html).toContain("确认方案后配置");
+    expect(html).toContain("生成任务后配置");
     expect(html).toContain("disabled aria-disabled=\"true\"");
   });
 
@@ -147,7 +147,7 @@ describe('quality planning presentation', () => {
   expect(present({taskPlanGenerated:false,count:1}).state).toBe('待规划');
   for(const count of [1,4]) {
    const generated={taskPlanGenerated:true,count};
-   expect(present(generated).state).toBe('方案待确认');
+   expect(present(generated).state).toBe('待规划');
    expect(present(generated).countLabel).toBe(count+' 项任务草案');
    expect(present({...generated,taskDecompositionReady:true}).state).toBe('待配负责人');
    expect(present({...generated,taskDecompositionReady:true,assigneeStepReady:true}).state).toBe('待补充');
@@ -156,7 +156,7 @@ describe('quality planning presentation', () => {
  });
  it('returns revised plans to confirmation without claiming they need splitting again',()=>{
   const state=present({taskPlanGenerated:true,count:4,taskDecompositionReady:false,assigneeStepReady:false});
-  expect(state.state).toBe('方案待确认');expect(state.hint).toContain('核对任务与成果对应关系');
+  expect(state.state).toBe('待规划');expect(state.hint).toContain('请先生成或编辑实际任务');
   expect(state.hint).not.toContain('已完成结构化拆解');
  });
 });
@@ -179,6 +179,6 @@ it('shows concrete missing outcomes instead of declaring a partial plan ready fo
  const html=renderManagerChatPage({threadId:'test',threadKind:'side'});
  const start=html.indexOf('function qualityPlanningPresentation('),end=html.indexOf('\n  function ',start+10);
  const present=new Function('summary',html.slice(start,end)+';return qualityPlanningPresentation(summary);');
- const result=present({taskPlanGenerated:true,count:1,missingOutcomes:['导管检测','视频分析','批次追溯']});
- expect(result.state).toBe('方案不完整');expect(result.hint).toContain('导管检测、视频分析、批次追溯');
+ const result=present({taskPlanGenerated:true,taskDecompositionReady:true,count:1,missingOutcomes:['导管检测','视频分析','批次追溯']});
+ expect(result.state).toBe('待配负责人');expect(html).not.toContain('data-quality-plan-edit');expect(html).not.toContain('必须成果如何完成');
 });

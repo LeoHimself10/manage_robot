@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-thread-recovery-20260921-r23",
+  "release": "quality-test-direct-allocation-20260921-r24",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -58,7 +58,7 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/assignment-workbench.ts": {
-      "sha256": "a648854bc3f5bb19b7b0da20f305ce62e07b58832e342a6395135cd6f12d5937",
+      "sha256": "af90c81e97518d8d4b2701b33b1c2f4c8ed74a3565452b4d6f7fbdce420e6a5a",
       "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "src/web/quality-http.ts": {
@@ -214,7 +214,7 @@
       "reason": "User-approved outcome/evidence deliverable generation; forbid preset causes and downstream approval/closure gates in AI suggestions, retain valid reports and historical/manual data."
     },
     "src/quality/analysis/quality-analysis-service.ts": {
-      "sha256": "c7a272a63b1c5b724d6b7300b3fc6138a3f795e6c3ea8d111b70b3248bf00c68",
+      "sha256": "98151eb7109483debe7da2423c8fd580365d528ea49c5e48c4028c7f2eab7260",
       "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "public/quality/business-display.js": {
@@ -278,11 +278,11 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/agent/quality-planning-contract.ts": {
-      "sha256": "b83c2d624a7cf8215416aa76ba2cdd6ded3c88846fff811e465e82ff9e1db453",
+      "sha256": "3fa9eb9c7bb420f6a2d411590db885076c278678a1662c31f2cd3f59f5bb5989",
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/agent/quality-task-coverage.ts": {
-      "sha256": "75de3378b5f35be40bdb0a83c436459e562c80f695a59321b55b2f276cc19116",
+      "sha256": "b0c2a55dfb8d2b28052f88d2510195d9262f1a1e618f22b211f574c5a5004bce",
       "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "src/agent/tools/prepare-publish-task.ts": {
@@ -310,7 +310,7 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/manager-workbench-pages.ts": {
-      "sha256": "edecf9467f15391c7fe9e17d996f8646103cfed23f48409d001bf28e462c0236",
+      "sha256": "88f697b43260da4478faab472dbe96d7641245ac9085dad451384f63a4582844",
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/quality-planning-editor.ts": {
@@ -366,7 +366,7 @@
       "reason": "User-approved outcome/evidence deliverable generation; forbid preset causes and downstream approval/closure gates in AI suggestions, retain valid reports and historical/manual data."
     },
     "src/quality/analysis/quality-planning-thread-recovery.ts": {
-      "sha256": "da8d6bfe88d8ee0000edbf5dc549a16cb69f63018110130a6c765a26648201fa",
+      "sha256": "957146982e1c003ea6a2d38a16e7eef4372a610b731c6f8a027502da75d7bc3b",
       "reason": "Restore latest unfinished quality handoff thread from immutable package for authorized recipient only; protect deletion; full quality plan button bypasses row-split classifier."
     },
     "src/web/conversation-thread-resolver.ts": {

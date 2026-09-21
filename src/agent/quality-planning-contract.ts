@@ -21,8 +21,8 @@ export function qualityPlanCoverage(draft:RecordValue,mappings?:unknown) {
 export function qualityPlanningRequired(draft:RecordValue){return Boolean(draft.qualityHandoff&&(draft.qualityHandoff.planningRequired||process.env.QUALITY_POSTS_DB_PATH));}
 export function qualityPlanningConfirmed(draft:RecordValue){
   if(!qualityPlanningRequired(draft))return true;
-  const plan=draft.qualityHandoff.planning;
-  return Boolean(plan&&plan.hash===qualityStructureHash(draft)&&validMappings(draft,plan.mappings)&&qualityPlanCoverage(draft,plan.mappings).complete);
+  // User-approved direct allocation: no separate outcome mapping confirmation.
+  return Array.isArray(draft.tasks)&&draft.tasks.length>0&&draft.tasks.every((t:RecordValue)=>t.id&&t.id!=='__quality_planning__'&&String(t.title||'').trim());
 }
 function validMappings(draft:RecordValue,mappings:unknown):boolean {
   const required=(draft.qualityTaskPackage?.requiredDeliverables||[]).filter((d:RecordValue)=>d.selected!==false);

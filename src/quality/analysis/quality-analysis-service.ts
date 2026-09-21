@@ -695,7 +695,7 @@ export function createQualityAnalysisService(deps?: {
       const items = lines(value);
       return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : `- ${empty}`;
     };
-    const tasks = process.env.QUALITY_POSTS_DB_PATH ? [{id:'__quality_planning__',title:'待规划执行任务',objective:'请根据质量初析规划执行方案，再确认成果对应关系。',deliverables:[],completionCriteria:[],timeNode:{dueAt},qualityDeliverableIds:[],qualityEventId:input.package.qualityEventId}] : deliverables.map((deliverable, index) => ({
+    const tasks = process.env.QUALITY_POSTS_DB_PATH ? [{id:'__quality_planning__',title:'待规划执行任务',objective:'请根据质量初析规划执行方案，再配置负责人和期限。',deliverables:[],completionCriteria:[],timeNode:{dueAt},qualityDeliverableIds:[],qualityEventId:input.package.qualityEventId}] : deliverables.map((deliverable, index) => ({
       id: `task_${index + 1}`,
       title: deliverable.name,
       objective: deliverable.description,
@@ -741,7 +741,7 @@ export function createQualityAnalysisService(deps?: {
       `- 建议总期限：${dueAt}`,
       `- 必须成果：${deliverables.map((item) => item.name).join("、")}`,
       "",
-      "我已把来源事实、质量初析、处理要求和必须成果写入草稿。请先在主管质量工作台确认承接，再生成或手工编排执行任务，在“任务与成果对应”中确认每项成果的最终交付任务及支撑任务，再配置负责人、期限并按原流程发放。",
+      "我已把来源事实、质量初析、处理要求和必须成果写入草稿。请先在主管质量工作台确认承接，再生成或手工编排执行任务，配置负责人、期限和完成标准后即可发放，无需成果对应确认。",
     ].join("\n");
     const staged = {
       ...side,

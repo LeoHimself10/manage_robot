@@ -7551,7 +7551,7 @@ export function handleAssignmentHttp(
           writeJson(res, 403, { ok: false, error: "此入口仅用于质量任务规划" });
           return;
         }
-        if(!qualityPlanningConfirmed(draft!)){writeJson(res,409,{ok:false,error:'请先确认任务结构及每项成果的最终交付任务'});return;}
+        if(!qualityPlanningConfirmed(draft!)){writeJson(res,409,{ok:false,error:'请先生成或填写实际任务'});return;}
         const taskId = String(body.taskId ?? "").trim();
         const assigneeUserId = String(body.assigneeUserId ?? "").trim();
         const tasks = Array.isArray(draft?.tasks)
