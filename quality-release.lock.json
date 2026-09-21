@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-plan-coverage-20260921-r22",
+  "release": "quality-test-thread-recovery-20260921-r23",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -58,7 +58,7 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/assignment-workbench.ts": {
-      "sha256": "f96d59931425cc6d349d3ea5c1d3b7665bdec4c1239c1f55e46b16cc5486cf06",
+      "sha256": "a648854bc3f5bb19b7b0da20f305ce62e07b58832e342a6395135cd6f12d5937",
       "reason": "Require explicit manager acceptance before planning/allocation, preserve published work; rename dashboard completion metric (2026-09-18)."
     },
     "src/web/quality-http.ts": {
@@ -310,7 +310,7 @@
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/manager-workbench-pages.ts": {
-      "sha256": "9e1d51a5e48d3040fefbb6912a27efe77a1c072ac8fa496c7c1d65701c96a903",
+      "sha256": "edecf9467f15391c7fe9e17d996f8646103cfed23f48409d001bf28e462c0236",
       "reason": "User-authorized role posts, audited succession and explicitly confirmed many-to-many outcome/task planning (2026-09-18)."
     },
     "src/web/quality-planning-editor.ts": {
@@ -364,6 +364,22 @@
     "src/quality/analysis/validate-quality-analysis.ts": {
       "sha256": "bf3f9d17fc1d0bf9e21d9fdc7aa4edd33e950b26adf7c2807b473e14f7949b84",
       "reason": "User-approved outcome/evidence deliverable generation; forbid preset causes and downstream approval/closure gates in AI suggestions, retain valid reports and historical/manual data."
+    },
+    "src/quality/analysis/quality-planning-thread-recovery.ts": {
+      "sha256": "da8d6bfe88d8ee0000edbf5dc549a16cb69f63018110130a6c765a26648201fa",
+      "reason": "Restore latest unfinished quality handoff thread from immutable package for authorized recipient only; protect deletion; full quality plan button bypasses row-split classifier."
+    },
+    "src/web/conversation-thread-resolver.ts": {
+      "sha256": "3fe042db5a7ffd0f4c25b255718605a6644bed82aca146269ebe0ac01b6cf4f4",
+      "reason": "Restore latest unfinished quality handoff thread from immutable package for authorized recipient only; protect deletion; full quality plan button bypasses row-split classifier."
+    },
+    "src/agent/orchestrator-turn-hints.ts": {
+      "sha256": "c9c93f6d0b22377e1794b7307adc4fd54fdee3cfe044305620ff634e0c01b95b",
+      "reason": "Restore latest unfinished quality handoff thread from immutable package for authorized recipient only; protect deletion; full quality plan button bypasses row-split classifier."
+    },
+    "src/agent/v2/tool-choice-gate.ts": {
+      "sha256": "d10d1e355b2bdc714f13df10b0ed8633930993ab54b5eba88820df37cfb4569c",
+      "reason": "Restore latest unfinished quality handoff thread from immutable package for authorized recipient only; protect deletion; full quality plan button bypasses row-split classifier."
     }
   },
   "runtimeScripts": [

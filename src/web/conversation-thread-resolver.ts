@@ -1,3 +1,4 @@
+import {findActiveQualityThread,recoverQualityPlanningThread} from "../quality/analysis/quality-planning-thread-recovery";
 import { randomUUID } from "node:crypto";
 
 import { formatSideThreadDefaultTitle } from "../infra/conversation-present";
@@ -116,6 +117,7 @@ export function deleteSideThreadSession(userId: string, threadId: string): boole
   if (!tid || tid === "main") return false;
   const target = resolveConversationThread(userId, { threadKind: "side", threadId: tid });
   if (!target || !isSideThreadSession(target)) return false;
+  if(findActiveQualityThread(userId,tid))return false;
   planSessionStore.deleteByChatKeyHash(target.chatKeyHash);
   return true;
 }
@@ -167,7 +169,7 @@ export function resolveConversationThread(
     const side = sessionsForManager(userId).find(
       (s) => s.threadKind === "side" && s.threadId === threadId,
     );
-    return side;
+    return side ?? recoverQualityPlanningThread(userId,threadId);
   }
 
   if (threadId && threadId !== "main") {

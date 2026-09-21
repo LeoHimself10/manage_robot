@@ -148,6 +148,9 @@ export async function decideTurnToolChoice(
   if (!input.trustedActorUserId || !input.trustedActorUserId.trim()) {
     return auto("auto:no_trusted_actor");
   }
+  if(text.startsWith('[QUALITY_FULL_PLAN]') && input.session.latestDraft?.qualityHandoff && v2ProfileIncludesTool(input.toolProfile,'replace_draft')) {
+    return {toolChoice:{type:'function',function:{name:'replace_draft'}},frontier:['replace_draft'],reason:'auto:whole_table_redraft'};
+  }
   if (hasWholeTableRedraftIntentInUserMessage(text)) {
     return auto("auto:whole_table_redraft");
   }

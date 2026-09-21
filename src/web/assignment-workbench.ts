@@ -1,3 +1,4 @@
+import {findActiveQualityThread} from "../quality/analysis/quality-planning-thread-recovery";
 import {acceptQualityHandoff,assertQualityPlanningAccepted} from '../quality/analysis/quality-handoff-acceptance';
 import { createQualityEvidenceService } from "../quality/evidence/quality-evidence-service";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -7377,6 +7378,9 @@ export function handleAssignmentHttp(
     if (!target || !isSideThreadSession(target)) {
       writeJson(res, 404, { ok: false, error: "No session found for thread" });
       return true;
+    }
+    if(findActiveQualityThread(session.userId,query.threadId)) {
+      writeJson(res,409,{ok:false,error:'此会话关联尚未完成的质量任务，不能删除；请从质量事件继续规划。'});return true;
     }
     const deleted = deleteSideThreadSession(session.userId, query.threadId);
     if (!deleted) {

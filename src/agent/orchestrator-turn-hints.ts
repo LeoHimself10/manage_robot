@@ -74,7 +74,7 @@ export function hasRowSplitIntentInUserMessage(userMessage: string): boolean {
 }
 
 export function hasWholeTableRedraftIntentInUserMessage(userMessage: string): boolean {
-  return hasWholeTableRedraftIntent(userMessage);
+  return userMessage.trim().startsWith("[QUALITY_FULL_PLAN]") || hasWholeTableRedraftIntent(userMessage);
 }
 
 function hasDraftTasks(sessionContext: TurnHintSessionContext | undefined): boolean {
