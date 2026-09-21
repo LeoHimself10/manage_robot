@@ -274,6 +274,14 @@ describe("AI quality initial analysis V1", () => {
     service.close();
   });
 
+  it("rejects predetermined closure deliverables before accepting an AI attempt", async () => {
+    const eventId=seedEvent();
+    const service=createQualityAnalysisService({dbPath,model:model(input=>({...output(input),deliverables:[{name:"事件结案报告",description:"综合检测形成结论",acceptanceCriteria:"明确归因为临床因素，并经质量经理审核批准。"}]}))});
+    await expect(service.generate({eventId,actorUserId:"quality-employee",requestId:"11111111-1111-4111-8111-111111111111"})).rejects.toMatchObject({code:"MODEL_OUTPUT_INVALID"});
+    expect(service.listAttempts(eventId)[0].status).toBe("FAILED");
+    service.close();
+  });
+
   it("preserves invalid AI output as a failed attempt and permits an independent manual draft", async () => {
     const eventId = seedEvent();
     const service = createQualityAnalysisService({ dbPath, model: model(() => ({ wrong: true })) });

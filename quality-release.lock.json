@@ -1,5 +1,5 @@
 {
-  "release": "quality-test-planning-status-20260920-r20",
+  "release": "quality-test-outcome-evidence-20260921-r21",
   "uiCommit": "5b3eedd272367713028701bff293bb9cb8e62b67",
   "backendCommit": "3e7502433801f7113d6a4b58fa8a409c1a0425ca",
   "ui": [
@@ -206,12 +206,12 @@
       "reason": "Repair only the OA handling/category mismatch once under full validation; surface safe failure diagnostics (2026-09-18)."
     },
     "src/quality/analysis/quality-analysis-contracts.ts": {
-      "sha256": "7a6d82eca120a4c842cdb351285fd356d1456ff7bf5e603a614134862a549557",
-      "reason": "FR-QS-07: remove mandatory initial analysis modification/confirmation explanation, preserve historical records and version audit."
+      "sha256": "09e54f93577f08099998813d8c09b1fdb87f353506530e7c3e5e266c64a6ac80",
+      "reason": "User-approved outcome/evidence deliverable generation; forbid preset causes and downstream approval/closure gates in AI suggestions, retain valid reports and historical/manual data."
     },
     "src/quality/analysis/quality-analysis-prompt.ts": {
-      "sha256": "2b909216c394eaf92b1704cb18235281b45391daa4b66b929c779bda06e3bcae",
-      "reason": "FR-QS-01..04: approved business-field simplification, readable source references and Tong-only connected dashboard (2026-09-16)."
+      "sha256": "f4b6c9f9da56151c51585633a1e48c6174231f38e9b5ed2f4d913bdb1e5348be",
+      "reason": "User-approved outcome/evidence deliverable generation; forbid preset causes and downstream approval/closure gates in AI suggestions, retain valid reports and historical/manual data."
     },
     "src/quality/analysis/quality-analysis-service.ts": {
       "sha256": "c7a272a63b1c5b724d6b7300b3fc6138a3f795e6c3ea8d111b70b3248bf00c68",
@@ -360,6 +360,10 @@
     "src/agent/workbench/draft-revise-prevalidate.ts": {
       "sha256": "86b3c01977bee7154a23ffc588cc2c282156d49295d809a2454af4b8eb9cacb0",
       "reason": "Fix observed quality planning placeholder retaining its internal ID while downstream tasks reference task_1; promote only a complete first starter without collision or confirmed mappings."
+    },
+    "src/quality/analysis/validate-quality-analysis.ts": {
+      "sha256": "bf3f9d17fc1d0bf9e21d9fdc7aa4edd33e950b26adf7c2807b473e14f7949b84",
+      "reason": "User-approved outcome/evidence deliverable generation; forbid preset causes and downstream approval/closure gates in AI suggestions, retain valid reports and historical/manual data."
     }
   },
   "runtimeScripts": [
